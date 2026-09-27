@@ -51,6 +51,42 @@ export type VerificationRoute =
   | 'unavailable';
 
 /**
+ * How a `violated` verdict's counterexample relates to the net's timing ([VER-003], [VER-023]).
+ * The verdict itself is always the untimed claim ([VER-004]); this says what is known about the
+ * counterexample under timing, and nothing here ever changes a verdict.
+ */
+export type CounterexampleTiming =
+  /** Every transition is immediate; timing cannot affect the trace. */
+  | 'untimed-net'
+  /**
+   * A timed net whose counterexample comes from the untimed model and was not checked under
+   * timing: `SmtVerifier.timedCounterexampleCheck` is off, or it does not apply
+   * (environment places, or ν-matching transitions — the timed graph is name-blind).
+   */
+  | 'untimed-abstraction'
+  /**
+   * The deciding route explores timed behaviour already (Route B on a timed net); the trace is a
+   * run of the timed semantics. The graph ignores priority, so it is not necessarily a run the
+   * executor takes.
+   */
+  | 'timed-exact'
+  /**
+   * The timed check ran and the timed state-class graph reaches a violating class. The
+   * counterexample trace and transitions are replaced by the shortest timed-graph path, and
+   * `counterexampleConfirmed` is `true`: the path is an ordered firing sequence. The timed graph
+   * ignores priority: a net that relies on priority to exclude the path can still get this outcome.
+   */
+  | 'timed-confirmed'
+  /**
+   * The timed check ran, the timed state-class graph closed, and no class violates the property:
+   * it holds under timing (a timed claim only). The verdict stays `violated`; the untimed trace
+   * is kept.
+   */
+  | 'spurious-under-timing'
+  /** The timed check ran but hit the class budget or the total verification budget. */
+  | 'timed-undecided';
+
+/**
  * Solver statistics.
  */
 export interface SmtStatistics {
@@ -78,6 +114,10 @@ export interface SmtVerificationResult {
   readonly counterexampleTrace: readonly MarkingState[];
   readonly counterexampleTransitions: readonly string[];
   /**
+   * Whether the counterexample **replays in the untimed abstraction** ([VER-003]) — the
+   * value-blind, timing-blind model every encoder reasons about. It says nothing about timing:
+   * {@link counterexampleTiming} does.
+   *
    * Outcome of the abstract counterexample replay, as a TRI-STATE. `null` means
    * "the replay did not apply"; the two booleans both mean it ran.
    *
@@ -103,6 +143,12 @@ export interface SmtVerificationResult {
    * right answer without special-casing the route.
    */
   readonly counterexampleConfirmed: boolean | null;
+  /**
+   * How the counterexample relates to the net's timing ([VER-003], [VER-023]) — `null` unless
+   * the verdict is `violated`. {@link counterexampleConfirmed} says the trace replays in the
+   * untimed abstraction; this says whether it survives timing. See {@link CounterexampleTiming}.
+   */
+  readonly counterexampleTiming: CounterexampleTiming | null;
   readonly elapsedMs: number;
   readonly statistics: SmtStatistics;
 }

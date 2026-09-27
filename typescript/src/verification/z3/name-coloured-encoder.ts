@@ -27,9 +27,11 @@
  * verifier falls back to the sound over-approximation) unless the net is in the
  * budget-bounded coloured fragment:
  * - coloured places = the correlated inputs of every matched transition, plus (in
- *   EXTENDED mode, [NU-051]) the declared carrier places;
+ *   EXTENDED mode, [NU-051]) the declared carrier places and the joins' relay
+ *   targets ([NU-054]);
  * - each coloured place is *produced only by* minting forks (count 1, no coloured
- *   input, costs ≥1 budget token) or EXTENDED relays, and *consumed only by*
+ *   input, costs ≥1 budget token), EXTENDED relays, or a matched join onto its
+ *   declared relay targets (count 1, the join's shared colour), and *consumed only by*
  *   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
  *   drain drops it, each consuming exactly one coloured input at count 1;
  * - the coloured place set is structurally token-bounded: some non-negative
@@ -70,7 +72,11 @@ import {
 /** How a transition relates to the coloured (correlation-carrying) places. */
 type Klass =
   | { readonly kind: 'mint'; readonly colouredOut: readonly number[] }
-  | { readonly kind: 'join'; readonly colouredIn: readonly number[] }
+  /**
+   * Matched join: consumes the shared colour from each `colouredIn` and, on this flat row's
+   * branch, produces it once on each `relayOut` ([NU-054], EXTENDED only; empty otherwise).
+   */
+  | { readonly kind: 'join'; readonly colouredIn: readonly number[]; readonly relayOut: readonly number[] }
   /**
    * EXTENDED coloured consumer ([NU-051]): a non-match transition that consumes
    * one same-coloured token from `inputCol` (count 1) and threads it into each
@@ -193,6 +199,14 @@ export function buildColouredPlan(
       const pid = flat.placeIndex.get(c);
       if (pid != null) isColoured[pid] = true;
     }
+    // NU-054: relay targets are coloured places, so the covering semiflow below must
+    // weight them too.
+    for (const t of net.transitions) {
+      for (const r of t.matchSpec?.relays ?? []) {
+        const pid = flat.placeIndex.get(r.place.name);
+        if (pid != null) isColoured[pid] = true;
+      }
+    }
   }
   const coloured: number[] = [];
   for (let i = 0; i < P; i++) if (isColoured[i]) coloured.push(i);
@@ -247,14 +261,18 @@ export function buildColouredPlan(
     const ms = ft.source.matchSpec;
 
     if (ms) {
-      // Matched join: consumes coloured inputs (count 1), produces none.
-      if (colouredOut.length !== 0 || colouredIn.length === 0) return null;
+      // Matched join: consumes coloured inputs (count 1), produces coloured places only as
+      // declared relay targets (EXTENDED, [NU-054]), each at count 1.
+      const relayNames = new Set<string>();
+      if (fragmentMode === 'extended') for (const r of ms.relays) relayNames.add(r.place.name);
+      if (colouredIn.length === 0) return null;
+      if (colouredOut.some((pid) => !relayNames.has(flat.places[pid]!.name) || ft.postVector[pid]! !== 1)) return null;
       if (colouredIn.some((pid) => ft.preVector[pid]! !== 1)) return null;
       // Every coloured input must be a key: an off-key one is taken FIFO at runtime,
       // whatever its colour, not the join's shared colour.
       const keyPlaces = new Set(ms.keys.map((k) => k.place.name));
       if (colouredIn.some((pid) => !keyPlaces.has(flat.places[pid]!.name))) return null;
-      classes.push({ kind: 'join', colouredIn });
+      classes.push({ kind: 'join', colouredIn, relayOut: colouredOut });
     } else if (colouredIn.length !== 0) {
       // EXTENDED coloured consumer (relay/drain, [NU-051]): a non-match transition
       // consuming a coloured place. Admitted only in EXTENDED mode, and only when it
@@ -411,7 +429,15 @@ export function encodeColoured(
             for (const ip of cls.colouredIn) {
               const col = lay.colCol[ip]![c]!;
               enab.push(`(>= ${lay.cur[col]} 1)`);
-              upd.push({ col, expr: `(- ${lay.cur[col]} 1)` });
+              // A key that is also a relay target (a correlated self-loop) nets to zero:
+              // guarded above, column copied unchanged.
+              if (!cls.relayOut.includes(ip)) upd.push({ col, expr: `(- ${lay.cur[col]} 1)` });
+            }
+            // NU-054: colour c relayed once onto each relay target of this branch.
+            for (const o of cls.relayOut) {
+              if (cls.colouredIn.includes(o)) continue;
+              const col = lay.colCol[o]![c]!;
+              upd.push({ col, expr: `(+ ${lay.cur[col]} 1)` });
             }
           }));
         }

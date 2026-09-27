@@ -7,23 +7,30 @@ import type { PetriNet } from '../core/petri-net.js';
 import type { MarkingState } from './marking-state.js';
 import type { StateClassGraph } from './analysis/state-class-graph.js';
 import { buildStateSpace } from './scg-verifier.js';
+import type { Deadline } from './total-budget.js';
 
-/** A remembered enumeration attempt: the graph closed, or it hit the budget `budget`. */
+/**
+ * A remembered enumeration attempt: the graph closed, or it hit the budget `budget`. A truncated
+ * graph is kept too, so a later query at that budget or less reads its explored prefix
+ * ([VER-017]) without rebuilding it.
+ */
 type Entry =
   | { readonly kind: 'closed'; readonly graph: StateClassGraph }
-  | { readonly kind: 'truncated'; readonly budget: number };
+  | { readonly kind: 'truncated'; readonly budget: number; readonly graph: StateClassGraph };
 
 /**
  * @internal What {@link resolveStateSpace} did for one query.
  *
  * - `built` — nothing usable was cached, so the graph was built at this budget (closed or not).
  * - `reused` — a closed graph was cached and the budget exceeds its class count.
- * - `declined` — the cache already knows this budget truncates, so nothing was built.
+ * - `declined` — the cache already knows this budget truncates, so nothing was built; `graph` is
+ *   the cached graph (closed, or truncated at a budget at least this one), which the caller
+ *   reads as an explored prefix only: a violation in it stands, and nothing is proven from it.
  */
 export type StateSpaceLookup =
   | { readonly kind: 'built'; readonly graph: StateClassGraph }
   | { readonly kind: 'reused'; readonly graph: StateClassGraph }
-  | { readonly kind: 'declined' };
+  | { readonly kind: 'declined'; readonly graph: StateClassGraph };
 
 /**
  * A cache of state-class graphs for the bounded state-space enumeration route ([VER-017]),
@@ -51,8 +58,13 @@ export type StateSpaceLookup =
  *
  * - A **closed** graph of `C` classes is reused for any budget greater than `C`. A budget of `C`
  *   or less would have truncated, and is answered as truncated without building.
- * - A **truncated** attempt at budget `B` is remembered: a later budget of `B` or less declines
- *   at once; a larger budget builds again and replaces the entry.
+ * - A **truncated** attempt at budget `B` is remembered with its graph: a later budget of `B` or
+ *   less declines at once; a larger budget builds again and replaces the entry.
+ * - A declined query still reads the cached graph as an explored prefix: a violation among its
+ *   classes is reported as it would be on a truncated build. The cached graph can be larger than
+ *   the one a cold build at the smaller budget would explore, so the cache can find such a
+ *   violation where the cold build falls through to the SMT pipeline; when both find one it is
+ *   the same class and the same witness (the smaller graph is a BFS prefix of the larger).
  *
  * The verdict, the witness and the route are the same with and without the cache; the report
  * says when a cached graph or a cached truncation was used. The build is synchronous, so
@@ -107,6 +119,7 @@ export function resolveStateSpace(
   buildNet: PetriNet,
   initial: MarkingState,
   budget: number,
+  deadline: Deadline | null = null,
 ): StateSpaceLookup {
   const state = stateOf(cache);
   let byMarking = state.entries.get(keyNet);
@@ -119,13 +132,15 @@ export function resolveStateSpace(
   if (entry?.kind === 'closed') {
     return budget > entry.graph.size()
       ? { kind: 'reused', graph: entry.graph }
-      : { kind: 'declined' };
+      : { kind: 'declined', graph: entry.graph };
   }
   if (entry?.kind === 'truncated' && budget <= entry.budget) {
-    return { kind: 'declined' };
+    return { kind: 'declined', graph: entry.graph };
   }
-  const graph = buildStateSpace(buildNet, initial, budget);
-  byMarking.set(key, graph.isComplete() ? { kind: 'closed', graph } : { kind: 'truncated', budget });
+  // A build the total budget cuts off ([VER-013]) throws out of here before the entry is
+  // written: it is not a truncation at `budget`, and the cache stays as it was.
+  const graph = buildStateSpace(buildNet, initial, budget, deadline);
+  byMarking.set(key, graph.isComplete() ? { kind: 'closed', graph } : { kind: 'truncated', budget, graph });
   return { kind: 'built', graph };
 }
 

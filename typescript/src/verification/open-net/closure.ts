@@ -20,7 +20,7 @@ import { one } from '../../core/in.js';
 import { outPlace } from '../../core/out.js';
 import { fork, isPassthrough, transform } from '../../core/transition-action.js';
 import { MarkingState } from '../marking-state.js';
-import { transitionPlaces, type OpenNetContract } from './contract.js';
+import { OpenNetContract, transitionPlaces } from './contract.js';
 
 /** What an environment transition of the closure does, for the port trace. */
 export type EnvironmentStep =
@@ -146,4 +146,56 @@ export function closeOpenNet(net: PetriNet, contract: OpenNetContract): ClosedNe
     environmentPlaces: [...environmentPlaces.values()],
     undeclared,
   };
+}
+
+/** A net closed under `EnvironmentAnalysisMode.arrivals(min, max)` ([VER-006]). */
+export interface ArrivalsClosure {
+  readonly net: PetriNet;
+  readonly initialMarking: MarkingState;
+  /** The environment places the rewrite feeds, by name, in registration order. */
+  readonly injected: readonly string[];
+}
+
+/**
+ * The `arrivals(min, max)` rewrite of [VER-006]: the [VER-022] closure with one arrival group of
+ * between `min` and `max` tokens per environment place, in registration order — environment place
+ * `P`, the `i`-th, gets a mandatory source `env:arrivals[i]` holding `min` tokens with
+ * `env:arrive[i]:P`, and an optional source `env:optional[i]` holding `max − min` with
+ * `env:arrive?[i]:P` and `env:decline[i]`; {@link closeOpenNet} omits a source whose count is
+ * `0`. A run comes to rest only after every mandatory arrival and any number of optional ones.
+ * `P` stays in the net as an ordinary place; `initialMarking` is carried over with the sources
+ * added. With `max = 0` nothing is injected and the net is returned as it is.
+ *
+ * `closeArrivals(net, m, places, k)` is `closeArrivals(net, m, places, 0, k)`.
+ *
+ * @throws when a name the rewrite would add is already taken in `net`
+ */
+export function closeArrivals(
+  net: PetriNet,
+  initialMarking: MarkingState,
+  environmentPlaces: readonly Place<any>[],
+  maxTokens: number,
+): ArrivalsClosure;
+export function closeArrivals(
+  net: PetriNet,
+  initialMarking: MarkingState,
+  environmentPlaces: readonly Place<any>[],
+  minTokens: number,
+  maxTokens: number,
+): ArrivalsClosure;
+export function closeArrivals(
+  net: PetriNet,
+  initialMarking: MarkingState,
+  environmentPlaces: readonly Place<any>[],
+  first: number,
+  second?: number,
+): ArrivalsClosure {
+  const min = second === undefined ? 0 : first;
+  const max = second === undefined ? first : second;
+  const injected = [...new Map(environmentPlaces.map(p => [p.name, p])).values()];
+  if (max === 0 || injected.length === 0) return { net, initialMarking, injected: [] };
+  const contract = OpenNetContract.builder().initialMarking(initialMarking);
+  for (const p of injected) contract.arriveBetween(min, max, p);
+  const closed = closeOpenNet(net, contract.build());
+  return { net: closed.net, initialMarking: closed.initialMarking, injected: injected.map(p => p.name) };
 }

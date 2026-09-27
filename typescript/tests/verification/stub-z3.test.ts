@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dumpedFiles, dumpPhase } from '../fixtures/z3.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getEventListeners } from 'node:events';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { placeBound, unreachable, type SmtProperty } from '../../src/verification/smt-property.js';
 import { ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
-import { resolveZ3, z3SolverAt, Z3_ENV, DUMP_ENV } from '../../src/verification/z3/z3-process.js';
+import { resolveZ3, runZ3Text, z3SolverAt, Z3_ENV, DUMP_ENV } from '../../src/verification/z3/z3-process.js';
+import { Deadline } from '../../src/verification/total-budget.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
@@ -189,6 +191,107 @@ echo '(error "line 1: invalid command")'
     const result = await verify(chainNet(), placeBound(p1, 1), 200);
     expect(unknownReason(result)).toBe('z3 did not exit within 2200 ms and was killed');
   }, 20_000);
+
+  it('VER-013 AC9: a total budget below the per-call timeout ends a wedged solver within the budget', async () => {
+    const program = stub('wedged-total', VERSION_OK, 'exec sleep 30\n');
+    // Probe once first: the first exec of a fresh script can be slow (macOS scans it), and the
+    // probe inside verify() counts against the budget.
+    z3SolverAt(program);
+    const t0 = performance.now();
+    const result = await SmtVerifier.forNet(chainNet())
+      .enumerationMaxClasses(0)
+      .initialMarking(m => m.tokens(p0, 1))
+      .property(placeBound(p1, 1))
+      .environmentMode(ignore())
+      .stateEquationPhase(false)
+      .firingBound(false)
+      .timeout(20_000)
+      .totalBudget(1_500)
+      .verify();
+    const elapsed = performance.now() - t0;
+    // The bound query is clamped to what is left of the 1.5 s and killed by its watchdog 2 s
+    // later; without the clamp it would run to the 22 s watchdog of the per-call timeout.
+    const reason = 'total verification budget of 1500 ms exhausted during linear bound';
+    expect(unknownReason(result)).toBe(reason);
+    expect(result.report).toContain(`UNKNOWN: ${reason}`);
+    expect(elapsed).toBeLessThan(1_500 + 2_000 + 2_000);
+  }, 30_000);
+
+  it('VER-013 AC9: no z3 process starts once the total budget is spent', async () => {
+    const marker = join(root, 'spent-ran');
+    const program = stub('spent', VERSION_OK, `touch '${marker}'\ncat > /dev/null\necho 'unsat'\n`);
+    const solver = { ...z3SolverAt(program), deadline: Deadline.start(0) };
+    await expect(runZ3Text(solver, '(check-sat)', 'bound', 5_000)).rejects.toThrow(
+      'total verification budget of 0 ms exhausted; z3 not started',
+    );
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('VER-013 AC11: cancelling while z3 runs kills it at once, with the cancellation reason', async () => {
+    const pidFile = join(root, 'cancel-pid');
+    const program = stub('cancel', VERSION_OK, `echo $$ > '${pidFile}'\nexec sleep 30\n`);
+    z3SolverAt(program); // the first exec of a fresh script can be slow (macOS scans it)
+    const controller = new AbortController();
+    const t0 = performance.now();
+    const running = SmtVerifier.forNet(chainNet())
+      .enumerationMaxClasses(0)
+      .initialMarking(m => m.tokens(p0, 1))
+      .property(placeBound(p1, 1))
+      .environmentMode(ignore())
+      .stateEquationPhase(false)
+      .firingBound(false)
+      .timeout(20_000)
+      .signal(controller.signal)
+      .verify();
+    // Cancel once the stub is running (it has written its pid).
+    while (!existsSync(pidFile) || readFileSync(pidFile, 'utf8').trim() === '') {
+      await new Promise(r => setTimeout(r, 10));
+    }
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    controller.abort();
+    const result = await running;
+    const elapsed = performance.now() - t0;
+    const reason = 'verification cancelled during linear bound';
+    expect(unknownReason(result)).toBe(reason);
+    expect(result.report).toContain(`UNKNOWN: ${reason}`);
+    // Well before the 20 s timeout and its 22 s watchdog.
+    expect(elapsed).toBeLessThan(3_000);
+    // The process is gone: signalling it fails.
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, 30_000);
+
+  it('VER-013 AC11: a cancelled call starts no z3 process', async () => {
+    const marker = join(root, 'cancelled-ran');
+    const program = stub('cancelled', VERSION_OK, `touch '${marker}'\ncat > /dev/null\necho 'unsat'\n`);
+    const controller = new AbortController();
+    controller.abort();
+    const solver = { ...z3SolverAt(program), deadline: Deadline.start(null, controller.signal) };
+    await expect(runZ3Text(solver, '(check-sat)', 'bound', 5_000)).rejects.toThrow(
+      'verification cancelled; z3 not started',
+    );
+    const result = await SmtVerifier.forNet(chainNet())
+      .enumerationMaxClasses(0)
+      .initialMarking(m => m.tokens(p0, 1))
+      .property(placeBound(p1, 1))
+      .signal(controller.signal)
+      .verify();
+    expect(unknownReason(result)).toBe('verification cancelled during net preparation');
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('VER-013: a run under a signal leaves no abort listener behind, answered or failed', async () => {
+    const answers = stub('listener-ok', VERSION_OK, `cat > /dev/null\necho 'unsat'\n`);
+    const fails = stub('listener-fail', VERSION_OK, `cat > /dev/null\nexit 3\n`);
+    const controller = new AbortController();
+    const deadline = Deadline.start(null, controller.signal);
+    for (const program of [answers, fails]) {
+      const reply = await runZ3Text({ ...z3SolverAt(program), deadline }, '(check-sat)', 'bound', 5_000);
+      expect(reply.cancelled).toBeUndefined();
+    }
+    await expect(runZ3Text({ program: join(root, 'missing-z3'), version: z3SolverAt(answers).version, dumpDir: null, deadline },
+      '(check-sat)', 'bound', 5_000)).rejects.toThrow('failed to spawn');
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
 
   it('VER-013 AC5: a reply larger than a pipe buffer is drained', async () => {
     stub('banner', VERSION_OK, `cat > /dev/null

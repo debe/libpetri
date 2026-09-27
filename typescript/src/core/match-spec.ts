@@ -31,14 +31,50 @@ export interface MatchKey<T = any> {
   readonly key: KeyFn<T>;
 }
 
+/**
+ * A relay target of a join (NU-054): an **output** place onto which the join writes the name
+ * it matched, with the projection that reads a produced token's name. Built by
+ * {@link relayKey}; told apart from a {@link MatchKey} by its `relay` tag.
+ */
+export interface RelayKey<T = any> extends MatchKey<T> {
+  readonly relay: true;
+}
+
 /** Correlated fork/join match specification (ν-net join side). */
 export interface MatchSpec {
   readonly keys: readonly MatchKey[];
+  /**
+   * Relay targets (NU-054): output places onto which the join writes the matched name. Empty
+   * for a join that drains the name. Each must be an output of the transition and appear once
+   * (checked when the transition is built); a relay target may also be one of the `keys` (a
+   * correlated self-loop). The executor checks every token a firing writes into one against the
+   * matched name, as part of output validation (IO-015).
+   */
+  readonly relays: readonly MatchKey[];
 }
 
 /** Builds one correlated input for a {@link MatchSpec}. */
 export function matchKey<T>(place: Place<T>, key: KeyFn<T>): MatchKey<T> {
   return { place, key };
+}
+
+/**
+ * Builds one relay target for a {@link MatchSpec} (NU-054): the join writes the name it matched
+ * onto `place`, an output of the transition, and `key` projects a produced token's name. A relay
+ * target does not count towards the two correlated inputs {@link matchSpec} requires.
+ *
+ * @example
+ *   Transition.builder('e')
+ *     .inputs(one(c1), one(d1))
+ *     .outputs(outPlace(p5))
+ *     .match(matchSpec(matchKey(c1, byCase), matchKey(d1, byCase), relayKey(p5, byCase)))
+ */
+export function relayKey<T>(place: Place<T>, key: KeyFn<T>): RelayKey<T> {
+  return { place, key, relay: true };
+}
+
+function isRelay(k: MatchKey): k is RelayKey {
+  return (k as Partial<RelayKey>).relay === true;
 }
 
 /**
@@ -52,14 +88,31 @@ export function matchKey<T>(place: Place<T>, key: KeyFn<T>): MatchKey<T> {
  *       matchKey(branchB, (m: Msg) => nameId(m.correlationId)),
  *     ))
  *
+ * {@link relayKey} entries may be mixed in anywhere; they become {@link MatchSpec.relays} and
+ * do not count as correlated inputs.
+ *
  * @throws if fewer than two inputs are correlated (a match over a single place
  *   correlates nothing).
  */
-export function matchSpec(...keys: MatchKey[]): MatchSpec {
+export function matchSpec(...entries: MatchKey[]): MatchSpec {
+  const keys: MatchKey[] = [];
+  const relays: MatchKey[] = [];
+  for (const e of entries) {
+    if (isRelay(e)) relays.push({ place: e.place, key: e.key });
+    else keys.push(e);
+  }
   if (keys.length < 2) {
     throw new Error(`MatchSpec must correlate at least 2 input places, got ${keys.length}`);
   }
-  return { keys };
+  return { keys, relays };
+}
+
+/** Returns the relay projection for `placeName`, or `undefined` if it is not a relay target. */
+export function relayKeyForPlace(spec: MatchSpec, placeName: string): KeyFn | undefined {
+  for (const r of spec.relays) {
+    if (r.place.name === placeName) return r.key;
+  }
+  return undefined;
 }
 
 /** Returns the name projection for `placeName`, or `undefined` if not correlated. */

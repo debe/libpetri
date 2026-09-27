@@ -14,3 +14,4 @@ export type { DotConfig, ClusterSource } from './petri-net-mapper.js';
 export { mapToGraph, sanitize, DEFAULT_DOT_CONFIG } from './petri-net-mapper.js';
 export { renderDot } from './dot-renderer.js';
 export { dotExport } from './dot-exporter.js';
+export { instancePrefixOf } from './subnet-prefixes.js';

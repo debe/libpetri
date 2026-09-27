@@ -10,6 +10,8 @@ import { renameNet } from './internal/subnet-rewriter.js';
 import type { EnvironmentAnalysisMode } from '../verification/analysis/environment-analysis-mode.js';
 import type { SmtProperty } from '../verification/smt-property.js';
 import type { SmtVerificationResult } from '../verification/smt-verification-result.js';
+import type { SmtVerifier } from '../verification/smt-verifier.js';
+import type { TransitionAction } from './transition-action.js';
 // Type-only on purpose: the verifier is loaded lazily inside `verify()`. A value
 // import here would pull `verification/` (and z3-process's `node:child_process`)
 // into the chunk the browser-safe root entry loads.
@@ -24,6 +26,29 @@ import { requireOutputProducingActions } from './internal/output-action-check.js
 // that import from `core/subnet-def.js`. The previous task-#10 placeholder
 // shape is removed; the surface is now backed by `verification/verification-harness.ts`.
 export type { VerificationHarness, VerificationResult, TokenSupplier };
+
+/**
+ * Options for {@link SubnetDef.verify} ([MOD-051]).
+ */
+export interface SubnetVerifyOptions {
+  /**
+   * How injection into the synthetic environment places is modeled ([VER-006], MOD-051 AC4);
+   * default `alwaysAvailable()`. See {@link SubnetDef.verify}.
+   */
+  readonly environmentMode?: EnvironmentAnalysisMode;
+  /**
+   * Called once per property with the per-property verifier, **after** libpetri's own setup
+   * (property, environment places, environment mode), and with the synthetic net; returns the
+   * verifier to run. It is how a caller sets anything the verifier offers: `timeout`,
+   * `totalBudget`, `signal` ([VER-013]), sink places, the state-equation and enumeration options,
+   * and the ν options (`budgetPlaces`, `carrierPlaces`, `fragmentMode`, `nuMaxClasses`). Resolve
+   * places against `synth`: the subnet's own places are named `sut/<place>`, the ports'
+   * synthetic places `harness_in_<port>` / `harness_out_<port>` / `harness_io_<port>`. What it
+   * sets overrides libpetri's setup, as `OpenNetOptions.configureSmt` does ([VER-022]); a hook
+   * that replaces the environment mode takes responsibility for it.
+   */
+  readonly configure?: (verifier: SmtVerifier, synth: PetriNet) => SmtVerifier;
+}
 
 /** @internal Symbol key restricting construction to {@link SubnetDef.builder} and {@link SubnetDef.fromNet}. */
 const SUBNET_DEF_KEY = Symbol('SubnetDef.internal');
@@ -176,30 +201,44 @@ export class SubnetDef<P = void> {
    * are treated under the verifier's environment-analysis semantics rather
    * than as ordinary sink places.
    *
+   * ## Environment mode
+   *
+   * The synthetic net has environment places by construction, so the mode decides what a
+   * verdict means. The default over-approximates: a `proven` under `alwaysAvailable()` holds
+   * for any environment. `bounded(k)` caps the tokens **resident** in each input place at `k`
+   * and refills it forever ([VER-006]) — it bounds what one firing can take, not the input as a
+   * whole; `arrivals(k)` bounds the total injected into each input port over the whole run, and
+   * `arrivals(min, max)` also makes the first `min` of them mandatory (`arrivals(k, k)`: exactly `k`).
+   * `ignore()` is accepted but cannot yield `proven` — VER-006 refuses to certify a proof that
+   * holds only because injection was never modeled.
+   *
+   * ## ν subnets need the ν options
+   *
+   * A subnet that mints and joins correlation names and threads a name through a relay is
+   * verified in the BASE fragment unless the caller says otherwise ([NU-051]). BASE reads such a
+   * relay as a fresh mint — a different model, in which a join the real net reaches may never
+   * fire, so a safety property can come back `proven` although the net violates it. Pass the
+   * carrier places and `fragmentMode('extended')` (and a budget place where one gates minting)
+   * through `options.configure`, naming the places `sut/<place>`.
+   *
    * @param harness the verification harness — supplies parameters, input-port
    *                token generators, and the property set
+   * @param options the environment mode ([VER-006]; a bare mode is accepted as before) or a
+   *                {@link SubnetVerifyOptions} with a mode and a per-property `configure` hook
    * @returns a {@link VerificationResult} aggregating per-property
    *          {@link SmtVerificationResult}s
    * @throws when an input or in-out port is missing a harness generator
    */
   async verify(
     harness: VerificationHarness<P>,
-    /**
-     * How injection into the synthetic environment places is modeled (VER-006,
-     * MOD-051 AC3).
-     *
-     * The synthetic net has environment places by construction, so this decides what a
-     * verdict means. The default over-approximates: a `proven` under
-     * `alwaysAvailable()` holds for any environment. Pass `bounded(k)` to prove a
-     * property that holds only when the environment injects at most `k` tokens.
-     * `ignore()` is accepted but cannot yield `proven` — VER-006 refuses to certify a
-     * proof that holds only because injection was never modeled.
-     */
-    environmentMode?: EnvironmentAnalysisMode,
+    options?: EnvironmentAnalysisMode | SubnetVerifyOptions,
   ): Promise<VerificationResult> {
     if (harness === null || harness === undefined) {
       throw new Error('SubnetDef.verify: harness must not be null/undefined');
     }
+    const { environmentMode, configure } = options == null
+      ? {} as SubnetVerifyOptions
+      : 'type' in options ? { environmentMode: options } as SubnetVerifyOptions : options;
 
     const [{ SmtVerifier }, { alwaysAvailable }, { buildVerificationResult, normaliseGenerators, normaliseProperties }] =
       await Promise.all([
@@ -304,16 +343,52 @@ export class SubnetDef<P = void> {
       // ([MOD-051] AC3), not the verifier default's. Under ignore() [VER-006]
       // downgrades every proof about a net with env places to Unknown, so a
       // subnet with an input port could never be proven.
-      const verifier = SmtVerifier.forNet(syntheticNet).property(property);
+      let verifier = SmtVerifier.forNet(syntheticNet).property(property);
       if (envPlaces.length > 0) {
         verifier.environmentPlaces(...envPlaces);
         verifier.environmentMode(envMode);
       }
+      // MOD-051: the caller's hook runs after our setup, so what it sets wins.
+      if (configure !== undefined) verifier = configure(verifier, syntheticNet);
       const result = await verifier.verify();
       perProperty.set(property, result);
     }
 
     return buildVerificationResult(syntheticNet, perProperty);
+  }
+
+  /**
+   * A new definition with actions bound by the definition's own, unprefixed transition names
+   * ([MOD-051], mirroring [CORE-042]'s {@link PetriNet.bindActions}): a transition the mapping
+   * omits gets passthrough, exactly as at net level. Ports, channels and parameters are
+   * unchanged; channels point at the rebound transitions. The receiver is not modified, and
+   * instances of the new definition carry the bound actions as their shared defaults
+   * ([MOD-030]). The [CORE-043] check still runs in {@link verify} and at compile time.
+   */
+  bindActions(actionBindings: Map<string, TransitionAction> | Record<string, TransitionAction>): SubnetDef<P> {
+    return this.withBody(this.body.bindActions(actionBindings));
+  }
+
+  /**
+   * {@link bindActions} with a resolver, mirroring {@link PetriNet.bindActionsWithResolver}:
+   * called once per transition with its unprefixed name; `null` keeps that transition's action.
+   */
+  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction | null): SubnetDef<P> {
+    return this.withBody(this.body.bindActionsWithResolver(actionResolver));
+  }
+
+  /** This definition over `body` — the same net with rebuilt transitions — and channels re-pointed by name. */
+  private withBody(body: PetriNet): SubnetDef<P> {
+    const byName = new Map<string, Transition>();
+    for (const t of body.transitions) byName.set(t.name, t);
+    const channels: Channel[] = [...this.iface.channels.values()].map(c => {
+      const t = byName.get(c.transition.name);
+      /* istanbul ignore next -- bindActions keeps every transition name */
+      if (t === undefined) throw new Error(`bindActions: channel '${c.name}' lost transition '${c.transition.name}'`);
+      return t === c.transition ? c : { ...c, transition: t };
+    });
+    const iface = Interface.builder().portsAll(this.iface.ports.values()).channelsAll(channels).build();
+    return new SubnetDef<P>(SUBNET_DEF_KEY, this.name, body, iface);
   }
 
   // ============================================================

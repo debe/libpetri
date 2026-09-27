@@ -17,5 +17,6 @@ export type { EnvironmentAnalysisMode as AnalysisEnvironmentMode } from './envir
 export {
   alwaysAvailable as analysisAlwaysAvailable,
   bounded as analysisBounded,
+  arrivals as analysisArrivals,
   ignore as analysisIgnore,
 } from './environment-analysis-mode.js';

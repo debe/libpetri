@@ -1,13 +1,13 @@
 import type { Place } from './place.js';
 import type { ArcInhibitor, ArcRead, ArcReset } from './arc.js';
 import type { In } from './in.js';
-import type { MatchSpec } from './match-spec.js';
+import type { MatchKey, MatchSpec } from './match-spec.js';
 import type { Out, OutTimeout } from './out.js';
 import type { Timing } from './timing.js';
 import type { TransitionAction } from './transition-action.js';
 import { passthrough } from './transition-action.js';
 import { immediate } from './timing.js';
-import { allPlaces } from './out.js';
+import { allPlaces, duplicateInBranch, duplicateOutputPlaceMessage } from './out.js';
 
 /** @internal Symbol key restricting construction to the builder. */
 const TRANSITION_KEY = Symbol('Transition.internal');
@@ -229,9 +229,13 @@ export class TransitionBuilder {
    * Sets the ν-net join correlation spec: the named input places must be
    * correlated by name equality on firing (spec NU-020). Every place referenced
    * by the spec must also be declared as an input.
+   *
+   * A spec written as a literal `{ keys }` (the shape before NU-054 added relay targets)
+   * is accepted as a spec without relay targets.
    */
-  match(spec: MatchSpec): this {
-    this._matchSpec = spec;
+  match(spec: MatchSpec | { readonly keys: readonly MatchKey[] }): this {
+    const relays = (spec as Partial<MatchSpec>).relays;
+    this._matchSpec = relays === undefined ? { keys: spec.keys, relays: [] } : spec as MatchSpec;
     return this;
   }
 
@@ -247,6 +251,25 @@ export class TransitionBuilder {
   }
 
   build(): Transition {
+    // CORE-030 AC3: two input arcs on one place have no coherent consumption semantics.
+    // Rejected here, at the only construction path, so every consumer — executors,
+    // flattener, state-class graphs — sees the same net. CompiledNet keeps the same
+    // check as a backstop.
+    const seenInputPlaces = new Set<string>();
+    for (const spec of this._inputSpecs) {
+      if (seenInputPlaces.has(spec.place.name)) {
+        throw new Error(duplicateInputArcMessage(this._name, spec.place.name));
+      }
+      seenInputPlaces.add(spec.place.name);
+    }
+
+    // IO-011: outputs are sets, so a place named twice in one AND branch is rejected rather
+    // than collapsed. Here, where the name is known and every construction path passes.
+    if (this._outputSpec !== null) {
+      const dup = duplicateInBranch(this._outputSpec);
+      if (dup !== null) throw new Error(duplicateOutputPlaceMessage(this._name, dup.name));
+    }
+
     // Validate ForwardInput references
     if (this._outputSpec !== null) {
       const inputPlaceNames = new Set(this._inputSpecs.map(s => s.place.name));
@@ -269,6 +292,26 @@ export class TransitionBuilder {
           );
         }
       }
+      // NU-054 AC1: a relay target is an output of the transition (in at least one branch),
+      // declared once.
+      if (this._matchSpec.relays.length > 0) {
+        const outputNames = new Set<string>();
+        if (this._outputSpec !== null) for (const p of allPlaces(this._outputSpec)) outputNames.add(p.name);
+        const seenRelays = new Set<string>();
+        for (const r of this._matchSpec.relays) {
+          if (seenRelays.has(r.place.name)) {
+            throw new Error(
+              `Transition '${this._name}': relay target '${r.place.name}' is declared twice (NU-054)`
+            );
+          }
+          seenRelays.add(r.place.name);
+          if (!outputNames.has(r.place.name)) {
+            throw new Error(
+              `Transition '${this._name}': relay target '${r.place.name}' is not an output of the transition (NU-054)`
+            );
+          }
+        }
+      }
     }
 
     return new Transition(
@@ -286,6 +329,16 @@ export class TransitionBuilder {
       this._matchSpec,
     );
   }
+}
+
+/**
+ * @internal The CORE-030 duplicate-input rejection message, shared by the transition
+ * builder and the CompiledNet backstop so the two cannot drift.
+ */
+export function duplicateInputArcMessage(transitionName: string, placeName: string): string {
+  return `Transition '${transitionName}' declares two input arcs on place '${placeName}'. `
+    + 'Duplicate input places have no coherent consumption semantics and are rejected '
+    + '(CORE-030). Use a single arc with exactly(n) / atLeast(n) instead.';
 }
 
 /** Recursively searches the output spec for a Timeout node. */

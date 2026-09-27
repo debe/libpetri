@@ -42,7 +42,8 @@ import { WORD_SHIFT, BIT_MASK, restartThresholds } from './compiled-net.js';
 import { Marking } from './marking.js';
 import type { MarkingSnapshotForm } from './marking.js';
 import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, RESET } from './precompiled-net.js';
-import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId, restoredTokens, resolveExecutionScope } from './executor-support.js';
+import { validateOutSpec, validateRelays, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId, restoredTokens, resolveExecutionScope, seededPlaceNames, unknownPlaceMessage } from './executor-support.js';
+import { deadArcMessage, findDeadArcs } from '../core/internal/dead-arcs.js';
 import { OutViolationError } from './out-violation-error.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
@@ -223,6 +224,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   private readonly inFlightPromises: (Promise<void> | null)[];
   private readonly inFlightContexts: (TransitionContext | null)[];
   private readonly inFlightConsumed: (Token<any>[] | null)[];
+  /** Per transition: the name its in-flight ν-join firing matched, for the relay check (NU-054). */
+  private readonly inFlightMatched: (NameId | null)[];
   private readonly inFlightStartMs: Float64Array;
   private readonly inFlightResolves: ((() => void) | null)[];
   private readonly inFlightErrors: (unknown | null)[];
@@ -400,6 +403,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         q.push(token);
       }
     }
+    // CORE-037: arcs that can never have an effect, reported once through the CORE-072 seam.
+    const seeded = seededPlaceNames(seedTokens);
+    for (const arc of findDeadArcs(net, name => seeded.has(name), name => this.environmentPlaces.has(name))) {
+      this.warn(deadArcMessage(arc), arc.transition);
+    }
 
     // ==================== Marking Bitmap ====================
     this.markingBitmap = new Uint32Array(wc);
@@ -417,6 +425,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.inFlightPromises = new Array(tc).fill(null);
     this.inFlightContexts = new Array(tc).fill(null);
     this.inFlightConsumed = new Array(tc).fill(null);
+    this.inFlightMatched = new Array(tc).fill(null);
     this.inFlightStartMs = new Float64Array(tc);
     this.inFlightResolves = new Array(tc).fill(null);
     this.inFlightErrors = new Array(tc).fill(null);
@@ -1035,6 +1044,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         this.inFlightPromises[tid] = null;
         this.inFlightContexts[tid] = null;
         this.inFlightConsumed[tid] = null;
+        this.inFlightMatched[tid] = null;
         this.inFlightResolves[tid] = null;
         this.inFlightErrors[tid] = null;
         this.inFlightFlags[tid] = 0;
@@ -1070,7 +1080,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     if (t.matchSpec) {
       // ν-net join (NU-020): bypass the opcode fast path, consume name-matched
       // tokens. Read arcs are peeked inside, at the same input/reset boundary.
-      this.fireTransitionMatched(tid, t, inputs, consumed);
+      this.inFlightMatched[tid] = this.fireTransitionMatched(tid, t, inputs, consumed);
     } else {
       const ops = prog.consumeOps[tid]!;
       const resetOpsStart = prog.resetOpsStart[tid]!;
@@ -1283,7 +1293,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
    * inputs take tokens whose projected name equals the chosen binding (NU-021);
    * other inputs consume FIFO. Reset arcs are honoured as on the opcode path.
    */
-  private fireTransitionMatched(tid: number, t: Transition, inputs: TokenInput, consumed: Token<any>[]): void {
+  private fireTransitionMatched(tid: number, t: Transition, inputs: TokenInput, consumed: Token<any>[]): NameId | null {
     const prog = this.program;
     const ms = t.matchSpec!;
     const cache = this.matchCaches[tid];
@@ -1346,6 +1356,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         });
       }
     }
+    return chosen;
   }
 
   /**
@@ -1392,6 +1403,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       const context = this.inFlightContexts[tid]!;
       const error = this.inFlightErrors[tid];
       const startMs = this.inFlightStartMs[tid]!;
+      const matched = this.inFlightMatched[tid]!;
       const t = prog.compiled.transition(tid);
 
       // Clear in-flight state
@@ -1399,6 +1411,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       this.inFlightPromises[tid] = null;
       this.inFlightContexts[tid] = null;
       this.inFlightConsumed[tid] = null;
+      this.inFlightMatched[tid] = null;
       this.inFlightResolves[tid] = null;
       this.inFlightErrors[tid] = null;
       this.inFlightCount--;
@@ -1423,7 +1436,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       try {
         const outputs = context.rawOutput();
 
-        // Validate output
+        // Validate output (NU-054's relay check included, after the spec check on either path)
         if (!this.skipOutputValidation && t.outputSpec !== null) {
           const simplePid = prog.simpleOutputPlaceId[tid]!;
           if (simplePid >= 0) {
@@ -1438,16 +1451,22 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
                 `which no single branch of the spec claims exactly`
               );
             }
+            // NU-054: every token in a relay target carries the matched name. Before the
+            // IO-016 WARN, as on the reference executor: a failing firing warns nothing.
+            validateRelays(t, outputs.entries(), matched);
             // IO-016 AC4 (see the general path below); the claim is the one named place.
             if (outputs.entries().length > produced.size) this.warnMultiplicity(t.name, outputs, new Set([named]));
           } else if (simplePid === -1) {
             const produced = outputs.placesWithTokens();
             const claim = validateOutSpec(t.name, t.outputSpec, produced);
+            validateRelays(t, outputs.entries(), matched);
             // IO-016 AC4: a spec names a place once; several tokens into a named place
             // pass validation (IO-015 reads the produced SET) but exceed what every
             // branch-enumerating analysis models. Cheap test first: a repeat exists
             // iff there are more entries than distinct places.
             if (outputs.entries().length > produced.size) this.warnMultiplicity(t.name, outputs, claim);
+          } else {
+            validateRelays(t, outputs.entries(), matched);
           }
         }
 
@@ -1567,14 +1586,18 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       return;
     }
     this.unknownPlaceTokens.set(place.name, { place, tokens: [token] });
+    this.warn(unknownPlaceMessage(place), transitionName);
+  }
+
+  /** Emits one `WARN` log-message event (EVT-013) from `libpetri.runtime`. */
+  private warn(message: string, transitionName: string): void {
     this.emitEvent({
       type: 'log-message',
       timestamp: this.epochMs(),
       transitionName,
       logger: 'libpetri.runtime',
       level: 'WARN',
-      message: `unknown place '${place.name}': tokens are retained in the marking but inert `
-        + '(the net declares no arc on it)',
+      message,
       error: null,
       errorMessage: null,
     });

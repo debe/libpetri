@@ -28,8 +28,9 @@
  * reachable set, and the two routes decide the same predicate over the same
  * abstraction — enumeration simply decides it where the search may not.
  *
- * When the graph does not close within the budget the route declines and the
- * caller runs the SMT pipeline unchanged: enumeration never turns a verdict into
+ * When the graph does not close within the budget, a violation among the classes it did
+ * explore still stands (every explored class is reachable); otherwise the route declines and
+ * the caller runs the SMT pipeline unchanged: enumeration never turns a verdict into
  * `unknown` that the solver could have decided.
  */
 import type { PetriNet } from '../core/petri-net.js';
@@ -41,6 +42,7 @@ import type { ConditionalSinks } from './rest-set.js';
 import { decideOverClasses } from './graph-decision.js';
 import { StateClassGraph } from './analysis/state-class-graph.js';
 import type { StateClass } from './analysis/state-class.js';
+import type { Deadline } from './total-budget.js';
 
 /**
  * Whether every transition is `immediate`, so the state-class graph explores the
@@ -63,15 +65,20 @@ export const NOTE_ENUMERATED =
 
 /** Outcome of the enumeration route. */
 export type ScgOutcome =
-  /** The graph closed and decided the property. */
+  /**
+   * The graph decided the property. `truncated` is `true` for a violation found in the explored
+   * prefix of a graph that did not close ([VER-017]): every explored class is reachable, so the
+   * witness is a real firing sequence — the shortest within the explored graph.
+   */
   | {
       readonly kind: 'decided';
       readonly verdict: Verdict;
       readonly trace: MarkingState[];
       readonly transitions: string[];
       readonly classCount: number;
+      readonly truncated: boolean;
     }
-  /** The graph hit the class budget; the caller falls through to the SMT pipeline. */
+  /** The graph hit the class budget and its prefix violates nothing; the caller falls through to the SMT pipeline. */
   | { readonly kind: 'truncated'; readonly classCount: number };
 
 /**
@@ -91,8 +98,9 @@ export function verifyViaStateClassGraph(
   sinkPlaces: ReadonlySet<Place<any>>,
   maxClasses: number,
   conditionalSinks: readonly ConditionalSinks[] = [],
+  deadline: Deadline | null = null,
 ): ScgOutcome {
-  return decideOverStateSpace(buildStateSpace(net, initial, maxClasses), property, sinkPlaces, conditionalSinks);
+  return decideOverStateSpace(buildStateSpace(net, initial, maxClasses, deadline), property, sinkPlaces, conditionalSinks);
 }
 
 let builds = 0;
@@ -109,30 +117,44 @@ export function stateSpaceBuildCount(): number {
  * Builds the state-class graph the route reads, up to `maxClasses` classes. The graph depends
  * only on `net` and `initial`; the property and the sinks only read it ([VER-017]).
  */
-export function buildStateSpace(net: PetriNet, initial: MarkingState, maxClasses: number): StateClassGraph {
+export function buildStateSpace(
+  net: PetriNet,
+  initial: MarkingState,
+  maxClasses: number,
+  deadline: Deadline | null = null,
+): StateClassGraph {
   builds++;
-  return StateClassGraph.build(net, initial, maxClasses);
+  return deadline === null
+    ? StateClassGraph.build(net, initial, maxClasses)
+    : StateClassGraph.build(net, initial, maxClasses, undefined, undefined, { deadline });
 }
 
 /**
  * Decides `property` over a state-class graph: the verdict, and for a violation the shortest
- * witnessing firing sequence from the initial class. A graph that did not close decides
- * nothing — its frontier classes look quiescent and its unexplored markings are missing — so it
- * is reported as `truncated`.
+ * witnessing firing sequence from the initial class.
+ *
+ * A graph that did not close — or one read `asPrefix`, as the state-space cache reads a graph
+ * built past the budget asked for — is decided over its explored prefix only ([VER-017]): every
+ * stored class counts for a safety property (each is a real reachable class), but only an
+ * **expanded** class with no successor counts as quiescent; a frontier class whose successors
+ * were never computed is not dead. A hit is a `violated` with `truncated: true`; no hit is
+ * `truncated`. A prefix never proves anything.
  */
 export function decideOverStateSpace(
   graph: StateClassGraph,
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   conditionalSinks: readonly ConditionalSinks[] = [],
+  asPrefix = false,
 ): ScgOutcome {
-  if (!graph.isComplete()) return { kind: 'truncated', classCount: graph.size() };
+  const closed = graph.isComplete() && !asPrefix;
   const classes = graph.stateClasses();
+  const expanded = graph.expandedCount();
   const violating = decideOverClasses(
     {
       count: classes.length,
       markingOf: i => classes[i]!.marking,
-      isQuiescent: i => graph.successors(classes[i]!).size === 0,
+      isQuiescent: i => i < expanded && graph.successors(classes[i]!).size === 0,
     },
     property,
     sinkPlaces,
@@ -141,14 +163,19 @@ export function decideOverStateSpace(
 
   if (violating >= 0) {
     const [trace, transitions] = counterexamplePath(graph, classes[violating]!);
-    return { kind: 'decided', verdict: { type: 'violated' }, trace, transitions, classCount: classes.length };
+    return {
+      kind: 'decided', verdict: { type: 'violated' }, trace, transitions, classCount: classes.length,
+      truncated: !closed,
+    };
   }
+  if (!closed) return { kind: 'truncated', classCount: graph.size() };
   return {
     kind: 'decided',
     verdict: { type: 'proven', method: 'state-space enumeration (VER-017)', inductiveInvariant: null },
     trace: [],
     transitions: [],
     classCount: classes.length,
+    truncated: false,
   };
 }
 
@@ -158,8 +185,8 @@ function counterexamplePath(graph: StateClassGraph, target: StateClass): [Markin
   const via = new Map<StateClass, string>();
   const seen = new Set<StateClass>([graph.initialClass]);
   const queue: StateClass[] = [graph.initialClass];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head]!;
     if (current === target) break;
     for (const [transition, edges] of graph.outgoingBranchEdges(current)) {
       for (const edge of edges) {

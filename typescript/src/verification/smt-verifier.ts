@@ -1,12 +1,14 @@
 import { terminalExcusedPlaces, withTerminalInhibitors } from './terminal-places.js';
-import type { PetriNet } from '../core/petri-net.js';
+import { PetriNet } from '../core/petri-net.js';
 import { rethrowIfProgrammingError } from './programming-error.js';
 import type { EnvironmentPlace, Place } from '../core/place.js';
 import { MarkingState, MarkingStateBuilder } from './marking-state.js';
 import type { SmtProperty } from './smt-property.js';
 import { deadlockFree, propertyDescription } from './smt-property.js';
 import { describeSinks, type ConditionalSinks } from './rest-set.js';
-import type { SmtVerificationResult, SmtStatistics, Verdict, VerificationRoute } from './smt-verification-result.js';
+import type {
+  CounterexampleTiming, SmtVerificationResult, SmtStatistics, Verdict, VerificationRoute,
+} from './smt-verification-result.js';
 import type { PInvariant } from './invariant/p-invariant.js';
 import type { FlatNet } from './encoding/flat-net.js';
 import { flatten } from './encoding/net-flattener.js';
@@ -28,6 +30,8 @@ import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
 import { verifyViaStateClassGraph, decideOverStateSpace, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
+import { prefixNote } from './graph-decision.js';
+import { closeArrivals } from './open-net/closure.js';
 import type { ScgOutcome } from './scg-verifier.js';
 import { resolveStateSpace, type StateSpaceCache } from './state-space-cache.js';
 import { classify, type FragmentMode, type NameFragment } from './analysis/name-fragment.js';
@@ -38,6 +42,9 @@ import {
   replayCounterexample, vectorize, toMarkingState, stepName, type AbstractState, type ReplayOutcome,
 } from './z3/abstract-replayer.js';
 import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
+import { deadArcMessage, findDeadArcs } from '../core/internal/dead-arcs.js';
+import { StateClassGraph } from './analysis/state-class-graph.js';
+import { Deadline, VerificationCancelled, VerificationStopped } from './total-budget.js';
 
 /**
  * IC3/PDR-based safety verifier for Petri nets using Z3's Spacer engine.
@@ -88,6 +95,11 @@ export class SmtVerifier {
   private readonly _budgetPlaces = new Set<string>();
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
+  private _totalBudgetMs: number | null = null;
+  private _signal: AbortSignal | null = null;
+  /** Set once {@link applyArrivals} has closed the net: the bounds and the environment places it fed. */
+  private _arrivals: { readonly min: number; readonly max: number; readonly places: readonly string[]; readonly injected: readonly string[] } | null = null;
+  private _timedCounterexampleCheck: boolean = false;
   private _certificateCheck: boolean = true;
   private _counterexampleReplay: boolean = true;
   private _semiflowInvariants: boolean | 'auto' = false;
@@ -139,6 +151,13 @@ export class SmtVerifier {
     return this;
   }
 
+  /**
+   * How injection into the {@link environmentPlaces} is modeled ([VER-006]; default
+   * `alwaysAvailable()`): `bounded(k)` caps the tokens resident at a time, `arrivals(k)` /
+   * `arrivals(min, max)` the total injected over a run — the latter by closing the net before any
+   * route runs, so its counterexamples name the injection transitions `env:arrive[i]:<place>` /
+   * `env:arrive?[i]:<place>` (and the declines `env:decline[i]`).
+   */
   environmentMode(mode: EnvironmentAnalysisMode): this {
     this._environmentMode = mode;
     return this;
@@ -197,6 +216,54 @@ export class SmtVerifier {
    * so its scripts stay byte-identical ([VER-013]). The encoded net declares no terminals, so a
    * second call is a no-op.
    */
+  /**
+   * The `arrivals(min, max)` rewrite ([VER-006]): closes the net over its environment places with the
+   * [VER-022] arrival construction ({@link closeArrivals}), before any route and before the
+   * terminal rewrite, so terminals inhibit the injection transitions as they inhibit every other.
+   * Afterwards the verifier has no environment places. Runs once per verifier.
+   */
+  private applyArrivals(): void {
+    if (this._environmentMode.type !== 'arrivals' || this._environmentPlaces.size === 0) return;
+    const { minTokens: min, maxTokens: max } = this._environmentMode;
+    const envPlaces = [...this._environmentPlaces].map(e => e.place);
+    const closed = closeArrivals(this.net, this._initialMarking, envPlaces, min, max);
+    this.net = closed.net;
+    this._initialMarking = closed.initialMarking;
+    this._arrivals = { min, max, places: envPlaces.map(p => p.name), injected: closed.injected };
+    this._environmentPlaces.clear();
+  }
+
+  /**
+   * Why no ν route may decide this net ([VER-006] AC10), or `null`: under `arrivals(k)` an
+   * injection transition producing into a coloured place (a match key or carrier) would be
+   * classified as a mint, making two arrivals that may carry one name distinct — which can hide
+   * a reachable join, an unsound `proven`.
+   */
+  private colouredArrivalReason(): string | null {
+    if (this._arrivals === null || this._arrivals.injected.length === 0) return null;
+    const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces);
+    if (fragment === null) return null;
+    const place = this._arrivals.injected.find(p => fragment.isColoured(p));
+    if (place === undefined) return null;
+    return `environment place '${place}' carries ν-names (a match key or carrier place) and is fed ` +
+      'by arrivals(k): an injected token\'s name is unknown, so an arrival is not a fresh mint; ' +
+      'refusing to decide it by name (VER-006)';
+  }
+
+  /**
+   * Declares every place the initial marking marks and the net does not as an **inert** place —
+   * no arc touches it — so every route sees the token the executors retain ([CORE-072],
+   * [VER-001]): `deadlockFree` finds it stranded unless a sink excuses it, `placeBound` counts it,
+   * and it is its own P-invariant. After the arrivals closure, whose places the net declares, and
+   * before the terminal rewrite, so a terminal excuses it as it excuses every place.
+   *
+   * A marking that names only declared places leaves the net untouched — the same instance — so
+   * its scripts stay byte-identical ([VER-013]). Idempotent.
+   */
+  private applyInertPlaces(): void {
+    this.net = withInertMarkedPlaces(this.net, this._initialMarking);
+  }
+
   private applyNetTerminals(): void {
     const net = this.net;
     if (net.terminals.size === 0) return;
@@ -230,6 +297,73 @@ export class SmtVerifier {
 
   timeout(ms: number): this {
     this._timeoutMs = ms;
+    return this;
+  }
+
+  /**
+   * Bounds the whole of {@link verify} by `ms` milliseconds of wall-clock time ([VER-013];
+   * default: no total budget, and behaviour is exactly as without this call).
+   *
+   * {@link timeout} bounds each z3 process, and a verification can run several — the bound
+   * query, the state-equation phase and its certificate check, the firing bound, the fixpoint
+   * query and its certificate check — besides solver-free work: the enumeration and Route B
+   * graph builds, the siphon/trap search, the semiflow enumeration. The total budget starts at
+   * the top of `verify()`; every z3 process then gets the smaller of its own budget and what
+   * remains (no process starts once nothing remains), and the solver-free builds and loops poll
+   * it. When it runs out the verdict is `unknown`, with the reason and report line
+   * `total verification budget of <N> ms exhausted during <phase>`. A verdict reached before
+   * that stands.
+   *
+   * Under a total budget the fixpoint query is no longer promised its full {@link timeout}
+   * after the firing-bound phase ({@link firingBound}): it gets what is left.
+   */
+  totalBudget(ms: number): this {
+    if (!Number.isFinite(ms) || ms < 0) {
+      throw new Error(`total budget must be a non-negative number of milliseconds: ${ms}`);
+    }
+    this._totalBudgetMs = ms;
+    return this;
+  }
+
+  /**
+   * Cancels {@link verify} when `signal` fires ([VER-013]; default: none).
+   *
+   * Cancellation is the {@link totalBudget}'s stop mechanism with a different trigger: every
+   * point that polls the budget — the graph builds, the siphon/trap search, the semiflow
+   * enumeration, the start of each phase — also sees the signal, and a z3 process in flight is
+   * killed the moment it fires rather than at its watchdog. The verdict is then `unknown` with
+   * the reason and report line `verification cancelled during <phase>`, the phase named as for
+   * an exhausted budget. A verdict reached before the signal fires stands. A signal that has
+   * already fired cancels during `net preparation`. When a {@link totalBudget} is set too,
+   * whichever stop comes first names the reason.
+   *
+   * The graph builds and loops are synchronous: an abort dispatched on the event loop cannot run
+   * while one of them does, so it takes effect at the next phase boundary (or, for a z3
+   * process, at once). The builds still poll `signal.aborted`, so a signal whose flag is set
+   * from elsewhere stops them mid-way.
+   */
+  signal(signal: AbortSignal): this {
+    this._signal = signal;
+    return this;
+  }
+
+  /**
+   * Checks a `violated` counterexample under the net's timing ([VER-023]; default: off).
+   *
+   * The verdict is the untimed claim ([VER-004]) and stays so: this never changes a verdict. On
+   * a timed net without environment places or ν-matching transitions (the graph models neither
+   * injection nor names) whose counterexample came from the untimed model, it
+   * builds the **timed** state-class graph — same net, initial marking and terminal rewrite as
+   * the other routes, up to {@link enumerationMaxClasses} classes and within the
+   * {@link totalBudget} — and decides the same property over it with the same predicate; a
+   * truncated graph is decided over its explored prefix as the enumeration route does. The
+   * outcome lands in {@link SmtVerificationResult.counterexampleTiming}: `'timed-confirmed'`
+   * (the counterexample is replaced by the shortest timed path), `'spurious-under-timing'`
+   * (the graph closed and nothing violates: the property holds under timing, a timed claim
+   * only), or `'timed-undecided'`. It does not use the {@link stateSpaceCache}.
+   */
+  timedCounterexampleCheck(on: boolean): this {
+    this._timedCounterexampleCheck = on;
     return this;
   }
 
@@ -398,7 +532,8 @@ export class SmtVerifier {
    *
    * A proof carries no inductive invariant: the ranking is re-checked in exact integer
    * arithmetic, and a counterexample is replayed. Runs after the state-equation phase, on
-   * the same nets, within half the {@link timeout}.
+   * the same nets, within half the {@link timeout}. The fixpoint query after it still gets its
+   * full timeout — except under a {@link totalBudget}, which caps it at what remains.
    */
   firingBound(enabled: boolean): this {
     this._firingBound = enabled;
@@ -408,8 +543,9 @@ export class SmtVerifier {
   /**
    * Sets the class-count cap for the ν-aware state-class-graph analysis (NU-050,
    * Route B). When the symbolic name-aware graph would exceed this, the analysis
-   * truncates and the verdict is `unknown` (the live correlation pool is not
-   * structurally bounded). Default 100_000.
+   * truncates (the live correlation pool is not structurally bounded): a violation among
+   * the classes it explored is still `violated`, with the shortest witness in the explored
+   * graph (VER-012 AC3); otherwise the verdict is `unknown`. Default 100_000.
    */
   nuMaxClasses(max: number): this {
     this._nuMaxClasses = max;
@@ -428,8 +564,11 @@ export class SmtVerifier {
    * the reachable state space. A forty-node chain (370 places, 1 967 classes)
    * takes 410 s on the fixpoint path and 0.11 s here.
    *
-   * The route declines when the graph exceeds the budget, and the SMT pipeline
-   * then runs unchanged — it can only add verdicts, never remove them. It is
+   * When the graph exceeds the budget, a violation among the classes it explored is
+   * still decided here — every explored class is reachable; only an expanded class
+   * without successors counts as quiescent — and a prefix never proves anything.
+   * Otherwise the route declines and the SMT pipeline runs unchanged — it can only
+   * add verdicts, never remove them. It is
    * skipped for ν-nets, which have their own exact route (NU-050, Route B), for
    * nets with environment places, whose injection the graph does not model, and
    * for **timed** nets, where its verdict would be the weaker timed claim rather
@@ -444,11 +583,14 @@ export class SmtVerifier {
    * Shares the bounded state-space enumeration route's state-class graph across queries
    * (VER-017). The graph depends only on the net and the initial marking, so every verifier
    * given the same `cache`, net instance and initial marking builds it once; a remembered
-   * truncation makes a later query at the same or a smaller budget skip the attempt entirely.
+   * truncation, kept with its explored prefix, makes a later query at the same or a smaller
+   * budget skip the build and only check that prefix for a violation.
    *
-   * The verdict, witness and route are the same as without the cache; the report adds one line
-   * when a cached graph or a cached truncation was used. Without this call behaviour is
-   * unchanged.
+   * The verdict, witness and route are the same as without the cache — except that a query at a
+   * budget below a remembered truncation checks the larger remembered prefix, so it can find a
+   * violation an uncached query at its own budget would not reach (still a real firing
+   * sequence, never a `proven`). The report adds one line when a cached graph or a cached
+   * truncation was used. Without this call behaviour is unchanged.
    */
   stateSpaceCache(cache: StateSpaceCache): this {
     this._stateSpaceCache = cache;
@@ -529,6 +671,8 @@ export class SmtVerifier {
     // would stay empty and every verdict would describe the closed net. Decline, so the
     // flat encoding, which models injection, answers soundly.
     if (!hasMatch || !nuBounded || flatNet.environmentInjection.size > 0) return { plan: null, encoding: null };
+    // VER-006 AC10: an arrival into a coloured place is not a mint.
+    if (this.colouredArrivalReason() !== null) return { plan: null, encoding: null };
     const plan = buildColouredPlan(
       this.net, flatNet, this._initialMarking, this._budgetPlaces,
       this._fragmentMode, this._carrierPlaces, semiflows,
@@ -553,6 +697,8 @@ export class SmtVerifier {
    * refusal are bypassed: it is what Route A encodes.
    */
   encodeScripts(): EncodedScripts {
+    this.applyArrivals();
+    this.applyInertPlaces();
     this.applyNetTerminals();
     requireOutputProducingActions(this.net);
     const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
@@ -577,10 +723,10 @@ export class SmtVerifier {
     if (this._semiflowInvariants === true || autoUnion) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
     invariants = canonicalInvariantOrder(invariants);
     const attempt = this.colouredAttempt(flatNet, invariants, semiflows);
-    // The bound query (VER-015) exactly when verify() would send it: flat path, enabled,
-    // not refused by VER-006, and a property with a linear demand (else null).
+    // The bound query (VER-015) exactly when verify() would send it: enabled, not refused
+    // by VER-006, and a property with a linear demand (else null). A coloured plan does not
+    // suppress it: verify() sends the bound before the name-coloured query.
     const bound =
-      attempt.plan == null &&
       this._linearBound &&
       !this.ignoresEnvironment
         ? encodeLinearBound(flatNet, this._initialMarking, this._property)
@@ -617,10 +763,58 @@ export class SmtVerifier {
    * @throws Error if the net violates CORE-043 — verification rejects the same nets execution rejects.
    */
   async verify(): Promise<SmtVerificationResult> {
+    // VER-013: a total budget counts every step, the terminal rewrite included; a cancellation
+    // signal rides the same deadline.
+    const deadline = this._totalBudgetMs === null && this._signal === null
+      ? null
+      : Deadline.start(this._totalBudgetMs, this._signal);
+    this.applyArrivals();
+    this.applyInertPlaces();
     this.applyNetTerminals();
     requireOutputProducingActions(this.net);
     const start = performance.now();
     const report: string[] = [];
+    const run: RunState = { deadline, phase: 'net preparation', route: 'unavailable' };
+    let result: SmtVerificationResult;
+    try {
+      result = await this.runPipeline(run, start, report);
+    } catch (e) {
+      if (!(e instanceof VerificationStopped)) throw e;
+      const reason = e.reasonDuring(run.phase);
+      report.push('');
+      report.push('=== RESULT ===\n');
+      report.push(`UNKNOWN: ${reason}`);
+      result = buildResult(
+        { type: 'unknown', reason }, report.join('\n'), [], [], [], [],
+        performance.now() - start,
+        {
+          places: [...this.net.places].length,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: `n/a (${e.message})`,
+        },
+        null,
+        run.route,
+      );
+    }
+    return this.withCounterexampleTiming(result, run, start);
+  }
+
+  /**
+   * Starts `phase` of the pipeline: first polls the total budget, so a deadline that passed
+   * during the previous phase is reported against that phase ([VER-013]).
+   */
+  private enter(run: RunState, phase: string, route?: VerificationRoute): void {
+    run.deadline?.check();
+    run.phase = phase;
+    if (route !== undefined) run.route = route;
+  }
+
+  /**
+   * The body of {@link verify}; throws a {@link VerificationStopped} when the total budget runs
+   * out or the run is cancelled.
+   */
+  private async runPipeline(run: RunState, start: number, report: string[]): Promise<SmtVerificationResult> {
     report.push('=== IC3/PDR SAFETY VERIFICATION ===\n');
     report.push(`Net: ${this.net.name}`);
     const sinkDesc = describeSinks(this._sinkPlaces, this._conditionalSinks);
@@ -628,11 +822,38 @@ export class SmtVerifier {
       ? propertyDescription(this._property)
       : `${propertyDescription(this._property)} (${sinkDesc})`;
     report.push(`Property: ${propDesc}`);
+    if (this._totalBudgetMs !== null) report.push(`Total budget: ${this._totalBudgetMs} ms`);
     report.push(`Timeout: ${(this._timeoutMs / 1000).toFixed(0)}s\n`);
+    if (this._arrivals !== null) {
+      const { min, max, injected } = this._arrivals;
+      // One entry per non-empty source, as closeOpenNet adds them: mandatory, then optional.
+      const sources = (p: string, i: number): string[] => [
+        ...(min > 0 ? [`env:arrive[${i}]:${p} from env:arrivals[${i}] (exactly ${min})`] : []),
+        ...(max > min ? [`env:arrive?[${i}]:${p} from env:optional[${i}] (at most ${max - min})`] : []),
+      ];
+      report.push(
+        injected.length === 0
+          ? 'Environment: arrivals(0) — nothing is injected; the environment places are ordinary places (VER-006)'
+          : `Environment: arrivals(${min > 0 ? `${min}..${max}` : max}) — net closed before any route: ` +
+            injected.flatMap(sources).join(', ') +
+            ' (VER-006)',
+      );
+      report.push('');
+    }
+    // CORE-037: read / inhibitor / reset arcs that can never have an effect. Read off the net
+    // the caller passed — the terminal rewrite's inhibitors are the verifier's own.
+    const marked = new Set(this._initialMarking.placesWithTokens().map(p => p.name));
+    const envNames = new Set([...this._environmentPlaces].map(e => e.place.name));
+    for (const p of this._arrivals?.places ?? []) envNames.add(p);
+    const deadArcs = findDeadArcs(this.callerNet, n => marked.has(n), n => envNames.has(n));
+    for (const arc of deadArcs) report.push(`WARNING: ${deadArcMessage(arc)}`);
+    if (deadArcs.length > 0) report.push('');
 
     // Before ANY route. Each of them answers a property naming an absent place
     // vacuously, and each returns before the flat encoder's own refusal could
     // fire, so the guard has to sit above all of them or it guards nothing.
+    // VER-013: a call cancelled (or out of budget) before it starts says so, ahead of any refusal.
+    run.deadline?.check();
     const absent = unresolvedPropertyPlaceInNet(this.net, this._property);
     if (absent != null) {
       const reason =
@@ -663,6 +884,19 @@ export class SmtVerifier {
     const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const nuBounded = this._budgetPlaces.size > 0;
 
+    // NU-054: BASE reads a join's coloured output as a re-mint whatever it declares, so a relay
+    // declaration changes nothing there. Say so, and name the mode that uses it.
+    if (hasMatch && this._fragmentMode === 'base') {
+      const ignored = relayDeclarations(this.net);
+      if (ignored.length > 0) {
+        report.push(
+          `NOTE: ν relay declarations ignored under BASE fragment mode (NU-054): ${ignored.join(', ')}; ` +
+          "select fragmentMode('extended') to analyse the joins as relays.",
+        );
+        report.push('');
+      }
+    }
+
     // ν-net Route B (NU-050): the name-aware state-class-graph name-partition
     // quotient decides ν-join correlation EXACTLY — including name×time and
     // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
@@ -672,6 +906,7 @@ export class SmtVerifier {
     // outside the supported fragment, verifyViaNameScg returns null and we fall
     // through to the existing pipeline (which applies the sound unknown downgrade).
     if (hasMatch && (!isReachabilitySafety(this._property) || !nuBounded)) {
+      this.enter(run, 'Route B (ν name-partition graph)', 'nu-scg');
       let quiescenceVacuous = false;
       if (!isReachabilitySafety(this._property)) {
         const flat = flatten(this.net, this._environmentPlaces, this._environmentMode);
@@ -684,7 +919,7 @@ export class SmtVerifier {
       const envReason =
         fragment === null || this._initialMarking.placesWithTokens().some(p => fragment.isColoured(p.name))
           ? null // Route B declines this net itself; the pipeline below decides it.
-          : routeBEnvObservation(
+          : this.colouredArrivalReason() ?? routeBEnvObservation(
               this.net, fragment, this._property, this._sinkPlaces, this._conditionalSinks,
               this._environmentPlaces, this._environmentMode, this._prioritySemantics, quiescenceVacuous,
             );
@@ -708,7 +943,7 @@ export class SmtVerifier {
         this.net, this._initialMarking, this._property, this._sinkPlaces,
         this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
         this._fragmentMode, this._carrierPlaces, this._prioritySemantics,
-        this._conditionalSinks,
+        this._conditionalSinks, run.deadline,
       );
       // Route B truncating to unknown on a bounded quiescence ν-net is not the
       // final word: defer to the scalable Route A coloured IC3/PDR encoder
@@ -766,8 +1001,8 @@ export class SmtVerifier {
         report.push(
           'ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment ' +
           '(a coloured place consumed count != 1 or by multiple inputs, carries a ' +
-          'reset/read/inhibitor arc, or a join re-mints a coloured place); verified via ' +
-          'sound over-approximation instead.',
+          'reset/read/inhibitor arc, or a join writes a coloured place it does not declare ' +
+          'as a relay target); verified via sound over-approximation instead.',
         );
       }
     }
@@ -784,13 +1019,14 @@ export class SmtVerifier {
       this._enumerationMaxClasses > 0 &&
       isUntimed(this.net)
     ) {
-      const { enumerated, cacheLine } = this.enumerate();
+      this.enter(run, 'state-space enumeration', 'enumeration');
+      const { enumerated, cacheLine } = this.enumerate(run.deadline);
       if (enumerated.kind === 'decided') {
         if (cacheLine !== null) report.push(cacheLine);
         report.push('=== Bounded state-space enumeration (VER-017) ===');
         report.push(`  State classes: ${enumerated.classCount}`);
         report.push('  P-invariants: not computed (no encoding is built on this route)');
-        report.push(NOTE_ENUMERATED);
+        report.push(enumerated.truncated ? prefixNote('state-class graph', this._enumerationMaxClasses) : NOTE_ENUMERATED);
         if (enumerated.transitions.length > 0) {
           report.push(`  Counterexample trace: ${enumerated.trace.length} states, ${enumerated.transitions.length} transitions`);
         }
@@ -817,6 +1053,7 @@ export class SmtVerifier {
     }
 
     // Phase 1: Flatten
+    this.enter(run, 'flattening', 'smt');
     report.push('Phase 1: Flattening net...');
     const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
     report.push(`  Places: ${flatNet.places.length}`);
@@ -842,7 +1079,8 @@ export class SmtVerifier {
       this._sinkPlaces.size === 0 &&
       this._conditionalSinks.length === 0 &&
       this._environmentPlaces.size === 0;
-    const structResult = structuralCandidate ? structuralCheck(flatNet, this._initialMarking) : null;
+    this.enter(run, 'structural pre-check');
+    const structResult = structuralCandidate ? structuralCheck(flatNet, this._initialMarking, run.deadline) : null;
     let structResultStr: string;
     switch (structResult?.type) {
       case undefined:
@@ -876,6 +1114,7 @@ export class SmtVerifier {
     }
 
     // Phase 3: P-invariants
+    this.enter(run, 'P-invariant computation');
     report.push('Phase 3: Computing P-invariants...');
     const matrix = IncidenceMatrix.from(flatNet);
     // Exact re-check (BigInt) before invariants reach the encoder: the Gaussian
@@ -915,7 +1154,7 @@ export class SmtVerifier {
     const { valid: semiflows, dropped: droppedSemiflows } = semiflowsWanted
       ? validateInvariantsExact(
           matrix,
-          computePSemiflows(matrix, flatNet, this._initialMarking),
+          computePSemiflows(matrix, flatNet, this._initialMarking, run.deadline),
           flatNet,
           this._initialMarking,
         )
@@ -987,7 +1226,8 @@ export class SmtVerifier {
     };
     let solver: Z3Solver;
     try {
-      solver = resolveZ3();
+      // VER-013 total budget: the transport clamps every run to what remains of it.
+      solver = run.deadline === null ? resolveZ3() : { ...resolveZ3(), deadline: run.deadline };
     } catch (e: any) {
       rethrowIfProgrammingError(e);
       const reason = e instanceof Z3Unavailable ? e.message : String(e?.message ?? e);
@@ -1016,19 +1256,26 @@ export class SmtVerifier {
       report.push('  ν-encoding: name-blind over-approximation (the name-coloured encoding does not');
       report.push('  model environment injection, VER-006)');
     }
+    const colouredArrival = hasMatch && nuBounded ? this.colouredArrivalReason() : null;
+    if (colouredArrival !== null) {
+      report.push(`  ν-encoding: name-blind over-approximation (${colouredArrival})`);
+    }
 
     // Linear state-equation bound (VER-015): a reachability-safety property whose
     // violating markings exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is
     // proven structurally, without the fixpoint search — the ordering arguments
-    // IC3 does not invent on pipeline-shaped nets. Flat path only: a net on the exact
-    // name-coloured encoding keeps that route's verdict and notes. Skipped under
-    // `ignore` with environment places, where VER-006 refuses every `proven`.
+    // IC3 does not invent on pipeline-shaped nets. It runs before the name-coloured
+    // encoding too: the flat state equation is name-blind and over-approximates ν
+    // semantics, so its `proven` is sound on a ν-net, and it closes in milliseconds
+    // bounds the coloured IC3 query times out on (slots = 2-4x the budget). Not proven
+    // falls through to the coloured query unchanged. Skipped under `ignore` with
+    // environment places, where VER-006 refuses every `proven`.
     if (
       this._linearBound &&
-      colouredPlan == null &&
       isReachabilitySafety(this._property) &&
       !this.ignoresEnvironment
     ) {
+      this.enter(run, 'linear bound');
       const proof = await this.linearBoundProof(flatNet, solver, report);
       if (proof != null) {
         report.push('  Certificate check: not applicable (structural proof)');
@@ -1056,10 +1303,12 @@ export class SmtVerifier {
     if (!hasMatch && !this.ignoresEnvironment) {
       const phase: PhaseContext = { flatNet, solver, report, propDesc, invariants, stats, start };
       if (this._stateEquationPhase) {
+        this.enter(run, 'state-equation phase');
         const decided = await this.stateEquationDecision(phase);
         if (decided != null) return decided;
       }
       if (this._firingBound) {
+        this.enter(run, 'firing-bound phase');
         const decided = await this.firingBoundDecision(phase);
         if (decided != null) return decided;
       }
@@ -1114,6 +1363,7 @@ export class SmtVerifier {
     if (this._stateEquation && colouredPlan != null) {
       report.push('  State equation: not applied (name-coloured encoding)');
     }
+    this.enter(run, 'IC3/PDR query');
     const queryResult = await runZ3Spacer(
       solver, this._timeoutMs, encoding.smt2, colouredPlan != null ? 'horn-coloured' : 'horn',
     );
@@ -1145,6 +1395,7 @@ export class SmtVerifier {
         } else if (!this._certificateCheck) {
           report.push('  Certificate check: not applicable (disabled)');
         } else {
+          this.enter(run, 'certificate check');
           const certificate = await checkCertificate(
             queryResult.invariantFormula, flatNet, this._initialMarking,
             this._property, invariants, this._sinkPlaces, solver, this._timeoutMs,
@@ -1152,6 +1403,8 @@ export class SmtVerifier {
           );
           const reason = certificateDowngradeReason(certificate);
           if (reason != null) {
+            // A check the total budget cut short is the budget's verdict, not the certificate's.
+            run.deadline?.check();
             report.push('  Certificate check: FAILED');
             if (certificate.type !== 'passed' && certificate.invariant != null) {
               report.push('  Uncertified invariant:');
@@ -1270,6 +1523,8 @@ export class SmtVerifier {
       }
 
       case 'unknown': {
+        // A query the total budget clamped answers unknown for the budget's reason (VER-013).
+        run.deadline?.check();
         report.push(`  Status: UNKNOWN (${queryResult.reason})\n`);
         report.push('=== RESULT ===\n');
         report.push(`UNKNOWN: Could not determine ${propDesc}`);
@@ -1288,33 +1543,42 @@ export class SmtVerifier {
    * Runs the VER-017 enumeration, through the {@link StateSpaceCache} when one is set.
    * `cacheLine` is the report line for a cached graph or cached truncation, else `null`.
    */
-  private enumerate(): { enumerated: ScgOutcome; cacheLine: string | null } {
+  private enumerate(deadline: Deadline | null): { enumerated: ScgOutcome; cacheLine: string | null } {
     const cache = this._stateSpaceCache;
     if (cache === null) {
       return {
         enumerated: verifyViaStateClassGraph(
           this.net, this._initialMarking, this._property, this._sinkPlaces,
-          this._enumerationMaxClasses, this._conditionalSinks,
+          this._enumerationMaxClasses, this._conditionalSinks, deadline,
         ),
         cacheLine: null,
       };
     }
-    const lookup = resolveStateSpace(cache, this.callerNet, this.net, this._initialMarking, this._enumerationMaxClasses);
-    if (lookup.kind === 'declined') {
-      return {
-        enumerated: { kind: 'truncated', classCount: this._enumerationMaxClasses },
-        cacheLine:
-          `Bounded state-space enumeration: cached truncation at ${this._enumerationMaxClasses} classes (VER-017); ` +
-          'verifying via the SMT pipeline.',
-      };
-    }
+    const lookup = resolveStateSpace(
+      cache, this.callerNet, this.net, this._initialMarking, this._enumerationMaxClasses, deadline,
+    );
     // The key includes the marking's listing and Place objects, so a reused graph's witness is
     // the one a cold build would return; only the initial MarkingState object is the first
-    // caller's, and the caller's own stands in for it.
-    const decided = decideOverStateSpace(lookup.graph, this._property, this._sinkPlaces, this._conditionalSinks);
+    // caller's, and the caller's own stands in for it. A declined query reads the cached graph as
+    // an explored prefix: a violation in it stands, nothing is proven from it.
+    const decided = decideOverStateSpace(
+      lookup.graph, this._property, this._sinkPlaces, this._conditionalSinks, lookup.kind === 'declined',
+    );
     const enumerated = decided.kind === 'decided' && decided.trace.length > 0
       ? { ...decided, trace: [this._initialMarking, ...decided.trace.slice(1)] }
       : decided;
+    if (lookup.kind === 'declined') {
+      return {
+        enumerated: enumerated.kind === 'truncated'
+          ? { kind: 'truncated', classCount: this._enumerationMaxClasses }
+          : enumerated,
+        cacheLine: enumerated.kind === 'truncated'
+          ? `Bounded state-space enumeration: cached truncation at ${this._enumerationMaxClasses} classes (VER-017); ` +
+            'verifying via the SMT pipeline.'
+          : `Bounded state-space enumeration: cached truncation at ${this._enumerationMaxClasses} classes (VER-017); ` +
+            `its explored prefix (${lookup.graph.size()} classes) was read.`,
+      };
+    }
     return {
       enumerated,
       cacheLine: lookup.kind === 'reused'
@@ -1496,6 +1760,95 @@ export class SmtVerifier {
   }
 
   /**
+   * Sets {@link SmtVerificationResult.counterexampleTiming} on a `violated` result ([VER-003]),
+   * running the opt-in timed check of [VER-023] where it applies. Never changes a verdict.
+   */
+  private withCounterexampleTiming(result: SmtVerificationResult, run: RunState, start: number): SmtVerificationResult {
+    if (result.verdict.type !== 'violated') return result;
+    const timing = (t: CounterexampleTiming): SmtVerificationResult => ({ ...result, counterexampleTiming: t });
+    if (isUntimed(this.net)) return timing('untimed-net');
+    if (result.route === 'nu-scg') return timing('timed-exact');
+    // VER-023 "When it runs": the graph models neither injection nor ν-names.
+    if (
+      !this._timedCounterexampleCheck ||
+      this._environmentPlaces.size > 0 ||
+      [...this.net.transitions].some(t => t.matchSpec !== null)
+    ) {
+      return timing('untimed-abstraction');
+    }
+
+    const lines = ['', '=== Timed counterexample check (VER-023) ==='];
+    let outcome: ScgOutcome | null = null;
+    let stopped = run.deadline?.stopped() ?? null;
+    if (stopped === null) {
+      try {
+        const graph = StateClassGraph.build(
+          this.net, this._initialMarking, this._enumerationMaxClasses, undefined, undefined,
+          { deadline: run.deadline },
+        );
+        outcome = decideOverStateSpace(graph, this._property, this._sinkPlaces, this._conditionalSinks);
+      } catch (e) {
+        if (!(e instanceof VerificationStopped)) throw e;
+        stopped = e;
+      }
+    }
+    const finish = (t: CounterexampleTiming, extra: Partial<SmtVerificationResult> = {}): SmtVerificationResult => ({
+      ...result,
+      ...extra,
+      counterexampleTiming: t,
+      report: `${result.report}\n${lines.join('\n')}`,
+      elapsedMs: performance.now() - start,
+    });
+    if (outcome === null) {
+      lines.push(
+        stopped instanceof VerificationCancelled
+          ? '  UNDECIDED: verification was cancelled before the timed state-class graph closed.'
+          : `  UNDECIDED: the total verification budget of ${this._totalBudgetMs} ms ran out before the ` +
+            'timed state-class graph closed.',
+      );
+      return finish('timed-undecided');
+    }
+    if (outcome.kind === 'truncated') {
+      lines.push(
+        `  UNDECIDED: the timed state-class graph exceeded ${this._enumerationMaxClasses} classes ` +
+        '(enumerationMaxClasses).',
+      );
+      return finish('timed-undecided');
+    }
+    lines.push(`  Timed state classes: ${outcome.classCount}`);
+    if (outcome.verdict.type === 'violated') {
+      lines.push(
+        outcome.truncated
+          ? `  CONFIRMED: the timed state-class graph, truncated at ${this._enumerationMaxClasses} classes ` +
+            '(enumerationMaxClasses), reaches a violating class in its explored prefix.'
+          : '  CONFIRMED: the timed state-class graph reaches a violating class.',
+      );
+      lines.push(
+        '  The counterexample trace and firing sequence of this result are REPLACED by the shortest ' +
+        'timed-graph path:',
+      );
+      lines.push(`  Counterexample trace (timed, ${outcome.trace.length} states):`);
+      for (let i = 0; i < outcome.trace.length; i++) lines.push(`    ${i}: ${outcome.trace[i]}`);
+      if (outcome.transitions.length > 0) lines.push(`  Firing sequence: ${outcome.transitions.join(' -> ')}`);
+      // The graph path is an ordered firing sequence: confirmed, as on the enumeration route.
+      return finish('timed-confirmed', {
+        counterexampleTrace: outcome.trace,
+        counterexampleTransitions: outcome.transitions,
+        counterexampleConfirmed: true,
+      });
+    }
+    lines.push(
+      `  SPURIOUS UNDER TIMING: the timed state-class graph closed with ${outcome.classCount} classes ` +
+      'and none of them violates the property, so it holds under the net\'s timing — a timed claim only.',
+    );
+    lines.push(
+      '  The verdict stays VIOLATED: the untimed semantics is the contract (VER-004). The untimed ' +
+      'counterexample above is kept.',
+    );
+    return finish('spurious-under-timing');
+  }
+
+  /**
    * ν-net soundness guard (NU-040, NU-050). Applied only when the net contains
    * match (ν-join) transitions, and only to a proven/violated verdict (an
    * existing unknown is left as-is).
@@ -1559,6 +1912,16 @@ export class SmtVerifier {
       'the exact ν-analysis (NU-050).\n';
     return { ...result, report: result.report + note };
   }
+}
+
+/** The per-call state of one {@link SmtVerifier.verify} run. */
+interface RunState {
+  /** The total budget's deadline ([VER-013]), or `null` when none is set. */
+  readonly deadline: Deadline | null;
+  /** The step running or about to start — what an exhausted budget is reported against. */
+  phase: string;
+  /** The route that step belongs to. */
+  route: VerificationRoute;
 }
 
 /** What the pre-fixpoint phases of VER-018/019 read from `verify()`. */
@@ -1776,6 +2139,7 @@ function downgradeToUnknown(result: SmtVerificationResult, reason: string): SmtV
     counterexampleTrace: [],
     counterexampleTransitions: [],
     counterexampleConfirmed: null,
+    counterexampleTiming: null,
   };
 }
 
@@ -1797,6 +2161,23 @@ function truncate(s: string, max: number): string {
  * All three then report `proven`. Refusing once, before any of them, is the only
  * way the refusal cannot be routed around.
  */
+/**
+ * `net` with each place `marking` marks but `net` does not declare appended as a place with no
+ * arcs, in the marking's listing order after the declared places; `net` itself when there is none.
+ * The flattener orders places by name, so the listing order reaches no encoding.
+ */
+export function withInertMarkedPlaces(net: PetriNet, marking: MarkingState): PetriNet {
+  const declared = new Set<string>();
+  for (const p of net.places) declared.add(p.name);
+  const inert = marking.placesWithTokens().filter(p => !declared.has(p.name));
+  if (inert.length === 0) return net;
+  return PetriNet.builder(net.name)
+    .places(...net.places, ...inert)
+    .terminals(...net.terminals)
+    .transitions(...net.transitions)
+    .build();
+}
+
 function unresolvedPropertyPlaceInNet(net: PetriNet, property: SmtProperty): string | null {
   const declared = new Set<string>();
   for (const p of net.places) declared.add(p.name);
@@ -1958,5 +2339,20 @@ function buildResult(
   counterexampleConfirmed: boolean | null = null,
   route: VerificationRoute = 'smt',
 ): SmtVerificationResult {
-  return { verdict, route, report, invariants, discoveredInvariants, counterexampleTrace: trace, counterexampleTransitions: transitions, counterexampleConfirmed, elapsedMs, statistics };
+  return {
+    verdict, route, report, invariants, discoveredInvariants, counterexampleTrace: trace,
+    counterexampleTransitions: transitions, counterexampleConfirmed, counterexampleTiming: null, elapsedMs, statistics,
+  };
+}
+
+/**
+ * Every relay declaration of `net` as `'<transition> -> <place>'`, in transition then declaration
+ * order (NU-054) — what the BASE-mode report names as ignored.
+ */
+function relayDeclarations(net: PetriNet): string[] {
+  const out: string[] = [];
+  for (const t of net.transitions) {
+    for (const r of t.matchSpec?.relays ?? []) out.push(`'${t.name}' -> '${r.place.name}'`);
+  }
+  return out;
 }

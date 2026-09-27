@@ -18,6 +18,7 @@
  *
  * Invariants are used to strengthen SMT queries (added as constraints on M').
  */
+import { Deadline } from '../total-budget.js';
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { IncidenceMatrix } from '../encoding/incidence-matrix.js';
 import type { MarkingState } from '../marking-state.js';
@@ -447,7 +448,11 @@ export function computePSemiflows(
   matrix: IncidenceMatrix,
   flatNet: FlatNet,
   initialMarking: MarkingState,
+  deadline: Deadline | null = null,
 ): PInvariant[] {
+  // VER-013 total budget: the enumeration is worst-case exponential; poll the deadline per
+  // candidate and per minimality pass.
+  const poll = Deadline.poller(deadline, 1024);
   const np = matrix.numPlaces();
   const nt = matrix.numTransitions();
   if (np === 0) return [];
@@ -480,6 +485,7 @@ export function computePSemiflows(
     for (const rp of pos) {
       for (const rn of neg) {
         if (next.length >= MAX_SEMIFLOW_CANDIDATES) break outer;
+        poll();
         const cp = -rn.sig[t]!; // > 0
         const cn = rp.sig[t]!; // > 0
         // Checked combination: `number` is f64 and loses integer precision above 2^53,
@@ -493,7 +499,7 @@ export function computePSemiflows(
         next.push({ sig, weight });
       }
     }
-    rows = keepSupportMinimal(next);
+    rows = keepSupportMinimal(next, poll);
     if (rows.length > MAX_SEMIFLOW_ROWS) rows.length = MAX_SEMIFLOW_ROWS;
   }
 
@@ -566,7 +572,7 @@ function reduceGcd(sig: number[], weight: number[]): void {
  * strictly smaller ones. Same rows, same order, on a net where the old form was
  * the dominant cost of the whole pipeline.
  */
-function keepSupportMinimal(rows: SemiflowRow[]): SemiflowRow[] {
+function keepSupportMinimal(rows: SemiflowRow[], poll: () => void = () => {}): SemiflowRow[] {
   const n = rows.length;
   if (n < 2) return rows;
   const words = ((rows[0]!.weight.length + 31) >>> 5) || 1;
@@ -593,6 +599,7 @@ function keepSupportMinimal(rows: SemiflowRow[]): SemiflowRow[] {
   const keep = new Array<boolean>(n).fill(true);
   for (let oi = 0; oi < n; oi++) {
     const i = order[oi]!;
+    poll();
     const base = i * words;
     for (let oj = 0; oj < oi; oj++) {
       const j = order[oj]!;

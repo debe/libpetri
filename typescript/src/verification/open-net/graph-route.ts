@@ -10,6 +10,7 @@
  * enabled is quiescent whether or not it was expanded and an explored cycle is a real cycle;
  * only the absence of findings needs the graph to close.
  */
+import type { Deadline } from '../total-budget.js';
 import type { Place } from '../../core/place.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
 import { StateClassGraph } from '../analysis/state-class-graph.js';
@@ -33,9 +34,11 @@ export function decideOnGraph(
   contract: OpenNetContract,
   maxClasses: number,
   tracedPlaces: readonly Place<any>[],
+  deadline: Deadline | null = null,
 ): GraphRouteOutcome {
+  // A cancelled build ([VER-013]) throws VerificationCancelled out of here.
   const graph = StateClassGraph.build(
-    closed.net, closed.initialMarking, maxClasses, undefined, undefined, { untimed: true },
+    closed.net, closed.initialMarking, maxClasses, undefined, undefined, { untimed: true, deadline },
   );
   const classes = graph.stateClasses();
   const rest = restDeclarationOf(contract, closed);

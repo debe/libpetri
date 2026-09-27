@@ -54,7 +54,7 @@ import type { Out } from '../out.js';
 import { and, outPlace, forwardInput, timeout, allPlaces } from '../out.js';
 import { PetriNet } from '../petri-net.js';
 import { Transition } from '../transition.js';
-import type { MatchSpec } from '../match-spec.js';
+import type { MatchKey, MatchSpec } from '../match-spec.js';
 import type { Timing } from '../timing.js';
 import type { TransitionAction } from '../transition-action.js';
 import { isPassthrough } from '../transition-action.js';
@@ -233,11 +233,11 @@ function rebuildWithName(
   // Carry the ν-net join correlation forward, following place renames so a
   // composed join still correlates the right (renamed) inputs (NU-020/-030).
   if (t.matchSpec !== null) {
+    // NU-054: relay targets are remapped by the same place rewrite as the keys.
+    const remapKey = (k: MatchKey): MatchKey => ({ place: remap.get(k.place.name) ?? k.place, key: k.key });
     builder.match({
-      keys: t.matchSpec.keys.map(k => ({
-        place: remap.get(k.place.name) ?? k.place,
-        key: k.key,
-      })),
+      keys: t.matchSpec.keys.map(remapKey),
+      relays: t.matchSpec.relays.map(remapKey),
     });
   }
 

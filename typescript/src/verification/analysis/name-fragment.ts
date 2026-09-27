@@ -12,8 +12,9 @@
  * re-minting into one, rejects the net. {@link FragmentMode.extended} (opt-in,
  * NU-051) additionally admits the coloured-consumer role ({@link Role} `consume`,
  * drain/relay) and unions user-declared *carrier* places into the coloured set
- * (fork-threaded co-mint). The one deliberate tightening shared by both modes is
- * the reset/read/inhibitor-on-coloured guard below.
+ * (fork-threaded co-mint), and the declared relay targets of every join (NU-054),
+ * onto which a join writes the name it matched. The one deliberate tightening
+ * shared by both modes is the reset/read/inhibitor-on-coloured guard below.
  */
 import type { PetriNet } from '../../core/petri-net.js';
 import type { Transition } from '../../core/transition.js';
@@ -31,7 +32,16 @@ export type FragmentMode = 'base' | 'extended';
 export type Role =
   | { readonly type: 'ordinary' }
   | { readonly type: 'mint' }
-  | { readonly type: 'join'; readonly colouredIn: ReadonlyArray<readonly [string, number]> }
+  /**
+   * A matched join (NU-020). `relayTo` (EXTENDED only, NU-054) holds the declared relay targets:
+   * a firing on symbol `s` removes `s` from the keys, then adds `s` once to each relay target in
+   * the fired branch. Empty under BASE and for a join that drains the name.
+   */
+  | {
+      readonly type: 'join';
+      readonly colouredIn: ReadonlyArray<readonly [string, number]>;
+      readonly relayTo: ReadonlySet<string>;
+    }
   /**
    * Coloured consumer (drain/relay), EXTENDED only (NU-051). A non-match
    * transition that consumes **exactly one** coloured place at count **exactly
@@ -74,7 +84,8 @@ export function classify(
   carrierPlaces: ReadonlySet<string>,
 ): NameFragment | null {
   // 1. Coloured places = union of every match transition's correlated inputs,
-  //    plus (EXTENDED only) the declared carrier places.
+  //    plus (EXTENDED only) the declared carrier places and every join's relay
+  //    targets (NU-054). BASE ignores relay declarations, as it ignores carriers.
   const coloured = new Set<string>();
   let anyMatch = false;
   for (const t of net.transitions) {
@@ -86,6 +97,9 @@ export function classify(
   if (!anyMatch || coloured.size === 0) return null;
   if (mode === 'extended') {
     for (const c of carrierPlaces) coloured.add(c);
+    for (const t of net.transitions) {
+      if (t.matchSpec !== null) for (const r of t.matchSpec.relays) coloured.add(r.place.name);
+    }
   }
 
   // 1b. Soundness guard (BOTH modes): no coloured place may carry a reset, read,
@@ -116,7 +130,17 @@ export function classify(
 
     let role: Role;
     if (t.matchSpec !== null) {
-      if (producesColoured) return null; // re-mint onto a coloured place — out of fragment
+      // A join may write a coloured place only as a declared relay target (NU-054, EXTENDED);
+      // any other coloured output is a re-mint — out of fragment.
+      const relayTo = new Set<string>();
+      if (mode === 'extended') for (const r of t.matchSpec.relays) relayTo.add(r.place.name);
+      if (producesColoured && t.outputSpec !== null) {
+        for (const branch of enumerateBranches(t.outputSpec)) {
+          for (const p of branch) {
+            if (coloured.has(p.name) && !relayTo.has(p.name)) return null;
+          }
+        }
+      }
       // A coloured place consumed off-key is taken FIFO, whatever its name; the join
       // step only removes the matched name from the keys, so the name layer would keep
       // a symbol the base marking has lost.
@@ -135,7 +159,7 @@ export function classify(
       // By place name in code-point order, as the Rust port sorts them: the join seeds the
       // symbols it enumerates from its first coloured input, which orders the successors.
       colouredIn.sort((a, b) => compareCodePoints(a[0], b[0]));
-      role = { type: 'join', colouredIn };
+      role = { type: 'join', colouredIn, relayTo };
     } else if (consumesColoured) {
       // A non-match transition consuming a coloured token.
       if (mode === 'base') return null; // BASE: unsupported — the name would be ambiguous.

@@ -38,6 +38,23 @@ export function instancePrefixOf(nodeName: string | null | undefined): string | 
 }
 
 /**
+ * The cluster a node belongs to under **MOD-040**'s `auto` rule: its owning subnet from the
+ * membership metadata of **MOD-026**, else its instance prefix ({@link instancePrefixOf}), else
+ * `undefined`. The one statement of the rule — the DOT mapper's `auto` cluster source reads it.
+ * `PetriNet.subnetOf` differs for a name with a `/` inside a subnet's own namespace: it walks up
+ * to the longest prefix under which the net has a transition.
+ *
+ * @param nodeName the place or transition name
+ * @param membership the net's subnet-membership map
+ */
+export function autoClusterKeyOf(
+  nodeName: string,
+  membership: ReadonlyMap<string, string>,
+): string | undefined {
+  return membership.get(nodeName) ?? instancePrefixOf(nodeName);
+}
+
+/**
  * Returns the parent prefix of a given prefix, or `undefined` if the prefix
  * is top-level (single segment, no `/`).
  *

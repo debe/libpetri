@@ -22,8 +22,8 @@ export { one, exactly, all, atLeast, requiredCount, consumptionCount } from './i
 export type { NameId } from './name.js';
 export { nameId } from './name.js';
 
-export type { MatchSpec, MatchKey, KeyFn } from './match-spec.js';
-export { matchSpec, matchKey, keyForPlace, matchCorrelates } from './match-spec.js';
+export type { MatchSpec, MatchKey, RelayKey, KeyFn } from './match-spec.js';
+export { matchSpec, matchKey, relayKey, keyForPlace, relayKeyForPlace, matchCorrelates } from './match-spec.js';
 
 export type { Out, OutAnd, OutXor, OutPlace, OutTimeout, OutForwardInput } from './out.js';
 export { and, andPlaces, xor, xorPlaces, outPlace, timeout, timeoutPlace, forwardInput, allPlaces, enumerateBranches } from './out.js';
@@ -52,7 +52,7 @@ export { closedSubnet, openSubnet } from './subnet.js';
 export type { Port, PortDirection, Channel } from './interface.js';
 export { Interface, InterfaceBuilder } from './interface.js';
 
-export type { VerificationHarness, VerificationResult } from './subnet-def.js';
+export type { VerificationHarness, VerificationResult, SubnetVerifyOptions } from './subnet-def.js';
 export { SubnetDef, SubnetDefBuilder } from './subnet-def.js';
 
 export { Instance } from './instance.js';

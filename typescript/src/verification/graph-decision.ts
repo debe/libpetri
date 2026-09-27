@@ -47,23 +47,15 @@ export function decideOverClasses(
     return -1;
   };
 
+  const violates = safetyViolation(property);
+  if (violates !== null) return firstWhere(i => violates(view.markingOf(i)));
+
   switch (property.type) {
     case 'place-bound':
     case 'branch-place-bound':
-      return firstWhere(i => view.markingOf(i).tokens(property.place) > property.bound);
     case 'unreachable':
-      return firstWhere(i => {
-        const m = view.markingOf(i);
-        for (const p of property.places) {
-          if (!m.hasTokens(p)) return false;
-        }
-        return true;
-      });
     case 'mutual-exclusion':
-      return firstWhere(i => {
-        const m = view.markingOf(i);
-        return m.hasTokens(property.p1) && m.hasTokens(property.p2);
-      });
+      return -1; // unreachable: decided by `safetyViolation` above
     // DeadlockFree (VER-002): a quiescent class that strands a token — some marked
     // place is not where resting is permitted, the conditional sinks of VER-014
     // included. The empty marking strands nothing (AC4).
@@ -85,6 +77,32 @@ export function decideOverClasses(
   }
 }
 
+/**
+ * The class predicate of a reachability-safety property — whether a class with marking `m`
+ * violates it — or `null` for a quiescence property, whose predicate also needs to know
+ * whether the class has successors. It reads the marking alone, so a graph build can apply
+ * it to each class as the class is discovered and stop at the first violation ([VER-012]);
+ * {@link decideOverClasses} decides these properties through this same function.
+ */
+export function safetyViolation(property: SmtProperty): ((m: MarkingState) => boolean) | null {
+  switch (property.type) {
+    case 'place-bound':
+    case 'branch-place-bound':
+      return m => m.tokens(property.place) > property.bound;
+    case 'unreachable':
+      return m => {
+        for (const p of property.places) {
+          if (!m.hasTokens(p)) return false;
+        }
+        return true;
+      };
+    case 'mutual-exclusion':
+      return m => m.hasTokens(property.p1) && m.hasTokens(property.p2);
+    default:
+      return null;
+  }
+}
+
 /** Whether any declared sink place holds a token in `m` ([VER-002]). */
 function anySinkMarked(m: MarkingState, sinks: ReadonlySet<Place<any>>): boolean {
   const sinkNames = new Set<string>();
@@ -93,4 +111,14 @@ function anySinkMarked(m: MarkingState, sinks: ReadonlySet<Place<any>>): boolean
     if (sinkNames.has(p.name)) return true;
   }
   return false;
+}
+
+/**
+ * The report note of a violation found in the explored prefix of a graph that did not close
+ * ([VER-012], [VER-017], [VER-023]).
+ */
+export function prefixNote(graph: string, maxClasses: number): string {
+  return `\nNote: the ${graph} was truncated at ${maxClasses} classes; the violation was found in ` +
+    'the explored prefix. Every explored class is reachable, so the counterexample is a real firing ' +
+    'sequence, the shortest within the explored graph. A truncated graph never proves a property.\n';
 }

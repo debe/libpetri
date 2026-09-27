@@ -11,6 +11,7 @@
  * reachable quotient (exact); otherwise it truncates and the verifier reports
  * `unknown` (ν-PN reachability is undecidable).
  */
+import { Deadline } from '../total-budget.js';
 import type { PetriNet } from '../../core/petri-net.js';
 import type { Place } from '../../core/place.js';
 import type { EnvironmentPlace } from '../../core/place.js';
@@ -18,7 +19,7 @@ import type { In } from '../../core/in.js';
 import type { Transition } from '../../core/transition.js';
 import type { MarkingState } from '../marking-state.js';
 import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
-import { ignore } from './environment-analysis-mode.js';
+import { arrivalsNotModelled, ignore } from './environment-analysis-mode.js';
 import { initialStateClass, expandTransition, computeSuccessor } from './state-class-graph.js';
 import { NameMarking, type Sym } from './name-marking.js';
 import { NameStateClass, baseKeyOf } from './name-state-class.js';
@@ -36,10 +37,38 @@ export class NameStateClassGraph {
   readonly classes: NameStateClass[] = [];
   readonly edges: NameEdge[] = [];
   private readonly _successors: number[][] = [];
+  private readonly _labels: string[][] = [];
   private _complete = true;
+  private _expanded = 0;
+  private _stoppedEarly = false;
 
+  /** Whether BFS closed: every reachable class is present and expanded. */
   isComplete(): boolean {
     return this._complete;
+  }
+
+  /**
+   * Whether the build stopped at the first class matching its `stopAt` predicate
+   * ([VER-012]). That class is the last one, `classCount() - 1`; the graph is then not
+   * complete, and the class being expanded when it was found does not count as expanded.
+   */
+  stoppedEarly(): boolean {
+    return this._stoppedEarly;
+  }
+
+  /**
+   * How many classes had their successors computed. BFS expands in index order, so class `i`
+   * is expanded iff `i < expandedCount()`; on a complete graph that is every class. A truncated
+   * graph's unexpanded frontier has no successors recorded yet, which says nothing about
+   * whether it is quiescent ([VER-012]).
+   */
+  expandedCount(): number {
+    return this._expanded;
+  }
+
+  /** The transition names labelling {@link successorsOf}`(idx)`, index for index. */
+  successorLabelsOf(idx: number): readonly string[] {
+    return this._labels[idx]!;
   }
 
   classCount(): number {
@@ -63,12 +92,15 @@ export class NameStateClassGraph {
     environmentPlaces?: Set<EnvironmentPlace<any>>,
     environmentMode?: EnvironmentAnalysisMode,
     prioritySemantics: PrioritySemantics = 'none',
+    deadline: Deadline | null = null,
+    stopAt: ((marking: MarkingState) => boolean) | null = null,
   ): NameStateClassGraph {
     const envMode = environmentMode ?? ignore();
     const envPlaces = new Set<Place<any>>();
     if (environmentPlaces) {
       for (const ep of environmentPlaces) envPlaces.add(ep.place);
     }
+    if (envMode.type === 'arrivals' && envPlaces.size > 0) throw arrivalsNotModelled('NameStateClassGraph.build');
 
     const graph = new NameStateClassGraph();
     const base0 = initialStateClass(net, initialMarking, envPlaces, envMode);
@@ -89,16 +121,29 @@ export class NameStateClassGraph {
       classId(b0.id, n0.id),
       indexOf,
     );
+    // On-the-fly early stop ([VER-012]): every class is tested once, as it is discovered.
+    // BFS discovers classes in index order at non-decreasing depth, so the first match is the
+    // lowest-index one — what a check over the finished graph would return — and every edge
+    // on its shortest path is already recorded.
+    if (stopAt !== null && stopAt(graph.markingOf(0))) {
+      graph._complete = false;
+      graph._stoppedEarly = true;
+      return graph;
+    }
 
     const sym = { next: 0 as Sym };
-    const queue: number[] = [0];
+    // BFS in index order: every class is queued once, when it is created, so the queue is the
+    // index range [expanded, classes.length) and needs no array of its own.
 
-    while (queue.length > 0) {
+    // VER-013 total budget: polled per class; throws TotalBudgetExhausted once passed.
+    const poll = Deadline.poller(deadline, 16);
+    while (graph._expanded < graph.classes.length) {
       if (graph.classes.length >= maxClasses) {
         graph._complete = false;
         break;
       }
-      const curIdx = queue.shift()!;
+      poll();
+      const curIdx = graph._expanded++;
       const current = graph.classes[curIdx]!;
 
       // The enabled transitions of this class as objects — used by the
@@ -142,7 +187,13 @@ export class NameStateClassGraph {
                 id,
                 indexOf,
               );
-              queue.push(toIdx);
+              if (stopAt !== null && stopAt(graph.markingOf(toIdx))) {
+                graph.addEdge(curIdx, toIdx, transition.name);
+                graph._expanded = curIdx; // partly expanded: not counted
+                graph._complete = false;
+                graph._stoppedEarly = true;
+                return graph;
+              }
             }
             graph.addEdge(curIdx, toIdx, transition.name);
           }
@@ -156,12 +207,14 @@ export class NameStateClassGraph {
     const idx = this.classes.length;
     this.classes.push(c);
     this._successors.push([]);
+    this._labels.push([]);
     indexOf.set(id, idx);
   }
 
   private addEdge(from: number, to: number, name: string): void {
     this.edges.push({ from, to, transitionName: name });
     this._successors[from]!.push(to);
+    this._labels[from]!.push(name);
   }
 }
 
@@ -356,9 +409,12 @@ function colouredOutputs(outputPlaces: ReadonlySet<Place<any>>, fragment: NameFr
  * Name-layer successors of one firing. Ordinary passes the layer through; Mint
  * stamps one globally-fresh symbol into the coloured outputs of this branch (one
  * symbol into several = same-mint siblings); Join yields one successor per
- * enabling symbol (none ⇒ the join is name-disabled); Consume (EXTENDED, NU-051)
+ * enabling symbol (none ⇒ the join is name-disabled), adding that symbol back once to
+ * each relay target of the fired branch (EXTENDED, NU-054); Consume (EXTENDED, NU-051)
  * yields one successor per resident symbol of the single coloured input (count 1,
- * so NONE is dropped), threading that symbol into every coloured output (relay)
+ * so NONE is dropped). Both emit one successor per distinct symbol signature only —
+ * symbols with equal signatures give the same canonical key ({@link distinctSignatures}) —
+ * threading that symbol into every coloured output (relay)
  * or dropping it (drain, no coloured output).
  *
  * Exported for the interning test only: this step's equivariance under symbol
@@ -384,10 +440,19 @@ export function nameSuccessors(
       return [nm];
     }
     case 'join': {
+      // NU-054: the relay targets of the fired branch, in output order. Relaying adds back the
+      // symbol the join removed, so the step mints nothing, and it is still equivariant under
+      // renaming: the orbit dedup below reads signatures on the pre-step layer, and a
+      // transposition of two equal-signature symbols fixes that layer and maps one successor
+      // onto the other — equal keys, as for a drain.
+      const relays = role.relayTo.size === 0
+        ? []
+        : [...outputPlaces].filter(p => role.relayTo.has(p.name)).map(p => p.name);
       const result: NameMarking[] = [];
-      for (const s of enablingSymbols(names, role.colouredIn)) {
+      for (const s of distinctSignatures(enablingSymbols(names, role.colouredIn), names, fragment)) {
         const nm = names.copy();
         for (const [p, req] of role.colouredIn) nm.remove(p, s, req);
+        for (const p of relays) nm.add(p, s, 1);
         result.push(nm);
       }
       return result;
@@ -398,7 +463,7 @@ export function nameSuccessors(
       // coloured output (relay), keeping the name-layer total == base count.
       const colouredOut = colouredOutputs(outputPlaces, fragment);
       const result: NameMarking[] = [];
-      for (const s of names.symbolsIn(role.colouredInput)) {
+      for (const s of distinctSignatures(names.symbolsIn(role.colouredInput), names, fragment)) {
         const nm = names.copy();
         nm.remove(role.colouredInput, s, 1);
         for (const p of colouredOut) nm.add(p, s, 1);
@@ -407,6 +472,29 @@ export function nameSuccessors(
       return result;
     }
   }
+}
+
+/**
+ * The first symbol of each distinct signature among `symbols`, in their order. A symbol's
+ * signature is its count vector over `colouredOrder`. Two symbols with equal signatures are
+ * swapped by a transposition that fixes the name marking, so firing with either yields the same
+ * canonical key: emitting both only builds a copy and a key that collapse onto the class the
+ * first one produced. Dropping them leaves the class set and the (label, key) set of every
+ * class's successors unchanged — only parallel identical edges disappear (VER-012). A join over
+ * N live names otherwise costs N copies and keys per class, O(N² log N) over the graph.
+ */
+function distinctSignatures(symbols: readonly Sym[], names: NameMarking, fragment: NameFragment): readonly Sym[] {
+  if (symbols.length < 2) return symbols;
+  const seen = new Set<string>();
+  const result: Sym[] = [];
+  for (const s of symbols) {
+    let signature = '';
+    for (const p of fragment.colouredOrder) signature += `${names.countOf(p, s)},`;
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    result.push(s);
+  }
+  return result;
 }
 
 /**

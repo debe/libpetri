@@ -6,8 +6,8 @@
  */
 export { OpenNetContract, OpenNetContractBuilder } from './contract.js';
 export type { ArrivalGroup, CountClause, DesignedTerminal } from './contract.js';
-export { closeOpenNet } from './closure.js';
-export type { ClosedNet, EnvironmentStep } from './closure.js';
+export { closeArrivals, closeOpenNet } from './closure.js';
+export type { ArrivalsClosure, ClosedNet, EnvironmentStep } from './closure.js';
 export { verifyOpenNet } from './verify-open-net.js';
 export type { OpenNetOptions } from './verify-open-net.js';
 export type {

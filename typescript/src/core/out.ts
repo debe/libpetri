@@ -141,6 +141,64 @@ function collectPlaces(out: Out, result: Set<Place<any>>): void {
   }
 }
 
+/** Two leaves of one output branch that name the same place, as {@link duplicateInBranch} finds them. */
+export interface BranchDuplicate {
+  /** The place name, after `nameOf`. */
+  readonly name: string;
+  /** The two leaf places, as the spec names them (before `nameOf`). */
+  readonly first: Place<any>;
+  readonly second: Place<any>;
+}
+
+/**
+ * The first place a single output branch names twice — one choice at every XOR, nested ANDs
+ * flattened ([IO-011]) — or `null`. `nameOf` maps a leaf place to the place it stands for
+ * (identity by default; composition passes its port-to-host binding).
+ *
+ * Linear in the spec: an AND's children combine by cross product, so a place any branch of
+ * one child names and any branch of a sibling names is named twice by some branch.
+ */
+export function duplicateInBranch(
+  out: Out,
+  nameOf: (p: Place<any>) => string = p => p.name,
+): BranchDuplicate | null {
+  return findDuplicate(out, nameOf).dup;
+}
+
+function findDuplicate(
+  out: Out,
+  nameOf: (p: Place<any>) => string,
+): { dup: BranchDuplicate | null; leaves: Map<string, Place<any>> } {
+  switch (out.type) {
+    case 'place':
+      return { dup: null, leaves: new Map([[nameOf(out.place), out.place]]) };
+    case 'forward-input':
+      return { dup: null, leaves: new Map([[nameOf(out.to), out.to]]) };
+    case 'timeout':
+      return findDuplicate(out.child, nameOf);
+    case 'xor':
+    case 'and': {
+      const leaves = new Map<string, Place<any>>();
+      for (const child of out.children) {
+        const found = findDuplicate(child, nameOf);
+        if (found.dup !== null) return found;
+        for (const [name, p] of found.leaves) {
+          const prior = leaves.get(name);
+          if (prior !== undefined && out.type === 'and') return { dup: { name, first: prior, second: p }, leaves };
+          if (prior === undefined) leaves.set(name, p);
+        }
+      }
+      return { dup: null, leaves };
+    }
+  }
+}
+
+/** The [IO-011] rejection of a place named twice in one AND branch. */
+export function duplicateOutputPlaceMessage(transitionName: string, placeName: string): string {
+  return `output spec of transition '${transitionName}' names place '${placeName}' twice in one AND branch; ` +
+    'outputs are sets (IO-015) — a weighted output is not supported, add a second place or a follow-up transition';
+}
+
 /**
  * Enumerates all possible output branches for structural analysis ([IO-016]).
  *

@@ -595,6 +595,8 @@ describeZ3('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
       .initialMarking(m => { m.tokens(source, 3); m.tokens(budget, 2); })
       .property(branchPlaceBound(pending, 2))
       .budgetPlaces(budget)
+      // The coloured encoding is under test; the VER-015 bound precedes it and proves this.
+      .linearBound(false)
       .timeout(30_000)
       .verify();
     expect(result.verdict.type).toBe('proven');
@@ -1359,7 +1361,8 @@ describe('SmtVerifier semiflow invariants (VER-007)', () => {
   });
 
   it.skipIf(!Z3_AVAILABLE)('counts the semiflows on the coloured path', async () => {
-    const result = await colouredVerifier(true).timeout(30_000).verify();
+    // The VER-015 bound precedes the coloured query and would prove this first.
+    const result = await colouredVerifier(true).linearBound(false).timeout(30_000).verify();
     expect(result.report).toContain('name-coloured');
     expect(result.report).toContain('  Semiflows encoded as invariants: ');
   }, Z3_TIMEOUT);

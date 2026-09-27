@@ -5,7 +5,7 @@
  *
  * - EXEC-013 AC4: in-firing order is input consumption → read-arc peeks → reset
  *   draining, so read(p)+reset(p) on the same place observes the pre-reset token.
- * - CORE-030 AC3: two input arcs on one place are rejected at compile time.
+ * - CORE-030 AC3: two input arcs on one place are rejected when the transition is built.
  * - CORE-072 AC3/AC4: tokens on places the compiled net does not know are
  *   retained in the observable marking, never silently dropped — on every seam
  *   (initial marking, produce, external inject) — and each such place is
@@ -33,6 +33,7 @@ import { and, outPlace } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { delayed } from '../../src/core/timing.js';
+import { fork } from '../../src/core/transition-action.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import { InMemoryEventStore, eventsOfType } from '../../src/event/event-store.js';
@@ -92,30 +93,99 @@ for (const backend of backends) {
 // ==================== CORE-030: duplicate input places ====================
 
 describe('duplicate input arcs on one place (CORE-030)', () => {
-  function duplicateInputNet(): PetriNet {
+  // AC3 (amended): rejected where the transition is built, so no executor, flattener or
+  // state-class graph ever sees such a transition. CompiledNet keeps the check as a backstop.
+  it('Transition build rejects with a descriptive error', () => {
     const p = place<string>('P');
     const out = place<string>('OUT');
-    const t = Transition.builder('T')
+    const build = () => Transition.builder('T')
       .inputs(one(p), one(p))
       .outputs(outPlace(out))
-      .action(async (ctx) => { ctx.output(out, ctx.input(p)); })
       .build();
-    return PetriNet.builder('N').transition(t).build();
-  }
-
-  it('compilation rejects with a descriptive error', () => {
-    expect(() => CompiledNet.compile(duplicateInputNet())).toThrowError(/two input arcs/);
-    expect(() => CompiledNet.compile(duplicateInputNet())).toThrowError(/CORE-030/);
+    // The same text as Java's ArcDiagnostics.duplicateInputMessage, from builder and backstop alike.
+    expect(build).toThrowError(
+      "Transition 'T' declares two input arcs on place 'P'. Duplicate input places have no coherent "
+      + 'consumption semantics and are rejected (CORE-030). Use a single arc with exactly(n) / atLeast(n) instead.',
+    );
   });
 
-  for (const backend of backends) {
-    it(`${backend.name} construction rejects`, () => {
-      const p = place<string>('P');
-      expect(() => backend.make(duplicateInputNet(), initialTokens([p, [tokenOf('x')]])))
-        .toThrowError(/two input arcs/);
-    });
-  }
+  it('rejects arcs of different cardinality on one place, across inputs() calls', () => {
+    const p = place<string>('P');
+    expect(() => Transition.builder('T').inputs(one(p)).inputs(exactly(2, p)).build())
+      .toThrowError(/two input arcs on place 'P'/);
+    expect(() => Transition.builder('T').inputs(atLeast(1, p), one(p)).build())
+      .toThrowError(/two input arcs on place 'P'/);
+  });
+
+  it('one input arc per place still builds and compiles', () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const t = Transition.builder('T').inputs(one(a), exactly(2, b)).build();
+    const net = PetriNet.builder('N').transition(t).build();
+    expect(() => CompiledNet.compile(net)).not.toThrow();
+  });
 });
+
+// ==================== CORE-037: dead arc warning ====================
+
+for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as const) {
+  describe(`dead read / inhibitor / reset arcs warn at construction (${backendName}, CORE-037)`, () => {
+    const make = (net: PetriNet, tokens: Map<Place<any>, Token<any>[]>, options: object) =>
+      backendName === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, tokens, options)
+        : new PrecompiledNetExecutor(net, tokens, options);
+
+    /** `hub_kill` resets, `probe` reads and `guard` is inhibited by places nothing else touches. */
+    function deadArcNet(): PetriNet {
+      const kill = place<string>('KILL');
+      return PetriNet.builder('N')
+        .transition(Transition.builder('hub_kill').inputs(one(kill)).reset(place('answer/IN')).build())
+        .transition(Transition.builder('probe').inputs(one(place('P_IN'))).read(place('FLAG')).build())
+        .transition(Transition.builder('guard').inputs(one(place('G_IN'))).inhibitor(place('STOP')).build())
+        .build();
+    }
+
+    it('one WARN per dead arc, naming the transition', () => {
+      const store = new InMemoryEventStore();
+      make(deadArcNet(), initialTokens(), { eventStore: store });
+      const warnings = eventsOfType(store, 'log-message');
+      expect(warnings.map(w => [w.level, w.logger, w.transitionName, w.message])).toEqual([
+        ['WARN', 'libpetri.runtime', 'hub_kill',
+          "reset arc of 'hub_kill' on 'answer/IN': no transition produces into or consumes from it " +
+          'and it starts empty; the arc has no effect.'],
+        ['WARN', 'libpetri.runtime', 'probe',
+          "read arc of 'probe' on 'FLAG': no transition produces into or consumes from it " +
+          'and it starts empty; the transition can never be enabled.'],
+        ['WARN', 'libpetri.runtime', 'guard',
+          "inhibitor arc of 'guard' on 'STOP': no transition produces into or consumes from it " +
+          'and it starts empty; the arc never blocks.'],
+      ]);
+    });
+
+    it('an initially marked or environment place is not dead', () => {
+      const store = new InMemoryEventStore();
+      const flag = place<string>('FLAG');
+      const stop = environmentPlace<string>('STOP');
+      make(
+        deadArcNet(),
+        initialTokens([flag, [tokenOf('seed')]]),
+        { eventStore: store, environmentPlaces: new Set([stop]) },
+      );
+      expect(eventsOfType(store, 'log-message').map(w => w.transitionName)).toEqual(['hub_kill']);
+    });
+
+    it('a place some transition produces into or consumes from is not dead', () => {
+      const store = new InMemoryEventStore();
+      const flag = place<string>('FLAG');
+      const net = PetriNet.builder('N')
+        .transition(Transition.builder('probe').inputs(one(place('P_IN'))).read(flag).build())
+        .transition(Transition.builder('raise').inputs(one(place('R_IN'))).outputs(outPlace(flag)).action(fork()).build())
+        .build();
+      make(net, initialTokens(), { eventStore: store });
+      expect(eventsOfType(store, 'log-message')).toEqual([]);
+    });
+  });
+}
 
 // ==================== CORE-072: unknown-place token retention ====================
 

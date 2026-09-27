@@ -23,7 +23,7 @@ import { nodeStyle, edgeStyle, MATCH_INPUT_EDGE, FONT, GRAPH } from './styles.js
 import type { NodeCategory } from './styles.js';
 import { matchCorrelates } from '../core/match-spec.js';
 import { partition } from './cluster-builder.js';
-import { instancePrefixOf } from './subnet-prefixes.js';
+import { autoClusterKeyOf, instancePrefixOf } from './subnet-prefixes.js';
 
 // ======================== Configuration ========================
 
@@ -356,7 +356,7 @@ function clusterKeyOf(
     case 'metadata':
       return membership.get(nodeName);
     case 'auto':
-      return membership.get(nodeName) ?? instancePrefixOf(nodeName);
+      return autoClusterKeyOf(nodeName, membership);
     default: {
       // Exhaustiveness guard: a future ClusterSource member is a compile error.
       const _exhaustive: never = source;

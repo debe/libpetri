@@ -25,6 +25,7 @@ import {
 import type { SmtVerificationResult } from '../smt-verification-result.js';
 import { SmtVerifier } from '../smt-verifier.js';
 import { findFiringBound, formatRanking } from '../z3/bounded-run.js';
+import { cancelledReason, type Deadline } from '../total-budget.js';
 import { failureReason, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from '../z3/z3-process.js';
 import type { ClosedNet } from './closure.js';
 import type { OpenNetContract } from './contract.js';
@@ -75,6 +76,7 @@ export async function decideViaSmt(
   tracedPlaces: readonly Place<any>[],
   configure: (verifier: SmtVerifier) => SmtVerifier,
   terminationTimeoutMs: number,
+  stop: Deadline | null = null,
 ): Promise<SmtRouteOutcome> {
   const violations: ContractViolation[] = [];
   const undecided: string[] = [];
@@ -106,7 +108,7 @@ export async function decideViaSmt(
     }
   }
   if (contract.requiresTermination) {
-    const termination = await terminationByRanking(closed, terminationTimeoutMs);
+    const termination = await terminationByRanking(closed, terminationTimeoutMs, stop);
     if (termination.proven) {
       lines.push(`  [termination] Firing bound (VER-019): ${termination.detail}`);
     } else {
@@ -206,12 +208,16 @@ function partsFor(closed: ClosedNet, contract: OpenNetContract): Part[] {
 async function terminationByRanking(
   closed: ClosedNet,
   timeoutMs: number,
+  stop: Deadline | null,
 ): Promise<{ readonly proven: true; readonly detail: string } | { readonly proven: false; readonly reason: string }> {
+  // VER-013: cancelled before or during the query — the killed reply is not the answer.
+  const cancelled = { proven: false, reason: cancelledReason('termination (firing bound)') } as const;
+  if (stop?.cancelled()) return cancelled;
   const flat = flatten(closed.net);
   const initial = flat.places.map(p => closed.initialMarking.tokens(p));
   let solver: Z3Solver;
   try {
-    solver = resolveZ3();
+    solver = stop === null ? resolveZ3() : { ...resolveZ3(), deadline: stop };
   } catch (e) {
     if (e instanceof Z3Unavailable) return { proven: false, reason: e.message };
     throw e;
@@ -230,6 +236,7 @@ async function terminationByRanking(
   };
 
   const ranking = await findFiringBound(flat, initial, ask);
+  if (stop?.cancelled()) return cancelled;
   switch (ranking.kind) {
     case 'bound':
       return {

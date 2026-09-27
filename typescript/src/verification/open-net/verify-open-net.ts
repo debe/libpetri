@@ -16,6 +16,7 @@ import { decideOnGraph } from './graph-route.js';
 import { renderReport } from './report.js';
 import type { ContractViolation, OpenNetResult, OpenNetRoute } from './result.js';
 import { decideViaSmt, type SubjectCertificate } from './smt-route.js';
+import { cancelledReason, Deadline, VerificationCancelled } from '../total-budget.js';
 
 /** Options for {@link verifyOpenNet}. */
 export interface OpenNetOptions {
@@ -27,12 +28,20 @@ export interface OpenNetOptions {
   readonly configureSmt?: (verifier: SmtVerifier) => SmtVerifier;
   /** Time for the firing-bound query that decides termination on the SMT route (default 60 s). */
   readonly terminationTimeoutMs?: number;
+  /**
+   * Cancels the verification when it fires ([VER-013]). The graph build polls it, every
+   * `SmtVerifier` the SMT route builds gets it (before `configureSmt`, which may replace it), and
+   * the termination query's z3 process is killed at once. Each part left undecided by it
+   * reports `verification cancelled during <phase>`, and the verdict is `unknown`.
+   */
+  readonly signal?: AbortSignal;
 }
 
 const DEFAULT_MAX_CLASSES = 50_000;
 const METHOD_ENUMERATION = 'open-net contract by state-space enumeration (VER-022)';
 const METHOD_SMT = 'open-net contract by the SMT pipeline (VER-022)';
 const SKIPPED_BY_BUDGET = 'class budget 0';
+const PHASE_GRAPH = 'open-net state-class graph';
 const SKIPPED_BY_MATCH = 'the closed net declares match (ν-join) transitions, which the graph does not model';
 
 /**
@@ -72,7 +81,18 @@ export async function verifyOpenNet(
   const graphSkipped = [...closed.net.transitions].some(t => t.matchSpec !== null)
     ? SKIPPED_BY_MATCH
     : maxClasses > 0 ? null : SKIPPED_BY_BUDGET;
-  const graph = graphSkipped === null ? decideOnGraph(closed, contract, maxClasses, tracedPlaces) : null;
+  const stop = options.signal === undefined ? null : Deadline.start(null, options.signal);
+  let graph: ReturnType<typeof decideOnGraph> | null = null;
+  let graphCancelled = false;
+  if (graphSkipped === null) {
+    try {
+      stop?.check(); // a call cancelled before it starts builds nothing
+      graph = decideOnGraph(closed, contract, maxClasses, tracedPlaces, stop);
+    } catch (e) {
+      if (!(e instanceof VerificationCancelled)) throw e;
+      graphCancelled = true;
+    }
+  }
 
   const result = (
     verdict: Verdict,
@@ -91,6 +111,9 @@ export async function verifyOpenNet(
     elapsedMs: performance.now() - start,
   });
 
+  if (graphCancelled) {
+    return result({ type: 'unknown', reason: cancelledReason(PHASE_GRAPH) }, 'enumeration', [], null);
+  }
   if (graph !== null) {
     if (graph.violations.length > 0) {
       return result({ type: 'violated' }, 'enumeration', graph.violations, null);
@@ -109,8 +132,11 @@ export async function verifyOpenNet(
     return result({ type: 'unknown', reason: `${why}, and the SMT route is disabled` }, 'enumeration', [], null);
   }
 
+  const configure = options.configureSmt ?? (v => v);
   const smt = await decideViaSmt(
-    closed, contract, tracedPlaces, options.configureSmt ?? (v => v), options.terminationTimeoutMs ?? 60_000,
+    closed, contract, tracedPlaces,
+    options.signal === undefined ? configure : v => configure(v.signal(options.signal!)),
+    options.terminationTimeoutMs ?? 60_000, stop,
   );
   if (smt.violations.length > 0) return result({ type: 'violated' }, 'smt', smt.violations, smt.lines);
   if (smt.undecided.length === 0) {

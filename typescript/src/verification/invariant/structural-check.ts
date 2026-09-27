@@ -23,6 +23,7 @@
  *
  * Limited to nets with ≤50 places to bound enumeration cost.
  */
+import { Deadline } from '../total-budget.js';
 import type { FlatNet } from '../encoding/flat-net.js';
 import type { MarkingState } from '../marking-state.js';
 
@@ -61,7 +62,11 @@ export type StructuralCheckResult =
  * search to have found **every** minimal siphon, and each one's maximal trap to
  * hold a token in the initial marking.
  */
-export function structuralCheck(flatNet: FlatNet, initialMarking: MarkingState): StructuralCheckResult {
+export function structuralCheck(
+  flatNet: FlatNet,
+  initialMarking: MarkingState,
+  deadline: Deadline | null = null,
+): StructuralCheckResult {
   const P = flatNet.places.length;
 
   if (P === 0) {
@@ -72,7 +77,8 @@ export function structuralCheck(flatNet: FlatNet, initialMarking: MarkingState):
     return { type: 'inconclusive', reason: `Net has ${P} places, siphon enumeration skipped` };
   }
 
-  const siphons = findMinimalSiphons(flatNet, SIPHON_SEARCH_BUDGET);
+  // VER-013 total budget: the search is exponential, so it polls the deadline per node.
+  const siphons = findMinimalSiphons(flatNet, SIPHON_SEARCH_BUDGET, Deadline.poller(deadline));
   if (siphons === null) {
     return { type: 'inconclusive', reason: `siphon search exceeded ${SIPHON_SEARCH_BUDGET} nodes` };
   }
@@ -102,9 +108,11 @@ export function structuralCheck(flatNet: FlatNet, initialMarking: MarkingState):
  * it can miss exactly the unmarked siphon that makes the net dead.
  */
 export function findMinimalSiphons(flatNet: FlatNet): ReadonlySet<number>[];
-export function findMinimalSiphons(flatNet: FlatNet, budget: number): ReadonlySet<number>[] | null;
 export function findMinimalSiphons(
-  flatNet: FlatNet, budget = Number.POSITIVE_INFINITY,
+  flatNet: FlatNet, budget: number, poll?: () => void,
+): ReadonlySet<number>[] | null;
+export function findMinimalSiphons(
+  flatNet: FlatNet, budget = Number.POSITIVE_INFINITY, poll: () => void = () => {},
 ): ReadonlySet<number>[] | null {
   const P = flatNet.places.length;
   const found: Set<number>[] = [];
@@ -112,6 +120,7 @@ export function findMinimalSiphons(
 
   const grow = (siphon: Set<number>): boolean => {
     if (++nodes > budget) return false;
+    poll();
     // A superset of a siphon already found cannot lead to a new minimal one.
     if (found.some(f => isSubsetOf(f, siphon))) return true;
 

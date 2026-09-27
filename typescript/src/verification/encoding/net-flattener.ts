@@ -24,12 +24,12 @@ import type { FlatNet } from './flat-net.js';
 import { flatTransition } from './flat-transition.js';
 import { enumerateBranches, allPlaces as outAllPlaces } from '../../core/out.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
-import { type EnvironmentAnalysisMode, alwaysAvailable } from '../analysis/environment-analysis-mode.js';
+import { type EnvironmentAnalysisMode, alwaysAvailable, arrivalsNotModelled } from '../analysis/environment-analysis-mode.js';
 
 // The SMT path shares the single 3-mode EnvironmentAnalysisMode with the state
 // class graph (VER-006): AlwaysAvailable / Bounded(k) / Ignore. Re-exported here
 // for the encoding barrel so existing `libpetri/verification` consumers resolve it.
-export { type EnvironmentAnalysisMode, alwaysAvailable, bounded, ignore } from '../analysis/environment-analysis-mode.js';
+export { type EnvironmentAnalysisMode, alwaysAvailable, arrivals, bounded, ignore } from '../analysis/environment-analysis-mode.js';
 
 /**
  * Flattens a PetriNet into a FlatNet suitable for SMT encoding.
@@ -94,6 +94,9 @@ export function flatten(
       break;
     case 'ignore':
       // Not modeled: env places stay ordinary (frozen at their initial count).
+      break;
+    case 'arrivals':
+      if (environmentPlaces.size > 0) throw arrivalsNotModelled('flatten');
       break;
   }
 

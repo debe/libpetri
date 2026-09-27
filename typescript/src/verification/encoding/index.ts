@@ -5,5 +5,5 @@ export { flatNetPlaceCount, flatNetTransitionCount, flatNetIndexOf } from './fla
 export { IncidenceMatrix } from './incidence-matrix.js';
 export { flatten } from './net-flattener.js';
 // VER-006 environment analysis mode (shared with the state class graph path).
-export { alwaysAvailable, bounded, ignore } from './net-flattener.js';
+export { alwaysAvailable, arrivals, bounded, ignore } from './net-flattener.js';
 export type { EnvironmentAnalysisMode } from './net-flattener.js';

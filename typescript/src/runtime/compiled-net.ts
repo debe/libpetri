@@ -16,7 +16,7 @@
  */
 import type { PetriNet } from '../core/petri-net.js';
 import type { Place } from '../core/place.js';
-import type { Transition } from '../core/transition.js';
+import { duplicateInputArcMessage, type Transition } from '../core/transition.js';
 import { requiredCount } from '../core/in.js';
 import { allPlaces } from '../core/out.js';
 import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
@@ -142,16 +142,12 @@ export class CompiledNet {
       let needsCardinality = false;
 
       // Input specs
-      // CORE-030: the Transition builder stays permissive; the duplicate-input
-      // rejection lives here so both executors share it.
+      // CORE-030: the Transition builder rejects duplicate input places; this is the
+      // backstop, with the same message, for a transition that reached here otherwise.
       const seenInputPlaces = new Set<string>();
       for (const inSpec of t.inputSpecs) {
         if (seenInputPlaces.has(inSpec.place.name)) {
-          throw new Error(
-            `Transition '${t.name}' declares two input arcs on place '${inSpec.place.name}'. `
-            + 'Duplicate input places have no coherent consumption semantics and are rejected '
-            + 'at compile time (CORE-030). Use a single arc with exactly(n) / atLeast(n) instead.'
-          );
+          throw new Error(duplicateInputArcMessage(t.name, inSpec.place.name));
         }
         seenInputPlaces.add(inSpec.place.name);
         const pid = this._placeIndex.get(inSpec.place.name)!;

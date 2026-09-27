@@ -8,6 +8,7 @@ import { ComposeBindings, __createComposeBindings } from './compose-bindings.js'
 import { applyFusion, mergeTransitions, substitutePlaces } from './internal/subnet-rewriter.js';
 import { FusionSet, FusionSetBuilder } from './fusion-set.js';
 import { rejectSubnetTerminals } from './internal/terminal-check.js';
+import { allPlaces, duplicateInBranch } from './out.js';
 
 /** @internal Symbol key restricting construction to the builder and bindActions. */
 const PETRI_NET_KEY = Symbol('PetriNet.internal');
@@ -104,6 +105,49 @@ export class PetriNet {
       this.subnetMembership, this.terminals);
   }
 
+  /**
+   * The subnet `name` belongs to ([MOD-040]): the owning subnet from {@link subnetMembership}
+   * ([MOD-026]) when the node has an entry; else the longest `/`-prefix of the name that is a real
+   * instance — one under which the net has at least one transition (`a/b/c/x` tries `a/b/c`,
+   * `a/b`, `a`); else `undefined`. Also `undefined` when `name` is neither a place nor a
+   * transition of this net.
+   *
+   * Instance composition records no membership ([MOD-026] rule 4), so for its nodes this is the
+   * instance prefix: `subnetOf('answer/call')` is `'answer'`. It differs from the DOT `auto`
+   * cluster rule (`autoClusterKeyOf` in `export/subnet-prefixes`, the part before the **last** `/`) only for a name with
+   * a `/` inside a subnet's own namespace: a place `s1/obs/TURN` in a net whose only transitions
+   * under `s1/` are `s1/…` belongs to `s1`, not to a transition-less `s1/obs`.
+   */
+  subnetOf(name: string): string | undefined {
+    const index = this.nameIndex();
+    if (!index.nodes.has(name)) return undefined;
+    const owner = this.subnetMembership.get(name);
+    if (owner !== undefined) return owner;
+    for (let i = name.lastIndexOf('/'); i > 0; i = name.lastIndexOf('/', i - 1)) {
+      const prefix = name.substring(0, i);
+      if (index.transitionPrefixes.has(prefix)) return prefix;
+    }
+    return undefined;
+  }
+
+  /** Built on the first {@link subnetOf}: node names, and every proper `/`-prefix of a transition name. */
+  private _nameIndex: { nodes: Set<string>; transitionPrefixes: Set<string> } | undefined;
+
+  private nameIndex(): { nodes: Set<string>; transitionPrefixes: Set<string> } {
+    if (this._nameIndex !== undefined) return this._nameIndex;
+    const nodes = new Set<string>();
+    const transitionPrefixes = new Set<string>();
+    for (const p of this.places) nodes.add(p.name);
+    for (const t of this.transitions) {
+      nodes.add(t.name);
+      // From index 1: a leading '/' is no prefix, but must not end the scan (`/x/t` → `/x`).
+      for (let i = t.name.indexOf('/', 1); i > 0; i = t.name.indexOf('/', i + 1)) {
+        transitionPrefixes.add(t.name.substring(0, i));
+      }
+    }
+    return (this._nameIndex = { nodes, transitionPrefixes });
+  }
+
   static builder(name: string): PetriNetBuilder {
     return new PetriNetBuilder(name);
   }
@@ -121,6 +165,9 @@ export class PetriNetBuilder {
   private readonly _subnetContributions = new Map<string, Set<string>>();
   // EXEC-042: terminal places by name, in declaration order (TS Place identity is name-based).
   private readonly _terminals = new Map<string, Place<any>>();
+  // MOD-027: port places instance composition replaced by a host place, keyed by the
+  // renamed port-place name. An arc naming one at build() is rejected.
+  private readonly _retiredPorts = new Map<string, RetiredPort>();
 
   constructor(name: string) {
     this._name = name;
@@ -528,9 +575,21 @@ export class PetriNetBuilder {
     // the prefixed transition name unchanged (per MOD-010 — prefixed names
     // are already unique within the host) and rewrites only the arc place
     // references.
+    const portOf = new Map<string, string>();
+    for (const [portName, p] of instance.portHandles) portOf.set(p.name, portName);
     const rewrittenByName = new Map<string, Transition>();
     for (const t of instance.renamedBody.transitions) {
+      rejectPortBindingCollision(instance.prefix, t, mergeMap, portOf);
       rewrittenByName.set(t.name, substitutePlaces(t, mergeMap));
+    }
+
+    // MOD-027: every port place this composition replaced by a (different) host place is
+    // gone from the flat net; remember it so build() can reject an arc that still names it.
+    for (const [portName, portPlace] of instance.portHandles) {
+      const host = mergeMap.get(portPlace.name);
+      if (host !== undefined && host.name !== portPlace.name && !this._retiredPorts.has(portPlace.name)) {
+        this._retiredPorts.set(portPlace.name, { port: portName, instance: instance.prefix, host: host.name });
+      }
     }
 
     // Step 2: Apply channel merges. For each binding, locate the rewritten
@@ -673,6 +732,7 @@ export class PetriNetBuilder {
   build(): PetriNet {
     const membership = this.resolveSubnetMembership();
     if (this._fusionSets.length === 0) {
+      rejectBoundPortReferences(this._retiredPorts, this._transitions);
       const terminals = this._terminals.size === 0
         ? EMPTY_TERMINALS
         : new Set<Place<any>>(this._terminals.values());
@@ -769,6 +829,9 @@ export class PetriNetBuilder {
       const owner = ownership.get(canonicalName);
       return `Fusion set '${owner !== undefined ? owner.name : canonicalName}'`;
     });
+    // MOD-027 is checked on the net after fusion (MOD-061): a retired port fused into a
+    // canonical place is no longer referenced.
+    rejectBoundPortReferences(this._retiredPorts, rewrittenTransitions);
 
     // Step 4: re-derive the place set. Strategy: start from the current
     // place set, drop every non-canonical member (they are gone from the
@@ -806,6 +869,85 @@ export class PetriNetBuilder {
 
     return new PetriNet(PETRI_NET_KEY, this._name, rebuiltPlaces, rewrittenTransitions,
       PetriNetBuilder.filterFusedMembership(membership, nonCanonicalNames), terminals);
+  }
+}
+
+/** A port place instance composition replaced by a host place ([MOD-027]). */
+interface RetiredPort {
+  /** The port's name on the subnet interface. */
+  readonly port: string;
+  /** The instance prefix. */
+  readonly instance: string;
+  /** The host place the port was bound to. */
+  readonly host: string;
+}
+
+/**
+ * [MOD-020]: binding two ports of one instance to the same host place must not give one
+ * instance transition two input arcs on that place — the CORE-030 rejection would fire with
+ * no word about the binding that caused it. Rejected here, naming the instance, both ports,
+ * the host place and the transition. The same for two ports one AND branch of its output spec
+ * writes, which the IO-011 rejection would otherwise report without the binding.
+ */
+function rejectPortBindingCollision(
+  prefix: string,
+  t: Transition,
+  mergeMap: ReadonlyMap<string, Place<unknown>>,
+  portOf: ReadonlyMap<string, string>,
+): void {
+  const byHost = new Map<string, string>();
+  for (const spec of t.inputSpecs) {
+    const original = spec.place.name;
+    const host = mergeMap.get(original)?.name ?? original;
+    const prior = byHost.get(host);
+    if (prior !== undefined) {
+      throw new Error(
+        `ports '${portOf.get(prior) ?? prior}' and '${portOf.get(original) ?? original}' of instance ` +
+        `'${prefix}' are both bound to host place '${host}'; transition '${t.name}' would consume ` +
+        `from '${host}' through two input arcs. Bind them to distinct places or use one port.`,
+      );
+    }
+    byHost.set(host, original);
+  }
+  // The output side ([MOD-020], [IO-011]): two ports one AND branch writes, bound to one host.
+  if (t.outputSpec !== null) {
+    const dup = duplicateInBranch(t.outputSpec, p => mergeMap.get(p.name)?.name ?? p.name);
+    if (dup !== null && dup.first.name !== dup.second.name) {
+      throw new Error(
+        `ports '${portOf.get(dup.first.name) ?? dup.first.name}' and '${portOf.get(dup.second.name) ?? dup.second.name}' ` +
+        `of instance '${prefix}' are both bound to host place '${dup.name}'; transition '${t.name}' would produce ` +
+        `into '${dup.name}' twice in one AND branch. Outputs are sets (IO-015); bind them to distinct places or use one port.`,
+      );
+    }
+  }
+}
+
+/**
+ * [MOD-027]: an arc of any kind naming a port place that instance composition replaced by a
+ * host place would reach a fresh, unconnected place rather than the host one. Checked at build,
+ * over every transition however it was added, so the order of `compose` and arc addition does
+ * not matter.
+ */
+function rejectBoundPortReferences(
+  retired: ReadonlyMap<string, RetiredPort>,
+  transitions: ReadonlySet<Transition>,
+): void {
+  if (retired.size === 0) return;
+  const check = (p: Place<any>): void => {
+    const r = retired.get(p.name);
+    if (r !== undefined) {
+      throw new Error(
+        `place '${p.name}' is port '${r.port}' of instance '${r.instance}', bound to host place ` +
+        `'${r.host}' at compose; reference '${r.host}' instead`,
+      );
+    }
+  };
+  for (const t of transitions) {
+    for (const spec of t.inputSpecs) check(spec.place);
+    if (t.outputSpec !== null) for (const p of allPlaces(t.outputSpec)) check(p);
+    for (const arc of t.reads) check(arc.place);
+    for (const arc of t.inhibitors) check(arc.place);
+    for (const arc of t.resets) check(arc.place);
   }
 }
 

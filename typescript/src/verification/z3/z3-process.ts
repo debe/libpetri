@@ -30,6 +30,7 @@ import { rethrowIfProgrammingError } from '../programming-error.js';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { errorLine, timeoutLine } from './smt-text.js';
+import type { Deadline } from '../total-budget.js';
 
 /** Environment variable naming the z3 executable (default: `z3` on `PATH`). */
 export const Z3_ENV = 'LIBPETRI_Z3';
@@ -76,6 +77,13 @@ export interface Z3Solver {
   readonly version: Z3Version;
   /** Where scripts and replies are written, or `null` for no dump. */
   readonly dumpDir: string | null;
+  /**
+   * The total verification budget's deadline ([VER-013]), when one is set: every run is given
+   * at most what remains of it, and none is started once it has passed. When the deadline
+   * carries a cancellation signal, a run in flight is killed the moment it fires. Absent
+   * otherwise.
+   */
+  readonly deadline?: Deadline | null;
 }
 
 /** No usable z3 resolved; the message is the `unknown` reason the verifier reports. */
@@ -104,6 +112,8 @@ export interface Z3Reply {
   readonly stdout: string;
   readonly stderr: string;
   readonly exit: Z3Exit;
+  /** `true` when the process was killed because verification was cancelled ([VER-013]). */
+  readonly cancelled?: boolean;
 }
 
 /** True when the process exited with status 0. */
@@ -137,6 +147,7 @@ export function timeoutBudget(timeoutMs: number): number {
  * on stderr, and finally the unexpected stdout itself.
  */
 export function failureReason(reply: Z3Reply, timeoutMs: number): string {
+  if (reply.cancelled === true) return 'z3 killed: verification cancelled';
   if (timeoutLine(reply.stdout)) {
     return `z3 hard timeout after ${hardTimeoutSecs(timeoutMs)}s`;
   }
@@ -290,7 +301,23 @@ export function runZ3Text(
   timeoutMs: number,
   extraArgs: readonly string[] = [],
 ): Promise<Z3Reply> {
-  const budget = timeoutBudget(timeoutMs);
+  let budget = timeoutBudget(timeoutMs);
+  // VER-013 total budget: clamp to what remains, so `-t`, `-T` and the watchdog all derive from
+  // the clamped value; start nothing once it is spent.
+  const deadline = solver.deadline;
+  if (deadline != null) {
+    if (deadline.cancelled()) {
+      return Promise.reject(new Z3ProcessError('verification cancelled; z3 not started'));
+    }
+    const remaining = Math.floor(deadline.remainingMs());
+    if (remaining <= 0) {
+      return Promise.reject(new Z3ProcessError(
+        `total verification budget of ${deadline.budgetMs} ms exhausted; z3 not started`,
+      ));
+    }
+    budget = Math.min(budget, remaining);
+  }
+  const signal = deadline?.signal ?? null;
   const base = dumpSlot(solver, phase, script);
   return new Promise<Z3Reply>((resolve, reject) => {
     const child = spawn(solver.program, [...argsFor(budget), ...extraArgs], {
@@ -299,7 +326,15 @@ export function runZ3Text(
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     let killed = false;
+    let cancelled = false;
     let settled = false;
+    // VER-013 cancellation: kill at once rather than at the watchdog.
+    const onAbort = (): void => {
+      cancelled = true;
+      killed = true;
+      child.kill('SIGKILL');
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout!.on('data', (chunk: Buffer) => out.push(chunk));
     child.stderr!.on('data', (chunk: Buffer) => err.push(chunk));
     // A solver that exited early (parse error, `-T` expiry) closes the pipe under
@@ -313,16 +348,19 @@ export function runZ3Text(
       if (settled) return;
       settled = true;
       clearTimeout(watchdog);
+      signal?.removeEventListener('abort', onAbort);
       reject(new Z3ProcessError(`failed to spawn ${solver.program}: ${e.message}`));
     });
     child.on('close', (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(watchdog);
+      signal?.removeEventListener('abort', onAbort);
       const reply: Z3Reply = {
         stdout: Buffer.concat(out).toString('utf8'),
         stderr: Buffer.concat(err).toString('utf8'),
         exit: killed ? { kind: 'killed' } : { kind: 'exited', code },
+        ...(cancelled ? { cancelled: true } : {}),
       };
       if (base != null) {
         dumpWrite(`${base}.out`, reply.stdout);

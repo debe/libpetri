@@ -162,6 +162,47 @@ export function validateOutSpec(
 }
 
 /**
+ * The join-relay check of [NU-054], part of [IO-015] output validation: every token `t`'s firing
+ * wrote into a relay target of its match spec must project to `matched`, the name the join
+ * matched. Throws {@link OutViolationError} naming the transition, the place, the matched name and
+ * the name found (or "no name", also when the key function throws) on the first token that does not. Runs wherever output validation
+ * runs and nowhere else ([CONC-026]); `matched` is `null` only for a non-join firing, which has no
+ * relay targets.
+ */
+export function validateRelays(
+  t: Transition,
+  entries: readonly { readonly place: Place<any>; readonly token: Token<any> }[],
+  matched: string | null,
+): void {
+  const ms = t.matchSpec;
+  if (ms === null || ms.relays.length === 0) return;
+  for (const entry of entries) {
+    for (const r of ms.relays) {
+      if (r.place.name !== entry.place.name) continue;
+      // An absent value (e.g. the unit token of an Out.place timeout branch) has no name; the
+      // projection is not called on it (NU-054).
+      const value = entry.token.value;
+      let found: string | null | undefined = null;
+      if (value !== null && value !== undefined) {
+        // A key function that throws projects no name: the firing fails with the relay error,
+        // not with whatever the projection threw (NU-054).
+        try {
+          found = r.key(value) as string | null | undefined;
+        } catch {
+          found = null;
+        }
+      }
+      if (found === matched && found !== null && found !== undefined) break;
+      const foundText = found === null || found === undefined ? 'no name' : `name '${found}'`;
+      throw new OutViolationError(
+        `'${t.name}': relay target '${r.place.name}' received a token with ${foundText}, ` +
+        `but the join matched name '${matched ?? ''}' (NU-054)`
+      );
+    }
+  }
+}
+
+/**
  * Collapses identical claims, keeping at most two of each.
  *
  * Validation only needs to distinguish "no assignment", "exactly one" and "more
@@ -386,4 +427,17 @@ export function resolveExecutionScope(scope: string | undefined): string {
       `'<transition>#<scope>:<n>' (NU-011): ${scope}`);
   }
   return scope;
+}
+
+/** The CORE-072 AC4 warning for a token on a place the net does not declare. */
+export function unknownPlaceMessage(place: Place<any>): string {
+  return `unknown place '${place.name}': tokens are retained in the marking but inert `
+    + '(the net declares no arc on it)';
+}
+
+/** The names of the places a seed marking puts at least one token on ([CORE-037]). */
+export function seededPlaceNames(seed: ReadonlyMap<Place<any>, readonly Token<any>[]>): Set<string> {
+  const names = new Set<string>();
+  for (const [place, tokens] of seed) if (tokens.length > 0) names.add(place.name);
+  return names;
 }

@@ -10,9 +10,11 @@ import { MarkingState } from '../marking-state.js';
 import { DBM } from './dbm.js';
 import { StateClass } from './state-class.js';
 import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
-import { ignore } from './environment-analysis-mode.js';
+import { arrivalsNotModelled, ignore } from './environment-analysis-mode.js';
 import { requireOutputProducingActions } from '../../core/internal/output-action-check.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
+import { Deadline } from '../total-budget.js';
+import type { TotalBudgetExhausted } from '../total-budget.js';
 
 /** Edge that tracks which XOR branch was taken. */
 export interface BranchEdge {
@@ -34,6 +36,12 @@ export interface StateClassGraphOptions {
    * markings the untimed encoders reason about. No effect on an all-immediate net.
    */
   readonly untimed?: boolean;
+  /**
+   * The total verification budget's deadline ([VER-013]): the build polls it and throws
+   * {@link TotalBudgetExhausted} once it has passed. A build cut off this way returns no graph,
+   * so nothing can mistake it for a class-budget truncation.
+   */
+  readonly deadline?: Deadline | null;
 }
 
 const IMMEDIATE: Timing = immediate();
@@ -57,6 +65,7 @@ export class StateClassGraph {
   private readonly _successors: Map<StateClass, Set<StateClass>>;
   private readonly _predecessors: Map<StateClass, Set<StateClass>>;
   private readonly _complete: boolean;
+  private readonly _expanded: number;
 
   private constructor(
     net: PetriNet,
@@ -64,12 +73,14 @@ export class StateClassGraph {
     stateClasses: StateClass[],
     transitions: Map<StateClass, Map<Transition, BranchEdge[]>>,
     complete: boolean,
+    expanded: number,
   ) {
     this.net = net;
     this.initialClass = initialClass;
     this._stateClasses = stateClasses;
     this._transitions = transitions;
     this._complete = complete;
+    this._expanded = expanded;
 
     // Build successor/predecessor maps
     this._successors = new Map();
@@ -110,6 +121,7 @@ export class StateClassGraph {
         envPlaces.add(ep.place);
       }
     }
+    if (envMode.type === 'arrivals' && envPlaces.size > 0) throw arrivalsNotModelled('StateClassGraph.build');
     const untimed = options.untimed === true;
 
     const initialClass = initialStateClass(net, initialMarking, envPlaces, envMode, untimed);
@@ -120,16 +132,20 @@ export class StateClassGraph {
     const classMap = new Map<string, StateClass>([[classKey(initialClass), initialClass]]);
     const transitionMap = new Map<StateClass, Map<Transition, BranchEdge[]>>();
     transitionMap.set(initialClass, new Map());
-    const queue: StateClass[] = [initialClass];
+    // BFS in index order: every class is queued once, when it is appended, so the queue is
+    // `stateClasses[expanded ..]` and needs no array of its own.
+    let expanded = 0;
     let complete = true;
+    const poll = Deadline.poller(options.deadline, 16);
 
-    while (queue.length > 0) {
+    while (expanded < stateClasses.length) {
       if (stateClasses.length >= maxClasses) {
         complete = false;
         break;
       }
+      poll();
 
-      const current = queue.shift()!;
+      const current = stateClasses[expanded++]!;
 
       for (const transition of current.enabledTransitions) {
         const virtualTransitions = expandTransition(transition);
@@ -150,7 +166,6 @@ export class StateClassGraph {
             classMap.set(key, successor);
             stateClasses.push(successor);
             transitionMap.set(successor, new Map());
-            queue.push(successor);
           } else {
             // Rewrite edge target to existing canonical instance
             const canonical = classMap.get(key)!;
@@ -163,7 +178,7 @@ export class StateClassGraph {
       }
     }
 
-    return new StateClassGraph(net, initialClass, stateClasses, transitionMap, complete);
+    return new StateClassGraph(net, initialClass, stateClasses, transitionMap, complete, expanded);
   }
 
   stateClasses(): readonly StateClass[] {
@@ -176,6 +191,16 @@ export class StateClassGraph {
 
   isComplete(): boolean {
     return this._complete;
+  }
+
+  /**
+   * How many classes had their successors computed. BFS expands in index order, so
+   * `stateClasses()[i]` is expanded iff `i < expandedCount()`; on a complete graph that is every
+   * class. A truncated graph's unexpanded frontier has no successors recorded, which says
+   * nothing about whether it is quiescent ([VER-017]).
+   */
+  expandedCount(): number {
+    return this._expanded;
   }
 
   successors(sc: StateClass): Set<StateClass> {
@@ -503,6 +528,8 @@ function checkPlaceEnabled(
     case 'always-available': return true;
     case 'bounded': return required <= environmentMode.maxTokens;
     case 'ignore': return marking.tokens(place) >= required;
+    // Refused at build time; a closed net has no environment places.
+    case 'arrivals': throw arrivalsNotModelled('StateClassGraph');
   }
 }
 

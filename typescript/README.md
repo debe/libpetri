@@ -78,7 +78,7 @@ The executor stops at the deposit that marks the terminal place. Nothing fires a
 const result = executor.snapshot();                        // does not stop the net
 if (isRestorePoint(result)) await save(JSON.stringify([...result.marking]));
 
-const restore = new Map(JSON.parse(stored));
+const restore: MarkingSnapshotForm = new Map(JSON.parse(stored));
 const resumed = new BitmapNetExecutor(net, new Map(), { restore });
 ```
 
@@ -156,7 +156,7 @@ npm test
 
 ## SMT verification needs a `z3` executable
 
-The package does not bundle a solver. `SmtVerifier` runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query, so the event loop stays free while it solves; `z3Available()` from `libpetri/verification` tells you whether one resolves, and without it every verification returns `unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation. The verification entry is Node-only.
+The package does not bundle a solver. `SmtVerifier` runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query, so the event loop stays free while it solves; `z3Available()` from `libpetri/verification` tells you whether one resolves, and without it every verification returns `unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation; `.totalBudget(ms)` caps the whole `verify()` call and `.signal(abortSignal)` cancels it, either way ending in `unknown`. The verification entry is Node-only.
 
 ## Project links
 

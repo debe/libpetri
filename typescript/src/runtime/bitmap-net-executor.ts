@@ -39,8 +39,9 @@ import { CompiledNet, WORD_SHIFT, BIT_MASK, setBit, clearBit, restartThresholds 
 import { Marking, type PredicateSpec, type MarkingSnapshotForm } from './marking.js';
 import { findBinding, IncrementalMatcher } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
-import { nameId } from '../core/name.js';
-import { validateOutSpec, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId, restoredTokens, resolveExecutionScope } from './executor-support.js';
+import { nameId, type NameId } from '../core/name.js';
+import { validateOutSpec, validateRelays, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId, restoredTokens, resolveExecutionScope, seededPlaceNames, unknownPlaceMessage } from './executor-support.js';
+import { deadArcMessage, findDeadArcs } from '../core/internal/dead-arcs.js';
 import { earliest as timingEarliest, latest as timingLatest, hasDeadline as timingHasDeadline } from '../core/timing.js';
 
 /** Tolerance for JS timer jitter (setTimeout resolution ~1-4ms). */
@@ -52,6 +53,8 @@ interface InFlightTransition {
   startMs: number;
   resolve: () => void;
   error?: unknown;
+  /** The name a ν-join matched (NU-020), for the relay check (NU-054); `null` otherwise. */
+  matchedName: NameId | null;
 }
 
 interface ExternalEvent<T = any> {
@@ -399,6 +402,11 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       if (tokens.length > 0 && this.compiled.tryPlaceId(place) === undefined) {
         this.warnUnknownPlace(place, '');
       }
+    }
+    // CORE-037: arcs that can never have an effect, reported once through the same seam.
+    const seeded = seededPlaceNames(seedTokens);
+    for (const arc of findDeadArcs(net, name => seeded.has(name), name => this.environmentPlaces.has(name))) {
+      this.warn(deadArcMessage(arc), arc.transition);
     }
 
     this.initMatchCaches();
@@ -1159,6 +1167,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       consumed,
       startMs: this.nowMs(),
       resolve: resolveInFlight,
+      matchedName: chosen,
     };
 
     actionPromise.then(
@@ -1242,6 +1251,8 @@ export class BitmapNetExecutor implements PetriNetExecutor {
         if (t.outputSpec !== null) {
           const produced = outputs.placesWithTokens();
           const claim = validateOutSpec(t.name, t.outputSpec, produced);
+          // NU-054: every token in a relay target carries the matched name.
+          validateRelays(t, outputs.entries(), flight.matchedName);
           // IO-016 AC4: a spec names a place once; several tokens into a named place
           // pass validation (IO-015 reads the produced SET) but exceed what every
           // branch-enumerating analysis models. Cheap test first: a repeat exists
@@ -1620,14 +1631,18 @@ export class BitmapNetExecutor implements PetriNetExecutor {
   private warnUnknownPlace(place: Place<any>, transitionName: string): void {
     if (this.warnedUnknownPlaces.has(place.name)) return;
     this.warnedUnknownPlaces.add(place.name);
+    this.warn(unknownPlaceMessage(place), transitionName);
+  }
+
+  /** Emits one `WARN` log-message event (EVT-013) from `libpetri.runtime`. */
+  private warn(message: string, transitionName: string): void {
     this.emitEvent({
       type: 'log-message',
       timestamp: this.epochMs(),
       transitionName,
       logger: 'libpetri.runtime',
       level: 'WARN',
-      message: `unknown place '${place.name}': tokens are retained in the marking but inert `
-        + '(the net declares no arc on it)',
+      message,
       error: null,
       errorMessage: null,
     });

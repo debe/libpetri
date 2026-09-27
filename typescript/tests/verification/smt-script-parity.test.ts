@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { describe, it } from 'vitest';
 import { dirname, join } from 'node:path';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { verificationNets, withFixtureTerminals } from '../fixtures/verification-nets.js';
+import { compareScript as compare } from '../fixtures/script-parity.js';
 import { applySinkPlacesWhen, fixtures, fixturesPath, placeOf, toProperty } from './verdict-parity.test.js';
 
 /**
@@ -17,27 +17,6 @@ import { applySinkPlacesWhen, fixtures, fixturesPath, placeOf, toProperty } from
  * No solver is needed: the encoders are pure text.
  */
 const scriptsDir = join(dirname(fixturesPath), 'scripts');
-
-function firstDifference(expected: string, actual: string): string {
-  const e = expected.split('\n');
-  const a = actual.split('\n');
-  for (let i = 0; i < Math.min(e.length, a.length); i++) {
-    if (e[i] !== a[i]) return `line ${i + 1}:\n  golden: ${e[i]}\n  actual: ${a[i]}`;
-  }
-  return `one text is a prefix of the other (golden ${e.length} lines, actual ${a.length} lines)`;
-}
-
-function compare(id: string, golden: string, actual: string | null): void {
-  if (!existsSync(golden)) {
-    expect(actual, `SCRIPT PARITY FINDING [${id}]: this encoding emits ${golden} but no golden exists (run scripts/smt-script-parity.py --update)`).toBeNull();
-    return;
-  }
-  const expected = readFileSync(golden, 'utf8');
-  expect(actual, `SCRIPT PARITY FINDING [${id}]: ${golden} exists but this encoding emits no such script`).not.toBeNull();
-  if (actual !== expected) {
-    expect.fail(`SCRIPT PARITY FINDING [${id}]: ${golden} differs from the Rust golden at ${firstDifference(expected, actual!)} — report the divergence, never edit the golden by hand`);
-  }
-}
 
 describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
   for (const fixture of fixtures) {
@@ -69,7 +48,7 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
       compare(fixture.id, join(dir, 'horn.smt2'), scripts.horn);
       compare(fixture.id, join(dir, 'certificate.smt2'), scripts.certificate);
       // VER-015 AC4: the linear state-equation bound query, pinned wherever the property
-      // has a linear demand on the flat path.
+      // has a linear demand — on the flat path and ahead of a name-coloured encoding alike.
       compare(fixture.id, join(dir, 'bound.smt2'), scripts.bound);
       // VER-018 AC7: the state-equation phase's first query, pinned wherever the phase runs.
       compare(fixture.id, join(dir, 'state-equation.smt2'), scripts.stateEquation);
