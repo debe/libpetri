@@ -1,0 +1,7 @@
+start       request                ->  thinking
+call-model  thinking               ->  toolCall
+run-tool    toolCall + toolBudget  ->  toolResult
+observe     toolResult             ->  thinking
+call-model  thinking               ->  answer
+
+answer: "answer from 2 notes"

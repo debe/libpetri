@@ -6,7 +6,7 @@
 
 The Java 25 implementation of libpetri: typed Coloured Time Petri Nets, asynchronous transition actions, modular composition, observability, DOT export, and formal verification.
 
-For the motivation and a workflow using every arc type, concurrency, and timeout routing, start with the [project README](../README.md#why-a-petri-net).
+The [project README](../README.md) walks through one agent turn as a net: reading it, running it, and checking it with the verifier.
 
 ## Install
 

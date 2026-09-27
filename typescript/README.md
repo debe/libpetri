@@ -6,7 +6,7 @@
 
 The TypeScript 6 implementation of libpetri: typed Coloured Time Petri Nets for Promise-based applications, with modular composition, two execution backends, observability, DOT export, and formal verification.
 
-See the [project README](https://github.com/debe/libpetri#why-a-petri-net) for the motivation and an order workflow using every arc type, concurrent actions, and timeout routing.
+See the [project README](https://github.com/debe/libpetri#readme) for the motivation, and [Every arc kind in one workflow](#every-arc-kind-in-one-workflow) below for an order workflow that uses each arc kind, concurrent actions and a timeout.
 
 ## Install
 
@@ -44,6 +44,85 @@ const executor = new BitmapNetExecutor(
 const result = await executor.run();
 console.log(result.peekFirst(output)?.value); // HELLO
 ```
+
+## Every arc kind in one workflow
+
+This order workflow uses each arc kind once. `dispatch` consumes an order, reads the current policy without
+removing it, is blocked while `paused` holds a token, clears `lastError`, and forks the order to two jobs.
+`fraud-check` either succeeds or, after 50 ms, gives up and forwards its original input to `retry`.
+
+```typescript
+import {
+  BitmapNetExecutor, PetriNet, Transition, and, forwardInput,
+  one, outPlace, place, timeout, tokenOf, xor,
+} from 'libpetri';
+
+const orders = place<string>('orders');
+const policy = place<string>('policy');
+const paused = place<void>('paused');
+const lastError = place<string>('lastError');
+const fraudJob = place<string>('fraudJob');
+const stockJob = place<string>('stockJob');
+const fraudOk = place<string>('fraudOk');
+const stockOk = place<string>('stockOk');
+const retry = place<string>('retry');
+
+const dispatch = Transition.builder('dispatch')
+  .inputs(one(orders))                    // consume one order
+  .read(policy)                            // observe policy; keep its token
+  .inhibitor(paused)                       // block while paused has a token
+  .reset(lastError)                        // clear stale failure state
+  .outputs(and(outPlace(fraudJob), outPlace(stockJob))) // fork
+  .action(async (ctx) => {
+    const order = ctx.input(orders);
+    ctx.read(policy);
+    ctx.output(fraudJob, order);
+    ctx.output(stockJob, order);
+  })
+  .build();
+
+const fraud = Transition.builder('fraud-check')
+  .inputs(one(fraudJob))
+  .outputs(xor(
+    outPlace(fraudOk),
+    timeout(50, forwardInput(fraudJob, retry)), // keep the order on timeout
+  ))
+  .action(async (ctx) => {
+    await new Promise(resolve => setTimeout(resolve, 200)); // slow service
+    ctx.output(fraudOk, ctx.input(fraudJob));
+  })
+  .build();
+
+const stock = Transition.builder('reserve-stock')
+  .inputs(one(stockJob))
+  .outputs(outPlace(stockOk))
+  .action(async (ctx) => {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    ctx.output(stockOk, ctx.input(stockJob));
+  })
+  .build();
+
+const net = PetriNet.builder('orders')
+  .transitions(dispatch, fraud, stock)
+  .build();
+
+const executor = new BitmapNetExecutor(
+  net,
+  new Map([
+    [orders, [tokenOf('order-42')]],
+    [policy, [tokenOf('standard')]],
+    [lastError, [tokenOf('previous attempt failed')]],
+  ]),
+);
+
+const result = await executor.run();
+console.log(result.peekFirst(stockOk)?.value); // order-42
+console.log(result.peekFirst(retry)?.value);   // order-42
+```
+
+After `dispatch` fires, `fraud-check` and `reserve-stock` are both enabled and their promises run at the same
+time. Stock completes after 20 ms. The fraud action takes 200 ms, so the 50 ms timeout fires first, the order
+goes to `retry`, and the late fraud result is discarded.
 
 ## Execution and concurrency
 

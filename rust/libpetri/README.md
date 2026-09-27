@@ -6,7 +6,7 @@
 
 The umbrella crate for libpetri's Rust 2024 Coloured Time Petri Net engine. It re-exports the model, runtime, events, verification, and DOT export APIs from one package.
 
-See the [project README](https://github.com/debe/libpetri#why-a-petri-net) for the motivation and a workflow demonstrating every arc type, concurrent actions, and timeout routing. Contributors should use the [Rust workspace guide](https://github.com/debe/libpetri/blob/main/rust/README.md).
+The [project README](https://github.com/debe/libpetri#readme) walks through one agent turn as a net: reading it, running it, and checking it with the verifier. Contributors should use the [Rust workspace guide](https://github.com/debe/libpetri/blob/main/rust/README.md).
 
 ## Install
 

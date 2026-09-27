@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1003pt" height="329pt" viewBox="0 0 1003 329">
+<rect x="0.5" y="0.5" width="1002" height="328" rx="10" ry="10" fill="#ffffff" stroke="#d0d7de"/>
+<svg x="14" y="14" overflow="visible" width="975" height="253"
+ viewBox="0.00 0.00 975.00 253.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 248.6)">
+<title>agent_turn</title>
+<g id="edge1" class="edge">
+<title>p_request&#45;&gt;t_start</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M61.25,-59C68.33,-59 77.54,-59 86.88,-59"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="86.79,-62.5 96.79,-59 86.79,-55.5 86.79,-62.5"/>
+<text xml:space="preserve" text-anchor="middle" x="80.6" y="-62.3" font-family="Helvetica,Arial,sans-serif" font-size="11.00" fill="#d1242f">1</text>
+</g>
+<g id="edge3" class="edge">
+<title>p_thinking&#45;&gt;t_call_model</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M220.02,-66.57C225.59,-70.46 232.62,-75.18 239.15,-79 249.62,-85.11 261.17,-91.21 272.1,-96.7"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="270.32,-99.73 280.84,-101.01 273.42,-93.45 270.32,-99.73"/>
+<text xml:space="preserve" text-anchor="middle" x="252.9" y="-97.2" font-family="Helvetica,Arial,sans-serif" font-size="11.00" fill="#d1242f">2, 4, 6</text>
+</g>
+<g id="edge7" class="edge">
+<title>p_toolCall&#45;&gt;t_run_tool</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M637.77,-225.59C649.11,-219.21 667.17,-209.04 683.69,-199.74"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="685.16,-202.93 692.16,-194.97 681.73,-196.83 685.16,-202.93"/>
+<text xml:space="preserve" text-anchor="middle" x="668.25" y="-216.29" font-family="Helvetica,Arial,sans-serif" font-size="11.00" fill="#d1242f">3, 5</text>
+</g>
+<g id="edge8" class="edge">
+<title>p_toolBudget&#45;&gt;t_run_tool</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M638.93,-178C649.51,-178 665.27,-178 680.25,-178"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="679.99,-181.5 689.99,-178 679.99,-174.5 679.99,-181.5"/>
+</g>
+<g id="edge12" class="edge">
+<title>p_toolResult&#45;&gt;t_observe</title>
+<path fill="none" stroke="#c4c9ce" d="M872.24,-52.13C879.61,-48.17 889.79,-42.71 899.94,-37.26"/>
+<polygon fill="#c4c9ce" stroke="#c4c9ce" points="901.47,-40.41 908.63,-32.6 898.16,-34.24 901.47,-40.41"/>
+</g>
+<g id="edge2" class="edge">
+<title>t_start&#45;&gt;p_thinking</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M159.6,-59C166.76,-59 174.41,-59 181.45,-59"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="181.43,-62.5 191.43,-59 181.43,-55.5 181.43,-62.5"/>
+</g>
+<g id="edge4" class="edge">
+<title>t_call_model&#45;&gt;j_call_model__xor_0</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M352.54,-118.84C359.92,-119.02 367.6,-119.22 374.54,-119.39"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="374.4,-122.89 384.48,-119.64 374.57,-115.89 374.4,-122.89"/>
+</g>
+<g id="edge9" class="edge">
+<title>t_run_tool&#45;&gt;j_run_tool__xor_0</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M733.74,-162.93C747.44,-141.08 772.78,-100.66 787.5,-77.18"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="790.33,-79.26 792.68,-68.92 784.4,-75.54 790.33,-79.26"/>
+</g>
+<g id="edge13" class="edge">
+<title>t_observe&#45;&gt;p_thinking</title>
+<path fill="none" stroke="#c4c9ce" d="M909.73,-7.7C895.41,-3.74 877.6,0 861.3,0 317.31,0 317.31,0 317.31,0 281.96,0 247.21,-24.73 227.11,-42.17"/>
+<polygon fill="#c4c9ce" stroke="#c4c9ce" points="224.89,-39.46 219.83,-48.76 229.59,-44.64 224.89,-39.46"/>
+</g>
+<g id="edge5" class="edge">
+<title>j_call_model__xor_0&#45;&gt;p_toolCall</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" d="M406.43,-125.15C411.85,-129.91 420.38,-136.98 428.56,-142 486.83,-177.73 561.65,-208.29 599.74,-222.87"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="598.43,-226.12 609.02,-226.37 600.9,-219.57 598.43,-226.12"/>
+</g>
+<g id="edge6" class="edge">
+<title>j_call_model__xor_0&#45;&gt;p_answer</title>
+<path fill="none" stroke="#c4c9ce" d="M411.85,-120C445.49,-120 547.08,-120 596.63,-120"/>
+<polygon fill="#c4c9ce" stroke="#c4c9ce" points="596.51,-123.5 606.51,-120 596.51,-116.5 596.51,-123.5"/>
+</g>
+<g id="edge11" class="edge">
+<title>j_run_tool__xor_0&#45;&gt;p_thinking</title>
+<path fill="none" stroke="#d1242f" stroke-width="2.4" stroke-dasharray="5,2" d="M787.77,-59C773.2,-59 746.83,-59 724.3,-59 317.31,-59 317.31,-59 317.31,-59 289.47,-59 257.6,-59 235.78,-59"/>
+<polygon fill="#d1242f" stroke="#d1242f" stroke-width="2.4" points="235.79,-55.5 225.79,-59 235.79,-62.5 235.79,-55.5"/>
+<text xml:space="preserve" text-anchor="middle" x="509.68" y="-62.3" font-family="Helvetica,Arial,sans-serif" font-size="11.00" fill="#d1242f">timeout 10000 ms, forwards toolCall</text>
+</g>
+<g id="edge10" class="edge">
+<title>j_run_tool__xor_0&#45;&gt;p_toolResult</title>
+<path fill="none" stroke="#c4c9ce" d="M811.88,-58.81C818.63,-58.7 827.54,-58.54 835.81,-58.4"/>
+<polygon fill="#c4c9ce" stroke="#c4c9ce" points="835.7,-61.9 845.64,-58.23 835.58,-54.91 835.7,-61.9"/>
+</g>
+<g id="node1" class="node">
+<title>p_request</title>
+<ellipse fill="#d4edda" stroke="#d1242f" stroke-width="3" cx="47.25" cy="-59" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="17.33" y="-35.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">request</text>
+</g>
+<g id="node2" class="node">
+<title>p_thinking</title>
+<ellipse fill="#ffffff" stroke="#d1242f" stroke-width="2.5" cx="208.55" cy="-59" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="201.15" y="-35.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">thinking</text>
+</g>
+<g id="node3" class="node">
+<title>p_toolCall</title>
+<ellipse fill="#ffd7d5" stroke="#d1242f" stroke-width="3" cx="625.4" cy="-232" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="575.3" y="-208.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#d1242f">toolCall (stuck)</text>
+</g>
+<g id="node4" class="node">
+<title>p_answer</title>
+<ellipse fill="#f6f8fa" stroke="#b8bec5" stroke-width="2" cx="625.4" cy="-120" rx="12.6" ry="12.6"/>
+<ellipse fill="none" stroke="#b8bec5" stroke-width="2" cx="625.4" cy="-120" rx="16.6" ry="16.6"/>
+<text xml:space="preserve" text-anchor="middle" x="591.8" y="-92.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#8c959f">answer</text>
+</g>
+<g id="node5" class="node">
+<title>p_toolBudget</title>
+<ellipse fill="#d4edda" stroke="#d1242f" stroke-width="2" cx="625.4" cy="-178" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="586.13" y="-154.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolBudget</text>
+<text xml:space="preserve" text-anchor="middle" x="586.13" y="-140.2" font-family="Helvetica,Arial,sans-serif" font-size="12.00">2 &#45;&gt; 0</text>
+</g>
+<g id="node6" class="node">
+<title>p_toolResult</title>
+<ellipse fill="#f6f8fa" stroke="#b8bec5" stroke-width="1.5" cx="860.3" cy="-58" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="823.03" y="-34.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#8c959f">toolResult</text>
+</g>
+<g id="node7" class="node">
+<title>t_start</title>
+<polygon fill="#fff3cd" stroke="#d1242f" stroke-width="2" points="158.95,-73.4 101.35,-73.4 101.35,-44.6 158.95,-44.6 158.95,-73.4"/>
+<text xml:space="preserve" text-anchor="middle" x="130.15" y="-55.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">start</text>
+</g>
+<g id="node8" class="node">
+<title>t_call_model</title>
+<polygon fill="#fff3cd" stroke="#d1242f" stroke-width="2" points="351.96,-132.4 284.65,-132.4 284.65,-103.6 351.96,-103.6 351.96,-132.4"/>
+<text xml:space="preserve" text-anchor="middle" x="318.31" y="-114.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">call&#45;model</text>
+</g>
+<g id="node9" class="node">
+<title>t_run_tool</title>
+<polygon fill="#fff3cd" stroke="#d1242f" stroke-width="2" points="752.1,-192.4 694.5,-192.4 694.5,-163.6 752.1,-163.6 752.1,-192.4"/>
+<text xml:space="preserve" text-anchor="middle" x="723.3" y="-174.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">run&#45;tool</text>
+</g>
+<g id="node10" class="node">
+<title>t_observe</title>
+<polygon fill="#f6f8fa" stroke="#b8bec5" points="967.5,-31.4 909.9,-31.4 909.9,-2.6 967.5,-2.6 967.5,-31.4"/>
+<text xml:space="preserve" text-anchor="middle" x="938.7" y="-13.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#8c959f">observe</text>
+</g>
+<g id="node11" class="node">
+<title>j_call_model__xor_0</title>
+<polygon fill="#ffffff" stroke="#d1242f" stroke-width="2" points="399.76,-130.8 388.96,-120 399.76,-109.2 410.56,-120 399.76,-130.8"/>
+<text xml:space="preserve" text-anchor="middle" x="399.76" y="-115.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+<g id="node12" class="node">
+<title>j_run_tool__xor_0</title>
+<polygon fill="#ffffff" stroke="#d1242f" stroke-width="2" points="799.9,-69.8 789.1,-59 799.9,-48.2 810.7,-59 799.9,-69.8"/>
+<text xml:space="preserve" text-anchor="middle" x="799.9" y="-54.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+</g>
+</svg>
+<svg x="305.5" y="271" overflow="visible" width="392" height="44"
+ viewBox="0.00 0.00 392.00 44.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 40)">
+<title>caption</title>
+<g id="node1" class="node">
+<title>c</title>
+<text xml:space="preserve" text-anchor="middle" x="191.77" y="-21.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#24292f">deadlockFree is Violated after 6 firings. Arc numbers are the firing steps.</text>
+<text xml:space="preserve" text-anchor="middle" x="191.77" y="-7.2" font-family="Helvetica,Arial,sans-serif" font-size="12.00" fill="#24292f">With the tool budget spent, the token in toolCall has no transition to take it.</text>
+</g>
+</g>
+</svg>
+</svg>

@@ -1,0 +1,383 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="954pt" height="406pt" viewBox="0 0 954 406">
+<rect x="0.5" y="0.5" width="953" height="405" rx="10" ry="10" fill="#ffffff" stroke="#d0d7de"/>
+<svg x="14" y="14" overflow="visible" width="926" height="253"
+ viewBox="0.00 0.00 926.00 253.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 248.6)">
+<title>agent_turn</title>
+<g id="edge1" class="edge">
+<title>p_request&#45;&gt;t_start</title>
+<path fill="none" stroke="#333333" d="M60.53,-59C67.35,-59 76.26,-59 85.26,-59"/>
+<polygon fill="#333333" stroke="#333333" points="85.04,-62.5 95.04,-59 85.04,-55.5 85.04,-62.5"/>
+</g>
+<g id="edge3" class="edge">
+<title>p_thinking&#45;&gt;t_call_model</title>
+<path fill="none" stroke="#333333" d="M214.89,-66.38C220.63,-70.67 228.03,-76.17 234.65,-81 241.64,-86.1 249.19,-91.54 256.3,-96.64"/>
+<polygon fill="#333333" stroke="#333333" points="254.24,-99.47 264.41,-102.44 258.31,-93.77 254.24,-99.47"/>
+</g>
+<g id="edge7" class="edge">
+<title>p_toolCall&#45;&gt;t_run_tool</title>
+<path fill="none" stroke="#333333" d="M588.36,-221.93C600.81,-205.67 625.67,-173.2 642.83,-150.79"/>
+<polygon fill="#333333" stroke="#333333" points="645.43,-153.15 648.73,-143.09 639.87,-148.9 645.43,-153.15"/>
+</g>
+<g id="edge14" class="edge">
+<title>p_toolCall&#45;&gt;t_give_up</title>
+<path fill="none" stroke="#333333" d="M592.51,-229.34C600.36,-227.59 611.13,-225.18 621.82,-222.78"/>
+<polygon fill="#333333" stroke="#333333" points="622.32,-226.26 631.31,-220.66 620.79,-219.43 622.32,-226.26"/>
+</g>
+<g id="edge8" class="edge">
+<title>p_toolBudget&#45;&gt;t_run_tool</title>
+<path fill="none" stroke="#333333" d="M588.99,-168.31C595.35,-161.37 604.64,-152.2 614.25,-146 616.94,-144.26 619.82,-142.63 622.78,-141.11"/>
+<polygon fill="#333333" stroke="#333333" points="623.99,-144.41 631.59,-137.04 621.05,-138.06 623.99,-144.41"/>
+</g>
+<g id="edge16" class="edge">
+<title>p_toolBudget&#45;&gt;t_give_up</title>
+<path fill="none" stroke="#dc3545" d="M592.17,-183.16C600.78,-187.01 613.04,-192.51 624.85,-197.79"/>
+<ellipse fill="none" stroke="#dc3545" cx="628.79" cy="-199.56" rx="4" ry="4"/>
+</g>
+<g id="edge12" class="edge">
+<title>p_toolResult&#45;&gt;t_observe</title>
+<path fill="none" stroke="#333333" d="M822.59,-52.13C829.96,-48.17 840.14,-42.71 850.29,-37.26"/>
+<polygon fill="#333333" stroke="#333333" points="851.82,-40.41 858.98,-32.6 848.51,-34.24 851.82,-40.41"/>
+</g>
+<g id="edge2" class="edge">
+<title>t_start&#45;&gt;p_thinking</title>
+<path fill="none" stroke="#333333" d="M154.67,-59C162.83,-59 171.66,-59 179.51,-59"/>
+<polygon fill="#333333" stroke="#333333" points="179.3,-62.5 189.3,-59 179.3,-55.5 179.3,-62.5"/>
+</g>
+<g id="edge4" class="edge">
+<title>t_call_model&#45;&gt;j_call_model__xor_0</title>
+<path fill="none" stroke="#333333" d="M321.08,-118.83C329.62,-119.04 338.6,-119.27 346.38,-119.46"/>
+<polygon fill="#333333" stroke="#333333" points="346.11,-122.96 356.19,-119.71 346.29,-115.96 346.11,-122.96"/>
+</g>
+<g id="edge9" class="edge">
+<title>t_run_tool&#45;&gt;j_run_tool__xor_0</title>
+<path fill="none" stroke="#333333" d="M680.49,-112.25C695.21,-99.8 715.99,-82.22 729.59,-70.72"/>
+<polygon fill="#333333" stroke="#333333" points="731.5,-73.69 736.88,-64.56 726.98,-68.34 731.5,-73.69"/>
+</g>
+<g id="edge13" class="edge">
+<title>t_observe&#45;&gt;p_thinking</title>
+<path fill="none" stroke="#333333" d="M860.08,-7.7C845.76,-3.74 827.95,0 811.65,0 286.31,0 286.31,0 286.31,0 258.65,0 234.07,-22.65 219.37,-39.89"/>
+<polygon fill="#333333" stroke="#333333" points="216.76,-37.56 213.22,-47.54 222.21,-41.94 216.76,-37.56"/>
+</g>
+<g id="edge15" class="edge">
+<title>t_give_up&#45;&gt;p_failed</title>
+<path fill="none" stroke="#333333" d="M691.17,-214C699.11,-214 707.74,-214 715.66,-214"/>
+<polygon fill="#333333" stroke="#333333" points="715.43,-217.5 725.43,-214 715.43,-210.5 715.43,-217.5"/>
+</g>
+<g id="edge5" class="edge">
+<title>j_call_model__xor_0&#45;&gt;p_toolCall</title>
+<path fill="none" stroke="#333333" d="M375.05,-124.74C380.47,-129.45 389.25,-136.72 397.56,-142 452.16,-176.64 521.93,-208.02 556.78,-222.9"/>
+<polygon fill="#333333" stroke="#333333" points="555.22,-226.04 565.79,-226.71 557.94,-219.59 555.22,-226.04"/>
+</g>
+<g id="edge6" class="edge">
+<title>j_call_model__xor_0&#45;&gt;p_answer</title>
+<path fill="none" stroke="#333333" d="M380.12,-120C411.1,-120 503.81,-120 550.76,-120"/>
+<polygon fill="#333333" stroke="#333333" points="550.66,-123.5 560.66,-120 550.66,-116.5 550.66,-123.5"/>
+</g>
+<g id="edge11" class="edge">
+<title>j_run_tool__xor_0&#45;&gt;p_thinking</title>
+<path fill="none" stroke="#333333" stroke-dasharray="5,2" d="M733.04,-59C717.71,-59 688.17,-59 663.05,-59 286.31,-59 286.31,-59 286.31,-59 266.75,-59 244.54,-59 228.29,-59"/>
+<polygon fill="#333333" stroke="#333333" points="228.68,-55.5 218.68,-59 228.68,-62.5 228.68,-55.5"/>
+<text xml:space="preserve" text-anchor="middle" x="471.31" y="-62" font-family="Helvetica,Arial,sans-serif" font-size="10.00">timeout 10000 ms, forwards toolCall</text>
+</g>
+<g id="edge10" class="edge">
+<title>j_run_tool__xor_0&#45;&gt;p_toolResult</title>
+<path fill="none" stroke="#333333" d="M755.76,-58.84C763.92,-58.71 775.62,-58.53 786.03,-58.37"/>
+<polygon fill="#333333" stroke="#333333" points="785.93,-61.87 795.87,-58.21 785.82,-54.87 785.93,-61.87"/>
+</g>
+<g id="node1" class="node">
+<title>p_request</title>
+<ellipse fill="#d4edda" stroke="#28a745" stroke-width="2" cx="47.25" cy="-59" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="17.33" y="-35.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">request</text>
+</g>
+<g id="node2" class="node">
+<title>p_thinking</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="204.05" cy="-59" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="196.65" y="-35.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">thinking</text>
+</g>
+<g id="node3" class="node">
+<title>p_toolCall</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="579.65" cy="-232" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="547.72" y="-208.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolCall</text>
+</g>
+<g id="node4" class="node">
+<title>p_answer</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="579.65" cy="-120" rx="12.6" ry="12.6"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="579.65" cy="-120" rx="16.6" ry="16.6"/>
+<text xml:space="preserve" text-anchor="middle" x="546.06" y="-92.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">answer</text>
+</g>
+<g id="node5" class="node">
+<title>p_toolBudget</title>
+<ellipse fill="#d4edda" stroke="#28a745" stroke-width="2" cx="579.65" cy="-178" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="540.38" y="-154.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolBudget</text>
+</g>
+<g id="node6" class="node">
+<title>p_toolResult</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="810.65" cy="-58" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="773.38" y="-34.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolResult</text>
+</g>
+<g id="node7" class="node">
+<title>p_failed</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="744.45" cy="-214" rx="12.6" ry="12.6"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="744.45" cy="-214" rx="16.6" ry="16.6"/>
+<text xml:space="preserve" text-anchor="middle" x="714.19" y="-186.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">failed</text>
+</g>
+<g id="node8" class="node">
+<title>t_start</title>
+<polygon fill="#fff3cd" stroke="#856404" points="154.45,-73.4 96.85,-73.4 96.85,-44.6 154.45,-44.6 154.45,-73.4"/>
+<text xml:space="preserve" text-anchor="middle" x="125.65" y="-55.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">start</text>
+</g>
+<g id="node9" class="node">
+<title>t_call_model</title>
+<polygon fill="#fff3cd" stroke="#856404" points="320.96,-132.4 253.65,-132.4 253.65,-103.6 320.96,-103.6 320.96,-132.4"/>
+<text xml:space="preserve" text-anchor="middle" x="287.31" y="-114.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">call&#45;model</text>
+</g>
+<g id="node10" class="node">
+<title>t_run_tool</title>
+<polygon fill="#fff3cd" stroke="#856404" points="690.85,-141.4 633.25,-141.4 633.25,-112.6 690.85,-112.6 690.85,-141.4"/>
+<text xml:space="preserve" text-anchor="middle" x="662.05" y="-123.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">run&#45;tool</text>
+</g>
+<g id="node11" class="node">
+<title>t_observe</title>
+<polygon fill="#fff3cd" stroke="#856404" points="917.85,-31.4 860.25,-31.4 860.25,-2.6 917.85,-2.6 917.85,-31.4"/>
+<text xml:space="preserve" text-anchor="middle" x="889.05" y="-13.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">observe</text>
+</g>
+<g id="node12" class="node">
+<title>t_give_up</title>
+<polygon fill="#fff3cd" stroke="#856404" points="690.85,-228.4 633.25,-228.4 633.25,-199.6 690.85,-199.6 690.85,-228.4"/>
+<text xml:space="preserve" text-anchor="middle" x="662.05" y="-210.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">give&#45;up</text>
+</g>
+<g id="node13" class="node">
+<title>j_call_model__xor_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="368.76,-130.8 357.96,-120 368.76,-109.2 379.56,-120 368.76,-130.8"/>
+<text xml:space="preserve" text-anchor="middle" x="368.76" y="-115.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+<g id="node14" class="node">
+<title>j_run_tool__xor_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="744.45,-69.8 733.65,-59 744.45,-48.2 755.25,-59 744.45,-69.8"/>
+<text xml:space="preserve" text-anchor="middle" x="744.45" y="-54.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+</g>
+</svg>
+<svg x="174" y="283" overflow="visible" width="129" height="44"
+ viewBox="0.00 0.00 129.00 44.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 40)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k0</title>
+<text xml:space="preserve" text-anchor="middle" x="27" y="-14.7" font-family="Helvetica,Arial,sans-serif" font-size="11.00">consume</text>
+</g>
+<g id="node2" class="node">
+<title>a1</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="75.92" cy="-18" rx="7.92" ry="7.92"/>
+</g>
+<g id="node3" class="node">
+<title>a2</title>
+<polygon fill="#fff3cd" stroke="#856404" points="120.88,-25.92 97.84,-25.92 97.84,-10.08 120.88,-10.08 120.88,-25.92"/>
+</g>
+<g id="edge1" class="edge">
+<title>a1&#45;&gt;a2</title>
+<path fill="none" stroke="#333333" d="M84.53,-18C86,-18 87.61,-18 89.26,-18"/>
+<polygon fill="#333333" stroke="#333333" points="89.1,-20.45 96.1,-18 89.1,-15.55 89.1,-20.45"/>
+</g>
+</g>
+</svg>
+<svg x="319" y="283" overflow="visible" width="149" height="44"
+ viewBox="0.00 0.00 149.00 44.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 40)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k1</title>
+<text xml:space="preserve" text-anchor="middle" x="27" y="-14.7" font-family="Helvetica,Arial,sans-serif" font-size="11.00">read</text>
+</g>
+<g id="node2" class="node">
+<title>b1</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="78.92" cy="-18" rx="7.92" ry="7.92"/>
+</g>
+<g id="node3" class="node">
+<title>b2</title>
+<polygon fill="#fff3cd" stroke="#856404" points="141.37,-25.92 118.33,-25.92 118.33,-10.08 141.37,-10.08 141.37,-25.92"/>
+</g>
+<g id="edge1" class="edge">
+<title>b1&#45;&gt;b2</title>
+<path fill="none" stroke="#6c757d" stroke-dasharray="5,2" d="M87.56,-18C93.44,-18 101.82,-18 109.49,-18"/>
+<polygon fill="#6c757d" stroke="#6c757d" points="109.47,-20.45 116.47,-18 109.47,-15.55 109.47,-20.45"/>
+<text xml:space="preserve" text-anchor="middle" x="102.58" y="-20.7" font-family="Helvetica,Arial,sans-serif" font-size="9.00">read</text>
+</g>
+</g>
+</svg>
+<svg x="484" y="283" overflow="visible" width="129" height="44"
+ viewBox="0.00 0.00 129.00 44.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 40)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k2</title>
+<text xml:space="preserve" text-anchor="middle" x="27" y="-14.7" font-family="Helvetica,Arial,sans-serif" font-size="11.00">inhibit</text>
+</g>
+<g id="node2" class="node">
+<title>c1</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="75.92" cy="-18" rx="7.92" ry="7.92"/>
+</g>
+<g id="node3" class="node">
+<title>c2</title>
+<polygon fill="#fff3cd" stroke="#856404" points="120.88,-25.92 97.84,-25.92 97.84,-10.08 120.88,-10.08 120.88,-25.92"/>
+</g>
+<g id="edge1" class="edge">
+<title>c1&#45;&gt;c2</title>
+<path fill="none" stroke="#dc3545" d="M84.53,-18C86.62,-18 88.96,-18 91.35,-18"/>
+<ellipse fill="none" stroke="#dc3545" cx="94.31" cy="-18" rx="2.8" ry="2.8"/>
+</g>
+</g>
+</svg>
+<svg x="629" y="283" overflow="visible" width="151" height="44"
+ viewBox="0.00 0.00 151.00 44.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 40)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k3</title>
+<text xml:space="preserve" text-anchor="middle" x="27" y="-14.7" font-family="Helvetica,Arial,sans-serif" font-size="11.00">reset</text>
+</g>
+<g id="node2" class="node">
+<title>d1</title>
+<polygon fill="#fff3cd" stroke="#856404" points="94.04,-25.92 71,-25.92 71,-10.08 94.04,-10.08 94.04,-25.92"/>
+</g>
+<g id="node3" class="node">
+<title>d2</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="134.95" cy="-18" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge1" class="edge">
+<title>d1&#45;&gt;d2</title>
+<path fill="none" stroke="#fd7e14" stroke-width="2" d="M94.21,-18C100.74,-18 109.24,-18 116.7,-18"/>
+<polygon fill="#fd7e14" stroke="#fd7e14" stroke-width="2" points="116.51,-20.45 123.51,-18 116.51,-15.55 116.51,-20.45"/>
+<text xml:space="preserve" text-anchor="middle" x="110.53" y="-20.7" font-family="Helvetica,Arial,sans-serif" font-size="9.00">reset</text>
+</g>
+</g>
+</svg>
+<svg x="176.5" y="343" overflow="visible" width="164" height="49"
+ viewBox="0.00 0.00 164.00 49.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 44.84)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k4</title>
+<text xml:space="preserve" text-anchor="middle" x="27" y="-16.62" font-family="Helvetica,Arial,sans-serif" font-size="11.00">AND fork</text>
+</g>
+<g id="node2" class="node">
+<title>e1</title>
+<polygon fill="#fff3cd" stroke="#856404" points="91.04,-27.84 68,-27.84 68,-12 91.04,-12 91.04,-27.84"/>
+</g>
+<g id="node3" class="node">
+<title>e2</title>
+<polygon fill="#ffffff" stroke="#333333" points="115.84,-30.72 105.04,-19.92 115.84,-9.12 126.64,-19.92 115.84,-30.72"/>
+<text xml:space="preserve" text-anchor="middle" x="115.84" y="-16.32" font-family="Helvetica,Arial,sans-serif" font-size="12.00">✚</text>
+</g>
+<g id="edge1" class="edge">
+<title>e1&#45;&gt;e2</title>
+<path fill="none" stroke="#333333" d="M91.38,-19.92C92.97,-19.92 94.64,-19.92 96.34,-19.92"/>
+<polygon fill="#333333" stroke="#333333" points="96.12,-22.37 103.12,-19.92 96.12,-17.47 96.12,-22.37"/>
+</g>
+<g id="node4" class="node">
+<title>e3</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="148.56" cy="-32.92" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge2" class="edge">
+<title>e2&#45;&gt;e3</title>
+<path fill="none" stroke="#333333" d="M123.97,-22.94C126.6,-24.05 129.7,-25.36 132.76,-26.66"/>
+<polygon fill="#333333" stroke="#333333" points="131.68,-28.86 139.08,-29.33 133.59,-24.35 131.68,-28.86"/>
+</g>
+<g id="node5" class="node">
+<title>e4</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="148.56" cy="-7.92" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge3" class="edge">
+<title>e2&#45;&gt;e4</title>
+<path fill="none" stroke="#333333" d="M124.28,-17.02C126.84,-16.01 129.81,-14.85 132.75,-13.7"/>
+<polygon fill="#333333" stroke="#333333" points="133.57,-16.01 139.2,-11.18 131.79,-11.45 133.57,-16.01"/>
+</g>
+</g>
+</svg>
+<svg x="356.5" y="343" overflow="visible" width="168" height="49"
+ viewBox="0.00 0.00 168.00 49.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 44.84)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k5</title>
+<text xml:space="preserve" text-anchor="middle" x="28.78" y="-16.62" font-family="Helvetica,Arial,sans-serif" font-size="11.00">XOR choice</text>
+</g>
+<g id="node2" class="node">
+<title>f1</title>
+<polygon fill="#fff3cd" stroke="#856404" points="94.6,-27.84 71.56,-27.84 71.56,-12 94.6,-12 94.6,-27.84"/>
+</g>
+<g id="node3" class="node">
+<title>f2</title>
+<polygon fill="#ffffff" stroke="#333333" points="119.4,-30.72 108.6,-19.92 119.4,-9.12 130.2,-19.92 119.4,-30.72"/>
+<text xml:space="preserve" text-anchor="middle" x="119.4" y="-16.32" font-family="Helvetica,Arial,sans-serif" font-size="12.00">✕</text>
+</g>
+<g id="edge1" class="edge">
+<title>f1&#45;&gt;f2</title>
+<path fill="none" stroke="#333333" d="M94.94,-19.92C96.53,-19.92 98.2,-19.92 99.89,-19.92"/>
+<polygon fill="#333333" stroke="#333333" points="99.68,-22.37 106.68,-19.92 99.68,-17.47 99.68,-22.37"/>
+</g>
+<g id="node4" class="node">
+<title>f3</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="152.12" cy="-32.92" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge2" class="edge">
+<title>f2&#45;&gt;f3</title>
+<path fill="none" stroke="#333333" d="M127.52,-22.94C130.16,-24.05 133.26,-25.36 136.32,-26.66"/>
+<polygon fill="#333333" stroke="#333333" points="135.24,-28.86 142.64,-29.33 137.15,-24.35 135.24,-28.86"/>
+</g>
+<g id="node5" class="node">
+<title>f4</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="152.12" cy="-7.92" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge3" class="edge">
+<title>f2&#45;&gt;f4</title>
+<path fill="none" stroke="#333333" d="M127.83,-17.02C130.4,-16.01 133.37,-14.85 136.31,-13.7"/>
+<polygon fill="#333333" stroke="#333333" points="137.13,-16.01 142.76,-11.18 135.35,-11.45 137.13,-16.01"/>
+</g>
+</g>
+</svg>
+<svg x="540.5" y="343" overflow="visible" width="237" height="49"
+ viewBox="0.00 0.00 237.00 49.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 44.84)">
+<title>legend</title>
+<g id="node1" class="node">
+<title>k6</title>
+<text xml:space="preserve" text-anchor="middle" x="27" y="-16.62" font-family="Helvetica,Arial,sans-serif" font-size="11.00">timeout</text>
+</g>
+<g id="node2" class="node">
+<title>g1</title>
+<polygon fill="#fff3cd" stroke="#856404" points="94.04,-27.84 71,-27.84 71,-12 94.04,-12 94.04,-27.84"/>
+</g>
+<g id="node3" class="node">
+<title>g2</title>
+<polygon fill="#ffffff" stroke="#333333" points="121.84,-30.72 111.04,-19.92 121.84,-9.12 132.64,-19.92 121.84,-30.72"/>
+<text xml:space="preserve" text-anchor="middle" x="121.84" y="-16.32" font-family="Helvetica,Arial,sans-serif" font-size="12.00">✕</text>
+</g>
+<g id="edge1" class="edge">
+<title>g1&#45;&gt;g2</title>
+<path fill="none" stroke="#333333" d="M94.52,-19.92C96.89,-19.92 99.47,-19.92 102.06,-19.92"/>
+<polygon fill="#333333" stroke="#333333" points="102.05,-22.37 109.05,-19.92 102.05,-17.47 102.05,-22.37"/>
+</g>
+<g id="node4" class="node">
+<title>g3</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="221.56" cy="-32.92" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge2" class="edge">
+<title>g2&#45;&gt;g3</title>
+<path fill="none" stroke="#333333" d="M131.13,-21.98C134.12,-22.67 137.52,-23.39 140.64,-23.92 162.74,-27.64 188.54,-30.23 204.72,-31.65"/>
+<polygon fill="#333333" stroke="#333333" points="204.34,-34.08 211.52,-32.22 204.75,-29.19 204.34,-34.08"/>
+</g>
+<g id="node5" class="node">
+<title>g4</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="221.56" cy="-7.92" rx="7.92" ry="7.92"/>
+</g>
+<g id="edge3" class="edge">
+<title>g2&#45;&gt;g4</title>
+<path fill="none" stroke="#333333" stroke-dasharray="5,2" d="M130.75,-17.47C133.81,-16.61 137.36,-15.7 140.64,-15.12 162.65,-11.19 188.48,-9.36 204.68,-8.54"/>
+<polygon fill="#333333" stroke="#333333" points="204.61,-10.99 211.5,-8.23 204.39,-6.1 204.61,-10.99"/>
+<text xml:space="preserve" text-anchor="middle" x="173.14" y="-17.82" font-family="Helvetica,Arial,sans-serif" font-size="9.00">timeout 10000 ms</text>
+</g>
+</g>
+</svg>
+</svg>

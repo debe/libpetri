@@ -6,7 +6,7 @@
 
 The Rust 2024 implementation of libpetri. This directory is a Cargo workspace containing the typed model, execution backends, events, verification, export, debug support, documentation tooling, benchmarks, and Python bindings.
 
-For the motivation and the all-arcs concurrent timeout example, see the [project README](../README.md#why-a-petri-net). The published umbrella crate has a separate [crates.io-facing guide](libpetri/README.md).
+The [project README](../README.md) walks through one agent turn as a net: reading it, running it, and checking it with the verifier. The published umbrella crate has a separate [crates.io-facing guide](libpetri/README.md).
 
 ## Install
 

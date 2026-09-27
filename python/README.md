@@ -6,7 +6,7 @@
 
 Python bindings for libpetri's Rust runtime. Build Coloured Time Petri Nets with a Python API and execute them on the precompiled Tokio backend through PyO3.
 
-See the [project README](https://github.com/debe/libpetri#why-a-petri-net) for the motivation and an order workflow using every arc type, concurrent actions, and timeout routing.
+The [project README](https://github.com/debe/libpetri#readme) walks through one agent turn as a net: reading it, running it, and checking it with the verifier.
 
 ## Install
 

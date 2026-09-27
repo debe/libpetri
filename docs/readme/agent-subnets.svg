@@ -1,0 +1,378 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1129pt" height="509pt" viewBox="0 0 1129 509">
+<rect x="0.5" y="0.5" width="1128" height="508" rx="10" ry="10" fill="#ffffff" stroke="#d0d7de"/>
+<svg x="14" y="14" overflow="visible" width="1101" height="481"
+ viewBox="0.00 0.00 1101.00 481.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 477)">
+<title>session</title>
+<g id="clust1" class="cluster">
+<title>cluster_alice</title>
+<path fill="#fafafa" stroke="black" stroke-width="1.5" stroke-dasharray="5,2" d="M300.27,-291C300.27,-291 1073.27,-291 1073.27,-291 1079.27,-291 1085.27,-297 1085.27,-303 1085.27,-303 1085.27,-453 1085.27,-453 1085.27,-459 1079.27,-465 1073.27,-465 1073.27,-465 300.27,-465 300.27,-465 294.27,-465 288.27,-459 288.27,-453 288.27,-453 288.27,-303 288.27,-303 288.27,-297 294.27,-291 300.27,-291"/>
+<text xml:space="preserve" text-anchor="middle" x="358.9" y="-450.2" font-family="Helvetica,Arial,sans-serif" font-size="12.00">alice (agent&#45;turn instance)</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_bob</title>
+<path fill="#fafafa" stroke="black" stroke-width="1.5" stroke-dasharray="5,2" d="M300.27,-8C300.27,-8 1073.27,-8 1073.27,-8 1079.27,-8 1085.27,-14 1085.27,-20 1085.27,-20 1085.27,-171 1085.27,-171 1085.27,-177 1079.27,-183 1073.27,-183 1073.27,-183 300.27,-183 300.27,-183 294.27,-183 288.27,-177 288.27,-171 288.27,-171 288.27,-20 288.27,-20 288.27,-14 294.27,-8 300.27,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="356.58" y="-168.2" font-family="Helvetica,Arial,sans-serif" font-size="12.00">bob (agent&#45;turn instance)</text>
+</g>
+<g id="edge2" class="edge">
+<title>p_alice_thinking&#45;&gt;t_alice_call_model</title>
+<path fill="none" stroke="#333333" d="M410.57,-388.94C419.92,-382.41 434.3,-372.35 447.36,-363.23"/>
+<polygon fill="#333333" stroke="#333333" points="449.11,-366.27 455.3,-357.67 445.1,-360.53 449.11,-366.27"/>
+</g>
+<g id="edge5" class="edge">
+<title>p_alice_toolCall&#45;&gt;t_alice_run_tool</title>
+<path fill="none" stroke="#333333" d="M770.13,-321.37C778.72,-327.65 791.5,-337.01 803.26,-345.62"/>
+<polygon fill="#333333" stroke="#333333" points="801.01,-348.31 811.15,-351.4 805.15,-342.66 801.01,-348.31"/>
+</g>
+<g id="edge12" class="edge">
+<title>p_alice_toolCall&#45;&gt;t_alice_give_up</title>
+<path fill="none" stroke="#333333" d="M772.35,-313.83C778.19,-313.75 785.53,-313.65 793.06,-313.54"/>
+<polygon fill="#333333" stroke="#333333" points="793,-317.05 802.95,-313.41 792.9,-310.05 793,-317.05"/>
+</g>
+<g id="edge6" class="edge">
+<title>p_alice_toolBudget&#45;&gt;t_alice_run_tool</title>
+<path fill="none" stroke="#333333" d="M772.35,-366.17C778.19,-366.25 785.53,-366.35 793.06,-366.46"/>
+<polygon fill="#333333" stroke="#333333" points="792.9,-369.95 802.95,-366.59 793,-362.95 792.9,-369.95"/>
+</g>
+<g id="edge13" class="edge">
+<title>p_alice_toolBudget&#45;&gt;t_alice_give_up</title>
+<path fill="none" stroke="#dc3545" d="M770.13,-358.63C779.23,-351.97 793.03,-341.87 805.34,-332.86"/>
+<ellipse fill="none" stroke="#dc3545" cx="808.74" cy="-330.37" rx="4" ry="4"/>
+</g>
+<g id="edge10" class="edge">
+<title>p_alice_toolResult&#45;&gt;t_alice_observe</title>
+<path fill="none" stroke="#333333" d="M987.02,-397.15C992.9,-398.2 1000.37,-399.54 1008.03,-400.92"/>
+<polygon fill="#333333" stroke="#333333" points="1007.27,-404.34 1017.73,-402.66 1008.51,-397.45 1007.27,-404.34"/>
+</g>
+<g id="edge1" class="edge">
+<title>t_alice_start&#45;&gt;p_alice_thinking</title>
+<path fill="none" stroke="#333333" d="M354.27,-374.02C361.88,-377.8 369.98,-381.83 377.15,-385.4"/>
+<polygon fill="#333333" stroke="#333333" points="375.55,-388.51 386.07,-389.83 378.67,-382.25 375.55,-388.51"/>
+</g>
+<g id="edge3" class="edge">
+<title>t_alice_call_model&#45;&gt;j_alice_call_model__xor_0</title>
+<path fill="none" stroke="#333333" d="M512.6,-329.8C520.95,-326.7 529.61,-323.49 536.93,-320.77"/>
+<polygon fill="#333333" stroke="#333333" points="538.11,-324.07 546.26,-317.31 535.67,-317.51 538.11,-324.07"/>
+</g>
+<g id="edge7" class="edge">
+<title>t_alice_run_tool&#45;&gt;j_alice_run_tool__xor_0</title>
+<path fill="none" stroke="#333333" d="M862.48,-377.27C872.55,-380.96 883.64,-385.02 892.66,-388.33"/>
+<polygon fill="#333333" stroke="#333333" points="891.37,-391.58 901.97,-391.74 893.78,-385.01 891.37,-391.58"/>
+</g>
+<g id="edge11" class="edge">
+<title>t_alice_observe&#45;&gt;p_alice_thinking</title>
+<path fill="none" stroke="#333333" d="M1020.09,-422.82C1006.88,-428.66 990.56,-434 975.07,-434 477.73,-434 477.73,-434 477.73,-434 455.87,-434 433.77,-421.6 418.84,-410.96"/>
+<polygon fill="#333333" stroke="#333333" points="421.03,-408.23 410.95,-404.97 416.8,-413.81 421.03,-408.23"/>
+</g>
+<g id="edge36" class="edge">
+<title>t_alice_give_up&#45;&gt;p_escalate</title>
+<path fill="none" stroke="#333333" d="M858.64,-298.13C867.79,-292.5 878.18,-286.11 887.27,-280.51"/>
+<polygon fill="#333333" stroke="#333333" points="888.88,-283.63 895.56,-275.41 885.21,-277.67 888.88,-283.63"/>
+</g>
+<g id="edge4" class="edge">
+<title>j_alice_call_model__xor_0&#45;&gt;p_alice_toolCall</title>
+<path fill="none" stroke="#333333" d="M567.42,-314C598.2,-314 690.49,-314 734.38,-314"/>
+<polygon fill="#333333" stroke="#333333" points="734.34,-317.5 744.34,-314 734.34,-310.5 734.34,-317.5"/>
+</g>
+<g id="edge35" class="edge">
+<title>j_alice_call_model__xor_0&#45;&gt;p_fromAlice</title>
+<path fill="none" stroke="#333333" d="M565.3,-311.82C593.89,-304.13 690.49,-278.17 735.11,-266.17"/>
+<polygon fill="#333333" stroke="#333333" points="736.01,-269.55 744.76,-263.58 734.2,-262.79 736.01,-269.55"/>
+</g>
+<g id="edge9" class="edge">
+<title>j_alice_run_tool__xor_0&#45;&gt;p_alice_thinking</title>
+<path fill="none" stroke="#333333" stroke-dasharray="5,2" d="M902.9,-397.09C889.08,-400.53 859.71,-407 834.47,-407 477.73,-407 477.73,-407 477.73,-407 459.34,-407 438.73,-403.91 423.43,-401"/>
+<polygon fill="#333333" stroke="#333333" points="424.42,-397.63 413.92,-399.08 423.03,-404.49 424.42,-397.63"/>
+<text xml:space="preserve" text-anchor="middle" x="656.72" y="-410" font-family="Helvetica,Arial,sans-serif" font-size="10.00">timeout 10000 ms, forwards toolCall</text>
+</g>
+<g id="edge8" class="edge">
+<title>j_alice_run_tool__xor_0&#45;&gt;p_alice_toolResult</title>
+<path fill="none" stroke="#333333" d="M923.35,-395C930.58,-395 940.47,-395 949.54,-395"/>
+<polygon fill="#333333" stroke="#333333" points="949.53,-398.5 959.53,-395 949.53,-391.5 949.53,-398.5"/>
+</g>
+<g id="edge15" class="edge">
+<title>p_bob_thinking&#45;&gt;t_bob_call_model</title>
+<path fill="none" stroke="#333333" d="M411.21,-84.84C418.88,-89.01 429.68,-94.88 440.36,-100.69"/>
+<polygon fill="#333333" stroke="#333333" points="438.66,-103.75 449.12,-105.45 442,-97.6 438.66,-103.75"/>
+</g>
+<g id="edge18" class="edge">
+<title>p_bob_toolCall&#45;&gt;t_bob_run_tool</title>
+<path fill="none" stroke="#333333" d="M770.13,-129.63C778.72,-123.35 791.5,-113.99 803.26,-105.38"/>
+<polygon fill="#333333" stroke="#333333" points="805.15,-108.34 811.15,-99.6 801.01,-102.69 805.15,-108.34"/>
+</g>
+<g id="edge25" class="edge">
+<title>p_bob_toolCall&#45;&gt;t_bob_give_up</title>
+<path fill="none" stroke="#333333" d="M772.35,-137.17C778.19,-137.25 785.53,-137.35 793.06,-137.46"/>
+<polygon fill="#333333" stroke="#333333" points="792.9,-140.95 802.95,-137.59 793,-133.95 792.9,-140.95"/>
+</g>
+<g id="edge19" class="edge">
+<title>p_bob_toolBudget&#45;&gt;t_bob_run_tool</title>
+<path fill="none" stroke="#333333" d="M772.35,-84.83C778.19,-84.75 785.53,-84.65 793.06,-84.54"/>
+<polygon fill="#333333" stroke="#333333" points="793,-88.05 802.95,-84.41 792.9,-81.05 793,-88.05"/>
+</g>
+<g id="edge26" class="edge">
+<title>p_bob_toolBudget&#45;&gt;t_bob_give_up</title>
+<path fill="none" stroke="#dc3545" d="M770.13,-92.37C779.23,-99.03 793.03,-109.13 805.34,-118.14"/>
+<ellipse fill="none" stroke="#dc3545" cx="808.74" cy="-120.63" rx="4" ry="4"/>
+</g>
+<g id="edge23" class="edge">
+<title>p_bob_toolResult&#45;&gt;t_bob_observe</title>
+<path fill="none" stroke="#333333" d="M986.7,-32.21C992.68,-33.86 1000.34,-35.98 1008.21,-38.16"/>
+<polygon fill="#333333" stroke="#333333" points="1007.27,-41.53 1017.84,-40.82 1009.13,-34.78 1007.27,-41.53"/>
+</g>
+<g id="edge14" class="edge">
+<title>t_bob_start&#45;&gt;p_bob_thinking</title>
+<path fill="none" stroke="#333333" d="M352.21,-105.2C360.67,-100.4 369.94,-95.16 377.93,-90.63"/>
+<polygon fill="#333333" stroke="#333333" points="379.57,-93.72 386.55,-85.75 376.12,-87.63 379.57,-93.72"/>
+</g>
+<g id="edge16" class="edge">
+<title>t_bob_call_model&#45;&gt;j_bob_call_model__xor_0</title>
+<path fill="none" stroke="#333333" d="M512.6,-127.97C520.45,-129.63 528.57,-131.36 535.6,-132.85"/>
+<polygon fill="#333333" stroke="#333333" points="534.77,-136.25 545.28,-134.9 536.22,-129.4 534.77,-136.25"/>
+</g>
+<g id="edge20" class="edge">
+<title>t_bob_run_tool&#45;&gt;j_bob_run_tool__xor_0</title>
+<path fill="none" stroke="#333333" d="M854.94,-69.26C867.8,-60 884.1,-48.27 895.78,-39.86"/>
+<polygon fill="#333333" stroke="#333333" points="897.68,-42.8 903.75,-34.12 893.59,-37.12 897.68,-42.8"/>
+</g>
+<g id="edge24" class="edge">
+<title>t_bob_observe&#45;&gt;p_bob_thinking</title>
+<path fill="none" stroke="#333333" d="M1019.34,-51.7C1009.07,-52.58 997.35,-53.47 986.67,-54 905.86,-57.98 885.52,-54.25 804.67,-57 659.78,-61.93 485.94,-73.2 423.88,-77.39"/>
+<polygon fill="#333333" stroke="#333333" points="423.95,-73.88 414.21,-78.05 424.42,-80.86 423.95,-73.88"/>
+</g>
+<g id="edge39" class="edge">
+<title>t_bob_give_up&#45;&gt;p_escalate</title>
+<path fill="none" stroke="#333333" d="M844.19,-152.6C849.62,-160.87 856.44,-171.43 862.27,-181 874.49,-201.08 887.69,-224.27 897.24,-241.35"/>
+<polygon fill="#333333" stroke="#333333" points="894.02,-242.76 901.94,-249.79 900.13,-239.35 894.02,-242.76"/>
+</g>
+<g id="edge17" class="edge">
+<title>j_bob_call_model__xor_0&#45;&gt;p_bob_toolCall</title>
+<path fill="none" stroke="#333333" d="M567.42,-137C598.2,-137 690.49,-137 734.38,-137"/>
+<polygon fill="#333333" stroke="#333333" points="734.34,-140.5 744.34,-137 734.34,-133.5 734.34,-140.5"/>
+</g>
+<g id="edge38" class="edge">
+<title>j_bob_call_model__xor_0&#45;&gt;p_fromBob</title>
+<path fill="none" stroke="#333333" d="M564.81,-139.54C592.84,-148.89 690.83,-181.58 735.53,-196.48"/>
+<polygon fill="#333333" stroke="#333333" points="734.36,-199.78 744.95,-199.63 736.57,-193.14 734.36,-199.78"/>
+</g>
+<g id="edge22" class="edge">
+<title>j_bob_run_tool__xor_0&#45;&gt;p_bob_thinking</title>
+<path fill="none" stroke="#333333" stroke-dasharray="5,2" d="M900.65,-29.23C860.29,-30.19 707.97,-34.29 582.98,-44 513.93,-49.36 493.28,-37.67 428.07,-61 425.24,-62.01 422.41,-63.37 419.7,-64.88"/>
+<polygon fill="#333333" stroke="#333333" points="417.84,-61.91 411.36,-70.29 421.65,-67.79 417.84,-61.91"/>
+<text xml:space="preserve" text-anchor="middle" x="656.72" y="-47" font-family="Helvetica,Arial,sans-serif" font-size="10.00">timeout 10000 ms, forwards toolCall</text>
+</g>
+<g id="edge21" class="edge">
+<title>j_bob_run_tool__xor_0&#45;&gt;p_bob_toolResult</title>
+<path fill="none" stroke="#333333" d="M923.35,-29C930.58,-29 940.47,-29 949.54,-29"/>
+<polygon fill="#333333" stroke="#333333" points="949.53,-32.5 959.53,-29 949.53,-25.5 949.53,-32.5"/>
+</g>
+<g id="edge27" class="edge">
+<title>p_session&#45;&gt;t_open</title>
+<path fill="none" stroke="#333333" d="M60.55,-291C66.39,-291 73.74,-291 81.27,-291"/>
+<polygon fill="#333333" stroke="#333333" points="81.15,-294.5 91.15,-291 81.15,-287.5 81.15,-294.5"/>
+</g>
+<g id="edge34" class="edge">
+<title>p_toAlice&#45;&gt;t_alice_start</title>
+<path fill="none" stroke="#333333" d="M263.63,-344.14C269.58,-345.7 277.15,-347.69 284.9,-349.72"/>
+<polygon fill="#333333" stroke="#333333" points="283.8,-353.05 294.36,-352.2 285.58,-346.28 283.8,-353.05"/>
+</g>
+<g id="edge37" class="edge">
+<title>p_toBob&#45;&gt;t_bob_start</title>
+<path fill="none" stroke="#333333" d="M257.35,-255.47C269.09,-231.63 296.25,-176.49 312.06,-144.39"/>
+<polygon fill="#333333" stroke="#333333" points="315,-146.34 316.28,-135.82 308.72,-143.25 315,-146.34"/>
+</g>
+<g id="edge31" class="edge">
+<title>p_fromAlice&#45;&gt;t_close</title>
+<path fill="none" stroke="#333333" d="M770.13,-252.77C778.59,-246.69 791.14,-237.68 802.75,-229.34"/>
+<polygon fill="#333333" stroke="#333333" points="804.47,-232.42 810.55,-223.74 800.39,-226.73 804.47,-232.42"/>
+</g>
+<g id="edge32" class="edge">
+<title>p_fromBob&#45;&gt;t_close</title>
+<path fill="none" stroke="#333333" d="M772.35,-204.68C778.19,-205 785.53,-205.41 793.06,-205.82"/>
+<polygon fill="#333333" stroke="#333333" points="792.77,-209.31 802.95,-206.37 793.16,-202.32 792.77,-209.31"/>
+</g>
+<g id="edge28" class="edge">
+<title>t_open&#45;&gt;j_open__and_0</title>
+<path fill="none" stroke="#333333" d="M150.57,-291C157.53,-291 164.88,-291 171.49,-291"/>
+<polygon fill="#333333" stroke="#333333" points="171.46,-294.5 181.46,-291 171.46,-287.5 171.46,-294.5"/>
+</g>
+<g id="edge33" class="edge">
+<title>t_close&#45;&gt;p_done</title>
+<path fill="none" stroke="#333333" d="M862.48,-208C869.19,-208 876.35,-208 883.05,-208"/>
+<polygon fill="#333333" stroke="#333333" points="882.9,-211.5 892.9,-208 882.9,-204.5 882.9,-211.5"/>
+</g>
+<g id="edge29" class="edge">
+<title>j_open__and_0&#45;&gt;p_toAlice</title>
+<path fill="none" stroke="#333333" d="M200.68,-295.98C207.99,-302.69 221.35,-314.97 232.27,-325.01"/>
+<polygon fill="#333333" stroke="#333333" points="229.85,-327.53 239.58,-331.72 234.58,-322.38 229.85,-327.53"/>
+</g>
+<g id="edge30" class="edge">
+<title>j_open__and_0&#45;&gt;p_toBob</title>
+<path fill="none" stroke="#333333" d="M202.38,-287.86C208.93,-284.97 219,-280.53 228.16,-276.49"/>
+<polygon fill="#333333" stroke="#333333" points="229.47,-279.74 237.21,-272.5 226.65,-273.33 229.47,-279.74"/>
+</g>
+<g id="node1" class="node">
+<title>p_alice_thinking</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="399.47" cy="-396" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="392.07" y="-372.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">thinking</text>
+</g>
+<g id="node2" class="node">
+<title>p_alice_toolCall</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="759.07" cy="-314" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="727.13" y="-290.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolCall</text>
+</g>
+<g id="node3" class="node">
+<title>p_alice_toolBudget</title>
+<ellipse fill="#d4edda" stroke="#28a745" stroke-width="2" cx="759.07" cy="-366" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="719.8" y="-342.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolBudget</text>
+</g>
+<g id="node4" class="node">
+<title>p_alice_toolResult</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="974.07" cy="-395" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="936.8" y="-371.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolResult</text>
+</g>
+<g id="node5" class="node">
+<title>t_alice_start</title>
+<polygon fill="#fff3cd" stroke="#856404" points="353.87,-374.4 296.27,-374.4 296.27,-345.6 353.87,-345.6 353.87,-374.4"/>
+<text xml:space="preserve" text-anchor="middle" x="325.07" y="-356.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">start</text>
+</g>
+<g id="node6" class="node">
+<title>t_alice_call_model</title>
+<polygon fill="#fff3cd" stroke="#856404" points="512.38,-356.4 445.07,-356.4 445.07,-327.6 512.38,-327.6 512.38,-356.4"/>
+<text xml:space="preserve" text-anchor="middle" x="478.73" y="-338.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">call&#45;model</text>
+</g>
+<g id="node7" class="node">
+<title>t_alice_run_tool</title>
+<polygon fill="#fff3cd" stroke="#856404" points="862.27,-381.4 804.67,-381.4 804.67,-352.6 862.27,-352.6 862.27,-381.4"/>
+<text xml:space="preserve" text-anchor="middle" x="833.47" y="-363.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">run&#45;tool</text>
+</g>
+<g id="node8" class="node">
+<title>t_alice_observe</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1077.27,-422.4 1019.67,-422.4 1019.67,-393.6 1077.27,-393.6 1077.27,-422.4"/>
+<text xml:space="preserve" text-anchor="middle" x="1048.47" y="-404.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">observe</text>
+</g>
+<g id="node9" class="node">
+<title>t_alice_give_up</title>
+<polygon fill="#fff3cd" stroke="#856404" points="862.27,-327.4 804.67,-327.4 804.67,-298.6 862.27,-298.6 862.27,-327.4"/>
+<text xml:space="preserve" text-anchor="middle" x="833.47" y="-309.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">give&#45;up</text>
+</g>
+<g id="node10" class="node">
+<title>j_alice_call_model__xor_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="556.18,-324.8 545.38,-314 556.18,-303.2 566.98,-314 556.18,-324.8"/>
+<text xml:space="preserve" text-anchor="middle" x="556.18" y="-309.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+<g id="node11" class="node">
+<title>j_alice_run_tool__xor_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="911.87,-405.8 901.07,-395 911.87,-384.2 922.67,-395 911.87,-405.8"/>
+<text xml:space="preserve" text-anchor="middle" x="911.87" y="-390.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+<g id="node12" class="node">
+<title>p_bob_thinking</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="399.47" cy="-79" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="366.87" y="-55.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">thinking</text>
+</g>
+<g id="node13" class="node">
+<title>p_bob_toolCall</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="759.07" cy="-137" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="727.13" y="-113.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolCall</text>
+</g>
+<g id="node14" class="node">
+<title>p_bob_toolBudget</title>
+<ellipse fill="#d4edda" stroke="#28a745" stroke-width="2" cx="759.07" cy="-85" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="719.8" y="-61.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolBudget</text>
+</g>
+<g id="node15" class="node">
+<title>p_bob_toolResult</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="974.07" cy="-29" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="936.8" y="-5.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toolResult</text>
+</g>
+<g id="node16" class="node">
+<title>t_bob_start</title>
+<polygon fill="#fff3cd" stroke="#856404" points="353.87,-134.4 296.27,-134.4 296.27,-105.6 353.87,-105.6 353.87,-134.4"/>
+<text xml:space="preserve" text-anchor="middle" x="325.07" y="-116.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">start</text>
+</g>
+<g id="node17" class="node">
+<title>t_bob_call_model</title>
+<polygon fill="#fff3cd" stroke="#856404" points="512.38,-135.4 445.07,-135.4 445.07,-106.6 512.38,-106.6 512.38,-135.4"/>
+<text xml:space="preserve" text-anchor="middle" x="478.73" y="-117.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">call&#45;model</text>
+</g>
+<g id="node18" class="node">
+<title>t_bob_run_tool</title>
+<polygon fill="#fff3cd" stroke="#856404" points="862.27,-98.4 804.67,-98.4 804.67,-69.6 862.27,-69.6 862.27,-98.4"/>
+<text xml:space="preserve" text-anchor="middle" x="833.47" y="-80.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">run&#45;tool</text>
+</g>
+<g id="node19" class="node">
+<title>t_bob_observe</title>
+<polygon fill="#fff3cd" stroke="#856404" points="1077.27,-63.4 1019.67,-63.4 1019.67,-34.6 1077.27,-34.6 1077.27,-63.4"/>
+<text xml:space="preserve" text-anchor="middle" x="1048.47" y="-45.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">observe</text>
+</g>
+<g id="node20" class="node">
+<title>t_bob_give_up</title>
+<polygon fill="#fff3cd" stroke="#856404" points="862.27,-152.4 804.67,-152.4 804.67,-123.6 862.27,-123.6 862.27,-152.4"/>
+<text xml:space="preserve" text-anchor="middle" x="833.47" y="-134.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">give&#45;up</text>
+</g>
+<g id="node21" class="node">
+<title>j_bob_call_model__xor_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="556.18,-147.8 545.38,-137 556.18,-126.2 566.98,-137 556.18,-147.8"/>
+<text xml:space="preserve" text-anchor="middle" x="556.18" y="-132.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+<g id="node22" class="node">
+<title>j_bob_run_tool__xor_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="911.87,-39.8 901.07,-29 911.87,-18.2 922.67,-29 911.87,-39.8"/>
+<text xml:space="preserve" text-anchor="middle" x="911.87" y="-24.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✕</text>
+</g>
+<g id="node23" class="node">
+<title>p_session</title>
+<ellipse fill="#d4edda" stroke="#28a745" stroke-width="2" cx="47.27" cy="-291" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="17.33" y="-267.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">session</text>
+</g>
+<g id="node24" class="node">
+<title>p_toAlice</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="250.67" cy="-341" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="220.41" y="-317.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toAlice</text>
+</g>
+<g id="node25" class="node">
+<title>p_toBob</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="250.67" cy="-267" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="223.4" y="-243.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">toBob</text>
+</g>
+<g id="node26" class="node">
+<title>p_fromAlice</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="759.07" cy="-260" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="721.81" y="-236.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">fromAlice</text>
+</g>
+<g id="node27" class="node">
+<title>p_fromBob</title>
+<ellipse fill="#ffffff" stroke="#333333" stroke-width="1.5" cx="759.07" cy="-204" rx="12.6" ry="12.6"/>
+<text xml:space="preserve" text-anchor="middle" x="724.8" y="-180.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">fromBob</text>
+</g>
+<g id="node28" class="node">
+<title>p_done</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="911.87" cy="-208" rx="12.6" ry="12.6"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="911.87" cy="-208" rx="16.6" ry="16.6"/>
+<text xml:space="preserve" text-anchor="middle" x="883.6" y="-180.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">done</text>
+</g>
+<g id="node29" class="node">
+<title>p_escalate</title>
+<ellipse fill="#cce5ff" stroke="#004085" stroke-width="2" cx="911.87" cy="-266" rx="12.6" ry="12.6"/>
+<ellipse fill="none" stroke="#004085" stroke-width="2" cx="911.87" cy="-266" rx="16.6" ry="16.6"/>
+<text xml:space="preserve" text-anchor="middle" x="876.28" y="-238.6" font-family="Helvetica,Arial,sans-serif" font-size="12.00">escalate</text>
+</g>
+<g id="node30" class="node">
+<title>t_open</title>
+<polygon fill="#fff3cd" stroke="#856404" points="150.47,-305.4 92.87,-305.4 92.87,-276.6 150.47,-276.6 150.47,-305.4"/>
+<text xml:space="preserve" text-anchor="middle" x="121.67" y="-287.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">open</text>
+</g>
+<g id="node31" class="node">
+<title>t_close</title>
+<polygon fill="#fff3cd" stroke="#856404" points="862.27,-222.4 804.67,-222.4 804.67,-193.6 862.27,-193.6 862.27,-222.4"/>
+<text xml:space="preserve" text-anchor="middle" x="833.47" y="-204.4" font-family="Helvetica,Arial,sans-serif" font-size="12.00">close</text>
+</g>
+<g id="node32" class="node">
+<title>j_open__and_0</title>
+<polygon fill="#ffffff" stroke="#333333" points="194.27,-301.8 183.47,-291 194.27,-280.2 205.07,-291 194.27,-301.8"/>
+<text xml:space="preserve" text-anchor="middle" x="194.27" y="-286.8" font-family="Helvetica,Arial,sans-serif" font-size="14.00">✚</text>
+</g>
+</g>
+</svg>
+</svg>
