@@ -11,6 +11,8 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.libpetri.core.internal.VerificationDeadline;
+
 /**
  * The z3 process transport (VER-013).
  *
@@ -28,6 +30,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Rust transports pass byte-identical argument lists and classify replies identically
  * ({@link SmtText#classifyFirstLine}, {@link SmtText#timeoutLine},
  * {@link SmtText#errorLine}, {@link #failureReason}).
+ *
+ * <p>Interrupting the waiting thread destroys the process at once and reaps it; inside a
+ * {@code verify()} call that is its cancellation ([VER-013]), and the interrupt flag stays set.
  */
 public final class Z3Process {
 
@@ -154,6 +159,12 @@ public final class Z3Process {
      */
     static Reply run(String program, List<String> args, String script, long watchdogMs)
             throws Z3ProcessException {
+        // Inside a verify() call a cancelled or spent call starts no process ([VER-013]); outside
+        // one, an interrupted thread starts none either.
+        VerificationDeadline.checkpoint();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new Z3ProcessException("verification cancelled; z3 not started");
+        }
         var command = new ArrayList<String>(args.size() + 1);
         command.add(program);
         command.addAll(args);
@@ -186,7 +197,16 @@ public final class Z3Process {
                     exit = new Exit.Killed();
                 }
             } catch (InterruptedException e) {
+                // Cancellation ([VER-013]): kill the solver at once and reap it — with the flag
+                // cleared for the wait, since a set flag would fail the wait at once — then
+                // restore the flag, so the caller still sees it.
+                process.destroyForcibly();
+                reap(process);
                 Thread.currentThread().interrupt();
+                var deadline = VerificationDeadline.current();
+                if (deadline != null) {
+                    throw new VerificationDeadline.Cancelled(deadline);
+                }
                 throw new Z3ProcessException("interrupted while waiting for " + program);
             }
             return new Reply(finish(stdout), finish(stderr), exit);
@@ -197,7 +217,23 @@ public final class Z3Process {
         }
     }
 
-    private static FutureTask<String> drain(InputStream stream) {
+    /** Waits for a destroyed process to exit, uninterruptibly; the caller restores the flag. */
+    private static void reap(Process process) {
+        boolean interrupted = Thread.interrupted();
+        while (true) {
+            try {
+                process.waitFor();
+                break;
+            } catch (InterruptedException _) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+        private static FutureTask<String> drain(InputStream stream) {
         var task = new FutureTask<>(() -> new String(stream.readAllBytes(), StandardCharsets.UTF_8));
         Thread.ofVirtual().start(task);
         return task;

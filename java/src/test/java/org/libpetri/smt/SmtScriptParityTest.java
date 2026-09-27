@@ -2,6 +2,7 @@ package org.libpetri.smt;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.Place;
 import org.libpetri.smt.fixtures.VerificationNets;
@@ -44,6 +45,76 @@ class SmtScriptParityTest {
         }
         assertFalse(tests.isEmpty(), "fixtures.json contained no fixtures");
         return tests;
+    }
+
+    /**
+     * The [NU-054] relay fixtures of {@code spec/verification-fixtures/nu-relay-fixtures.json},
+     * whose nets are given inline as rows ({@code [transition, [inputs], [outputs], [match keys],
+     * [relay targets]]}) and built as {@link JoinRelayTest.Net} builds them, diffed against the
+     * same Rust-written goldens.
+     */
+    @TestFactory
+    List<DynamicTest> relayScriptParity() throws IOException {
+        Path relayFile = VerdictParityTest.locateFixtures().resolveSibling("nu-relay-fixtures.json");
+        JsonNode root = new ObjectMapper().readTree(Files.readString(relayFile));
+        Path scripts = relayFile.getParent().resolve("scripts");
+        var tests = new ArrayList<DynamicTest>();
+        for (JsonNode fixture : root.get("fixtures")) {
+            tests.add(DynamicTest.dynamicTest(fixture.get("id").asText(),
+                () -> runRelayFixture(fixture, scripts.resolve(fixture.get("id").asText()))));
+        }
+        assertFalse(tests.isEmpty(), "nu-relay-fixtures.json contained no fixtures");
+        return tests;
+    }
+
+    private static void runRelayFixture(JsonNode fixture, Path goldenDir) throws IOException {
+        String id = fixture.get("id").asText();
+        var net = new JoinRelayTest.Net(fixture.get("net").asText());
+        for (JsonNode row : fixture.get("rows")) {
+            net.t(row.get(0).asText(), names(row.get(1)), names(row.get(2)), names(row.get(3)), names(row.get(4)));
+        }
+        var verifier = SmtVerifier.forNet(net.build())
+            .initialMarking(m -> fixture.get("marking").properties()
+                .forEach(e -> m.tokens(net.p(e.getKey()), e.getValue().asInt())))
+            .property(VerdictParityTest.parseProperty(fixture.get("property")))
+            .certificateCheck(true)
+            .counterexampleReplay(true)
+            .timeout(Duration.ofSeconds(30));
+        var sinks = names(fixture.get("sinkPlaces"));
+        if (!sinks.isEmpty()) {
+            verifier.sinkPlaces(sinks.stream().map(net::p).toArray(Place<?>[]::new));
+        }
+        var budgets = names(fixture.get("budgetPlaces"));
+        if (!budgets.isEmpty()) {
+            verifier.budgetPlaces(budgets.stream().map(net::p).toArray(Place<?>[]::new));
+        }
+        var carriers = names(fixture.get("carrierPlaces"));
+        if (!carriers.isEmpty()) {
+            verifier.carrierPlaces(carriers.stream().map(net::p).toArray(Place<?>[]::new));
+        }
+        var mode = fixture.get("fragmentMode");
+        if (mode != null) {
+            verifier.fragmentMode(switch (mode.asText()) {
+                case "base" -> FragmentMode.BASE;
+                case "extended" -> FragmentMode.EXTENDED;
+                default -> throw new IllegalArgumentException("unknown fixture fragmentMode: " + mode.asText());
+            });
+        }
+        var encoded = verifier.encodeScripts();
+
+        compare(id, goldenDir.resolve("horn.smt2"), encoded.horn());
+        compare(id, goldenDir.resolve("certificate.smt2"), encoded.certificate());
+        compare(id, goldenDir.resolve("bound.smt2"), encoded.bound());
+        compare(id, goldenDir.resolve("state-equation.smt2"), encoded.stateEquation());
+    }
+
+    /** A JSON array of place names; empty when the field is absent. */
+    private static List<String> names(JsonNode array) {
+        var out = new ArrayList<String>();
+        if (array != null) {
+            array.forEach(n -> out.add(n.asText()));
+        }
+        return out;
     }
 
     private static void runFixture(JsonNode fixture, Path goldenDir) throws IOException {

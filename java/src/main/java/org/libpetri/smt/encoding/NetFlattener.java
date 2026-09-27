@@ -107,6 +107,11 @@ public final class NetFlattener {
             case EnvironmentAnalysisMode.Ignore _ -> {
                 // Not modeled: env places stay ordinary (frozen at their initial count).
             }
+            case EnvironmentAnalysisMode.Arrivals _ -> {
+                if (!environmentPlaces.isEmpty()) {
+                    throw EnvironmentAnalysisMode.Arrivals.notModelled("NetFlattener");
+                }
+            }
         }
 
         // 3. Expand transitions

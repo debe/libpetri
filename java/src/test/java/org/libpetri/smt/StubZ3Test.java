@@ -325,6 +325,59 @@ class StubZ3Test {
         }
     }
 
+    /**
+     * [VER-013] total budget: a solver that ignores {@code -t} (the stub sleeps for 30 s) is
+     * killed by the watchdog derived from the CLAMPED budget, not from the 60 s timeout, and
+     * the verdict names the total budget and the phase it cut off.
+     */
+    @Test
+    void totalBudget_clampsEveryProcessToWhatIsLeft() throws IOException {
+        var solver = stub("sleeper", VERSION_OK, "exec sleep 30\n");
+        long t0 = System.nanoTime();
+        var result = SmtVerifier.forNet(chainNet())
+            .enumerationMaxClasses(0)
+            .initialMarking(m -> m.tokens(P0, 1))
+            .property(SmtProperty.placeBound(P1, 0))
+            .stateEquationPhase(false)
+            .firingBound(false)
+            .solver(solver)
+            .timeout(Duration.ofSeconds(60))
+            .totalBudget(Duration.ofMillis(500))
+            .verify();
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(), result.report());
+        assertEquals("total verification budget of 500 ms exhausted during linear bound",
+            unknown.reason());
+        // 500 ms plus one watchdog's slack (2 s), with room for a loaded machine: far below the
+        // 62 s the unclamped watchdog would wait.
+        assertTrue(ms < 15_000, "returned after " + ms + " ms");
+    }
+
+    /** A spent budget starts no process: the stub would leave a marker file if it ran. */
+    @Test
+    void totalBudget_spentStartsNoProcess() throws Exception {
+        Path marker = root.resolve("spent").resolve("ran");
+        var solver = stub("spent", VERSION_OK, "touch '" + marker.toAbsolutePath() + "'\necho unsat\n");
+
+        var expired = new org.libpetri.core.internal.VerificationDeadline(0);
+        assertThrows(org.libpetri.core.internal.VerificationDeadline.Exhausted.class, () ->
+            ScopedValue.where(org.libpetri.core.internal.VerificationDeadline.carrier(), expired)
+                .call(() -> solver.run("(check-sat)", "probe", Duration.ofSeconds(5), List.of())));
+        assertFalse(Files.exists(marker), "the transport started a process on a spent budget");
+
+        var result = SmtVerifier.forNet(chainNet())
+            .enumerationMaxClasses(0)
+            .initialMarking(m -> m.tokens(P0, 1))
+            .property(SmtProperty.placeBound(P1, 0))
+            .solver(solver)
+            .totalBudget(Duration.ZERO)
+            .verify();
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(), result.report());
+        assertTrue(unknown.reason().startsWith("total verification budget of 0 ms exhausted during "), unknown.reason());
+        assertFalse(Files.exists(marker), "verify() started a process on a spent budget");
+    }
+
     /** The zero-padded counter a dump file name starts with ({@code 012-horn.smt2} is 12). */
     private static int dumpCounter(String name) {
         return Integer.parseInt(name.substring(0, name.indexOf('-')));

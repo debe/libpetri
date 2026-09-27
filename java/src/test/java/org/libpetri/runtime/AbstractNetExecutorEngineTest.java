@@ -389,7 +389,9 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("t")
                 .inputs(Arc.In.one(input))
-                .outputs(Arc.Out.and(output, output, output))
+                // One named place: outputs are sets (IO-011), and an action may still write
+                // several tokens into the place its branch names ([IO-015], [IO-016] AC4).
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, new CounterValue(1));
@@ -3573,7 +3575,9 @@ abstract class AbstractNetExecutorEngineTest {
 
             var t = Transition.builder("multi")
                 .inputs(Arc.In.one(input))
-                .outputs(Arc.Out.and(output, output, output))
+                // One named place: outputs are sets (IO-011), and an action may still write
+                // several tokens into the place its branch names ([IO-015], [IO-016] AC4).
+                .outputs(Arc.Out.place(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(ctx -> {
                     ctx.output(output, new CounterValue(1));
@@ -5610,6 +5614,278 @@ abstract class AbstractNetExecutorEngineTest {
             assertEquals(3, result.tokenCount(merged), "all three complete despite k=1 budget");
             assertEquals(1, result.tokenCount(budget), "the budget token is returned");
             assertEquals(0, result.tokenCount(source));
+        }
+    }
+
+    // ==================== ν-net join relay (NU-054) ====================
+
+    /**
+     * A join relaying its matched name to {@code out}: the action writes what {@code write}
+     * returns for the matched message, synchronously or on another thread.
+     */
+    private static PetriNet relayJoinNet(Place<NuMsg> a, Place<NuMsg> b, Place<NuMsg> out,
+                                         java.util.function.Function<NuMsg, NuMsg> write,
+                                         ExecutorService asyncOn) {
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .relayTo(out, (NuMsg m) -> m.cid() == null ? null : NameId.of(m.cid()))
+                .build())
+            .outputs(place(out))
+            .action(ctx -> {
+                var produced = write.apply(ctx.input(a));
+                if (asyncOn == null) {
+                    ctx.output(out, produced);
+                    return CompletableFuture.completedFuture(null);
+                }
+                return CompletableFuture.runAsync(() -> ctx.output(out, produced), asyncOn);
+            })
+            .build();
+        return PetriNet.builder("nuRelay").transitions(join).build();
+    }
+
+    private static List<NetEvent.TransitionFailed> failures(EventStore store) {
+        return store.events().stream()
+            .filter(e -> e instanceof NetEvent.TransitionFailed)
+            .map(e -> (NetEvent.TransitionFailed) e)
+            .toList();
+    }
+
+    /** NU-054 AC2: a conforming relay fires normally, sync and async. */
+    @Test
+    void nuRelay_conformingTokenIsDeposited() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var out = Place.of("OUT", NuMsg.class);
+        for (var async : java.util.Arrays.asList(null, testExecutor)) {
+            var store = EventStore.inMemory();
+            var net = relayJoinNet(a, b, out, m -> new NuMsg(m.cid()), async);
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                a, List.of(Token.of(new NuMsg("X"))), b, List.of(Token.of(new NuMsg("X"))));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                assertEquals(1, result.tokenCount(out), "async=" + (async != null));
+                assertEquals("X", result.peekFirst(out).value().cid());
+                assertTrue(failures(store).isEmpty(), "no validation failure: " + failures(store));
+            }
+        }
+    }
+
+    /**
+     * NU-054 AC2: a token projecting to a different name fails the firing with a validation
+     * error naming the transition, the place, the matched name and the name found; nothing is
+     * deposited. Both the sync and the async completion paths check it.
+     */
+    @Test
+    void nuRelay_wrongNameFailsTheFiring() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var out = Place.of("OUT", NuMsg.class);
+        for (var async : java.util.Arrays.asList(null, testExecutor)) {
+            var store = EventStore.inMemory();
+            var net = relayJoinNet(a, b, out, m -> new NuMsg("OTHER"), async);
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                a, List.of(Token.of(new NuMsg("X"))), b, List.of(Token.of(new NuMsg("X"))));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                assertEquals(0, result.tokenCount(out), "async=" + (async != null));
+                var fails = failures(store);
+                assertEquals(1, fails.size(), "one failed firing: " + fails);
+                assertEquals("'join': relay target 'OUT' received a token with name 'OTHER', "
+                    + "but the join matched name 'X' (NU-054)", fails.get(0).errorMessage());
+            }
+        }
+    }
+
+    /** NU-054 AC2: a token projecting to no name fails the firing, reported as "no name". */
+    @Test
+    void nuRelay_noNameFailsTheFiring() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var out = Place.of("OUT", NuMsg.class);
+        var store = EventStore.inMemory();
+        var net = relayJoinNet(a, b, out, m -> new NuMsg(null), null);
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new NuMsg("X"))), b, List.of(Token.of(new NuMsg("X"))));
+        try (var executor = createExecutor(net, initial, store)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            assertEquals(0, result.tokenCount(out));
+            var fails = failures(store);
+            assertEquals(1, fails.size(), "one failed firing: " + fails);
+            assertEquals("'join': relay target 'OUT' received a token with no name, "
+                + "but the join matched name 'X' (NU-054)", fails.get(0).errorMessage());
+        }
+    }
+
+    /**
+     * NU-054: every token in a relay target is checked whatever wrote it. An {@code Out.timeout}
+     * branch that forwards the matched key input conforms; one that writes a unit token (no
+     * name) into the relay target fails the firing.
+     */
+    @Test
+    void nuRelay_timeoutBranchIsChecked() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var ok = Place.of("OK", NuMsg.class);
+        var out = Place.of("OUT", NuMsg.class);
+        for (boolean forward : new boolean[] {true, false}) {
+            var store = EventStore.inMemory();
+            var join = Transition.builder("join")
+                .inputs(one(a), one(b))
+                .match(MatchSpec.builder()
+                    .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                    .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                    .relayTo(out, (NuMsg m) -> NameId.of(m.cid()))
+                    .build())
+                .outputs(xor(place(ok),
+                    timeout(Duration.ofMillis(50), forward ? forwardInput(a, out) : place(out))))
+                .action(ctx -> CompletableFuture.supplyAsync(() -> {
+                    sleep(500);
+                    return null;
+                }, testExecutor))
+                .build();
+            var net = PetriNet.builder("nuRelayTimeout").transitions(join).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                a, List.of(Token.of(new NuMsg("X"))), b, List.of(Token.of(new NuMsg("X"))));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(3)).toCompletableFuture().join();
+                if (forward) {
+                    assertEquals(1, result.tokenCount(out), "forwarded key token conforms");
+                    assertEquals("X", result.peekFirst(out).value().cid());
+                    assertTrue(failures(store).isEmpty(), "no failure: " + failures(store));
+                } else {
+                    assertEquals(0, result.tokenCount(out), "unit token carries no name");
+                    assertTrue(failures(store).stream().anyMatch(f -> f.errorMessage().equals(
+                            "'join': relay target 'OUT' received a token with no name, "
+                                + "but the join matched name 'X' (NU-054)")),
+                        "timeout branch must be checked: " + failures(store));
+                }
+            }
+        }
+    }
+
+    /**
+     * NU-054: a relay target that is also one of the join's own keys (a correlated self-loop).
+     * The join writes the name back; a second case is untouched. A self-loop that writes a
+     * different name back fails.
+     */
+    @Test
+    void nuRelay_selfLoopOnOwnKey() throws Exception {
+        var p = Place.of("p", NuMsg.class);
+        var y = Place.of("Y", NuMsg.class);
+        var q = Place.of("q", NuMsg.class);
+        for (boolean conform : new boolean[] {true, false}) {
+            var store = EventStore.inMemory();
+            var join = Transition.builder("B")
+                .inputs(one(p), one(y))
+                .match(MatchSpec.builder()
+                    .key(p, (NuMsg m) -> NameId.of(m.cid()))
+                    .key(y, (NuMsg m) -> NameId.of(m.cid()))
+                    .relayTo(y, (NuMsg m) -> NameId.of(m.cid()))
+                    .build())
+                .outputs(and(y, q))
+                .action(ctx -> {
+                    var m = ctx.input(p);
+                    ctx.output(y, conform ? m : new NuMsg("Z"));
+                    ctx.output(q, m);
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+            var net = PetriNet.builder("nuRelaySelfLoop").transitions(join).build();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                p, List.of(Token.of(new NuMsg("X"))), y, List.of(Token.of(new NuMsg("X"))));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                if (conform) {
+                    assertEquals(1, result.tokenCount(q));
+                    assertEquals("X", result.peekFirst(y).value().cid());
+                    assertTrue(failures(store).isEmpty(), "no failure: " + failures(store));
+                } else {
+                    assertEquals(0, result.tokenCount(q));
+                    assertEquals("'B': relay target 'Y' received a token with name 'Z', "
+                        + "but the join matched name 'X' (NU-054)", failures(store).get(0).errorMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * NU-054: the relay check runs before the IO-016 AC4 multiplicity warning, so a firing that
+     * writes two tokens into a relay target, one with the wrong name, fails with the relay error
+     * and emits no warning.
+     */
+    @Test
+    void nuRelay_checkPrecedesMultiplicityWarning() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var out = Place.of("OUT", NuMsg.class);
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .relayTo(out, (NuMsg m) -> NameId.of(m.cid()))
+                .build())
+            .outputs(place(out))
+            .action(ctx -> {
+                ctx.output(out, new NuMsg("X"));
+                ctx.output(out, new NuMsg("OTHER"));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var net = PetriNet.builder("nuRelayMultiplicity").transitions(join).build();
+        var store = EventStore.inMemory();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new NuMsg("X"))), b, List.of(Token.of(new NuMsg("X"))));
+        try (var executor = createExecutor(net, initial, store)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            assertEquals(0, result.tokenCount(out));
+            assertEquals("'join': relay target 'OUT' received a token with name 'OTHER', "
+                + "but the join matched name 'X' (NU-054)", failures(store).get(0).errorMessage());
+            var warnings = store.events().stream()
+                .filter(e -> e instanceof NetEvent.LogMessage lm && lm.message().contains("(IO-016)"))
+                .toList();
+            assertTrue(warnings.isEmpty(), "a firing the relay check fails emits no IO-016 warning: " + warnings);
+        }
+    }
+
+    /**
+     * NU-054: a relay key function that throws projects to no name, so the firing fails with the
+     * relay error rather than the key function's exception.
+     */
+    @Test
+    void nuRelay_throwingKeyFunctionIsNoName() throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var out = Place.of("OUT", NuMsg.class);
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder()
+                .key(a, (NuMsg m) -> NameId.of(m.cid()))
+                .key(b, (NuMsg m) -> NameId.of(m.cid()))
+                .relayTo(out, (NuMsg m) -> {
+                    throw new IllegalStateException("key function failed");
+                })
+                .build())
+            .outputs(place(out))
+            .action(ctx -> {
+                ctx.output(out, ctx.input(a));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var net = PetriNet.builder("nuRelayThrowingKey").transitions(join).build();
+        var store = EventStore.inMemory();
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(Token.of(new NuMsg("X"))), b, List.of(Token.of(new NuMsg("X"))));
+        try (var executor = createExecutor(net, initial, store)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            assertEquals(0, result.tokenCount(out));
+            var fails = failures(store);
+            assertEquals(1, fails.size(), "one failed firing: " + fails);
+            assertEquals("'join': relay target 'OUT' received a token with no name, "
+                + "but the join matched name 'X' (NU-054)", fails.get(0).errorMessage());
         }
     }
 

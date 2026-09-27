@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -142,26 +143,20 @@ class BackendDivergenceRegressionTest {
     /**
      * Two input arcs on one place have no coherent consumption semantics (the bitmap
      * reference tolerantly under-consumed, the precompiled executor corrupted its token
-     * rings) and are rejected at compile time (CORE-030 AC3). The Transition builder stays
-     * permissive; the check lives in {@link CompiledNet}, which both backends compile through.
+     * rings, and the analysis paths disagreed: the state-class graph threw an internal error,
+     * the flattener kept the last arc). They are rejected when the transition is built
+     * (CORE-030 AC3), so no backend and no analysis path ever sees one; {@link CompiledNet}
+     * keeps the same check as a backstop.
      */
-    @ParameterizedTest
-    @EnumSource(Backend.class)
-    void duplicateInputArcsOnOnePlace_rejectedAtCompileTime(Backend backend) {
+    @Test
+    void duplicateInputArcsOnOnePlace_rejectedAtBuildTime() {
         var p = Place.of("P", CounterValue.class);
 
-        var t = Transition.builder("t")
+        var builder = Transition.builder("t")
             .inputs(Arc.In.one(p), Arc.In.one(p))
-            .action(ctx -> CompletableFuture.completedFuture(null))
-            .build();
+            .action(ctx -> CompletableFuture.completedFuture(null));
 
-        var net = PetriNet.builder("DuplicateInput").transitions(t).build();
-        var initial = Map.<Place<?>, List<Token<?>>>of(
-            p, List.of(Token.of(new CounterValue(1)))
-        );
-
-        var error = assertThrows(IllegalStateException.class,
-            () -> backend.create(net, initial));
+        var error = assertThrows(IllegalArgumentException.class, builder::build);
         assertTrue(error.getMessage().contains("two input arcs"),
             "expected the duplicate-input-place rejection message, got: " + error.getMessage());
     }

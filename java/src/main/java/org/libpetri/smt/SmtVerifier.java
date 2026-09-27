@@ -10,15 +10,19 @@ import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
+import org.libpetri.core.internal.ArcDiagnostics;
 import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.core.internal.OutputActionCheck;
 import org.libpetri.core.internal.TerminalEncoding;
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
 import org.libpetri.smt.invariant.PInvariant;
 import org.libpetri.smt.invariant.PInvariantComputer;
 import org.libpetri.smt.invariant.StructuralCheck;
+import org.libpetri.smt.opennet.OpenNetClosure;
+import org.libpetri.smt.opennet.OpenNetContract;
 import org.libpetri.smt.z3.AbstractReplayer;
 import org.libpetri.smt.z3.BoundedRun;
 import org.libpetri.smt.z3.CertificateChecker;
@@ -37,6 +41,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -82,7 +87,8 @@ import java.util.function.Supplier;
  *   <li><b>P-invariants</b> - compute conservation laws for strengthening</li>
  *   <li><b>Linear state-equation bound</b> - a reachability-safety property whose
  *       violation exceeds a decreasing conservation law {@code y·M <= y·M0} is proven
- *       structurally from one linear query, before any fixpoint search ([VER-015];
+ *       structurally from one linear query, before any fixpoint search, a &nu;-net's
+ *       name-coloured one included ([VER-015];
  *       {@link #linearBound(boolean)})</li>
  *   <li><b>State-equation phase</b> - one linear query over the marking equation, refined
  *       with traps and inductive inequalities until it proves the property, finds a run that
@@ -111,7 +117,10 @@ public final class SmtVerifier {
     private StateSpaceCache stateSpaceCache = null;
     private MarkingState initialMarking = MarkingState.empty();
     private SmtProperty property = SmtProperty.deadlockFree();
-    private final Set<EnvironmentPlace<?>> environmentPlaces = new HashSet<>();
+    /** Registration order: {@code arrivals(k)} numbers its sources by it ([VER-006]). */
+    private final Set<EnvironmentPlace<?>> environmentPlaces = new LinkedHashSet<>();
+    /** The {@code arrivals(k)} rewrite {@link #applyArrivals()} applied, or {@code null}. */
+    private ArrivalsRewrite arrivals = null;
     /** Declaration order: the report renders the sinks as they were declared ([VER-014]). */
     private final Set<Place<?>> sinkPlaces = new LinkedHashSet<>();
     /** Conditional sinks by marker, in declaration order; repeated markers accumulate. */
@@ -154,6 +163,19 @@ public final class SmtVerifier {
     private Z3Solver solver = null;
     private Set<MarkingState> replayStateSetOverride = null;
     private int replayNodeBudget = AbstractReplayer.DEFAULT_NODE_BUDGET;
+    private Duration totalBudget = null;
+    private boolean timedCounterexampleCheck = false;
+    /**
+     * The route the running step of the calling {@link #verify()} belongs to, for the result of a
+     * budget exhaustion or a cancellation. Bound per call, never an instance field, so calls
+     * sharing one verifier on different threads cannot see each other's step.
+     */
+    private static final ScopedValue<RunningRoute> RUNNING_ROUTE = ScopedValue.newInstance();
+
+    /** The per-call holder of the running route; written and read on the verifying thread only. */
+    private static final class RunningRoute {
+        SmtVerificationResult.Route route = SmtVerificationResult.Route.UNAVAILABLE;
+    }
 
     private SmtVerifier(PetriNet net) {
         this.net = Objects.requireNonNull(net);
@@ -254,6 +276,80 @@ public final class SmtVerifier {
     }
 
     /**
+     * What the {@code arrivals(min, max)} rewrite of [VER-006] did.
+     *
+     * @param min      the mandatory part of the total per environment place
+     * @param k        the most per environment place
+     * @param places   the environment places, by name, in registration order
+     * @param injected the places an injection transition feeds ({@code places}, or none when
+     *                 {@code k} is {@code 0})
+     */
+    private record ArrivalsRewrite(int min, int k, List<String> places, List<String> injected) {}
+
+    /**
+     * The {@code arrivals(k)} rewrite ([VER-006]): closes the net over its environment places
+     * with the optional arrival group of [VER-022] ({@link OpenNetClosure#closeOpenNet},
+     * {@code min = 0}, {@code max = k}) — the {@code i}-th registered place {@code P} gets a
+     * source {@code env:optional[i]} holding {@code k} tokens, an injection transition
+     * {@code env:arrive?[i]:P} and a decline {@code env:decline[i]} with no output — before any route
+     * and before the terminal rewrite, so terminals inhibit the injection transitions as they
+     * inhibit every other. Afterwards the verifier has no environment places. Runs once per
+     * verifier.
+     *
+     * <p>{@code arrivals(min, max)} maps onto the arrival group {@code min..max} instead: the
+     * closure adds a mandatory source {@code env:arrivals[i]} holding {@code min} with
+     * {@code env:arrive[i]:P}, and omits the optional source when {@code min = max}.
+     */
+    private void applyArrivals() {
+        if (!(environmentMode instanceof EnvironmentAnalysisMode.Arrivals(int min, int k)) || environmentPlaces.isEmpty()) {
+            return;
+        }
+        var byName = new LinkedHashMap<String, Place<?>>();
+        for (var ep : environmentPlaces) {
+            byName.putIfAbsent(ep.place().name(), ep.place());
+        }
+        var names = List.copyOf(byName.keySet());
+        if (k > 0) {
+            var contract = OpenNetContract.builder().initialMarking(initialMarking);
+            for (var p : byName.values()) {
+                // At most k beyond the min mandatory ones: every other arrival is optional, so a
+                // run may rest after any number of them from min to k once the rest are
+                // declined — for quiescence as for safety.
+                contract.arriveBetween(min, k, p);
+            }
+            var closed = OpenNetClosure.closeOpenNet(net, contract.build());
+            net = closed.net();
+            initialMarking = closed.initialMarking();
+        }
+        arrivals = new ArrivalsRewrite(min, k, names, k > 0 ? names : List.of());
+        environmentPlaces.clear();
+    }
+
+    /**
+     * Why no ν route may decide this net ([VER-006] AC10), or {@code null}: under
+     * {@code arrivals(k)} an injection transition producing into a coloured place (a match key
+     * or carrier) would be classified as a mint, making two arrivals that may carry one name
+     * distinct — which can hide a reachable join, an unsound {@code Proven}.
+     */
+    private String colouredArrivalReason() {
+        if (arrivals == null || arrivals.injected().isEmpty()) {
+            return null;
+        }
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
+        if (fragment == null) {
+            return null;
+        }
+        for (var p : arrivals.injected()) {
+            if (fragment.isColoured(p)) {
+                return "environment place '" + p + "' carries ν-names (a match key or carrier place) and is fed "
+                    + "by arrivals(k): an injected token's name is unknown, so an arrival is not a fresh mint; "
+                    + "refusing to decide it by name (VER-006)";
+            }
+        }
+        return null;
+    }
+
+    /**
      * Applies the net's own terminal places ([EXEC-042], [VER-014] "Net-declared terminals"):
      * each terminal place inhibits every transition, is a sink, and excuses every place as a
      * conditional-sink marker. The caller restates nothing.
@@ -273,6 +369,62 @@ public final class SmtVerifier {
             sinkPlaces.add(p);
             conditionalSinks.computeIfAbsent(p, _ -> new LinkedHashSet<>()).addAll(all);
         }
+    }
+
+    /**
+     * The one-time rewrites every call starts with ({@link #applyArrivals()},
+     * {@link #applyNetTerminals()}). Both are idempotent after the first call; the lock makes the
+     * first one safe when several threads share this verifier, and publishes what it wrote.
+     */
+    private synchronized void prepare() {
+        applyArrivals();
+        applyInertPlaces();
+        applyNetTerminals();
+    }
+
+    /**
+     * Declares every place the initial marking marks and the net does not as an <b>inert</b>
+     * place — no arc touches it — so every route sees the token the executors retain
+     * ([CORE-072], [VER-001]): {@code deadlockFree} finds it stranded unless a sink excuses it,
+     * {@code placeBound} counts it, and it is its own P-invariant. Before, only the state-space
+     * routes saw it: the flat encoding dropped it, so a stray token could turn a {@code Violated}
+     * into a {@code Proven} depending on the class budget. After the arrivals closure, whose
+     * places the net declares, and before the terminal rewrite, so a terminal excuses it as it
+     * excuses every place.
+     *
+     * <p>A marking that names only declared places leaves the net untouched — the same instance
+     * — so its scripts stay byte-identical ([VER-013]). Idempotent.
+     */
+    private void applyInertPlaces() {
+        net = withInertMarkedPlaces(net, initialMarking);
+    }
+
+    /**
+     * {@code net} with each place {@code marking} marks but {@code net} does not declare (by
+     * name, reset-only places counting as declared) appended as a place with no arcs, in the
+     * marking's listing order after the declared places; {@code net} itself when there is none.
+     * The flattener orders places by name, so the listing order reaches no encoding.
+     */
+    static PetriNet withInertMarkedPlaces(PetriNet net, MarkingState marking) {
+        var declared = new HashSet<String>();
+        for (var p : NetFlattener.declaredPlaces(net)) {
+            declared.add(p.name());
+        }
+        var inert = new ArrayList<Place<?>>();
+        for (var p : marking.placesWithTokens()) {
+            if (declared.add(p.name())) {
+                inert.add(p);
+            }
+        }
+        if (inert.isEmpty()) {
+            return net;
+        }
+        var places = new ArrayList<Place<?>>(net.places());
+        places.addAll(inert);
+        var builder = PetriNet.builder(net.name()).places(places.toArray(new Place<?>[0]));
+        net.transitions().forEach(builder::transition);
+        net.terminals().forEach(builder::terminal);
+        return builder.build();
     }
 
     /** The conditional sink declarations in declaration order ([VER-014]). */
@@ -306,6 +458,72 @@ public final class SmtVerifier {
      */
     public SmtVerifier timeout(Duration timeout) {
         this.timeout = Objects.requireNonNull(timeout);
+        return this;
+    }
+
+    /**
+     * Sets an optional <b>total</b> wall-clock budget for one {@link #verify()} call ([VER-013];
+     * default: none).
+     *
+     * <p>{@link #timeout(Duration)} is a per-query budget: each solver phase gets its own —
+     * the bound query, the state-equation phase and its certificate check, the firing bound
+     * (half), the fixpoint query and its certificate check — so the worst case is several times
+     * the timeout, plus the solver-free work (enumeration, Route B, the siphon/trap search, the
+     * semiflow enumeration), which no timeout bounds at all. This option bounds the whole call:
+     * the deadline starts when {@code verify()} is entered, every z3 process gets the smaller of
+     * its own budget and what is left (its {@code -t}, {@code -T} and watchdog derive from that),
+     * no process starts once nothing is left, and the solver-free graph builds and loops poll the
+     * deadline and stop when it passes.
+     *
+     * <p>When it runs out the verdict is {@code Unknown} with the reason
+     * {@code total verification budget of <N> ms exhausted during <phase>}, naming the step that
+     * was running or about to start, and the report ends with the same line. A verdict reached
+     * before the deadline stands. A state-space build it cuts off is not a class-budget
+     * truncation: a {@link #stateSpaceCache(StateSpaceCache) cache} entry is left as it was found.
+     *
+     * <p>Under a total budget the fixpoint query no longer gets its full {@link #timeout} after
+     * the firing-bound phase ([VER-019]): it gets what the earlier phases left. Unset, the
+     * pipeline is unchanged.
+     *
+     * @param budget the budget for the whole call, or {@code null} for none
+     * @throws IllegalArgumentException if {@code budget} is negative
+     */
+    public SmtVerifier totalBudget(Duration budget) {
+        if (budget != null && budget.isNegative()) {
+            throw new IllegalArgumentException("total budget must not be negative: " + budget);
+        }
+        this.totalBudget = budget;
+        return this;
+    }
+
+    /**
+     * Checks a {@code Violated} counterexample of a timed net against the <b>timed</b> state-class
+     * graph ([VER-023]; default: disabled), and reports the outcome in
+     * {@link SmtVerificationResult#counterexampleTiming()}.
+     *
+     * <p>Every route but Route B decides over the untimed abstraction ([VER-004]), so on a timed
+     * net a counterexample may be a sequence the clocks forbid — a watchdog that fires after
+     * 5 ms against an answer due within 2 ms. When this is on, the verdict is {@code Violated},
+     * the net is timed, it has no environment places and the route did not already explore timed
+     * behaviour, the verifier builds the timed state-class graph of the same net and initial
+     * marking, up to {@link #enumerationMaxClasses(int)} classes and within the
+     * {@link #totalBudget(Duration) total budget}, and decides the same property over it with the
+     * same predicate the enumeration route uses:
+     * <ul>
+     *   <li>a violating class is reachable, in the closed graph or in the explored prefix of a
+     *       truncated one ([VER-017]) — {@code TIMED_CONFIRMED}, and the counterexample is
+     *       replaced with the shortest timed path to it;</li>
+     *   <li>the graph closes with none — {@code SPURIOUS_UNDER_TIMING}: the property holds under
+     *       timing, a timed claim only;</li>
+     *   <li>the graph does not close and its prefix holds none, or the total budget runs out, or
+     *       the call is cancelled — {@code TIMED_UNDECIDED}.</li>
+     * </ul>
+     * The verdict is never changed: the untimed claim is the contract. The timed graph grows
+     * with every relative ordering of concurrent clocks, so the check is opt-in; it does not use
+     * the {@link #stateSpaceCache(StateSpaceCache) state-space cache}.
+     */
+    public SmtVerifier timedCounterexampleCheck(boolean enabled) {
+        this.timedCounterexampleCheck = enabled;
         return this;
     }
 
@@ -702,21 +920,134 @@ public final class SmtVerifier {
     /**
      * Runs the verification pipeline.
      *
+     * <h3>Cancellation ([VER-013])</h3>
+     * Interrupting the thread that runs this method cancels it — Java's own cancellation idiom;
+     * there is no token. The running {@code z3} process is destroyed at once and reaped, no
+     * further process starts, the state-space builds and long solver-free loops stop at their
+     * next deadline poll, and the result is {@code Unknown} with the reason
+     * {@code verification cancelled during <phase>} (the report ends with the same line). A
+     * thread already interrupted when the call starts gets that result at once, for the phase
+     * {@code net preparation}. The polls read the interrupt status without clearing it, so the
+     * flag is still set when this method returns. A verdict reached before the interrupt stands.
+     * A build stopped this way is not a class-budget truncation: a
+     * {@link #stateSpaceCache(StateSpaceCache) state-space cache} is left as it was found.
+     *
      * @return the verification result
      * @throws IllegalStateException per [CORE-043] — this encoder reads token production from
      *     the {@code Arc.Out} spec, never from the bound action, so a net that could not produce
      *     at run time would otherwise verify green
      */
     public SmtVerificationResult verify() {
-        OutputActionCheck.requireOutputProducingActions(net);
-        applyNetTerminals();
-        var start = Instant.now();
         var report = new StringBuilder();
+        var entered = Instant.now();
+        // [VER-013] a deadline is bound for every call: the total budget when one is set, which
+        // starts here, before the terminal rewrite, so all of the call's work counts against it;
+        // otherwise an unlimited one that stops only on cancellation (an interrupt of this
+        // thread). Bound for the call only, on this thread.
+        var bound = totalBudget == null
+            ? VerificationDeadline.unlimited()
+            : new VerificationDeadline(saturatingMillis(totalBudget));
+        var running = new RunningRoute();
+        try {
+            // A call cancelled before it starts returns at once.
+            if (VerificationDeadline.cancelled()) {
+                throw new VerificationDeadline.Cancelled(bound);
+            }
+            return ScopedValue.where(VerificationDeadline.carrier(), bound)
+                .where(RUNNING_ROUTE, running)
+                .call(() -> withCounterexampleTiming(pipeline(report), report));
+        } catch (VerificationDeadline.Stopped e) {
+            String reason = e.reason();
+            report.append("\n=== RESULT ===\n\n");
+            report.append("UNKNOWN: ").append(reason).append("\n");
+            String why = e instanceof VerificationDeadline.Cancelled
+                ? "n/a (verification cancelled)" : "n/a (total verification budget exhausted)";
+            return buildResult(
+                new SmtVerificationResult.Verdict.Unknown(reason), report.toString(),
+                List.of(), List.of(), List.of(), List.of(),
+                Duration.between(entered, Instant.now()),
+                new SmtVerificationResult.SmtStatistics(
+                    net.places().size(), net.transitions().size(), 0, why),
+                running.route);
+        }
+    }
+
+    /** {@code d} in milliseconds, saturating where a {@link Duration} holds more than a long does. */
+    private static long saturatingMillis(Duration d) {
+        try {
+            return d.toMillis();
+        } catch (ArithmeticException _) {
+            return d.isNegative() ? 0 : Long.MAX_VALUE;
+        }
+    }
+
+    /**
+     * Names the step about to run for a total-budget exhaustion or a cancellation ([VER-013]) and
+     * refuses to start it once the call must stop. A no-op outside {@link #verify()}.
+     */
+    private static void enter(String phase, SmtVerificationResult.Route route) {
+        var deadline = VerificationDeadline.current();
+        if (deadline != null) {
+            deadline.enter(phase);
+            if (RUNNING_ROUTE.isBound()) {
+                RUNNING_ROUTE.get().route = route;
+            }
+        }
+    }
+
+    /** The pipeline of {@link #verify()}, writing its report into {@code report}. */
+    private SmtVerificationResult pipeline(StringBuilder report) {
+        OutputActionCheck.requireOutputProducingActions(net);
+        prepare();
+        var start = Instant.now();
         report.append("=== IC3/PDR SAFETY VERIFICATION ===\n\n");
         report.append("Net: ").append(net.name()).append("\n");
         String propDesc = propertyDescription();
         report.append("Property: ").append(propDesc).append("\n");
+        var bound = VerificationDeadline.current();
+        if (bound != null && bound.limited()) {
+            report.append("Total budget: ").append(bound.budgetMs()).append(" ms\n");
+        }
         report.append("Timeout: ").append(timeout.toSeconds()).append("s\n\n");
+        if (arrivals != null) {
+            if (arrivals.injected().isEmpty()) {
+                report.append("Environment: arrivals(0) — nothing is injected; the environment places are "
+                    + "ordinary places (VER-006)\n\n");
+            } else {
+                // One entry per non-empty source, as closeOpenNet adds them: mandatory, then optional.
+                int min = arrivals.min();
+                int max = arrivals.k();
+                var closures = new ArrayList<String>();
+                for (int i = 0; i < arrivals.injected().size(); i++) {
+                    var p = arrivals.injected().get(i);
+                    if (min > 0) {
+                        closures.add("env:arrive[" + i + "]:" + p + " from env:arrivals[" + i + "] (exactly " + min + ")");
+                    }
+                    if (max > min) {
+                        closures.add("env:arrive?[" + i + "]:" + p + " from env:optional[" + i + "] (at most "
+                            + (max - min) + ")");
+                    }
+                }
+                report.append("Environment: arrivals(").append(min > 0 ? min + ".." + max : String.valueOf(max))
+                    .append(") — net closed before any route: ")
+                    .append(String.join(", ", closures)).append(" (VER-006)\n\n");
+            }
+        }
+        // [CORE-037]: a read, inhibitor or reset arc on a place nothing can mark acts on
+        // nothing. A warning only — never a verdict.
+        var envPlaces = new HashSet<Place<?>>();
+        environmentPlaces.forEach(ep -> envPlaces.add(ep.place()));
+        var arrivalPlaces = arrivals == null ? Set.<String>of() : Set.copyOf(arrivals.places());
+        Predicate<Place<?>> isEnvironment = p -> envPlaces.contains(p) || arrivalPlaces.contains(p.name());
+        // The caller's net, not the terminal rewrite: its synthetic inhibitors are not the
+        // caller's arcs.
+        var deadArcs = ArcDiagnostics.deadArcs(callerNet.transitions(), isEnvironment, initialMarking::hasTokens);
+        for (var dead : deadArcs) {
+            report.append("WARNING: ").append(dead.message()).append("\n");
+        }
+        if (!deadArcs.isEmpty()) {
+            report.append("\n");
+        }
         List<RestSet.ConditionalSinks> conditional = conditionalSinkList();
 
         // Before ANY route. A property naming a place the net does not declare is not a
@@ -728,6 +1059,9 @@ public final class SmtVerifier {
         // the ν route, the linear bound and the enumeration route, all of which return
         // first, so it guards only the path that never needed it. Refusing once, here, is
         // the only placement the refusal cannot be routed around.
+        // [VER-013]: a call already out of budget (or cancelled) before it starts says so, ahead
+        // of any refusal; the phase is still "net preparation".
+        VerificationDeadline.checkpoint();
         String absentPlace = unresolvedPropertyPlace(net, property);
         if (absentPlace != null) {
             String reason = "property names a place that does not resolve in the net ('"
@@ -753,6 +1087,17 @@ public final class SmtVerifier {
         boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
         boolean nuBounded = !budgetPlaces.isEmpty();
 
+        // NU-054: BASE reads a join's coloured output as a re-mint whatever it declares, so a
+        // relay declaration changes nothing there. Say so, and name the mode that uses it.
+        if (hasMatch && fragmentMode == FragmentMode.BASE) {
+            var ignored = relayDeclarations(net);
+            if (!ignored.isEmpty()) {
+                report.append("NOTE: ν relay declarations ignored under BASE fragment mode (NU-054): ")
+                      .append(String.join(", ", ignored))
+                      .append("; select fragmentMode(EXTENDED) to analyse the joins as relays.\n\n");
+            }
+        }
+
         // ν-net Route B (NU-050): the name-aware state-class-graph name-partition
         // quotient decides ν-join correlation EXACTLY — including name×time and
         // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
@@ -763,6 +1108,7 @@ public final class SmtVerifier {
         // through to the existing pipeline (which applies the sound Unknown
         // downgrade for these cases).
         if (hasMatch && (!isReachabilitySafety(property) || !nuBounded)) {
+            enter("Route B (ν name-partition graph)", SmtVerificationResult.Route.NU_SCG);
             // [VER-006] AC8: under modelled injection the graph holds an environment place as
             // an inexhaustible input with a frozen count and no injected names, so a verdict
             // that observes either is vacuous. Decline before building it, and do not defer to
@@ -771,7 +1117,8 @@ public final class SmtVerifier {
             boolean quiescenceVacuous = !isReachabilitySafety(property)
                 && SmtEncoder.quiescenceUnreachable(
                     NetFlattener.flatten(net, environmentPlaces, environmentMode));
-            String envObservation = fragment == null ? null : routeBEnvObservation(
+            String colouredArrival = fragment == null ? null : colouredArrivalReason();
+            String envObservation = fragment == null ? null : colouredArrival != null ? colouredArrival : routeBEnvObservation(
                 net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
                 prioritySemantics, quiescenceVacuous);
             if (envObservation != null) {
@@ -836,9 +1183,9 @@ public final class SmtVerifier {
             // silent fall-back, then continue on the sound over-approximation path.
             if (fragmentMode == FragmentMode.EXTENDED && !deferToRouteA) {
                 report.append("ν-net Route B (EXTENDED) declined: net outside coloured-consumer "
-                    + "fragment (a coloured place consumed count != 1 or by multiple inputs, carries "
-                    + "reset/read/inhibitor arc, or a join re-mints a coloured place); verified via "
-                    + "sound over-approximation instead.\n\n");
+                    + "fragment (a coloured place consumed count != 1 or by multiple inputs, carries a "
+                    + "reset/read/inhibitor arc, or a join writes a coloured place it does not declare "
+                    + "as a relay target); verified via sound over-approximation instead.\n\n");
             }
         }
 
@@ -852,8 +1199,17 @@ public final class SmtVerifier {
                 && environmentPlaces.isEmpty()
                 && enumerationMaxClasses > 0
                 && ScgVerifier.isUntimed(net)) {
+            enter("state-space enumeration", SmtVerificationResult.Route.ENUMERATION);
             ScgVerifier.Outcome enumerated;
-            if (stateSpaceCache == null) {
+            // Under arrivals(k) the graph is of the closed net, which depends on the environment
+            // places as well as on the caller's net and marking: it would share a cache entry
+            // with a query that closed the net over other places, so the cache is not used.
+            boolean cached = stateSpaceCache != null && (arrivals == null || arrivals.injected().isEmpty());
+            if (!cached) {
+                if (stateSpaceCache != null) {
+                    report.append("Bounded state-space enumeration: state-space cache not used — the net was "
+                        + "closed by arrivals(k) (VER-006, VER-017).\n");
+                }
                 enumerated = ScgVerifier.verify(
                     net, initialMarking, property, sinkPlaces, enumerationMaxClasses, conditional);
             } else {
@@ -862,23 +1218,33 @@ public final class SmtVerifier {
                 var encoded = net;
                 var lookup = stateSpaceCache.lookup(callerNet, initialMarking, enumerationMaxClasses,
                     budget -> StateClassGraph.build(encoded, initialMarking, budget));
-                enumerated = lookup.closed()
-                    ? ScgVerifier.decide(lookup.graph(), property, sinkPlaces, conditional)
-                    : new ScgVerifier.Outcome.Truncated(lookup.classCount());
+                // A lookup answered as truncated still reads the graph it has — the truncated
+                // build, or a cached one at least as large — as an explored prefix: a violation
+                // in it stands, nothing is proven from it ([VER-017]).
+                enumerated = ScgVerifier.decide(lookup.graph(), property, sinkPlaces, conditional, !lookup.closed());
+                if (enumerated instanceof ScgVerifier.Outcome.Truncated) {
+                    enumerated = new ScgVerifier.Outcome.Truncated(lookup.classCount());
+                }
                 if (lookup.fromCache()) {
                     report.append(lookup.closed()
                         ? "Bounded state-space enumeration: reused cached state space ("
                             + lookup.classCount() + " classes) (VER-017).\n"
-                        : "Bounded state-space enumeration: cached truncation at "
-                            + enumerationMaxClasses
-                            + " classes (VER-017); verifying via the SMT pipeline.\n");
+                        : enumerated instanceof ScgVerifier.Outcome.Decided
+                            ? "Bounded state-space enumeration: cached truncation at " + enumerationMaxClasses
+                                + " classes (VER-017); its explored prefix (" + lookup.graph().size()
+                                + " classes) was read.\n"
+                            : "Bounded state-space enumeration: cached truncation at "
+                                + enumerationMaxClasses
+                                + " classes (VER-017); verifying via the SMT pipeline.\n");
                 }
             }
             if (enumerated instanceof ScgVerifier.Outcome.Decided decided) {
                 report.append("=== Bounded state-space enumeration (VER-017) ===\n");
                 report.append("  State classes: ").append(decided.classCount()).append("\n");
                 report.append("  P-invariants: not computed (no encoding is built on this route)\n");
-                report.append(ScgVerifier.NOTE_ENUMERATED);
+                report.append(decided.truncated()
+                    ? GraphDecision.prefixNote("state-class graph", enumerationMaxClasses)
+                    : ScgVerifier.NOTE_ENUMERATED);
                 if (!decided.transitions().isEmpty()) {
                     report.append("  Counterexample trace: ").append(decided.trace().size())
                           .append(" states, ").append(decided.transitions().size())
@@ -903,6 +1269,7 @@ public final class SmtVerifier {
         }
 
         // Phase 1: Flatten
+        enter("flattening", SmtVerificationResult.Route.SMT);
         report.append("Phase 1: Flattening net...\n");
         FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
         report.append("  Places: ").append(flatNet.placeCount()).append("\n");
@@ -927,6 +1294,7 @@ public final class SmtVerifier {
                 && sinkPlaces.isEmpty()
                 && conditional.isEmpty()
                 && environmentPlaces.isEmpty();
+        enter("structural pre-check", SmtVerificationResult.Route.SMT);
         var structResult = structuralCandidate ? StructuralCheck.check(flatNet, initialMarking) : null;
         String structResultStr = switch (structResult) {
             case null -> "n/a (not a deadlock-freedom proof candidate)";
@@ -952,6 +1320,7 @@ public final class SmtVerifier {
         }
 
         // Phase 3: P-invariants
+        enter("P-invariant computation", SmtVerificationResult.Route.SMT);
         report.append("Phase 3: Computing P-invariants...\n");
         var matrix = IncidenceMatrix.from(flatNet);
         // Exact re-validation gate: the elimination in PInvariantComputer uses unchecked
@@ -1093,17 +1462,24 @@ public final class SmtVerifier {
             report.append("  ν-encoding: name-blind over-approximation (the name-coloured encoding does not\n")
                 .append("  model environment injection, VER-006)\n");
         }
+        String colouredArrival = hasMatch && nuBounded ? colouredArrivalReason() : null;
+        if (colouredArrival != null) {
+            report.append("  ν-encoding: name-blind over-approximation (").append(colouredArrival).append(")\n");
+        }
 
         // Linear state-equation bound (VER-015): a reachability-safety property whose
         // violating markings exceed some `y·M <= y·M0` with `y >= 0`, `y·C <= 0` is
         // proven structurally, without the fixpoint search — the ordering arguments IC3
-        // does not invent on pipeline-shaped nets. Flat path only: a net on the exact
-        // name-coloured encoding keeps that route's verdict and notes. Skipped under
-        // Ignore with environment places, where VER-006 refuses every Proven.
+        // does not invent on pipeline-shaped nets. It runs before the name-coloured encoding
+        // too ([NU-053]): the flat state equation is name-blind and over-approximates the ν
+        // semantics, so its Proven is sound on a ν-net, and a trivially true bound no longer
+        // waits out the coloured query's timeout. Not proven → the coloured encoding decides
+        // as before. Skipped under Ignore with environment places, where VER-006 refuses
+        // every Proven.
         if (linearBound
-                && colouredPlan == null
                 && isReachabilitySafety(property)
                 && !ignoresEnvironment()) {
+            enter("linear bound", SmtVerificationResult.Route.SMT);
             String proof = linearBoundProof(flatNet, z3, report);
             if (proof != null) {
                 report.append("  Certificate check: not applicable (structural proof)\n\n");
@@ -1127,12 +1503,14 @@ public final class SmtVerifier {
         // which is safe only because this requires !hasMatch, where that guard is the identity.
         boolean flatPhases = !hasMatch && !ignoresEnvironment();
         if (flatPhases && stateEquationPhase) {
+            enter("state-equation phase", SmtVerificationResult.Route.SMT);
             var decided = stateEquationDecision(flatNet, z3, report, propDesc, conditional, invariants, stats, start);
             if (decided != null) {
                 return decided;
             }
         }
         if (flatPhases && firingBound) {
+            enter("firing-bound phase", SmtVerificationResult.Route.SMT);
             var decided = firingBoundDecision(flatNet, z3, report, propDesc, conditional, invariants, stats, start);
             if (decided != null) {
                 return decided;
@@ -1197,6 +1575,7 @@ public final class SmtVerifier {
             report.append("  State equation: not applied (name-coloured encoding)\n");
         }
         String phase = colouredPlan != null ? "horn-coloured" : "horn";
+        enter("IC3/PDR query", SmtVerificationResult.Route.SMT);
         var queryResult = SpacerRunner.run(z3, timeout, encoding.smt2(), phase);
 
         var smtResult = switch (queryResult) {
@@ -1238,6 +1617,7 @@ public final class SmtVerifier {
                         certOutcome = new CertificateChecker.Result.Unavailable(
                             "no inductive invariant (define-fun block) could be extracted from the z3 model");
                     } else {
+                        enter("certificate check", SmtVerificationResult.Route.SMT);
                         try {
                             certOutcome = certificateChecker.run(
                                 formula, flatNet, initialMarking, property, sinkPlaces,
@@ -1394,6 +1774,109 @@ public final class SmtVerifier {
             }
         };
         return applyNuGuard(smtResult, hasMatch, nuBounded, colouredPlan != null);
+    }
+
+    /**
+     * Sets {@link SmtVerificationResult#counterexampleTiming()} on a {@code Violated} result, and
+     * runs the timed counterexample check of [VER-023] when it is enabled and applies. Applied
+     * once, to whatever the pipeline returned, like the &nu; guard; never changes a verdict.
+     */
+    private SmtVerificationResult withCounterexampleTiming(SmtVerificationResult result, StringBuilder report) {
+        if (!(result.verdict() instanceof SmtVerificationResult.Verdict.Violated)) {
+            return result;
+        }
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        SmtVerificationResult.CounterexampleTiming timing;
+        if (ScgVerifier.isUntimed(net)) {
+            timing = SmtVerificationResult.CounterexampleTiming.UNTIMED_NET;
+        } else if (result.route() == SmtVerificationResult.Route.NU_SCG) {
+            timing = SmtVerificationResult.CounterexampleTiming.TIMED_EXACT;
+        } else if (!timedCounterexampleCheck || !environmentPlaces.isEmpty() || hasMatch) {
+            // Environment injection and ν name correlation are outside what the plain timed
+            // graph models, so the check does not apply there.
+            timing = SmtVerificationResult.CounterexampleTiming.UNTIMED_ABSTRACTION;
+        } else {
+            return timedCheck(result);
+        }
+        return withTiming(result, timing, result.report(),
+            result.counterexampleTrace(), result.counterexampleTransitions());
+    }
+
+    /**
+     * The timed counterexample check ([VER-023]): the timed state-class graph of the same net
+     * (terminal rewrite included) and initial marking, under the enumeration class budget and
+     * the total budget, decided with the enumeration route's predicate.
+     */
+    private SmtVerificationResult timedCheck(SmtVerificationResult result) {
+        var report = new StringBuilder(result.report());
+        report.append("\n=== Timed counterexample check (VER-023) ===\n");
+        StateClassGraph graph;
+        try {
+            VerificationDeadline.checkpoint();
+            graph = StateClassGraph.build(net, initialMarking, Math.max(0, enumerationMaxClasses),
+                Set.of(), EnvironmentAnalysisMode.ignore(), StateClassGraph.Options.TIMED);
+        } catch (VerificationDeadline.Stopped e) {
+            // The verdict was reached before the stop and stands; only the check is undecided.
+            if (e instanceof VerificationDeadline.Cancelled) {
+                report.append("  UNDECIDED: verification was cancelled before the timed state-class graph closed.\n");
+            } else {
+                report.append("  UNDECIDED: the total verification budget of ").append(e.deadline().budgetMs())
+                    .append(" ms ran out before the timed state-class graph closed.\n");
+            }
+            return withTiming(result, SmtVerificationResult.CounterexampleTiming.TIMED_UNDECIDED,
+                report.toString(), result.counterexampleTrace(), result.counterexampleTransitions());
+        }
+        // A truncated graph is read as its explored prefix ([VER-017]): a violating class in it
+        // confirms the counterexample; SPURIOUS_UNDER_TIMING needs a closed graph.
+        var outcome = ScgVerifier.decide(graph, property, sinkPlaces, conditionalSinkList(), false);
+        if (!(outcome instanceof ScgVerifier.Outcome.Decided decided)) {
+            report.append("  UNDECIDED: the timed state-class graph exceeded ")
+                .append(enumerationMaxClasses).append(" classes (enumerationMaxClasses).\n");
+            return withTiming(result, SmtVerificationResult.CounterexampleTiming.TIMED_UNDECIDED,
+                report.toString(), result.counterexampleTrace(), result.counterexampleTransitions());
+        }
+        report.append("  Timed state classes: ").append(decided.classCount()).append("\n");
+        if (decided.verdict() instanceof SmtVerificationResult.Verdict.Violated) {
+            report.append(decided.truncated()
+                ? "  CONFIRMED: the timed state-class graph, truncated at " + enumerationMaxClasses
+                    + " classes (enumerationMaxClasses), reaches a violating class in its explored prefix.\n"
+                : "  CONFIRMED: the timed state-class graph reaches a violating class.\n");
+            report.append("  The counterexample trace and firing sequence of this result are REPLACED by the ")
+                .append("shortest timed-graph path:\n");
+            var trace = decided.trace();
+            report.append("  Counterexample trace (timed, ").append(trace.size()).append(" states):\n");
+            for (int i = 0; i < trace.size(); i++) {
+                report.append("    ").append(i).append(": ").append(trace.get(i)).append("\n");
+            }
+            if (!decided.transitions().isEmpty()) {
+                report.append("  Firing sequence: ").append(String.join(" -> ", decided.transitions())).append("\n");
+            }
+            // The path is an ordered firing sequence, confirmed by construction ([VER-023], as
+            // for the enumeration route).
+            return withTiming(result, SmtVerificationResult.CounterexampleTiming.TIMED_CONFIRMED,
+                report.toString(), decided.trace(), decided.transitions(), Boolean.TRUE);
+        }
+        report.append("  SPURIOUS UNDER TIMING: the timed state-class graph closed with ")
+            .append(decided.classCount()).append(" classes and none of them violates the property, so it ")
+            .append("holds under the net's timing — a timed claim only.\n");
+        report.append("  The verdict stays VIOLATED: the untimed semantics is the contract (VER-004). The ")
+            .append("untimed counterexample above is kept.\n");
+        return withTiming(result, SmtVerificationResult.CounterexampleTiming.SPURIOUS_UNDER_TIMING,
+            report.toString(), result.counterexampleTrace(), result.counterexampleTransitions());
+    }
+
+    private static SmtVerificationResult withTiming(
+            SmtVerificationResult r, SmtVerificationResult.CounterexampleTiming timing, String report,
+            List<MarkingState> trace, List<String> transitions) {
+        return withTiming(r, timing, report, trace, transitions, r.counterexampleConfirmed());
+    }
+
+    private static SmtVerificationResult withTiming(
+            SmtVerificationResult r, SmtVerificationResult.CounterexampleTiming timing, String report,
+            List<MarkingState> trace, List<String> transitions, Boolean confirmed) {
+        return new SmtVerificationResult(r.verdict(), r.route(), report, r.invariants(),
+            r.discoveredInvariants(), trace, transitions, confirmed, timing,
+            r.elapsed(), r.statistics());
     }
 
     /**
@@ -1597,7 +2080,8 @@ public final class SmtVerifier {
         report.append("  Firing bound (VER-019):\n");
         // Half the timeout: a short counterexample is found in seconds, while a proof to a deep
         // bound on a wide net can outlast any budget, and the fixpoint query after this phase
-        // still gets its full one. The phase itself refuses a net with DECLARED environment
+        // still gets its full one — unless a total budget ([VER-013]) is set, when it gets what
+        // is left. The phase itself refuses a net with DECLARED environment
         // injection, whether or not the flat net resolves the place.
         var outcome = BoundedRun.runFiringBoundPhase(
             flatNet, initialMarking, property, sinkPlaces, conditional,
@@ -1724,8 +2208,9 @@ public final class SmtVerifier {
      *                    certificate; {@code null} for the name-coloured encoding
      * @param coloured    whether {@code horn} is the name-coloured encoding
      * @param bound       the linear state-equation bound query ([VER-015]), present exactly
-     *                    when {@link #verify()} would send it: flat path, enabled, not
-     *                    refused by [VER-006], and a property with a linear demand;
+     *                    when {@link #verify()} would send it: enabled, not refused by
+     *                    [VER-006], and a property with a linear demand — also ahead of the
+     *                    name-coloured encoding ([NU-053]);
      *                    {@code null} otherwise (the quiescence properties)
      * @param stateEquation the first query of the state-equation phase ([VER-018]), before any
      *                    refinement, present exactly when {@link #verify()} would send it;
@@ -1778,6 +2263,10 @@ public final class SmtVerifier {
         if (!hasMatch || !nuBounded || !flatNet.environmentInjection().isEmpty()) {
             return new ColouredAttempt(null, null);
         }
+        // [VER-006] AC10: an arrival into a coloured place is not a mint.
+        if (colouredArrivalReason() != null) {
+            return new ColouredAttempt(null, null);
+        }
         // Supplied rather than passed by value: Java evaluates arguments eagerly, so a
         // plain parameter would run the Farkas enumeration on every encodeScripts()
         // call, including the flat nets that never reach this line.
@@ -1800,7 +2289,7 @@ public final class SmtVerifier {
     /** See {@link EncodedScripts}. */
     public EncodedScripts encodeScripts() {
         OutputActionCheck.requireOutputProducingActions(net);
-        applyNetTerminals();
+        prepare();
         FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
         // AUTO decides from the same fact here as in verify() — whether the basis lost a law
         // to the H1 guard — so the script this reports is the script that would be sent.
@@ -1809,10 +2298,10 @@ public final class SmtVerifier {
         var invariants = encoderInvariants(flatNet, initialMarking, semiflowInvariants);
         var coloured = colouredAttempt(
             flatNet, invariants, () -> validatedSemiflows(flatNet, initialMarking));
-        // The bound query (VER-015) exactly when verify() would send it: flat path,
-        // enabled, not refused by VER-006, and a property with a linear demand (else null).
-        String bound = coloured.plan() == null
-                && linearBound
+        // The bound query (VER-015) exactly when verify() would send it: enabled, not refused
+        // by VER-006, and a property with a linear demand (else null) — on the flat path and
+        // ahead of the name-coloured encoding alike.
+        String bound = linearBound
                 && !ignoresEnvironment()
             ? LinearBound.encode(flatNet, initialMarking, property)
             : null;
@@ -2403,5 +2892,20 @@ public final class SmtVerifier {
                 "certificate check could not run: " + reason
                     + "; PROVEN is withheld without an independently validated certificate";
         };
+    }
+
+    /**
+     * Every relay declaration of {@code net} as {@code '<transition>' -> '<place>'}, in
+     * transition then declaration order (NU-054) — what the BASE-mode report names as ignored.
+     */
+    private static List<String> relayDeclarations(PetriNet net) {
+        var out = new ArrayList<String>();
+        for (var t : net.transitions()) {
+            if (t.matchSpec() == null) continue;
+            for (var relay : t.matchSpec().relays()) {
+                out.add("'" + t.name() + "' -> '" + relay.place().name() + "'");
+            }
+        }
+        return out;
     }
 }

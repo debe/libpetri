@@ -296,6 +296,10 @@ final class SmtRoute {
      * the firings the marking equation lets repeat.
      */
     private static Termination terminationByRanking(ClosedNet closed, Duration timeout) {
+        // [VER-013]: a cancelled call starts no further query.
+        if (Thread.currentThread().isInterrupted()) {
+            return new Termination(false, "verification cancelled during termination (firing bound)");
+        }
         FlatNet flat = NetFlattener.flatten(closed.net(), Set.of(), EnvironmentAnalysisMode.ignore());
         int[] initial = AbstractReplayer.toVector(flat, closed.initialMarking());
         Z3Solver solver;

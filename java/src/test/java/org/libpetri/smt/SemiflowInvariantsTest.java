@@ -187,6 +187,8 @@ class SemiflowInvariantsTest {
     @EnabledIf("z3Available")
     void colouredReportCountsTheSemiflows() {
         var result = colouredVerifier(true)
+            // Ahead of the coloured encoding the linear bound ([VER-015]) would prove it first.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(30))
             .verify();
 

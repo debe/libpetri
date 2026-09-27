@@ -1,5 +1,6 @@
 package org.libpetri.smt.invariant;
 
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.FlatTransition;
@@ -130,6 +131,8 @@ public final class StructuralCheck {
         if (++nodes[0] > budget) {
             return false;
         }
+        // [VER-013] total budget, when a verifier bound one.
+        VerificationDeadline.checkpoint();
         // A superset of a siphon already found cannot lead to a new minimal one.
         for (var f : found) {
             if (f.size() <= siphon.size() && siphon.containsAll(f)) {

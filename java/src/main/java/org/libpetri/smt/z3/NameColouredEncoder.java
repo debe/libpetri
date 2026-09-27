@@ -45,7 +45,8 @@ import java.util.TreeSet;
  * budget-bounded coloured fragment:
  * <ul>
  *   <li>coloured places = the correlated inputs of every matched transition, plus (in
- *       EXTENDED mode, NU-051) the declared carrier places;</li>
+ *       EXTENDED mode, NU-051) the declared carrier places and every join's relay
+ *       targets (NU-054);</li>
  *   <li>each coloured place is <em>produced only by</em> minting forks (count 1, no
  *       coloured input, costs &ge;1 budget token) or EXTENDED relays, and
  *       <em>consumed only by</em> matched joins or EXTENDED coloured consumers — a relay
@@ -84,8 +85,12 @@ public final class NameColouredEncoder {
     /** Minting fork: produces a freshly-coloured token into each listed place. */
     private record Mint(int[] colouredOut) implements Klass {}
 
-    /** Matched join: consumes one same-coloured token from each listed place. */
-    private record Join(int[] colouredIn) implements Klass {}
+    /**
+     * Matched join: consumes one same-coloured token from each {@code colouredIn} and, on
+     * this flat row's branch, produces it once on each {@code relayOut} (NU-054, EXTENDED
+     * only; empty otherwise).
+     */
+    private record Join(int[] colouredIn, int[] relayOut) implements Klass {}
 
     /**
      * EXTENDED coloured consumer (NU-051): a non-match transition that consumes one
@@ -187,6 +192,17 @@ public final class NameColouredEncoder {
                     isColoured[pid] = true;
                 }
             }
+            // NU-054: relay targets are coloured places, so the covering semiflow below must
+            // weight them too.
+            for (var t : net.transitions()) {
+                if (t.matchSpec() == null) continue;
+                for (var relay : t.matchSpec().relays()) {
+                    Integer pid = nameIdx.get(relay.place().name());
+                    if (pid != null) {
+                        isColoured[pid] = true;
+                    }
+                }
+            }
         }
         int[] coloured = indicesOf(isColoured);
         if (coloured.length == 0) {
@@ -256,9 +272,21 @@ public final class NameColouredEncoder {
 
             Klass klass;
             if (t.matchSpec() != null) {
-                // Matched join: consumes coloured inputs (count 1), produces none.
-                if (colouredOut.length != 0 || colouredIn.length == 0) {
+                // Matched join: consumes coloured inputs (count 1), produces coloured places
+                // only as declared relay targets (EXTENDED, NU-054), each at count 1.
+                var relayNames = new HashSet<String>();
+                if (fragmentMode == FragmentMode.EXTENDED) {
+                    for (var relay : t.matchSpec().relays()) {
+                        relayNames.add(relay.place().name());
+                    }
+                }
+                if (colouredIn.length == 0) {
                     return null;
+                }
+                for (int pid : colouredOut) {
+                    if (!relayNames.contains(flat.places().get(pid).name()) || ft.postVector()[pid] != 1) {
+                        return null;
+                    }
                 }
                 for (int pid : colouredIn) {
                     if (ft.preVector()[pid] != 1) {
@@ -273,7 +301,7 @@ public final class NameColouredEncoder {
                         return null;
                     }
                 }
-                klass = new Join(colouredIn);
+                klass = new Join(colouredIn, colouredOut);
             } else if (colouredIn.length != 0) {
                 // EXTENDED coloured consumer (relay/drain, NU-051): a non-match transition
                 // consuming a coloured place. Admitted only in EXTENDED mode, and only when
@@ -591,7 +619,17 @@ public final class NameColouredEncoder {
                             for (int ip : j.colouredIn()) {
                                 int col = lay.colCol[ip][cc];
                                 enab.add("(>= " + lay.cur.get(col) + " 1)");
-                                upd.add(new Update(col, "(- " + lay.cur.get(col) + " 1)"));
+                                // A key that is also a relay target (a correlated self-loop)
+                                // nets to zero: guarded above, column copied unchanged.
+                                if (!contains(j.relayOut(), ip)) {
+                                    upd.add(new Update(col, "(- " + lay.cur.get(col) + " 1)"));
+                                }
+                            }
+                            // NU-054: colour cc relayed once onto each relay target of this branch.
+                            for (int o : j.relayOut()) {
+                                if (contains(j.colouredIn(), o)) continue;
+                                int col = lay.colCol[o][cc];
+                                upd.add(new Update(col, "(+ " + lay.cur.get(col) + " 1)"));
                             }
                         }));
                     }

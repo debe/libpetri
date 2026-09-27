@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.function.IntPredicate;
+import java.util.function.Predicate;
 
 /**
  * The property predicate both state-class-graph routes decide, in one place.
@@ -27,14 +28,21 @@ public final class GraphDecision {
 
     private GraphDecision() {}
 
-    /** A finite graph of classes, indexed {@code 0 .. count() - 1}, class 0 the initial one. */
+    /**
+     * A finite graph of classes, indexed {@code 0 .. count() - 1}, class 0 the initial one, in
+     * breadth-first discovery order. It may be the explored prefix of a graph that did not close
+     * ([VER-017], "Verdicts from a truncated graph"): every class in it is reachable, so the
+     * safety properties read every one, but a view of a prefix must answer
+     * {@link #isQuiescent} only for a class that was <em>expanded</em> and found without
+     * successors — a frontier class was never looked at.
+     */
     interface ClassView {
         int count();
 
         /** The marking of class {@code i}. */
         MarkingState markingOf(int i);
 
-        /** Whether class {@code i} has no successor — the graph's quiescence. */
+        /** Whether class {@code i} was expanded and has no successor — the graph's quiescence. */
         boolean isQuiescent(int i);
     }
 
@@ -52,26 +60,14 @@ public final class GraphDecision {
             Collection<Place<?>> sinkPlaces,
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {
+        var violates = safetyViolation(property);
+        if (violates != null) {
+            return firstWhere(view, i -> violates.test(view.markingOf(i)));
+        }
         return switch (property) {
-            case SmtProperty.PlaceBound(var place, var bound) ->
-                firstWhere(view, i -> view.markingOf(i).tokens(place) > bound);
-            case SmtProperty.BranchPlaceBound(var place, var bound) ->
-                firstWhere(view, i -> view.markingOf(i).tokens(place) > bound);
-            case SmtProperty.Unreachable(var places) ->
-                firstWhere(view, i -> {
-                    var m = view.markingOf(i);
-                    for (var p : places) {
-                        if (!m.hasTokens(p)) {
-                            return false;
-                        }
-                    }
-                    return true;
-                });
-            case SmtProperty.MutualExclusion(var p1, var p2) ->
-                firstWhere(view, i -> {
-                    var m = view.markingOf(i);
-                    return m.hasTokens(p1) && m.hasTokens(p2);
-                });
+            // Decided by safetyViolation above.
+            case SmtProperty.PlaceBound _, SmtProperty.BranchPlaceBound _,
+                 SmtProperty.Unreachable _, SmtProperty.MutualExclusion _ -> -1;
             // DeadlockFree ([VER-002]): a quiescent class that strands a token — some marked
             // place is not where resting is permitted, the conditional sinks of [VER-014]
             // included. The empty marking strands nothing (AC4).
@@ -93,6 +89,42 @@ public final class GraphDecision {
                 firstWhere(view, i -> view.isQuiescent(i)
                     && countViolation(view.markingOf(i), places, min, max, waivedBy) != null);
         };
+    }
+
+    /**
+     * The class predicate of a reachability-safety property — whether a class with marking
+     * {@code m} violates it — or {@code null} for a quiescence property, whose predicate also
+     * needs to know whether the class has successors. It reads the marking alone, so a graph
+     * build can apply it to each class as the class is discovered and stop at the first
+     * violation ([VER-012]); {@link #decideOverClasses} decides these properties through this
+     * same function.
+     */
+    static Predicate<MarkingState> safetyViolation(SmtProperty property) {
+        return switch (property) {
+            case SmtProperty.PlaceBound(var place, var bound) -> m -> m.tokens(place) > bound;
+            case SmtProperty.BranchPlaceBound(var place, var bound) -> m -> m.tokens(place) > bound;
+            case SmtProperty.Unreachable(var places) -> m -> {
+                for (var p : places) {
+                    if (!m.hasTokens(p)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            case SmtProperty.MutualExclusion(var p1, var p2) -> m -> m.hasTokens(p1) && m.hasTokens(p2);
+            case SmtProperty.DeadlockFree _, SmtProperty.TerminatesAtSink _,
+                 SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _ -> null;
+        };
+    }
+
+    /**
+     * The report note of a violation found in the explored prefix of a graph that did not close
+     * ([VER-012], [VER-017], [VER-023]).
+     */
+    static String prefixNote(String graph, int maxClasses) {
+        return "\nNote: the " + graph + " was truncated at " + maxClasses + " classes; the violation was found in "
+            + "the explored prefix. Every explored class is reachable, so the counterexample is a real firing "
+            + "sequence, the shortest within the explored graph. A truncated graph never proves a property.\n";
     }
 
     /** Which bound of a count a marking breaks ({@link #countViolation}). */

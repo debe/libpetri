@@ -1,5 +1,6 @@
 package org.libpetri.smt.invariant;
 
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.IncidenceMatrix;
@@ -277,6 +278,8 @@ public final class PInvariantComputer {
             // net small enough to finish keeps exactly the rows it had.
             outer:
             for (Row rp : pos) {
+                // [VER-013] total budget, when a verifier bound one.
+                VerificationDeadline.checkpoint();
                 for (Row rn : neg) {
                     if (next.size() >= MAX_SEMIFLOW_CANDIDATES) {
                         break outer;

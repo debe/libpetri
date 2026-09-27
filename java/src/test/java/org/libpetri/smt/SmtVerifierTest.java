@@ -820,6 +820,9 @@ class SmtVerifierTest {
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(NU_PENDING, 2))
             .budgetPlaces(NU_BUDGET)
+            // The linear bound ([VER-015]) runs ahead of the coloured encoding and would
+            // prove this structurally; this test is about the coloured encoding itself.
+            .linearBound(false)
             .timeout(Duration.ofSeconds(15))
             .verify();
         assertTrue(result.isProven(),

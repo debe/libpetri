@@ -1,5 +1,6 @@
 package org.libpetri.analysis;
 
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
@@ -14,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * The &nu;-aware (name-partition quotient) State Class Graph (NU-050, Route B).
@@ -29,8 +31,9 @@ import java.util.Set;
  *
  * <p>&nu;-PN reachability is undecidable; if BFS closes within {@code maxClasses}
  * the graph is the complete reachable quotient (an exact answer), otherwise it is
- * truncated ({@link #isComplete()} returns false) and the verifier reports
- * {@code Unknown}.
+ * truncated ({@link #isComplete()} returns false): the verifier then reads only its explored
+ * prefix — a violation among the stored classes stands, nothing is proven — and otherwise
+ * reports {@code Unknown} ([VER-012] AC3).
  */
 public final class NameStateClassGraph {
 
@@ -40,7 +43,11 @@ public final class NameStateClassGraph {
     private final List<NameStateClass> classes = new ArrayList<>();
     private final List<Edge> edges = new ArrayList<>();
     private final List<List<Integer>> successors = new ArrayList<>();
+    /** The transition name of each entry of {@link #successors}, index for index. */
+    private final List<List<String>> successorLabels = new ArrayList<>();
     private boolean complete = true;
+    private int expandedCount = 0;
+    private int stoppedAt = -1;
 
     private NameStateClassGraph() {}
 
@@ -54,6 +61,35 @@ public final class NameStateClassGraph {
 
     public List<Integer> successorsOf(int idx) {
         return successors.get(idx);
+    }
+
+    /**
+     * The transition name of each successor edge of class {@code idx}, in the order of
+     * {@link #successorsOf(int)}: the labelled adjacency a shortest witness path is read from
+     * in {@code O(V + E)}.
+     */
+    public List<String> successorLabelsOf(int idx) {
+        return successorLabels.get(idx);
+    }
+
+    /**
+     * How many classes the build expanded before it closed or hit its class budget. The
+     * worklist is first-in-first-out, so they are exactly classes {@code 0 .. expandedCount()-1};
+     * on a closed graph, all of them. A frontier class of a truncated graph has no successors
+     * only because nobody looked ([VER-017], "Verdicts from a truncated graph").
+     */
+    public int expandedCount() {
+        return expandedCount;
+    }
+
+    /**
+     * The class the build stopped at because it met the stop predicate ([VER-012]), or
+     * {@code -1} when it closed or hit its class budget. It is the last class stored, and the
+     * graph is then not complete: an early-stopped graph is a prefix of the breadth-first
+     * build, never a closed one.
+     */
+    public int stoppedAt() {
+        return stoppedAt;
     }
 
     /** The base count-marking of class {@code idx} (for property queries). */
@@ -78,6 +114,28 @@ public final class NameStateClassGraph {
             Set<EnvironmentPlace<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode,
             PrioritySemantics prioritySemantics
+    ) {
+        return build(net, initialMarking, fragment, maxClasses, environmentPlaces, environmentMode,
+            prioritySemantics, null);
+    }
+
+    /**
+     * As {@link #build(PetriNet, MarkingState, NameFragment, int, Set, EnvironmentAnalysisMode,
+     * PrioritySemantics)}, stopping at the first class whose marking meets {@code stopAt}
+     * ({@code null}: never) — tested on each class as it is discovered, the initial one first.
+     * Discovery order is index order, so the class stopped at is the lowest-index class meeting
+     * the predicate in the graph built without stopping, and every edge a breadth-first path to
+     * it uses is already recorded: the witness path is the same one ([VER-012]).
+     */
+    public static NameStateClassGraph build(
+            PetriNet net,
+            MarkingState initialMarking,
+            NameFragment fragment,
+            int maxClasses,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            PrioritySemantics prioritySemantics,
+            Predicate<MarkingState> stopAt
     ) {
         var envPlaces = new HashSet<Place<?>>();
         for (var ep : environmentPlaces) {
@@ -113,6 +171,10 @@ public final class NameStateClassGraph {
         var interned0 = internBase(baseIntern, base0);
         var names0 = internNames(nameIntern, new NameMarking(), fragment.colouredOrder);
         graph.pushClass(initial, new ClassId(interned0.id(), names0.id()), indexOf);
+        if (stopAt != null && stopAt.test(initial.base.marking())) {
+            graph.stop(0);
+            return graph;
+        }
 
         int[] nextSym = {0};
         var queue = new ArrayDeque<Integer>();
@@ -123,7 +185,11 @@ public final class NameStateClassGraph {
                 graph.complete = false;
                 break;
             }
+            // [VER-013] total budget or cancellation, when a verifier bound a deadline (see
+            // StateClassGraph.build).
+            VerificationDeadline.checkpoint();
             int curIdx = queue.poll();
+            graph.expandedCount++;
             var current = graph.classes.get(curIdx);
 
             var enabled = current.base.enabledTransitions();
@@ -155,6 +221,13 @@ public final class NameStateClassGraph {
                                 new NameStateClass(sharedBase.base(), sharedNames.names(), sharedNames.nameKey()),
                                 id, indexOf);
                             queue.add(toIdx);
+                            if (stopAt != null && stopAt.test(sharedBase.base().marking())) {
+                                graph.addEdge(curIdx, toIdx, transition.name());
+                                // Partly expanded: not counted, so it is never read as quiescent.
+                                graph.expandedCount--;
+                                graph.stop(toIdx);
+                                return graph;
+                            }
                         }
                         graph.addEdge(curIdx, toIdx, transition.name());
                     }
@@ -164,10 +237,16 @@ public final class NameStateClassGraph {
         return graph;
     }
 
+    private void stop(int idx) {
+        stoppedAt = idx;
+        complete = false;
+    }
+
     private void pushClass(NameStateClass c, ClassId id, Map<ClassId, Integer> indexOf) {
         int idx = classes.size();
         classes.add(c);
         successors.add(new ArrayList<>());
+        successorLabels.add(new ArrayList<>());
         indexOf.put(id, idx);
     }
 
@@ -201,6 +280,7 @@ public final class NameStateClassGraph {
     private void addEdge(int from, int to, String name) {
         edges.add(new Edge(from, to, name));
         successors.get(from).add(to);
+        successorLabels.get(from).add(name);
     }
 
     /**
@@ -343,10 +423,13 @@ public final class NameStateClassGraph {
      * through; {@code Mint} stamps one globally-fresh symbol into the coloured
      * outputs of this branch (one symbol into several = same-mint siblings);
      * {@code Join} yields one successor per enabling symbol (none =&gt; the join is
-     * name-disabled); {@code Consume} (EXTENDED) yields one successor per resident
+     * name-disabled), removing it from the keys and adding it once to each relay target
+     * of the fired branch (EXTENDED, NU-054); {@code Consume} (EXTENDED) yields one successor per resident
      * symbol of its single coloured input, removing that symbol and re-emitting it
      * into the fired branch's coloured outputs, so a branch with no coloured output
-     * drains the symbol and a branch with one relays it.
+     * drains the symbol and a branch with one relays it. Both emit one successor per
+     * distinct symbol <em>signature</em> only ({@link #distinctSignatures}, [VER-012]
+     * orbit dedup): symbols with equal signatures give the same canonical key.
      *
      * <p>Package-private for {@code NameStateClassGraphInterningTest}: this step's
      * equivariance under symbol renaming is the hypothesis {@code Interning.lean} rests on.
@@ -372,11 +455,25 @@ public final class NameStateClassGraph {
                 yield List.of(nm);
             }
             case NameFragment.Role.Join j -> {
+                // NU-054: the relay targets of the fired branch. Relaying adds back the symbol
+                // the join removed, so the step mints nothing, and it stays equivariant under
+                // renaming: the orbit dedup below reads signatures on the PRE-step layer, and a
+                // transposition of two equal-signature symbols fixes that layer and maps one
+                // successor onto the other — equal keys, as for a drain.
+                var relays = new ArrayList<String>();
+                if (!j.relayTo().isEmpty()) {
+                    for (var p : outputPlaces) {
+                        if (j.relayTo().contains(p.name())) relays.add(p.name());
+                    }
+                }
                 var result = new ArrayList<NameMarking>();
-                for (int s : enablingSymbols(names, j.colouredIn())) {
+                for (int s : distinctSignatures(enablingSymbols(names, j.colouredIn()), names, fragment)) {
                     var nm = names.copy();
                     for (var e : j.colouredIn()) {
                         nm.remove(e.getKey(), s, e.getValue());
+                    }
+                    for (var p : relays) {
+                        nm.add(p, s, 1);
                     }
                     result.add(nm);
                 }
@@ -391,7 +488,7 @@ public final class NameStateClassGraph {
                 // receives EXACTLY ONE symbol, matching the base marking's single
                 // token per output place (Blocker 1).
                 var result = new ArrayList<NameMarking>();
-                for (int s : names.symbolsIn(inputPlace)) {
+                for (int s : distinctSignatures(names.symbolsIn(inputPlace), names, fragment)) {
                     var nm = names.copy();
                     nm.remove(inputPlace, s, 1);
                     for (var outP : colouredOut) {
@@ -416,6 +513,53 @@ public final class NameStateClassGraph {
             }
         }
         return result;
+    }
+
+    /**
+     * The first symbol of each distinct signature among {@code symbols}, in their order
+     * ([VER-012] orbit dedup). A symbol's signature is its count vector over
+     * {@code colouredOrder}. Two symbols with equal signatures are swapped by a transposition
+     * that fixes the name marking, so firing with either yields the same canonical key:
+     * emitting both only builds a copy and a key that collapse onto the class the first one
+     * produced. Dropping them leaves the class set, the discovery order and the (label, key) set
+     * of every class's successors unchanged — only parallel identical edges disappear. A join
+     * over {@code N} live names otherwise costs {@code N} copies and keys per class, about
+     * {@code O(N² log N)} over the graph.
+     *
+     * <p>Renaming-equivariance, the hypothesis of {@code Interning.lean}, still holds: the
+     * number of distinct signatures, and the signature each class of symbols has, is invariant
+     * under a renaming, so renamed layers keep equal (label, key) successor sets.
+     */
+    private static List<Integer> distinctSignatures(List<Integer> symbols, NameMarking names, NameFragment fragment) {
+        if (symbols.size() < 2) {
+            return symbols;
+        }
+        var order = fragment.colouredOrder;
+        var seen = new HashSet<IntArrayKey>();
+        var result = new ArrayList<Integer>(symbols.size());
+        for (int s : symbols) {
+            int[] signature = new int[order.size()];
+            for (int i = 0; i < signature.length; i++) {
+                signature[i] = names.countOf(order.get(i), s);
+            }
+            if (seen.add(new IntArrayKey(signature))) {
+                result.add(s);
+            }
+        }
+        return result;
+    }
+
+    /** An {@code int[]} compared by content, for the signature set. */
+    private record IntArrayKey(int[] values) {
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof IntArrayKey k && Arrays.equals(values, k.values);
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(values);
+        }
     }
 
     /**

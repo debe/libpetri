@@ -22,6 +22,10 @@ package org.libpetri.smt;
  * {@code Math.*Exact} overflow probe — is the condition the catch was written for and passes
  * through untouched.
  *
+ * <p>One non-defect is re-thrown too: {@code VerificationDeadline.Stopped}, the total
+ * verification budget of [VER-013] running out or the call being cancelled. It belongs to the
+ * whole {@code verify()} call, not to the step it interrupted.
+ *
  * <p>Most of this verifier's catches name a narrow checked or domain exception
  * ({@code Z3ProcessException}, {@code IOException}, {@code NumberFormatException}) and are
  * safe by construction: a defect cannot reach them. This helper is for the few that catch
@@ -41,6 +45,12 @@ public final class ProgrammingError {
             case ClassCastException cce -> throw cce;
             case IndexOutOfBoundsException ioobe -> throw ioobe;
             case ArrayStoreException ase -> throw ase;
+            // Not a defect, but not the condition any of these catches was written for either:
+            // the total budget of [VER-013] ran out or the call was cancelled, and the whole
+            // verification unwinds to
+            // verify(), which reports it — a step it cut off must not degrade into a weaker
+            // answer of its own.
+            case org.libpetri.core.internal.VerificationDeadline.Stopped ex -> throw ex;
             default -> {
                 // Not a defect: the condition the caller's catch was written for.
             }

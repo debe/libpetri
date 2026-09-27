@@ -1,5 +1,6 @@
 package org.libpetri.analysis;
 
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.core.Arc;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
@@ -123,6 +124,8 @@ public final class StateClassGraph {
     private final LinkedHashMap<StateClass, Node> nodes;
     private final Set<StateClass> stateClasses;
     private final boolean complete;
+    /** How many classes the build expanded; with its FIFO worklist, exactly the first ones. */
+    private final int expandedCount;
     private final int maxClasses;
     private final Set<Place<?>> environmentPlaces;
     private final EnvironmentAnalysisMode environmentMode;
@@ -132,6 +135,7 @@ public final class StateClassGraph {
             StateClass initialClass,
             LinkedHashMap<StateClass, Node> nodes,
             boolean complete,
+            int expandedCount,
             int maxClasses,
             Set<Place<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
@@ -141,6 +145,7 @@ public final class StateClassGraph {
         this.nodes = nodes;
         this.stateClasses = Collections.unmodifiableSequencedSet(nodes.sequencedKeySet());
         this.complete = complete;
+        this.expandedCount = expandedCount;
         this.maxClasses = maxClasses;
         this.environmentPlaces = environmentPlaces;
         this.environmentMode = environmentMode;
@@ -492,6 +497,9 @@ public final class StateClassGraph {
             EnvironmentAnalysisMode environmentMode,
             Options options
     ) {
+        if (!environmentPlaces.isEmpty() && environmentMode instanceof EnvironmentAnalysisMode.Arrivals) {
+            throw EnvironmentAnalysisMode.Arrivals.notModelled("StateClassGraph");
+        }
         // Extract underlying places from EnvironmentPlace wrappers
         var envPlaces = new HashSet<Place<?>>();
         for (var ep : environmentPlaces) {
@@ -510,14 +518,20 @@ public final class StateClassGraph {
         queue.add(first);
 
         boolean complete = true;
+        int expanded = 0;
 
         while (!queue.isEmpty()) {
             if (nodes.size() >= maxClasses) {
                 complete = false;
                 break;
             }
+            // The total verification budget or the cancellation of [VER-013], when a verifier
+            // bound a deadline; a no-op for every other caller. A cut-off build throws rather
+            // than returning a graph that would read as a class-budget truncation.
+            VerificationDeadline.checkpoint();
 
             var node = queue.poll();
+            expanded++;
             var current = node.stateClass;
 
             // Pure Berthomieu-Diaz with XOR branch expansion:
@@ -547,7 +561,7 @@ public final class StateClassGraph {
         for (var node : nodes.values()) {
             node.freeze();
         }
-        return new StateClassGraph(net, initialClass, nodes, complete, maxClasses, envPlaces, environmentMode);
+        return new StateClassGraph(net, initialClass, nodes, complete, expanded, maxClasses, envPlaces, environmentMode);
     }
 
     /**
@@ -922,6 +936,8 @@ public final class StateClassGraph {
             case EnvironmentAnalysisMode.AlwaysAvailable() -> true; // Always sufficient
             case EnvironmentAnalysisMode.Bounded(int maxTokens) -> required <= maxTokens;
             case EnvironmentAnalysisMode.Ignore() -> marking.tokens(place) >= required;
+            case EnvironmentAnalysisMode.Arrivals _ ->
+                throw EnvironmentAnalysisMode.Arrivals.notModelled("StateClassGraph");
         };
     }
 
@@ -1074,6 +1090,18 @@ public final class StateClassGraph {
 
     public int size() {
         return nodes.size();
+    }
+
+    /**
+     * How many classes the build expanded — computed the successors of — before it closed or hit
+     * its class budget. The worklist is first-in-first-out, so the expanded classes are exactly
+     * the first {@code expandedCount()} of {@link #stateClasses()}; on a closed graph that is all
+     * of them. A frontier class of a truncated graph (index {@code >= expandedCount()}) has no
+     * successors only because nobody looked, so it must not read as quiescent ([VER-017],
+     * "Verdicts from a truncated graph").
+     */
+    public int expandedCount() {
+        return expandedCount;
     }
 
     public boolean isComplete() {

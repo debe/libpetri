@@ -30,6 +30,23 @@ import java.util.function.Function;
  *     .action(ctx -> { ... })
  *     .build();
  * }</pre>
+ *
+ * <h3>Relay targets (NU-054)</h3>
+ * A join MAY hand the name it matched on to an <b>output</b> place through
+ * {@link Builder#relayTo}: a join chain ({@code e: C1, D1 -> P5} feeding a later join on
+ * {@code P5}) or a correlated self-loop (a join writing the name back onto one of its own
+ * keys). A relay target must be an output of the transition and is declared once (checked
+ * when the transition is built). The executor checks, as part of output validation
+ * ([IO-015]), that every token a firing writes into a relay target projects to the matched
+ * name; the EXTENDED analysis fragment reads the join as threading that name onward.
+ *
+ * <pre>{@code
+ * MatchSpec.builder()
+ *     .key(c1, (Msg m) -> NameId.of(m.caseId()))
+ *     .key(d1, (Msg m) -> NameId.of(m.caseId()))
+ *     .relayTo(p5, (Msg m) -> NameId.of(m.caseId()))
+ *     .build();
+ * }</pre>
  */
 public final class MatchSpec {
 
@@ -58,14 +75,36 @@ public final class MatchSpec {
     }
 
     private final List<MatchKey> keys;
+    private final List<MatchKey> relays;
 
-    private MatchSpec(List<MatchKey> keys) {
+    private MatchSpec(List<MatchKey> keys, List<MatchKey> relays) {
         this.keys = List.copyOf(keys);
+        this.relays = List.copyOf(relays);
     }
 
     /** The correlated inputs. */
     public List<MatchKey> keys() {
         return keys;
+    }
+
+    /**
+     * The relay targets (NU-054): output places onto which the join writes the name it
+     * matched, each with the projection that reads a produced token's name. Empty for a join
+     * that drains the name. Relay targets do not count as correlated inputs.
+     */
+    public List<MatchKey> relays() {
+        return relays;
+    }
+
+    /**
+     * Returns the relay projection for {@code place}, or {@code null} when the place is not
+     * a relay target of this spec (NU-054).
+     */
+    public Function<Object, NameId> relayFor(Place<?> place) {
+        for (var r : relays) {
+            if (r.place().equals(place)) return r.key();
+        }
+        return null;
     }
 
     /** True when {@code place} is one of the correlated inputs. */
@@ -86,9 +125,10 @@ public final class MatchSpec {
     }
 
     /**
-     * Returns a copy with every correlated place mapped through {@code mapper}
-     * (the name projections are preserved). Used by composition to follow place
-     * renames so a composed join still correlates the right inputs.
+     * Returns a copy with every correlated place and every relay target mapped
+     * through {@code mapper} (the name projections are preserved). Used by
+     * composition to follow place renames so a composed join still correlates the
+     * right inputs and relays to the right outputs (NU-030, NU-054).
      *
      * @param mapper place rename function
      * @return a remapped spec
@@ -98,7 +138,11 @@ public final class MatchSpec {
         for (var k : keys) {
             remapped.add(new MatchKey(mapper.apply(k.place()), k.key()));
         }
-        return new MatchSpec(remapped);
+        List<MatchKey> remappedRelays = new ArrayList<>(relays.size());
+        for (var r : relays) {
+            remappedRelays.add(new MatchKey(mapper.apply(r.place()), r.key()));
+        }
+        return new MatchSpec(remapped, remappedRelays);
     }
 
     /** Starts building a {@code MatchSpec}. */
@@ -109,6 +153,7 @@ public final class MatchSpec {
     /** Builder for {@link MatchSpec}. */
     public static final class Builder {
         private final List<MatchKey> keys = new ArrayList<>();
+        private final List<MatchKey> relays = new ArrayList<>();
 
         private Builder() {}
 
@@ -127,6 +172,23 @@ public final class MatchSpec {
         }
 
         /**
+         * Declares a relay target (NU-054): an output place onto which the join writes the
+         * name it matched, with the projection that reads a produced token's name. It may be
+         * one of the join's own keys (a correlated self-loop). It must be an output of the
+         * transition and declared once; both are checked when the transition is built.
+         *
+         * @param place the output place the matched name is relayed to
+         * @param key   the projection from the place's typed payload to a name
+         * @param <T>   the payload type
+         * @return this builder
+         */
+        @SuppressWarnings("unchecked")
+        public <T> Builder relayTo(Place<T> place, Function<? super T, NameId> key) {
+            relays.add(new MatchKey(place, value -> key.apply((T) value)));
+            return this;
+        }
+
+        /**
          * Builds the spec.
          *
          * @return the match spec
@@ -138,7 +200,7 @@ public final class MatchSpec {
                 throw new IllegalArgumentException(
                     "MatchSpec must correlate at least 2 input places, got " + keys.size());
             }
-            return new MatchSpec(keys);
+            return new MatchSpec(keys, relays);
         }
     }
 }

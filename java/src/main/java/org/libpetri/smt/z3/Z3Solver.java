@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import org.libpetri.core.internal.VerificationDeadline;
+
 /**
  * A resolved z3 executable: where it is and which version answered the probe
  * (VER-013).
@@ -122,6 +124,46 @@ public record Z3Solver(String program, Z3Version version, Path dumpDir) {
     public Z3Process.Reply run(String script, String phase, Duration timeout, List<String> extraArgs)
             throws Z3Process.Z3ProcessException {
         long timeoutMs = timeoutMs(timeout);
+        // The total budget of [VER-013], when verify() bound one: this process gets what is left
+        // of it if that is less than its own budget, and -t, -T and the watchdog all derive from
+        // the clamped value. A spent budget, or a cancelled call, starts no process at all.
+        var deadline = VerificationDeadline.current();
+        boolean clamped = false;
+        if (deadline != null) {
+            deadline.check();
+            long left = Math.max(1, deadline.remainingMs());
+            if (left < timeoutMs) {
+                timeoutMs = left;
+                clamped = true;
+            }
+        }
+        Z3Process.Reply reply = runProcess(script, phase, timeoutMs, extraArgs);
+        // [VER-013] cancellation: an interrupt that arrived as the process finished is still a
+        // cancellation, never a reply for the step to classify.
+        if (deadline != null && VerificationDeadline.cancelled()) {
+            throw new VerificationDeadline.Cancelled(deadline);
+        }
+        // A clamped process that came back without an answer was cut off by the total budget,
+        // not by its own: report the budget, not a solver timeout of the step.
+        if (clamped && deadline.expired() && !answered(reply)) {
+            throw new VerificationDeadline.Exhausted(deadline);
+        }
+        return reply;
+    }
+
+    /** Whether every {@code (check-sat)} of the reply was answered {@code sat} or {@code unsat}. */
+    private static boolean answered(Z3Process.Reply reply) {
+        if (!(reply.exit() instanceof Z3Process.Exit.Exited) || SmtText.timeoutLine(reply.stdout())) {
+            return false;
+        }
+        if (SmtText.classifyFirstLine(reply.stdout()) == null) {
+            return false;
+        }
+        return reply.stdout().lines().map(String::strip).noneMatch(l -> l.equals("unknown") || l.equals("timeout"));
+    }
+
+    private Z3Process.Reply runProcess(String script, String phase, long timeoutMs, List<String> extraArgs)
+            throws Z3Process.Z3ProcessException {
         Path base = dumpSlot(phase, script);
         var args = new ArrayList<>(Z3Process.argsFor(timeoutMs));
         args.addAll(extraArgs);

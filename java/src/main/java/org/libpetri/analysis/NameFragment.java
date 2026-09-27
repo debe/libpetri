@@ -23,8 +23,8 @@ import java.util.TreeSet;
  * a <i>join</i> consumes one shared name from every correlated input, and
  * everything else is <i>ordinary</i>. {@link #classify} returns {@code null} when
  * the net is not a &nu;-net or falls outside the fragment (a non-match transition
- * consuming a coloured place, or a join re-minting into one); the verifier then
- * falls back to the SMT / Route A path.
+ * consuming a coloured place, or a join writing a coloured place it does not declare
+ * as a relay target, NU-054); the verifier then falls back to the SMT / Route A path.
  */
 public final class NameFragment {
 
@@ -32,8 +32,18 @@ public final class NameFragment {
     public sealed interface Role {
         record Ordinary() implements Role {}
         record Mint() implements Role {}
-        /** Correlated inputs (place name &rarr; required per-firing count), sorted by name. */
-        record Join(List<Map.Entry<String, Integer>> colouredIn) implements Role {}
+        /**
+         * A matched join (NU-020): correlated inputs (place name &rarr; required per-firing
+         * count), sorted by name. {@code relayTo} (EXTENDED only, NU-054) holds the declared
+         * relay targets: a firing on symbol {@code s} removes {@code s} from the keys, then
+         * adds {@code s} once to each relay target in the fired branch. Empty under BASE and
+         * for a join that drains the name.
+         */
+        record Join(List<Map.Entry<String, Integer>> colouredIn, Set<String> relayTo) implements Role {
+            public Join(List<Map.Entry<String, Integer>> colouredIn) {
+                this(colouredIn, Set.of());
+            }
+        }
         /**
          * A non-match transition that consumes exactly one coloured place at count
          * exactly one (EXTENDED fragment only, NU-051). The name-successor step
@@ -90,7 +100,9 @@ public final class NameFragment {
      * unioned into the coloured set before role assignment (so a name minted at a
      * fork is threaded through them) and a non-match transition consuming exactly one
      * coloured place at count exactly one is admitted as a {@link Role.Consume}
-     * (drain / relay), NU-051.
+     * (drain / relay), NU-051. EXTENDED also unions every join's declared relay targets
+     * into the coloured set and lets a join write them (NU-054); BASE ignores relay
+     * declarations, as it ignores carriers.
      *
      * <p>Both modes reject a net where any coloured place carries a reset, read, or
      * inhibitor arc: those arcs would be silently misclassified {@code Ordinary} and
@@ -116,6 +128,16 @@ public final class NameFragment {
             // Declared carrier places thread a minted name from the fork to the join
             // inputs, so they are part of the coloured (name-partitioned) set.
             coloured.addAll(carrierPlaces);
+            // A join's relay targets carry the name it matched onward (NU-054), so they are
+            // coloured too — which also brings them under the arc exclusion below and the
+            // off-key rule of the join role.
+            for (var t : net.transitions()) {
+                if (t.matchSpec() != null) {
+                    for (var relay : t.matchSpec().relays()) {
+                        coloured.add(relay.place().name());
+                    }
+                }
+            }
         }
 
         // Soundness guard (BOTH modes): no coloured place may carry a reset, read, or
@@ -150,8 +172,22 @@ public final class NameFragment {
 
             Role role;
             if (t.matchSpec() != null) {
+                // A join may write a coloured place only as a declared relay target (NU-054,
+                // EXTENDED); any other coloured output is a re-mint — out of fragment.
+                var relayTo = new HashSet<String>();
+                if (mode == FragmentMode.EXTENDED) {
+                    for (var relay : t.matchSpec().relays()) {
+                        relayTo.add(relay.place().name());
+                    }
+                }
                 if (producesColoured) {
-                    return null; // re-mint onto a coloured place — out of fragment
+                    for (var branch : t.outputSpec().enumerateBranches()) {
+                        for (var p : branch) {
+                            if (coloured.contains(p.name()) && !relayTo.contains(p.name())) {
+                                return null;
+                            }
+                        }
+                    }
                 }
                 // A coloured place consumed off-key is taken FIFO, whatever its name; the
                 // join step only removes the matched name from the keys, so the name layer
@@ -179,7 +215,7 @@ public final class NameFragment {
                     colouredIn.add(Map.entry(place, required));
                 }
                 colouredIn.sort(Map.Entry.comparingByKey(CodePointOrder.COMPARATOR));
-                role = new Role.Join(colouredIn);
+                role = new Role.Join(colouredIn, Set.copyOf(relayTo));
             } else if (consumesColoured) {
                 // A non-match transition consuming a coloured place. BASE: out of
                 // fragment (the consumed name would be ambiguous). EXTENDED: a drain

@@ -93,7 +93,8 @@ class ThreadSafetyStressTest {
 
         var t = Transition.builder("MultiOutput")
             .inputs(In.one(input))
-            .outputs(Out.and(output, output, output))
+            // One named place: outputs are sets (IO-011); the action writes three tokens into it.
+            .outputs(Out.place(output))
             .timing(Timing.deadline(Duration.ofMillis(5000)))
             .action(ctx -> CompletableFuture.runAsync(() -> {
                 var c = ctx.input(input);

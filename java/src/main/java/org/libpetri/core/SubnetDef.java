@@ -8,11 +8,14 @@ import org.libpetri.verification.VerificationHarness;
 import org.libpetri.verification.VerificationResult;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * An open Petri net fragment paired with a declared {@link Interface}, per
@@ -213,15 +216,18 @@ public final class SubnetDef<P> implements Subnet.Open {
 
     /**
      * As {@link #verify(VerificationHarness)}, with an explicit environment-analysis
-     * mode for the synthetic environment places ([VER-006], [MOD-051] AC3).
+     * mode for the synthetic environment places ([VER-006], [MOD-051] AC3). Equivalent to
+     * {@code verify(harness, SubnetVerifyOptions.DEFAULT.withEnvironmentMode(environmentMode))}.
      *
      * <p>The synthetic net has environment places by construction, so this mode decides
      * what a verdict means. The default,
      * {@link EnvironmentAnalysisMode#alwaysAvailable()}, over-approximates: a
-     * {@code Proven} under it holds for any environment. Pass
-     * {@link EnvironmentAnalysisMode#bounded(int)} to prove a property that holds only
-     * when the environment injects at most {@code k} tokens — that is the mode that
-     * expresses a generator bounding the input.
+     * {@code Proven} under it holds for any environment.
+     * {@link EnvironmentAnalysisMode#bounded(int)} caps the tokens <b>resident</b> in each
+     * input place at {@code k} and refills it forever ([VER-006]): it bounds what one firing
+     * can take, not the input as a whole. {@link EnvironmentAnalysisMode#arrivals(int)} is the
+     * mode that expresses a generator delivering at most {@code k} tokens to each input port
+     * over the whole run.
      *
      * <p>{@link EnvironmentAnalysisMode#ignore()} is accepted but cannot yield
      * {@code Proven}: [VER-006] refuses to certify a proof that holds only because
@@ -235,8 +241,43 @@ public final class SubnetDef<P> implements Subnet.Open {
      */
     public VerificationResult verify(
             VerificationHarness<P> harness, EnvironmentAnalysisMode environmentMode) {
-        Objects.requireNonNull(harness, "harness");
         Objects.requireNonNull(environmentMode, "environmentMode");
+        return verify(harness, SubnetVerifyOptions.DEFAULT.withEnvironmentMode(environmentMode));
+    }
+
+    /**
+     * As {@link #verify(VerificationHarness)}, with {@link SubnetVerifyOptions options}: the
+     * environment mode of {@link #verify(VerificationHarness, EnvironmentAnalysisMode)} and a
+     * {@link SubnetVerifyOptions#configure() configure} hook that runs once per property, after
+     * libpetri's own setup, on the verifier that decides it ([MOD-051]). The hook is how a
+     * caller sets the per-call timeout, the total budget, sink places, the state-equation and
+     * enumeration options, or the &nu; options; the synthetic net it receives resolves the
+     * names the harness's properties use ({@code sut/<place>} for the subnet's own places).
+     *
+     * <h3>&nu; subnets need the &nu; options</h3>
+     * A subnet that mints and joins correlation names ([NU-010], [NU-020]) and threads a name
+     * through a relay is verified in the BASE fragment unless the caller says otherwise
+     * ([NU-051]). BASE reads such a relay as a fresh mint: a different model, in which a join
+     * the real net reaches may never fire, so a safety property can come back {@code Proven}
+     * although the net violates it. Pass the carrier places and
+     * {@code fragmentMode(FragmentMode.EXTENDED)} (and a budget place where one gates minting)
+     * through the hook, naming the places {@code sut/<place>}.
+     *
+     * <h3>Cancellation</h3>
+     * Interrupting the thread that runs this method cancels it ([VER-013]): the running
+     * property's verification returns {@code Unknown} with the reason
+     * {@code verification cancelled during <phase>}, and so does every later property's,
+     * without starting a solver. The interrupt flag is still set when this method returns.
+     *
+     * @param harness the verification harness
+     * @param options the environment mode and the per-property hook
+     * @return a {@link VerificationResult} aggregating per-property
+     *         {@link SmtVerificationResult}s
+     */
+    public VerificationResult verify(VerificationHarness<P> harness, SubnetVerifyOptions options) {
+        Objects.requireNonNull(harness, "harness");
+        Objects.requireNonNull(options, "options");
+        var environmentMode = options.environmentMode();
 
         // Step 1: instantiate this SubnetDef under the "sut" prefix.
         var sut = instantiate("sut", harness.params());
@@ -319,15 +360,76 @@ public final class SubnetDef<P> implements Subnet.Open {
             // EnvironmentAnalysisMode.ignore() [VER-006] downgrades every proof
             // about a net with env places to Unknown, so a subnet with an input
             // port could never be proven.
-            var result = SmtVerifier.forNet(syntheticNet)
+            var verifier = SmtVerifier.forNet(syntheticNet)
                 .property(property)
                 .environmentPlaces(envPlaces.toArray(new EnvironmentPlace<?>[0]))
-                .environmentMode(environmentMode)
-                .verify();
+                .environmentMode(environmentMode);
+            // [MOD-051]: the caller's hook runs after our setup, so what it sets wins.
+            verifier = Objects.requireNonNull(options.configure().apply(verifier, syntheticNet),
+                "verify: the configure hook returned null");
+            var result = verifier.verify();
             perProperty.put(property, result);
         }
 
         return new VerificationResult(syntheticNet, perProperty);
+    }
+
+    // ============================================================
+    //  MOD-051: action binding on a definition (mirrors CORE-042)
+    // ============================================================
+
+    /**
+     * A new definition with actions bound by the definition's own, <b>unprefixed</b>
+     * transition names ([MOD-051], mirroring [CORE-042]'s {@link PetriNet#bindActions(Map)}):
+     * a transition the map omits is bound to {@link TransitionAction#passthrough()}, exactly as
+     * at net level, so a partial map clobbers earlier bindings — use
+     * {@link #bindActions(Function)} to bind in stages. Ports, channels and parameters are
+     * unchanged; channels point at the rebound transitions. The receiver is not modified, and
+     * instances of the new definition carry the bound actions as their shared defaults
+     * ([MOD-030]). The [CORE-043] check still runs in {@link #verify} and at compile time.
+     *
+     * @param actionBindings map from unprefixed transition name to action
+     * @return a new definition with the actions bound
+     */
+    public SubnetDef<P> bindActions(Map<String, TransitionAction> actionBindings) {
+        Objects.requireNonNull(actionBindings, "actionBindings");
+        return withBody(body.bindActions(actionBindings));
+    }
+
+    /**
+     * {@link #bindActions(Map)} with a resolver, mirroring {@link PetriNet#bindActions(Function)}:
+     * called once per transition with its unprefixed name; {@code null} keeps that
+     * transition's action.
+     *
+     * @param actionResolver function from unprefixed transition name to action, or {@code null}
+     * @return a new definition with the actions bound
+     */
+    public SubnetDef<P> bindActions(Function<String, TransitionAction> actionResolver) {
+        Objects.requireNonNull(actionResolver, "actionResolver");
+        return withBody(body.bindActions(actionResolver));
+    }
+
+    /** This definition over {@code rebound} (same names, rebuilt transitions), channels re-pointed by name. */
+    private SubnetDef<P> withBody(PetriNet rebound) {
+        var byName = new HashMap<String, Transition>();
+        for (var t : rebound.transitions()) {
+            byName.put(t.name(), t);
+        }
+        var channels = new ArrayList<Interface.Channel>(iface.channels().size());
+        for (var channel : iface.channels()) {
+            switch (channel) {
+                case Interface.Channel.SyncChannel sync -> {
+                    var t = byName.get(sync.transition().name());
+                    if (t == null) {
+                        throw new IllegalStateException("bindActions: channel '" + sync.name()
+                            + "' lost transition '" + sync.transition().name() + "'");
+                    }
+                    channels.add(t == sync.transition() ? sync : new Interface.Channel.SyncChannel(sync.name(), t));
+                }
+            }
+        }
+        var rebuilt = Interface.builder().portsAll(iface.ports()).channelsAll(channels).build();
+        return new SubnetDef<>(name, rebound, rebuilt, paramType);
     }
 
     /**

@@ -261,6 +261,47 @@ final class ExecutorSupport {
     static final long MARKING_SNAPSHOT_WAIT_NANOS = 2_000_000_000L; // 2s
 
     /**
+     * The join-relay check of [NU-054], part of [IO-015] output validation: every token the
+     * firing of {@code t} wrote into a relay target of its match spec must project to
+     * {@code matched}, the name the join matched. Throws {@link OutViolationException} naming
+     * the transition, the place, the matched name and the name found (or "no name") on the
+     * first token that does not. Runs wherever output validation runs and nowhere else
+     * ([CONC-026]); every token is checked whatever wrote it, an {@code Out.forwardInput} or
+     * {@code Out.timeout} branch included. {@code matched} is {@code null} only for a firing
+     * that bound no name, which a relay target still rejects (its tokens cannot carry it).
+     *
+     * @param t       the fired transition
+     * @param outputs what the firing produced
+     * @param matched the name the join matched, or {@code null}
+     * @throws OutViolationException on the first non-conforming token
+     */
+    static void validateRelays(Transition t, TokenOutput outputs, NameId matched) {
+        MatchSpec ms = t.matchSpec();
+        if (ms == null || ms.relays().isEmpty()) return;
+        for (var entry : outputs.entries()) {
+            var key = ms.relayFor(entry.place());
+            if (key == null) continue;
+            // A unit token (Out.place in a timeout branch) carries no value, hence no name; a
+            // value of another type projects to no name, as it does for a match key, and so
+            // does a key function that throws — the firing fails with the relay error, not
+            // with the key function's exception.
+            Object value = entry.token().value();
+            NameId found;
+            try {
+                found = value == null ? null : key.apply(value);
+            } catch (RuntimeException e) {
+                found = null;
+            }
+            if (found != null && found.equals(matched)) continue;
+            String foundText = found == null ? "no name" : "name '" + found.value() + "'";
+            throw new OutViolationException(
+                "'%s': relay target '%s' received a token with %s, but the join matched name '%s' (NU-054)"
+                    .formatted(t.name(), entry.place().name(), foundText,
+                        matched == null ? "" : matched.value()));
+        }
+    }
+
+    /**
      * [IO-015] output validation as an <b>exact-explanation search</b>.
      *
      * <p>An <em>assignment</em> picks exactly one child at each {@code Xor} it reaches;
@@ -551,5 +592,23 @@ final class ExecutorSupport {
         while ((event = queue.poll()) != null) {
             event.resultFuture().complete(false);
         }
+    }
+    /**
+     * The dead read / inhibitor / reset arcs of a net about to run ([CORE-037]): the executors
+     * warn about each once, at construction, through the [CORE-072] AC4 log-message channel.
+     * A place counts as marked when the initial marking holds a token on it, and as fed when it
+     * is one of the executor's environment places.
+     */
+    static List<org.libpetri.core.internal.ArcDiagnostics.DeadArc> deadArcs(
+            Iterable<Transition> transitions,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            Map<Place<?>, List<Token<?>>> initialTokens
+    ) {
+        var env = new HashSet<Place<?>>();
+        for (var ep : environmentPlaces) env.add(ep.place());
+        return org.libpetri.core.internal.ArcDiagnostics.deadArcs(transitions, env::contains, p -> {
+            var tokens = initialTokens.get(p);
+            return tokens != null && !tokens.isEmpty();
+        });
     }
 }

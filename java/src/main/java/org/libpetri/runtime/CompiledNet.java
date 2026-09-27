@@ -156,18 +156,16 @@ public final class CompiledNet {
             boolean needsCardinality = false;
             int inputCount = t.inputSpecs().size();
 
-            // CORE-030 AC3: the Transition builder stays permissive; the duplicate-input
-            // rejection lives here so both backends share it.
+            // CORE-030 AC3: the Transition builder rejects duplicate inputs; this is the
+            // backstop, with the same text, for both backends.
             var seenInputPlaces = new BitSet(placeCount);
 
             for (var in : t.inputSpecs()) {
                 int pid = placeIndex.get(in.place());
                 if (seenInputPlaces.get(pid)) {
                     throw new IllegalStateException(
-                        ("Transition '%s' declares two input arcs on place '%s'. Duplicate "
-                            + "input places have no coherent consumption semantics and are "
-                            + "rejected at compile time (CORE-030). Use a single arc with "
-                            + "exactly(n) / atLeast(n) instead.").formatted(t.name(), in.place().name()));
+                        org.libpetri.core.internal.ArcDiagnostics.duplicateInputMessage(
+                            t.name(), in.place().name()));
                 }
                 seenInputPlaces.set(pid);
                 needs.set(pid);

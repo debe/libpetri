@@ -45,15 +45,16 @@ class TransitionTest {
     }
 
     @Test
-    void builder_withMultipleInputs_addsSamePlace() {
+    void builder_rejectsTwoInputArcsOnOnePlace() {
+        // CORE-030 AC3: rejected where the transition is built, not only when a net compiles.
         var place = Place.of("Input", TestValue.class);
-        var t = Transition.builder("t")
-            .inputs(Arc.In.one(place), Arc.In.one(place))
-            .build();
+        var builder = Transition.builder("t")
+            .inputs(Arc.In.one(place), Arc.In.exactly(2, place));
 
-        assertEquals(2, t.inputSpecs().size());
-        assertEquals(place, t.inputSpecs().get(0).place());
-        assertEquals(place, t.inputSpecs().get(1).place());
+        var error = assertThrows(IllegalArgumentException.class, builder::build);
+        assertTrue(error.getMessage().contains("Transition 't' declares two input arcs on place 'Input'"),
+            error.getMessage());
+        assertTrue(error.getMessage().contains("CORE-030"), error.getMessage());
     }
 
     @Test
@@ -154,20 +155,18 @@ class TransitionTest {
     }
 
     @Test
-    void inputSpecs_countsMultipleInputsFromSamePlace() {
+    void inputSpecs_countsSeveralTokensFromOnePlaceThroughOneArc() {
+        // Several tokens from one place are one arc with a cardinality (CORE-030).
         var p1 = Place.of("P1", TestValue.class);
         var p2 = Place.of("P2", TestValue.class);
 
         var t = Transition.builder("t")
-            .inputs(Arc.In.one(p1), Arc.In.one(p1), Arc.In.one(p1), Arc.In.one(p2))
+            .inputs(Arc.In.exactly(3, p1), Arc.In.one(p2))
             .build();
 
-        assertEquals(4, t.inputSpecs().size());
-        // 3 specs for p1, 1 for p2
-        long p1Count = t.inputSpecs().stream().filter(s -> s.place().equals(p1)).count();
-        long p2Count = t.inputSpecs().stream().filter(s -> s.place().equals(p2)).count();
-        assertEquals(3, p1Count);
-        assertEquals(1, p2Count);
+        assertEquals(2, t.inputSpecs().size());
+        assertEquals(3, t.inputSpecs().get(0).requiredCount());
+        assertEquals(1, t.inputSpecs().get(1).requiredCount());
     }
 
     @Test
@@ -211,13 +210,14 @@ class TransitionTest {
     @Test
     void fullTransition_withAllArcTypes() {
         var input = Place.of("Input", TestValue.class);
+        var input2 = Place.of("Input2", TestValue.class);
         var output = Place.of("Output", OtherValue.class);
         var inhibitor = Place.of("Inhibitor", String.class);
         var read = Place.of("Read", Integer.class);
         var reset = Place.of("Reset", Double.class);
 
         var t = Transition.builder("Full")
-            .inputs(Arc.In.one(input), Arc.In.one(input))
+            .inputs(Arc.In.one(input), Arc.In.one(input2))
             .outputs(Arc.Out.and(output))
             .inhibitor(inhibitor)
             .read(read)

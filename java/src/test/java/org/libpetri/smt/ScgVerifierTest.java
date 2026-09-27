@@ -208,17 +208,18 @@ class ScgVerifierTest {
     @Test
     @EnabledIf("z3Available")
     void stillRunsWhenTheNamedPlaceIsDeclaredOnlyByAResetArc() {
-        // The guard above reads NetFlattener.declaredPlaces, not PetriNet.places(): the
-        // builder auto-adds input, output, inhibitor and read places but NOT a reset arc's,
-        // so net.places() alone would call a perfectly real place unresolved and send the
-        // net down the SMT pipeline for nothing.
+        // The guard above reads NetFlattener.declaredPlaces, the set the flattener indexes. The
+        // builder used to auto-add input, output, inhibitor and read places but NOT a reset
+        // arc's, so net.places() alone would have called a perfectly real place unresolved and
+        // sent the net down the SMT pipeline for nothing. It now collects reset places too, as
+        // TypeScript and Rust do; both sets must name the place.
         var p0 = Place.of("p0", String.class);
         var p1 = Place.of("p1", String.class);
         var scratch = Place.of("scratch", String.class); // reached only through the reset arc
         var t = Transition.builder("t0").inputs(In.one(p0)).outputs(Out.place(p1))
             .reset(scratch).build();
         var net = StructureOnly.bind(PetriNet.builder("resetOnly").transitions(t).build());
-        assertFalse(net.places().contains(scratch), "fixture premise: the builder omits reset places");
+        assertTrue(net.places().contains(scratch), "PetriNet.Builder.transition collects reset places");
         assertTrue(NetFlattener.declaredPlaces(net).contains(scratch));
 
         var result = SmtVerifier.forNet(net)

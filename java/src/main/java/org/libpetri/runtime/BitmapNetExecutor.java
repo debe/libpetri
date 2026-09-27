@@ -206,7 +206,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         CompletableFuture<Void> future,
         TransitionContext context,
         List<Token<?>> consumed,
-        long startNanos
+        long startNanos,
+        /* The name a ν-join matched (NU-020), for the relay check (NU-054); null otherwise. */
+        NameId matchedName
     ) {}
 
     private record ReadyTransition(int tid, int priority, long enabledAtNanos) {}
@@ -830,6 +832,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 executor == null, environment, executionScope
             );
             built.warnUnknownInitialPlaces(seed);
+            built.warnDeadArcs(seed);
             return built;
         }
     }
@@ -1754,14 +1757,14 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         // Sync fast path: if future already completed and no timeout, process inline
         if (!t.hasActionTimeout() && transitionFuture.isDone()) {
-            processSyncOutput(t, tid, transitionFuture, context, consumed);
+            processSyncOutput(t, tid, transitionFuture, context, consumed, chosen);
         } else {
             // Async path: track in-flight, process on completion
             transitionFuture.whenComplete((_, _) -> {
                 completionQueue.offer(t);
                 wakeUp();
             });
-            inFlight.put(t, new InFlightTransition(transitionFuture, context, consumed, clockNanos()));
+            inFlight.put(t, new InFlightTransition(transitionFuture, context, consumed, clockNanos(), chosen));
             setInFlightBit(tid);
         }
     }
@@ -1772,12 +1775,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      */
     @SuppressWarnings("unchecked")
     private void processSyncOutput(Transition t, int tid, CompletableFuture<Void> future,
-                                   TransitionContext context, List<Token<?>> consumed) {
+                                   TransitionContext context, List<Token<?>> consumed,
+                                   NameId matchedName) {
         try {
             future.join(); // won't block; may throw CompletionException
 
             TokenOutput outputs = context.rawOutput();
-            validateOutput(t, outputs);
+            validateOutput(t, outputs, matchedName);
 
             // One entry = add token, set its presence bit, mark dirty — kept together so a
             // throw mid-commit (a hostile EventStore on TokenAdded) cannot leave a token in the
@@ -1889,7 +1893,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 flight.future().join();
 
                 TokenOutput outputs = flight.context().rawOutput();
-                validateOutput(t, outputs);
+                validateOutput(t, outputs, flight.matchedName());
 
                 // One entry = add token, set its presence bit, mark dirty — kept together so a
                 // throw mid-commit cannot leave a token in the marking with its bit unset. A
@@ -2144,12 +2148,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     // ======================== Output Validation ========================
 
-    private void validateOutput(Transition t, TokenOutput outputs) {
+    private void validateOutput(Transition t, TokenOutput outputs, NameId matchedName) {
         if (t.outputSpec() == null) return;
         // [IO-015]: throws OutViolationException itself when no assignment of the spec tree
         // claims exactly what was produced, or when more than one does.
         Set<Place<?>> produced = outputs.placesWithTokens();
         Set<Place<?>> claim = ExecutorSupport.validateOutSpec(t.name(), t.outputSpec(), produced);
+        // [NU-054]: every token in a relay target carries the matched name. Before the
+        // IO-016 warning, so a firing the relay check fails emits no warning.
+        ExecutorSupport.validateRelays(t, outputs, matchedName);
         // IO-016 AC4: a spec names a place once; several tokens into a named place pass
         // validation (IO-015 reads the produced SET) but exceed what every
         // branch-enumerating analysis models. Cheap test first: a repeat exists iff
@@ -2514,6 +2521,18 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         emitEvent(new NetEvent.LogMessage(clockInstant(), transitionName, "libpetri.runtime", "WARN",
             "unknown place '" + place.name() + "': tokens are retained in the marking but inert "
                 + "(the net declares no arc on it)", null, null));
+    }
+
+    /**
+     * [CORE-037]: one warning per dead read / inhibitor / reset arc, at construction, through the
+     * same log-message channel as CORE-072 AC4. Never an error — see {@link ExecutorSupport#deadArcs}.
+     */
+    private void warnDeadArcs(Map<Place<?>, List<Token<?>>> initialTokens) {
+        if (!eventStoreEnabled) return;
+        for (var dead : ExecutorSupport.deadArcs(compiled.net().transitions(), environmentPlaces, initialTokens)) {
+            emitEvent(new NetEvent.LogMessage(clockInstant(), dead.transition(), "libpetri.runtime", "WARN",
+                dead.message(), null, null));
+        }
     }
 
     /** Initial-marking seam for CORE-072 AC4 — the {@link Marking} retains them either way. */

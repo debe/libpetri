@@ -3,6 +3,7 @@ package org.libpetri.smt.opennet;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.internal.TerminalEncoding;
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.smt.SmtVerificationResult.Verdict;
 
 import java.time.Duration;
@@ -86,11 +87,27 @@ public final class OpenNetVerifier {
         // routes for a ν-net.
         boolean declaresMatch = closed.net().transitions().stream().anyMatch(t -> t.matchSpec() != null);
         String graphSkipped = declaresMatch ? GRAPH_SKIPPED_MATCH : maxClasses > 0 ? null : GRAPH_SKIPPED_BUDGET;
-        var graph = graphSkipped == null
-            ? GraphRoute.decideOnGraph(closed, contract, maxClasses, tracedPlaces)
-            : null;
+        // [VER-013] cancellation: an interrupt of this thread stops the graph at its next
+        // class, and no further query starts (the SMT route's verifiers see it themselves).
+        var stop = VerificationDeadline.unlimited("open-net state-class graph");
+        GraphRoute.Outcome graph = null;
+        String cancelled = null;
+        if (graphSkipped == null) {
+            var finalClosed = closed;
+            var finalContract = contract;
+            try {
+                stop.check();
+                graph = ScopedValue.where(VerificationDeadline.carrier(), stop)
+                    .call(() -> GraphRoute.decideOnGraph(finalClosed, finalContract, maxClasses, tracedPlaces));
+            } catch (VerificationDeadline.Cancelled e) {
+                cancelled = e.reason();
+            }
+        }
 
         var assembly = new Assembly(net, closed, contract, maxClasses, graph, graphSkipped, start);
+        if (cancelled != null) {
+            return assembly.result(new Verdict.Unknown(cancelled), OpenNetResult.Route.ENUMERATION, List.of(), null);
+        }
         if (graph != null) {
             if (!graph.violations().isEmpty()) {
                 return assembly.result(new Verdict.Violated(), OpenNetResult.Route.ENUMERATION, graph.violations(), null);

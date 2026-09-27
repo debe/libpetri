@@ -426,6 +426,75 @@ class StateSpaceCacheTest {
         assertEquals(1, cache.buildsForTesting(), "VER-017 AC10: parallel queries build the graph once");
     }
 
+    /**
+     * [VER-013] AC9/AC11: a query waiting on another query's build still honours its own total
+     * budget and its own cancellation. Before the fix the waiter sat in an uninterruptible
+     * {@code join()} for as long as the foreign build ran, however far past its deadline.
+     */
+    @Test
+    void aWaiterOnAForeignBuild_stopsAtItsOwnDeadlineAndOnItsOwnInterrupt() throws Exception {
+        var p = pipeline(6);
+        var cache = new StateSpaceCache();
+        var building = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(3);
+        try {
+            var builder = pool.submit(() -> cache.lookup(p.net(), p.m0(), 50, b -> {
+                building.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+                return StateClassGraph.build(p.net(), p.m0(), b);
+            }));
+            assertTrue(building.await(10, java.util.concurrent.TimeUnit.SECONDS));
+
+            // Total budget: the waiter's own deadline, 100 ms.
+            var budgeted = pool.submit(() -> {
+                var d = new org.libpetri.core.internal.VerificationDeadline(100);
+                try {
+                    ScopedValue.where(org.libpetri.core.internal.VerificationDeadline.carrier(), d)
+                        .call(() -> cache.lookup(p.net(), p.m0(), 50, _ -> fail("must not build")));
+                    return "returned";
+                } catch (org.libpetri.core.internal.VerificationDeadline.Exhausted e) {
+                    return "exhausted";
+                }
+            });
+            assertEquals("exhausted", budgeted.get(5, java.util.concurrent.TimeUnit.SECONDS));
+
+            // Cancellation: the waiter's thread interrupted while it waits.
+            var waiter = new java.util.concurrent.atomic.AtomicReference<Thread>();
+            var cancelled = pool.submit(() -> {
+                waiter.set(Thread.currentThread());
+                try {
+                    ScopedValue.where(org.libpetri.core.internal.VerificationDeadline.carrier(),
+                            org.libpetri.core.internal.VerificationDeadline.unlimited())
+                        .call(() -> cache.lookup(p.net(), p.m0(), 50, _ -> fail("must not build")));
+                    return "returned";
+                } catch (org.libpetri.core.internal.VerificationDeadline.Cancelled e) {
+                    return Thread.currentThread().isInterrupted() ? "cancelled, flag kept" : "cancelled, flag lost";
+                }
+            });
+            long parkedBy = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (waiter.get() == null || (waiter.get().getState() != Thread.State.WAITING
+                    && waiter.get().getState() != Thread.State.TIMED_WAITING)) {
+                assertTrue(System.nanoTime() < parkedBy, "the waiter never joined the build");
+                Thread.sleep(1);
+            }
+            waiter.get().interrupt();
+            assertEquals("cancelled, flag kept", cancelled.get(5, java.util.concurrent.TimeUnit.SECONDS));
+
+            // The foreign build is untouched by either and completes normally.
+            release.countDown();
+            assertTrue(builder.get(10, java.util.concurrent.TimeUnit.SECONDS).closed());
+            assertEquals(1, cache.buildsForTesting());
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
     // === Terminals: the rewrite is a new net per verification ===
 
     @Test

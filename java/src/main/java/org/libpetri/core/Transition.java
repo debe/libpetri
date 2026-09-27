@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.libpetri.core.internal.ArcDiagnostics;
+
 /**
  * A transition in the Time Petri Net that transforms tokens.
  * <p>
@@ -386,6 +388,30 @@ public final class Transition {
         }
 
         public Transition build() {
+            // CORE-030 AC3: two input arcs on one place have no coherent consumption semantics.
+            // Rejected here, where every transition is built, so the analysis paths that never
+            // compile the net (state-class graph, flattener) cannot disagree about one;
+            // CompiledNet keeps the same check as a backstop.
+            var seenInputs = new HashSet<Place<?>>();
+            for (var in : inputSpecs) {
+                if (!seenInputs.add(in.place())) {
+                    throw new IllegalArgumentException(
+                        ArcDiagnostics.duplicateInputMessage(name, in.place().name()));
+                }
+            }
+
+            // IO-011: outputs are sets (IO-015), so a place named twice in one AND branch is
+            // rejected rather than collapsed. Here and not in Out.and, which does not know the
+            // transition's name; every construction path (composition, channel merge, fusion)
+            // builds its transitions through this builder.
+            if (outputSpec != null) {
+                var dup = ArcDiagnostics.duplicateInBranch(outputSpec, p -> p);
+                if (dup != null) {
+                    throw new IllegalArgumentException(
+                        ArcDiagnostics.duplicateOutputMessage(name, dup.place().name()));
+                }
+            }
+
             var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, matchSpec, timing, action, priority, placeAlias);
 
             // Validate MatchSpec correlates only declared input places (NU-020).
@@ -396,6 +422,24 @@ public final class Transition {
                         throw new IllegalArgumentException(
                             "Transition '%s': MatchSpec correlates non-input place '%s'"
                                 .formatted(name, key.place().name()));
+                    }
+                }
+                // NU-054 AC1: a relay target is an output of the transition (in at least one
+                // branch), declared once.
+                if (!matchSpec.relays().isEmpty()) {
+                    var outputPlaces = transition.outputPlaces();
+                    var seenRelays = new HashSet<Place<?>>();
+                    for (var relay : matchSpec.relays()) {
+                        if (!seenRelays.add(relay.place())) {
+                            throw new IllegalArgumentException(
+                                "Transition '%s': relay target '%s' is declared twice (NU-054)"
+                                    .formatted(name, relay.place().name()));
+                        }
+                        if (!outputPlaces.contains(relay.place())) {
+                            throw new IllegalArgumentException(
+                                "Transition '%s': relay target '%s' is not an output of the transition (NU-054)"
+                                    .formatted(name, relay.place().name()));
+                        }
                     }
                 }
             }

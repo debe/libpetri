@@ -4,7 +4,10 @@ import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.libpetri.core.internal.ArcDiagnostics;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.core.internal.SubnetRewriter;
+import org.libpetri.export.SubnetPrefixes;
 
 /**
  * Immutable definition of a Time Petri Net structure.
@@ -47,6 +50,12 @@ public final class PetriNet {
     private final Map<String, String> subnetMembership;
     // EXEC-042: places whose marking ends the run. Insertion-ordered for determinism.
     private final Set<Place<?>> terminals;
+    // MOD-040: the node names and every proper '/'-prefix of every transition name, for
+    // subnetOf; built on first use so a call costs O(depth of the name).
+    private volatile SubnetIndex subnetIndex;
+
+    /** What {@link #subnetOf} reads: every place and transition name, and the instance prefixes. */
+    private record SubnetIndex(Set<String> nodes, Set<String> transitionPrefixes) {}
 
     private PetriNet(String name, Set<Place<?>> places, Set<Transition> transitions,
                      Map<String, String> subnetMembership, Set<Place<?>> terminals) {
@@ -84,6 +93,67 @@ public final class PetriNet {
      * cluster_*} blocks from this map.
      */
     public Map<String, String> subnetMembership() { return subnetMembership; }
+
+    /**
+     * The subnet a place or transition belongs to ([MOD-040]): the
+     * {@link #subnetMembership() membership} entry when there is one (direct composition,
+     * [MOD-025]); otherwise, for a node an instance contributed ([MOD-010]), which records no
+     * membership ([MOD-026] rule 4), the longest {@code '/'}-prefix of {@code name} that is a real
+     * instance — one under which at least one transition of this net is named
+     * ({@code a/b/c/x} tries {@code a/b/c}, then {@code a/b}, then {@code a}). Empty when
+     * {@code name} is neither a place nor a transition of this net, or when it belongs to no
+     * subnet.
+     *
+     * <p>This differs from the {@code AUTO} DOT clustering rule, which takes the name before the
+     * last {@code '/'} ({@link SubnetPrefixes#instancePrefixOf}), for a name with a {@code '/'}
+     * inside a subnet's own namespace: a place {@code s1/obs/TURN} of instance {@code s1} is
+     * clustered under {@code s1/obs} but belongs to {@code s1}, since {@code s1/obs} carries no
+     * transition.
+     *
+     * @param name a place or transition name
+     * @return the owning subnet or instance prefix, if any
+     */
+    public Optional<String> subnetOf(String name) {
+        var index = subnetIndex();
+        if (name == null || !index.nodes().contains(name)) {
+            return Optional.empty();
+        }
+        var subnet = subnetMembership.get(name);
+        if (subnet != null) {
+            return Optional.of(subnet);
+        }
+        var prefixes = index.transitionPrefixes();
+        for (int slash = name.lastIndexOf('/'); slash > 0; slash = name.lastIndexOf('/', slash - 1)) {
+            var prefix = name.substring(0, slash);
+            if (prefixes.contains(prefix)) {
+                return Optional.of(prefix);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private SubnetIndex subnetIndex() {
+        var index = subnetIndex;
+        if (index == null) {
+            var nodes = new HashSet<String>();
+            var prefixes = new HashSet<String>();
+            for (var p : places) {
+                nodes.add(p.name());
+            }
+            for (var t : transitions) {
+                var n = t.name();
+                nodes.add(n);
+                for (int slash = n.indexOf('/'); slash >= 0; slash = n.indexOf('/', slash + 1)) {
+                    if (slash > 0) {
+                        prefixes.add(n.substring(0, slash));
+                    }
+                }
+            }
+            index = new SubnetIndex(nodes, prefixes);
+            subnetIndex = index;
+        }
+        return index;
+    }
 
     /**
      * Terminal places per <b>EXEC-042</b>, in declaration order: the run ends as soon as any of
@@ -222,6 +292,16 @@ public final class PetriNet {
             new LinkedHashMap<>();
         // EXEC-042: declared terminal places, in declaration order.
         private final LinkedHashSet<Place<?>> terminals = new LinkedHashSet<>();
+        // MOD-027: port places instance composition replaced by a host place, keyed by the
+        // renamed port place. An arc naming one is rejected at build().
+        private final LinkedHashMap<Place<?>, RetiredPort> retiredPorts = new LinkedHashMap<>();
+
+        /**
+         * A port place of an instance that composition bound to a different host place
+         * ([MOD-027]): after the binding no transition of the instance references it, so an arc
+         * naming it would name a fresh, unconnected place.
+         */
+        private record RetiredPort(Place<?> place, Place<?> host, String port, String instance) {}
 
         private Builder(String name) {
             this.name = name;
@@ -244,6 +324,7 @@ public final class PetriNet {
             if (transition.outputSpec() != null) places.addAll(transition.outputSpec().allPlaces());
             transition.inhibitors().forEach(arc -> places.add(arc.place()));
             transition.reads().forEach(arc -> places.add(arc.place()));
+            transition.resets().forEach(arc -> places.add(arc.place()));
             return this;
         }
 
@@ -637,7 +718,81 @@ public final class PetriNet {
                 mergeMap.put(ifacePlace, callerPlace);
             }
 
+            rejectPortCollisions(instance, portMappings);
+            for (var port : iface.ports()) {
+                var host = portMappings.get(port.name());
+                if (host == null) continue;
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                Place<?> ifacePlace = instance.port(port.name(), (Class) port.place().tokenType());
+                // A port bound to a place of the identical identity is not replaced.
+                if (!ifacePlace.equals(host)) {
+                    retiredPorts.putIfAbsent(ifacePlace,
+                        new RetiredPort(ifacePlace, host, port.name(), instance.prefix()));
+                }
+            }
+
             return applyComposition(instance, mergeMap, channelBindings);
+        }
+
+        /**
+         * [MOD-020] port-binding collision: two ports of one instance bound to the same host
+         * place, where one transition consumes from both port places, would give that
+         * transition two input arcs on the host place ([CORE-030]); where one AND branch of a
+         * transition's output spec names both port places, it would name the host place twice
+         * there ([IO-011]). Rejected here, naming the instance, both ports, the host place and
+         * the transition, rather than by the generic check when the rewritten transition is
+         * built. Ports are paired in
+         * code-point order of their names ({@link Interface#ports()} keeps no declaration
+         * order), so the message is deterministic.
+         */
+        private static void rejectPortCollisions(Instance<?> instance, Map<String, Place<?>> portMappings) {
+            if (portMappings.size() < 2) return;
+            var bound = new ArrayList<String>();
+            var renamedByPort = new HashMap<String, Place<?>>();
+            var ports = new ArrayList<>(instance.def().iface().ports());
+            ports.sort(Comparator.comparing(Interface.Port::name, CodePointOrder.COMPARATOR));
+            for (var port : ports) {
+                if (!portMappings.containsKey(port.name())) continue;
+                bound.add(port.name());
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                Place<?> ifacePlace = instance.port(port.name(), (Class) port.place().tokenType());
+                renamedByPort.put(port.name(), ifacePlace);
+            }
+            for (int i = 0; i < bound.size(); i++) {
+                for (int j = i + 1; j < bound.size(); j++) {
+                    var a = bound.get(i);
+                    var b = bound.get(j);
+                    var host = portMappings.get(a);
+                    var placeA = renamedByPort.get(a);
+                    var placeB = renamedByPort.get(b);
+                    if (!host.equals(portMappings.get(b)) || placeA.equals(placeB)) continue;
+                    for (var t : instance.renamedBody().transitions()) {
+                        var inputs = t.inputPlaces();
+                        if (inputs.contains(placeA) && inputs.contains(placeB)) {
+                            throw new IllegalArgumentException(
+                                "ports '" + a + "' and '" + b + "' of instance '" + instance.prefix()
+                                    + "' are both bound to host place '" + host.name() + "'; transition '"
+                                    + t.name() + "' would consume from '" + host.name()
+                                    + "' through two input arcs. Bind them to distinct places or use"
+                                    + " one port.");
+                        }
+                        // The output side ([IO-011]): both ports in one AND branch would name the
+                        // host place twice there. Different XOR alternatives are not a collision.
+                        if (t.outputSpec() != null) {
+                            var dup = ArcDiagnostics.duplicateInBranch(t.outputSpec(),
+                                p -> p.equals(placeA) || p.equals(placeB) ? host : p);
+                            if (dup != null && dup.place().equals(host)) {
+                                throw new IllegalArgumentException(
+                                    "ports '" + a + "' and '" + b + "' of instance '" + instance.prefix()
+                                        + "' are both bound to host place '" + host.name() + "'; transition '"
+                                        + t.name() + "' would produce into '" + host.name()
+                                        + "' twice in one AND branch. Outputs are sets (IO-015); bind them"
+                                        + " to distinct places or use one port.");
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         /**
@@ -845,9 +1000,40 @@ public final class PetriNet {
             var membership = resolveSubnetMembership();
             if (fusionSets.isEmpty()) {
                 checkTerminals(terminals, transitions);
+                checkRetiredPorts(transitions);
                 return new PetriNet(name, places, transitions, membership, terminals);
             }
             return buildWithFusion(membership);
+        }
+
+        /**
+         * [MOD-027]: no arc of any kind may name a port place that instance composition
+         * replaced by a host place — the place no longer exists in the composed net, so the arc
+         * would silently act on a fresh, unconnected place. Checked on the final transitions, so
+         * the order of compose and arc addition does not matter.
+         */
+        private void checkRetiredPorts(Collection<Transition> finalTransitions) {
+            if (retiredPorts.isEmpty()) return;
+            for (var t : finalTransitions) {
+                for (var in : t.inputSpecs()) rejectRetired(in.place());
+                if (t.outputSpec() != null) {
+                    for (var p : t.outputSpec().allPlaces()) rejectRetired(p);
+                }
+                for (var rd : t.reads()) rejectRetired(rd.place());
+                for (var inh : t.inhibitors()) rejectRetired(inh.place());
+                for (var rs : t.resets()) rejectRetired(rs.place());
+            }
+        }
+
+        private void rejectRetired(Place<?> place) {
+            var retired = retiredPorts.get(place);
+            if (retired != null) {
+                throw new IllegalArgumentException(
+                    "place '" + retired.place().name() + "' is port '" + retired.port()
+                        + "' of instance '" + retired.instance() + "', bound to host place '"
+                        + retired.host().name() + "' at compose; reference '"
+                        + retired.host().name() + "' instead");
+            }
         }
 
         /**
@@ -996,6 +1182,7 @@ public final class PetriNet {
                 rebuiltPlaces.add(canonical);
             }
             checkTerminals(remappedTerminals, rewrittenTransitions);
+            checkRetiredPorts(rewrittenTransitions);
 
             return new PetriNet(name, rebuiltPlaces, rewrittenTransitions,
                 filterFusedMembership(membership, nonCanonicalSet), remappedTerminals);

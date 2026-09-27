@@ -156,6 +156,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     @SuppressWarnings("unchecked")
     private final CompletableFuture<Void>[] inFlightFutures;
     private final TransitionContext[] inFlightContexts;
+    /**
+     * Per transition: the name its current ν-join firing matched (NU-020), for the relay check
+     * of output validation (NU-054); null for a non-join. Written at consume, read at output
+     * validation — a transition cannot re-fire before its output is validated.
+     */
+    private final NameId[] matchedNames;
     private final List<Token<?>>[] inFlightConsumed;
     private final long[] inFlightStartNanos;
     private int inFlightCount;
@@ -384,6 +390,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 ringAddLast(pid, token);
             }
         }
+        warnDeadArcs(initialTokens);
 
         // Initialize marking bitmap
         int wordCount = program.wordCount;
@@ -433,6 +440,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // In-flight tracking
         this.inFlightFutures = new CompletableFuture[program.transitionCount];
         this.inFlightContexts = new TransitionContext[program.transitionCount];
+        this.matchedNames = new NameId[program.transitionCount];
         this.inFlightConsumed = new List[program.transitionCount];
         this.inFlightStartNanos = new long[program.transitionCount];
 
@@ -738,6 +746,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         MatchSpec ms = t.matchSpec();
         MatchEngine.IncrementalMatcher cache = matchCaches[tid];
         NameId chosen = cache != null ? cache.best() : findMatchBinding(tid);
+        matchedNames[tid] = chosen;
         // Mirror the matched consume into the fast-path matcher (the only path by
         // which tokens leave this join's correlated inputs) before the rings change.
         if (cache != null && chosen != null) {
@@ -1620,6 +1629,18 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     private void addExtraToken(Place<?> place, Token<?> token) {
         if (extraTokens == null) extraTokens = new LinkedHashMap<>();
         extraTokens.computeIfAbsent(place, _ -> new ArrayList<>()).add(token);
+    }
+
+    /**
+     * [CORE-037]: one warning per dead read / inhibitor / reset arc, at construction, through the
+     * same log-message channel as CORE-072 AC4. Never an error — see {@link ExecutorSupport#deadArcs}.
+     */
+    private void warnDeadArcs(Map<Place<?>, List<Token<?>>> initialTokens) {
+        if (!eventStoreEnabled) return;
+        for (var dead : ExecutorSupport.deadArcs(Arrays.asList(program.transitionsById), environmentPlaces, initialTokens)) {
+            emitEvent(new NetEvent.LogMessage(clockInstant(), dead.transition(), "libpetri.runtime", "WARN",
+                dead.message(), null, null));
+        }
     }
 
     /**
@@ -2803,8 +2824,22 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     private void validateOutput(int tid, Transition t, TokenOutput outputs) {
         if (skipOutputValidation) return;
+        Set<Place<?>> repeatedClaim = validateOutputSpec(tid, t, outputs);
+        // [NU-054]: every token in a relay target carries the matched name. Skipped exactly
+        // where output validation is (CONC-026, above). Before the IO-016 warning, so a firing
+        // the relay check fails emits no warning.
+        ExecutorSupport.validateRelays(t, outputs, matchedNames[tid]);
+        if (repeatedClaim != null) warnMultiplicity(t.name(), outputs, repeatedClaim);
+    }
+
+    /**
+     * [IO-015] output validation; throws on a violation. Returns the spec's claim when the
+     * firing wrote several tokens to a place the spec names once (IO-016 AC4) — the caller
+     * warns after the relay check — and {@code null} otherwise.
+     */
+    private Set<Place<?>> validateOutputSpec(int tid, Transition t, TokenOutput outputs) {
         int simplePid = program.simpleOutputPlaceId[tid];
-        if (simplePid == -2) return; // no output spec
+        if (simplePid == -2) return null; // no output spec
         if (simplePid >= 0) {
             // Fast path: Out.Place — just check the single expected place got a token
             var entries = outputs.entries();
@@ -2826,10 +2861,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                      + "which no single branch of the spec claims exactly").formatted(t.name()));
             }
             // IO-016 AC4 (see the general path below); the claim is the one named place.
-            if (entries.size() > outputs.placesWithTokens().size()) {
-                warnMultiplicity(t.name(), outputs, Set.of(program.placesById[simplePid]));
-            }
-            return;
+            return entries.size() > outputs.placesWithTokens().size()
+                ? Set.of(program.placesById[simplePid]) : null;
         }
         // Complex spec: fall back to full validation, which throws on a violation itself
         // ([IO-015] exact-explanation search).
@@ -2839,7 +2872,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // validation (IO-015 reads the produced SET) but exceed what every
         // branch-enumerating analysis models. Cheap test first: a repeat exists iff
         // there are more entries than distinct places.
-        if (outputs.entries().size() > produced.size()) warnMultiplicity(t.name(), outputs, claim);
+        return outputs.entries().size() > produced.size() ? claim : null;
     }
 
     /**

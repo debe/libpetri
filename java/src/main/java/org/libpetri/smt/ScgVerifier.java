@@ -42,9 +42,13 @@ import java.util.List;
  * routes decide the same predicate over the same abstraction — enumeration simply decides
  * it where the search may not.
  *
- * <p>When the graph does not close within the budget the route declines and the caller
- * runs the SMT pipeline unchanged: enumeration never turns a verdict into {@code Unknown}
- * that the solver could have decided.
+ * <p>When the graph does not close within the budget, the same predicate reads its explored
+ * prefix ([VER-017], "Verdicts from a truncated graph"): every stored class is reachable, so a
+ * safety property violated by one is {@code Violated} with the shortest witness inside the
+ * explored graph, and a quiescence property is violated only by an <em>expanded</em> class
+ * without successors. Otherwise the route declines and the caller runs the SMT pipeline
+ * unchanged: enumeration never turns a verdict into {@code Unknown} that the solver could have
+ * decided, and a prefix never proves anything.
  */
 public final class ScgVerifier {
 
@@ -82,13 +86,26 @@ public final class ScgVerifier {
          *                    markings; empty for a proof
          * @param transitions the transition names along {@code trace}; empty for a proof
          * @param classCount  how many state classes the graph holds
+         * @param truncated   whether the graph did not close and the violation was found in its
+         *                    explored prefix; never set on a proof
          */
         record Decided(
             SmtVerificationResult.Verdict verdict,
             List<MarkingState> trace,
             List<String> transitions,
-            int classCount
-        ) implements Outcome {}
+            int classCount,
+            boolean truncated
+        ) implements Outcome {
+            /** A verdict read off a closed graph. */
+            public Decided(
+                    SmtVerificationResult.Verdict verdict,
+                    List<MarkingState> trace,
+                    List<String> transitions,
+                    int classCount
+            ) {
+                this(verdict, trace, transitions, classCount, false);
+            }
+        }
 
         /**
          * The graph hit the class budget; the caller falls through to the SMT pipeline.
@@ -113,10 +130,7 @@ public final class ScgVerifier {
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {
         var graph = StateClassGraph.build(net, initial, maxClasses);
-        if (!graph.isComplete()) {
-            return new Outcome.Truncated(graph.stateClasses().size());
-        }
-        return decide(graph, property, sinkPlaces, conditionalSinks);
+        return decide(graph, property, sinkPlaces, conditionalSinks, false);
     }
 
     /**
@@ -135,7 +149,28 @@ public final class ScgVerifier {
         if (!graph.isComplete()) {
             throw new IllegalArgumentException("decide() needs a closed state-class graph");
         }
+        return (Outcome.Decided) decide(graph, property, sinkPlaces, conditionalSinks, false);
+    }
+
+    /**
+     * Decides {@code property} over {@code graph}: the verdict of a closed graph, or — for a
+     * graph that did not close, or one read {@code asPrefix}, as the state-space cache reads a
+     * graph built past the budget asked for — its explored prefix only ([VER-017], "Verdicts
+     * from a truncated graph"). Every stored class counts for a safety property; only an
+     * <b>expanded</b> class with no successor counts as quiescent. A hit is a
+     * {@link Outcome.Decided} {@code Violated} marked {@code truncated}; no hit is
+     * {@link Outcome.Truncated}. A prefix never proves anything.
+     */
+    static Outcome decide(
+            StateClassGraph graph,
+            SmtProperty property,
+            Collection<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            boolean asPrefix
+    ) {
+        boolean closed = graph.isComplete() && !asPrefix;
         var classes = List.copyOf(graph.stateClasses());
+        int expanded = graph.expandedCount();
         int violating = GraphDecision.decideOverClasses(
             new GraphDecision.ClassView() {
                 @Override
@@ -150,7 +185,9 @@ public final class ScgVerifier {
 
                 @Override
                 public boolean isQuiescent(int i) {
-                    return graph.successors(classes.get(i)).isEmpty();
+                    // A frontier class of a truncated graph was never expanded: no successors
+                    // recorded, but not dead.
+                    return i < expanded && graph.successors(classes.get(i)).isEmpty();
                 }
             },
             property, sinkPlaces, conditionalSinks);
@@ -159,7 +196,10 @@ public final class ScgVerifier {
             var path = counterexamplePath(graph, classes.get(violating));
             return new Outcome.Decided(
                 new SmtVerificationResult.Verdict.Violated(),
-                path.markings(), path.transitions(), classes.size());
+                path.markings(), path.transitions(), classes.size(), !closed);
+        }
+        if (!closed) {
+            return new Outcome.Truncated(classes.size());
         }
         return new Outcome.Decided(
             new SmtVerificationResult.Verdict.Proven("state-space enumeration (VER-017)", null),

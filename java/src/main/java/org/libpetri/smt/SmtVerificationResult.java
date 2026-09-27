@@ -18,8 +18,11 @@ import java.util.List;
  * @param discoveredInvariants     IC3-synthesized inductive invariants (empty if not proven by IC3)
  * @param counterexampleTrace      marking trace to error (empty if proven)
  * @param counterexampleTransitions firing sequence to error (empty if proven)
- * @param counterexampleConfirmed  outcome of the abstract counterexample replay
- *     ({@link org.libpetri.smt.z3.AbstractReplayer}), as a TRI-STATE. The
+ * @param counterexampleConfirmed  whether the counterexample <b>replays in the untimed
+ *     abstraction</b> ([VER-003], [VER-004]) — the outcome of the abstract counterexample replay
+ *     ({@link org.libpetri.smt.z3.AbstractReplayer}), as a TRI-STATE. It says nothing about
+ *     timing: a {@code TRUE} trace of a timed net may be impossible once the clocks are read,
+ *     which is what {@code counterexampleTiming} reports. The
  *     canonical definition lives on the Rust {@code VerificationResult}; this
  *     restates it:
  *     <ul>
@@ -43,6 +46,10 @@ import java.util.List;
  *           &nu;-encoding / Route B path, whose state shapes are outside the flat
  *           replayer's scope.</li>
  *     </ul>
+ * @param counterexampleTiming     how the counterexample relates to the net's timing
+ *     ([VER-003], [VER-023]); {@code null} unless the verdict is {@link Verdict.Violated}. See
+ *     {@link CounterexampleTiming}. The verdict itself is never changed by it: the untimed claim
+ *     is the contract ([VER-004]).
  * @param elapsed                  wall-clock time for verification
  * @param statistics               solver statistics
  */
@@ -55,9 +62,79 @@ public record SmtVerificationResult(
     List<MarkingState> counterexampleTrace,
     List<String> counterexampleTransitions,
     Boolean counterexampleConfirmed,
+    CounterexampleTiming counterexampleTiming,
     Duration elapsed,
     SmtStatistics statistics
 ) {
+
+    /**
+     * The result without a {@code counterexampleTiming} ({@code null}): the component list
+     * before [VER-023], kept so code that built a result by hand still compiles.
+     */
+    public SmtVerificationResult(
+        Verdict verdict,
+        Route route,
+        String report,
+        List<PInvariant> invariants,
+        List<String> discoveredInvariants,
+        List<MarkingState> counterexampleTrace,
+        List<String> counterexampleTransitions,
+        Boolean counterexampleConfirmed,
+        Duration elapsed,
+        SmtStatistics statistics
+    ) {
+        this(verdict, route, report, invariants, discoveredInvariants, counterexampleTrace,
+            counterexampleTransitions, counterexampleConfirmed, null, elapsed, statistics);
+    }
+
+    /**
+     * How a {@link Verdict.Violated} counterexample relates to the net's timing ([VER-003],
+     * [VER-023]).
+     *
+     * <p>Every route but Route B decides over the <b>untimed</b> abstraction ([VER-004]): a
+     * counterexample it returns is a firing sequence that ignores the clocks, and on a timed
+     * net the clocks may forbid it. This field says which case a violation is, and whether the
+     * opt-in {@link SmtVerifier#timedCounterexampleCheck(boolean) timed check} looked. It never
+     * changes the verdict.
+     */
+    public enum CounterexampleTiming {
+        /** Every transition is {@code immediate}: timing cannot affect the trace. */
+        UNTIMED_NET,
+        /**
+         * The net is timed, and the counterexample comes from the untimed model without a check
+         * under timing — the timed check is off, or does not apply (environment places, whose
+         * injection the timed graph does not model, or a &nu;-net decided off Route B, whose
+         * name correlation it does not model).
+         */
+        UNTIMED_ABSTRACTION,
+        /**
+         * The deciding route already explores timed behaviour — Route B's &nu; name-partition
+         * state-class graph on a timed net — so the trace is a run of the timed semantics. The
+         * graph ignores priority, so it is not necessarily a run the executor takes.
+         */
+        TIMED_EXACT,
+        /**
+         * The timed check ran and the timed state-class graph reaches a violating class. The
+         * counterexample trace and transitions are <b>replaced</b> with the shortest path to it in
+         * the timed graph, and the report says so. That path is an ordered firing sequence, so
+         * {@code counterexampleConfirmed} is {@code TRUE}. The timed graph ignores priority: a net
+         * that relies on priority to exclude the path can still get this outcome.
+         */
+        TIMED_CONFIRMED,
+        /**
+         * The timed check ran, the timed state-class graph closed, and no class of it violates
+         * the property: it holds under timing — a timed claim only. The verdict stays
+         * {@code Violated} (the untimed claim is the contract), the untimed trace is kept, and
+         * the report states it with the class count.
+         */
+        SPURIOUS_UNDER_TIMING,
+        /**
+         * The timed check ran but did not finish: the timed graph exceeded
+         * {@link SmtVerifier#enumerationMaxClasses(int)}, or the
+         * {@link SmtVerifier#totalBudget(Duration) total budget} ran out.
+         */
+        TIMED_UNDECIDED
+    }
 
     /**
      * Which route decided a verdict ([VER-003]).

@@ -88,11 +88,11 @@ Because `Place` equality is structural, `Marking.fromSnapshot(snapshot, net.plac
 
 ## SMT verification needs a `z3` executable
 
-The verifier (`org.libpetri.smt.SmtVerifier`) does not bundle a solver. It runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query; `SmtVerifier.z3Available()` tells you whether one resolves, and without it every verification returns `Unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation.
+The verifier (`org.libpetri.smt.SmtVerifier`) does not bundle a solver. It runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query; `SmtVerifier.z3Available()` tells you whether one resolves, and without it every verification returns `Unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation; `totalBudget(Duration)` caps the whole `verify()` call, and interrupting the verifying thread cancels it, either way ending in `Unknown`.
 
 Not every query reaches the solver. On an untimed net with no ν-joins and no environment places, `SmtVerifier` first enumerates the state-class graph up to `enumerationMaxClasses(int)` (default 50 000, `0` disables) and reads the verdict off it — exact, and far cheaper than a fixpoint search on a long pipeline ([VER-017]). A reachability-safety property is then tried against the linear state-equation bound (`linearBound(boolean)`, on by default, [VER-015]) before IC3/PDR runs.
 
-To ask many questions of one net, pass the same `StateSpaceCache` to each verifier with `stateSpaceCache(cache)`. The enumeration graph is then built once per net instance and initial marking, and a known truncation skips the attempt. Verdicts, witnesses and routes do not change.
+To ask many questions of one net, pass the same `StateSpaceCache` to each verifier with `stateSpaceCache(cache)`. The enumeration graph is then built once per net instance and initial marking, and a known truncation is answered from its remembered prefix instead of rebuilt. Verdicts, witnesses and routes do not change.
 
 Options that change what the encoders see:
 

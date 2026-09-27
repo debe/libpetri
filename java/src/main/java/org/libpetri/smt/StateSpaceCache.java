@@ -4,12 +4,16 @@ import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.StateClassGraph;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.VerificationDeadline;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
 
@@ -42,13 +46,20 @@ import java.util.function.IntFunction;
  * <p><b>Budgets.</b> A <em>closed</em> graph of {@code C} classes is reused for any class
  * budget greater than {@code C}; a budget of {@code C} or less would have truncated and is
  * answered as truncated, without a build. A <em>truncated</em> attempt at budget {@code B}
- * is remembered: a later budget of {@code B} or less declines at once, and a larger one
- * builds again and replaces the entry. The verdict, the witness and the route are the same
- * with and without the cache; the report says when a cached graph or a cached truncation was
- * used.
+ * is remembered <b>with its explored prefix</b>: a later budget of {@code B} or less builds
+ * nothing, and a larger one builds again and replaces the entry. A query answered as truncated
+ * still reads the cached graph — closed, or truncated at a budget at least its own — as an
+ * explored prefix ([VER-017], "Verdicts from a truncated graph"): a violation among its classes
+ * stands, nothing is proven from it, and otherwise the query declines. The cached graph can be
+ * larger than the one a cold build at the smaller budget would explore, so the cache can find
+ * such a violation where the cold build falls through to the SMT pipeline; when both find one it
+ * is the same class and the same witness, since the smaller graph is a breadth-first prefix of
+ * the larger. Otherwise the verdict, the witness and the route are the same with and without
+ * the cache; the report says when a cached graph or a cached truncation was used.
  *
  * <p><b>Concurrency.</b> The cache is thread-safe. Concurrent verifications that need the
- * same entry build it once; the others wait for that build. Graphs are frozen after
+ * same entry build it once; the others wait for that build, each still bounded by its own total
+ * budget and cancellation ([VER-013]), which end the wait but not the build. Graphs are frozen after
  * construction, so the waiters read them concurrently. While a larger budget rebuilds a
  * truncated entry, a budget no larger than the remembered truncation still declines at once
  * rather than wait. A build that throws propagates to the query that ran it and leaves the
@@ -93,22 +104,21 @@ public final class StateSpaceCache {
         /** The graph closed with {@code classCount} classes. */
         record Closed(StateClassGraph graph, int classCount) implements Entry {}
 
-        /** The graph did not close within {@code budget} classes. */
-        record Truncated(int budget) implements Entry {}
+        /** The graph did not close within {@code budget} classes; {@code graph} is its explored prefix. */
+        record Truncated(int budget, StateClassGraph graph) implements Entry {}
     }
 
     /**
      * The answer to one lookup.
      *
-     * @param graph      the closed graph, or {@code null} when the budget truncates
+     * @param graph      the graph: closed and within the budget when {@code closed}; otherwise
+     *                   a graph to read as an explored prefix only — the truncated build, or a
+     *                   cached graph at least as large as this budget would explore
+     * @param closed     whether {@code graph} decides the query outright
      * @param classCount the closed graph's class count, or the budget that truncated
      * @param fromCache  whether this query built nothing itself
      */
-    record Lookup(StateClassGraph graph, int classCount, boolean fromCache) {
-        boolean closed() {
-            return graph != null;
-        }
-    }
+    record Lookup(StateClassGraph graph, boolean closed, int classCount, boolean fromCache) {}
 
     /**
      * One entry's attempt, possibly still in flight.
@@ -116,12 +126,15 @@ public final class StateSpaceCache {
      * @param future      completes with what the attempt left behind
      * @param truncatedAt the budget of the truncation this attempt replaces, or {@code 0}. A
      *                    rebuild at a larger budget is in flight for a while, and a budget no
-     *                    larger than the remembered truncation must still decline at once
-     *                    rather than wait for it; a rebuild that throws restores it.
+     *                    larger than the remembered truncation must still answer at once from
+     *                    it rather than wait; a rebuild that throws restores it.
+     * @param truncatedGraph the explored prefix of that truncation, or {@code null}
      */
-    private record Slot(CompletableFuture<Entry> future, int truncatedAt) {
-        static Slot building(int truncatedAt) {
-            return new Slot(new CompletableFuture<>(), truncatedAt);
+    private record Slot(CompletableFuture<Entry> future, int truncatedAt, StateClassGraph truncatedGraph) {
+        static Slot building(Entry.Truncated replacing) {
+            return replacing == null
+                ? new Slot(new CompletableFuture<>(), 0, null)
+                : new Slot(new CompletableFuture<>(), replacing.budget(), replacing.graph());
         }
     }
 
@@ -164,7 +177,7 @@ public final class StateSpaceCache {
         while (true) {
             var existing = entries.get(k);
             if (existing == null) {
-                var mine = Slot.building(0);
+                var mine = Slot.building(null);
                 if (entries.putIfAbsent(k, mine) == null) {
                     return answer(buildInto(k, mine, budget, build), budget, false);
                 }
@@ -172,7 +185,7 @@ public final class StateSpaceCache {
             }
             if (budget <= existing.truncatedAt()) {
                 // A larger rebuild is in flight; the truncation it replaces already answers.
-                return new Lookup(null, budget, true);
+                return new Lookup(existing.truncatedGraph(), false, budget, true);
             }
             Entry entry = await(existing.future());
             if (entry == null) {
@@ -182,7 +195,7 @@ public final class StateSpaceCache {
             }
             if (entry instanceof Entry.Truncated t && budget > t.budget()) {
                 // A larger budget than the remembered truncation: build again and replace.
-                var mine = Slot.building(t.budget());
+                var mine = Slot.building(t);
                 if (entries.replace(k, existing, mine)) {
                     return answer(buildInto(k, mine, budget, build), budget, false);
                 }
@@ -199,13 +212,13 @@ public final class StateSpaceCache {
             var graph = build.apply(budget);
             entry = graph.isComplete()
                 ? new Entry.Closed(graph, graph.stateClasses().size())
-                : new Entry.Truncated(budget);
+                : new Entry.Truncated(budget, graph);
         } catch (Throwable failure) {
             // Leave the entry as it was before this attempt: absent, or the truncation it
             // was replacing. Either way no waiter can hang on it and a later query retries.
             if (slot.truncatedAt() > 0) {
-                var restored = new Slot(
-                    CompletableFuture.completedFuture(new Entry.Truncated(slot.truncatedAt())), 0);
+                var restored = new Slot(CompletableFuture.completedFuture(
+                    new Entry.Truncated(slot.truncatedAt(), slot.truncatedGraph())), 0, null);
                 entries.replace(k, slot, restored);
             } else {
                 entries.remove(k, slot);
@@ -222,9 +235,10 @@ public final class StateSpaceCache {
             // StateClassGraph.build checks its budget at the loop head, so a graph of C
             // classes closes only under a budget greater than C.
             case Entry.Closed c when budget > c.classCount() ->
-                new Lookup(c.graph(), c.classCount(), fromCache);
-            case Entry.Closed _ -> new Lookup(null, budget, fromCache);
-            case Entry.Truncated _ -> new Lookup(null, budget, fromCache);
+                new Lookup(c.graph(), true, c.classCount(), fromCache);
+            // Answered as truncated; the graph is read as an explored prefix only.
+            case Entry.Closed c -> new Lookup(c.graph(), false, budget, fromCache);
+            case Entry.Truncated t -> new Lookup(t.graph(), false, budget, fromCache);
         };
     }
 
@@ -234,10 +248,31 @@ public final class StateSpaceCache {
      * belongs to that attempt (a budget this query may not share), not to this query.
      */
     private static Entry await(CompletableFuture<Entry> future) {
+        var deadline = VerificationDeadline.current();
         try {
-            return future.join();
+            if (deadline == null) {
+                return future.join();
+            }
+            // [VER-013]: the foreign build runs on its builder's deadline, not ours. A waiter
+            // inside verify() polls its own, so its total budget and its cancellation (an
+            // interrupt, flag kept) stop the wait; the build itself carries on for its owner.
+            while (true) {
+                deadline.check();
+                try {
+                    return future.get(AWAIT_POLL_MS, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException _) {
+                    // poll again
+                } catch (InterruptedException _) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException _) {
+                    return null;
+                }
+            }
         } catch (CompletionException | java.util.concurrent.CancellationException e) {
             return null;
         }
     }
+
+    /** How often a waiter inside {@code verify()} polls its own deadline ([VER-013]). */
+    private static final long AWAIT_POLL_MS = 10;
 }
