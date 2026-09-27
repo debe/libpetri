@@ -160,12 +160,22 @@ Every input cardinality variant exposes two functions:
 
 `And(children)` — ALL child output specs must receive tokens. This represents a parallel fork where all branches are active.
 
+**A place at most once per branch.** Outputs are sets of places ([IO-015]), and every analysis models one token per claimed place ([IO-016]), so `And(P, P)` does not mean "two tokens into `P`": the implementations used to collapse it silently to `And(P)`. A single output branch — one choice at every `Xor`, with nested `And`s flattened — that names the same place twice MUST therefore be rejected, with
+
+```
+output spec of transition '<t>' names place '<P>' twice in one AND branch; outputs are sets (IO-015) — a weighted output is not supported, add a second place or a follow-up transition
+```
+
+The rejection happens when the spec is built if the transition's name is known there, and otherwise when the transition is built; it MUST NOT be bypassable by any construction path (builders, composition, channel merge, fusion). The same place in **different** `Xor` alternatives, such as `Xor(And(P, A), And(P, B))`, is not a duplicate. A composition that produces the duplicate by binding two output ports to one place is rejected with the more specific message of [MOD-020].
+
 **Acceptance Criteria:**
 1. Requires at least 1 child.
 2. After action completes, ALL children must have received tokens.
 3. Validation failure if any child received no tokens.
+4. `And(P, P)`, `And(P, And(Q, P))` and `Xor(A, And(P, P))` are rejected with the message above, naming the transition and `P`. `Xor(And(P, A), And(P, B))` is accepted.
 
-**Test derivation:** And(P1, P2, P3); action produces to all three; verify success. Action produces to only P1, P2 → validation error.
+**Depends on:** [IO-015], [IO-016]
+**Test derivation:** And(P1, P2, P3); action produces to all three; verify success. Action produces to only P1, P2 → validation error. Build a transition with `And(P, P)`, with a nested duplicate, and with the duplicate inside one `Xor` alternative; verify each is rejected with the message; build the two-alternative case and verify it is accepted.
 
 ---
 

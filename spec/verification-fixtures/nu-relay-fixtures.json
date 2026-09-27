@@ -1,0 +1,140 @@
+{
+  "$comment": "NU-054 join-relay fixtures for the cross-language SMT script parity (VER-013 AC1). Same schema as spec/verification-fixtures/fixtures.json, except that each net is given inline as `rows`: [transition, [inputs], [outputs], [match keys], [relay targets]], every input consumed once and every output produced once, every place holding String tokens whose value is their own name (TypeScript's tests/fixtures/pnid-nets.ts rows, Java's JoinRelayTest). `marking` is the initial marking; `carrierPlaces` and `fragmentMode` configure the verifier as their names say. Goldens live under spec/verification-fixtures/scripts/<id>/, written by the Rust script-parity test (scripts/smt-script-parity.py --update), never by hand. `expected` is the verdict of verify() with these options (asserted by rust/libpetri-verification/tests/nu_join_relay.rs).",
+  "fixtures": [
+    {
+      "id": "nu-relay-fig12c-or-bound-proven",
+      "net": "fig12c",
+      "rows": [
+        ["a", ["R"], ["P1", "OR"], [], []],
+        ["b", ["P1"], ["B1", "B2"], [], []],
+        ["c", ["B1"], ["C1"], [], []],
+        ["d", ["B2"], ["D1"], [], []],
+        ["e", ["C1", "D1"], ["P5"], ["C1", "D1"], ["P5"]],
+        ["f", ["P5", "OR"], ["R"], ["P5", "OR"], []],
+        ["g", ["P5", "OR"], ["R"], ["P5", "OR"], []]
+      ],
+      "marking": {"R": 2},
+      "property": {"type": "place-bound", "place": "OR", "bound": 2},
+      "sinkPlaces": ["R"],
+      "budgetPlaces": ["R"],
+      "carrierPlaces": ["P1", "B1", "B2", "C1", "D1"],
+      "fragmentMode": "extended",
+      "expected": "proven"
+    },
+    {
+      "id": "nu-relay-fig12c-or-bound-violated",
+      "net": "fig12c",
+      "rows": [
+        ["a", ["R"], ["P1", "OR"], [], []],
+        ["b", ["P1"], ["B1", "B2"], [], []],
+        ["c", ["B1"], ["C1"], [], []],
+        ["d", ["B2"], ["D1"], [], []],
+        ["e", ["C1", "D1"], ["P5"], ["C1", "D1"], ["P5"]],
+        ["f", ["P5", "OR"], ["R"], ["P5", "OR"], []],
+        ["g", ["P5", "OR"], ["R"], ["P5", "OR"], []]
+      ],
+      "marking": {"R": 2},
+      "property": {"type": "place-bound", "place": "OR", "bound": 1},
+      "sinkPlaces": ["R"],
+      "budgetPlaces": ["R"],
+      "carrierPlaces": ["P1", "B1", "B2", "C1", "D1"],
+      "fragmentMode": "extended",
+      "expected": "violated"
+    },
+    {
+      "id": "nu-relay-n1-deadlock-violated",
+      "net": "n1Corr",
+      "rows": [
+        ["A", ["SUPPLY"], ["Y1", "p"], [], []],
+        ["B", ["p", "Y1"], ["Y1", "w", "q"], ["p", "Y1"], ["Y1", "w", "q"]],
+        ["C", ["Y1"], ["Y2"], [], []],
+        ["D", ["q", "w", "Y2"], ["Y2", "r"], ["q", "w", "Y2"], ["Y2", "r"]],
+        ["E", ["Y2", "r"], ["E_done"], ["Y2", "r"], []]
+      ],
+      "marking": {"SUPPLY": 1},
+      "property": {"type": "deadlock-free"},
+      "sinkPlaces": ["E_done"],
+      "budgetPlaces": ["SUPPLY"],
+      "fragmentMode": "extended",
+      "expected": "violated"
+    },
+    {
+      "id": "nu-relay-n1-self-loop-bound-proven",
+      "net": "n1Corr",
+      "rows": [
+        ["A", ["SUPPLY"], ["Y1", "p"], [], []],
+        ["B", ["p", "Y1"], ["Y1", "w", "q"], ["p", "Y1"], ["Y1", "w", "q"]],
+        ["C", ["Y1"], ["Y2"], [], []],
+        ["D", ["q", "w", "Y2"], ["Y2", "r"], ["q", "w", "Y2"], ["Y2", "r"]],
+        ["E", ["Y2", "r"], ["E_done"], ["Y2", "r"], []]
+      ],
+      "marking": {"SUPPLY": 1},
+      "property": {"type": "place-bound", "place": "Y1", "bound": 1},
+      "sinkPlaces": ["E_done"],
+      "budgetPlaces": ["SUPPLY"],
+      "fragmentMode": "extended",
+      "expected": "proven"
+    },
+    {
+      "id": "nu-relay-union-deadlock-violated",
+      "net": "sUnion",
+      "rows": [
+        ["a", ["SUPPLY"], ["p"], [], []],
+        ["b", ["p", "s"], ["q"], ["p", "s"], ["q"]],
+        ["c", ["q"], ["s", "r"], [], []],
+        ["d", ["r"], ["d_done"], [], []]
+      ],
+      "marking": {"SUPPLY": 1},
+      "property": {"type": "deadlock-free"},
+      "sinkPlaces": ["d_done"],
+      "budgetPlaces": ["SUPPLY"],
+      "carrierPlaces": ["q"],
+      "fragmentMode": "extended",
+      "expected": "violated"
+    },
+    {
+      "id": "nu-relay-join-chain-done-violated",
+      "net": "joinChain",
+      "rows": [
+        ["fork", ["S"], ["A", "B", "D"], [], []],
+        ["j1", ["A", "B"], ["C"], ["A", "B"], ["C"]],
+        ["j2", ["C", "D"], ["done"], ["C", "D"], []]
+      ],
+      "marking": {"S": 1},
+      "property": {"type": "unreachable", "place": "done"},
+      "budgetPlaces": ["S"],
+      "fragmentMode": "extended",
+      "expected": "violated"
+    },
+    {
+      "id": "nu-relay-join-chain-independent-done-proven",
+      "net": "joinChainSplit",
+      "rows": [
+        ["fork", ["S"], ["A", "B"], [], []],
+        ["mint2", ["S2"], ["D"], [], []],
+        ["j1", ["A", "B"], ["C"], ["A", "B"], ["C"]],
+        ["j2", ["C", "D"], ["done"], ["C", "D"], []]
+      ],
+      "marking": {"S": 1, "S2": 1},
+      "property": {"type": "unreachable", "place": "done"},
+      "budgetPlaces": ["S", "S2"],
+      "fragmentMode": "extended",
+      "expected": "proven"
+    },
+    {
+      "id": "nu-relay-self-loop-deadlock-proven",
+      "net": "selfLoop",
+      "rows": [
+        ["A", ["S"], ["p", "Y"], [], []],
+        ["B", ["p", "Y"], ["Y", "q"], ["p", "Y"], ["Y", "q"]],
+        ["D", ["q", "Y"], ["done"], ["q", "Y"], []]
+      ],
+      "marking": {"S": 1},
+      "property": {"type": "deadlock-free"},
+      "sinkPlaces": ["done"],
+      "budgetPlaces": ["S"],
+      "fragmentMode": "extended",
+      "expected": "proven"
+    }
+  ]
+}

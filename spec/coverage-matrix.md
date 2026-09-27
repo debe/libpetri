@@ -8,11 +8,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 ## Summary
 
-- Active requirements: **220**
+- Active requirements: **224**
 - Proven in Lean (≥ 1 validated theorem fragment): **31**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **9**
-- Referenced by ≥ 1 test file: java **92**, typescript **88**, rust **103**, python **45**
-- Untested anywhere (no test-file reference in any language): **110**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **12**
+- Referenced by ≥ 1 test file: java **99**, typescript **97**, rust **110**, python **53**
+- Untested anywhere (no test-file reference in any language): **107**
 
 ## 01-core-model.md — CORE
 
@@ -35,6 +35,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-034 | `reset_arc_semantics` — AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled<br>`fireA_reset_empty` — AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard | ✓ | — | ✓ | ✓ | — |
 | CORE-035 | — | — | — | — | ✓ | — |
 | CORE-036 | — | — | — | — | — | — |
+| CORE-037 | — | — | ✓ | ✓ | ✓ | ✓ |
 | CORE-040 | — | — | — | — | ✓ | — |
 | CORE-041 | — | — | — | — | — | — |
 | CORE-042 | — | — | ✓ | ✓ | ✓ | ✓ |
@@ -65,10 +66,10 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | IO-005 | — | — | — | — | — | — |
 | IO-007 | `token_conservation` — the balance side of the contract: consumption removes exactly the consumptionCount prefix — no token beyond it leaves an input place in one firing<br>`consume_faithful` — delivered count is consumptionCount(available): required count for One/Exactly, full drain for All/AtLeast — the interpreter realises the spec's consumptionCount column | ✓ | ✓ | ✓ | ✓ | — |
 | IO-010 | — | — | — | — | — | — |
-| IO-011 | — | — | — | — | — | — |
+| IO-011 | — | — | ✓ | ✓ | ✓ | ✓ |
 | IO-012 | — | — | — | — | — | — |
 | IO-013 | — | — | ✓ | ✓ | ✓ | — |
-| IO-014 | — | — | — | — | — | — |
+| IO-014 | — | — | — | ✓ | ✓ | — |
 | IO-015 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-016 | — | — | ✓ | ✓ | ✓ | ✓ |
 | IO-017 | — | — | — | — | — | — |
@@ -131,7 +132,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CONC-023 | `collect_ready_general_refines` — the post-fix per-priority-level drain (LevelBlocks, RQ1-RQ4) produces the same list as the reference's stable (priority DESC, enabled_at ASC) sort; queue maintenance beyond the collection phase not modelled | ✓ | ✓ | ✓ | ✓ | — |
 | CONC-024 | — | — | — | — | — | — |
 | CONC-025 | — | — | — | — | — | — |
-| CONC-026 | — | — | — | — | — | — |
+| CONC-026 | — | — | ✓ | ✓ | ✓ | — |
 
 ## 06-environment-places.md — ENV
 
@@ -155,9 +156,9 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| VER-001 | — | — | — | — | ✓ | ✓ |
+| VER-001 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-002 | `quiescent_count_clause_exact` — AC8: the flat encoder's QuiescentCount Bad is exactly quiescent and ((count < min and every waiver empty) or count > max), so its false fallbacks ([0, inf), no quiescent marking) hide no violation - quiescence encoding taken as a parameter; counted places assumed resolved and duplicate-free as index_ordered returns them | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-003 | — | — | ✓ | — | ✓ | ✓ |
+| VER-003 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-005 | `invariant_strengthening_sound` — weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment<br>`strengthened_reach_eq` — under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound<br>`consume_all_hypothesis_is_necessary` — live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard<br>`certificate_sound` — certificate check: a weight vector passing the column-wise y.C = 0 recheck of validate_invariants_exact over the flat incidence matrix (C[k][p] = post - pre) plus the H1 guard is constant along ReachA; injection-free fragment | ✓ | — | — | ✓ | — |
 | VER-006 | `false_proven_without_injection` — retrodiction of 98b9297: without the environment-injection rule the abstract reachable set freezes at M0, so PlaceBound(p1, 0) is proven vacuously — the pre-fix false Proven, on the minimal one-env-place witness net<br>`injection_reaches_violation` — with the injection rule (encode_injection_rule) encoded, the vacuous bound above is refuted (p1 reaches 1) — witnesses the fix on the minimal net, not full environment-analysis-mode soundness<br>`invariant_strengthening_sound_inj` — env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design<br>`strengthened_reach_eq_inj` — under H1+H2+H3', strengthening preserves the injected reachable set<br>`injection_hypothesis_is_necessary` — necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -165,16 +166,17 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-010 | — | — | ✓ | ✓ | ✓ | — |
 | VER-011 | `empty_iff_flagged` — AC2: zone emptiness is detected exactly - for a DBM with a finite reference row, the modelled in-place Floyd-Warshall canonicalize (Rust k/i/j loop order) followed by the negative-diagonal check flags the zone empty iff it has no solution (exact rationals, eps = 0; flagged_empty gives soundness at any eps >= 0, so the 1e-9 tolerance can only miss an emptiness, never invent one); floating point, let_time_pass and fire_transition not modelled<br>`closed_canon` — canonical form: without negative cycles the in-place Floyd-Warshall pass returns a closed matrix (D i j <= D i k + D k j), and sat_canon shows canonicalisation never changes the solution set<br>`sat_permD` — AC4: permuting the clocks (permuted) maps the zone bijectively (theta to theta o sigma) and closed_permD keeps a canonical matrix canonical, so the reordered positional key denotes the same zone; the zone_key string rendering is not modelled | ✓ | ✓ | — | ✓ | — |
 | VER-012 | `interned_keys_eq` — hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven<br>`interned_edges_eq` — the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed<br>`equivariance_is_necessary` — necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-013 | — | — | ✓ | ✓ | ✓ | ✓ |
+| VER-013 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-014 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-015 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-016 | `rows_hold` — AC2: on every reachable augmented state (M, n) of the untimed abstraction with injection, every non-injected place satisfies its row - equality where no consume-all/reset arc clears it, the upper bound where one does; encoder modelled, not extracted<br>`state_equation_reach_eq` — conjoining the rows and gate-validated P-invariants (H1, H2, H3') into the transition-rule bodies preserves the reachable augmented set - the option is pure strengthening; certificate check (AC3) and script identity (AC5) not covered<br>`equality_row_is_unsound_on_a_clearing_place` — AC2 necessity: on an In::All place a reachable augmented state violates the equality row while satisfying the upper bound - why a clearing place carries <= instead of = | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-017 | `net_enumeration_exact` — what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete for the model, and for the shipped route under two assumed premises; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality (the second premise), state-space cache reuse, counterexample path and closing-on-small-nets not modelled<br>`run_complete_iff_reach` — the worklist invariant for any successor function: a run that reports complete has discovered exactly the reachable set (every class reachable; every class not waiting in the queue has all successors discovered) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-017 | `net_enumeration_exact` — what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete for the model, and for the shipped route under two assumed premises; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality (the second premise), state-space cache reuse, counterexample path and closing-on-small-nets not modelled<br>`run_complete_iff_reach` — the worklist invariant for any successor function: a run that reports complete has discovered exactly the reachable set (every class reachable; every class not waiting in the queue has all successors discovered)<br>`build_reach` — verdicts from a truncated graph: every class a run discovered is reachable whether or not the run closed (budget, fuel or stop), so a safety violation read off the explored prefix is a reachable bad state; the quiescence half (only expanded classes count) rests on the FIFO/expanded-count premise about the Rust, not proven here, and nothing is claimed for Proven from a prefix | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-018 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-019 | — | — | ✓ | ✓ | ✓ | ✓ |
 | VER-020 | `commoner` — AC2: Commoner's theorem over the CHC relation ReachA for ordinary nets (commoner_applies: no read/inhibitor/reset arc, no consume-all input, arc weight <= 1) - if every nonempty siphon contains an initially marked trap, no reachable marking is dead; built on siphon_stays_empty (any arcs) and trap_stays_marked (no reset/consume-all on the trap); the Rust fixpoint loops and the minimal-siphon reduction are not modelled<br>`ordinary_is_necessary` — AC3: the spec's witness t: exactly(2, a) -> a from {a:1} satisfies the full siphon/marked-trap condition yet is dead initially, so the arc-weight guard of commoner_applies is load-bearing<br>`marked_trap_is_necessary` — the ordinary cycle a -> b -> a from the empty marking has a nonempty trap in every nonempty siphon yet is dead initially - Commoner needs the trap marked, which is why structural_check requires each minimal siphon's maximal trap to hold a token under the initial marking (it answers PotentialDeadlock on this net) | ✓ | ✓ | — | ✓ | — |
 | VER-021 | — | — | — | — | — | — |
 | VER-022 | — | — | ✓ | ✓ | ✓ | ✓ |
+| VER-023 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 08-events-observability.md — EVT
 
@@ -260,16 +262,17 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-012 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-013 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-014 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-020 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-020 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-021 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-022 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-023 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-024 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-025 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-026 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-026 | — | — | ✓ | ✓ | ✓ | ✓ |
+| MOD-027 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-030 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-031 | — | — | ✓ | ✓ | ✓ | ✓ |
-| MOD-040 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-040 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-041 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-050 | — | — | — | — | — | — |
 | MOD-051 | — | — | ✓ | ✓ | ✓ | ✓ |
@@ -292,4 +295,5 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | NU-051 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-052 | `willFire_guard_is_necessary` — retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment<br>`postFixPrune_agrees_with_executor` — the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-053 | `covered_place_empty` — AC6, the column side: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero<br>`vacuous_colour_layer` — AC6, the rule side: every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan is exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| NU-054 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-060 | — | — | ✓ | ✓ | ✓ | ✓ |

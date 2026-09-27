@@ -183,15 +183,30 @@ When any condition ceases to hold, the transition becomes disabled.
 
 An input arc connects a place to a transition. When the transition fires, it **consumes** one or more tokens from the place according to the input's cardinality specification (see [IO-001]–[IO-004]).
 
-A transition MUST NOT declare two input arcs on the same place; compilation rejects such a net with a descriptive error. Duplicate input arcs have no coherent consumption semantics — use a single arc with `exactly(n)` / `at_least(n)` cardinality instead. Both composition seams reconcile colliding arcs before compilation, per the canonical merge table of [MOD-021] (channel composition at compose, fusion at build per [MOD-061]), so a duplicate reaching the compiler is a direct-authoring error.
+A transition MUST NOT declare two input arcs on the same place. **Building the transition** rejects it with a descriptive error naming the transition and the place, and suggesting a single arc with `exactly(n)` / `atLeast(n)` instead. Duplicate input arcs have no coherent consumption semantics, and every consumer of a transition reads them differently when one slips through: before the check moved to the transition builder, the executors rejected them at compile, the state-class graph of Java and TypeScript failed with an internal "Cannot remove 1 tokens", Rust's consumed one token, and the flattener kept the last arc (Java, TypeScript) or summed them (Rust). The transition builder is the one construction path every net, subnet body and verification input passes through, so a check there reaches all of them. "The same place" is the implementation's own `Place` equality ([CORE-002]; name-and-type in Java, name-only in TypeScript and Rust).
+
+The executors' compile-time check stays as a backstop, with the same message. Both composition seams reconcile colliding arcs before they rebuild a transition, per the canonical merge table of [MOD-021] (channel composition at compose, fusion at build per [MOD-061]). The one binding that can still collapse two input arcs onto one place — two ports of one instance bound to the same host place — is rejected at compose with its own message ([MOD-020]).
 
 **Acceptance Criteria:**
 1. Transition with input arc consumes tokens from the place on firing.
 2. Consumed tokens follow FIFO order.
-3. Two input arcs declared on the same place → compilation rejected with a
-   descriptive error.
+3. Two input arcs declared on the same place → building the transition fails with a
+   descriptive error naming the transition and the place. No net, executor, state-class
+   graph or verifier ever sees such a transition. The executor compile step keeps the same
+   check, and message, as a backstop.
 
-**Test derivation:** Create transition with input arc; add tokens; verify tokens consumed in FIFO order. Create transition with two `one()` inputs on the same place; verify compilation rejects it.
+**Implementation notes:**
+- Java: `Transition.Builder.build()`; the backstop is `CompiledNet.compile`.
+- TypeScript: `TransitionBuilder.build()`; the backstop is `CompiledNet.compile`.
+- Rust: `TransitionBuilder::build()`, which panics like the builder's other structural
+  checks; the backstop is `CompiledNet::compile`.
+- Python: `TransitionBuilder.build()` raises `StructureError`, the class the compile-time check
+  raised before, never a Rust panic.
+
+This is a behaviour change: a net that declared a duplicate input arc but was only ever
+verified or exported, never executed, used to build. It now fails at the transition.
+
+**Test derivation:** Create transition with input arc; add tokens; verify tokens consumed in FIFO order. Create transition with two `one()` inputs on the same place; verify that building the transition fails and names both the transition and the place.
 
 ---
 
@@ -290,6 +305,83 @@ The five arc types have the following semantics:
 
 ---
 
+#### CORE-037: Dead Arc Warning
+
+**Priority:** SHOULD
+
+A read, inhibitor or reset arc on place `P` is **dead** when nothing can ever put a token on
+`P`:
+
+- no transition has an input arc on `P`,
+- no transition's output spec contains `P` anywhere in its tree (every branch of every XOR, and
+  the `Timeout` and `ForwardInput` targets included),
+- `P` is not an environment place ([ENV-001]), and
+- the initial marking holds no token on `P`.
+
+A dead read arc means its transition can never be enabled; a dead inhibitor never blocks; a dead
+reset clears nothing. Each is legal: a read or inhibitor on a place the initial marking seeds, or
+a reset on a place a host fills through injection, is common and deliberate, which is why the
+condition asks about the initial marking and the environment places, and why a dead arc is
+**never an error**. But the shape is also what a stale reference looks like: an arc naming a
+place that composition renamed away, or a typo, leaves an arc that silently does nothing. The
+case that motivated this requirement was a host reset naming a subnet's port place after compose
+had bound that port to a host place; [MOD-027] now rejects that case outright, and this warning
+covers the rest.
+
+An implementation SHOULD report every dead arc, once, where the net meets its initial marking:
+
+- **Executors**, every backend, when the executor is constructed: one log-message event
+  ([EVT-013]) per dead arc, through the same mechanism and with the same field shape as the
+  unknown-place diagnostic of [CORE-072] AC4: logger `libpetri.runtime` (omitted where the
+  log-message event carries no logger field), level `WARN`, transition name = the transition that
+  declares the arc, message
+
+  ```
+  <kind> arc of '<transition>' on '<place>': no transition produces into or consumes from it and it starts empty; <effect>.
+  ```
+
+  with `<kind>` one of `read`, `inhibitor`, `reset` and `<effect>` respectively
+  `the transition can never be enabled`, `the arc never blocks`, `the arc has no effect`.
+  One message per dead arc, not per place: two dead arcs on one place are two messages. Arcs are
+  reported in transition order and, within a transition, read, inhibitor, then reset.
+  Like AC4 it is emitted only where events are recorded, and never changes execution.
+- **The SMT verifier** ([VER-001]): one report line per dead arc, the same text prefixed with
+  `WARNING: `, judged against the verification's own initial marking and environment places, e.g.
+
+  ```
+  WARNING: reset arc of 'hub_kill' on 'answer/IN': no transition produces into or consumes from it and it starts empty; the arc has no effect.
+  ```
+
+  No result field changes and no verdict depends on it.
+
+**Acceptance Criteria:**
+1. A reset arc on a place no transition consumes from or produces into, that is not an
+   environment place and that the initial marking leaves empty, produces exactly one `WARN`
+   log-message event naming the transition and the place when an executor is constructed, and
+   one `WARNING:` line in the verifier's report.
+2. The same holds for a read arc (effect: the transition can never be enabled) and an inhibitor
+   arc (effect: the arc never blocks).
+3. No warning when the initial marking puts a token on the place, when the place is an
+   environment place, when any transition has an input arc on it, or when any transition's output
+   spec (any branch) contains it.
+4. The warning never rejects a net and never changes execution, a verdict or a result field.
+
+**Implementation notes:**
+- Java: `BitmapNetExecutor` and `PrecompiledNetExecutor`, beside the [CORE-072] AC4 seam;
+  `SmtVerifier.verify()`.
+- TypeScript: both executors, beside the [CORE-072] AC4 seam; `SmtVerifier.verify()`.
+- Rust: both backends, beside the [CORE-072] AC4 seam; `SmtVerifier::verify()`.
+- Python: inherits the Rust executor events and report.
+
+**Depends on:** [CORE-031], [CORE-032], [CORE-034], [CORE-072], [ENV-001], [EVT-013]
+**Test derivation:** A net whose transition `kill` resets `x`, where nothing else touches `x`:
+construct each executor with an empty initial marking and assert one `WARN` log-message event
+naming `kill` and `x`; seed `x` with a token and assert none. Verify any property of the same net
+and assert the report line. Repeat with a read arc and an inhibitor arc, and with `x` produced
+by another transition's XOR branch (no warning).
+
+---
+
 ## Net Construction
 
 #### CORE-040: Net Builder
@@ -340,6 +432,10 @@ substitutes passthrough for every transition the map omits in Java and TypeScrip
 clobbers the first's bindings) but leaves them untouched in Rust; only the resolver form, where a
 `null`/`None` result defers a transition, binds in stages identically across implementations.
 
+The same operation exists on a subnet definition ([MOD-051]): `SubnetDef.bindActions` takes the
+same argument forms, keyed by the definition's unprefixed transition names, treats unnamed
+transitions exactly as the net-level form does in the same language, and returns a new definition.
+
 **Test derivation:** Create a net with 3 transitions; bind actions for 2; verify the third still has passthrough.
 
 ---
@@ -352,7 +448,8 @@ A transition that declares an output spec MUST NOT carry the built-in passthroug
 ([CORE-051]) in a net submitted for execution: compiling *or verifying* such a net MUST fail.
 Compilation is where structure and action are both final and is the point every executor passes
 through, so one check there covers the builder default, either `bindActions` form ([CORE-042]),
-per-instance binding ([MOD-030]) and channel merge ([MOD-021]) alike.
+binding on a subnet definition ([MOD-051]), per-instance binding ([MOD-030]) and channel merge
+([MOD-021]) alike.
 
 Such a transition can never fire usefully: passthrough produces no tokens while [IO-015] requires
 every declared branch, so each firing consumes its input and the declared output never arrives.
@@ -579,7 +676,8 @@ An executor can be initialized with an initial marking that pre-populates places
    marking (inert — no arc can reference them — but never silently dropped).
    This holds for every backend regardless of its internal token storage; the
    same retention applies to any token reaching a backend for an uncompiled
-   place through production or injection seams.
+   place through production or injection seams. Verification models such a place
+   the same way, as a place with no arcs whose tokens stay ([VER-001]).
 4. An implementation SHOULD surface the first write to an undeclared place as an
    observable diagnostic, emitted as the existing log-message event ([EVT-013]) —
    no new event type. Field shape: logger `libpetri.runtime` (omitted where the

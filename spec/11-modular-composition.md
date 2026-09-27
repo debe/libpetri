@@ -253,6 +253,24 @@ The result of composition over the enclosing builder MUST be observationally ind
 
 Within a single `compose(instance, bindings)` call, every interface port MAY appear in the bindings at most once. Re-binding the same port name (whether to the same caller place or a different caller place) within one `compose(...)` call is a build-time error; the error message MUST enumerate both bindings (port name, both target caller places, both binding-site indices or labels where available). Symmetrically, the same caller-side `Transition` MAY appear as the target of at most one channel binding within a single `compose(...)` call; re-binding a caller transition to two channels of the same instance in one call is a build-time error enumerating both bindings (see also [MOD-021]).
 
+**Port-binding collision.** Two *different* ports of one instance MAY be bound to the same caller place. When that substitution would give one transition of the instance two input arcs on the caller place — the transition consumed from both ports — composition MUST reject the call at compose time, before the rewritten transition is rebuilt, with an error naming the instance prefix, both ports, the caller place and the transition, e.g.
+
+```
+ports 'a' and 'b' of instance 's' are both bound to host place 'X'; transition 's/join' would consume from 'X' through two input arcs. Bind them to distinct places or use one port.
+```
+
+Without this check the rebuild would fail on [CORE-030] AC3 with a message that names only the rewritten transition, not the binding that caused it.
+
+The output side has the same shape. When the substitution would make one **AND branch** of a transition's output spec name the caller place twice — the transition wrote both ports in one branch — composition MUST reject the call at compose time with an error naming the instance prefix, both ports, the caller place and the transition, e.g.
+
+```
+ports 'a' and 'b' of instance 's' are both bound to host place 'X'; transition 's/split' would produce into 'X' twice in one AND branch. Outputs are sets (IO-015); bind them to distinct places or use one port.
+```
+
+and not with the generic [IO-011] rejection the rebuild would otherwise raise. A branch is taken after flattening nested `And`s, as in [IO-011]. Two ports that land in **different** `Xor` alternatives are not a collision: each alternative still names the place once.
+
+Other effects of binding two ports to one place (an input and a read arc, an input and an output, an input and an inhibitor) are unchanged: they are legal arcs with their usual semantics. The checks apply wherever [MOD-020] bindings are processed, so the auto-bound form of [MOD-024] is covered too.
+
 **Acceptance Criteria:**
 1. Compose an instance with binding `port "out" -> callerPlace P`; verify that every arc in the renamed body that referenced the port's renamed place now references `P` directly.
 2. Internal places of the instance appear in the enclosing builder under their renamed (prefixed) names.
@@ -260,9 +278,11 @@ Within a single `compose(instance, bindings)` call, every interface port MAY app
 4. Building the enclosing net produces a `PetriNet` whose structure is identical to a hand-written equivalent.
 5. Re-binding the same port name twice in a single `compose(...)` call (whether to the same caller place or different ones) is rejected at compose time with an error naming the port and both target caller places.
 6. Binding the same caller-side transition to two distinct channels of one instance in a single `compose(...)` call is rejected at compose time with an error naming the caller transition and both channels.
+7. Binding ports `a` and `b` of instance `s` to one caller place `X`, where instance transition `join` has an input arc on each port, is rejected at compose time with the port-binding collision message above, naming `a`, `b`, `s`, `X` and `s/join`. Binding the same two ports to `X` when no transition consumes from both is accepted.
+8. Binding output ports `a` and `b` of instance `s` to one caller place `X`, where instance transition `split` declares `And(a, b)`, is rejected at compose time with the output collision message above, naming `a`, `b`, `s`, `X` and `s/split`, not with the generic [IO-011] message. With `Xor(a, b)` the same binding is accepted.
 
-**Depends on:** [MOD-010], [MOD-011]
-**Test derivation:** Build subnet with port `out`; compose with `out -> P`; export the resulting net and a hand-written equivalent; assert structural equivalence. Compose with `out -> P, out -> Q` in one call; verify rejection.
+**Depends on:** [MOD-010], [MOD-011], [CORE-030], [IO-011]
+**Test derivation:** Build subnet with port `out`; compose with `out -> P`; export the resulting net and a hand-written equivalent; assert structural equivalence. Compose with `out -> P, out -> Q` in one call; verify rejection. Build a subnet whose transition `join` consumes from ports `a` and `b`; compose with `a -> X, b -> X`; verify rejection with the collision message. Repeat with a transition `split` producing `And(a, b)` (rejected, output message) and `Xor(a, b)` (accepted).
 
 ---
 
@@ -500,7 +520,11 @@ The mapping is resolved from the per-`compose(SubnetDef)` contributions:
    transition-name-collision rejection of [MOD-025] forbids it.
 4. A node of a net not built via direct composition is absent from the mapping.
    Instance composition per [MOD-024] records no membership — those nodes carry
-   their `prefix/` names and cluster via [MOD-040]'s name-based detection.
+   their `prefix/` names and cluster via [MOD-040]'s name-based detection. A
+   caller that wants one answer for both kinds of composition asks the net's
+   `subnetOf(name)` accessor ([MOD-040]), which reads this mapping first and
+   falls back to the instance prefix; the mapping itself stays empty for
+   instance-composed nodes.
 
 A subnet definition name containing the `/` separator MUST be sanitized (each
 `/` replaced) before it is recorded, so a membership value never triggers the
@@ -531,6 +555,80 @@ sharing a place `pipe`; assert each subnet's private place/transition maps to
 its subnet name and `pipe` is absent. Build a flat net; assert an empty
 mapping. Direct-compose then fuse two places; assert the non-canonical place's
 entry is gone.
+
+---
+
+#### MOD-027: References to Bound Ports
+
+**Priority:** MUST
+
+Instance composition ([MOD-020], and [MOD-024]'s auto-bound form) replaces a bound port's
+renamed place with the caller place at every arc of the instance. After the call, the renamed
+port place is not in the net. [MOD-011] still hands it out, though: `instance.port("in")` returns
+the pre-binding place `answer/IN` whatever it was bound to. A host arc that names it (a reset
+meant to clear the subnet's input, say) therefore names a fresh place that nothing connects to,
+and the arc silently does nothing:
+
+```
+compose(answer, in -> A_IN)          // answer/IN is replaced by A_IN in every instance arc
+host transition hub_kill: reset(answer.port("in"))   // names answer/IN, which no longer exists
+```
+
+The builder MUST remember every port place a composition **retired** this way: the renamed port
+place, the caller place that replaced it, the port name and the instance prefix. A port bound to
+a caller place of the identical identity (the implementation's `Place` equality, [CORE-002]) is
+not retired, since nothing was replaced.
+
+When the net is built, if any arc of any kind names a retired place (an input arc, any place
+anywhere in an output spec's tree, a read, an inhibitor or a reset arc, under the implementation's
+`Place` equality), `build()` MUST fail with an error naming the place, the port, the instance and
+the caller place, and pointing at the caller place:
+
+```
+place 'answer/IN' is port 'in' of instance 'answer', bound to host place 'A_IN' at compose; reference 'A_IN' instead
+```
+
+The check runs at build, not at compose or at arc addition, so the outcome does not depend on
+whether the offending arc was added before or after the `compose(...)` call. It is checked on the
+net **after fusion** ([MOD-061]): an arc that named a fusion member now names the canonical place,
+and the check sees that arc as the built net carries it. When two compositions retire the same
+place, the first record is kept (set-if-absent), so the error names the binding that retired it
+first. A net that merely
+*declares* the retired place, without any arc naming it, is not rejected by this rule. Places
+that direct composition ([MOD-025]) merges by name, body places merged by [MOD-024]'s
+no-interface inference, and places [MOD-061] fuses away are not ports, and are not retired.
+
+A retired place is recorded per builder: it is the builder that performed the composition that
+rejects a reference to it. The record is not carried on the built net.
+
+**Acceptance Criteria:**
+1. Compose instance `answer` with `in -> A_IN`, then add a host transition with a reset arc on
+   `answer.port("in")`: `build()` fails with the message above.
+2. The same outcome when the host transition is added before the `compose(...)` call.
+3. The same outcome for an input, output (including a place inside an XOR branch), read or
+   inhibitor arc on the retired place.
+4. Referencing `A_IN` instead builds, and the reset clears the place the instance consumes from.
+5. Binding a port to a caller place equal to the port's own renamed place retires nothing; arcs
+   naming it build.
+6. An unbound port's renamed place is not retired; arcs naming it build.
+7. The check sees the fused net: a host arc naming the retired place `answer/IN` builds when a
+   fusion set ([MOD-060]) lists `answer/IN` as a non-canonical member, because after fusion the
+   arc names the canonical place. Conversely, when the retired place is the **canonical** member,
+   an arc on another member is fused onto it and `build()` fails. Every implementation gives both
+   outcomes.
+
+**Implementation notes:**
+- Java: `PetriNet.Builder` records the retired ports in `compose(...)` and checks in `build()`.
+- TypeScript: `PetriNetBuilder` records them in `compose(...)` and checks in `build()`.
+- Rust: `PetriNetBuilder` records them in `compose(...)` and checks in `build()`, which panics
+  like its other structural checks.
+- Python: inherits the Rust check; building the `Net` raises `StructureError`.
+
+**Depends on:** [MOD-010], [MOD-011], [MOD-020], [MOD-024], [MOD-061], [CORE-002], [CORE-040]
+**Test derivation:** A subnet with input port `in` feeding a transition; instantiate as `answer`;
+compose with `in -> A_IN`; add a host transition `hub_kill` resetting `answer.port("in")`, once
+before and once after the compose; both builds fail with the message. Replace the reference with
+`A_IN`; the build succeeds.
 
 ---
 
@@ -614,6 +712,17 @@ DOT export per [EXP-001] of a composed net SHOULD emit a `subgraph cluster_<sani
 
 When the net carries membership metadata, the exporter SHOULD prefer it, and SHOULD fall back to instance-prefix detection for any node without a metadata entry — so a builder that mixes direct and instance composition keeps both cluster kinds. The cluster source MAY be made caller-selectable (e.g. an explicit metadata-only, prefix-only, or no-clustering override); the default SHOULD be the metadata-when-present behaviour above.
 
+**The rule as an accessor.** Membership metadata answers "which subnet does this node belong to" only for direct composition, and the prefix answers it only for instance composition ([MOD-026] rule 4). The net SHOULD expose the combined answer as `subnetOf(name)`, which follows the default (`AUTO`) cluster rule above without its nesting, except that the prefix it falls back to is one some transition lives under:
+
+1. `name` is not a place or transition of the net → absent;
+2. else the membership entry for `name`, when there is one;
+3. else the longest `/`-prefix of `name` that is the instance prefix of a real instance: of the prefixes of `name` ending before one of its `/` characters, taken from longest to shortest (`a/b/c/x` gives `a/b/c`, then `a/b`, then `a`), the first `P` such that at least one transition of the net has a name beginning with `P/`;
+4. else absent.
+
+Step 3 walks up because a subnet may use `/` inside its own namespace: an instance `s1` whose body has a place `obs/TURN` contributes `s1/obs/TURN`, and the part before the last `/`, `s1/obs`, is no instance and carries no transition. Reading it as a subnet made encapsulation checks report a place of `s1` as belonging to a subnet of its own. For a transition name step 3 returns its own instance prefix (the transition itself begins with it), so transitions are attributed as by the part before the last `/`. The set of prefixes that head a transition SHOULD be computed once per net, lazily, so `subnetOf` costs O(depth of the name).
+
+`subnetOf` therefore differs from the DOT `AUTO` cluster rule for a name with `/` inside a subnet's own namespace: the exporter still clusters `s1/obs/TURN` under `s1/obs`. The exporter's instance-prefix helper and its clustering are unchanged by this rule. `subnetOf` is additive: no export output, membership mapping or event changes.
+
 The sanitization function applied to the key MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`).
 
 The cluster label SHOULD be the original (un-sanitized) key string — the prefix, or the subnet name — for human readability.
@@ -628,6 +737,18 @@ This requirement does NOT change the styling, junction, or arc-rendering rules o
 5. Cluster IDs match the regex `cluster_[A-Za-z0-9_]+` (sanitized per [EXP-014]).
 6. A net carrying [MOD-026] membership metadata emits a `subgraph cluster_<subnetName>` block per subnet; each subnet's private nodes appear inside its block and a shared (multi-subnet) place appears at the top level.
 7. With both membership metadata and `prefix/`-named instance nodes in one net, metadata-mapped nodes cluster by subnet name and prefix-named nodes cluster by prefix.
+8. `subnetOf` on a directly composed node returns its subnet name; on an instance-composed node `b1/inner/p` it returns `b1/inner`; on a shared rendezvous place, a flat node without `/`, and a name the net does not declare, it is absent.
+9. `subnetOf` walks up to a real instance: with a transition `s1/t`, the place `s1/obs/TURN` gives `s1`; a place `x/y` with no transition under `x/` is absent; with a nested transition `outer/inner/t`, the place `outer/inner/p` gives `outer/inner`; a membership entry wins over all of these. The DOT export of the same nets is byte-identical to before.
+
+**Implementation notes:**
+- Java: `PetriNet.subnetOf(String)` returns `Optional<String>`; the prefix helper is
+  `org.libpetri.export.SubnetPrefixes.instancePrefixOf`.
+- TypeScript: `PetriNet.subnetOf(name)` returns `string | undefined`; `instancePrefixOf` is
+  exported from `libpetri/export`.
+- Rust: `PetriNet::subnet_of(&self, name)` returns an `Option`; the prefix helper lives in
+  `libpetri_export::subnet_prefixes`.
+- Python: `Net.subnet_of(name) -> str | None`, and `Net.subnet_membership`, the [MOD-026]
+  mapping as a `dict`.
 
 **Depends on:** [MOD-010], [MOD-026], [EXP-001], [EXP-014]
 **Test derivation:** Build a composed net with two top-level instances; export; assert cluster blocks present with correct membership and IDs. Build a directly-composed net of two subnets; export; assert one `subgraph cluster_<subnetName>` per subnet with the shared place at top level.
@@ -702,16 +823,34 @@ A subnet definition SHOULD support a local verification operation `verify(harnes
 
 The implementation MAY realize this by wrapping the subnet in a synthetic enclosing net where each input port is fed by an `EnvironmentPlace` driven by the harness generator and each output port is observed read-only, then invoking the standard verifier per [MOD-050].
 
-Item 4 is what makes AC3 mean anything. The synthetic net has environment places by construction, so the environment mode decides what a verdict is worth: under `Ignore` the verifier models no injection, and [VER-006] refuses to certify any `Proven` that results, so **a subnet with an input port can never be proven** — a `Violated` still comes back, since a counterexample found without injection is a counterexample with it. `verify` therefore SHOULD default to `AlwaysAvailable`, under which a `Proven` holds for every environment, and SHOULD let the caller pass a mode instead; `Bounded(k)` is the mode that expresses a generator bounding the input to at most `k` tokens.
+Item 4 is what makes AC3 mean anything. The synthetic net has environment places by construction, so the environment mode decides what a verdict is worth: under `Ignore` the verifier models no injection, and [VER-006] refuses to certify any `Proven` that results, so **a subnet with an input port can never be proven** — a `Violated` still comes back, since a counterexample found without injection is a counterexample with it. `verify` therefore SHOULD default to `AlwaysAvailable`, under which a `Proven` holds for every environment, and SHOULD let the caller pass a mode instead. `Bounded(k)` caps the tokens **resident** in each input place at `k` and refills it forever ([VER-006]), so it bounds what one firing can take, not the input as a whole; `Arrivals(k)` is the mode that expresses a generator delivering at most `k` tokens to each input port over the whole run, and `Arrivals(min, max)` one delivering at least `min` of them; `Arrivals(k, k)` delivers exactly `k`, which a property counting outcomes against inputs at quiescence needs, since under `Arrivals(k)` a run that declines its arrivals always violates it.
+
+**Verification options.** `verify` SHOULD accept an options value beside the harness, and the existing signatures keep working unchanged:
+
+- the environment mode above;
+- a **configure** hook, called once per property with the per-property verifier *after* the implementation's own setup (property, environment places, environment mode) and with the synthetic net, returning the verifier to run. It is how a caller sets anything the verifier offers: the per-call timeout and the total budget or cancellation of [VER-013], sink places, the state-equation and enumeration options, the ν options below. The synthetic net lets the hook resolve the names the harness's properties already use: the subnet's own places under the `sut/` prefix, the ports under their harness names. The hook has the semantics of the open-net `configureSmt` of [VER-022]: what it sets overrides the implementation's setup, and a hook that replaces the environment mode takes responsibility for it.
+
+Python cannot hand a callback the Rust builder cheaply, so `verify_subnet` takes keyword arguments forwarded to each per-property verification instead: at least the keywords `verify` accepts for the timeout, total budget, cancellation, sink places, enumeration budget and state-space options, and the ν options (budget places, carrier places, fragment mode, the Route B class bound). Place names in them are the synthetic net's names, spelled as in the properties (`sut/<place>`). An unknown name behaves as it does in `verify`: an
+unknown sink place is ignored, and an unknown carrier place makes the verdict `Unknown`.
+
+**ν subnets need the ν options.** A subnet that mints and joins correlation names ([NU-010], [NU-020]) and threads a name through a relay is verified in the BASE fragment unless the caller says otherwise ([NU-051]). BASE reads such a relay as a fresh mint: a different model, in which a join the real net reaches may never fire, so a safety property can come back `Proven` although the net violates it. Declaring the carrier places and selecting the EXTENDED fragment through the options (the hook, or the Python keywords) is what makes the per-property verifier decide the subnet exactly; implementations SHOULD say so where they document `verify`.
+
+**Binding actions on a definition.** A subnet definition SHOULD offer `bindActions(...)`, mirroring the net-level operation of [CORE-042] with the same argument forms (mapping and resolver) and, per form, the same treatment of transitions it does not name, divergence included. It is keyed by the definition's own, unprefixed transition names and returns a **new** definition whose ports, channels and parameters are unchanged; the receiver is not modified. Instances created from the new definition carry the bound actions as their shared defaults ([MOD-030]). The [CORE-043] check in `verify` applies to the bound definition as to any other.
 
 **Acceptance Criteria:**
 1. Where provided, `verify(harness)` returns a verification result of the same shape as the standard verifier per [VER-003].
 2. Invoking `verify` does not require the subnet to be composed into any enclosing net.
 3. The harness's input generators bound the input behavior for the verification.
 4. The environment-analysis mode of [VER-006] is selectable per verification and defaults to one that models injection, so a subnet with an input port is not refused a `Proven` by default.
+5. `Arrivals(k)` is selectable, and bounds the total injected into each input port to `k`: a subnet that forwards each input token to an output port proves `placeBound` of that output at `k` under `Arrivals(k)` and violates it under `Bounded(k)`.
+6. The configure hook (Python: the forwarded keywords) reaches every per-property verifier. A setting made there is visible in the result: a total budget too small to finish yields its exhaustion reason ([VER-013]), and a sink place named there changes a quiescence verdict.
+7. **ν options reach the verifier.** A ν subnet whose property is `Proven` with the options unset (BASE) is `Violated`, or at least not `Proven`, once carrier places and the EXTENDED fragment are passed through the options: the options are shown to change the model, not merely to be accepted.
+8. `bindActions` on a definition returns a new definition whose instances carry the bound actions, keyed by unprefixed names; the receiver's instances keep the old ones; ports and parameters are unchanged.
 
-**Depends on:** [MOD-001], [VER-001], [VER-006], [ENV-001]
-**Test derivation:** Build a leaky-bucket subnet parameterised by rate; supply a harness with a request generator and leave its permit place unseeded; verify that the bucket's `accepted` place is `0`-bounded — unreachable however much the environment injects — under the default mode and under `Bounded(k)`, and that the same query is refused under `Ignore`.
+**Implementation notes:** TypeScript `verify(harness, options?: { environmentMode?, configure?: (verifier: SmtVerifier, synth: PetriNet) => SmtVerifier })`; Java `verify(harness, SubnetVerifyOptions)`, a record of the environment mode and a `BiFunction<SmtVerifier, PetriNet, SmtVerifier> configure`, with withers; Rust `SubnetVerifyOptions`, whose `configure` field takes the verifier and the synthetic net (`OpenNetOptions::configure_smt` plus the net); Python `verify_subnet(..., *, environment_mode=..., <forwarded keywords>)`. `bindActions` / `bind_actions` on `SubnetDef` in all four.
+
+**Depends on:** [MOD-001], [MOD-030], [VER-001], [VER-006], [VER-013], [VER-022], [ENV-001], [CORE-042], [CORE-043], [NU-051]
+**Test derivation:** Build a leaky-bucket subnet parameterised by rate; supply a harness with a request generator and leave its permit place unseeded; verify that the bucket's `accepted` place is `0`-bounded — unreachable however much the environment injects — under the default mode and under `Bounded(k)`, and that the same query is refused under `Ignore`. A forwarding subnet under `Arrivals(2)` against `Bounded(2)` (AC5); a total budget of 1 ms set through the hook (AC6); a fork → relay → join subnet with carrier places, verified with and without the ν options (AC7); `bindActions` on a definition, then two instances of the old and the new definition (AC8).
 
 ---
 

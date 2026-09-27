@@ -2,9 +2,42 @@
 
 ## Unreleased
 
+**A major version in every language** (next: Java 8.0.0, TypeScript 8.0.0, Rust 9.0.0, Python 7.0.0). Four checks now reject at build a net that used to build: duplicate input arcs, a place named twice in one AND branch, two ports of one instance colliding on one host place, and an arc on a port that `compose` bound away. Each reaches every language. On top of that, Rust's `EnvironmentAnalysisMode` gained variants and TypeScript's `MatchSpec` a required field. The entries marked **Potential break** under Changed say what to do.
+
 ### Added
 
-- **State-space cache for the enumeration route (all languages, [VER-017]).** Asking many questions of one net no longer rebuilds its state-class graph for every question. Create a cache, pass it to each verification, and the graph is built once per net and initial marking. A graph that exceeded the class budget is remembered too, so later queries at the same or a smaller budget skip straight to the SMT pipeline instead of paying the full attempt again. On a 47-place agent net, that attempt cost 3–4.6 s per query.
+- **Join relay: a ν-join can hand the name it matched on to a later join (all languages, [NU-054]).** A matched join consumes a name, and the analysers read any coloured output of a join as a fresh mint, so they fell back to the over-approximation. That caught two routine shapes: a **join chain**, whose join passes the matched name to a later join, and a **correlated self-loop**, whose join writes the name back onto one of its own keys. Every quiescence property on such a net came back `Unknown`. A match specification can now declare **relay targets**: output places that receive the matched name, each with a key projection like a match key's.
+
+  ```ts
+  const e = Transition.builder('e')
+    .inputs(one(C1), one(D1))
+    .outputs(outPlace(P5))
+    .match(matchSpec(matchKey(C1, byCase), matchKey(D1, byCase), relayKey(P5, byCase)))
+    .build();
+
+  await SmtVerifier.forNet(net).fragmentMode('extended').property(deadlockFree()).verify();
+  ```
+
+  A relay target must be an output of the transition and may be declared once; both are checked when the transition is built. It may be one of the join's own keys (the self-loop). Composition remaps relay targets like keys, and a binding or fusion that maps two relay targets of one join onto one place is rejected.
+
+  **The executor checks the contract on every firing.** A token in a relay target whose key projects to another name, or to no name, fails the firing like any output-validation failure:
+
+  ```
+  'e': relay target 'P5' received a token with name 'y', but the join matched name 'x' (NU-054)
+  ```
+
+  The check covers every token the firing deposits there, including `Out.forwardInput` and `Out.timeout` branches and batches published mid-action. An absent value (`null` / `undefined` / `None`) has no name and fails without calling the projection. The check is always on, and skipped only where output validation is skipped ([CONC-026]).
+
+  **The analysis reads relays only under the EXTENDED fragment.** Relay targets then join the coloured set: Route B moves the matched name onto them, and Route A produces its colour there. Under BASE the declarations are ignored, the verdict is the one without them, and the report says so and names EXTENDED. On the PNID figures (arXiv 2212.07363):
+
+  - Fig. 12(c): `deadlockFree` and `placeBound(OR, 2)` are `Proven`; both were `Unknown`.
+  - S union N ⊕ M: `deadlockFree` is `Violated` with the trace `a`, now for the right reason rather than by reading a join as a mint.
+  - Fig. 6(a) N1, correlated: `deadlockFree` is `Violated` with the trace `A, C`: `C` moves the case's `Y1` token before `B` can join on it, and the `p` token strands. **This disagrees with the paper, which labels N1 identifier sound.** We report the disagreement rather than tune the model to match the label.
+
+  Route A agrees with Route B wherever it decides, and returns `Unknown` (from Spacer) on the proven quiescence cases, where Route B decides. The relay nets used for the cross-language script parity are in `spec/verification-fixtures/nu-relay-fixtures.json`, with goldens under `spec/verification-fixtures/scripts/nu-relay-*/`.
+
+  Java: `MatchSpec.builder().key(C1, fn).key(D1, fn).relayTo(P5, fn).build()`, `.fragmentMode(FragmentMode.EXTENDED)`. Rust: `MatchSpec::builder().key(&c1, f).key(&d1, f).relay_to(&p5, f).build()`. Python: `match_spec(keys=[(c1, fn), (d1, fn)], relay_to=[(p5, fn)])`, with `fragment_mode="extended"` on `verify()`. TypeScript: `MatchSpec` gains a `relays` field (see Changed).
+- **State-space cache for the enumeration route (all languages, [VER-017]).** Asking many questions of one net no longer rebuilds its state-class graph for every question. Create a cache, pass it to each verification, and the graph is built once per net and initial marking. A graph that exceeded the class budget is remembered too, with the part it explored, so later queries at the same or a smaller budget skip the rebuild: they check the remembered part for a violation and otherwise go straight to the SMT pipeline, instead of paying the full attempt again. On a 47-place agent net, that attempt cost 3–4.6 s per query.
 
   ```java
   var cache = new StateSpaceCache();
@@ -14,14 +47,160 @@
   ```
 
   Verdicts, witnesses and routes are identical with and without the cache. The report adds one line when the cache answered. Parallel queries sharing a cache build each graph once. Without a cache nothing changes, and the caller owns the cache's memory (`clear()` drops it). Java and TypeScript key on the net instance and on the initial marking in the order it lists its places, so pass the same `PetriNet` object and build the marking the same way each time; an equal marking listed in another order misses. TypeScript: `new StateSpaceCache()` from `libpetri/verification` and `.stateSpaceCache(cache)`. Rust: `libpetri::verification::state_space_cache::StateSpaceCache::new()` and `.state_space_cache(&cache)`, keyed on a structural fingerprint, so a clone of the net hits. Python: `cache = StateSpaceCache()`, then `verify(..., state_space_cache=cache)` on each query; it wraps the Rust cache and keys the same way.
+- **A total time budget for `verify()` (all languages, [VER-013]).** The solver timeout is per `z3` process, and one verification starts several: the bound query, the state-equation phase and its certificate check, the firing bound, the fixpoint query and its certificate check. Together they can take about 7.5 timeouts, plus the enumeration and graph routes, which no timeout bounds. A total budget caps the whole call:
+
+  ```java
+  var result = SmtVerifier.forNet(net)
+      .property(property)
+      .timeout(Duration.ofSeconds(30))      // per z3 process, as before
+      .totalBudget(Duration.ofSeconds(60))  // the whole verify() call
+      .verify();
+  // Unknown: "total verification budget of 60000 ms exhausted during horn"
+  ```
+
+  Every `z3` process gets whatever is left, at most its usual timeout, and none starts once the budget is spent. The graph builds and the siphon and Farkas searches check the clock too. A verdict reached in time stands. A graph build the budget cut short is not cached as a truncation. Off by default, and nothing changes while it is off. Under a total budget the fixpoint query no longer gets its full timeout after the earlier phases have run. TypeScript: `.totalBudget(ms)`. Rust: `.total_budget(ms)`. Python: `verify(..., total_budget_ms=60_000)`.
+- **Cancel a running verification (all languages, [VER-013]).** Cancellation stops `verify()` at the same points the total budget does, whether or not a budget is set. A running `z3` process is killed at once rather than at its timeout, no further process starts, and the result is `Unknown` with the reason `verification cancelled during <phase>`. A verdict reached before the cancel stands.
+
+  ```ts
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 5_000);
+  const result = await SmtVerifier.forNet(net).property(p).signal(controller.signal).verify();
+  // Unknown: "verification cancelled during horn"
+  ```
+
+  Rust: `let token = CancelToken::new();` then `.cancel_token(&token)`, and `token.cancel()` from any thread. Python: `token = libpetri.CancelToken()`, `verify(..., cancel=token)` or `verify_subnet(..., cancel=token)`; `token.cancel()` works from another thread, or from an asyncio task while `verify()` runs in `asyncio.to_thread` / `loop.run_in_executor`, since the verification runs with the GIL released. Java has no token: interrupt the thread running `verify()`. The running `z3` is destroyed, the result is the same `Unknown`, and the interrupt flag is still set when `verify()` returns. Open-net verification and `SubnetDef.verify` honour cancellation too.
+- **Results say whether a counterexample survives timing (all languages, [VER-003], [VER-023]).** The verifier decides the untimed abstraction, so a `Violated` on a timed net can rest on a run the timing forbids, and until now `counterexampleConfirmed` was `true` for it anyway: it only ever meant "replays in the untimed abstraction". A new field, `counterexampleTiming`, set on every `Violated`, says what the counterexample means for the timed net: `UNTIMED_NET` (nothing is timed), `UNTIMED_ABSTRACTION` (timed net, not checked under timing), `TIMED_EXACT` (Route B, a run of the timed semantics), and, with the new opt-in check, `TIMED_CONFIRMED`, `SPURIOUS_UNDER_TIMING` or `TIMED_UNDECIDED`.
+
+  The check builds the timed state-class graph and asks it the same question. A call answering within `window(0, 2)`, raced by a watchdog at `delayed(5)`, never times out:
+
+  ```java
+  var result = SmtVerifier.forNet(watchdog)
+      .property(SmtProperty.unreachable(Set.of(TIMEOUT)))
+      .timedCounterexampleCheck(true)
+      .verify();
+
+  result.verdict();              // Violated — the untimed contract, unchanged
+  result.counterexampleTiming(); // SPURIOUS_UNDER_TIMING — the timed graph closed, no TIMEOUT
+  ```
+
+  The verdict never changes: `Proven` means "holds without timing", and the timed graph can only show the weaker claim. When the timed graph does reach a violation, the trace is replaced by its shortest timed path (`TIMED_CONFIRMED`).
+
+  **The timed graphs ignore priority.** `TIMED_CONFIRMED` and `TIMED_EXACT` (Route B honours priority only in part, and only under the conflict-only mode of [NU-052]) mean the trace is feasible under timing, not that the executor will take it. If your net relies on priority to rule the trace out, you can still get `TIMED_CONFIRMED`: with `hi: A → OK` at priority 10 and `lo: A → BAD` at priority 0, both `delayed(1)`, `unreachable(BAD)` comes back `TIMED_CONFIRMED` with the trace `lo`, although the executor always fires `hi`. `SPURIOUS_UNDER_TIMING` is not affected: ignoring priority only adds runs, so a spurious result is spurious for the executor too.
+
+  The check skips nets with environment places or ν-joins. It runs within the class budget and the total budget. Off by default. TypeScript: `.timedCounterexampleCheck(true)`; `counterexampleTiming` is `'untimed-net'`, `'spurious-under-timing'`, … Rust: `.timed_counterexample_check(true)`; `counterexample_timing: Option<CounterexampleTiming>`, a `#[non_exhaustive]` enum. Python: `verify(..., timed_counterexample_check=True)`; `result.counterexample_timing` is a string or `None`.
+- **`arrivals(k)` and `arrivals(min, max)`: how many tokens each environment place receives over the whole run (all languages, [VER-006]).** `bounded(k)` never meant that: it caps the tokens *sitting* in an environment place at `k` and refills it forever, so the total injected is unbounded. `arrivals(k)` bounds the total at `k`. `arrivals(min, max)` also requires `min` of them, so `arrivals(k, k)` means exactly `k`. The mode closes the net before verification with an arrival group per environment place, the same construction as open-net verification ([VER-022]). The net has no environment places left, so every route, P-invariants and quiescence apply as on a closed net.
+
+  ```java
+  SmtVerifier.forNet(net)
+      .environmentPlaces(IN)
+      .environmentMode(EnvironmentAnalysisMode.arrivals(3))
+      .property(SmtProperty.placeBound(OUT, 3))
+      .verify();                          // Proven; under bounded(3) it is Violated
+  ```
+
+  Counterexamples show each required arrival as an `env:arrive[i]:<place>` firing, each optional one as `env:arrive?[i]:<place>`, and `env:decline[i]` where the environment stops early. A run can rest only once every required arrival has happened, so quiescence properties see every count from `min` to `max`. That is what exact accounting on an open subnet needs: "`k` inputs arrive, so `k` outcomes at quiescence" is `Proven` under `arrivals(k, k)`, while under `arrivals(k)` a run that declines always violates it. `arrivals(k)` is `arrivals(0, k)`; `min < 0` or `max < min` is rejected. TypeScript: `arrivals(3)`, `arrivals(2, 2)`. Rust: `arrivals(3)`, and `ArrivalsBetween { min_tokens, max_tokens }` through `arrivals_between(2, 2)`. Python: `environment_mode=libpetri.arrivals(3)`, `libpetri.arrivals(2, 2)`. Also available in `SubnetDef.verify`, whose docs wrongly said `bounded(k)` bounds the input to `k` tokens.
+- **`SubnetDef.verify` takes options, and `SubnetDef.bindActions` (all languages, [MOD-051]).** A `configure` hook receives each per-property verifier after libpetri's own setup, together with the synthetic net, so anything `SmtVerifier` offers can be set for a subnet: timeout, total budget, cancellation, sinks, ν options. The existing signatures still work.
+
+  ```ts
+  const result = await def.verify(harness, {
+    environmentMode: arrivals(2),
+    configure: (v, synth) => v
+      .totalBudget(10_000)
+      .fragmentMode('extended')
+      .carrierPlaces(...[...synth.places].filter(p => p.name === 'sut/relay')),
+  });
+  ```
+
+  **ν subnets need this.** Without carrier places and the EXTENDED fragment, a subnet that relays a correlation name is verified in BASE, where the relay reads as a fresh mint, and a safety property can come back `Proven` although the subnet violates it. Java: `verify(harness, SubnetVerifyOptions)`. Rust: `SubnetVerifyOptions` through `verify_with_options`, whose `configure` hook takes the verifier and the synthetic net. Python cannot hand a callback the Rust builder, so `verify_subnet` forwards keyword arguments (`timeout_ms`, `total_budget_ms`, `cancel`, `carrier_places`, `fragment_mode`, …) to each property's verification; place names are the synthetic net's, as in the properties (`sut/relay`).
+
+  `def.bindActions(...)` works like `PetriNet.bindActions` on the definition's own transition names and returns a new definition, so a structure-only subnet can get its actions before it is instantiated or verified.
+- **Warnings for read, inhibitor and reset arcs that can never matter (all languages, [CORE-037]).** An arc on a place that nothing produces into or consumes from, that is not an environment place and that starts empty does nothing: a read blocks its transition forever, an inhibitor never blocks, a reset clears nothing. It is legal, and often deliberate when the initial marking seeds the place, so it is never an error. But it is also what a stale or misspelled reference looks like. Executors now emit one `WARN` log-message event per such arc at construction, the same way they report tokens on an undeclared place, and `verify()` adds one report line:
+
+  ```
+  WARNING: reset arc of 'hub_kill' on 'answer/IN': no transition produces into or consumes from it and it starts empty; the arc has no effect.
+  ```
+- **`subnetOf(name)`: which subnet a node belongs to, for both kinds of composition (all languages, [MOD-040]).** Direct composition records subnet membership; instance composition leaves it empty and relies on the `prefix/` in the name. `subnetOf` combines the two: the membership entry if there is one, else the longest prefix of the name, cut at a `/`, under which the net has a transition, else nothing.
+
+  ```java
+  net.subnetOf("b1/inner/p");   // Optional["b1/inner"]
+  net.subnetOf("s1/obs/TURN");  // Optional["s1"] — s1's own place obs/TURN; no transition lives under s1/obs
+  net.subnetOf("pipe");         // Optional.empty() — a place shared by two subnets
+  ```
+
+  Walking up to a prefix that has a transition keeps a subnet's own `/`-names from reading as subnets of their own, which made encapsulation checks report false warnings. It is the one place where `subnetOf` differs from the DOT exporter's clustering, which is unchanged and still groups `s1/obs/TURN` under `s1/obs`. TypeScript: `net.subnetOf(name)` returns `string | undefined`, and `instancePrefixOf` is now exported from `libpetri/export`. Rust: `net.subnet_of(name)`. Python: `net.subnet_of(name)`, plus `net.subnet_membership`, the membership mapping as a `dict`, which Python could not read before.
+
+### Changed
+
+- **Duplicate input arcs are rejected when the transition is built (all languages, [CORE-030]). Potential break.** Two input arcs on one place have no coherent meaning, and until now only the executor's compile step rejected them. A net that was only verified or exported built fine and then got a different answer from every consumer: Java and TypeScript's state-class graph failed with an internal "Cannot remove 1 tokens", Rust's consumed one token, and the flattener kept one arc in Java and TypeScript but summed them in Rust. The transition builder now throws, with the message the compile step used, so a net that only ever reached the verifier or the exporter now fails at the transition:
+
+  ```java
+  Transition.builder("join").inputs(In.one(p), In.one(p)).build();
+  // Transition 'join' declares two input arcs on place 'p'. ... Use a single arc with exactly(n) / atLeast(n) instead.
+
+  Transition.builder("join").inputs(In.exactly(2, p)).build();   // what was meant
+  ```
+
+  Java: `Transition.Builder.build()`. TypeScript: `TransitionBuilder.build()`. Rust: `TransitionBuilder::build()` panics. Python: `TransitionBuilder.build()` raises `StructureError`, as compiling did before, rather than a panic. Composition already merged colliding arcs, so only hand-written duplicates are affected.
+- **A place named twice in one AND branch is rejected (all languages, [IO-011]). Potential break.** Outputs are sets of places, so `And(P, P)` never produced two tokens into `P`: every implementation collapsed it to `And(P)` without a word, and every analysis read one token. Building a transition with such a spec now fails:
+
+  ```java
+  Transition.builder("t").outputs(Out.and(Out.place(P), Out.place(P))).build();
+  // output spec of transition 't' names place 'P' twice in one AND branch; outputs are sets (IO-015) —
+  // a weighted output is not supported, add a second place or a follow-up transition
+  ```
+
+  Nested `And`s count as one branch. The same place in different `Xor` alternatives is still fine. A net that relied on the collapse must drop the duplicate. Composition that binds two output ports of one instance to the same host place inside one AND branch fails with a message naming both ports, like the input-side collision below ([MOD-020]).
+- **Binding two ports of one instance to the same host place is rejected when a transition would consume from both (all languages, [MOD-020]). Potential break.** The rewrite gave that transition two input arcs on the host place, which the duplicate-input check above would reject with a message naming only the rewritten transition. `compose` now fails first and names the binding:
+
+  ```
+  ports 'a' and 'b' of instance 's' are both bound to host place 'X'; transition 's/join' would consume from 'X' through two input arcs. Bind them to distinct places or use one port.
+  ```
+
+  Two ports on one place that no single transition consumes from are still accepted.
+- **An arc naming a port that `compose` bound away is rejected at build (all languages, [MOD-027]). Potential break.** Binding port `in` of instance `answer` to host place `A_IN` replaces `answer/IN` in every arc of the instance; afterwards `answer/IN` is not in the net. `answer.port("in")` still returns it, though, so a host arc written against the port named a fresh, unconnected place and silently did nothing:
+
+  ```java
+  builder.compose(answer, b -> b.bindPort("in", A_IN));
+  builder.transition(Transition.builder("hub_kill")
+      .reset(answer.port("in", String.class))   // answer/IN no longer exists
+      .build());
+  builder.build();
+  // place 'answer/IN' is port 'in' of instance 'answer', bound to host place 'A_IN' at compose; reference 'A_IN' instead
+
+  builder.transition(Transition.builder("hub_kill").reset(A_IN).build());  // the fix
+  ```
+
+  The check runs at `build()`, so it catches the arc whether it was added before or after `compose`, and whatever its kind: input, output, read, inhibitor or reset. A port bound to its own place is not affected. Python raises `StructureError`.
+- **Rust: `EnvironmentAnalysisMode` is `#[non_exhaustive]` and has two new variants, `Arrivals` and `ArrivalsBetween` ([VER-006]). Potential break.** A `match` on it without a wildcard arm no longer compiles; add `_ => …`. Later modes will then not break it again.
+- **TypeScript: `MatchSpec` has a required `relays` field ([NU-054]). Potential break.** `matchSpec(...)` fills it. An object literal typed as `MatchSpec` must now add `relays: []`.
+- **Java: `SmtVerificationResult` has a new record component, `counterexampleTiming`, after `counterexampleConfirmed` ([VER-003]). Potential break.** The old constructor is kept, so `new SmtVerificationResult(…)` still compiles. A record pattern that deconstructs the result (`case SmtVerificationResult(var verdict, …)`) needs the extra component.
+- **Rust and Python: `ctx.flush()` reports a relay violation ([NU-054]). Potential break.** Rust's `FlushFn` now returns `Result<(), ActionError>`, and `flush()` returns `Err` with the relay message when a flushed batch puts a token of another name, or of no name, into a relay target; later flushes of that firing are refused the same way. Python's `ctx.flush()` raises `RuntimeError` in that case. The firing fails as before; the action now finds out at the flush instead of only at completion. Code that implements `FlushFn` itself must return `Ok(())`.
+- **A graph route that runs out of classes still reports a violation it found (all languages, [VER-012], [VER-017], [VER-023]).** Route B, the enumeration route and the timed counterexample check used to discard the explored graph when it hit the class budget. Every explored class is reachable, so the same check now runs over what was explored. PNID Fig. 11(b), `placeBound(order_clerk, 2)`, was `Unknown` at any budget; it is now `Violated` with the three-step trace `create_order ×3`, at a budget of 50. For deadlock-style properties only fully expanded classes count, so an unexplored frontier never looks like a deadlock. A truncated graph never gives `Proven`. The report says the graph was truncated and the violation found in the explored part. The timed check reports such a hit as `TIMED_CONFIRMED`.
+- **Route B is much faster on join-heavy nets (all languages, [VER-012]).** A join produced one successor per enabling name and then merged them all into one class, which made the build roughly quadratic in the class count. It now produces one successor per distinct kind of name. On PNID Fig. 11(b) in TypeScript, 8 000 classes take 0.49 s instead of 14.5 s, and 100 000 classes about 19 s instead of about 35 minutes. Classes and verdicts are unchanged; only duplicate parallel edges are gone.
+- **Route B stops at the first safety violation (all languages, [VER-012]).** For `placeBound`, `branchPlaceBound`, `unreachable` and `mutualExclusion`, Route B now checks each class as it finds it and stops at the first one that violates the property, instead of filling the class budget and checking afterwards. Verdict, route and witness are the same; only the time changes. PNID Fig. 11(b), `placeBound(order_clerk, 2)` at the default budget, took 1.8 s and now answers after a handful of classes. The report says `Route B stopped at the first violating class after N classes (VER-012).` in place of the truncation note. Deadlock-style properties explore as before.
 
 ### Fixed
 
-- **Python: a witness now starts in the order you listed `initial_marking`.** `verify()` and `encode_smt_scripts()` read the dict through a hash map, so the first state of a counterexample trace listed its places in an order that changed from call to call. The dict is now read in insertion order, with or without a cache. A key that is not a string, or a count that is not a non-negative int, raises `TypeError`.
+- **A stray initial token could make `deadlockFree` `Proven`, depending on the class budget (all languages, [VER-001], [CORE-072]).** An initial marking may put tokens on a place the net does not declare. The executor keeps them, inert, and the enumeration route saw them, but the SMT pipeline built its place list from the net alone and dropped them. So the same question got two answers:
+
+  ```ts
+  // t: c -> d, sink d; `a` is on no arc and not declared
+  const v = () => SmtVerifier.forNet(net).initialMarking(m => m.tokens(a, 1))
+    .sinkPlaces(d).property(deadlockFree());
+  await v().verify();                           // Violated (enumeration)
+  await v().enumerationMaxClasses(0).verify();  // was Proven (SMT), now Violated
+  ```
+
+  Every such place is now part of the verified net, as a place with no arcs, after the declared places in the order the marking lists them. Every route sees it: `deadlockFree` counts its token as stranded, `placeBound` counts it, and it is its own P-invariant. A property may now name a place that the initial marking marks even if the net does not declare it; one naming a place that is neither declared nor marked is still refused. Nets whose marking names only declared places get the same verdicts and scripts as before.
+- **Java: one `SmtVerifier` can now run `verify()` on several threads at once ([VER-013]).** The total budget's deadline and the running route were instance fields, so two concurrent calls on one verifier read each other's deadline and could fail with a `NullPointerException`. Both are now per call.
+- **ν verification: trivially true bounds no longer time out (all languages, [VER-015], [NU-053]).** On a ν-net with a declared budget, the name-coloured encoding went straight to IC3 over its colour slots, often two to four times the budget, and skipped the linear state-equation bound. The bound reads the net name-blind, which only over-approximates, so its `Proven` holds on ν-nets too; it now runs first, and anything it cannot prove goes to the coloured query as before. On six PNID nets, `placeBound(X, 1000)` under a budget of 2 was `Unknown` after about 8 s and is now `Proven` (structural) in about 12 ms. `encodeScripts()` now returns the `bound` script for these nets too.
+- **Python: a witness now starts in the order you listed `initial_marking`.** `verify()` and `encode_smt_scripts()` read the dict through a hash map, so the first state of a counterexample trace listed its places in an order that changed from call to call. The dict is now read in insertion order, with or without a cache. A key that is neither a `Place` nor a place name, or a count that is not a non-negative int, raises `TypeError`.
+- **Java: `PetriNet.places()` now includes places that only a reset arc touches.** `PetriNet.Builder.transition(...)` collected a transition's input, output, read and inhibitor places but not its reset places, so a place only ever reset was missing from `places()` and from everything that reads it. TypeScript and Rust already included it.
+- **Rust: a `Violated` from the fixpoint query now carries the untimed warning.** Java and TypeScript ended such a report with `WARNING: This counterexample is in UNTIMED semantics.`; the Rust (and so Python) horn path printed nothing. It now prints the same two lines.
 
 ### Lean
 
-`lean/` now builds on Mathlib. CI fetches the cached oleans of the imported modules only and never builds Mathlib. Six new files under `Libpetri/Novel/` prove properties of models of the shipped Rust functions, each pinned by the fidelity check so a change to the Rust fails CI until the model is re-read: the enumeration route decides exactly (`net_enumeration_exact`, [VER-017], assuming the untimed successor step is the CHC firing rule and the class key is marking equality), Commoner's theorem for ordinary nets with the arc-weight and marked-trap conditions shown necessary (`commoner`, [VER-020]), exact DBM emptiness detection (`empty_iff_flagged`, [VER-011]), reset-arc semantics (`reset_arc_semantics`, [CORE-034]), `canonical_key` as a complete orbit invariant, and soundness of the Farkas semiflow enumeration. 31 of 220 requirements now carry a proof fragment, up from 26. `scripts/lean-fidelity-check.py` now scans the subdirectories of `Libpetri/` too; before, citations from `Novel/` and `Refinement/` went unchecked.
+`lean/` now builds on Mathlib. CI fetches the cached oleans of the imported modules only and never builds Mathlib. Six new files under `Libpetri/Novel/` prove properties of models of the shipped Rust functions, each pinned by the fidelity check so a change to the Rust fails CI until the model is re-read: the enumeration route decides exactly (`net_enumeration_exact`, [VER-017], assuming the untimed successor step is the CHC firing rule and the class key is marking equality) and every class it discovers is reachable whether or not the graph closed (`run_reach`, `build_reach`), which is what lets a truncated graph report a violation from its explored part (see Changed), Commoner's theorem for ordinary nets with the arc-weight and marked-trap conditions shown necessary (`commoner`, [VER-020]), exact DBM emptiness detection (`empty_iff_flagged`, [VER-011]), reset-arc semantics (`reset_arc_semantics`, [CORE-034]), `canonical_key` as a complete orbit invariant, and soundness of the Farkas semiflow enumeration. 31 of 224 requirements now carry a proof fragment, up from 26. `scripts/lean-fidelity-check.py` now scans the subdirectories of `Libpetri/` too; before, citations from `Novel/` and `Refinement/` went unchecked.
 
 The [interactive proof graph](https://libpetri.org/proof-graph/) shows, per requirement, which declarations each proof depends on. `scripts/regen-proof-graph.sh` regenerates it, and CI fails when it is stale.
 

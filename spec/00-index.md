@@ -32,19 +32,19 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | File | Prefix | Scope | Req Count |
 |------|--------|-------|-----------|
-| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, net construction, actions, context, marking | 35 |
+| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, dead-arc warning, net construction, actions, context, marking | 36 |
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement, injectable clock | 12 |
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
-| [07-verification.md](07-verification.md) | VER | SMT/IC3, state-equation phase, firing bound, state class graph, structural analysis, open-net contracts | 20 |
+| [07-verification.md](07-verification.md) | VER | SMT/IC3, total budget, state-equation phase, firing bound, state class graph, timed counterexample check, structural analysis, open-net contracts | 21 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
-| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, channel fusion, action binding per instance, place fusion | 26 |
-| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, bounded-budget decidability ledger | 13 |
-| **Total** | | | **220** |
+| [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, bound-port references, channel fusion, action binding per instance, place fusion | 27 |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, bounded-budget decidability ledger | 14 |
+| **Total** | | | **224** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -97,6 +97,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-034 | Reset Arc | MUST | — |
 | CORE-035 | Output Arc | MUST | — |
 | CORE-036 | Arc Semantics Summary | MUST | — |
+| CORE-037 | Dead Arc Warning | SHOULD | CORE-031, CORE-032, CORE-034, CORE-072, ENV-001, EVT-013 |
 | CORE-040 | Net Builder | MUST | — |
 | CORE-041 | Net Immutability | MUST | — |
 | CORE-042 | Action Binding Separation | MUST | — |
@@ -212,7 +213,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ~~IO-006~~ | ~~Input Guard Predicate~~ (Removed) | — | — |
 | IO-007 | requiredCount and consumptionCount Contract | MUST | — |
 | IO-010 | Output Place (Leaf) | MUST | — |
-| IO-011 | Output And | MUST | — |
+| IO-011 | Output And | MUST | IO-015, 016 |
 | IO-012 | Output Xor | MUST | IO-015 |
 | IO-013 | Output Timeout | MUST | EVT-009 |
 | IO-014 | Output ForwardInput | MUST | IO-007, EXEC-010, TIME-015, MOD-024 |
@@ -234,19 +235,20 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-012 | Per-Instance State Isolation | MUST | MOD-010, CORE-070, TIME-010 |
 | MOD-013 | Nested Instantiation (prefix concatenation associative) | MUST | MOD-010, MOD-012, MOD-020 |
 | MOD-014 | SubnetDef.fromNet retrofit utility | MAY | MOD-001, MOD-006 |
-| MOD-020 | Composition Operation (port mapping by structural rewrite) | MUST | MOD-010, MOD-011 |
+| MOD-020 | Composition Operation (port mapping by structural rewrite) | MUST | MOD-010, MOD-011, CORE-030, IO-011 |
 | MOD-021 | Channel Composition (transition merge: arc union + conflict resolution) | MUST | MOD-005, CORE-021, TIME-001, CORE-013, TIME-010, CONC-002 |
 | MOD-022 | Type Compatibility at Compose | MUST | CORE-003, MOD-011, MOD-020 |
 | MOD-023 | Composition Produces Flat Net | MUST | MOD-020, MOD-021, CONC-007, EXEC-001 |
 | MOD-024 | Identity-Default Port Inference (auto-compose) | SHOULD | MOD-003, MOD-005, MOD-010, MOD-020, MOD-023 |
 | MOD-025 | Direct Composition (compose a subnet without instantiation) | MUST | MOD-001, MOD-020, MOD-023, CORE-040 |
 | MOD-026 | Subnet-Membership Metadata for Direct Composition | SHOULD | MOD-025, MOD-023, MOD-001 |
+| MOD-027 | References to Bound Ports | MUST | MOD-010, MOD-011, MOD-020, MOD-024, MOD-061, CORE-002, CORE-040 |
 | MOD-030 | Action Binding Per Instance (share-by-default, override via bindActions) | MUST | CORE-042, MOD-010 |
 | MOD-031 | Action Place Resolution under Composition (declared → actual correspondence) | MUST | MOD-010, MOD-013, MOD-020, MOD-021, MOD-023, MOD-024, MOD-025, MOD-030, CORE-042, EXEC-031 |
 | MOD-040 | Export Grouping (subgraph cluster_* per instance prefix) | SHOULD | MOD-010, EXP-001, EXP-014 |
 | MOD-041 | Debug Protocol Subnet Instances | SHOULD | MOD-010, MOD-013 |
 | MOD-050 | Verification Pass-Through on Composed Flat Net | MUST | MOD-023, VER-001 |
-| MOD-051 | SubnetDef.verify(harness) for local property verification | SHOULD | MOD-001, VER-001, VER-006, ENV-001 |
+| MOD-051 | SubnetDef.verify(harness) for local property verification | SHOULD | MOD-001, MOD-030, VER-001, VER-006, VER-013, VER-022, ENV-001, CORE-042, CORE-043, NU-051 |
 | MOD-060 | Fusion Set Declaration (orthogonal to composition) | MUST | CORE-003, MOD-020 |
 | MOD-061 | Fusion Resolution at build() | MUST | MOD-021, MOD-023, MOD-060, CORE-040 |
 
@@ -265,6 +267,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
 | NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020 |
 | NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-012 |
+| NU-054 | Join Relay | MAY | NU-020, NU-030, NU-051, NU-053, VER-012, IO-015, IO-016, CONC-026 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 
 ### PERF — Performance
@@ -304,26 +307,27 @@ This specification defines the **observable contract** of the Coloured Time Petr
 ### VER — Verification
 | ID | Title | Priority | Depends On |
 |----|-------|----------|------------|
-| VER-001 | SMT Verification Pipeline | SHOULD | — |
+| VER-001 | SMT Verification Pipeline | SHOULD | CORE-072 |
 | VER-002 | Safety Properties | SHOULD | — |
 | VER-003 | Verification Result | SHOULD | — |
 | VER-004 | Untimed Over-Approximation | SHOULD | — |
 | VER-005 | P-Invariant Computation | SHOULD | — |
-| VER-006 | Environment Analysis Mode | SHOULD | — |
+| VER-006 | Environment Analysis Mode | SHOULD | VER-022, NU-050, NU-051 |
 | VER-007 | Invariant Strengthening from P-Semiflows | SHOULD | VER-004, 005, 006, NU-050, NU-053 |
 | VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010, TIME-012 |
 | VER-011 | DBM Zone Representation | MAY | — |
-| VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, NU-020, NU-050, IO-007 |
-| VER-013 | Solver Transport | SHOULD | VER-001, 003, 007, IO-016 |
+| VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, 017, NU-020, NU-050, IO-007 |
+| VER-013 | Solver Transport | SHOULD | VER-001, 003, 007, 017, 022, MOD-051, IO-016 |
 | VER-014 | Conditional Sink Places (Designed Terminals) | SHOULD | VER-002, 012, 013 |
 | VER-015 | Linear State-Equation Bound | SHOULD | VER-001, 004, 005, 006, 013 |
 | VER-016 | State-Equation Strengthening with Firing Counters | SHOULD | VER-001, 004, 005, 013, 015 |
-| VER-017 | Bounded State-Space Enumeration Route | SHOULD | VER-002, 004, 006, 010, 012, 014 |
+| VER-017 | Bounded State-Space Enumeration Route | SHOULD | VER-002, 004, 006, 010, 012, 013, 014 |
 | VER-018 | State-Equation Phase with Refinement | SHOULD | VER-001, 003, 004, 006, 013, 015, 016 |
 | VER-019 | Firing-Bound Phase | SHOULD | VER-001, 003, 004, 013, 018 |
 | VER-020 | Siphon and Trap Analysis | MAY | — |
 | VER-021 | XOR Branch Analysis | SHOULD | IO-012, 016 |
 | VER-022 | Open-Net Verification Against a Contract | MAY | VER-002, 004, 006, 010, 014, 017 |
+| VER-023 | Timed Counterexample Check | SHOULD | VER-003, 004, 006, 010, 013, 014, 017, EXEC-042 |
 
 ---
 
@@ -331,10 +335,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | Priority | Count | Description |
 |----------|-------|-------------|
-| MUST     | 143   | Core contract; all implementations must conform |
-| SHOULD   | 61    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 16    | Optional; implementations may include |
-| **Total** | **220** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| MUST     | 144   | Core contract; all implementations must conform |
+| SHOULD   | 63    | Recommended; implementations should include unless technically infeasible |
+| MAY      | 17    | Optional; implementations may include |
+| **Total** | **224** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 
@@ -357,9 +361,11 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Guard predicates | **Removed** from the model ([IO-006], [EXEC-011]) — no per-token value predicate exists | n/a (never implemented) | n/a (removed) | n/a (removed) |
 | Output spec validation ([IO-015]) | Enforced on every executor backend | ✓ | ✓ | ✓ (both backends; previously unenforced) |
 | Unknown-place token retention | Tokens produced/injected into uncompiled places retained, not dropped ([CORE-072] AC3) | ✓ (both backends) | ✓ (both backends) | ✓ (both backends) |
-| Duplicate input arcs | Rejected at compile with a descriptive error ([CORE-030] AC3) | ✓ | ✓ | ✓ |
+| Duplicate input arcs | Rejected at transition build with a descriptive error; compile check kept as a backstop ([CORE-030] AC3) | ✓ | ✓ | ✓ |
+| Duplicate output place in one AND branch | Rejected at spec or transition build; outputs are sets ([IO-011] AC4, [IO-015]) | ✓ | ✓ | ✓ |
 | Enablement-timestamp resolution | Sub-ms precision preserved; equal stamps tie-break by declaration order ([EXEC-002] AC3) | Monotonic long nanos | Float ms | Float ms |
 | SMT verification | IC3/PDR via Z3 Spacer, reached through the `z3` executable ([VER-013]) | ✓ | ✓ | ✓ |
+| Verification cancellation | Shares the total budget's stop; running `z3` killed; `Unknown` "verification cancelled during …" ([VER-013]) | Thread interruption (flag restored) | `AbortSignal` | `CancelToken` (Python `libpetri.CancelToken`) |
 | State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
 | Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
 | Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | ctx.log() |
@@ -437,6 +443,8 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | CORE-010–013 | `TokenTest` | `token.test.ts` | `token::tests` |
 | CORE-020–022 | `TransitionTest` | `transition.test.ts` | `transition::tests` |
 | CORE-030–036 | `ArcTest`, `BackendDivergenceRegressionTest` | `arc.test.ts`, `executor-shared-semantics.test.ts` | `arc::tests`, `backend_suite_tests`; Python `test_backend_divergences.py` |
+| CORE-030 AC3 (rejected at transition build) | `TransitionTest` | `executor-shared-semantics.test.ts` | `transition::tests`; Python `test_backend_divergences.py` |
+| CORE-037 | `DeadArcWarningTest` (both executors, verifier report) | `executor-shared-semantics.test.ts` (both executors), `verification/dead-arc-report.test.ts` | `dead_arcs::tests`, `backend_suite_tests` (`dead_arc_warned_once_at_construction`), `smt_verifier::tests`; Python `test_dead_arcs.py` |
 | CORE-040–042 | `PetriNetTest` | `petri-net.test.ts` | `net::tests` |
 | CORE-043 | `CompiledNetCore043Test` | `compiled-net-core043.test.ts` | `compiled_net::core_043_tests` |
 | CORE-050–054 | `TransitionActionTest` | `transition-action.test.ts` | `context::tests` |
@@ -445,6 +453,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | CORE-073 | `MarkingSnapshotTest` (the form), `AbstractExecutorSnapshotTest` (`BitmapExecutorSnapshotTest`, `PrecompiledExecutorSnapshotTest`; restore through the builder, AC9–AC11, and the [CORE-072] warning on a restored seed) | `snapshot-restore.test.ts > CORE-073 — marking snapshot and restore`, `> CORE-073 AC#12 — the reference and production executors snapshot key for key` (both executors) | `tests/core073_snapshot_restore.rs` (Bitmap, Precompiled and Owned; incl. `an_undeclared_place_in_a_restored_seed_is_warned_about_once`); Python `test_marking_snapshot.py` |
 | IO-001–005, IO-007 | `InTest` | `in.test.ts` | `input::tests` |
 | IO-010–013, IO-016–017 | `OutTest` | `out.test.ts` | `output::tests` |
+| IO-011 AC4 (place twice in one AND branch) | `OutputBranchDuplicateTest` | `core/out-duplicate-place.test.ts` | `transition::tests::a_place_named_twice_in_one_and_branch_is_rejected`, `output::tests` |
 | IO-014 (ForwardInput multiplicity) | `AbstractNetExecutorEngineTest#outTimeout_forwardInput_all_forwardsEveryConsumedToken`, `#outTimeout_forwardInput_exactly_forwardsEveryConsumedToken` | `executor-support.test.ts > forwards every consumed input value, in consumption order` | `output::tests` (always forwarded all) |
 | IO-015 (incl. exact-explanation search) | `ExecutorSupportOutSpecTest`, `AbstractNetExecutorEngineTest` (out-violation cases), `BitmapNetExecutorAsyncOutputTest` | `executor-support.test.ts` (`validateOutSpec`) | `backend_suite_tests::xor_output_both_branches_violates`, `xor_output_no_branch_violates`, `and_output_partial_violates`, `single_place_output_missing_violates`, `conforming_output_still_succeeds`, `xor_subsuming_branch_is_accepted` (both backends) |
 | TIME-001–006 | `TimingTest` | `timing.test.ts` | `timing::tests` |
@@ -463,13 +472,19 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | ENV-014 | `AbstractExecutorSnapshotTest` (`BitmapExecutorSnapshotTest`, `PrecompiledExecutorSnapshotTest`; AC1–AC8, incl. the unserved request of AC7), `ExecutorSupportWorkInFlightTest` (the one published-flag expression) | `snapshot-restore.test.ts > ENV-014 — mid-execution snapshot` (both executors; `isRestorePoint` included) | `executor_handle::tests`, `tests/core073_snapshot_restore.rs` (AC7; AC8 as `a_snapshot_awaited_from_inside_an_action_returns_and_is_flagged` and, for the inline sync action, `a_snapshot_requested_by_an_inline_sync_action_is_served_only_after_it_returns`); Python `test_marking_snapshot.py` (the same two, plus `test_a_snapshot_result_is_not_an_initial_marking`) |
 | ENV-015–016 | `AbstractNetExecutorEnvironmentTest` (Java-first) | — | — |
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
+| VER-003 AC6 (`counterexampleTiming`) | `CounterexampleTimingTest` | `verification/counterexample-timing.test.ts` | `smt_verifier::tests` (`untimed_abstraction_is_the_default_on_a_timed_net`, `an_untimed_net_reports_untimed_net_whatever_the_route`, `a_route_b_violation_on_a_timed_net_is_timed_exact`); Python `test_counterexample_timing.py` |
+| VER-006 AC9–AC11 (`Arrivals`) | `EnvironmentArrivalsTest` | `verification/arrivals-mode.test.ts` | `smt_verifier::tests` (`arrivals_*`), `environment::tests`, `open_net::tests`; Python `test_arrivals.py` |
 | VER-007 | `SemiflowInvariantsTest` (incl. `semiflowsReachTheColouredEncoder`, AC6) | `smt-verifier.test.ts` (semiflow invariants, incl. the coloured encoder) | `smt_verifier::tests` (semiflow invariants, incl. `semiflows_reach_the_coloured_encoder`); Python `test_smt_verification.py` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | VER-010 AC2 (executor-faithful consumption, [IO-007]) | `StateClassGraphConsumptionTest#allInputDrainsPlaceSoInhibitedSuccessorIsReachable`, `#atLeastInputDrainsPlaceLeavingNoResidue` | `state-class-graph.test.ts > draining input semantics (IO-007)` (2 cases) | `state_class_graph::tests::all_input_drains_place_so_inhibited_successor_is_reachable`, `at_least_input_drains_place` |
 | VER-010 AC4 (intermediate-marking persistence, [TIME-012]) | `StateClassGraphTest.IntermediateMarkingPersistence` (4 cases) | `state-class-graph.test.ts > intermediate-marking clock persistence (TIME-012)` (4 cases) | `state_class_graph::tests::conserved_input_refresh_gives_a_fresh_interval`, `surplus_token_keeps_the_interval`, `reset_refresh_gives_a_fresh_interval`, `read_arc_dependent_gets_a_fresh_interval` |
 | VER-012 | `SmtVerifierTest` (Route B) | `smt-verifier.test.ts` (Route B) | `nu_scg_verifier::tests` |
+| VER-012 (early stop) | `RouteBEarlyStopTest` | `verification/truncated-prefix.test.ts > Route B early stop returns the full-graph witness (VER-012)` | `smt_verifier::tests::route_b_stops_at_the_first_violating_class`, `route_b_stops_before_a_small_cap`, `nu_scg_verifier::tests::early_stop_witness_is_the_full_builds` |
+| VER-012 (orbit dedup) | `NameStateClassGraphOrbitDedupTest` | `verification/name-scg-orbit.test.ts` | `name_state_class_graph::tests::orbit_dedup_keeps_the_successor_key_set_of_per_symbol_emission`, `orbit_dedup_agrees_with_per_symbol_emission_on_every_explored_class`, `orbit_dedup_leaves_the_fig11b_class_counts_unchanged` |
 | VER-014 | `ConditionalSinksTest`, `VerdictParityTest` (`sinkPlacesWhen` fixtures) | `conditional-sinks.test.ts`, `verdict-parity.test.ts` | `smt_verifier::tests` (conditional sinks), `tests/verdict_parity.rs`; Python `test_verdict_parity.py` |
 | VER-015 | `LinearBoundTest` | `linear-bound.test.ts` | `linear_bound::tests`, `smt_verifier::tests` (linear bound); Python `test_smt_verification.py` |
+| VER-001 AC3, VER-003 AC5 (inert undeclared marked places) | `InertMarkedPlaceTest` | `verification/inert-undeclared-places.test.ts` | `smt_verifier::tests::an_undeclared_marked_place_is_inert_on_every_route`, `a_terminal_excuses_an_inert_marked_place` |
+| VER-015 (on ν-nets, [NU-053]) | `LinearBoundNuTest` | `verification/linear-bound-nu.test.ts` | `tests/nu_join_relay.rs` (`a_trivial_bound_on_a_budgeted_nu_net_is_proven_by_the_linear_bound`) |
 | VER-017 | `ScgVerifierTest`, `StateSpaceCacheTest` (state-space cache) | `scg-verifier.test.ts`, `state-space-cache.test.ts` | `scg_verifier::tests`, `state_space_cache::tests`, `tests/state_space_cache.rs`; Python `test_smt_verification.py`, `test_state_space_cache.py` |
 | VER-016 | `StateEquationTest` | `state-equation.test.ts` | `smt_encoder::tests` (state equation), `smt_verifier::tests` (state equation); Python `test_smt_verification.py` |
 | VER-002 (QuiescentCount) | `QuiescentCountTest` | `quiescent-count.test.ts` | `property::tests`, `smt_verifier::tests` (`quiescent_count_*`) |
@@ -479,6 +494,10 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-010 AC1 (canonical class identity) | `StateClassGraphTest` (canonical class identity), `DBMTest` (zone key) | `state-class-graph.test.ts > canonical class identity`, `dbm.test.ts > DBM zone identity` | `state_class_graph::tests` (canonical order), `dbm::tests` (zone key) |
 | VER-013 | `StubZ3Test`, `Z3BinaryGateTest`, `SmtScriptGoldenTest`, `SmtScriptParityTest` | `stub-z3.test.ts`, `z3-gate.test.ts`, `smt-script-golden.test.ts`, `smt-script-parity.test.ts` | `tests/stub_z3.rs`, `tests/z3_gate.rs`, `tests/smt_script_parity.rs`, `z3_process::tests`; Python `test_z3_gate.py`, `test_smt_script_parity.py` |
 | VER-013 AC7 (code-point name order) | `CodePointOrderTest` | `core/internal/code-point-order.test.ts` | `marking_state::tests`, `open_net::report::tests` |
+| VER-013 AC8–AC12 (total budget, cancellation) | `TotalBudgetTest`, `CancellationTest` (thread interrupt) | `verification/total-budget.test.ts`, `verification/cancellation.test.ts` | `total_budget::tests`, `smt_verifier::tests` (`a_spent_total_budget_*`, `a_token_cancelled_*`), `state_space_cache::tests`, `open_net::tests` (cancelled calls); Python `test_cancellation.py` |
+| VER-013 (total budget names the running step; re-entrant verifier) | `TotalBudgetTest#aStopNamesTheStepThatWasRunning_notTheOneAboutToStart`, `#concurrentCallsOnOneVerifier_doNotShareTheirDeadlineOrStep` | `verification/total-budget.test.ts` | `total_budget::tests` |
+| VER-017 AC11, VER-012 AC3 (truncated prefix) | `TruncatedPrefixTest` | `verification/truncated-prefix.test.ts` | `smt_verifier::tests` (`a_cached_truncation_answers_from_its_prefix`), `tests/state_space_cache.rs` |
+| VER-023 | `CounterexampleTimingTest`, `TruncatedPrefixTest` | `verification/counterexample-timing.test.ts`, `verification/truncated-prefix.test.ts` | `smt_verifier::tests` (`the_timed_check_*`, `a_timing_real_violation_*`, `a_class_budget_below_the_timed_graph_is_undecided`); Python `test_counterexample_timing.py` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-014 (AC4 order on the event; AC5 reproducible rendering) | `AbstractNetExecutorEngineTest.MarkingSnapshotTests`, `MarkingSnapshotTest#theMarkingSnapshotEventCanonicalisesOrderToo_AC12_EVT014` | `snapshot-restore.test.ts > EVT-014 AC#4 / CORE-073 AC#12 on the event path — canonical order where a snapshot is rendered` (both executors) | AC5 only — no producer, so AC1–AC4 are covered nowhere: `debug_response::tests::marking_bearing_frames_render_places_in_ascending_order`, `marking_cache::tests::computed_state_is_ordered_independently_of_the_process`, `debug_session_registry::tests::net_structure_lists_places_in_ascending_name_order`, `archive::session_archive::tests::header_tags_render_in_ascending_key_order` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |
@@ -503,24 +522,29 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | MOD-013 | `SubnetDotExportTest#dotExport_nestedInstance_nestedClusters` (covers nested prefix concatenation observably) | `subnet-dot-export.test.ts > dotExport_nestedInstance_nestedClusters` | `cluster_builder::tests::nested_prefixes_build_tree` |
 | MOD-014 | `SubnetDefFromNetTest#fromNet_validNet_succeeds`, `fromNet_portPlaceMissing_throws`, `fromNet_channelTransitionMissing_throws`, `fromNet_outputIsInstantiable` | `subnet-def-from-net.test.ts > valid net + iface yields a well-formed SubnetDef<void>` (and siblings) | `subnet_def::tests::from_net_wraps_existing_petri_net`, `from_net_rejects_port_referencing_non_body_place`, `from_net_rejects_channel_referencing_non_body_transition`, `from_net_result_paramtype_unit` |
 | MOD-020 | `ComposeTest#compose_singlePort_mergesPlace`, `compose_internalPlacesGetTheirOwnSlot`, `SubnetRewriterTest#renameNet_endToEnd_renamesEverythingAndFillsMaps` | `compose.test.ts > compose_singlePort_mergesPlace`, `> compose_internalPlacesGetTheirOwnSlot` | `compose::tests::compose_single_port_merges_place`, `compose_internal_places_get_their_own_slot` |
+| MOD-020 AC7–AC8 (port-binding collision) | `ComposeBindingChecksTest`, `OutputBranchDuplicateTest` | `core/compose-bound-ports.test.ts`, `core/out-duplicate-place.test.ts` | `petri_net::tests::binding_two_output_ports_of_one_and_branch_to_one_place_is_rejected` (+ input side); Python `test_composition_guards.py` |
 | MOD-021 | `ChannelCompositionTest#channelMerge_unionsArcsFromBothSides` (+ 16 sibling cases) | `channel-composition.test.ts > channelMerge_unionsArcsFromBothSides` (+ 16 sibling cases) | `rewriter::tests::channel_merge_unions_arcs_from_both_sides` (+ 14 sibling cases), `channel_composition::channel_merge_end_to_end_retry_policy` |
 | MOD-022 | `ComposeTest#compose_typeMismatch_throwsIllegalArgumentException`, `compose_typedBindings_compileTimeSafe` | `compose.test.ts > compose_typeMismatch_compileTimeOnly: typed bindPort signature rejects wrong types at compile time` | `compose::tests::compose_typed_bindings_form` (compile-time enforcement; type errors validated by `cargo check`) |
 | MOD-023 | `ComposeTest#compose_producerBufferConsumer_endToEnd` | `compose.test.ts > compose_producerBufferConsumer_endToEnd: tokens flow producer -> buffer -> consumer` | `compose_e2e::compose_producer_buffer_consumer_end_to_end` |
 | MOD-024 | `AutoComposeTest#autoCompose_structurallyEqualToExplicitBindPort` (+ 7 sibling cases: explicit-interface match, host-no-pre-declare via arcs, no-interface body inference, channel rejection, multi-subnet e2e, inout port, empty body) | `auto-compose.test.ts > autoCompose_structurallyEqualToExplicitBindPort` (+ 7 sibling cases) | `auto_compose::auto_compose_structurally_equal_to_explicit_bind_port` (+ 7 sibling cases) |
 | MOD-025 | `ComposeDirectTest#composeDirect_mergesBodyPlacesByName` (+ 12 sibling scenarios, `SCG-1/2` reachability + order-independence) | `compose-direct.test.ts > composeDirect_mergesBodyPlacesByName` (+ sibling scenarios) | `compose_direct_e2e::compose_direct_merges_body_places_by_name` (+ siblings; validation panics covered by `compose_direct_subnet_with_channel_panics` / `compose_direct_transition_name_collision_panics`) |
 | MOD-026 | `ComposeDirectMembershipTest` | `compose-direct-membership.test.ts` | `petri_net::tests::direct_compose_records_membership_per_subnet` (+ siblings) |
+| MOD-027 | `ComposeBindingChecksTest` | `core/compose-bound-ports.test.ts > references to bound ports (MOD-027)` (incl. AC7: `is checked after fusion: …`, both cases) | `petri_net::tests` (`an_arc_on_a_bound_port_place_is_rejected_whatever_the_order`, `every_arc_kind_on_a_bound_port_place_is_rejected`, + siblings); Python `test_composition_guards.py` |
 | MOD-030 | `InstanceTest#instantiate_actionsSharedByReference`, `bindActions_overridesOnlyForThisInstance`, `bindActions_partialOverride_leavesUnnamedTransitionsAlone` | `instantiate.test.ts > two instances of the same def share each transition's action by reference`, `> rebinds the action on the named transition (MOD-030)`, `> does not mutate the original instance (MOD-030: per-instance scope)` | `subnet_def::tests::instantiate_actions_shared_by_reference`, `bind_actions_overrides_only_for_this_instance`, `instance::tests::bind_actions_replaces_action_for_named_transition` |
 | MOD-031 | `ComposeTest` (action place resolution) | `compose-action-place-alias.test.ts` | `mod031_place_resolution` |
 | MOD-040 | `SubnetDotExportTest#dotExport_singleInstance_oneCluster`, `dotExport_twoInstances_twoSiblingClusters`, `dotExport_nestedInstance_nestedClusters`, `dotExport_clusterIdsAreSanitized` | `subnet-dot-export.test.ts > dotExport_singleInstance_oneCluster`, `> dotExport_twoInstances_twoSiblingClusters`, `> dotExport_nestedInstance_nestedClusters`, `> dotExport_clusterIdsAreSanitized` | `cluster_builder::tests::single_prefix_groups_nodes_and_intra_edges`, `nested_prefixes_build_tree`, `subnet_diagrams::composed_with_clusters_emits_cluster_for_each_prefix` |
+| MOD-040 AC8–AC9 (`subnetOf`) | `ComposeBindingChecksTest#subnetOf_*` | `core/compose-bound-ports.test.ts > PetriNet.subnetOf (MOD-040)` | `petri_net::tests::subnet_of_*`; Python `test_composition_guards.py` |
 | MOD-041 | `DebugProtocolSubnetTest#subscribed_composedNet_populatedSubnetInstances`, `subscribed_nestedInstance_parentPrefixSet`, `placeInfo_instancePrefix_populated`, `transitionInfo_instancePrefix_populated`, `netEventConverter_emitsInstancePrefixForPrefixedEvents` | `subnet-protocol.test.ts > subscribed_composedNet_populatedSubnetInstances`, `> subscribed_nestedInstance_parentPrefixSet`, `> placeInfo_instancePrefix_populated`, `> transitionInfo_instancePrefix_populated`, `> netEventConverter_emitsInstancePrefixForPrefixedEvents` | `debug_session_registry::tests::subscribed_composed_net_populated_subnet_instances`, `subscribed_nested_instance_parent_prefix_set`, `place_info_instance_prefix_populated_for_prefixed_names`, `transition_info_instance_prefix_populated_for_prefixed_names` |
 | MOD-050 | `SubnetVerifyTest#verify_returnsResultWithAllProperties`, `verify_leakyBucket_isKBounded` (verifier sees composed flat net with no special API) | `subnet-verify.test.ts > verify_returnsResultWithAllProperties — one entry per harness property`, `> verify_leakyBucket_isKBounded` | `subnet_verify::verify_leaky_bucket_is_k_bounded`, `subnet_verify::verify_synthetic_net_binds_all_ports` |
 | MOD-051 | `SubnetVerifyTest#verify_missingInputGenerator_throws`, `verify_outputPortOnly_doesNotRequireGenerator`, `verify_syntheticNetBindsAllPorts`, `verify_inputGenerator_isInvokedAtConstruction`, `verify_leakyBucket_isKBounded` | `subnet-verify.test.ts > verify_missingInputGenerator_throws — names the missing port`, `> verify_outputPortOnly_doesNotRequireGenerator`, `> verify_syntheticNetBindsAllPorts`, `> verify_inputGenerator_isInvokedAtConstruction`, `> verify_leakyBucket_isKBounded` | `harness::tests::verify_missing_input_generator_panics`, `verify_output_port_only_does_not_require_generator`, `verify_synthetic_net_binds_all_ports`, `verify_input_generator_invoked_at_construction`, `verify_returns_result_with_all_properties`, `verify_leaky_bucket_accept_bound_is_proven`; Python `test_subnet_verify.py` |
+| MOD-051 AC5–AC8 (options, `bindActions`) | `SubnetVerifyOptionsTest` | `verification/subnet-verify-options.test.ts` | `tests/subnet_verify.rs`; Python `test_subnet_verify_options.py` |
 | MOD-060 | `FusionSetTest#fusionSet_firstMemberIsCanonical`, `fusionSet_typeHomogeneity_enforced`, `fusionSet_emptySet_throws`, `fusionSet_of_factoryConvenience` | `fusion-set.test.ts > firstMemberIsCanonical`, `> emptySet_throws`, `> singleMember_isValid`, `> of_factoryConvenience` | `fusion::tests::fusion_set_first_member_is_canonical`, `fusion_set_empty_panics`, `fusion_set_single_member_is_valid`, `fusion_set_of_factory` |
 | MOD-061 | `FusionTest#fuse_substitutesNonCanonicalInArcs`, `fuse_chained_threeBucketsShareLimiter`, `fuse_runsAfterCompose`, `fuse_andCompose_orthogonality` | `fusion.test.ts > fuse_substitutesNonCanonicalInArcs`, `> fuse_chained_threeBucketsShareLimiter`, `> fuse_runsAfterCompose`, `> fuse_andCompose_orthogonality` | `fusion::fuse_substitutes_non_canonical_in_arcs`, `fuse_chained_three_buckets_share_limiter`, `fuse_runs_after_compose`, `fuse_and_compose_orthogonality` |
 | NU-001–060 | `AbstractNetExecutorEngineTest#nuJoin_matchesByName_notFifo`, `nuJoin_blocksWithoutMatchingName`, `nuFork_mintsUniqueIds_thenJoinMerges` (both executors) | `nu-net.test.ts > join matches by name, not FIFO` (+ siblings, both executors) | `backend_suite_tests::nu_join_matches_by_name_not_fifo`, `nu_join_blocks_without_matching_name`, `nu_fork_mints_unique_ids_then_join_merges` (both backends); Python `test_nu_net.py` |
 | NU-011 (resume; the NU-001–060 row covers the rest) | `AbstractResumeSafeMintingTest` (`BitmapResumeSafeMintingTest`, `PrecompiledResumeSafeMintingTest`) | `snapshot-restore.test.ts > NU-011 — resume-safe fresh-name minting` (both executors) | `tests/core073_snapshot_restore.rs` (Bitmap, Precompiled and Owned); Python `test_marking_snapshot.py` |
 | NU-052 | `NuScgPriorityTest` | `name-scg-priority.test.ts` | `nu_scg_verifier::tests` (priority); Python `test_nu_verification.py` |
 | NU-053 | `SmtVerifierTest` (Route A quiescence) | `smt-verifier.test.ts` (Route A quiescence) | `name_coloured_encoder::tests`, `smt_verifier::tests` (nu053); Python `test_nu_verification.py` |
+| NU-054 | `MatchSpecRelayTest` (AC1), `AbstractNetExecutorEngineTest#nuRelay_*` (AC2, both executors; incl. `nuRelay_checkPrecedesMultiplicityWarning`, `nuRelay_throwingKeyFunctionIsNoName`), `JoinRelayTest` (AC3–AC6) | `runtime/nu-join-relay.test.ts` (AC1, AC2 both executors; incl. `a key function that throws projects no name`), `verification/nu-join-relay.test.ts` (AC3–AC6) | `transition::tests` (relay), `nu_match_composition` (AC1), `nu_relay_tests` (AC2, both backends), `tests/nu_join_relay.rs` (AC3–AC6), `smt_script_parity` (relay goldens); Python `test_nu_join_relay.py` |
 
 ---
 
