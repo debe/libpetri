@@ -86,6 +86,15 @@ class Net:
     def transitions(self) -> list[Transition]: ...
     @property
     def terminals(self) -> list[Place]: ...
+    @property
+    def subnet_membership(self) -> dict[str, str]: ...
+    def subnet_of(self, name: str) -> str | None:
+        """MOD-040: ``None`` for a name that is not a node of the net; else its
+        ``subnet_membership`` entry; else the longest ``/``-prefix of the name
+        that some transition is named under (``a/b/c/x`` tries ``a/b/c``,
+        ``a/b``, ``a``); else ``None``. Unlike DOT clustering (the text before
+        the last ``/``), ``s1/obs/TURN`` belongs to ``s1`` when no transition is
+        named ``s1/obs/…``."""
     def compile(self) -> CompiledNet: ...
     def __repr__(self) -> str: ...
 
@@ -175,6 +184,9 @@ class SubnetDef:
     def ports(self) -> list[Port]: ...
     def channels(self) -> list[Channel]: ...
     def instantiate(self, prefix: str) -> Instance: ...
+    def bind_actions(self, actions: dict[str, Any]) -> SubnetDef:
+        """MOD-051: a new definition with actions bound by unprefixed transition
+        name; ports, channels and the receiver unchanged."""
     @staticmethod
     def from_net(net: Net, interface: Interface) -> SubnetDef: ...
 
@@ -193,7 +205,15 @@ class SubnetDefBuilder:
 # ---------------------------------------------------------------------------
 
 def one(p: Place) -> InputSpec: ...
-def match_spec(keys: list[tuple[Place, Callable[[Any], str]]]) -> MatchSpec: ...
+def match_spec(
+    keys: list[tuple[Place, Callable[[Any], str]]],
+    relay_to: list[tuple[Place, Callable[[Any], str]]] | None = None,
+) -> MatchSpec:
+    """ν-join correlation (NU-020). ``relay_to`` declares relay targets (NU-054): output
+    places onto which the join writes the name it matched; each must be an output of the
+    transition, declared once. The executor fails a firing that writes into one a token
+    whose projection is not the matched name (a ``None`` value has no name)."""
+    ...
 def exactly(count: int, p: Place) -> InputSpec: ...
 def all_tokens(p: Place) -> InputSpec: ...
 def at_least(min: int, p: Place) -> InputSpec: ...
@@ -419,6 +439,20 @@ class VerificationResult:
     @property
     def counterexample_confirmed(self) -> bool | None: ...
     @property
+    def counterexample_timing(
+        self,
+    ) -> (
+        Literal[
+            "untimed-net",
+            "untimed-abstraction",
+            "timed-exact",
+            "timed-confirmed",
+            "spurious-under-timing",
+            "timed-undecided",
+        ]
+        | None
+    ): ...
+    @property
     def elapsed_ms(self) -> int: ...
     @property
     def places(self) -> int: ...
@@ -438,6 +472,12 @@ class PropertyResult:
     def property(self) -> SmtProperty: ...
     @builtins.property
     def result(self) -> VerificationResult: ...
+
+class CancelToken:
+    """Cancels a running verification from outside it (VER-013)."""
+    def __init__(self) -> None: ...
+    def cancel(self) -> None: ...
+    def is_cancelled(self) -> bool: ...
 
 class StateSpaceCache:
     """Caller-owned cache of the enumeration route's state space (VER-017)."""
@@ -465,6 +505,8 @@ class EnvironmentAnalysisMode:
 
 def always_available() -> EnvironmentAnalysisMode: ...
 def bounded(max_tokens: int) -> EnvironmentAnalysisMode: ...
+def arrivals(max_tokens: int) -> EnvironmentAnalysisMode: ...
+def arrivals_between(min_tokens: int, max_tokens: int) -> EnvironmentAnalysisMode: ...
 def ignore() -> EnvironmentAnalysisMode: ...
 def deadlock_free() -> SmtProperty: ...
 def terminates_at_sink() -> SmtProperty: ...
@@ -502,6 +544,9 @@ def verify_net(
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
     state_space_cache: StateSpaceCache | None = ...,
+    total_budget_ms: int | None = ...,
+    timed_counterexample_check: bool = ...,
+    cancel: CancelToken | None = ...,
 ) -> VerificationResult:
     """``sink_places_when`` maps a marker place name to the place names where a
     token may rest while the marker holds a token, declared in dict order
@@ -515,12 +560,28 @@ def verify_net(
     ``semiflow_invariants`` also takes ``"auto"``: union the P-semiflows exactly
     when the null-space basis lost a law to the H1 guard (VER-007).
     ``state_equation_phase`` (VER-018) and ``firing_bound`` (VER-019), both on by
-    default, are the pre-fixpoint phases; ``False`` forces the fixpoint path."""
+    default, are the pre-fixpoint phases; ``False`` forces the fixpoint path.
+    ``total_budget_ms`` caps the whole call's wall clock (VER-013);
+    ``timed_counterexample_check`` checks a ``"violated"`` on a timed net against
+    the timed state-class graph (VER-023)."""
 def verify_subnet(
     subnet: SubnetDef,
     harness: VerificationHarness,
     *,
     environment_mode: EnvironmentAnalysisMode | None = ...,
+    timeout_ms: int | None = ...,
+    total_budget_ms: int | None = ...,
+    cancel: CancelToken | None = ...,
+    sink_places: list[str] | None = ...,
+    sink_places_when: dict[str, list[str]] | None = ...,
+    enumeration_max_classes: int | None = ...,
+    state_space_cache: StateSpaceCache | None = ...,
+    budget_places: list[str] | None = ...,
+    carrier_places: list[str] | None = ...,
+    fragment_mode: str | int | None = ...,
+    nu_max_classes: int | None = ...,
+    priority_semantics: str | int | None = ...,
+    timed_counterexample_check: bool | None = ...,
 ) -> SubnetVerificationResult: ...
 def encode_smt_scripts(
     net: Net,
@@ -641,6 +702,7 @@ def verify_open_net(
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
     semiflow_invariants: bool | Literal["auto"] | None = ...,
+    cancel: CancelToken | None = ...,
 ) -> OpenNetResult: ...
 
 # ---------------------------------------------------------------------------

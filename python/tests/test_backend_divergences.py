@@ -2,7 +2,7 @@
 
 Python runs the precompiled backend only, so each scenario was a live
 user-visible bug here. Mirrors Rust `backend_suite_tests::{read_and_reset_same_place,
-duplicate_input_place_rejected_at_compile, unknown_place_initial_tokens_retained,
+duplicate_input_place_rejected_at_build, unknown_place_initial_tokens_retained,
 unknown_place_warns_once_per_place, unknown_places::*}` — EXEC-013 AC4,
 CORE-030 AC3, CORE-072 AC3/AC4.
 """
@@ -51,28 +51,29 @@ def test_read_and_reset_on_same_place_observes_pre_reset_token() -> None:
     assert result.count(store) == 0, "reset must drain the place after the read"
 
 
-# ---------- duplicate input arcs rejected at compile (CORE-030 AC3) -----
+# ---------- duplicate input arcs rejected at build (CORE-030 AC3) -------
 
 
-def test_two_one_input_arcs_on_same_place_rejected_at_compile() -> None:
+def test_two_one_input_arcs_on_same_place_rejected_at_build() -> None:
     queued = lp.Place("queued")
     done = lp.Place("done")
 
-    net = (
-        lp.Net("dup-inputs")
-        .transition(
-            lp.Transition("double_take")
-            .input(lp.one(queued))
-            .input(lp.one(queued))
-            .output(lp.out(done))
-            .action(lp.fork)
-            .build()
-        )
-        .build()
+    builder = (
+        lp.Transition("double_take")
+        .input(lp.one(queued))
+        .input(lp.one(queued))
+        .output(lp.out(done))
+        .action(lp.fork)
     )
 
-    with pytest.raises(lp.StructureError, match="two input arcs"):
-        lp.compile(net)
+    # Rejected where the transition is made, as a StructureError rather than a
+    # panic, so no net, compile or analysis ever sees it.
+    with pytest.raises(
+        lp.StructureError,
+        match=r"Transition 'double_take' declares two input arcs on place 'queued'\. "
+        r".*rejected \(CORE-030\)",
+    ):
+        builder.build()
 
 
 # ---------- undeclared-place token retention (CORE-072 AC3) -------------

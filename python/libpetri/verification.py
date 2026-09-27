@@ -22,6 +22,7 @@ VerificationResult = _ext.VerificationResult
 PropertyResult = _ext.PropertyResult
 SubnetVerificationResult = _ext.SubnetVerificationResult
 StateSpaceCache = _ext.StateSpaceCache
+CancelToken = _ext.CancelToken
 
 
 class VerificationHarness:
@@ -51,9 +52,61 @@ def always_available() -> EnvironmentAnalysisMode:
 
 
 def bounded(max_tokens: int) -> EnvironmentAnalysisMode:
-    """Environment mode (VER-006): each firing may draw at most ``max_tokens`` from
-    an environment place."""
+    """Environment mode (VER-006): at most ``max_tokens`` tokens *resident* in an
+    environment place at a time, refilled forever -- each firing may draw at most
+    ``max_tokens`` from it, but the total over a run is unbounded. For a total, see
+    :func:`arrivals`."""
     return _ext.bounded(max_tokens)
+
+
+def arrivals(
+    *bounds: int, min_tokens: int | None = None, max_tokens: int | None = None
+) -> EnvironmentAnalysisMode:
+    """Environment mode (VER-006): at most ``max_tokens`` tokens injected into each
+    environment place *in total*, over the whole run.
+
+    ``arrivals(k)`` (or ``arrivals(max_tokens=k)``) is "at most ``k``";
+    ``arrivals(min, max)`` (or ``arrivals(min_tokens=min, max_tokens=max)``) also
+    makes the first ``min`` arrivals mandatory, so ``arrivals(k, k)`` delivers
+    exactly ``k`` before the net can rest. ``arrivals(k)`` is ``arrivals(0, k)``.
+    Raises ``ValueError`` when a bound is negative or ``max < min``.
+
+    A net rewrite applied before any route: the ``i``-th registered environment
+    place ``P`` gets a source ``env:optional[i]`` holding ``max_tokens``, an
+    injection transition ``env:arrive?[i]:P`` and ``env:decline[i]``, which
+    discards an arrival that never comes. Counterexample traces name them, and the
+    report says the net was closed. The rewritten net has no environment places, so
+    the enumeration route, P-invariants and quiescence apply to it as to any closed
+    net. Mandatory arrivals come from a second source ``env:arrivals[i]`` through
+    ``env:arrive[i]:P``; a source whose count is ``0`` is left out."""
+    if len(bounds) > 2:
+        raise TypeError(f"arrivals() takes at most 2 positional bounds, got {len(bounds)}")
+    if len(bounds) == 2:
+        if min_tokens is not None or max_tokens is not None:
+            raise TypeError("arrivals(min, max) takes no min_tokens/max_tokens keywords")
+        min_tokens, max_tokens = bounds
+    elif len(bounds) == 1:
+        if max_tokens is not None:
+            if min_tokens is not None:
+                raise TypeError("arrivals() got min_tokens both positionally and by keyword")
+            min_tokens = bounds[0]
+        else:
+            max_tokens = bounds[0]
+    if max_tokens is None:
+        raise TypeError("arrivals() needs max_tokens")
+    if min_tokens is None:
+        min_tokens = 0
+    if min_tokens < 0 or max_tokens < 0:
+        raise ValueError(
+            f"arrivals: bounds must be non-negative, got {min_tokens}..{max_tokens} (VER-006)"
+        )
+    if max_tokens < min_tokens:
+        raise ValueError(
+            f"arrivals: needs min_tokens <= max_tokens, got {min_tokens}..{max_tokens} (VER-006)"
+        )
+    if min_tokens == 0:
+        return _ext.arrivals(max_tokens)
+    return _ext.arrivals_between(min_tokens, max_tokens)
 
 
 def ignore() -> EnvironmentAnalysisMode:
@@ -168,6 +221,9 @@ def verify(
     state_equation_phase: bool = True,
     firing_bound: bool = True,
     state_space_cache: StateSpaceCache | None = None,
+    total_budget_ms: int | None = None,
+    timed_counterexample_check: bool = False,
+    cancel: CancelToken | None = None,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -177,8 +233,9 @@ def verify(
 
     ``environment_mode`` (VER-006) controls how registered ``environment_places``
     are modeled: :func:`always_available` (the default; unbounded injection),
-    :func:`bounded`, or :func:`ignore`, under which a would-be vacuous ``proven``
-    is downgraded to ``unknown``.
+    :func:`bounded` (at most ``k`` resident, refilled forever), :func:`arrivals`
+    (at most ``k`` injected in total over the run), or :func:`ignore`, under which
+    a would-be vacuous ``proven`` is downgraded to ``unknown``.
 
     ``budget_places`` (NU-040) declares the places whose token count bounds the
     live correlation pool of a ν-net (they gate fresh-name minting). For a
@@ -350,6 +407,35 @@ def verify(
     ``"enumeration"``, ``"nu-scg"``, ``"structural"`` or ``"unavailable"``. Read
     it before concluding anything from an EMPTY invariant list -- off the
     ``"smt"`` route that means "not computed", never "the net has none".
+
+    ``total_budget_ms`` (default ``None``: no cap, VER-013) caps the wall clock
+    of the whole call. ``timeout_ms`` stays the budget of one z3 process, but it
+    is granted afresh to every phase and the solver-free routes have none, so one
+    call can run for several timeouts. With a total budget every z3 process gets
+    at most what is left and none starts once nothing is, and the graph builds
+    stop at the deadline; a verdict not reached in time is ``"unknown"`` with
+    ``reason == "total verification budget of N ms exhausted during <phase>"``.
+
+    ``result.counterexample_timing`` (VER-003) says what a ``"violated"``
+    counterexample means for the TIMED net -- the verdict itself is always the
+    untimed claim (VER-004): ``"untimed-net"`` (every transition immediate),
+    ``"untimed-abstraction"`` (timed net, counterexample unchecked under timing),
+    ``"timed-exact"`` (Route B, which explores timing), or, with
+    ``timed_counterexample_check=True`` (VER-023, default ``False``), the verdict
+    of the timed state-class graph: ``"timed-confirmed"`` (a run of the timed
+    semantics, which ignore priority; the trace is replaced by it), ``"spurious-under-timing"`` (the graph closed with
+    no violation: the property holds under timing, the verdict stays
+    ``"violated"``) or ``"timed-undecided"``. ``None`` for other verdicts.
+    ``result.counterexample_confirmed`` says only that the trace replays in the
+    untimed abstraction.
+
+    ``cancel`` (VER-013) is a :class:`CancelToken`: calling ``cancel.cancel()``
+    from another thread, or from an asyncio task while this call runs in an
+    executor (``loop.run_in_executor``), stops it -- the verification runs with the
+    GIL released, a running z3 process is killed at once, and the result is
+    ``"unknown"`` with ``reason == "verification cancelled during <phase>"``. It
+    shares the total budget's stop, so the graph builds and the long loops see it
+    too; a token already cancelled returns at once.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -378,6 +464,9 @@ def verify(
         state_equation_phase=state_equation_phase,
         firing_bound=firing_bound,
         state_space_cache=state_space_cache,
+        total_budget_ms=total_budget_ms,
+        timed_counterexample_check=timed_counterexample_check,
+        cancel=cancel,
     )
 
 
@@ -392,22 +481,71 @@ def verify_subnet(
     harness,
     *,
     environment_mode: EnvironmentAnalysisMode | None = None,
+    timeout_ms: int | None = None,
+    total_budget_ms: int | None = None,
+    cancel: CancelToken | None = None,
+    sink_places: Iterable[PlaceLike] | None = None,
+    sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = None,
+    enumeration_max_classes: int | None = None,
+    state_space_cache: StateSpaceCache | None = None,
+    budget_places: Iterable[PlaceLike] | None = None,
+    carrier_places: Iterable[PlaceLike] | None = None,
+    fragment_mode: str | int | None = None,
+    nu_max_classes: int | None = None,
+    priority_semantics: str | int | None = None,
+    timed_counterexample_check: bool | None = None,
 ) -> SubnetVerificationResult:
     """Verifies a subnet in isolation under a harness (MOD-051).
 
     ``environment_mode`` decides how injection into the synthetic environment places
     (one per input and in-out port) is modeled, per VER-006. It defaults to
     :func:`always_available`, under which a ``proven`` verdict holds for any
-    environment. Pass :func:`bounded` to prove a property that holds only when the
-    environment injects at most ``k`` tokens -- that is the mode which expresses a
-    generator bounding the input (MOD-051 AC3). :func:`ignore` is accepted but can
-    never yield ``proven``: VER-006 refuses to certify a proof that holds only because
-    injection was never modeled.
+    environment. :func:`bounded` caps the tokens *resident* in each input place and
+    refills it forever, so it bounds what one firing can take, not the input as a
+    whole; :func:`arrivals` bounds the total each input port receives over the run.
+    :func:`ignore` is accepted but can never yield ``proven``: VER-006 refuses to
+    certify a proof that holds only because injection was never modeled.
+
+    The remaining keywords are forwarded to each per-property verification, as
+    :func:`verify` takes them (a callback cannot configure the Rust verifier
+    cheaply, so these stand in for the ``configure`` hook of the other
+    languages); ``None`` keeps the verifier's default. ``timeout_ms`` and
+    ``total_budget_ms`` therefore apply **per property**: each property's
+    verification gets the full budget, so a harness of ``n`` properties may run
+    for up to ``n`` times ``total_budget_ms``. Place names are the
+    synthetic net's, spelled as the properties spell them: the subnet's own places
+    under the ``sut/`` prefix (``"sut/relay"``), the ports' synthetic places
+    ``harness_in_<port>`` / ``harness_out_<port>`` / ``harness_io_<port>``. As in
+    :func:`verify`, a name that is no place of the synthetic net is not rejected:
+    it matches nothing, so an unprefixed ``"relay"`` silently declares no sink.
+
+    A *ν subnet* -- one that mints and joins correlation names and threads a name
+    through a relay -- needs ``fragment_mode="extended"`` and its
+    ``carrier_places`` (and a budget place where one gates minting). Without them
+    it is verified in the BASE fragment, where a relay reads as a fresh mint: a
+    different model, in which a join the real net reaches may never fire, so a
+    safety property can come back ``proven`` although the net violates it.
     """
+    places = lambda ps: None if ps is None else [_coerce_place_name(p) for p in ps]  # noqa: E731
     return _ext.verify_subnet(
         _coerce_subnet(subnet),
         _coerce_harness(harness),
         environment_mode=environment_mode,
+        timeout_ms=timeout_ms,
+        total_budget_ms=total_budget_ms,
+        cancel=cancel,
+        sink_places=places(sink_places),
+        sink_places_when=(
+            None if sink_places_when is None else _coerce_sink_places_when(sink_places_when)
+        ),
+        enumeration_max_classes=enumeration_max_classes,
+        state_space_cache=state_space_cache,
+        budget_places=places(budget_places),
+        carrier_places=places(carrier_places),
+        fragment_mode=fragment_mode,
+        nu_max_classes=nu_max_classes,
+        priority_semantics=priority_semantics,
+        timed_counterexample_check=timed_counterexample_check,
     )
 
 
@@ -673,6 +811,7 @@ def verify_open_net(
     state_equation_phase: bool = True,
     firing_bound: bool = True,
     semiflow_invariants: bool | Literal["auto"] = False,
+    cancel: CancelToken | None = None,
 ) -> OpenNetResult:
     """Verifies ``net`` in isolation against ``contract`` ([VER-022]).
 
@@ -694,6 +833,10 @@ def verify_open_net(
     ``result.report`` is the full text, byte-identical to the other
     implementations'.
 
+    ``cancel`` (VER-013) is a :class:`CancelToken`: the graph build, every SMT query
+    and the termination ranking honour it, and a part it leaves undecided reports
+    ``verification cancelled during <phase>``.
+
     Raises ``StructureError`` when the net violates CORE-043 or the closure's names
     collide with the net's.
     """
@@ -712,6 +855,7 @@ def verify_open_net(
         state_equation_phase=state_equation_phase,
         firing_bound=firing_bound,
         semiflow_invariants=semiflow_invariants,
+        cancel=cancel,
     )
 
 
@@ -727,7 +871,10 @@ __all__ = [
     "SubnetVerificationResult",
     "VerificationHarness",
     "VerificationResult",
+    "CancelToken",
+    "StateSpaceCache",
     "always_available",
+    "arrivals",
     "bounded",
     "branch_place_bound",
     "deadlock_free",

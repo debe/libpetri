@@ -95,6 +95,7 @@ from .runtime import (
     start_async,
 )
 from .verification import (
+    CancelToken,
     ContractViolation,
     EnvironmentAnalysisMode,
     OpenNetContract,
@@ -108,6 +109,7 @@ from .verification import (
     VerificationHarness,
     VerificationResult,
     always_available,
+    arrivals,
     bounded,
     branch_place_bound,
     deadlock_free,
@@ -189,6 +191,7 @@ __all__ = [
     "SessionSummary",
     "SmtProperty",
     "StateSpaceCache",
+    "CancelToken",
     "StructureError",
     "SubnetDef",
     "SubnetDefBuilder",
@@ -204,6 +207,7 @@ __all__ = [
     "action_to_thread",
     "all_tokens",
     "always_available",
+    "arrivals",
     "and_",
     "and_outputs",
     "at_least",

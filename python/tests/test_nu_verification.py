@@ -83,7 +83,8 @@ def test_branch_budget_bound_proven_with_declared_budget():
 def test_pending_bound_proven_exact():
     # NU-040 #2 (bound half): at most k live groups. The scatter-gather is in the
     # name-coloured fragment (Stage 6b / NU-050 #1), so the bound is decided
-    # exactly rather than via the name-blind over-approximation.
+    # exactly rather than via the name-blind over-approximation. The [VER-015]
+    # linear bound would prove it first (budget + pending = 2), so it is off here.
     net, source, budget, pending = _nu_scatter_gather_net()
     result = lp.verify(
         net,
@@ -91,9 +92,28 @@ def test_pending_bound_proven_exact():
         initial_marking={source: 3, budget: 2},
         budget_places=[budget],
         timeout_ms=15_000,
+        linear_bound=False,
     )
     assert result.verdict == "proven", result.report
     assert "name-coloured" in result.report
+
+
+def test_linear_bound_precedes_the_coloured_encoding():
+    # VER-015 before NU-053: a trivially true bound on a budgeted ν-net is proven by
+    # the flat linear bound (a structural Proven, sound for the ν semantics it
+    # over-approximates) instead of the coloured IC3 query.
+    net, source, budget, pending = _nu_scatter_gather_net()
+    result = lp.verify(
+        net,
+        lp.place_bound(pending, 1000),
+        initial_marking={source: 3, budget: 2},
+        budget_places=[budget],
+        timeout_ms=15_000,
+    )
+    assert result.verdict == "proven", result.report
+    assert result.route == "structural", result.report
+    assert "linear state-equation bound" in result.report
+    assert "name-coloured" not in result.report
 
 
 def test_zero_budget_quiescence_decided_by_zero_slot_plan():

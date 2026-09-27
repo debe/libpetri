@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, overload
 
 from . import _libpetri as _ext
 from .model import BuiltNet, BuiltSubnetDef, BuiltTransition, Place, PlaceLike
@@ -13,6 +13,7 @@ VerificationResult: TypeAlias = _ext.VerificationResult
 PropertyResult: TypeAlias = _ext.PropertyResult
 SubnetVerificationResult: TypeAlias = _ext.SubnetVerificationResult
 StateSpaceCache: TypeAlias = _ext.StateSpaceCache
+CancelToken: TypeAlias = _ext.CancelToken
 EnvironmentAnalysisMode: TypeAlias = _ext.EnvironmentAnalysisMode
 OpenNetResult: TypeAlias = _ext.OpenNetResult
 ContractViolation: TypeAlias = _ext.ContractViolation
@@ -40,6 +41,24 @@ class VerificationHarness:
 
 def always_available() -> EnvironmentAnalysisMode: ...
 def bounded(max_tokens: int) -> EnvironmentAnalysisMode: ...
+@overload
+def arrivals(max_tokens: int, /) -> EnvironmentAnalysisMode:
+    """At most ``max_tokens`` tokens injected into each environment place over the
+    whole run (VER-006): a net rewrite with ``env:optional[i]``,
+    ``env:arrive?[i]:P`` and ``env:decline[i]``."""
+@overload
+def arrivals(min_tokens: int, max_tokens: int, /) -> EnvironmentAnalysisMode:
+    """Between ``min_tokens`` and ``max_tokens`` tokens injected into each
+    environment place over the whole run (VER-006), the first ``min_tokens``
+    mandatory (``env:arrivals[i]``, ``env:arrive[i]:P``). ``arrivals(k, k)`` is
+    exactly ``k``."""
+@overload
+def arrivals(min_tokens: int, /, *, max_tokens: int) -> EnvironmentAnalysisMode:
+    """``arrivals(k, max_tokens=m)`` is ``arrivals(k, m)``."""
+@overload
+def arrivals(
+    *, min_tokens: int = 0, max_tokens: int
+) -> EnvironmentAnalysisMode: ...
 def ignore() -> EnvironmentAnalysisMode: ...
 def deadlock_free() -> SmtProperty: ...
 def terminates_at_sink() -> SmtProperty: ...
@@ -81,6 +100,9 @@ def verify(
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
     state_space_cache: StateSpaceCache | None = ...,
+    total_budget_ms: int | None = ...,
+    timed_counterexample_check: bool = ...,
+    cancel: CancelToken | None = ...,
 ) -> VerificationResult:
     """``sink_places_when`` declares, in dict order, the places where a token may
     rest while its marker place holds a token (VER-014). ``linear_bound`` (default
@@ -97,13 +119,38 @@ def verify(
     property before the fixpoint query; ``False`` forces the fixpoint path.
     ``state_space_cache`` shares the enumeration route's state-class graph across
     queries on one net and initial marking (VER-017). The result names the
-    deciding route in ``route`` (VER-003)."""
+    deciding route in ``route`` (VER-003). ``total_budget_ms`` caps the whole
+    call's wall clock (VER-013); ``timed_counterexample_check`` checks a
+    ``"violated"`` on a timed net against the timed state-class graph, reported
+    in ``counterexample_timing`` (VER-023). ``cancel`` is a :class:`CancelToken`
+    whose ``cancel()`` stops the call from another thread, or from an asyncio task
+    while the call runs in ``asyncio.to_thread`` / ``run_in_executor``; the
+    result is then ``"unknown"`` with ``verification cancelled during <phase>``
+    (VER-013)."""
 def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],
     *,
     environment_mode: EnvironmentAnalysisMode | None = ...,
-) -> SubnetVerificationResult: ...
+    timeout_ms: int | None = ...,
+    total_budget_ms: int | None = ...,
+    cancel: CancelToken | None = ...,
+    sink_places: Iterable[PlaceLike] | None = ...,
+    sink_places_when: _PlaceSets | None = ...,
+    enumeration_max_classes: int | None = ...,
+    state_space_cache: StateSpaceCache | None = ...,
+    budget_places: Iterable[PlaceLike] | None = ...,
+    carrier_places: Iterable[PlaceLike] | None = ...,
+    fragment_mode: str | int | None = ...,
+    nu_max_classes: int | None = ...,
+    priority_semantics: str | int | None = ...,
+    timed_counterexample_check: bool | None = ...,
+) -> SubnetVerificationResult:
+    """MOD-051. The keywords after ``environment_mode`` are forwarded to each
+    per-property verification, so ``total_budget_ms`` caps each property's call, not
+    the whole harness; place names are the synthetic net's (``sut/<place>``,
+    ``harness_in_<port>``, ...). A ν subnet needs ``fragment_mode="extended"`` and
+    its ``carrier_places``."""
 def encode_smt_scripts(
     net: BuiltNet,
     property: SmtProperty,
@@ -171,6 +218,7 @@ def verify_open_net(
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
     semiflow_invariants: bool | Literal["auto"] = ...,
+    cancel: CancelToken | None = ...,
 ) -> OpenNetResult:
     """Verifies ``net`` in isolation against ``contract`` (VER-022): the closed
     net's untimed state-class graph within ``max_classes``, then, unless ``smt`` is
