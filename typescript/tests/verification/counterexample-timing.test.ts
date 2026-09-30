@@ -13,6 +13,7 @@ import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
 import { describeZ3 } from '../fixtures/z3.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * [VER-003] `counterexampleTiming` and the opt-in timed counterexample check of [VER-023].
@@ -42,7 +43,7 @@ function watchdogs(n: number, watchdogTiming: Timing = delayed(5)): PetriNet {
 }
 
 function verifier(net: PetriNet, n = 2): SmtVerifier {
-  return SmtVerifier.forNet(net)
+  return SmtVerifier.forNet(net).mintTransitions(...allMints(net))
     .initialMarking(m => { for (let i = 0; i < n; i++) m.tokens(REQ(i), 1); })
     .property(unreachable(new Set([TIMEOUT(0)])));
 }
@@ -130,7 +131,7 @@ describeZ3('counterexampleTiming (VER-003) and the timed check (VER-023)', () =>
       b.transition(Transition.builder(`u${i}`).timing(window(i + 2, 3 * i + 4))
         .inputs(one(place(`b${i}`))).outputs(outPlace(place(`a${i}`))).build());
     }
-    const result = await SmtVerifier.forNet(bindProducers(b.build()))
+    const result = await SmtVerifier.forNet(bindProducers(b.build())).mintTransitions(...allMints(bindProducers(b.build())))
       .initialMarking(m => { m.tokens(REQ(0), 1); for (let i = 0; i < 4; i++) m.tokens(place(`a${i}`), 1); })
       .property(unreachable(new Set([TIMEOUT(0)])))
       .enumerationMaxClasses(10_000_000)
@@ -174,7 +175,7 @@ describeZ3('counterexampleTiming (VER-003) and the timed check (VER-023)', () =>
 
   it('a Route B verdict on a timed ν-net: timed-exact', async () => {
     const { net, slot, accepted } = timedNuNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net))
       .initialMarking(m => m.tokens(slot, 1))
       .property(unreachable(new Set([accepted as Place<any>])))
       .timedCounterexampleCheck(true)
@@ -188,7 +189,7 @@ describeZ3('counterexampleTiming (VER-003) and the timed check (VER-023)', () =>
     // A declared budget puts reachability-safety on Route A's coloured encoding, not Route B;
     // the timed state-class graph is name-blind, so it must not be consulted.
     const { net, slot, accepted } = timedNuNet();
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net))
       .initialMarking(m => m.tokens(slot, 1))
       .budgetPlaces(slot)
       .property(unreachable(new Set([accepted as Place<any>])))
@@ -216,7 +217,7 @@ describeZ3('the timed check on quiescence properties (VER-023 AC3)', () => {
     const net = bindProducers(PetriNet.builder('delayed-deadlock')
       .transition(Transition.builder('d').timing(delayed(5)).inputs(one(s)).outputs(outPlace(x)).build())
       .build());
-    const result = await SmtVerifier.forNet(net)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net))
       .initialMarking(m => m.tokens(s, 1))
       .property(deadlockFree())
       .timedCounterexampleCheck(true)
@@ -236,7 +237,7 @@ describeZ3('the timed check on quiescence properties (VER-023 AC3)', () => {
       .transition(Transition.builder('fast').timing(window(0, 2)).inputs(one(a)).outputs(outPlace(done)).build())
       .transition(Transition.builder('slow').timing(delayed(5)).inputs(one(a)).outputs(outPlace(stuck)).build())
       .build());
-    const run = (on: boolean) => SmtVerifier.forNet(net)
+    const run = (on: boolean) => SmtVerifier.forNet(net).mintTransitions(...allMints(net))
       .initialMarking(m => m.tokens(s, 1))
       .property(deadlockFree())
       .sinkPlaces(done)

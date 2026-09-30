@@ -16,6 +16,7 @@ import { one } from '../../src/core/in.js';
 import { andPlaces, outPlace, xor } from '../../src/core/out.js';
 import { produces } from '../fixtures/producing-actions.js';
 import { verificationNets } from '../fixtures/verification-nets.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * VER-014 conditional sinks: a token may rest in a place while a marker is marked.
@@ -144,8 +145,7 @@ describe('conditional sinks (VER-014) — encoder and replay agree', () => {
     const stuck = built.places.get('stuck')!;
     const run = (cond: { marker: typeof done; places: Set<typeof done> }[]) => verifyViaNameScg(
       built.net, m0.build(), deadlockFree(), new Set([done]), new Set(), alwaysAvailable(),
-      10_000, 'base', new Set(), 'none', cond,
-    );
+      10_000, 'base', new Set(), allMints(built.net), 'none', cond);
     expect(run([])!.verdict.type).toBe('violated');
     expect(run([{ marker: done, places: new Set([stuck]) }])!.verdict.type).toBe('proven');
   });

@@ -13,6 +13,7 @@ import { outPlace } from '../../src/core/out.js';
 import { transform } from '../../src/core/transition-action.js';
 import { describeZ3 } from '../fixtures/z3.js';
 import { JOIN_CHAIN_ROWS, pnidNet } from '../fixtures/pnid-nets.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * A place the initial marking marks and the net does not declare is an **inert** place of the
@@ -30,7 +31,7 @@ const net = PetriNet.builder('u')
 const stray = MarkingState.builder().tokens(a, 1).build();
 
 function verifier(marking: MarkingState, property: SmtProperty, budget: number) {
-  return SmtVerifier.forNet(net)
+  return SmtVerifier.forNet(net).mintTransitions(...allMints(net))
     .initialMarking(marking)
     .property(property)
     .sinkPlaces(d)
@@ -72,7 +73,7 @@ describeZ3('undeclared marked places are inert in verification (CORE-072, VER-00
 
   it('Route B (ν) sees the stray token too', async () => {
     const { net: chain, places } = pnidNet('chain', JOIN_CHAIN_ROWS);
-    const run = (marking: MarkingState) => SmtVerifier.forNet(chain)
+    const run = (marking: MarkingState) => SmtVerifier.forNet(chain).mintTransitions(...allMints(chain))
       .initialMarking(marking)
       .property(deadlockFree())
       .sinkPlaces(places.get('done')!)
@@ -92,7 +93,7 @@ describeZ3('undeclared marked places are inert in verification (CORE-072, VER-00
       .transition(Transition.builder('t').inputs(one(c)).outputs(outPlace(halt)).action(transform(() => null)).build())
       .terminal(halt)
       .build();
-    const result = await SmtVerifier.forNet(terminal)
+    const result = await SmtVerifier.forNet(terminal).mintTransitions(...allMints(terminal))
       .initialMarking(MarkingState.builder().tokens(c, 1).tokens(a, 1).build())
       .property(deadlockFree())
       .verify();

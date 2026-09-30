@@ -19,6 +19,8 @@ export interface ReportInput {
   /** Why the graph was not built, when {@link graph} is `null`. */
   readonly graphSkipped: string | null;
   readonly smtLines: readonly string[] | null;
+  /** How quiescence reads reaping ([TIME-013]), for a closed net with a reapable transition. */
+  readonly reaping?: string | null;
   readonly verdict: Verdict;
   readonly violations: readonly ContractViolation[];
 }
@@ -32,6 +34,7 @@ export function renderReport(input: ReportInput): string {
   if (closed.undeclared.length > 0) {
     lines.push(`Not declared by the net: ${closed.undeclared.join(', ')} (no arc touches them; a clause there counts zero)`);
   }
+  if (input.reaping != null) lines.push(input.reaping);
   lines.push('');
 
   if (graph === null) {

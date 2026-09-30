@@ -1,9 +1,11 @@
 import { withTerminalInhibitors } from '../terminal-places.js';
+import { completionTransition, inFlightPlace, sourceTransition, splitInFlight, splitNote } from '../in-flight.js';
+import { place } from '../../core/place.js';
 import type { Place } from '../../core/place.js';
 import type { EnvironmentPlace } from '../../core/place.js';
 import type { Transition } from '../../core/transition.js';
 import type { PetriNet } from '../../core/petri-net.js';
-import { enumerateBranches } from '../../core/out.js';
+import { outcomes } from './branch-outcomes.js';
 import { MarkingState } from '../marking-state.js';
 import { StateClassGraph } from './state-class-graph.js';
 import type { StateClass } from './state-class.js';
@@ -46,6 +48,10 @@ export interface XorBranchAnalysis {
  */
 export class TimePetriNetAnalyzer {
   private readonly net: PetriNet;
+  /** The net as the caller passed it, before the in-flight split and the terminal rewrite. */
+  private readonly callerNet: PetriNet;
+  /** The in-flight split line of the report ([VER-004]), or `null` when nothing was split. */
+  private readonly inFlightLine: string | null = null;
   private readonly initialMarking: MarkingState;
   private readonly goalPlaces: Set<Place<any>>;
   private readonly maxClasses: number;
@@ -72,6 +78,17 @@ export class TimePetriNetAnalyzer {
     environmentPlaces: Set<EnvironmentPlace<any>>,
     environmentMode: EnvironmentAnalysisMode,
   ) {
+    // VER-004: a transition whose output another tests non-monotonically fires in two steps, as
+    // the executor fires it. Before the terminal rewrite, whose inhibitor counts as such a test.
+    this.callerNet = net;
+    const split = splitInFlight(net);
+    if (split.type === 'split') {
+      net = split.net;
+      this.inFlightLine = splitNote(split.split).trimEnd();
+    } else if (split.type === 'refused') {
+      this.inFlightLine =
+        `WARNING: ${split.reason}; the graph fires it in one step, so it can miss runs of the executor.`;
+    }
     // EXEC-042: the net's terminal places inhibit every transition, as the runtime stops there.
     // The same instance for a net without terminals.
     this.net = withTerminalInhibitors(net);
@@ -95,6 +112,7 @@ export class TimePetriNetAnalyzer {
     report.push(`Places: ${this.net.places.size}`);
     report.push(`Transitions: ${this.net.transitions.size}`);
     report.push(`Goal places: [${[...this.goalPlaces].map(p => p.name).join(', ')}]\n`);
+    if (this.inFlightLine !== null) report.push(`${this.inFlightLine}\n`);
 
     // Phase 1: Build State Class Graph
     report.push('Phase 1: Building State Class Graph...');
@@ -160,29 +178,27 @@ export class TimePetriNetAnalyzer {
     report.push('Phase 5: Verifying Classical Liveness (L4)...');
     report.push('  Property: Every transition can fire from every reachable marking');
 
-    const allTransitions = new Set(this.net.transitions);
+    // The caller's transitions: a completion step `complete:<t>` of the split net fires for `t`
+    // ([VER-004]), so the list never names one.
+    const allTransitions = [...this.callerNet.transitions].map(t => t.name);
     const terminalSCCsMissingTransitions: Set<StateClass>[] = [];
 
     for (const scc of terminalSCCs) {
-      const transitionsInSCC = new Set<Transition>();
+      const transitionsInSCC = new Set<string>();
       for (const sc of scc) {
         for (const t of scg.enabledTransitions(sc)) {
           const edges = scg.branchEdges(sc, t);
           for (const edge of edges) {
             if (scc.has(edge.target)) {
-              transitionsInSCC.add(t);
+              transitionsInSCC.add(sourceTransition(this.net, t.name));
             }
           }
         }
       }
-      let missingAny = false;
-      for (const t of allTransitions) {
-        if (!transitionsInSCC.has(t)) { missingAny = true; break; }
-      }
-      if (missingAny) {
+      const missing = allTransitions.filter(t => !transitionsInSCC.has(t));
+      if (missing.length > 0) {
         terminalSCCsMissingTransitions.push(scc);
-        const missing = [...allTransitions].filter(t => !transitionsInSCC.has(t));
-        report.push(`  Terminal SCC missing transitions: [${missing.map(t => t.name).join(', ')}]`);
+        report.push(`  Terminal SCC missing transitions: [${missing.join(', ')}]`);
       }
     }
 
@@ -233,19 +249,37 @@ export class TimePetriNetAnalyzer {
     };
   }
 
-  /** Analyzes XOR branch coverage for a built state class graph. */
-  static analyzeXorBranches(scg: StateClassGraph): XorBranchAnalysis {
+  /**
+   * Analyzes XOR branch coverage for a built state class graph. `net` is the net the caller
+   * analysed (default: the graph's own); the result is keyed by its transitions. A XOR transition
+   * the analyzer split in flight ([VER-004]) takes its branches in its completion step
+   * `complete:<t>`, so they are read off that step.
+   */
+  static analyzeXorBranches(scg: StateClassGraph, net?: PetriNet): XorBranchAnalysis {
     const result = new Map<Transition, XorBranchInfo>();
+    const graphNet = scg.net;
+    const inGraph = new Map([...graphNet.transitions].map(t => [t.name, t] as const));
+    const source = net ?? graphNet;
 
-    for (const transition of scg.net.transitions) {
-      if (transition.outputSpec === null) continue;
-
-      const allBranches = enumerateBranches(transition.outputSpec);
+    for (const transition of source.transitions) {
+      // On the graph's own net a completion step stands for its transition, read below.
+      if (net === undefined && sourceTransition(graphNet, transition.name) !== transition.name) continue;
+      const completion = inGraph.get(completionTransition(transition.name));
+      const flight = place(inFlightPlace(transition.name));
+      const split = completion !== undefined && (
+        scg.stateClasses().some(sc => scg.branchEdges(sc, completion).length > 0)
+        || scg.stateClasses().some(sc => sc.marking.tokens(flight) > 0)
+      );
+      const label = split ? completion : inGraph.get(transition.name) ?? transition;
+      // The graph's virtual transitions: each XOR branch, and a timeout that deposits
+      // differently (`branch-outcomes`). On the graph's own net a split transition's start has
+      // one outcome, so its completion's are read.
+      const allBranches = outcomes(net === undefined && split ? completion : transition);
       if (allBranches.length <= 1) continue;
 
       const takenBranches = new Set<number>();
       for (const sc of scg.stateClasses()) {
-        const edges = scg.branchEdges(sc, transition);
+        const edges = scg.branchEdges(sc, label);
         for (const edge of edges) {
           takenBranches.add(edge.branchIndex);
         }
@@ -260,7 +294,7 @@ export class TimePetriNetAnalyzer {
         totalBranches: allBranches.length,
         takenBranches,
         untakenBranches,
-        branchOutputs: allBranches,
+        branchOutputs: allBranches.map(o => o.places),
       });
     }
 

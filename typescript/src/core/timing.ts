@@ -62,6 +62,11 @@ export function delayed(afterMs: number): TimingDelayed {
   if (afterMs < 0) {
     throw new Error(`Delay must be non-negative: ${afterMs}`);
   }
+  // [TIME-001]: [after, MAX_DURATION_MS] would be empty, and a state-class graph would read a
+  // transition that can fire as one that never can.
+  if (afterMs > MAX_DURATION_MS) {
+    throw new Error(`Delay must be at most MAX_DURATION_MS (${MAX_DURATION_MS}): ${afterMs}`);
+  }
   return { type: 'delayed', afterMs };
 }
 
@@ -69,6 +74,10 @@ export function delayed(afterMs: number): TimingDelayed {
 export function window(earliestMs: number, latestMs: number): TimingWindow {
   if (earliestMs < 0) {
     throw new Error(`Earliest must be non-negative: ${earliestMs}`);
+  }
+  // As for delayed: a verifier that lifts the latest bound reads this as delayed(earliestMs).
+  if (earliestMs > MAX_DURATION_MS) {
+    throw new Error(`Earliest must be at most MAX_DURATION_MS (${MAX_DURATION_MS}): ${earliestMs}`);
   }
   if (latestMs < earliestMs) {
     throw new Error(`Latest (${latestMs}) must be >= earliest (${earliestMs})`);
@@ -87,6 +96,9 @@ export function window(earliestMs: number, latestMs: number): TimingWindow {
 export function exact(atMs: number): TimingExact {
   if (atMs < 0) {
     throw new Error(`Exact time must be non-negative: ${atMs}`);
+  }
+  if (atMs > MAX_DURATION_MS) {
+    throw new Error(`Exact time must be at most MAX_DURATION_MS (${MAX_DURATION_MS}): ${atMs}`);
   }
   return { type: 'exact', atMs };
 }

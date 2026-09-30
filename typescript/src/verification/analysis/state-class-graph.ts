@@ -1,11 +1,11 @@
 import type { Place } from '../../core/place.js';
 import type { EnvironmentPlace } from '../../core/place.js';
 import type { In } from '../../core/in.js';
-import { consumptionCount } from '../../core/in.js';
+import { consumptionCount, requiredCount } from '../../core/in.js';
 import type { Transition } from '../../core/transition.js';
 import type { PetriNet } from '../../core/petri-net.js';
 import { earliest, immediate, latest, type Timing } from '../../core/timing.js';
-import { enumerateBranches } from '../../core/out.js';
+import { type Outcome, depositCount, outcomes } from './branch-outcomes.js';
 import { MarkingState } from '../marking-state.js';
 import { DBM } from './dbm.js';
 import { StateClass } from './state-class.js';
@@ -13,6 +13,7 @@ import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
 import { arrivalsNotModelled, ignore } from './environment-analysis-mode.js';
 import { requireOutputProducingActions } from '../../core/internal/output-action-check.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
+import { environmentPlaceNames } from '../../core/internal/place-names.js';
 import { Deadline } from '../total-budget.js';
 import type { TotalBudgetExhausted } from '../total-budget.js';
 
@@ -25,7 +26,13 @@ export interface BranchEdge {
 export interface VirtualTransition {
   readonly transition: Transition;
   readonly branchIndex: number;
+  /** The places this outcome deposits into (the ν name layer reads places, not counts). */
   readonly outputPlaces: ReadonlySet<Place<any>>;
+  /**
+   * How many tokens each of those places receives: one per place an action writes, one per
+   * consumed token for a timeout forward ([IO-014]).
+   */
+  readonly outcome: Outcome;
 }
 
 /** Options for {@link StateClassGraph.build}. */
@@ -102,6 +109,12 @@ export class StateClassGraph {
   /**
    * Builds the state class graph for a Time Petri Net.
    *
+   * The graph is built for the net as given, and every firing is one atomic step. The executor
+   * consumes at the start of an action and deposits at its completion, and other transitions can
+   * fire in between ([VER-004], [VER-010] AC4). To get that two-step firing, call
+   * {@link splitInFlight} first and build the graph of its `net`; its `refused` case means no graph
+   * of this kind is faithful to the executor. `SmtVerifier` does this itself.
+   *
    * @throws Error if the net violates CORE-043 — analysis rejects the same nets execution rejects.
    */
   static build(
@@ -115,12 +128,9 @@ export class StateClassGraph {
     requireOutputProducingActions(net);
 
     const envMode = environmentMode ?? ignore();
-    const envPlaces = new Set<Place<any>>();
-    if (environmentPlaces) {
-      for (const ep of environmentPlaces) {
-        envPlaces.add(ep.place);
-      }
-    }
+    // By name: an arc may name another object of an environment place (TypeScript places are
+    // identified by name), and it is still the environment place.
+    const envPlaces = environmentPlaceNames(environmentPlaces ?? []);
     if (envMode.type === 'arrivals' && envPlaces.size > 0) throw arrivalsNotModelled('StateClassGraph.build');
     const untimed = options.untimed === true;
 
@@ -317,7 +327,7 @@ function permute<T>(items: readonly T[], order: readonly number[]): T[] {
 export function initialStateClass(
   net: PetriNet,
   initialMarking: MarkingState,
-  envPlaces: Set<Place<any>>,
+  envPlaces: ReadonlySet<string>,
   envMode: EnvironmentAnalysisMode,
   untimed = false,
 ): StateClass {
@@ -335,36 +345,48 @@ export function initialStateClass(
   return new StateClass(initialMarking, initialDBM, enabledTransitions, readyEarliest);
 }
 
+/**
+ * The virtual transitions of one firing of `t`: every way it can end (`branch-outcomes`),
+ * numbered as the flattener numbers its `_b<i>` rows.
+ */
 export function expandTransition(t: Transition): VirtualTransition[] {
-  let branches: ReadonlyArray<ReadonlySet<Place<any>>>;
-
-  if (t.outputSpec !== null) {
-    branches = enumerateBranches(t.outputSpec);
-  } else {
-    branches = [new Set()];
-  }
-
-  return branches.map((outputPlaces, i) => ({
+  return outcomes(t).map((outcome, i) => ({
     transition: t,
     branchIndex: i,
-    outputPlaces: outputPlaces as ReadonlySet<Place<any>>,
+    outputPlaces: outcome.places,
+    outcome,
   }));
+}
+
+/**
+ * An enabling condition beyond the count marking, for {@link computeSuccessor}: a transition
+ * holds a clock in the intermediate marking only if `between` accepts it, and in the new marking
+ * only if `after` does. The ν-aware graph passes a ν-join's name test here: the executor enables
+ * a join only while one name is present in every correlated input (NU-020), and a removal that
+ * breaks the binding restarts its clock (TIME-012).
+ */
+export interface EnablingGate {
+  readonly between: (t: Transition) => boolean;
+  readonly after: (t: Transition) => boolean;
 }
 
 export function computeSuccessor(
   net: PetriNet,
   current: StateClass,
   fired: VirtualTransition,
-  environmentPlaces: Set<Place<any>>,
+  environmentPlaces: ReadonlySet<string>,
   environmentMode: EnvironmentAnalysisMode,
   untimed = false,
+  gate: EnablingGate | null = null,
 ): StateClass | null {
   const transition = fired.transition;
 
   // 1. Fire in two halves: the intermediate marking M - Pre(t) (inputs consumed, resets
   //    drained, nothing produced yet), then the new marking.
   const intermediate = consumeInputs(current.marking, transition, environmentPlaces, environmentMode);
-  const newMarking = produceOutputs(intermediate, fired.outputPlaces);
+  const newMarking = produceOutputs(
+    current.marking, intermediate, transition, fired.outcome, environmentPlaces, environmentMode,
+  );
 
   // 2. Determine persistent and newly enabled transitions. A clock persists only when its
   //    transition is not the fired one and stays enabled across the whole firing: in this
@@ -372,7 +394,9 @@ export function computeSuccessor(
   //    disables and re-enables (its token taken and put back, or a reset place refilled by
   //    the outputs) is newly enabled with a fresh interval, as the executors restart its
   //    clock (TIME-012). Surplus tokens keep it enabled throughout, so it stays persistent.
-  const newEnabledAll = findEnabledTransitions(net, newMarking, environmentPlaces, environmentMode);
+  //    With a `gate`, `current.enabledTransitions` already satisfies it for this class.
+  let newEnabledAll = findEnabledTransitions(net, newMarking, environmentPlaces, environmentMode);
+  if (gate !== null) newEnabledAll = newEnabledAll.filter(gate.after);
 
   const persistent: Transition[] = [];
   const persistentIndices: number[] = [];
@@ -382,6 +406,7 @@ export function computeSuccessor(
       t !== transition
       && newEnabledAll.includes(t)
       && isEnabled(t, intermediate, environmentPlaces, environmentMode)
+      && (gate === null || gate.between(t))
     ) {
       persistent.push(t);
       persistentIndices.push(i);
@@ -432,7 +457,7 @@ export function computeSuccessor(
 function findEnabledTransitions(
   net: PetriNet,
   marking: MarkingState,
-  environmentPlaces: Set<Place<any>>,
+  environmentPlaces: ReadonlySet<string>,
   environmentMode: EnvironmentAnalysisMode,
 ): Transition[] {
   const enabled: Transition[] = [];
@@ -447,7 +472,7 @@ function findEnabledTransitions(
 function isEnabled(
   transition: Transition,
   marking: MarkingState,
-  environmentPlaces: Set<Place<any>>,
+  environmentPlaces: ReadonlySet<string>,
   environmentMode: EnvironmentAnalysisMode,
 ): boolean {
   for (const spec of transition.inputSpecs) {
@@ -517,10 +542,10 @@ function checkPlaceEnabled(
   place: Place<any>,
   required: number,
   marking: MarkingState,
-  environmentPlaces: Set<Place<any>>,
+  environmentPlaces: ReadonlySet<string>,
   environmentMode: EnvironmentAnalysisMode,
 ): boolean {
-  if (!environmentPlaces.has(place)) {
+  if (!environmentPlaces.has(place.name)) {
     return marking.tokens(place) >= required;
   }
 
@@ -541,7 +566,7 @@ function checkPlaceEnabled(
 function consumeInputs(
   marking: MarkingState,
   transition: Transition,
-  environmentPlaces: Set<Place<any>>,
+  environmentPlaces: ReadonlySet<string>,
   environmentMode: EnvironmentAnalysisMode,
 ): MarkingState {
   const builder = MarkingState.builder().copyFrom(marking);
@@ -577,14 +602,32 @@ function consumeInputs(
   return builder.build();
 }
 
-/** The second half of a firing: one token into each output place of the fired branch. */
+/**
+ * The second half of a firing: the fired outcome's tokens deposited — one per place an action
+ * writes, and for a timeout forward one per token the firing consumed from its `from` place
+ * ([IO-014]): a fixed count for `one` / `exactly`, the batch `marking` drained for `all` /
+ * `atLeast`. An environment place the analysis supplies ({@link isEnabled}) is not drained; its
+ * forward counts the tokens the firing required.
+ */
 function produceOutputs(
+  marking: MarkingState,
   intermediate: MarkingState,
-  outputPlaces: ReadonlySet<Place<any>>,
+  transition: Transition,
+  outcome: Outcome,
+  environmentPlaces: ReadonlySet<string>,
+  environmentMode: EnvironmentAnalysisMode,
 ): MarkingState {
+  const drained = (from: Place<any>): number => {
+    const spec = transition.inputSpecs.find(s => s.place.name === from.name);
+    if (spec === undefined) return 0;
+    if (environmentPlaces.has(spec.place.name) && environmentMode.type !== 'ignore') return requiredCount(spec);
+    const available = marking.tokens(spec.place);
+    return available < requiredCount(spec) ? available : inputConsumeCount(spec, available);
+  };
   const builder = MarkingState.builder().copyFrom(intermediate);
-  for (const place of outputPlaces) {
-    builder.addTokens(place, 1);
+  for (const { place, deposit } of outcome.deposits) {
+    const count = depositCount(deposit, drained);
+    if (count > 0) builder.addTokens(place, count);
   }
   return builder.build();
 }
@@ -593,10 +636,10 @@ function consumeFromPlace(
   builder: ReturnType<typeof MarkingState.builder>,
   place: Place<any>,
   count: number,
-  environmentPlaces: Set<Place<any>>,
+  environmentPlaces: ReadonlySet<string>,
   environmentMode: EnvironmentAnalysisMode,
 ): void {
-  if (!environmentPlaces.has(place)) {
+  if (!environmentPlaces.has(place.name)) {
     builder.removeTokens(place, count);
     return;
   }

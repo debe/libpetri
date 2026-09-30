@@ -43,7 +43,14 @@ export interface TerminatesAtSink {
   readonly type: 'terminates-at-sink';
 }
 
-/** Mutual exclusion: two places never have tokens simultaneously. */
+/**
+ * Mutual exclusion ([VER-002]): `p1` and `p2` never have tokens simultaneously. Violated by a
+ * reachable marking that marks both; `mutualExclusion(p, p)` is thus violated by any token in `p`.
+ *
+ * The spec defines mutual exclusion over a list pairwise — violated iff any two listed places are
+ * marked at once — and the Rust and Python APIs take a list. TypeScript takes exactly two places,
+ * the one pair; verify several properties for more.
+ */
 export interface MutualExclusion {
   readonly type: 'mutual-exclusion';
   readonly p1: Place<any>;

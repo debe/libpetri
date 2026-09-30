@@ -69,6 +69,14 @@ export function structuralCheck(
 ): StructuralCheckResult {
   const P = flatNet.places.length;
 
+  // Commoner's theorem needs at least one transition. With none, every marking is
+  // dead, yet each marked place is a siphon holding a marked trap (itself), so the
+  // condition holds vacuously and `{a:1}` would come back `no-potential-deadlock`:
+  // a structural PROVEN for a net quiescent from the start with a stranded token.
+  if (flatNet.transitions.length === 0) {
+    return { type: 'inconclusive', reason: 'net has no transitions; Commoner\'s theorem needs one' };
+  }
+
   if (P === 0) {
     return { type: 'no-potential-deadlock' };
   }

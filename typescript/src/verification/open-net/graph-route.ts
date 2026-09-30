@@ -35,6 +35,7 @@ export function decideOnGraph(
   maxClasses: number,
   tracedPlaces: readonly Place<any>[],
   deadline: Deadline | null = null,
+  reapable: ReadonlySet<string> = new Set(),
 ): GraphRouteOutcome {
   // A cancelled build ([VER-013]) throws VerificationCancelled out of here.
   const graph = StateClassGraph.build(
@@ -48,7 +49,9 @@ export function decideOnGraph(
   const first = new Map<string, { finding: Finding; target: StateClass }>();
   for (const sc of classes) {
     // Untimed, every enabled transition can fire: nothing enabled is quiescence, expanded or not.
-    if (sc.enabledTransitions.length > 0) continue;
+    // A late executor also rests where only reapable transitions are enabled ([VER-002]
+    // reap-quiescence, [TIME-013]); with none, that is the same rule.
+    if (!sc.enabledTransitions.every(t => reapable.has(t.name))) continue;
     for (const finding of quiescenceFindings(sc.marking, contract, rest)) {
       const key = `${finding.kind}:${subjectOf(finding)}`;
       if (!first.has(key)) first.set(key, { finding, target: sc });

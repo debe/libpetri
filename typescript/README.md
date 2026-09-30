@@ -147,7 +147,7 @@ executor.terminationReason();                // 'terminal'
 isComplete(executor.terminationReason());    // true
 ```
 
-The executor stops at the deposit that marks the terminal place. Nothing fires after it, actions still in flight are abandoned and their late results discarded, and queued external events are refused (`inject` resolves `false`). A terminal place may be an environment place: injecting into it ends the run. It must not be an input or read-arc place of any transition, and a subnet body may not declare one. The SMT verifier applies terminal places by itself: each one inhibits every transition and excuses every token while it is marked, so no sink options are needed.
+The executor stops at the deposit that marks the terminal place. Nothing fires after it, actions still in flight are abandoned and their late results discarded, and queued external events are refused (`inject` resolves `false`). A terminal place may be an environment place: injecting into it ends the run. It must not be an input or read-arc place of any transition, and a subnet body may not declare one. The SMT verifier applies terminal places by itself: each one inhibits every transition and excuses every token while it is marked, so no sink options are needed. It also models the abandoned actions: a `quiescentCount` with a lower bound counts only the tokens a run deposits before the terminal stop, unless the terminal place is in its `waivedBy`.
 
 `terminationReason()` returns `'quiescent'`, `'terminal'`, `'closed'` (after `close()`) or `'stopped'` (an expired `run(timeoutMs)` budget, which still rejects), and `'running'` before the run ends. `isComplete(reason)` is true only for `'quiescent'` and `'terminal'`: the other two are truncations.
 
@@ -235,7 +235,7 @@ npm test
 
 ## SMT verification needs a `z3` executable
 
-The package does not bundle a solver. `SmtVerifier` runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query, so the event loop stays free while it solves; `z3Available()` from `libpetri/verification` tells you whether one resolves, and without it every verification returns `unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation; `.totalBudget(ms)` caps the whole `verify()` call and `.signal(abortSignal)` cancels it, either way ending in `unknown`. The verification entry is Node-only.
+The package does not bundle a solver. `SmtVerifier` runs the `z3` executable found on `PATH` (or named by `LIBPETRI_Z3`), version 4.8.0 or newer, one process per query, so the event loop stays free while it solves; `z3Available()` from `libpetri/verification` tells you whether one resolves, and without it every verification returns `unknown` with a reason naming the command. Set `LIBPETRI_SMT_DUMP` to a directory to keep every SMT-LIB2 script and solver reply. The timeout is per solver invocation; `.totalBudget(ms)` caps the whole `verify()` call and `.signal(abortSignal)` cancels it, either way ending in `unknown`. By default a verdict also covers an executor that falls behind and reaps a `deadline` or `window` transition, and actions still in flight while other transitions fire; `.assumeNoReaping(true)` and `.assumeAtomicFiring(true)` drop those runs, and the report then names the assumption. The verification entry is Node-only.
 
 ## Project links
 

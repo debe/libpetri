@@ -13,7 +13,8 @@
  */
 import { Deadline } from '../total-budget.js';
 import type { PetriNet } from '../../core/petri-net.js';
-import type { Place } from '../../core/place.js';
+import { place, type Place } from '../../core/place.js';
+import { inFlightPlace } from '../in-flight.js';
 import type { EnvironmentPlace } from '../../core/place.js';
 import type { In } from '../../core/in.js';
 import type { Transition } from '../../core/transition.js';
@@ -21,6 +22,7 @@ import type { MarkingState } from '../marking-state.js';
 import type { EnvironmentAnalysisMode } from './environment-analysis-mode.js';
 import { arrivalsNotModelled, ignore } from './environment-analysis-mode.js';
 import { initialStateClass, expandTransition, computeSuccessor } from './state-class-graph.js';
+import { environmentPlaceNames } from '../../core/internal/place-names.js';
 import { NameMarking, type Sym } from './name-marking.js';
 import { NameStateClass, baseKeyOf } from './name-state-class.js';
 import type { StateClass } from './state-class.js';
@@ -96,13 +98,14 @@ export class NameStateClassGraph {
     stopAt: ((marking: MarkingState) => boolean) | null = null,
   ): NameStateClassGraph {
     const envMode = environmentMode ?? ignore();
-    const envPlaces = new Set<Place<any>>();
-    if (environmentPlaces) {
-      for (const ep of environmentPlaces) envPlaces.add(ep.place);
-    }
+    // By name, as the plain graph does: an arc may name another object of an environment place.
+    const envPlaces = environmentPlaceNames(environmentPlaces ?? []);
     if (envMode.type === 'arrivals' && envPlaces.size > 0) throw arrivalsNotModelled('NameStateClassGraph.build');
 
     const graph = new NameStateClassGraph();
+    // No join is enabled here: every correlated input consumes at least one token (NU-020,
+    // checked when the transition is built) and coloured places start empty (the verifier
+    // guards this), so the count test alone gives the clocks.
     const base0 = initialStateClass(net, initialMarking, envPlaces, envMode);
     // Hash-consing (memory only, no semantic effect — VER-012, `Interning.lean`):
     // the base layer is shared between classes at the same (marking, zone,
@@ -172,12 +175,19 @@ export class NameStateClassGraph {
         }
         const role = fragment.role(transition.name);
         for (const vt of expandTransition(transition)) {
-          const baseSucc = computeSuccessor(net, current.base, vt, envPlaces, envMode);
-          if (baseSucc === null || baseSucc.isEmpty()) continue;
-          const nameSuccs = nameSuccessors(role, current.names, vt.outputPlaces, fragment, sym);
-          const shared = internBase(baseIntern, baseSucc);
-          for (const nm of nameSuccs) {
-            const sharedNames = internNames(nameIntern, nm, fragment.colouredOrder);
+          // Name-layer steps of this firing (the join may yield 0). The base successor is
+          // computed per step: a ν-join holds a clock only while one name is present in every
+          // correlated input (NU-020), judged on the step's intermediate and new layers
+          // (TIME-012).
+          for (const step of nameSuccessors(role, current.names, vt.outputPlaces, fragment, sym)) {
+            const between = step.intermediate ?? current.names;
+            const baseSucc = computeSuccessor(net, current.base, vt, envPlaces, envMode, false, {
+              between: t => nameEnabled(t, between, fragment),
+              after: t => nameEnabled(t, step.after, fragment),
+            });
+            if (baseSucc === null || baseSucc.isEmpty()) continue;
+            const shared = internBase(baseIntern, baseSucc);
+            const sharedNames = internNames(nameIntern, step.after, fragment.colouredOrder);
             const id = classId(shared.id, sharedNames.id);
             let toIdx = indexOf.get(id);
             if (toIdx === undefined) {
@@ -320,6 +330,10 @@ function priorityDominated(
     (h, idxH) =>
       h !== l &&
       h.priority > l.priority &&
+      // VER-004: a pruner whose own action is in flight pre-empts nothing, since the Java and
+      // TypeScript executors do not start it again while its action runs. A no-op on a net
+      // without the in-flight place.
+      marking.tokens(place(inFlightPlace(h.name))) === 0 &&
       readyEarliest[idxH]! <= readyEarliest[idxL]! + READY_EPS &&
       willFire(h, names, fragment) &&
       sharesConsumedInput(h, l, marking),
@@ -406,7 +420,28 @@ function colouredOutputs(outputPlaces: ReadonlySet<Place<any>>, fragment: NameFr
 }
 
 /**
- * Name-layer successors of one firing. Ordinary passes the layer through; Mint
+ * One name-layer step of a firing: the layer once the firing has taken its inputs (`null` when it
+ * takes no symbol, so the layer is the class's own) and the layer once its outputs have landed.
+ * The first is the name half of the intermediate marking of TIME-012.
+ */
+export interface NameStep {
+  readonly intermediate: NameMarking | null;
+  readonly after: NameMarking;
+}
+
+/**
+ * Whether `t` is enabled by the name layer `names`, given that the count marking enables it: a
+ * ν-join needs one symbol present at the required multiplicity in every correlated input
+ * (NU-020); every other role is enabled by counts alone (a consumer's input count is its symbol
+ * count).
+ */
+function nameEnabled(t: Transition, names: NameMarking, fragment: NameFragment): boolean {
+  const role = fragment.role(t.name);
+  return role.type !== 'join' || enablingSymbols(names, role.colouredIn).length > 0;
+}
+
+/**
+ * Name-layer successors of one firing, as {@link NameStep}s. Ordinary passes the layer through; Mint
  * stamps one globally-fresh symbol into the coloured outputs of this branch (one
  * symbol into several = same-mint siblings); Join yields one successor per
  * enabling symbol (none ⇒ the join is name-disabled), adding that symbol back once to
@@ -415,7 +450,10 @@ function colouredOutputs(outputPlaces: ReadonlySet<Place<any>>, fragment: NameFr
  * so NONE is dropped). Both emit one successor per distinct symbol signature only —
  * symbols with equal signatures give the same canonical key ({@link distinctSignatures}) —
  * threading that symbol into every coloured output (relay)
- * or dropping it (drain, no coloured output).
+ * or dropping it (drain, no coloured output). A join or consume step's intermediate layer is the
+ * class's layer with the chosen symbol removed from the consumed places; it is renamed with the
+ * successor, and {@link nameEnabled} reads only whether some symbol enables a join, so the clocks
+ * it decides are invariant under renaming too.
  *
  * Exported for the interning test only: this step's equivariance under symbol
  * renaming is the hypothesis `Interning.lean` rests on.
@@ -426,10 +464,10 @@ export function nameSuccessors(
   outputPlaces: ReadonlySet<Place<any>>,
   fragment: NameFragment,
   sym: { next: Sym },
-): NameMarking[] {
+): NameStep[] {
   switch (role.type) {
     case 'ordinary':
-      return [names.copy()];
+      return [{ intermediate: null, after: names.copy() }];
     case 'mint': {
       const colouredOut = colouredOutputs(outputPlaces, fragment);
       const nm = names.copy();
@@ -437,7 +475,7 @@ export function nameSuccessors(
         const fresh = sym.next++;
         for (const p of colouredOut) nm.add(p, fresh, 1);
       }
-      return [nm];
+      return [{ intermediate: null, after: nm }];
     }
     case 'join': {
       // NU-054: the relay targets of the fired branch, in output order. Relaying adds back the
@@ -448,12 +486,13 @@ export function nameSuccessors(
       const relays = role.relayTo.size === 0
         ? []
         : [...outputPlaces].filter(p => role.relayTo.has(p.name)).map(p => p.name);
-      const result: NameMarking[] = [];
+      const result: NameStep[] = [];
       for (const s of distinctSignatures(enablingSymbols(names, role.colouredIn), names, fragment)) {
-        const nm = names.copy();
-        for (const [p, req] of role.colouredIn) nm.remove(p, s, req);
-        for (const p of relays) nm.add(p, s, 1);
-        result.push(nm);
+        const between = names.copy();
+        for (const [p, req] of role.colouredIn) between.remove(p, s, req);
+        const after = between.copy();
+        for (const p of relays) after.add(p, s, 1);
+        result.push({ intermediate: between, after });
       }
       return result;
     }
@@ -462,12 +501,13 @@ export function nameSuccessors(
       // count — NO base-enabled firing is dropped. Emit EXACTLY ONE symbol per
       // coloured output (relay), keeping the name-layer total == base count.
       const colouredOut = colouredOutputs(outputPlaces, fragment);
-      const result: NameMarking[] = [];
+      const result: NameStep[] = [];
       for (const s of distinctSignatures(names.symbolsIn(role.colouredInput), names, fragment)) {
-        const nm = names.copy();
-        nm.remove(role.colouredInput, s, 1);
-        for (const p of colouredOut) nm.add(p, s, 1);
-        result.push(nm);
+        const between = names.copy();
+        between.remove(role.colouredInput, s, 1);
+        const after = between.copy();
+        for (const p of colouredOut) after.add(p, s, 1);
+        result.push({ intermediate: between, after });
       }
       return result;
     }

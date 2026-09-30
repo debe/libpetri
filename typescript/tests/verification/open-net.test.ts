@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { SmtVerifier } from '../../src/verification/smt-verifier.js';
 import { describeZ3 } from '../fixtures/z3.js';
 import { produces } from '../fixtures/producing-actions.js';
 import { Transition } from '../../src/core/transition.js';
@@ -407,9 +408,12 @@ describeZ3('open-net verification (VER-022): a ν-net skips the name-blind graph
     .initialMarking(m => m.tokens(SEED_A, 1).tokens(SEED_B, 1))
     .rest(OUT)
     .build();
+  // `twoMints` declares both mints (NU-010): `produces()` writes no fresh name of its own, so
+  // without the declaration no ν route reads MINT_A and MINT_B as minting.
+  const declareMints = { configureSmt: (v: SmtVerifier) => v.mintTransitions('MINT_A', 'MINT_B') };
 
   it('does not prove a join that can never match, and says why it skipped the graph', async () => {
-    const r = await verifyOpenNet(twoMints, contract());
+    const r = await verifyOpenNet(twoMints, contract(), declareMints);
     expect(r.verdict.type, r.report).toBe('violated');
     expect(r.route).toBe('smt');
     expect(r.classCount).toBe(0);
@@ -441,7 +445,7 @@ describeZ3('open-net verification (VER-022): a ν-net skips the name-blind graph
       .arrive(1, IN)
       .rest(DONE, COL_A, COL_B, OUT)
       .build();
-    const r = await verifyOpenNet(race, c);
+    const r = await verifyOpenNet(race, c, declareMints);
     expect(r.verdict.type, r.report).toBe('violated');
     expect(r.route).toBe('smt');
     expect(r.violations.map(v => v.kind), r.report).toEqual(['stranded']);

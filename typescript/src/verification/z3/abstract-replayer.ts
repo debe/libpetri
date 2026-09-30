@@ -258,6 +258,8 @@ function enabledRelaxEnv(
  */
 function isQuiescent(index: ReplayIndex, state: AbstractState): boolean {
   for (const ft of index.flatNet.transitions) {
+    // Reap-quiescence ([VER-002], [TIME-013]), as the encoder.
+    if (ft.reapable) continue;
     if (enabledRelaxEnv(state, ft, index.envInj)) return false;
   }
   return true;

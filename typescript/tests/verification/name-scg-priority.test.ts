@@ -10,6 +10,8 @@ import { outPlace, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { delayed } from '../../src/core/timing.js';
+import { verifyViaNameScg } from '../../src/verification/nu-scg-verifier.js';
+import { ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import { NameStateClassGraph, nameSuccessors } from '../../src/verification/analysis/name-state-class-graph.js';
 import { NameMarking, type Sym } from '../../src/verification/analysis/name-marking.js';
 import type { NameFragment } from '../../src/verification/analysis/name-fragment.js';
@@ -17,6 +19,7 @@ import { classify } from '../../src/verification/analysis/name-fragment.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import type { PrioritySemantics } from '../../src/verification/analysis/priority-semantics.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * Verify-locally-first proof of the `'conflict'` PrioritySemantics (NU-052) on a
@@ -73,7 +76,7 @@ describe('NameStateClassGraph conflict-only priority (NU-052)', () => {
   }
 
   const verifier = (net: PetriNet) =>
-    SmtVerifier.forNet(bindProducers(net))
+    SmtVerifier.forNet(bindProducers(net)).mintTransitions(...allMints(bindProducers(net)))
       .initialMarking(m => m.tokens(SEED, 1))
       .property(deadlockFree())
       .sinkPlaces(OUT, DEADLETTER)
@@ -86,12 +89,30 @@ describe('NameStateClassGraph conflict-only priority (NU-052)', () => {
     expect(r.verdict.type).toBe('violated');
   });
 
-  it('conflict priority proves no stall', async () => {
-    const r = await verifier(fixture(true, true)).prioritySemantics('conflict').verify();
-    expect(r.report).toContain('Route B');
+  it('conflict priority proves no stall on Route B itself', () => {
     // The immediate, higher-priority join pre-empts the delayed drain, so COL_A is
-    // never stolen from a live join.
-    expect(r.verdict.type).toBe('proven');
+    // never stolen from a live join. Route B called directly applies no in-flight split.
+    const net = bindProducers(fixture(true, true));
+    const out = verifyViaNameScg(
+      net, MarkingState.builder().tokens(SEED, 1).build(), deadlockFree(), new Set([OUT, DEADLETTER]),
+      new Set(), ignore(), 100_000, 'extended', new Set(), new Set(allMints(net)), 'conflict',
+    );
+    expect(out?.verdict.type).toBe('proven');
+  });
+
+  it('verify turns conflict priority off when the pruning join cannot be split (VER-004)', async () => {
+    // The pruner is a ν-join, which the split cannot express, so the pruning cannot hold for
+    // an executor that runs the join's action while the drain fires. verify() explores every
+    // enabled transition instead, as under 'none', and says so.
+    const r = await verifier(fixture(true, true)).prioritySemantics('conflict').verify();
+    const none = await verifier(fixture(true, true)).verify();
+    expect(r.report).toContain('Route B');
+    expect(r.report).toContain(
+      "Conflict priority (NU-052) is off: it holds only while no pruning transition, and no transition "
+      + 'depositing into the input or read places of one, has an action in flight, which the verifier '
+      + "models by splitting them (VER-004), and transition 'MINT' cannot be split: ",
+    );
+    expect(r.verdict.type).toBe(none.verdict.type);
   });
 
   it('conflict priority still finds a genuine stall', async () => {
@@ -150,7 +171,7 @@ describe('NameStateClassGraph residual-earliest prune (NU-052 Part A)', () => {
   }
 
   function reachesDeadletter(net: PetriNet, initial: MarkingState, ps: PrioritySemantics): boolean {
-    const fragment = classify(net, 'extended', new Set())!;
+    const fragment = classify(net, 'extended', new Set(), allMints(net))!;
     const graph = NameStateClassGraph.build(net, initial, fragment, 10_000, undefined, undefined, ps);
     for (let i = 0; i < graph.classCount(); i++) {
       if (graph.markingOf(i).tokens(DEADLETTER) > 0) return true;
@@ -279,7 +300,7 @@ describe('NameStateClassGraph interning (VER-012)', () => {
 
   it("interned base keeps each arrival's readyEarliest", () => {
     const net = fixture(false);
-    const fragment = classify(net, 'base', new Set())!;
+    const fragment = classify(net, 'base', new Set(), allMints(net))!;
     const initial = MarkingState.builder().tokens(P, 2).build();
     const graph = NameStateClassGraph.build(net, initial, fragment, 10_000, undefined, undefined, 'conflict');
 
@@ -325,7 +346,7 @@ describe('NameStateClassGraph interning (VER-012)', () => {
 
   it('class identity carries readyEarliest when the name layers coincide', () => {
     const net = sameNameLayerFixture();
-    const fragment = classify(net, 'base', new Set())!;
+    const fragment = classify(net, 'base', new Set(), allMints(net))!;
     const initial = MarkingState.builder().tokens(P, 2).build();
     const graph = NameStateClassGraph.build(net, initial, fragment, 10_000, undefined, undefined, 'conflict');
 
@@ -358,14 +379,14 @@ describe('NameStateClassGraph interning (VER-012)', () => {
     fragment: NameFragment, transition: string, names: NameMarking, outputs: Set<Place<any>>, fresh: Sym,
   ): string[] {
     return nameSuccessors(fragment.role(transition), names, outputs, fragment, { next: fresh })
-      .map(nm => nm.canonicalKey(fragment.colouredOrder))
+      .map(step => step.after.canonicalKey(fragment.colouredOrder))
       .sort();
   }
 
   it('nameSuccessors is equivariant under a renaming of symbols', () => {
     // The hypothesis Interning.lean rests on: a renamed layer (same canonical key)
     // has successors with the same canonical keys, for every role, given fresh counters.
-    const fragment = classify(fixture(true), 'extended', new Set())!;
+    const fragment = classify(fixture(true), 'extended', new Set(), allMints(fixture(true)))!;
     const names = new NameMarking();
     names.add(C1.name, 3, 1);
     names.add(C2.name, 3, 1);

@@ -120,10 +120,15 @@ describe('ν options reach the per-property verifier (MOD-051 AC7)', () => {
     properties: [placeBound(B2, 2)],
   };
 
-  it('BASE (options unset) proves placeBound(sut/B2, 2) — a different model', async () => {
-    const result = await fig13bDef().verify(nuHarness, { environmentMode: arrivals(2) });
+  it('BASE does not read the relay as a mint, so placeBound(sut/B2, 2) is not proven', async () => {
+    // Read as a fresh mint, the relay `b` would keep the joins from firing and the bound would be
+    // proven falsely. `b` is no declared mint (NU-010), so BASE does not read it so.
+    const result = await fig13bDef().verify(nuHarness, {
+      environmentMode: arrivals(2),
+      configure: v => v.mintTransitions('sut/a'),
+    });
     const r = [...result.perProperty.values()][0]!;
-    expect(r.verdict.type, r.report).toBe('proven');
+    expect(r.verdict.type, r.report).not.toBe('proven');
   });
 
   it('EXTENDED with carrier sut/P1, set through configure, violates it', async () => {
@@ -131,7 +136,7 @@ describe('ν options reach the per-property verifier (MOD-051 AC7)', () => {
       environmentMode: arrivals(2),
       configure: (v, synth) => {
         const p1 = [...synth.places].find(p => p.name === 'sut/P1')!;
-        return v.fragmentMode('extended').carrierPlaces(p1).nuMaxClasses(2000);
+        return v.fragmentMode('extended').carrierPlaces(p1).mintTransitions('sut/a').nuMaxClasses(2000);
       },
     });
     const r = [...result.perProperty.values()][0]!;

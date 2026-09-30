@@ -3,15 +3,17 @@ import type { Transition } from '../../core/transition.js';
 /**
  * A flattened transition with pre/post vectors for SMT encoding.
  *
- * Each Transition with XOR outputs is expanded into multiple FlatTransitions
- * (one per branch). Non-XOR transitions map 1:1.
+ * Each Transition expands into one FlatTransition per way a firing can end
+ * (`outcomes` in `analysis/branch-outcomes`): one per XOR branch its action may
+ * write, then one for the timeout outcome when that deposits differently
+ * ([IO-013], [IO-014]). A transition with a single outcome gives one.
  */
 export interface FlatTransition {
-  /** Display name (e.g. "Search_b0", "Search_b1"). */
+  /** Display name: the transition's own with one outcome, else `<name>_b<i>` (e.g. "Search_b0"). */
   readonly name: string;
   /** The original transition. */
   readonly source: Transition;
-  /** Which XOR branch (-1 if no XOR). */
+  /** Which outcome of the source (a XOR branch or the timeout), -1 when it has only one. */
   readonly branchIndex: number;
   /** Tokens consumed per place (indexed by place index). */
   readonly preVector: readonly number[];
@@ -25,6 +27,12 @@ export interface FlatTransition {
   readonly resetPlaces: readonly number[];
   /** True at index i means place i uses All/AtLeast semantics. */
   readonly consumeAll: readonly boolean[];
+  /**
+   * Whether the executor can reap the source transition ([TIME-013]): a `deadline` or
+   * `window` one, unless the caller assumes no reaping. Its enabledness then does not keep a
+   * marking from resting, so every quiescence encoding skips it ([VER-002] reap-quiescence).
+   */
+  readonly reapable: boolean;
 }
 
 export function flatTransition(
@@ -37,6 +45,7 @@ export function flatTransition(
   readPlaces: number[],
   resetPlaces: number[],
   consumeAll: boolean[],
+  reapable = false,
 ): FlatTransition {
   return {
     name,
@@ -48,5 +57,6 @@ export function flatTransition(
     readPlaces,
     resetPlaces,
     consumeAll,
+    reapable,
   };
 }

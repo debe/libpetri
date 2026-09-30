@@ -399,3 +399,44 @@ describe('VER-017 — StateSpaceCache exposes only clear()', () => {
     expect(Object.getOwnPropertyNames(StateSpaceCache.prototype).sort()).toEqual(['clear', 'constructor']);
   });
 });
+
+describe('VER-017 — the cache key covers the VER-004 in-flight split', () => {
+  // t: p0 -> p1, and u: q -> r inhibited by p0 and p1. Read atomically u never fires, since p0 or
+  // p1 always holds the token. The executor fires t in two steps, and between them u fires.
+  const p0 = place('p0'), p1 = place('p1'), q = place('q'), r = place('r');
+  const net = PetriNet.builder('in_flight_gap').transitions(
+    Transition.builder('t').inputs(one(p0)).outputs(outPlace(p1)).action(produces()).build(),
+    Transition.builder('u').inputs(one(q)).inhibitor(p0).inhibitor(p1).outputs(outPlace(r))
+      .action(produces()).build(),
+  ).build();
+  const m0 = MarkingState.builder().tokens(p0, 1).tokens(q, 1).build();
+  const ask = (atomic: boolean, cache: StateSpaceCache | null) => {
+    const v = SmtVerifier.forNet(net).initialMarking(m0).property(unreachable(new Set([r])))
+      .assumeAtomicFiring(atomic);
+    return (cache === null ? v : v.stateSpaceCache(cache)).verify();
+  };
+
+  for (const atomicFirst of [true, false]) {
+    it(`a graph of one net never answers for the other (${atomicFirst ? 'atomic' : 'split'} first)`, async () => {
+      const split = await ask(false, null);
+      const atomic = await ask(true, null);
+      expect(split.verdict.type).toBe('violated');
+      expect(atomic.verdict.type).toBe('proven');
+      const cache = new StateSpaceCache();
+      const [[first, second], built] = await builds(async () => {
+        const a = await ask(atomicFirst, cache);
+        const b = await ask(!atomicFirst, cache);
+        return [a, b] as const;
+      });
+      expect(built).toBe(2);
+      const [splitCached, atomicCached] = atomicFirst ? [second, first] : [first, second];
+      expect(observable(splitCached)).toEqual(observable(split));
+      expect(observable(atomicCached)).toEqual(observable(atomic));
+      // Each net's own later query still reuses its graph.
+      const [again, rebuilt] = await builds(() => ask(false, cache));
+      expect(rebuilt).toBe(0);
+      expect(again.report).toContain(REUSED);
+      expect(observable(again)).toEqual(observable(split));
+    });
+  }
+});

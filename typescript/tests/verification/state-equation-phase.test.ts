@@ -59,6 +59,9 @@ function joinWithSkip() {
  * The brief's queue-and-bundle: a producer fires up to `n` times into `q` until the
  * signal arrives, and the bundler takes `all(q)` with the signal (`bundleEmpty` takes
  * the signal alone when the queue is empty). Cancellable: the signal may never come.
+ * The end-to-end tests read it with `assumeAtomicFiring`: the phases are under test on the
+ * atomic net, and with `produce` in flight the executor can take `bundleEmpty` and strand the
+ * queue ([VER-004]).
  */
 function queueAndBundle(n: number, cancellable = false) {
   const budget = place('budget'), q = place('q'), src = place('src'), s = place('s');
@@ -264,7 +267,7 @@ describeZ3('state-equation phase (VER-018) — end to end', () => {
 
   it('queue and bundle: the queue is empty at every quiescence once the signal came (proven, certified)', async () => {
     const { net, m0, out, budget } = queueAndBundle(3);
-    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).assumeAtomicFiring(true).initialMarking(m0)
       .property(deadlockFree()).sinkPlaces(out, budget).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('proven');
     expect(result.verdict.type === 'proven' && result.verdict.method).toBe('state-equation');
@@ -274,7 +277,7 @@ describeZ3('state-equation phase (VER-018) — end to end', () => {
 
   it('queue and bundle: the queue strands when the signal never comes (violated, with the run)', async () => {
     const { net, m0, out, budget, cancelled, q } = queueAndBundle(3, true);
-    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).assumeAtomicFiring(true).initialMarking(m0)
       .property(deadlockFree()).sinkPlaces(out, budget, cancelled).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('violated');
     expect(result.counterexampleConfirmed).toBe(true);
@@ -315,7 +318,7 @@ describeZ3('state-equation phase (VER-018) — end to end', () => {
 describeZ3('firing bound (VER-019) — end to end', () => {
   it('proves the queue by a bounded model check to its firing bound', async () => {
     const { net, m0, out, budget } = queueAndBundle(3);
-    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).assumeAtomicFiring(true).initialMarking(m0)
       .property(deadlockFree()).sinkPlaces(out, budget).stateEquationPhase(false).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('proven');
     expect(result.verdict.type === 'proven' && result.verdict.method).toBe('bounded-model-check');
@@ -325,7 +328,7 @@ describeZ3('firing bound (VER-019) — end to end', () => {
 
   it('finds the cancelled queue by a bounded run and replays it', async () => {
     const { net, m0, out, budget, cancelled } = queueAndBundle(3, true);
-    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).enumerationMaxClasses(0).assumeAtomicFiring(true).initialMarking(m0)
       .property(deadlockFree()).sinkPlaces(out, budget, cancelled).stateEquationPhase(false).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('violated');
     expect(result.counterexampleConfirmed).toBe(true);

@@ -3,14 +3,16 @@
  *
  * Flattens a PetriNet into integer-indexed pre/post vectors for SMT encoding.
  *
- * **XOR expansion**: Transitions with XOR output specs are expanded into multiple
- * flat transitions — one per deterministic branch. Each branch produces tokens to
- * exactly one XOR child's places. This converts non-deterministic output routing
- * into separate transitions that the SMT solver can reason about independently.
+ * **XOR expansion**: Transitions are expanded into one flat transition per way a
+ * firing can end (`branch-outcomes`): each XOR branch the action may write, and a
+ * timeout that deposits differently (only the timeout child's places, a forward
+ * depositing one token per consumed token, [IO-014]). This converts non-deterministic
+ * output routing into separate transitions that the SMT solver can reason about
+ * independently.
  *
  * **Vector construction**: For each flat transition, builds:
  * - `preVector[p]`: tokens consumed from place p (input cardinality)
- * - `postVector[p]`: tokens produced to place p (from the selected branch)
+ * - `postVector[p]`: tokens produced to place p (from the selected outcome)
  * - `consumeAll[p]`: true for `all`/`at-least` inputs (consume everything)
  * - Index arrays for inhibitor, read, and reset arcs
  *
@@ -18,11 +20,14 @@
  * runs, hosts and implementations.
  */
 import type { PetriNet } from '../../core/petri-net.js';
+import type { Transition } from '../../core/transition.js';
+import { isReapable } from '../reaping.js';
 import type { Place, EnvironmentPlace } from '../../core/place.js';
-import type { Out } from '../../core/out.js';
 import type { FlatNet } from './flat-net.js';
 import { flatTransition } from './flat-transition.js';
-import { enumerateBranches, allPlaces as outAllPlaces } from '../../core/out.js';
+import { allPlaces as outAllPlaces } from '../../core/out.js';
+import { requiredCount } from '../../core/in.js';
+import { depositCount, outcomes } from '../analysis/branch-outcomes.js';
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
 import { type EnvironmentAnalysisMode, alwaysAvailable, arrivalsNotModelled } from '../analysis/environment-analysis-mode.js';
 
@@ -36,15 +41,21 @@ export { type EnvironmentAnalysisMode, alwaysAvailable, arrivals, bounded, ignor
  *
  * Flattening involves:
  * 1. Assigning each place a stable integer index (sorted by name)
- * 2. Expanding XOR outputs into separate flat transitions (one per branch)
+ * 2. Expanding each transition into one flat transition per way a firing can end:
+ *    each XOR branch, then the timeout outcome when it deposits differently
  * 3. Building pre/post vectors from input/output specs
  * 4. Recording inhibitor, read, and reset arcs
  * 5. Setting environment bounds for bounded analysis mode
+ *
+ * A flat transition is `reapable` exactly when `reapable(source)` holds: by default when the
+ * source's timing is `deadline` or `window` ([TIME-013]); the verifier passes its own set, empty
+ * under `assumeNoReaping`.
  */
 export function flatten(
   net: PetriNet,
   environmentPlaces: Set<EnvironmentPlace<any>> = new Set(),
   environmentMode: EnvironmentAnalysisMode = alwaysAvailable(),
+  reapable: (t: Transition) => boolean = t => isReapable(t.timing),
 ): FlatNet {
   // 1. Collect ALL places
   const allPlacesSet = new Map<string, Place<any>>();
@@ -77,7 +88,10 @@ export function flatten(
 
   // 2. Compute environment bounds (legacy post-cap) and the injection map.
   //    The injection map drives the encoder's env-injection rule and the
-  //    incidence-matrix injector columns; bounds remain a harmless extra cap.
+  //    incidence-matrix injector columns. Below the injection guard the post-cap
+  //    bites only when a transition deposits into an environment place or M0
+  //    holds more than k there, and there it removes executor steps; the
+  //    verifier refuses both cases before encoding (VER-006 AC3).
   const environmentBounds = new Map<string, number>();
   const environmentInjection = new Map<string, number | null>();
   switch (environmentMode.type) {
@@ -105,10 +119,14 @@ export function flatten(
   const flatTransitions = [];
 
   for (const transition of net.transitions) {
-    const branches = enumerateOutputBranches(transition);
+    // One flat transition per way a firing can end (`branch-outcomes`): each branch the
+    // action may write, one token per place ([IO-016]), then the timeout outcome when it
+    // deposits differently — only the timeout child's places, a forward depositing one token
+    // per consumed token ([IO-013] AC5, [IO-014]).
+    const branches = outcomes(transition);
 
     for (let branchIdx = 0; branchIdx < branches.length; branchIdx++) {
-      const branchPlaces = branches[branchIdx]!;
+      const outcome = branches[branchIdx]!;
       const name = branches.length > 1
         ? `${transition.name}_b${branchIdx}`
         : transition.name;
@@ -139,12 +157,19 @@ export function flatten(
         }
       }
 
-      // Build post-vector from branch output places
+      // Build post-vector from the outcome's deposits. A forward of an `all` / `atLeast`
+      // input deposits the drained batch, which no post vector can hold; its minimum stands
+      // in, and the verifier refuses the net before any flat route reads it (`drainedForward`);
+      // the graph routes, which count the batch, decide it first.
+      const minimum = (from: Place<any>): number => {
+        const spec = transition.inputSpecs.find(s => s.place.name === from.name);
+        return spec === undefined ? 0 : requiredCount(spec);
+      };
       const postVector = new Array<number>(n).fill(0);
-      for (const p of branchPlaces) {
+      for (const { place: p, deposit } of outcome.deposits) {
         const idx = placeIndex.get(p.name);
         if (idx !== undefined) {
-          postVector[idx] = 1;
+          postVector[idx] = postVector[idx]! + depositCount(deposit, minimum);
         }
       }
 
@@ -173,6 +198,7 @@ export function flatten(
         readPlaces,
         resetPlaces,
         consumeAll,
+        reapable(transition),
       ));
     }
   }
@@ -184,12 +210,4 @@ export function flatten(
     environmentBounds,
     environmentInjection,
   };
-}
-
-function enumerateOutputBranches(t: { outputSpec: Out | null }): ReadonlySet<Place<any>>[] {
-  if (t.outputSpec !== null) {
-    return enumerateBranches(t.outputSpec) as ReadonlySet<Place<any>>[];
-  }
-  // No outputs (sink transition)
-  return [new Set()];
 }

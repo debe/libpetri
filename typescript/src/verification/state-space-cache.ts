@@ -51,8 +51,9 @@ export type StateSpaceLookup =
  * ```
  *
  * Entries are keyed by the net instance the caller passed to `SmtVerifier.forNet` (held
- * weakly, so a dropped net frees its entries) and by the initial marking as the caller listed
- * it. A different net instance, or a different marking, never hits another entry; an equal
+ * weakly, so a dropped net frees its entries), by the transitions the in-flight split of
+ * [VER-004] rewrote (none under `assumeAtomicFiring`), and by the initial marking as the caller
+ * listed it. A different net instance, split or marking never hits another entry; an equal
  * marking listed in another order, or built from other `Place` objects, misses too, so the
  * witness is identical to the one a query without the cache returns.
  *
@@ -109,13 +110,18 @@ function stateOf(cache: StateSpaceCache): CacheState {
  * @internal Answers one enumeration query at `budget` through `cache`, building when nothing
  * usable is cached. Not re-exported from the package: the verifier is its only caller.
  *
- * @param keyNet the net the caller passed to `forNet` — the key
- * @param buildNet the net the graph is built from: `keyNet` after the deterministic terminal
- *   rewrite of [EXEC-042], or `keyNet` itself
+ * @param keyNet the net the caller passed to `forNet`, part of the key
+ * @param split the transitions the in-flight split of [VER-004] rewrote, empty when it rewrote
+ *   none (the net has none to split, or `assumeAtomicFiring` kept it atomic); the rest of the key.
+ *   The split net is a function of `keyNet` and this list, so a graph of the atomic net never
+ *   answers a query that runs on the split one.
+ * @param buildNet the net the graph is built from: `keyNet` after the deterministic inert-place,
+ *   in-flight and terminal ([EXEC-042]) rewrites, or `keyNet` itself
  */
 export function resolveStateSpace(
   cache: StateSpaceCache,
   keyNet: PetriNet,
+  split: readonly string[],
   buildNet: PetriNet,
   initial: MarkingState,
   budget: number,
@@ -127,7 +133,7 @@ export function resolveStateSpace(
     byMarking = new Map();
     state.entries.set(keyNet, byMarking);
   }
-  const key = markingKey(state, initial);
+  const key = `${JSON.stringify(split)}|${markingKey(state, initial)}`;
   const entry = byMarking.get(key);
   if (entry?.kind === 'closed') {
     return budget > entry.graph.size()

@@ -40,5 +40,12 @@
  * a ready, conflicting, strictly-higher-priority one — behaviour the executor
  * never produces. `L` is not lost: in any class reachable after `H` fires, `L` is
  * re-examined and expands once the conflict is gone.
+ *
+ * **In flight ([VER-004]).** The executor pre-empts `L` only when `H` can start, and the Java and
+ * TypeScript executors do not start `H` while an earlier firing of it is in flight. So `H`
+ * pre-empts nothing while `inflight:<H>` is marked, and `SmtVerifier.verify` splits every `H` that
+ * can pre-empt another, with every transition depositing into `H`'s input or read places (more
+ * tokens there can enable `H` and so disable `L`). When one of them cannot be split, the pruning
+ * is off for that verification and the report says why.
  */
 export type PrioritySemantics = 'none' | 'conflict';

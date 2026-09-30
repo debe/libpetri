@@ -19,6 +19,7 @@ import { withTerminalInhibitors } from '../../src/verification/terminal-places.j
 import { OpenNetContract, verifyOpenNet } from '../../src/verification/open-net/index.js';
 import { TimePetriNetAnalyzer } from '../../src/verification/analysis/time-petri-net-analyzer.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
+import { splitInFlight } from '../../src/verification/in-flight.js';
 import { dotExport } from '../../src/export/dot-exporter.js';
 import { DEFAULT_DOT_CONFIG } from '../../src/export/petri-net-mapper.js';
 
@@ -57,8 +58,12 @@ describe('EXEC-042 AC8 — a net without terminals is untouched', () => {
     const terminal = SmtVerifier.forNet(forkNet(true)).initialMarking(m => m.tokens(START, 1))
       .property(deadlockFree()).encodeScripts();
     expect(terminal.horn).not.toBe(plain.horn);
-    // Same as restating the encoding by hand on the terminal-free net.
-    const inhibited = withTerminalInhibitors(forkNet(true));
+    // Same as restating the encoding by hand on the terminal-free net. `done` inhibits every
+    // transition, so `finish`, which marks it, is verified in two steps first (VER-004), and the
+    // terminal inhibits its completion step too.
+    const split = splitInFlight(forkNet(true));
+    if (split.type !== 'split') throw new Error('finish marks the terminal and is split');
+    const inhibited = withTerminalInhibitors(split.net);
     expect(inhibited.terminals.size).toBe(0);
     const byHand = SmtVerifier.forNet(inhibited).initialMarking(m => m.tokens(START, 1))
       .property(deadlockFree()).sinkPlaces(DONE)

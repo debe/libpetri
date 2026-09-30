@@ -600,7 +600,11 @@ function joinConditions(conditions: readonly string[]): string {
 }
 
 /**
- * Quiescence: every transition is disabled.
+ * Quiescence: every transition that is not reapable is disabled.
+ *
+ * Reap-quiescence ([VER-002], [TIME-013]): a `deadline` / `window` transition a late
+ * executor reaps stays enabled while the run rests, so a flat transition marked `reapable`
+ * contributes no clause. On a net without one this is plain quiescence.
  *
  * Shared core of the three quiescence-sensitive properties (VER-002 DeadlockFree
  * and TerminatesAtSink, NU-040 JoinedOrDeadLettered). Each conjoins its own clause
@@ -626,6 +630,9 @@ function encodeQuiescent(
   for (const inj of envInject) envBound.set(inj.pid, inj.bound);
   const disabledConditions: string[] = [];
   for (const ft of flatNet.transitions) {
+    // A reapable transition need not be disabled: a late executor reaps it and rests
+    // with it enabled ([VER-002] reap-quiescence, [TIME-013]).
+    if (ft.reapable) continue;
     const disableReasons: string[] = [];
     let permanentlyDisabled = false;
     for (let i = 0; i < flatNet.places.length; i++) {

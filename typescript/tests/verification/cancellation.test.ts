@@ -13,6 +13,7 @@ import { one } from '../../src/core/in.js';
 import { outPlace } from '../../src/core/out.js';
 import { produces } from '../fixtures/producing-actions.js';
 import { FIG_11B_ROWS, pnidNet } from '../fixtures/pnid-nets.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * [VER-013] cancellation: `SmtVerifier.signal(AbortSignal)` rides the total budget's stop — every
@@ -28,7 +29,7 @@ function toggles(k: number) {
     b.transition(Transition.builder(`t${i}`).inputs(one(a[i]!)).outputs(outPlace(place(`b${i}`))).action(produces()).build());
   }
   const net = b.build();
-  return { net, verifier: () => SmtVerifier.forNet(net).initialMarking(m => { for (const p of a) m.tokens(p, 1); }).property(placeBound(a[0]!, 1)) };
+  return { net, verifier: () => SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m => { for (const p of a) m.tokens(p, 1); }).property(placeBound(a[0]!, 1)) };
 }
 
 /**
@@ -76,7 +77,7 @@ describe('cancellation (VER-013)', () => {
 
   it('stops a Route B build the same way', async () => {
     const { net, places } = pnidNet('P-Fig11b', FIG_11B_ROWS);
-    const result = await SmtVerifier.forNet(net).initialMarking(MarkingState.builder().tokens(places.get('clerk')!, 2).build())
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(MarkingState.builder().tokens(places.get('clerk')!, 2).build())
       .property(placeBound(places.get('order_clerk')!, 100_000)).nuMaxClasses(20_000)
       .signal(abortsAfter(30)).verify();
     expect(reasonOf(result)).toBe('verification cancelled during Route B (ν name-partition graph)');

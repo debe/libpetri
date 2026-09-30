@@ -15,6 +15,7 @@ import { PetriNet } from '../../core/petri-net.js';
 import type { Place } from '../../core/place.js';
 import { Transition } from '../../core/transition.js';
 import { flatten } from '../encoding/net-flattener.js';
+import { drainedForward, drainedForwardReason } from '../analysis/branch-outcomes.js';
 import { countAcross, tokensAcross } from '../count-clause.js';
 import { rethrowIfProgrammingError } from '../programming-error.js';
 import type { ConditionalSinks } from '../rest-set.js';
@@ -23,7 +24,7 @@ import {
   deadlockFree, propertyDescription, quiescentCount, type SmtProperty,
 } from '../smt-property.js';
 import type { SmtVerificationResult } from '../smt-verification-result.js';
-import { SmtVerifier } from '../smt-verifier.js';
+import { SmtVerifier, closeOpenNetSteps } from '../smt-verifier.js';
 import { findFiringBound, formatRanking } from '../z3/bounded-run.js';
 import { cancelledReason, type Deadline } from '../total-budget.js';
 import { failureReason, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from '../z3/z3-process.js';
@@ -77,6 +78,8 @@ export async function decideViaSmt(
   configure: (verifier: SmtVerifier) => SmtVerifier,
   terminationTimeoutMs: number,
   stop: Deadline | null = null,
+  reapable: ReadonlySet<string> = new Set(),
+  assumeAtomicFiring = false,
 ): Promise<SmtRouteOutcome> {
   const violations: ContractViolation[] = [];
   const undecided: string[] = [];
@@ -94,7 +97,12 @@ export async function decideViaSmt(
       .property(q.property)
       .sinkPlaces(...q.sinks)
       // The graph route already enumerated as far as its budget allows.
-      .enumerationMaxClasses(0);
+      .enumerationMaxClasses(0)
+      // [VER-004]: the closed net is already split, or atomic by the caller's choice.
+      .assumeAtomicFiring(assumeAtomicFiring);
+    // [TIME-013]: the untimed copy has lost the timing that names the reapable transitions;
+    // [VER-004]: the environment's steps stay atomic either way.
+    verifier = closeOpenNetSteps(verifier, closed.environment.keys(), reapable);
     for (const c of q.conditional) verifier = verifier.sinkPlacesWhen(c.marker, ...c.places);
     const result = await configure(verifier).verify();
     const verdict = result.verdict;
@@ -213,6 +221,10 @@ async function terminationByRanking(
   // VER-013: cancelled before or during the query — the killed reply is not the answer.
   const cancelled = { proven: false, reason: cancelledReason('termination (firing bound)') } as const;
   if (stop?.cancelled()) return cancelled;
+  // [IO-014]: a drained forward's deposit has no column in the flat net the ranking reads,
+  // so a ranking over it would bound a different net's runs.
+  const drained = drainedForward(closed.net);
+  if (drained !== null) return { proven: false, reason: drainedForwardReason(drained) };
   const flat = flatten(closed.net);
   const initial = flat.places.map(p => closed.initialMarking.tokens(p));
   let solver: Z3Solver;

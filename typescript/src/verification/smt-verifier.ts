@@ -1,5 +1,6 @@
 import { terminalExcusedPlaces, withTerminalInhibitors } from './terminal-places.js';
 import { PetriNet } from '../core/petri-net.js';
+import type { Transition } from '../core/transition.js';
 import { rethrowIfProgrammingError } from './programming-error.js';
 import type { EnvironmentPlace, Place } from '../core/place.js';
 import { MarkingState, MarkingStateBuilder } from './marking-state.js';
@@ -32,19 +33,31 @@ import { verifyViaNameScg } from './nu-scg-verifier.js';
 import { verifyViaStateClassGraph, decideOverStateSpace, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
 import { prefixNote } from './graph-decision.js';
 import { closeArrivals } from './open-net/closure.js';
+import {
+  atomicAssumptionNoteFor, conflictDemand, conflictOffNote, emptyDemand, firstUnsplittable, inFlightTransitions,
+  inFlightTransitionsFor, quiescentCountDemand, restartNote, sourceTransition, splitInFlightFor, splitNoteFor,
+  unionDemand, type SplitReasons,
+} from './in-flight.js';
 import type { ScgOutcome } from './scg-verifier.js';
 import { resolveStateSpace, type StateSpaceCache } from './state-space-cache.js';
-import { classify, type FragmentMode, type NameFragment } from './analysis/name-fragment.js';
+import {
+  classify, contractNote, declaredMints, undeclaredMints, undeclaredMintsPointer, unknownMintReason,
+  type FragmentMode, type NameFragment,
+} from './analysis/name-fragment.js';
 import { compareCodePoints } from '../core/internal/code-point-order.js';
+import { placeNames } from '../core/internal/place-names.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { decode } from './z3/counterexample-decoder.js';
 import {
-  replayCounterexample, vectorize, toMarkingState, stepName, type AbstractState, type ReplayOutcome,
+  replayCounterexample, vectorize, toMarkingState, stepName, satisfiesBad, type AbstractState,
+  type ReplayOutcome,
 } from './z3/abstract-replayer.js';
 import { requireOutputProducingActions } from '../core/internal/output-action-check.js';
 import { deadArcMessage, findDeadArcs } from '../core/internal/dead-arcs.js';
 import { StateClassGraph } from './analysis/state-class-graph.js';
+import { drainedForward, drainedForwardReason } from './analysis/branch-outcomes.js';
 import { Deadline, VerificationCancelled, VerificationStopped } from './total-budget.js';
+import { lateTransitions, noReapingAssumptionNote, noReapingRouteBNote, reapAwareNote, reapableTransitions } from './reaping.js';
 
 /**
  * IC3/PDR-based safety verifier for Petri nets using Z3's Spacer engine.
@@ -86,13 +99,48 @@ const QUIESCENCE_VACUITY_NOTE =
   'marking (an environment-gated one under modelled injection, VER-006). Every quiescence ' +
   'property is therefore vacuously true here, and a `proven` says nothing about the net.';
 
+/**
+ * Configures a verifier for a query on a closed open net ([VER-022]): names the transitions that
+ * model the environment (left atomic by the in-flight split) and the reapable transitions of the
+ * net the closure's untimed rewrite is about to strip ([TIME-013]). Internal to the open-net
+ * route: it bypasses the checks a caller's net goes through, so it is kept off the public
+ * surface (neither a method nor re-exported from the package index).
+ */
+export let closeOpenNetSteps: (
+  verifier: SmtVerifier,
+  environment: Iterable<string>,
+  reapable: ReadonlySet<string>,
+) => SmtVerifier;
+
+/**
+ * The carrier places and mint transitions an open-net `configureSmt` hook declares ([NU-051],
+ * [NU-010]), read by applying the hook to a probe verifier on `net`. Internal to the open-net
+ * route, like {@link closeOpenNetSteps}.
+ */
+export let openNetDeclarations: (
+  net: PetriNet,
+  configure: (verifier: SmtVerifier) => SmtVerifier,
+) => { readonly carriers: ReadonlySet<string>; readonly mints: ReadonlySet<string> };
+
 export class SmtVerifier {
+  /*
+   * The caller's configuration. The rewrites {@link prepare} applies (arrivals, inert places,
+   * in-flight split, terminals) never touch these; each run copies them into the working
+   * fields below and derives the rest afresh, so an option set after a run takes effect.
+   */
+  private _callerMarking: MarkingState = MarkingState.empty();
+  private readonly _callerEnvironmentPlaces = new Set<EnvironmentPlace<any>>();
+  private readonly _callerSinkPlaces = new Set<Place<any>>();
+  private readonly _callerConditionalSinks: { marker: Place<any>; places: Set<Place<any>> }[] = [];
+  /* Working copies, reset by {@link prepare} on every run. */
   private _initialMarking: MarkingState = MarkingState.empty();
+  private _environmentPlaces = new Set<EnvironmentPlace<any>>();
+  private _sinkPlaces = new Set<Place<any>>();
+  private _conditionalSinks: { marker: Place<any>; places: Set<Place<any>> }[] = [];
   private _property: SmtProperty = deadlockFree();
-  private readonly _environmentPlaces = new Set<EnvironmentPlace<any>>();
-  private readonly _sinkPlaces = new Set<Place<any>>();
-  private readonly _conditionalSinks: { marker: Place<any>; places: Set<Place<any>> }[] = [];
   private readonly _budgetPlaces = new Set<string>();
+  /** Transitions declared to mint a fresh ν-name (NU-010); see {@link mintTransitions}. */
+  private readonly _mintTransitions = new Set<string>();
   private _environmentMode: EnvironmentAnalysisMode = alwaysAvailable();
   private _timeoutMs: number = 60_000;
   private _totalBudgetMs: number | null = null;
@@ -113,10 +161,60 @@ export class SmtVerifier {
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
   private _prioritySemantics: PrioritySemantics = 'none';
+  /**
+   * The priority semantics this run applies: the caller's, or `'none'` when conflict priority
+   * cannot hold because a transition it needs split cannot be ({@link applyInFlight}).
+   */
+  private _effectivePriority: PrioritySemantics = 'none';
+  /**
+   * The `undeclaredMintsPointer` of this run's net, when only an undeclared mint keeps it off
+   * the ν routes ([NU-010]); `null` otherwise. Set per run by {@link runPipeline}.
+   */
+  private _undeclaredPointer: string | null = null;
+  /** Quiescence read strictly, as if no transition were reaped ([TIME-013]); see {@link assumeNoReaping}. */
+  private _assumeNoReaping = false;
+  /**
+   * The transitions a late executor can reap, by name, named on the caller's net before any
+   * rewrite; the open-net route names them before it strips the timing. `null` until then.
+   */
+  private _reapable: ReadonlySet<string> | null = null;
+  /** Every firing read as one step ([VER-004]); see {@link assumeAtomicFiring}. */
+  private _assumeAtomicFiring = false;
+  /** The transitions modelling the environment of a closed open net ([VER-022]), left atomic. */
+  private readonly _environmentSteps = new Set<string>();
+  /**
+   * Set on the verifier `openNetDeclarations` applies an open-net `configureSmt` hook to:
+   * it records the declared mints instead of rejecting an unknown one, so the open-net route can
+   * answer `unknown` with the reason before either route runs.
+   */
+  private _probe = false;
+
+  static {
+    closeOpenNetSteps = (verifier, environment, reapable) => {
+      for (const n of environment) verifier._environmentSteps.add(n);
+      verifier._reapable = new Set(reapable);
+      return verifier;
+    };
+    openNetDeclarations = (net, configure) => {
+      const probe = new SmtVerifier(net);
+      probe._probe = true;
+      const configured = configure(probe);
+      return { carriers: new Set(configured._carrierPlaces), mints: new Set(configured._mintTransitions) };
+    };
+  }
+  /** The report line of the in-flight split ([VER-004]), once {@link applyInFlight} ran. */
+  private _inFlightLine: string | null = null;
+  /** Why the in-flight split cannot express this net ([VER-004]); every route declines when set. */
+  private _inFlightRefusal: string | null = null;
+  /** The transitions the in-flight split rewrote ([VER-004]), in net order; empty when none was. */
+  private _inFlightSplit: readonly string[] = [];
 
   /** Not readonly: {@link applyNetTerminals} swaps in the terminal encoding ([EXEC-042]). */
   private net: PetriNet;
-  /** The net as the caller passed it — the {@link StateSpaceCache} key, before any terminal rewrite. */
+  /**
+   * The net as the caller passed it: with the in-flight split it rewrote, the {@link StateSpaceCache}
+   * key ([VER-017]).
+   */
   private readonly callerNet: PetriNet;
 
   private constructor(net: PetriNet) {
@@ -132,11 +230,11 @@ export class SmtVerifier {
   initialMarking(configurator: (builder: MarkingStateBuilder) => void): this;
   initialMarking(arg: MarkingState | ((builder: MarkingStateBuilder) => void)): this {
     if (arg instanceof MarkingState) {
-      this._initialMarking = arg;
+      this._callerMarking = arg;
     } else {
       const builder = MarkingState.builder();
       arg(builder);
-      this._initialMarking = builder.build();
+      this._callerMarking = builder.build();
     }
     return this;
   }
@@ -147,7 +245,7 @@ export class SmtVerifier {
   }
 
   environmentPlaces(...places: EnvironmentPlace<any>[]): this {
-    for (const p of places) this._environmentPlaces.add(p);
+    for (const p of places) this._callerEnvironmentPlaces.add(p);
     return this;
   }
 
@@ -169,7 +267,7 @@ export class SmtVerifier {
    * asks whether one of them was reached.
    */
   sinkPlaces(...places: Place<any>[]): this {
-    for (const p of places) this._sinkPlaces.add(p);
+    for (const p of places) this._callerSinkPlaces.add(p);
     return this;
   }
 
@@ -198,10 +296,10 @@ export class SmtVerifier {
    * does: a mistyped marker makes the property stricter, never laxer.
    */
   sinkPlacesWhen(marker: Place<any>, ...places: Place<any>[]): this {
-    let entry = this._conditionalSinks.find(c => c.marker.name === marker.name);
+    let entry = this._callerConditionalSinks.find(c => c.marker.name === marker.name);
     if (entry == null) {
       entry = { marker, places: new Set<Place<any>>() };
-      this._conditionalSinks.push(entry);
+      this._callerConditionalSinks.push(entry);
     }
     for (const p of places) entry.places.add(p);
     return this;
@@ -220,7 +318,7 @@ export class SmtVerifier {
    * The `arrivals(min, max)` rewrite ([VER-006]): closes the net over its environment places with the
    * [VER-022] arrival construction ({@link closeArrivals}), before any route and before the
    * terminal rewrite, so terminals inhibit the injection transitions as they inhibit every other.
-   * Afterwards the verifier has no environment places. Runs once per verifier.
+   * Afterwards the run has no environment places.
    */
   private applyArrivals(): void {
     if (this._environmentMode.type !== 'arrivals' || this._environmentPlaces.size === 0) return;
@@ -241,7 +339,9 @@ export class SmtVerifier {
    */
   private colouredArrivalReason(): string | null {
     if (this._arrivals === null || this._arrivals.injected.length === 0) return null;
-    const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces);
+    // Every producer of a coloured place counts as declared here: the question is which
+    // places are coloured, not whether the mints are declared.
+    const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net));
     if (fragment === null) return null;
     const place = this._arrivals.injected.find(p => fragment.isColoured(p));
     if (place === undefined) return null;
@@ -262,6 +362,106 @@ export class SmtVerifier {
    */
   private applyInertPlaces(): void {
     this.net = withInertMarkedPlaces(this.net, this._initialMarking);
+  }
+
+  /**
+   * The in-flight split ([VER-004]): every transition whose output some transition tests
+   * non-monotonically becomes a start and a completion step ({@link splitInFlight}). A net with
+   * no such transition is left untouched, the same instance, so its scripts stay byte-identical.
+   * One the split cannot express is recorded, and no route answers. After the inert places and
+   * before the terminal rewrite, so a terminal's inhibitor counts as a test and also inhibits
+   * each completion step. The transitions the arrivals closure added model the environment and
+   * stay atomic.
+   *
+   * Two readings add to the split (`SplitDemand`): a `quiescentCount` with a lower bound on
+   * a net with a terminal place (`quiescentCountDemand`), and conflict priority where
+   * Route B applies it (`conflictDemand`, `conflictPruningApplies`). When a
+   * transition the conflict demand adds cannot be split, conflict priority is turned off for
+   * this verification instead (`'none'`) and the report says why (`conflictOffNote`).
+   */
+  private applyInFlight(): void {
+    const environment = new Set(this._environmentSteps);
+    if (this._arrivals !== null) {
+      const own = new Set([...this.callerNet.transitions].map(t => t.name));
+      for (const t of this.net.transitions) if (!own.has(t.name)) environment.add(t.name);
+    }
+    const base = inFlightTransitions(this.net, environment);
+    const terminal = quiescentCountDemand(this.net, this._property);
+    const withTerminal = inFlightTransitionsFor(this.net, environment, terminal);
+    const conflict = this.conflictPruningApplies() ? conflictDemand(this.net) : emptyDemand();
+    let reasons: SplitReasons = {
+      tested: base.length > 0,
+      terminal: withTerminal.length > base.length,
+      conflict: conflict.forced.size > 0,
+    };
+    let demand = unionDemand(terminal, conflict);
+    if (this._assumeAtomicFiring) {
+      const split = inFlightTransitionsFor(this.net, environment, demand);
+      if (split.length > 0) this._inFlightLine = atomicAssumptionNoteFor(split, reasons).trimEnd();
+      return;
+    }
+    // [NU-052]: the pruning holds only with every pruner and its feeders split. When one of them
+    // cannot be, the pruning is off, not the verification.
+    let conflictOff: string | null = null;
+    if (reasons.conflict) {
+      const split = inFlightTransitionsFor(this.net, environment, demand);
+      const unsplittable = firstUnsplittable(this.net, this._carrierPlaces, split);
+      if (unsplittable !== null) {
+        conflictOff = conflictOffNote(unsplittable[0], unsplittable[1]);
+        this._effectivePriority = 'none';
+        reasons = { ...reasons, conflict: false };
+        demand = terminal;
+      }
+    }
+    const outcome = splitInFlightFor(this.net, this._carrierPlaces, environment, demand);
+    if (outcome.type === 'atomic') {
+      if (conflictOff !== null) this._inFlightLine = conflictOff.trimEnd();
+    } else if (outcome.type === 'split') {
+      this.net = outcome.net;
+      this._inFlightSplit = outcome.split;
+      this._inFlightLine = ((conflictOff ?? '') + splitNoteFor(outcome.split, reasons)).trimEnd();
+    } else {
+      this._inFlightRefusal = outcome.reason;
+    }
+  }
+
+  /**
+   * Whether Route B will read conflict priority ([NU-052]): it is selected, the net has a ν-join
+   * and a property Route B takes (a quiescence one, or any without a declared budget place), and
+   * no transition is read as reapable, since Route B turns the pruning off itself on a net with
+   * one. No other route reads it.
+   */
+  private conflictPruningApplies(): boolean {
+    return this._prioritySemantics === 'conflict'
+      && [...this.net.transitions].some(t => t.matchSpec !== null)
+      && (!isReachabilitySafety(this._property) || this._budgetPlaces.size === 0)
+      && this.reapableSet.size === 0;
+  }
+
+  /**
+   * Derives the net and the declarations every route reads from the caller's configuration:
+   * the arrivals closure, the inert places, the in-flight split and the terminal rewrite, in that
+   * order. Starts from the caller's net and declarations on every run, so an option changed
+   * between two runs (the environment mode, {@link assumeAtomicFiring}, the carrier places)
+   * reaches the rewrites instead of meeting the previous run's net.
+   */
+  private prepare(): void {
+    this.net = this.callerNet;
+    this._initialMarking = this._callerMarking;
+    this._environmentPlaces = new Set(this._callerEnvironmentPlaces);
+    this._sinkPlaces = new Set(this._callerSinkPlaces);
+    this._conditionalSinks = this._callerConditionalSinks.map(c => ({ marker: c.marker, places: new Set(c.places) }));
+    this._arrivals = null;
+    this._inFlightLine = null;
+    this._inFlightRefusal = null;
+    this._inFlightSplit = [];
+    this._effectivePriority = this._prioritySemantics;
+    // [TIME-013]: the reapable transitions are named on the caller's net.
+    this.nameReapable();
+    this.applyArrivals();
+    this.applyInertPlaces();
+    this.applyInFlight();
+    this.applyNetTerminals();
   }
 
   private applyNetTerminals(): void {
@@ -289,10 +489,44 @@ export class SmtVerifier {
    * properties over its ν-joins are verified (the matched transitions are
    * over-approximated). Without any budget place, a net that mints fresh names
    * is treated as unbounded and the verifier returns `unknown` (NU-050).
+   *
+   * The declaration also states the mint contract of NU-010 for every transition that consumes
+   * the place: where such a transition writes a coloured place (a match key, carrier or relay
+   * target) without consuming one, its action writes a name it minted with `freshName()` in that
+   * firing. The ν routes read those writes as fresh names. See {@link mintTransitions}.
    */
   budgetPlaces(...places: Place<any>[]): this {
     for (const p of places) this._budgetPlaces.add(p.name);
     return this;
+  }
+
+  /**
+   * Declares transitions that mint (NU-010): where such a transition writes a coloured place (a
+   * match key, carrier or relay target) without consuming one, its action writes a name it minted
+   * with `freshName()` in that firing.
+   *
+   * The ν routes (Route A and Route B of NU-050) read such a write as a fresh name, and they
+   * cannot check that an action does so: an action may as well copy a correlation id out of its
+   * input, as the built-in `fork()` does, and two copies of one id join at run time. So a
+   * transition that writes a coloured place without consuming one is read as a mint only when it
+   * is declared, here or by consuming a declared {@link budgetPlaces | budget place}. An
+   * undeclared one keeps the net off both routes, and the verifier answers through the
+   * name-blind over-approximation. What the executor writes on timeout is never a mint, declared
+   * or not (IO-013, IO-014). Accumulating. Throws, naming the transition, if one is not in the
+   * net.
+   */
+  mintTransitions(...transitions: (Transition | string)[]): this {
+    const names = transitions.map(t => (typeof t === 'string' ? t : t.name));
+    // A probe of the open-net route records the names; verifyOpenNet rejects them itself.
+    const unknown = this._probe ? null : unknownMintReason(this.callerNet, names);
+    if (unknown !== null) throw new Error(unknown);
+    for (const name of names) this._mintTransitions.add(name);
+    return this;
+  }
+
+  /** The transitions the ν routes may read as mints (NU-010): the declared ones and those consuming a declared budget place. */
+  private declaredMints(): Set<string> {
+    return declaredMints(this.net, this._budgetPlaces, this._mintTransitions);
   }
 
   timeout(ms: number): this {
@@ -360,11 +594,113 @@ export class SmtVerifier {
    * outcome lands in {@link SmtVerificationResult.counterexampleTiming}: `'timed-confirmed'`
    * (the counterexample is replaced by the shortest timed path), `'spurious-under-timing'`
    * (the graph closed and nothing violates: the property holds under timing, a timed claim
-   * only), or `'timed-undecided'`. It does not use the {@link stateSpaceCache}.
+   * only), or `'timed-undecided'`. That timed claim assumes an on-time executor with atomic
+   * firings (no transition reaped or fired after its latest bound, no action duration), and the
+   * report says so. It does not use the {@link stateSpaceCache}.
    */
   timedCounterexampleCheck(on: boolean): this {
     this._timedCounterexampleCheck = on;
     return this;
+  }
+
+  /**
+   * Assumes **atomic firings**: no transition tests a place while an action that writes it is in
+   * flight ([VER-004], [EXEC-003]; default `false`).
+   *
+   * The executor consumes a firing's inputs when its action starts and deposits its outputs when
+   * the action completes; an asynchronous action leaves that gap open while it runs, and a
+   * synchronous one until the end of its firing pass. By default every transition whose output
+   * some transition tests with an inhibitor, reset or draining input (`all`, `atLeast`), or that
+   * marks a terminal place, is verified in two steps: a start that consumes and marks
+   * `inflight:<name>`, and an immediate `complete:<name>` that deposits. Two readings split more:
+   * a `quiescentCount` with a lower bound on a net with a terminal place that does not waive it
+   * splits every transition depositing into a counted or waiver place, since a terminal stop
+   * abandons an action in flight ([EXEC-042]); and `'conflict'` priority semantics splits every
+   * pruning transition and every transition feeding one ({@link prioritySemantics}). A net with
+   * no such transition verifies identically either way. A counterexample that starts a
+   * transition again while it is in flight says that only the Rust executor does that
+   * ([CONC-002]).
+   *
+   * `true` reads every firing as one step again, and the report of a net with such a transition
+   * then says the verdict rests on that assumption.
+   */
+  assumeAtomicFiring(on: boolean): this {
+    this._assumeAtomicFiring = on;
+    return this;
+  }
+
+  /**
+   * Assumes an **on-time executor**: no transition is reaped and none fires after its latest
+   * bound ([VER-002], [VER-004], [TIME-006], [TIME-013]; default `false`).
+   *
+   * A `deadline` / `window` transition still enabled past its latest bound plus the executor's
+   * tolerance is reaped: disabled, its tokens left in place, and not re-enabled until one of its
+   * input places changes. A late executor can therefore come to rest at a marking that still
+   * enables it. By default every quiescence property (`deadlockFree`, `terminatesAtSink`,
+   * `quiescentCount`, `joinedOrDeadLettered` and the conditional sinks of [VER-014]) is evaluated
+   * at every **reap-quiescent** marking (one where every enabled transition is reapable) on
+   * every route, so a `proven` holds for late executors too. A late executor also fires an
+   * `exact` transition after its bound, so Route B, the one route that keeps timing, drops the
+   * latest bound of every deadline, window and exact transition for every property.
+   *
+   * `true` restores the strict quiescence (no transition enabled) and Route B's strong-semantics
+   * graph, and the report of a net with such a transition then says the verdict assumes an
+   * on-time executor. On Route B that graph also reads each firing as one instant step, so a
+   * verdict Route B reaches assumes as well that an action takes no time, and its report says so:
+   * an action that runs while a latest bound passes lets other transitions fire first. A net
+   * timed only with `immediate` and `delayed` verifies identically either way.
+   */
+  assumeNoReaping(on: boolean): this {
+    this._assumeNoReaping = on;
+    return this;
+  }
+
+  /** Names the reapable transitions off the caller's net unless that was done already. */
+  private nameReapable(): void {
+    if (this._reapable === null) this._reapable = reapableTransitions(this.net);
+  }
+
+  /** The transitions whose enabledness does not keep a marking from resting: none under {@link assumeNoReaping}. */
+  private get reapableSet(): ReadonlySet<string> {
+    if (this._assumeNoReaping) return new Set();
+    return this._reapable ?? reapableTransitions(this.net);
+  }
+
+  /**
+   * The transitions whose latest bound a late executor overruns ([TIME-006], [TIME-013]): every
+   * deadline, window and exact transition, none under {@link assumeNoReaping}. Route B drops
+   * their latest bound (`relaxLate`).
+   */
+  private get lateSet(): ReadonlySet<string> {
+    return this._assumeNoReaping ? new Set() : lateTransitions(this.net);
+  }
+
+  /** The flat net every encoder reads, its reapable transitions marked. */
+  private flatNet(): FlatNet {
+    const reapable = this.reapableSet;
+    return flatten(this.net, this._environmentPlaces, this._environmentMode, t => reapable.has(t.name));
+  }
+
+  /**
+   * The report line on reaping ([TIME-013]) for a net with a reapable transition: the reap-aware
+   * reading of a quiescence property, or the on-time executor a verdict reached under
+   * {@link assumeNoReaping} rests on. On a ν-net Route B also reads the latest bounds
+   * ([TIME-006]), so there an exact transition alone makes the assumption line appear. `null`
+   * when the net has no such transition or lateness cannot bear on the verdict (a marking
+   * property off Route B). `routeB` picks the assumption line of a verdict Route B reached, which
+   * also assumes that an action takes no time (`noReapingRouteBNote`).
+   */
+  private reapingLine(routeB = false): string | null {
+    const inNet = this._reapable ?? reapableTransitions(this.net);
+    const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
+    const lateInNet = new Set(inNet);
+    if (hasMatch) for (const n of lateTransitions(this.net)) lateInNet.add(n);
+    if (lateInNet.size === 0) return null;
+    if (isReachabilitySafety(this._property) && !hasMatch) return null;
+    if (this._assumeNoReaping && routeB) return noReapingRouteBNote(lateInNet).trimEnd();
+    if (this._assumeNoReaping) return noReapingAssumptionNote(lateInNet).trimEnd();
+    // Route B's own note says which latest bounds it lifted.
+    return inNet.size === 0 ? null : reapAwareNote(inNet).trimEnd();
   }
 
   /**
@@ -623,7 +959,7 @@ export class SmtVerifier {
    */
   carrierPlaces(...places: Place<any>[]): this {
     for (const p of places) {
-      if (![...this.net.places].some(np => np.name === p.name)) {
+      if (![...this.callerNet.places].some(np => np.name === p.name)) {
         throw new Error(`declared carrier place '${p.name}' not in the net`);
       }
       this._carrierPlaces.add(p.name);
@@ -638,6 +974,12 @@ export class SmtVerifier {
    * lower-priority transition pre-empted by a conflicting, no-later-ready,
    * strictly-higher-priority one is not explored — removing spurious
    * dead-letter-drain stalls the eager, priority-ordered executor never produces.
+   *
+   * The pruning holds only while no pruning transition, and no transition feeding one, has an
+   * action in flight ([VER-004]): `verify` splits all of them into a start and a completion
+   * step, and a pruner pre-empts nothing while its own action runs. When one of them cannot be
+   * split (a ν-join, a writer into a coloured place), the pruning is off for that call and the
+   * report says so.
    */
   prioritySemantics(semantics: PrioritySemantics): this {
     this._prioritySemantics = semantics;
@@ -674,7 +1016,7 @@ export class SmtVerifier {
     // VER-006 AC10: an arrival into a coloured place is not a mint.
     if (this.colouredArrivalReason() !== null) return { plan: null, encoding: null };
     const plan = buildColouredPlan(
-      this.net, flatNet, this._initialMarking, this._budgetPlaces,
+      this.net, flatNet, this._initialMarking, this.declaredMints(),
       this._fragmentMode, this._carrierPlaces, semiflows,
     );
     if (plan == null) return { plan: null, encoding: null };
@@ -697,11 +1039,12 @@ export class SmtVerifier {
    * refusal are bypassed: it is what Route A encodes.
    */
   encodeScripts(): EncodedScripts {
-    this.applyArrivals();
-    this.applyInertPlaces();
-    this.applyNetTerminals();
+    // NU-010: scripts without a declaration the caller made would not be the scripts it asked for.
+    const unknownMint = unknownMintReason(this.callerNet, this._mintTransitions);
+    if (unknownMint !== null) throw new Error(unknownMint);
+    this.prepare();
     requireOutputProducingActions(this.net);
-    const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
+    const flatNet = this.flatNet();
     const matrix = IncidenceMatrix.from(flatNet);
     const { valid: basis, dropped: basisDropped } = validateInvariantsExact(
       matrix, computePInvariants(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
@@ -768,9 +1111,7 @@ export class SmtVerifier {
     const deadline = this._totalBudgetMs === null && this._signal === null
       ? null
       : Deadline.start(this._totalBudgetMs, this._signal);
-    this.applyArrivals();
-    this.applyInertPlaces();
-    this.applyNetTerminals();
+    this.prepare();
     requireOutputProducingActions(this.net);
     const start = performance.now();
     const report: string[] = [];
@@ -788,7 +1129,7 @@ export class SmtVerifier {
         { type: 'unknown', reason }, report.join('\n'), [], [], [], [],
         performance.now() - start,
         {
-          places: [...this.net.places].length,
+          places: placeNames(this.net.places).size,
           transitions: [...this.net.transitions].length,
           invariantsFound: 0,
           structuralResult: `n/a (${e.message})`,
@@ -797,7 +1138,26 @@ export class SmtVerifier {
         run.route,
       );
     }
-    return this.withCounterexampleTiming(result, run, start);
+    // [TIME-013] / [VER-004]: Route B keeps timing, so its assumption line differs.
+    const reaping = this.reapingLine();
+    const routeBReaping = this.reapingLine(true);
+    if (result.route === 'nu-scg' && reaping !== null && routeBReaping !== null && reaping !== routeBReaping) {
+      result = { ...result, report: result.report.replace(reaping, routeBReaping) };
+    }
+    return this.withRestartNote(this.withCounterexampleTiming(result, run, start));
+  }
+
+  /**
+   * [CONC-002]: a counterexample that starts a transition while an earlier firing of it is in
+   * flight is a run of the Rust executor only; the report ends saying so ({@link restartNote}).
+   * Read after the timed check, which may have replaced the trace.
+   */
+  private withRestartNote(result: SmtVerificationResult): SmtVerificationResult {
+    if (result.verdict.type !== 'violated') return result;
+    const note = restartNote(result.counterexampleTrace, result.counterexampleTransitions);
+    if (note === null) return result;
+    const sep = result.report.endsWith('\n') ? '' : '\n';
+    return { ...result, report: result.report + sep + note };
   }
 
   /**
@@ -840,6 +1200,17 @@ export class SmtVerifier {
       );
       report.push('');
     }
+    // [TIME-013]: how the verdict reads reaping, on a net that has a reapable transition.
+    const reaping = this.reapingLine();
+    if (reaping !== null) {
+      report.push(reaping);
+      report.push('');
+    }
+    // [VER-004]: the transitions verified in two steps, or the assumption that none need it.
+    if (this._inFlightLine !== null) {
+      report.push(this._inFlightLine);
+      report.push('');
+    }
     // CORE-037: read / inhibitor / reset arcs that can never have an effect. Read off the net
     // the caller passed — the terminal rewrite's inhibitors are the verifier's own.
     const marked = new Set(this._initialMarking.placesWithTokens().map(p => p.name));
@@ -848,6 +1219,26 @@ export class SmtVerifier {
     const deadArcs = findDeadArcs(this.callerNet, n => marked.has(n), n => envNames.has(n));
     for (const arc of deadArcs) report.push(`WARNING: ${deadArcMessage(arc)}`);
     if (deadArcs.length > 0) report.push('');
+
+    // NU-010: a declared mint transition that is not in the net is a typo, and a typo'd
+    // declaration would silently leave a real mint undeclared. Fail loudly.
+    const unknownMint = unknownMintReason(this.net, this._mintTransitions);
+    if (unknownMint !== null) {
+      report.push('=== RESULT ===\n');
+      report.push(`UNKNOWN: ${unknownMint}`);
+      return buildResult(
+        { type: 'unknown', reason: unknownMint }, report.join('\n'), [], [], [], [],
+        performance.now() - start,
+        {
+          places: placeNames(this.net.places).size,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: 'n/a',
+        },
+        null,
+        'unavailable',
+      );
+    }
 
     // Before ANY route. Each of them answers a property naming an absent place
     // vacuously, and each returns before the flat encoder's own refusal could
@@ -865,10 +1256,52 @@ export class SmtVerifier {
         { type: 'unknown', reason }, report.join('\n'), [], [], [], [],
         performance.now() - start,
         {
-          places: [...this.net.places].length,
+          places: placeNames(this.net.places).size,
           transitions: [...this.net.transitions].length,
           invariantsFound: 0,
           structuralResult: 'n/a (unresolved property place)',
+        },
+        null,
+        'unavailable',
+      );
+    }
+
+    // VER-006 AC3: every route below models a bounded(k) environment place as a source
+    // holding at most k, which is the executor only within the premises. Outside them a
+    // proven can miss a firing and a violated can report a rest the executor never
+    // reaches, so no route answers.
+    const outsidePremises = boundedPremiseViolation(
+      this.net, this._initialMarking, this._environmentPlaces, this._environmentMode);
+    if (outsidePremises != null) {
+      report.push('=== RESULT ===\n');
+      report.push(`UNKNOWN: ${outsidePremises}`);
+      return buildResult(
+        { type: 'unknown', reason: outsidePremises }, report.join('\n'), [], [], [], [],
+        performance.now() - start,
+        {
+          places: placeNames(this.net.places).size,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: 'n/a (bounded(k) premises)',
+        },
+        null,
+        'unavailable',
+      );
+    }
+
+    // VER-004: every route fires a transition atomically. A net whose in-flight actions
+    // matter and that the split cannot express gets no answer from any of them.
+    if (this._inFlightRefusal !== null) {
+      report.push('=== RESULT ===\n');
+      report.push(`UNKNOWN: ${this._inFlightRefusal}`);
+      return buildResult(
+        { type: 'unknown', reason: this._inFlightRefusal }, report.join('\n'), [], [], [], [],
+        performance.now() - start,
+        {
+          places: placeNames(this.net.places).size,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: 'n/a (in-flight actions)',
         },
         null,
         'unavailable',
@@ -897,6 +1330,15 @@ export class SmtVerifier {
       }
     }
 
+    // NU-010: a transition that writes a coloured place without consuming one and is not
+    // declared to mint keeps the net off both ν routes. Name it where a route declines or the ν
+    // guard answers unknown.
+    this._undeclaredPointer = null;
+    if (hasMatch) {
+      const undeclared = undeclaredMints(this.net, this._fragmentMode, this._carrierPlaces, this.declaredMints());
+      if (undeclared.length > 0) this._undeclaredPointer = undeclaredMintsPointer(undeclared);
+    }
+
     // ν-net Route B (NU-050): the name-aware state-class-graph name-partition
     // quotient decides ν-join correlation EXACTLY — including name×time and
     // quiescence — without a budget. It "fills the gaps" the SMT / Route A path
@@ -909,20 +1351,26 @@ export class SmtVerifier {
       this.enter(run, 'Route B (ν name-partition graph)', 'nu-scg');
       let quiescenceVacuous = false;
       if (!isReachabilitySafety(this._property)) {
-        const flat = flatten(this.net, this._environmentPlaces, this._environmentMode);
+        const flat = this.flatNet();
         quiescenceVacuous = quiescenceUnreachable(flat, resolveEnvInjection(flat));
       }
       // VER-006: Route B sees an environment place only as an inexhaustible input.
       // A verdict that reads its count or names would be vacuous, so refuse here and
       // never defer to Route A, which declines under injection too and would lose the reason.
-      const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces);
-      const envReason =
-        fragment === null || this._initialMarking.placesWithTokens().some(p => fragment.isColoured(p.name))
+      const mints = this.declaredMints();
+      const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces, mints);
+      const startsEmpty = (f: NameFragment): boolean =>
+        !this._initialMarking.placesWithTokens().some(p => f.isColoured(p.name));
+      // An arrival into a coloured place declines whether or not the mints are declared.
+      const anyFragment = classify(this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net));
+      const arrivalReason = anyFragment !== null && startsEmpty(anyFragment) ? this.colouredArrivalReason() : null;
+      const envReason = arrivalReason ?? (
+        fragment === null || !startsEmpty(fragment)
           ? null // Route B declines this net itself; the pipeline below decides it.
-          : this.colouredArrivalReason() ?? routeBEnvObservation(
+          : routeBEnvObservation(
               this.net, fragment, this._property, this._sinkPlaces, this._conditionalSinks,
-              this._environmentPlaces, this._environmentMode, this._prioritySemantics, quiescenceVacuous,
-            );
+              this._environmentPlaces, this._environmentMode, this._effectivePriority, quiescenceVacuous,
+            ));
       if (envReason !== null) {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
         report.push(`  Declined under environment injection: ${envReason}`);
@@ -930,7 +1378,7 @@ export class SmtVerifier {
           { type: 'unknown', reason: envReason }, report.join('\n'), [], [], [], [],
           performance.now() - start,
           {
-            places: [...this.net.places].length,
+            places: placeNames(this.net.places).size,
             transitions: [...this.net.transitions].length,
             invariantsFound: 0,
             structuralResult: 'n/a (ν name-partition SCG)',
@@ -942,8 +1390,8 @@ export class SmtVerifier {
       const outcome = verifyViaNameScg(
         this.net, this._initialMarking, this._property, this._sinkPlaces,
         this._environmentPlaces, this._environmentMode, this._nuMaxClasses,
-        this._fragmentMode, this._carrierPlaces, this._prioritySemantics,
-        this._conditionalSinks, run.deadline,
+        this._fragmentMode, this._carrierPlaces, mints, this._effectivePriority,
+        this._conditionalSinks, run.deadline, this.reapableSet, this.lateSet,
       );
       // Route B truncating to unknown on a bounded quiescence ν-net is not the
       // final word: defer to the scalable Route A coloured IC3/PDR encoder
@@ -957,6 +1405,9 @@ export class SmtVerifier {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
         report.push(`  Name-partition state classes: ${outcome.classCount}`);
         report.push(outcome.note);
+        // NU-010, NU-051: the actions whose writes the verdict trusts.
+        const contracts = fragment === null ? '' : contractNote(fragment.mints, fragment.relays);
+        if (contracts !== '') report.push(contracts.trimEnd());
         if (outcome.transitions.length > 0) {
           report.push(`  Counterexample trace: ${outcome.trace.length} states, ${outcome.transitions.length} transitions`);
         }
@@ -979,7 +1430,7 @@ export class SmtVerifier {
           routeBVerdict, report.join('\n'), [], [], outcome.trace, outcome.transitions,
           performance.now() - start,
           {
-            places: [...this.net.places].length,
+            places: placeNames(this.net.places).size,
             transitions: [...this.net.transitions].length,
             invariantsFound: 0,
             structuralResult: 'n/a (ν name-partition SCG)',
@@ -997,7 +1448,9 @@ export class SmtVerifier {
       // fragment (classify declined). Surface a short note instead of a silent
       // cliff, then verify via the sound over-approximation below (NU-051, §5
       // diagnosability).
-      if (this._fragmentMode === 'extended' && !deferToRouteA) {
+      if (this._undeclaredPointer !== null && !deferToRouteA) {
+        report.push(`ν-net Route B declined: ${this._undeclaredPointer}.`);
+      } else if (this._fragmentMode === 'extended' && !deferToRouteA) {
         report.push(
           'ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment ' +
           '(a coloured place consumed count != 1 or by multiple inputs, carries a ' +
@@ -1034,7 +1487,7 @@ export class SmtVerifier {
           enumerated.verdict, report.join('\n'), [], [], enumerated.trace, enumerated.transitions,
           performance.now() - start,
           {
-            places: [...this.net.places].length,
+            places: placeNames(this.net.places).size,
             transitions: [...this.net.transitions].length,
             invariantsFound: 0,
             structuralResult: 'n/a (state-space enumeration)',
@@ -1052,10 +1505,37 @@ export class SmtVerifier {
       );
     }
 
+    // [IO-014]: a timeout forward of an `all` / `atLeast` input deposits the whole drained
+    // batch, a marking-dependent count. Route B and the enumeration above resolve it from the
+    // marking each firing drains, exactly as the executor does (`Deposit` kind 'drained'), so
+    // they decide such a net. Every route below reads the flat net, whose post vectors are
+    // constants — the structural pre-check, the P-invariants, the linear bound, the VER-018 /
+    // VER-019 phases, the CHC fixpoint query and Route A — so a `proven` from any of them
+    // would be about a different net. Refuse here, after the graph routes and before the
+    // first linear one: every exit below this point is then covered ([VER-003] AC5).
+    const drained = drainedForward(this.net);
+    if (drained !== null) {
+      const reason = drainedForwardReason(drained);
+      report.push('=== RESULT ===\n');
+      report.push(`UNKNOWN: ${reason}`);
+      return buildResult(
+        { type: 'unknown', reason }, report.join('\n'), [], [], [], [],
+        performance.now() - start,
+        {
+          places: placeNames(this.net.places).size,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: 'n/a (drained forward)',
+        },
+        null,
+        'unavailable',
+      );
+    }
+
     // Phase 1: Flatten
     this.enter(run, 'flattening', 'smt');
     report.push('Phase 1: Flattening net...');
-    const flatNet = flatten(this.net, this._environmentPlaces, this._environmentMode);
+    const flatNet = this.flatNet();
     report.push(`  Places: ${flatNet.places.length}`);
     report.push(`  Transitions (expanded): ${flatNet.transitions.length}`);
     if (flatNet.environmentBounds.size > 0) {
@@ -1072,9 +1552,13 @@ export class SmtVerifier {
     // SMT encoding decides instead. It is skipped too for any net Commoner's theorem
     // does not govern: see {@link commonerApplies}. The search is exponential, so
     // it runs only when its answer could return PROVEN.
+    // Commoner's theorem rules out dead markings only: a net with a reapable transition can also
+    // rest where one is still enabled ([VER-002], [TIME-013]), so the encoders, which read that,
+    // decide it.
     const structuralCandidate =
       this._property.type === 'deadlock-free' &&
       !hasMatch &&
+      !flatNet.transitions.some(t => t.reapable) &&
       commonerApplies(flatNet) &&
       this._sinkPlaces.size === 0 &&
       this._conditionalSinks.length === 0 &&
@@ -1317,9 +1801,11 @@ export class SmtVerifier {
     let encoding: SmtEncoding;
     if (colouredPlan != null) {
       report.push(
-        `  ν-encoding: name-coloured (exact within budget k=${colouredPlan.k}; ` +
+        `  ν-encoding: name-coloured (colour-slot bound k=${colouredPlan.k}; ` +
           `${colouredPlan.coloured.length} coloured place(s))`,
       );
+      const contracts = contractNote(colouredPlan.mints, colouredPlan.relays);
+      if (contracts !== '') report.push(contracts.trimEnd());
       const coloured = colouredAttempt.encoding;
       if (coloured == null) {
         // The property names a place that does not resolve in the net (e.g. a
@@ -1461,7 +1947,21 @@ export class SmtVerifier {
         let trace: readonly MarkingState[] = [...decoded.states];
         let transitions: readonly string[] = [];
         let replayed = false;
-        if (colouredPlan == null && this._counterexampleReplay) {
+        // The initial marking itself violates: the counterexample is the empty firing
+        // sequence, whatever the proof text holds. Spacer's refutation for it has no ground
+        // Reachable step to decode, and a violation with no trace cannot be replayed by
+        // anyone, so it is reported as [] from M0, confirmed by evaluating Bad(M0) — the
+        // check the replay would make first — with or without the replay enabled.
+        const m0 = vectorize(this._initialMarking, flatNet);
+        const initialViolates = colouredPlan == null && satisfiesBad(
+          m0, flatNet, this._property, this._sinkPlaces, this._conditionalSinks);
+        if (initialViolates) {
+          confirmed = true;
+          replayed = true;
+          trace = [toMarkingState(m0, flatNet)];
+          transitions = [];
+          report.push('  Counterexample: the initial marking violates the property (empty firing sequence)');
+        } else if (colouredPlan == null && this._counterexampleReplay) {
           const assessment = assessCounterexample(
             flatNet, this._initialMarking, decoded.states, this._property, this._sinkPlaces,
             this._conditionalSinks,
@@ -1555,7 +2055,8 @@ export class SmtVerifier {
       };
     }
     const lookup = resolveStateSpace(
-      cache, this.callerNet, this.net, this._initialMarking, this._enumerationMaxClasses, deadline,
+      cache, this.callerNet, this._inFlightSplit, this.net, this._initialMarking,
+      this._enumerationMaxClasses, deadline,
     );
     // The key includes the marking's listing and Place objects, so a reused graph's witness is
     // the one a cold build would return; only the initial MarkingState object is the first
@@ -1786,7 +2287,12 @@ export class SmtVerifier {
           this.net, this._initialMarking, this._enumerationMaxClasses, undefined, undefined,
           { deadline: run.deadline },
         );
-        outcome = decideOverStateSpace(graph, this._property, this._sinkPlaces, this._conditionalSinks);
+        // [TIME-013]: a class also rests where every enabled transition is reapable. The graph
+        // fires every transition on time, so it does not hold the runs a late executor takes
+        // after a reap: `spurious-under-timing` means no on-time run reaches a violating rest.
+        outcome = decideOverStateSpace(
+          graph, this._property, this._sinkPlaces, this._conditionalSinks, false, this.reapableSet,
+        );
       } catch (e) {
         if (!(e instanceof VerificationStopped)) throw e;
         stopped = e;
@@ -1845,6 +2351,13 @@ export class SmtVerifier {
       '  The verdict stays VIOLATED: the untimed semantics is the contract (VER-004). The untimed ' +
       'counterexample above is kept.',
     );
+    // What the timed claim assumes: the graph fires every transition by its latest bound and a
+    // firing takes no time ([TIME-006], [TIME-013]).
+    lines.push(
+      '  The timed claim assumes an on-time executor with atomic firings: no transition is reaped ' +
+      'or fires after its latest bound, and an action takes no time. A late executor or a long ' +
+      'action can still reach the untimed counterexample.',
+    );
     return finish('spurious-under-timing');
   }
 
@@ -1874,34 +2387,42 @@ export class SmtVerifier {
     exact: boolean,
   ): SmtVerificationResult {
     if (!hasMatch || result.verdict.type === 'unknown') return result;
-    // Exact path FIRST (NU-050 #1 / NU-053, Route A): name equality is encoded
-    // exactly via bounded name-colouring, so the verdict is sound AND complete
-    // within the budget bound — no spurious different-name counterexample. This
-    // holds for reachability-safety AND quiescence (deadlock / joined-or-dead-
-    // lettered), so an exact coloured plan keeps its verdict for quiescence too;
-    // the colour-aware deadlock encoding does not over-fire joins.
+    // Coloured path FIRST (NU-050 #1 / NU-053, Route A): name equality is encoded by
+    // name-colouring over the colour-slot bound, so no counterexample equates two distinct
+    // names. This holds for reachability-safety AND quiescence (deadlock / joined-or-dead-
+    // lettered), so a coloured plan keeps its verdict for quiescence too; the colour-aware
+    // deadlock encoding does not over-fire joins. The verdict rests on the mint and relay
+    // contracts (NU-010, NU-051).
     if (exact) {
       const note =
-        '\nNote: ν-join name equality is encoded exactly via bounded name-colouring ' +
-        '(k = budget); the verdict is sound and complete within the budget bound — no spurious ' +
-        'different-name counterexample (NU-050 #1 / NU-053).\n';
+        '\nNote: ν-join name equality is encoded by name-colouring over k colour slots, ' +
+        'k bounding the live names: a join fires only on one colour, so no counterexample ' +
+        'equates two different names (NU-050 #1 / NU-053). The verdict assumes the mint and ' +
+        'relay contracts named above.\n';
       return { ...result, report: result.report + note };
     }
+    // NU-010: an undeclared mint that alone keeps the net off the ν routes is named.
+    const withPointer = (reason: string): string =>
+      this._undeclaredPointer === null ? reason : `${reason}; ${this._undeclaredPointer}`;
     if (!isReachabilitySafety(this._property)) {
       return downgradeToUnknown(
         result,
-        'ν-matching transitions present and the property depends on quiescence ' +
-          '(deadlock / joined-or-dead-lettered); the name-blind over-approximation cannot ' +
-          'decide it soundly — deferred to the exact ν-analysis (NU-050)',
+        withPointer(
+          'ν-matching transitions present and the property depends on quiescence ' +
+            '(deadlock / joined-or-dead-lettered); the name-blind over-approximation cannot ' +
+            'decide it soundly — deferred to the exact ν-analysis (NU-050)',
+        ),
       );
     }
     if (!nuBounded) {
       return downgradeToUnknown(
         result,
-        'ν-matching transitions present with unbounded fresh names (no budget place declared ' +
-          'via budgetPlaces(...)); reachability over unbounded fresh names is undecidable ' +
-          '(NU-040) — declare the budget place(s) that gate minting to verify within the ' +
-          'bounded fragment',
+        withPointer(
+          'ν-matching transitions present with unbounded fresh names (no budget place declared ' +
+            'via budgetPlaces(...)); reachability over unbounded fresh names is undecidable ' +
+            '(NU-040) — declare the budget place(s) that gate minting to verify within the ' +
+            'bounded fragment',
+        ),
       );
     }
     // Bounded reachability-safety outside the name-coloured fragment: the matched
@@ -2355,4 +2876,46 @@ function relayDeclarations(net: PetriNet): string[] {
     for (const r of t.matchSpec?.relays ?? []) out.push(`'${t.name}' -> '${r.place.name}'`);
   }
   return out;
+}
+
+/** Every transition name of `net`. */
+function everyTransition(net: PetriNet): Set<string> {
+  return new Set([...net.transitions].map(t => t.name));
+}
+
+/**
+ * VER-006 AC3: why the `bounded(k)` model does not describe the executor on this net, or
+ * `null` when it does. Every route models a `bounded(k)` environment place as a source
+ * holding at most k: the flat encoding caps each successor there at k, the state-class graphs
+ * enable an environment input exactly when it demands at most k, and the quiescence clause
+ * calls a demand above k permanently disabled. That holds only when the initial marking holds
+ * at most k on each environment place and no transition deposits into one. Environment places
+ * are checked in code-point order, the initial marking first; the depositing transition named
+ * is the first in code-point order.
+ */
+function boundedPremiseViolation(
+  net: PetriNet,
+  initialMarking: MarkingState,
+  environmentPlaces: ReadonlySet<EnvironmentPlace<any>>,
+  mode: EnvironmentAnalysisMode,
+): string | null {
+  if (mode.type !== 'bounded' || environmentPlaces.size === 0) return null;
+  const k = mode.maxTokens;
+  const outside = (place: string, what: string): string =>
+    `environment place '${place}' is outside the Bounded(${k}) premises (VER-006 AC3): ${what}. ` +
+    `Every route models it as a source holding at most ${k}, so a verdict would not describe the executor`;
+  const places = [...environmentPlaces].map(e => e.place).sort((a, b) => compareCodePoints(a.name, b.name));
+  for (const place of places) {
+    const held = initialMarking.tokens(place);
+    if (held > k) return outside(place.name, `the initial marking holds ${held} tokens there, more than ${k}`);
+  }
+  for (const place of places) {
+    const depositors = [...net.transitions]
+      .filter(t => [...t.outputPlaces()].some(p => p.name === place.name))
+      // VER-004: a completion step deposits for the caller's transition; name that one.
+      .map(t => sourceTransition(net, t.name))
+      .sort(compareCodePoints);
+    if (depositors.length > 0) return outside(place.name, `transition '${depositors[0]}' deposits into it`);
+  }
+  return null;
 }

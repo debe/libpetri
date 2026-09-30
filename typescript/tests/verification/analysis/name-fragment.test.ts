@@ -11,6 +11,7 @@ import { SmtVerifier } from '../../../src/verification/smt-verifier.js';
 import { joinedOrDeadLettered } from '../../../src/verification/smt-property.js';
 import { bindProducers } from '../../fixtures/producing-actions.js';
 import { describeZ3 } from '../../fixtures/z3.js';
+import { allMints } from '../../fixtures/all-mints.js';
 
 // `join1` matches on `a`/`b` and also consumes `c`, a key of `join2`, as a non-correlated
 // input: at runtime it takes `c`'s oldest token, whatever its name. With `mintB` first
@@ -59,7 +60,7 @@ describe('name fragment (NU-050)', () => {
       .match(matchSpec(matchKey(emoji, (s: string) => nameId(s)), matchKey(privateUse, (s: string) => nameId(s))))
       .outputs(outPlace(out))
       .build();
-    const fragment = classify(PetriNet.builder('join-order').transitions(mint, join).build(), 'base', new Set())!;
+    const fragment = classify(PetriNet.builder('join-order').transitions(mint, join).build(), 'base', new Set(), allMints(PetriNet.builder('join-order').transitions(mint, join).build()))!;
 
     const role = fragment.role('join');
     expect(role.type).toBe('join');
@@ -70,8 +71,8 @@ describe('name fragment (NU-050)', () => {
 describe('name fragment: off-key coloured input on a join (NU-051 AC7)', () => {
   it('is out of fragment in both modes', () => {
     const { net } = offKeyColouredNet();
-    expect(classify(net, 'base', new Set())).toBeNull();
-    expect(classify(net, 'extended', new Set())).toBeNull();
+    expect(classify(net, 'base', new Set(), allMints(net))).toBeNull();
+    expect(classify(net, 'extended', new Set(), allMints(net))).toBeNull();
   });
 });
 

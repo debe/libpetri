@@ -21,6 +21,7 @@ import type {
   TokenSupplier,
 } from '../verification/verification-harness.js';
 import { requireOutputProducingActions } from './internal/output-action-check.js';
+import { placeNames } from './internal/place-names.js';
 
 // Re-export the real harness types from the verification module for callers
 // that import from `core/subnet-def.js`. The previous task-#10 placeholder
@@ -41,9 +42,10 @@ export interface SubnetVerifyOptions {
    * (property, environment places, environment mode), and with the synthetic net; returns the
    * verifier to run. It is how a caller sets anything the verifier offers: `timeout`,
    * `totalBudget`, `signal` ([VER-013]), sink places, the state-equation and enumeration options,
-   * and the ν options (`budgetPlaces`, `carrierPlaces`, `fragmentMode`, `nuMaxClasses`). Resolve
-   * places against `synth`: the subnet's own places are named `sut/<place>`, the ports'
-   * synthetic places `harness_in_<port>` / `harness_out_<port>` / `harness_io_<port>`. What it
+   * and the ν options (`mintTransitions`, `budgetPlaces`, `carrierPlaces`, `fragmentMode`,
+   * `nuMaxClasses`). Resolve places and transitions against `synth`: the subnet's own are named
+   * `sut/<name>`, the ports' synthetic places `harness_in_<port>` / `harness_out_<port>` /
+   * `harness_io_<port>`. What it
    * sets overrides libpetri's setup, as `OpenNetOptions.configureSmt` does ([VER-022]); a hook
    * that replaces the environment mode takes responsibility for it.
    */
@@ -212,14 +214,24 @@ export class SubnetDef<P = void> {
    * `ignore()` is accepted but cannot yield `proven` — VER-006 refuses to certify a proof that
    * holds only because injection was never modeled.
    *
+   * `bounded(k)` describes the executor only when no transition deposits into an environment
+   * place ([VER-006] AC3). A subnet whose transitions write an in-out port deposits into its
+   * `harness_io_<port>` place, so under `bounded(k)` every property answers `unknown` naming
+   * that premise. Verify such a subnet under `alwaysAvailable()` or `arrivals(k)`.
+   *
    * ## ν subnets need the ν options
    *
-   * A subnet that mints and joins correlation names and threads a name through a relay is
-   * verified in the BASE fragment unless the caller says otherwise ([NU-051]). BASE reads such a
-   * relay as a fresh mint — a different model, in which a join the real net reaches may never
-   * fire, so a safety property can come back `proven` although the net violates it. Pass the
-   * carrier places and `fragmentMode('extended')` (and a budget place where one gates minting)
-   * through `options.configure`, naming the places `sut/<place>`.
+   * The ν routes of [NU-050] read a transition that writes a correlation name without consuming
+   * one as a fresh mint only when it is declared ([NU-010]): named in `mintTransitions`, or
+   * consuming a declared budget place. An undeclared one keeps the net off both routes and the
+   * verifier answers through the name-blind over-approximation, which is sound but often
+   * `unknown` or a spurious `violated`. A subnet is verified in the BASE fragment unless the
+   * caller says otherwise ([NU-051]), and BASE does not see carrier places, so a relay that
+   * copies a name from a carrier into a match key looks like such a write. Declaring the relay
+   * as a mint would be wrong (it copies a live name, and a copy joins). Pass the carrier places
+   * and `fragmentMode('extended')`, declare the transitions that do mint with `mintTransitions`
+   * (or a budget place where one gates minting), all through `options.configure` and named
+   * `sut/<name>`.
    *
    * @param harness the verification harness — supplies parameters, input-port
    *                token generators, and the property set
@@ -417,7 +429,9 @@ export class SubnetDef<P = void> {
    *         not in `net.transitions`, or port/channel names are not unique.
    */
   static fromNet(net: PetriNet, iface: Interface): SubnetDef<void> {
-    const bodyPlaces = net.places;
+    // By name: a port may name another object of a net place (TypeScript places are
+    // identified by name).
+    const bodyPlaces = placeNames(net.places);
     const bodyTransitions = net.transitions;
 
     // Re-validate port-name uniqueness (defence in depth — InterfaceBuilder
@@ -434,7 +448,7 @@ export class SubnetDef<P = void> {
         );
       }
       seenPortNames.add(port.name);
-      if (!bodyPlaces.has(port.place as Place<unknown>)) {
+      if (!bodyPlaces.has(port.place.name)) {
         throw new Error(
           `fromNet: port '${port.name}' references place '${port.place.name}' which is not in net '${net.name}' (MOD-014/MOD-006)`,
         );
@@ -524,7 +538,9 @@ export class SubnetDefBuilder<P = void> {
 
   build(): SubnetDef<P> {
     const built = this._bodyBuilder.build();
-    const bodyPlaces = built.places;
+    // By name: a port may name another object of a body place (TypeScript places are
+    // identified by name).
+    const bodyPlaces = placeNames(built.places);
     const bodyTransitions = built.transitions;
 
     // 1. Validate port-name uniqueness (MOD-006). Note: do NOT use
@@ -537,7 +553,7 @@ export class SubnetDefBuilder<P = void> {
       }
       portNames.add(port.name);
       // 2. Validate port place membership (MOD-006).
-      if (!bodyPlaces.has(port.place as Place<unknown>)) {
+      if (!bodyPlaces.has(port.place.name)) {
         throw new Error(
           `Subnet '${this._name}': port '${port.name}' references place '${port.place.name}' which is not in the body`,
         );

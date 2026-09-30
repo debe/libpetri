@@ -22,12 +22,32 @@ import { NameStateClassGraph } from './analysis/name-state-class-graph.js';
 import type { SmtProperty } from './smt-property.js';
 import type { Verdict } from './smt-verification-result.js';
 import type { Deadline } from './total-budget.js';
+import { hasLatestBound, relaxLate } from './reaping.js';
+import { compareCodePoints } from '../core/internal/code-point-order.js';
 
 const NOTE_EXACT =
   '\nNote: ν-join correlation decided exactly via the state-class-graph name-partition ' +
   'quotient — the symbolic graph closed, so the verdict is sound AND complete (no spurious ' +
   'different-name counterexample; quiescence is name-aware), beyond the bounded-budget ' +
   'fragment (NU-050, Route B).\n';
+
+/**
+ * {@link NOTE_EXACT} for a graph built on a net in which a transition keeps its latest bound (the
+ * on-time executor of `assumeNoReaping`, or a direct call of {@link verifyViaNameScg} on a timed
+ * net). The strong-semantics graph fires every transition by its latest bound and reads each
+ * firing as one instant step, so its verdict is exact for that executor alone ([VER-004],
+ * [TIME-013]).
+ */
+const NOTE_ON_TIME =
+  '\nNote: ν-join correlation decided via the state-class-graph name-partition quotient: the ' +
+  'symbolic graph closed, and a transition keeps its latest bound in it, so the verdict is exact ' +
+  'only for an on-time executor whose actions take no time (quiescence is name-aware; NU-050, ' +
+  'Route B).\n';
+
+/** The note of a closed graph built on `net` ({@link NOTE_EXACT} or {@link NOTE_ON_TIME}). */
+function closedNote(net: PetriNet): string {
+  return [...net.transitions].some(t => hasLatestBound(t.timing)) ? NOTE_ON_TIME : NOTE_EXACT;
+}
 
 export interface NuScgOutcome {
   readonly verdict: Verdict;
@@ -37,6 +57,32 @@ export interface NuScgOutcome {
   readonly classCount: number;
 }
 
+/**
+ * Decides `property` on the name-aware graph, or `null` outside the fragment, for a late
+ * executor ([VER-002], [VER-004], [TIME-006], [TIME-013]):
+ * - the graph is built on `relaxLate`'s net, in which no transition named in `late` has a
+ *   latest bound, for **every** property: a late executor reaps a deadline / window transition
+ *   or fires an exact one after its bound, and fires the others meanwhile, and a
+ *   strong-semantics `proven` of any property could miss those runs (Lean:
+ *   `TimedScg/Retrodict.reaping_escapes_timed_graph`);
+ * - an expanded class rests when every firing out of it is of a transition in `reapable`;
+ *   only a quiescence property reads it;
+ * - `'conflict'` priority semantics falls back to `'none'` when a transition in `reapable`
+ *   exists: a reapable transition that pre-empts a conflicting one on time is reaped by a
+ *   late executor, which then fires the other.
+ * Both empty (the default, the on-time executor of `assumeNoReaping`, or a net timed only
+ * with `immediate` and `delayed`), nothing changes.
+ *
+ * `mintTransitions` names the transitions declared to mint ([NU-010]; the verifier passes
+ * `declaredMints`). A transition that writes a coloured place without consuming one and is not
+ * named there puts the net outside the fragment.
+ *
+ * Applies no in-flight split ([VER-004]): it decides `net` as given, every firing atomic, and
+ * reads reaping only through `reapable` and `late`. `SmtVerifier.verify` splits the net first, and
+ * under `'conflict'` also splits every pruner and its feeders or turns the pruning off. On a graph
+ * that closes with a latest bound kept the note says the verdict is exact only for an on-time
+ * executor whose actions take no time.
+ */
 export function verifyViaNameScg(
   net: PetriNet,
   initial: MarkingState,
@@ -47,11 +93,60 @@ export function verifyViaNameScg(
   maxClasses: number,
   fragmentMode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
+  mintTransitions: ReadonlySet<string>,
   prioritySemantics: PrioritySemantics,
   conditionalSinks: readonly ConditionalSinks[] = [],
   deadline: Deadline | null = null,
+  reapable: ReadonlySet<string> = new Set(),
+  late: ReadonlySet<string> = new Set(),
 ): NuScgOutcome | null {
-  const fragment = classify(net, fragmentMode, carrierPlaces);
+  const reapableInNet = new Set([...net.transitions].map(t => t.name).filter(n => reapable.has(n)));
+  const lifted = new Set(
+    [...net.transitions].filter(t => late.has(t.name) && hasLatestBound(t.timing)).map(t => t.name),
+  );
+  if (reapableInNet.size === 0 && lifted.size === 0) {
+    return verifyNameScg(
+      net, initial, property, sinkPlaces, environmentPlaces, environmentMode, maxClasses, fragmentMode,
+      carrierPlaces, mintTransitions, prioritySemantics, conditionalSinks, deadline, new Set(),
+    );
+  }
+  const pruningOff = reapableInNet.size > 0 && prioritySemantics === 'conflict';
+  const semantics: PrioritySemantics = reapableInNet.size > 0 ? 'none' : prioritySemantics;
+  // The marking properties read no rest ([VER-004]).
+  const restsOn = safetyViolation(property) !== null ? new Set<string>() : reapableInNet;
+  const outcome = verifyNameScg(
+    relaxLate(net, lifted), initial, property, sinkPlaces, environmentPlaces, environmentMode,
+    maxClasses, fragmentMode, carrierPlaces, mintTransitions, semantics, conditionalSinks, deadline, restsOn,
+  );
+  if (outcome === null || outcome.note === '' || lifted.size === 0) return outcome;
+  return { ...outcome, note: outcome.note + latenessNote(lifted, pruningOff) };
+}
+
+/** The note Route B adds when it lifted latest bounds. */
+function latenessNote(lifted: ReadonlySet<string>, pruningOff: boolean): string {
+  const names = [...lifted].sort(compareCodePoints).join(', ');
+  return `Note: the latest bound of ${names} was lifted${pruningOff ? ' and priority pruning is off' : ''}, `
+    + 'so the graph holds the runs of a late executor, which reaps a deadline or window transition '
+    + 'and fires an exact one after its bound (TIME-006, TIME-013).\n';
+}
+
+function verifyNameScg(
+  net: PetriNet,
+  initial: MarkingState,
+  property: SmtProperty,
+  sinkPlaces: ReadonlySet<Place<any>>,
+  environmentPlaces: Set<EnvironmentPlace<any>>,
+  environmentMode: EnvironmentAnalysisMode,
+  maxClasses: number,
+  fragmentMode: FragmentMode,
+  carrierPlaces: ReadonlySet<string>,
+  mintTransitions: ReadonlySet<string>,
+  prioritySemantics: PrioritySemantics,
+  conditionalSinks: readonly ConditionalSinks[],
+  deadline: Deadline | null,
+  reapable: ReadonlySet<string>,
+): NuScgOutcome | null {
+  const fragment = classify(net, fragmentMode, carrierPlaces, mintTransitions);
   if (fragment === null) return null;
   // We model no initial colour assignment, so coloured places must start empty.
   for (const p of initial.placesWithTokens()) {
@@ -69,7 +164,7 @@ export function verifyViaNameScg(
 
   // On truncation the same predicate runs over the explored prefix ([VER-012] AC3): every
   // stored class is a real reachable class, and only an expanded class counts as quiescent.
-  const violating = decide(scg, property, sinkPlaces, conditionalSinks);
+  const violating = decide(scg, property, sinkPlaces, conditionalSinks, reapable);
   if (violating >= 0) {
     const [trace, transitions] = counterexamplePath(scg, violating);
     return {
@@ -78,7 +173,7 @@ export function verifyViaNameScg(
       transitions,
       note: scg.stoppedEarly()
         ? earlyStopNote(scg.classCount())
-        : complete ? NOTE_EXACT : prefixNote('ν name-aware state-class graph', maxClasses),
+        : complete ? closedNote(net) : prefixNote('ν name-aware state-class graph', maxClasses),
       classCount: scg.classCount(),
     };
   }
@@ -103,7 +198,7 @@ export function verifyViaNameScg(
     verdict: { type: 'proven', method: 'ν name-partition SCG (NU-050, Route B)', inductiveInvariant: null },
     trace: [],
     transitions: [],
-    note: NOTE_EXACT,
+    note: closedNote(net),
     classCount: scg.classCount(),
   };
 }
@@ -129,14 +224,17 @@ export function decide(
   property: SmtProperty,
   sinkPlaces: ReadonlySet<Place<any>>,
   conditionalSinks: readonly ConditionalSinks[],
+  reapable: ReadonlySet<string> = new Set(),
 ): number {
   return decideOverClasses(
     {
       count: scg.classCount(),
       markingOf: i => scg.markingOf(i),
       // A frontier class of a truncated graph was never expanded: no successors recorded, but
-      // not dead.
-      isQuiescent: i => i < scg.expandedCount() && scg.successorsOf(i).length === 0,
+      // not dead. An expanded class rests when nothing fires out of it, or only reapable
+      // transitions do ([VER-002] reap-quiescence, [TIME-013]).
+      isQuiescent: i => i < scg.expandedCount()
+        && scg.successorLabelsOf(i).every(label => reapable.has(label)),
     },
     property,
     sinkPlaces,

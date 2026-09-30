@@ -40,9 +40,14 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
       if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
         verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
+      // Optional shared-schema field: declared mint transitions (NU-010).
+      if (fixture.mintTransitions != null && fixture.mintTransitions.length > 0) {
+        verifier.mintTransitions(...fixture.mintTransitions);
+      }
       // Optional shared-schema fields: [VER-007]'s semiflow union, [VER-016]'s state equation.
       verifier.semiflowInvariants(fixture.semiflowInvariants === true);
       verifier.stateEquation(fixture.stateEquation === true);
+      verifier.assumeNoReaping(fixture.assumeNoReaping === true);
       const scripts = verifier.encodeScripts();
       const dir = join(scriptsDir, fixture.id);
       compare(fixture.id, join(dir, 'horn.smt2'), scripts.horn);

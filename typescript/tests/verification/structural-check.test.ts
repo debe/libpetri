@@ -28,13 +28,24 @@ describe('StructuralCheck', () => {
     expect(result.type).toBe('no-potential-deadlock');
   });
 
-  it('empty net is deadlock-free', () => {
+  it('empty net is inconclusive', () => {
     const net = PetriNet.builder('Empty').build();
     const flatNet = flatten(net);
     const marking = MarkingState.empty();
 
     const result = structuralCheck(flatNet, marking);
-    expect(result.type).toBe('no-potential-deadlock');
+    expect(result.type).toBe('inconclusive');
+  });
+
+  // A net with no transition is dead at every marking, yet its marked place is a
+  // siphon whose maximal trap (itself) is marked: Commoner's condition holds
+  // vacuously. The check must not answer no-potential-deadlock ([VER-020]).
+  it('a marked net without transitions is not proven deadlock-free', () => {
+    const pA = place('A');
+    const flatNet = flatten(PetriNet.builder('Empty').place(pA).build());
+    expect(flatNet.places.length).toBe(1);
+    const result = structuralCheck(flatNet, MarkingState.builder().tokens(pA, 1).build());
+    expect(result.type).toBe('inconclusive');
   });
 
   it('pipeline net with no initial marking has potential deadlock', () => {

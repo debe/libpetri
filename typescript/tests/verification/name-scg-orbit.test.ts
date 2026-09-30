@@ -3,6 +3,7 @@ import { NameStateClassGraph } from '../../src/verification/analysis/name-state-
 import { classify, type FragmentMode } from '../../src/verification/analysis/name-fragment.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import { FIG_11B_ROWS, FIG_11C_ROWS, FIG_12A_ROWS, FIG_13B_ROWS, pnidNet } from '../fixtures/pnid-nets.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * [VER-012] implementation note: a join (or coloured consume) emits one successor per distinct
@@ -51,7 +52,7 @@ function build(c: Case): NameStateClassGraph {
   const { net, places } = pnidNet('orbit', c.rows);
   const m = MarkingState.builder();
   for (const [n, k] of c.marking) m.tokens(places.get(n)!, k);
-  const fragment = classify(net, c.mode, new Set(c.carriers));
+  const fragment = classify(net, c.mode, new Set(c.carriers), allMints(net));
   expect(fragment).not.toBeNull();
   return NameStateClassGraph.build(net, m.build(), fragment!, c.cap);
 }

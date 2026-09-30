@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
-import { one, exactly } from '../../src/core/in.js';
+import { one, exactly, type In } from '../../src/core/in.js';
+import { matchKey, matchSpec } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 import { xorPlaces, andPlaces, outPlace, forwardInput, timeout } from '../../src/core/out.js';
-import { delayed } from '../../src/core/timing.js';
+import { delayed, MAX_DURATION_MS, type Timing } from '../../src/core/timing.js';
 
 describe('Transition', () => {
   const p1 = place<string>('P1');
@@ -142,5 +144,78 @@ describe('Transition', () => {
   it('toString', () => {
     const t = Transition.builder('MyT').build();
     expect(t.toString()).toBe('Transition[MyT]');
+  });
+});
+
+describe('arcs the helpers reject, written out directly (IO-002, IO-004, NU-020)', () => {
+  const a = place<string>('A');
+  const b = place<string>('B');
+  const merged = place<string>('merged');
+  const key = (v: string) => nameId(v);
+
+  it('matchSpec rejects a place keyed twice', () => {
+    expect(() => matchSpec(matchKey(a, key), matchKey(a, key))).toThrow(
+      "MatchSpec correlates input place 'A' twice",
+    );
+  });
+
+  it('build rejects a place keyed twice in a literal spec', () => {
+    expect(() =>
+      Transition.builder('join')
+        .inputs(one(a), one(b))
+        .match({ keys: [matchKey(a, key), matchKey(a, key)] })
+        .outputs(outPlace(merged))
+        .build(),
+    ).toThrow("MatchSpec correlates input place 'A' twice");
+  });
+
+  it('build rejects an input that requires no token', () => {
+    const zero: In[] = [
+      { type: 'exactly', place: b, count: 0 },
+      { type: 'at-least', place: b, minimum: 0 },
+    ];
+    for (const spec of zero) {
+      expect(() =>
+        Transition.builder('join')
+          .inputs(one(a), spec)
+          .match(matchSpec(matchKey(a, key), matchKey(b, key)))
+          .outputs(outPlace(merged))
+          .build(),
+      ).toThrow("input 'B' of transition 'join' requires 0 tokens");
+    }
+  });
+});
+
+describe('timings the factories reject, written out directly (TIME-001 AC5)', () => {
+  const t = (timing: Timing) => Transition.builder('t').timing(timing).build();
+
+  it('build rejects each invalid literal with the factory message', () => {
+    const cases: [Timing, string][] = [
+      [{ type: 'delayed', afterMs: MAX_DURATION_MS + 1 }, 'Delay must be at most MAX_DURATION_MS'],
+      [{ type: 'delayed', afterMs: -1 }, 'Delay must be non-negative'],
+      [
+        { type: 'window', earliestMs: MAX_DURATION_MS + 1, latestMs: MAX_DURATION_MS + 2 },
+        'Earliest must be at most MAX_DURATION_MS',
+      ],
+      [{ type: 'window', earliestMs: 5, latestMs: 3 }, 'Latest (3) must be >= earliest (5)'],
+      [{ type: 'exact', atMs: MAX_DURATION_MS + 1 }, 'Exact time must be at most MAX_DURATION_MS'],
+      [{ type: 'deadline', byMs: 0 }, 'Deadline must be positive: 0'],
+    ];
+    for (const [timing, message] of cases) {
+      expect(() => t(timing)).toThrow(message);
+    }
+  });
+
+  it('build accepts a valid literal', () => {
+    const valid: Timing[] = [
+      { type: 'immediate' },
+      { type: 'deadline', byMs: 1 },
+      { type: 'delayed', afterMs: MAX_DURATION_MS },
+      { type: 'window', earliestMs: MAX_DURATION_MS, latestMs: MAX_DURATION_MS },
+      { type: 'exact', atMs: MAX_DURATION_MS },
+    ];
+    for (const timing of valid) {
+      expect(t(timing).timing).toEqual(timing);
+    }
   });
 });

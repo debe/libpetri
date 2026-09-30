@@ -88,6 +88,11 @@ export type ScgOutcome =
  * {@link decideOverStateSpace}; a `StateSpaceCache` runs the same two steps
  * with the build shared across queries.
  *
+ * Applies neither the in-flight split of [VER-004] nor reap-aware quiescence ([TIME-013]):
+ * it decides `net` as given, every firing atomic and every quiescence strict. `SmtVerifier.verify`
+ * applies both before it calls this; a direct caller rewrites the net itself or reads the verdict
+ * under those assumptions.
+ *
  * @param maxClasses the class budget; `<= 0` disables the route (the caller then
  *   never calls this).
  */
@@ -139,6 +144,11 @@ export function buildStateSpace(
  * **expanded** class with no successor counts as quiescent; a frontier class whose successors
  * were never computed is not dead. A hit is a `violated` with `truncated: true`; no hit is
  * `truncated`. A prefix never proves anything.
+ *
+ * `reapable` names the transitions a late executor can reap ([TIME-013]): an expanded class
+ * whose enabled transitions are all reapable rests too ([VER-002] reap-quiescence). On a timed
+ * graph, build it on `relaxLate`'s net to include the runs a late executor takes after a
+ * reap. Empty (the default), the rule is the plain one.
  */
 export function decideOverStateSpace(
   graph: StateClassGraph,
@@ -146,6 +156,7 @@ export function decideOverStateSpace(
   sinkPlaces: ReadonlySet<Place<any>>,
   conditionalSinks: readonly ConditionalSinks[] = [],
   asPrefix = false,
+  reapable: ReadonlySet<string> = new Set(),
 ): ScgOutcome {
   const closed = graph.isComplete() && !asPrefix;
   const classes = graph.stateClasses();
@@ -154,7 +165,8 @@ export function decideOverStateSpace(
     {
       count: classes.length,
       markingOf: i => classes[i]!.marking,
-      isQuiescent: i => i < expanded && graph.successors(classes[i]!).size === 0,
+      isQuiescent: i => i < expanded && (graph.successors(classes[i]!).size === 0
+        || (reapable.size > 0 && classes[i]!.enabledTransitions.every(t => reapable.has(t.name)))),
     },
     property,
     sinkPlaces,

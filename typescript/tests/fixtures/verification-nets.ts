@@ -15,6 +15,7 @@ import { one, all, atLeast } from '../../src/core/in.js';
 import { outPlace, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
+import { window } from '../../src/core/timing.js';
 import type { MarkingStateBuilder } from '../../src/verification/marking-state.js';
 import {
   type EnvironmentAnalysisMode,
@@ -303,6 +304,28 @@ function terminalForkInFlight(): VerificationFixtureNet {
 }
 
 /**
+ * p0(1),p1; t: one(p0)->p1 at window(3, 5). A late executor reaps t and rests at {p0}
+ * ([TIME-013], Lean `ReapingVsUntimed.reaping_refutes_ver004_ac3`).
+ */
+function reapingWindow(): VerificationFixtureNet {
+  const p0 = place('p0');
+  const p1 = place('p1');
+  const t = Transition.builder('t').inputs(one(p0)).outputs(outPlace(p1)).timing(window(3, 5)).build();
+  const net = PetriNet.builder('reapingWindow').transitions(t).build();
+  return fixture(net, m => m.tokens(p0, 1), [p0, p1]);
+}
+
+/** reapingWindow plus an immediate u: one(p0)->p1 that shadows t. */
+function reapingShadowed(): VerificationFixtureNet {
+  const p0 = place('p0');
+  const p1 = place('p1');
+  const t = Transition.builder('t').inputs(one(p0)).outputs(outPlace(p1)).timing(window(3, 5)).build();
+  const u = Transition.builder('u').inputs(one(p0)).outputs(outPlace(p1)).build();
+  const net = PetriNet.builder('reapingShadowed').transitions(t, u).build();
+  return fixture(net, m => m.tokens(p0, 1), [p0, p1]);
+}
+
+/**
  * The fixture net with `terminals` declared on the NET (EXEC-042), never on the verifier, or the
  * net itself when the fixture declares none. Places and transitions keep their order.
  */
@@ -338,4 +361,6 @@ export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   nuDrainedTerminal,
   nuScatterGather,
   terminalForkInFlight,
+  reapingWindow,
+  reapingShadowed,
 };

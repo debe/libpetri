@@ -2,11 +2,12 @@ import type { Place } from './place.js';
 import type { ArcInhibitor, ArcRead, ArcReset } from './arc.js';
 import type { In } from './in.js';
 import type { MatchKey, MatchSpec } from './match-spec.js';
+import { duplicateKey, duplicateKeyMessage } from './match-spec.js';
 import type { Out, OutTimeout } from './out.js';
 import type { Timing } from './timing.js';
 import type { TransitionAction } from './transition-action.js';
 import { passthrough } from './transition-action.js';
-import { immediate } from './timing.js';
+import { deadline, delayed, exact, immediate, window } from './timing.js';
 import { allPlaces, duplicateInBranch, duplicateOutputPlaceMessage } from './out.js';
 
 /** @internal Symbol key restricting construction to the builder. */
@@ -261,6 +262,28 @@ export class TransitionBuilder {
         throw new Error(duplicateInputArcMessage(this._name, spec.place.name));
       }
       seenInputPlaces.add(spec.place.name);
+      // IO-002 AC1 / IO-004 AC1: exactly() and atLeast() reject a count below 1, but a spec
+      // written as an object literal skips them. The executors would still wait for a token
+      // that the analyses do not require.
+      const required = spec.type === 'exactly' ? spec.count : spec.type === 'at-least' ? spec.minimum : 1;
+      if (!(required >= 1)) {
+        throw new Error(
+          `input '${spec.place.name}' of transition '${this._name}' requires ${required} tokens; `
+          + 'exactly(n) and atLeast(n) need n >= 1 (IO-002, IO-004)',
+        );
+      }
+    }
+
+    // TIME-001 AC5: a timing written as an object literal skips the factories' checks, so
+    // they run again here. Past MAX_DURATION_MS a state-class graph reads a transition that
+    // can fire as one that never can.
+    const tm = this._timing;
+    switch (tm.type) {
+      case 'immediate': break;
+      case 'deadline': deadline(tm.byMs); break;
+      case 'delayed': delayed(tm.afterMs); break;
+      case 'window': window(tm.earliestMs, tm.latestMs); break;
+      case 'exact': exact(tm.atMs); break;
     }
 
     // IO-011: outputs are sets, so a place named twice in one AND branch is rejected rather
@@ -282,8 +305,11 @@ export class TransitionBuilder {
       }
     }
 
-    // Validate MatchSpec correlates only declared input places (NU-020).
+    // Validate MatchSpec correlates only declared input places, each once (NU-020). A literal
+    // `{ keys }` spec does not go through matchSpec().
     if (this._matchSpec !== null) {
+      const dupKey = duplicateKey(this._matchSpec.keys);
+      if (dupKey !== null) throw new Error(`Transition '${this._name}': ${duplicateKeyMessage(dupKey)}`);
       const inputPlaceNames = new Set(this._inputSpecs.map(s => s.place.name));
       for (const k of this._matchSpec.keys) {
         if (!inputPlaceNames.has(k.place.name)) {

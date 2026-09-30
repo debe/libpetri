@@ -92,7 +92,7 @@ function isRelay(k: MatchKey): k is RelayKey {
  * do not count as correlated inputs.
  *
  * @throws if fewer than two inputs are correlated (a match over a single place
- *   correlates nothing).
+ *   correlates nothing), or if one place is keyed twice (NU-020).
  */
 export function matchSpec(...entries: MatchKey[]): MatchSpec {
   const keys: MatchKey[] = [];
@@ -104,7 +104,25 @@ export function matchSpec(...entries: MatchKey[]): MatchSpec {
   if (keys.length < 2) {
     throw new Error(`MatchSpec must correlate at least 2 input places, got ${keys.length}`);
   }
+  const dup = duplicateKey(keys);
+  if (dup !== null) throw new Error(duplicateKeyMessage(dup));
   return { keys, relays };
+}
+
+/** @internal The first place named by two of `keys`, or `null` (NU-020). */
+export function duplicateKey(keys: readonly MatchKey[]): string | null {
+  const seen = new Set<string>();
+  for (const k of keys) {
+    if (seen.has(k.place.name)) return k.place.name;
+    seen.add(k.place.name);
+  }
+  return null;
+}
+
+/** @internal The message for a place keyed twice (NU-020). */
+export function duplicateKeyMessage(place: string): string {
+  return `MatchSpec correlates input place '${place}' twice. A match names each correlated input `
+    + 'once (NU-020); the input\'s cardinality sets how many tokens of the name it takes.';
 }
 
 /** Returns the relay projection for `placeName`, or `undefined` if it is not a relay target. */

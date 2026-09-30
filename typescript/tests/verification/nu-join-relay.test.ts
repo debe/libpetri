@@ -14,7 +14,7 @@ import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { andPlaces, outPlace } from '../../src/core/out.js';
+import { andPlaces, forwardInput, outPlace, timeout, xor, type Out } from '../../src/core/out.js';
 import { matchKey, matchSpec, relayKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { produces } from '../fixtures/producing-actions.js';
@@ -26,6 +26,8 @@ import { compareScript } from '../fixtures/script-parity.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allMints } from '../fixtures/all-mints.js';
+import { declaredMints } from '../../src/verification/analysis/name-fragment.js';
 
 /**
  * [NU-054] join relay in the analysers: classification under EXTENDED / BASE (AC4, AC5), Route B
@@ -65,14 +67,23 @@ async function verify(r: Run): Promise<SmtVerificationResult> {
     .fragmentMode(r.mode ?? 'extended')
     .timeout(30_000);
   if (r.sinks) v = v.sinkPlaces(...r.sinks.map(p));
-  if (r.budgets) v = v.budgetPlaces(...r.budgets.map(p));
+  if (r.budgets) {
+    v = v.budgetPlaces(...r.budgets.map(p));
+  } else {
+    // Without the budget declaration the mints are declared by name (NU-010): the transitions
+    // that consume an initially marked place, which is where each fixture's budget sits.
+    const marked = new Set(r.marking.map(([n]) => n));
+    v = v.mintTransitions(
+      ...[...net.transitions].filter(t => t.inputSpecs.some(s => marked.has(s.place.name))).map(t => t.name),
+    );
+  }
   if (r.carriers) v = v.carrierPlaces(...r.carriers.map(p));
   if (r.forceRouteA) v = v.nuMaxClasses(1);
   if (r.noLinearBound) v = v.linearBound(false);
   return v.verify();
 }
 
-const ROUTE_A_NOTE = 'bounded name-colouring';
+const ROUTE_A_NOTE = 'name-colouring over k colour slots';
 
 // ─── classification (AC4) ────────────────────────────────────────────────────
 
@@ -82,7 +93,7 @@ describe('NU-054 classification', () => {
 
   it('EXTENDED: relay targets join the coloured set and the join carries them', () => {
     const { net } = pnidNet('12c', FIG_12C_ROWS);
-    const f = classify(net, 'extended', new Set(FIG_12C_CARRIERS));
+    const f = classify(net, 'extended', new Set(FIG_12C_CARRIERS), allMints(net));
     expect(f).not.toBeNull();
     expect(f!.isColoured('P5')).toBe(true);
     const e = f!.role('e');
@@ -95,15 +106,15 @@ describe('NU-054 classification', () => {
 
   it('EXTENDED: a join producing a coloured place it does not declare is still a re-mint', () => {
     const { net } = pnidNet('12c', withoutRelays(FIG_12C_ROWS));
-    expect(classify(net, 'extended', new Set(FIG_12C_CARRIERS))).toBeNull();
+    expect(classify(net, 'extended', new Set(FIG_12C_CARRIERS), allMints(net))).toBeNull();
   });
 
   it('BASE ignores the declaration: the relaying join is rejected as before', () => {
     const { net } = pnidNet('12c', FIG_12C_ROWS);
-    expect(classify(net, 'base', new Set())).toBeNull();
+    expect(classify(net, 'base', new Set(), allMints(net))).toBeNull();
     const { net: chain } = pnidNet('chain', JOIN_CHAIN_ROWS);
-    expect(classify(chain, 'base', new Set())).toBeNull();
-    expect(classify(chain, 'extended', new Set())).not.toBeNull();
+    expect(classify(chain, 'base', new Set(), allMints(chain))).toBeNull();
+    expect(classify(chain, 'extended', new Set(), allMints(chain))).not.toBeNull();
   });
 
   /** fork: S → A, B (mint); j: A, B (+ extra) → C relaying to C; k: C, D joins C downstream. */
@@ -132,11 +143,11 @@ describe('NU-054 classification', () => {
   }
 
   it('accepts the plain relay under EXTENDED', () => {
-    expect(classify(relayNet('none'), 'extended', new Set())).not.toBeNull();
+    expect(classify(relayNet('none'), 'extended', new Set(), allMints(relayNet('none')))).not.toBeNull();
   });
 
   it('rejects a relay target the join also consumes off-key (NU-051 AC7)', () => {
-    expect(classify(relayNet('offKey'), 'extended', new Set())).toBeNull();
+    expect(classify(relayNet('offKey'), 'extended', new Set(), allMints(relayNet('offKey')))).toBeNull();
   });
 
   it('a relay target no join consumes is coloured all the same, and its read arc rejects', () => {
@@ -150,16 +161,16 @@ describe('NU-054 classification', () => {
     const j = Transition.builder('j').inputs(one(a), one(b)).outputs(outPlace(c))
       .match(matchSpec(key(a), key(b), relay(c))).action(produces()).build();
     const plain = PetriNet.builder('sinkRelay').transitions(fork, j).build();
-    const f = classify(plain, 'extended', new Set());
+    const f = classify(plain, 'extended', new Set(), allMints(plain));
     expect(f?.isColoured('C')).toBe(true);
     const watcher = Transition.builder('w').inputs(one(x)).outputs(outPlace(y)).read(c).action(produces()).build();
     const read = PetriNet.builder('sinkRelayRead').transitions(fork, j, watcher).build();
-    expect(classify(read, 'extended', new Set())).toBeNull();
+    expect(classify(read, 'extended', new Set(), allMints(read))).toBeNull();
   });
 
   for (const arc of ['read', 'inhibitor', 'reset'] as const) {
     it(`rejects a relay target carrying a ${arc} arc`, () => {
-      expect(classify(relayNet(arc), 'extended', new Set())).toBeNull();
+      expect(classify(relayNet(arc), 'extended', new Set(), allMints(relayNet(arc)))).toBeNull();
     });
   }
 });
@@ -320,7 +331,7 @@ describe('NU-054 Route A plan', () => {
     const initial = m.build();
     const flat = flatten(net);
     const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    return { flat, plan: buildColouredPlan(net, flat, initial, new Set(budgets), mode, new Set(), semiflows) };
+    return { flat, plan: buildColouredPlan(net, flat, initial, declaredMints(net, new Set(budgets), new Set()), mode, new Set(), semiflows) };
   }
 
   it('colours a relay target no join consumes, and produces on it from the join', () => {
@@ -343,6 +354,63 @@ describe('NU-054 Route A plan', () => {
     expect(b.kind === 'join' && [...b.relayOut].sort()).toEqual([idx('Y1'), idx('q'), idx('w')].sort());
     expect(planOf(N1_CORR_ROWS, [['SUPPLY', 1]], ['SUPPLY'], 'base').plan).toBeNull();
   });
+});
+
+// ─── a join's timeout writes into a relay target ─────────────────────────────
+
+describeZ3('NU-054 a join timeout write into a relay target', () => {
+  const key = <T>(p: ReturnType<typeof place<T>>) => matchKey(p, (v: T) => nameId(String(v)));
+  const relay = <T>(p: ReturnType<typeof place<T>>) => relayKey(p, (v: T) => nameId(String(v)));
+
+  /**
+   * The AC3 join chain with j1's relay into C written two ways: by the action, or by the executor
+   * on timeout (`child`). j1 also consumes the uncoloured Z, so a forward of a non-key input can be
+   * stated.
+   */
+  function chainWithTimeout(child: (a: any, z: any, c: any) => Out) {
+    const [s, a, b, c, d, z, done] = ['S', 'A', 'B', 'C', 'D', 'Z', 'done'].map(n => place<string>(n));
+    const fork = Transition.builder('fork').inputs(one(s!)).outputs(andPlaces(a!, b!, d!)).action(produces()).build();
+    const j1 = Transition.builder('j1').inputs(one(a!), one(b!), one(z!))
+      .outputs(xor(outPlace(c!), timeout(10, child(a, z, c))))
+      .match(matchSpec(key(a!), key(b!), relay(c!))).action(produces()).build();
+    const j2 = Transition.builder('j2').inputs(one(c!), one(d!)).outputs(outPlace(done!))
+      .match(matchSpec(key(c!), key(d!))).action(produces()).build();
+    const net = PetriNet.builder('chain-timeout').transitions(fork, j1, j2).build();
+    return { net, s: s!, z: z!, done: done! };
+  }
+
+  function deadlock({ net, s, z, done }: ReturnType<typeof chainWithTimeout>) {
+    return SmtVerifier.forNet(net).enumerationMaxClasses(0)
+      .initialMarking(m => { m.tokens(s, 1).tokens(z, 1); })
+      .property(deadlockFree()).sinkPlaces(done).budgetPlaces(s)
+      .fragmentMode('extended').timeout(2_000).verify();
+  }
+
+  // The executor checks every token a join deposits in a relay target, timeout branches
+  // included. A unit token (`outPlace` under `timeout`) or a forward of a non-key input carries no
+  // name or another one, so that firing fails and deposits nothing: A and B are gone, D is
+  // stranded and the net deadlocks. The name layer would relay the matched name into C instead
+  // and let j2 fire, a wrong `proven`. Only a forward of a match key relays the matched name, and
+  // only that timeout write keeps the join in the fragment, for Route B and Route A alike.
+  it.each([
+    ['a unit token', (_a: any, _z: any, c: any) => outPlace(c)],
+    ['the non-key Z', (_a: any, z: any, c: any) => forwardInput(z, c)],
+  ] as const)('a timeout writing %s into the relay target is out of the fragment', async (_what, child) => {
+    const n = chainWithTimeout(child);
+    const r = await deadlock(n);
+    expect(r.verdict.type, r.report).not.toBe('proven');
+    expect(r.report).toContain('Route B (EXTENDED) declined');
+    expect(r.report).not.toContain('ν-encoding: name-coloured');
+    expect(classify(n.net, 'extended', new Set(), allMints(n.net))).toBeNull();
+  }, 30_000);
+
+  it('a timeout forwarding a match key into the relay target stays in the fragment', async () => {
+    const n = chainWithTimeout((a, _z, c) => forwardInput(a, c));
+    expect(classify(n.net, 'extended', new Set(), allMints(n.net))).not.toBeNull();
+    const r = await deadlock(n);
+    expect(r.route).toBe('nu-scg');
+    expect(r.verdict.type, r.report).toBe('proven');
+  }, 30_000);
 });
 
 // ─── orbit dedup with a relay step (VER-012) ─────────────────────────────────
@@ -377,7 +445,7 @@ describe('NU-054 relay step and the orbit dedup', () => {
       const { net, places } = pnidNet('orbit', c.rows);
       const m = MarkingState.builder();
       for (const [n, k] of c.marking) m.tokens(places.get(n)!, k);
-      const fragment = classify(net, 'extended', new Set(c.carriers))!;
+      const fragment = classify(net, 'extended', new Set(c.carriers), allMints(net))!;
       expect(fragment).not.toBeNull();
       const g = NameStateClassGraph.build(net, m.build(), fragment, 100_000);
       expect(g.isComplete()).toBe(true);
@@ -389,7 +457,7 @@ describe('NU-054 relay step and the orbit dedup', () => {
           if (role.type !== 'join' || role.relayTo.size === 0) continue;
           for (const vt of expandTransition(t)) {
             const emitted = nameSuccessors(role, cls.names, vt.outputPlaces, fragment, { next: 0 })
-              .map(nm => nm.canonicalKey(fragment.colouredOrder));
+              .map(step => step.after.canonicalKey(fragment.colouredOrder));
             // Per-symbol reference step: every enabling symbol, no dedup.
             const [first, firstReq] = role.colouredIn[0]!;
             const reference = new Set<string>();

@@ -56,9 +56,12 @@ export interface Fixture {
   readonly terminals?: readonly string[];
   /** ν budget places (NU-040): put a reachability-safety query on Route A's coloured encoding. */
   readonly budgetPlaces?: readonly string[];
+  readonly mintTransitions?: readonly string[];
   readonly semiflowInvariants?: boolean;
   /** VER-016: encode the state equation with firing counters (default off). */
   readonly stateEquation?: boolean;
+  /** TIME-013: read quiescence strictly, as if no transition were reaped (default off). */
+  readonly assumeNoReaping?: boolean;
   /** `'B'` = decided by the ν name-aware SCG verifier (NU-050 Route B); absent = Route A. */
   readonly route?: string;
   readonly expected: 'proven' | 'violated' | 'unknown';
@@ -134,9 +137,15 @@ describeZ3('verdict parity (spec/verification-fixtures/fixtures.json)', () => {
       if (fixture.budgetPlaces != null && fixture.budgetPlaces.length > 0) {
         verifier.budgetPlaces(...fixture.budgetPlaces.map(n => placeOf(built.places, n)));
       }
+      // Optional shared-schema field: declared mint transitions (NU-010).
+      if (fixture.mintTransitions != null && fixture.mintTransitions.length > 0) {
+        verifier.mintTransitions(...fixture.mintTransitions);
+      }
       // Optional shared-schema fields: [VER-007]'s semiflow union, [VER-016]'s state equation.
       verifier.semiflowInvariants(fixture.semiflowInvariants === true);
       verifier.stateEquation(fixture.stateEquation === true);
+      // Optional shared-schema field: [TIME-013]'s strict reading of quiescence.
+      verifier.assumeNoReaping(fixture.assumeNoReaping === true);
       const result = await verifier.verify();
 
       // The route marker is checked FIRST: a `route: 'B'` fixture that silently

@@ -19,9 +19,15 @@
  * **finite set of `k` colours**. Each coloured
  * place becomes `k` per-colour integer counts; a mint introduces a *globally
  * fresh* colour (one currently empty everywhere); a matched join consumes the
- * **same colour** from every correlated input. Within the budget bound the
- * encoding is *exact* — sound and complete — so no different-name counterexample
- * survives.
+ * **same colour** from every correlated input, so no counterexample equates two
+ * different names.
+ *
+ * The encoding reads two things it cannot check off the net. A declared mint
+ * ({@link buildColouredPlan}'s `mintTransitions`: named by the caller, or consuming a
+ * declared budget place) writes a freshly minted name ([NU-010]), and an EXTENDED coloured
+ * consumer writes the name it consumed ([NU-051]). A `proven` is sound while those contracts
+ * hold; the Lean development proves that inclusion (every run of the net is a run of the
+ * encoding), not the converse.
  *
  * **Supported fragment**: {@link buildColouredPlan} returns `null` (and the
  * verifier falls back to the sound over-approximation) unless the net is in the
@@ -30,7 +36,8 @@
  *   EXTENDED mode, [NU-051]) the declared carrier places and the joins' relay
  *   targets ([NU-054]);
  * - each coloured place is *produced only by* minting forks (count 1, no coloured
- *   input, costs ≥1 budget token), EXTENDED relays, or a matched join onto its
+ *   input, a declared mint, no coloured write on timeout), EXTENDED relays (a timeout
+ *   write only as a forward of the consumed input), or a matched join onto its
  *   declared relay targets (count 1, the join's shared colour), and *consumed only by*
  *   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
  *   drain drops it, each consuming exactly one coloured input at count 1;
@@ -65,6 +72,7 @@ import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
 import type { FragmentMode } from '../analysis/name-fragment.js';
+import { timeoutWrites } from '../analysis/branch-outcomes.js';
 import {
   countViolationCondition, indexOrdered, injectionMap, type SmtEncoding, strandedConditions,
 } from './smt-encoder.js';
@@ -91,10 +99,18 @@ export interface ColouredPlan {
   readonly coloured: readonly number[];
   /** Per flat place: whether it is coloured. */
   readonly isColoured: readonly boolean[];
-  /** Colour bound — the number of simultaneously-live names (the P-semiflow slot bound). */
+  /**
+   * Colour-slot bound: `y·M0` for the tightest non-negative P-semiflow `y` that weights every
+   * coloured place, so at least the number of names live at once. Not the initial budget: it
+   * can be several times larger, and it is `0` when no coloured token can exist.
+   */
   readonly k: number;
   /** Classification, one entry per flat transition (XOR branches included). */
   readonly classes: readonly Klass[];
+  /** The net transitions read as mints, in net order ([NU-010]). */
+  readonly mints: readonly string[];
+  /** The net transitions whose rows relay a colour as coloured consumers ([NU-051]). */
+  readonly relays: readonly string[];
 }
 
 /**
@@ -168,12 +184,17 @@ function colourSlotBound(coloured: readonly number[], semiflows: readonly PInvar
  *
  * `semiflows` are the net's non-negative P-semiflows ({@link computePSemiflows}); a
  * covering one sets the colour-slot bound `k` (see {@link colourSlotBound}).
+ *
+ * `mintTransitions` names the transitions declared to mint ([NU-010]; see `declaredMints`
+ * in `name-fragment`). A row that writes a coloured place without consuming one is a mint
+ * only when its transition is named there, and never when the transition writes a coloured
+ * place on timeout.
  */
 export function buildColouredPlan(
   net: PetriNet,
   flat: FlatNet,
   initial: MarkingState,
-  budgetNames: ReadonlySet<string>,
+  mintTransitions: ReadonlySet<string>,
   fragmentMode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
   semiflows: readonly PInvariant[],
@@ -235,14 +256,6 @@ export function buildColouredPlan(
   // `ForAll` binder list empty); such a net holds no token at M0, so fall back.
   if (k === 0 && coloured.length === P) return null;
 
-  // Budget places gate minting: a mint must consume ≥1 budget token — that is what
-  // makes it a fresh-name fork rather than an arbitrary coloured producer.
-  const budgetIdx = new Set<number>();
-  for (const n of budgetNames) {
-    const i = flat.placeIndex.get(n);
-    if (i != null) budgetIdx.add(i);
-  }
-
   // No inhibitor/read/reset/consume-all arc may touch a coloured place.
   for (const ft of flat.transitions) {
     const touches =
@@ -255,7 +268,18 @@ export function buildColouredPlan(
 
   // 2. Classify each flat row from its own incidence (matchSpec from its source).
   const classes: Klass[] = [];
+  const mints: string[] = [];
+  const relays: string[] = [];
   for (const ft of flat.transitions) {
+    const t = ft.source;
+    // What the executor itself writes into a coloured place on timeout ([IO-013], [IO-014]):
+    // a copy of a consumed value, or a unit token with no name. A flat row does not say
+    // whether the action or the timeout wrote it (equal outcomes share a row), so the rule
+    // reads the source transition.
+    const timeoutColoured = timeoutWrites(t).filter((w) => {
+      const pid = flat.placeIndex.get(w.to);
+      return pid != null && isColoured[pid]!;
+    });
     const colouredIn = coloured.filter((pid) => ft.preVector[pid]! > 0);
     const colouredOut = coloured.filter((pid) => ft.postVector[pid]! > 0);
     const ms = ft.source.matchSpec;
@@ -268,9 +292,14 @@ export function buildColouredPlan(
       if (colouredIn.length === 0) return null;
       if (colouredOut.some((pid) => !relayNames.has(flat.places[pid]!.name) || ft.postVector[pid]! !== 1)) return null;
       if (colouredIn.some((pid) => ft.preVector[pid]! !== 1)) return null;
+      const keyPlaces = new Set(ms.keys.map((k) => k.place.name));
+      // What the executor writes into a relay target on timeout is checked like an action's
+      // write ([NU-054]): only a forward of a match key carries the join's colour. A unit token
+      // has none and a forward of another input carries that input's, so such a firing fails
+      // and deposits nothing, while this row would relay the colour.
+      if (timeoutColoured.some((w) => w.from === null || !keyPlaces.has(w.from))) return null;
       // Every coloured input must be a key: an off-key one is taken FIFO at runtime,
       // whatever its colour, not the join's shared colour.
-      const keyPlaces = new Set(ms.keys.map((k) => k.place.name));
       if (colouredIn.some((pid) => !keyPlaces.has(flat.places[pid]!.name))) return null;
       classes.push({ kind: 'join', colouredIn, relayOut: colouredOut });
     } else if (colouredIn.length !== 0) {
@@ -282,16 +311,24 @@ export function buildColouredPlan(
       if (fragmentMode !== 'extended') return null;
       if (colouredIn.length !== 1 || ft.preVector[colouredIn[0]!]! !== 1) return null;
       if (colouredOut.some((o) => ft.postVector[o]! !== 1)) return null;
+      // A timeout deposit relays the consumed colour only when it forwards the coloured input
+      // itself ([NU-051]): a forward of another input copies a name this row did not consume,
+      // and a unit token has none.
+      const inputName = flat.places[colouredIn[0]!]!.name;
+      if (timeoutColoured.some((w) => w.from !== inputName)) return null;
+      if (colouredOut.length !== 0 && !relays.includes(t.name)) relays.push(t.name);
       classes.push({ kind: 'consume', inputCol: colouredIn[0]!, colouredOut });
     } else if (colouredOut.length !== 0) {
-      // Minting fork: produces coloured (count 1), consumes none, and must consume
-      // ≥1 budget token — that is what makes it a fresh-name fork rather than an
-      // arbitrary coloured producer. (Boundedness is decided by the colour-slot bound
-      // above, not here.)
+      // Minting fork: produces coloured (count 1), consumes none, and is a declared mint
+      // (named by the caller, or consuming a declared budget place). The declaration is what
+      // states the mint contract of [NU-010]: the action writes a name freshly minted by
+      // `freshName()`. Nothing in the net tells a mint from an action that copies a live
+      // correlation id. (Boundedness is decided by the colour-slot bound above, not here.)
       if (colouredOut.some((o) => ft.postVector[o]! !== 1)) return null;
-      let budgetConsumed = 0;
-      for (const b of budgetIdx) budgetConsumed += ft.preVector[b]!;
-      if (budgetConsumed < 1) return null;
+      if (!mintTransitions.has(t.name)) return null;
+      // What the executor writes on timeout is never fresh, declared or not.
+      if (timeoutColoured.length > 0) return null;
+      if (!mints.includes(t.name)) mints.push(t.name);
       classes.push({ kind: 'mint', colouredOut });
     } else {
       // Touches no coloured place at all.
@@ -299,7 +336,7 @@ export function buildColouredPlan(
     }
   }
 
-  return { coloured, isColoured, k, classes };
+  return { coloured, isColoured, k, classes, mints, relays };
 }
 
 /**
@@ -442,22 +479,29 @@ export function encodeColoured(
           }));
         }
         break;
-      case 'consume':
+      case 'consume': {
         // One rule per colour: consume colour c from the single coloured input and
-        // thread it into each coloured output (relay), or into none (drain).
+        // thread it into each coloured output (relay), or into none (drain). A relay back
+        // into its own input (a self-loop) nets to zero, as a join's key that is also a
+        // relay target does: the column keeps its `>= 1` guard and is carried over
+        // unchanged. encodeRule keeps one update per column, so writing `- 1` and then
+        // `+ 1` would leave only the `+ 1`.
+        const selfLoop = cls.colouredOut.includes(cls.inputCol);
         for (let c = 0; c < k; c++) {
           lines.push(encodeRule(plan, lay, invariants, (enab, upd) => {
             uncolouredIncidence(lay, plan, ft, enab, upd);
             const icol = lay.colCol[cls.inputCol]![c]!;
             enab.push(`(>= ${lay.cur[icol]} 1)`);
-            upd.push({ col: icol, expr: `(- ${lay.cur[icol]} 1)` });
+            if (!selfLoop) upd.push({ col: icol, expr: `(- ${lay.cur[icol]} 1)` });
             for (const o of cls.colouredOut) {
+              if (o === cls.inputCol) continue;
               const ocol = lay.colCol[o]![c]!;
               upd.push({ col: ocol, expr: `(+ ${lay.cur[ocol]} 1)` });
             }
           }));
         }
         break;
+      }
     }
   }
   lines.push('');
@@ -487,9 +531,13 @@ function encodeRule(plan: ColouredPlan, lay: Layout, invariants: readonly PInvar
   const conditions: string[] = [`(Reachable ${lay.cur.join(' ')})`, ...enab];
 
   // A changed column gets its update + non-negativity guard; every other column is
-  // copied unchanged. A later update of the same column wins.
+  // copied unchanged. Each column is updated at most once: a second write would replace the
+  // first rather than add to it, so every caller nets a self-loop out before pushing.
   const changed: (string | null)[] = new Array<string | null>(lay.cur.length).fill(null);
-  for (const u of upd) changed[u.col] = u.expr;
+  for (const u of upd) {
+    if (changed[u.col] != null) throw new Error(`column ${u.col} updated twice in one rule`);
+    changed[u.col] = u.expr;
+  }
   for (let col = 0; col < lay.cur.length; col++) {
     const expr = changed[col];
     if (expr != null) {
@@ -757,10 +805,12 @@ function joinColoured(conds: readonly string[]): string {
 }
 
 /**
- * Colour-aware quiescence predicate (NU-053): every transition is disabled (no
- * colour enables it). Mirrors the flat `encodeQuiescent` with the same
+ * Colour-aware quiescence predicate (NU-053): every transition that is not
+ * reapable is disabled (no colour enables it). A reapable transition contributes
+ * no clause, since a late executor reaps it and rests with it enabled (VER-002
+ * reap-quiescence, TIME-013). Mirrors the flat `encodeQuiescent` with the same
  * env-injection relaxation (VER-006), lifted to the coloured layout. Carries no
- * sink clause — each property conjoins its own.
+ * sink clause; each property conjoins its own.
  *
  * `null` means some transition is enabled in every marking: never quiescent.
  */
@@ -774,6 +824,8 @@ function encodeColouredQuiescent(
   for (let ti = 0; ti < plan.classes.length; ti++) {
     const cls = plan.classes[ti]!;
     const ft = flat.transitions[ti]!;
+    // Reap-quiescence ([VER-002], [TIME-013]), as the flat encoder.
+    if (ft.reapable) continue;
     const reasons: string[] = [];
     const permanentlyDisabled = uncolouredDisable(ft, lay, plan, envInj, reasons);
     if (permanentlyDisabled) {

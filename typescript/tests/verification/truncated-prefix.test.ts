@@ -21,6 +21,7 @@ import { describeZ3 } from '../fixtures/z3.js';
 import {
   FIG_11B_ROWS, FIG_12C_ROWS, JOIN_CHAIN_ROWS, N1_CORR_ROWS, pnidNet,
 } from '../fixtures/pnid-nets.js';
+import { allMints } from '../fixtures/all-mints.js';
 
 /**
  * [VER-012] AC3, [VER-017], [VER-023]: a graph route that truncates still decides a violation
@@ -41,7 +42,7 @@ describe('Route B decides on its explored prefix (VER-012 AC3)', () => {
     // Default cap (100 000): the build stops at the violation instead of filling the cap, which
     // took 1.8 s at 20 000 classes before the early stop.
     const { net, places, m0 } = fig11b();
-    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(placeBound(places.get('order_clerk')!, 2)).verify();
     expect(result.verdict.type, result.report).toBe('violated');
     expect(result.route).toBe('nu-scg');
@@ -55,7 +56,7 @@ describe('Route B decides on its explored prefix (VER-012 AC3)', () => {
 
   it('a quiescence property on the same net still explores to the cap', async () => {
     const { net, m0 } = fig11b();
-    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(deadlockFree()).nuMaxClasses(50).verify();
     expect(result.verdict.type, result.report).toBe('unknown');
     expect(result.route).toBe('nu-scg');
@@ -67,7 +68,7 @@ describe('Route B decides on its explored prefix (VER-012 AC3)', () => {
     // create_order is always enabled, so no reachable class is quiescent; the unexpanded
     // frontier has no successors recorded only because nobody looked.
     const { net, m0 } = fig11b();
-    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(deadlockFree()).nuMaxClasses(50).verify();
     expect(result.verdict.type, result.report).toBe('unknown');
     expect(result.route).toBe('nu-scg');
@@ -75,7 +76,7 @@ describe('Route B decides on its explored prefix (VER-012 AC3)', () => {
 
   it('a prefix never proves: a property the prefix does not violate stays unknown', async () => {
     const { net, places, m0 } = fig11b();
-    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(placeBound(places.get('order_clerk')!, 100)).nuMaxClasses(50).verify();
     expect(result.verdict.type, result.report).toBe('unknown');
   });
@@ -93,7 +94,7 @@ function unboundedChain() {
 describe('VER-017 enumeration decides on its explored prefix', () => {
   it('a violation among the explored classes is decided on the enumeration route', async () => {
     const { net, p, m0 } = unboundedChain();
-    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(placeBound(p, 2)).enumerationMaxClasses(10).verify();
     expect(result.verdict.type, result.report).toBe('violated');
     expect(result.route).toBe('enumeration');
@@ -106,7 +107,7 @@ describe('VER-017 enumeration decides on its explored prefix', () => {
   it('a cached truncation keeps its prefix: a later query at that budget decides without building', async () => {
     const { net, c, p, m0 } = unboundedChain();
     const cache = new StateSpaceCache();
-    const q = (property: ReturnType<typeof placeBound>) => SmtVerifier.forNet(net).initialMarking(m0)
+    const q = (property: ReturnType<typeof placeBound>) => SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(property).stateSpaceCache(cache).enumerationMaxClasses(10);
     // Nothing in the first query's prefix violates it: it builds, records the truncation and falls
     // through to the SMT pipeline (a linear bound, or unknown without z3 — only the build matters).
@@ -131,7 +132,7 @@ describeZ3('VER-023 timed check decides on its explored prefix', () => {
     const gen = Transition.builder('gen').inputs(one(G)).outputs(andPlaces(G, A)).timing(delayed(1))
       .action(produces()).build();
     const net = PetriNet.builder('timed-producer').transition(gen).build();
-    const result = await SmtVerifier.forNet(net).initialMarking(m => m.tokens(G, 1))
+    const result = await SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m => m.tokens(G, 1))
       .property(placeBound(A, 2)).enumerationMaxClasses(50).timedCounterexampleCheck(true)
       .timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('violated');
@@ -171,7 +172,7 @@ describe('Route B early stop returns the full-graph witness (VER-012)', () => {
       const m0 = m.build();
       const property = c.property(p);
       const carriers = new Set(c.carriers ?? []);
-      const fragment = classify(net, 'extended', carriers)!;
+      const fragment = classify(net, 'extended', carriers, allMints(net))!;
 
       const full = NameStateClassGraph.build(net, m0, fragment, 2_000, new Set(), undefined, 'none', null, null);
       const target = decide(full, property, new Set(), []);
@@ -180,8 +181,7 @@ describe('Route B early stop returns the full-graph witness (VER-012)', () => {
       expect(transitions.length).toBeGreaterThan(0);
 
       const early = verifyViaNameScg(
-        net, m0, property, new Set(), new Set(), ignore(), 2_000, 'extended', carriers, 'none',
-      )!;
+        net, m0, property, new Set(), new Set(), ignore(), 2_000, 'extended', carriers, allMints(net), 'none')!;
       expect(early.verdict.type).toBe('violated');
       expect(early.note).toContain('stopped at the first violating class');
       expect(early.classCount).toBe(target + 1);

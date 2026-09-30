@@ -17,6 +17,10 @@ export function alwaysAvailable(): EnvironmentAnalysisMode {
  * injection refills the place up to `maxTokens`, forever, so a transition takes at most
  * `maxTokens` from it per firing but the total injected over a run is unbounded. For a bound on
  * the total, use {@link arrivals}.
+ *
+ * The model is the executor only when no transition deposits into an environment place and the
+ * initial marking holds at most `maxTokens` on each one ([VER-006] AC3). `SmtVerifier` checks
+ * both and answers `unknown`, naming the place, when either fails.
  */
 export function bounded(maxTokens: number): EnvironmentAnalysisMode {
   if (maxTokens < 0) throw new Error('maxTokens must be non-negative');

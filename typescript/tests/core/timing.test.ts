@@ -79,4 +79,23 @@ describe('Timing', () => {
       expect(earliest(exact(0))).toBe(0);
     });
   });
+
+  describe('earliest bound past the open end (TIME-001)', () => {
+    // [after, MAX_DURATION_MS] would be empty, and a state-class graph would read a transition
+    // that can fire as one that never can.
+    it('delayed rejects it', () => {
+      expect(() => delayed(MAX_DURATION_MS + 1)).toThrow('at most MAX_DURATION_MS');
+    });
+    it('window rejects it', () => {
+      expect(() => window(MAX_DURATION_MS + 1, MAX_DURATION_MS + 2)).toThrow('at most MAX_DURATION_MS');
+    });
+    it('exact rejects it', () => {
+      expect(() => exact(MAX_DURATION_MS + 1)).toThrow('at most MAX_DURATION_MS');
+    });
+    it('the open end itself is accepted', () => {
+      expect(earliest(delayed(MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
+      expect(earliest(window(MAX_DURATION_MS, MAX_DURATION_MS + 1))).toBe(MAX_DURATION_MS);
+      expect(earliest(exact(MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
+    });
+  });
 });
