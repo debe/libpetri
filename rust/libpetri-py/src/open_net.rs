@@ -347,10 +347,14 @@ impl PyOpenNetResult {
 ///
 /// The remaining keywords configure every verifier the SMT route builds, as `verify_net`
 /// takes them; `termination_timeout_ms` is the firing-bound query that decides termination
-/// there. Raises `StructureError` when the net violates CORE-043 or the closure's names
-/// collide with the net's.
+/// there. `assume_no_reaping` (default `False`, TIME-013) reads quiescence strictly, as if
+/// no `deadline` / `window` transition were ever reaped. `assume_atomic_firing` (default
+/// `False`, VER-004) reads every firing as one step instead of splitting a transition whose
+/// output another tests with an inhibitor, reset or drain. `mint_transitions` (NU-010) declares
+/// the transitions a ν route may read as minting a fresh name. Raises `StructureError` when
+/// the net violates CORE-043 or the closure's names collide with the net's.
 #[pyfunction(name = "verify_open_net")]
-#[pyo3(signature = (net, contract, *, max_classes = 50_000, smt = true, termination_timeout_ms = 60_000, timeout_ms = 60_000, linear_bound = true, state_equation = false, state_equation_phase = true, firing_bound = true, semiflow_invariants = None, cancel = None))]
+#[pyo3(signature = (net, contract, *, max_classes = 50_000, smt = true, termination_timeout_ms = 60_000, timeout_ms = 60_000, linear_bound = true, state_equation = false, state_equation_phase = true, firing_bound = true, semiflow_invariants = None, cancel = None, assume_no_reaping = false, assume_atomic_firing = false, mint_transitions = None))]
 fn py_verify_open_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -365,14 +369,19 @@ fn py_verify_open_net(
     firing_bound: bool,
     semiflow_invariants: Option<Bound<'_, PyAny>>,
     cancel: Option<PyRef<'_, crate::verification::PyCancelToken>>,
+    assume_no_reaping: bool,
+    assume_atomic_firing: bool,
+    mint_transitions: Option<Vec<String>>,
 ) -> PyResult<PyOpenNetResult> {
     let net = net.net().clone();
     let contract = contract.inner.clone();
     let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
     // Applied unconditionally, as `verify_net` does: the keyword defaults are the
     // verifier's own, so passing nothing builds what Rust builds without a configurator.
+    let mint_transitions = mint_transitions.unwrap_or_default();
     let configure: SmtConfigurator = Box::new(move |v| {
-        v.timeout(timeout_ms)
+        v.mint_transitions(mint_transitions.iter().cloned())
+            .timeout(timeout_ms)
             .linear_bound(linear_bound)
             .state_equation(state_equation)
             .state_equation_phase(state_equation_phase)
@@ -381,7 +390,18 @@ fn py_verify_open_net(
     });
     // VER-013: the graph build, every query and the termination ranking honour it.
     let cancel = cancel.map(|c| c.inner.clone());
-    let options = OpenNetOptions { max_classes, smt, configure_smt: Some(configure), termination_timeout_ms, cancel };
+    // TIME-013: quiescence read strictly, as if no deadline / window transition were reaped.
+    let mut options = OpenNetOptions::default()
+        .with_max_classes(max_classes)
+        .with_smt(smt)
+        .with_configure_smt(configure)
+        .with_termination_timeout_ms(termination_timeout_ms)
+        .with_assume_no_reaping(assume_no_reaping)
+        // VER-004: every firing read as one step (off by default: split).
+        .with_assume_atomic_firing(assume_atomic_firing);
+    if let Some(token) = &cancel {
+        options = options.with_cancel(token);
+    }
     // A CORE-043 net or a closure name collision panics; it must not unwind across the FFI
     // boundary, least of all out of a detached region.
     let result = panic_to_py(|| py.detach(move || verify_open_net(&net, &contract, &options)))?;

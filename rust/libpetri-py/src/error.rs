@@ -64,15 +64,20 @@ pub fn action_error(err: ActionError) -> PyErr {
     CallbackError::new_err(err.message)
 }
 
-/// Converts a panic payload into a Python `StructureError`.
-pub fn panic_payload(payload: Box<dyn Any + Send>) -> PyErr {
+/// The message a panic carried, or a fixed text when it carried no string.
+fn panic_message(payload: Box<dyn Any + Send>) -> String {
     if let Some(message) = payload.downcast_ref::<String>() {
-        return StructureError::new_err(message.clone());
+        return message.clone();
     }
     if let Some(message) = payload.downcast_ref::<&'static str>() {
-        return StructureError::new_err((*message).to_string());
+        return (*message).to_string();
     }
-    StructureError::new_err("libpetri panicked without a string payload")
+    "libpetri panicked without a string payload".to_string()
+}
+
+/// Converts a panic payload into a Python `StructureError`.
+pub fn panic_payload(payload: Box<dyn Any + Send>) -> PyErr {
+    StructureError::new_err(panic_message(payload))
 }
 
 /// Runs `f` and translates any panic into a Python `StructureError`, without the
@@ -80,4 +85,13 @@ pub fn panic_payload(payload: Box<dyn Any + Send>) -> PyErr {
 pub fn panic_to_py<T>(f: impl FnOnce() -> T) -> PyResult<T> {
     let _guard = TranslatingGuard(TRANSLATING.replace(true));
     catch_unwind(AssertUnwindSafe(f)).map_err(panic_payload)
+}
+
+/// Runs `f` and translates a panic into a Python `ValueError` carrying the panic's
+/// message, without the stderr dump. For the arc and timing factories, whose Rust
+/// counterparts assert their arguments (`delayed` past `MAX_DURATION_MS`, `window` with
+/// `latest < earliest`, `exactly(0, p)`, ...): a bad argument is a `ValueError` in Python.
+pub fn panic_to_value_error<T>(f: impl FnOnce() -> T) -> PyResult<T> {
+    let _guard = TranslatingGuard(TRANSLATING.replace(true));
+    catch_unwind(AssertUnwindSafe(f)).map_err(|payload| PyValueError::new_err(panic_message(payload)))
 }

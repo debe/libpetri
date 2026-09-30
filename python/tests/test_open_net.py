@@ -260,7 +260,9 @@ def test_smt_route_proves_the_gadget_and_decides_termination_by_a_firing_bound()
     assert r.route == "smt"
     assert "=== SMT route ===" in r.report
     assert "State-class graph: skipped (class budget 0)" in r.report
-    assert "  [termination] Firing bound (VER-019): every run has at most 5 firings" in r.report
+    # `X/run` writes `_halt`, which the starts inhibit, so it fires in two steps (VER-004).
+    assert "  [termination] Firing bound (VER-019): every run has at most 6 firings" in r.report
+    assert "In-flight actions (VER-004): X/run is verified in two steps" in r.report
     # The proof evidence is the conjunction of the parts' invariants, not nothing.
     assert r.inductive_invariant is not None and "[stranding]" in r.inductive_invariant
 
@@ -355,7 +357,9 @@ def _two_mints():
 @needs_z3
 def test_a_nu_net_is_not_proven_by_the_name_blind_graph():
     net, contract = _two_mints()
-    r = lp.verify_open_net(net, contract)
+    # The mints are declared (NU-010): the built-in fork copies its input, so without the
+    # declaration no ν route reads MINT_A and MINT_B as minting.
+    r = lp.verify_open_net(net, contract, mint_transitions=["MINT_A", "MINT_B"])
     assert r.verdict == "violated", r.report
     assert r.route == "smt"
     assert r.class_count == 0
@@ -391,7 +395,7 @@ def test_a_nu_net_gets_the_untimed_verdict_a_deadline_that_keeps_slow_from_firin
         .rest(done, "COL_A", "COL_B", "OUT")
         .build()
     )
-    r = lp.verify_open_net(net, contract)
+    r = lp.verify_open_net(net, contract, mint_transitions=["MINT_A", "MINT_B"])
     assert r.verdict == "violated", r.report
     assert r.route == "smt"
     assert [v.kind for v in r.violations] == ["stranded"], r.report

@@ -130,6 +130,9 @@ def terminates_at_sink() -> SmtProperty:
 
 
 def mutual_exclusion(places: Iterable[PlaceLike]) -> SmtProperty:
+    """No two of ``places`` are marked at once in any reachable marking ([VER-002]):
+    violated iff some two listed entries both hold a token, on every route. A place
+    listed twice pairs with itself; fewer than two entries are never violated."""
     return _ext.mutual_exclusion([_coerce_place_name(p) for p in places])
 
 
@@ -197,6 +200,30 @@ def _coerce_sink_places_when(
     return coerced
 
 
+def _coerce_transition_name(transition: Any, prefix: str = "") -> str:
+    """A transition name from a ``Transition`` (its name under ``prefix``) or a name
+    string (taken as spelled)."""
+    if isinstance(transition, str):
+        return transition
+    name = getattr(transition, "name", None)
+    if isinstance(name, str):
+        return prefix + name
+    raise TypeError("expected a Transition or transition-name string")
+
+
+def _coerce_mint_transitions(transitions: Any, prefix: str = "") -> list[str]:
+    """The ``mint_transitions`` names (NU-010). A bare string is refused: iterating it
+    would declare one mint per character."""
+    if transitions is None:
+        return []
+    if isinstance(transitions, (str, bytes)):
+        raise TypeError(
+            "mint_transitions takes an iterable of transitions or names, not a single "
+            f"string: pass [{transitions!r}]"
+        )
+    return [_coerce_transition_name(t, prefix) for t in transitions]
+
+
 def verify(
     net: BuiltNet,
     property: SmtProperty,
@@ -210,6 +237,7 @@ def verify(
     nu_max_classes: int | None = None,
     fragment_mode: str | int | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
+    mint_transitions: Iterable[BuiltTransition | str] | None = None,
     priority_semantics: str | int | None = None,
     certificate_check: bool = True,
     counterexample_replay: bool = True,
@@ -224,6 +252,8 @@ def verify(
     total_budget_ms: int | None = None,
     timed_counterexample_check: bool = False,
     cancel: CancelToken | None = None,
+    assume_no_reaping: bool = False,
+    assume_atomic_firing: bool = False,
 ) -> VerificationResult:
     """Verify ``property`` against ``net`` via SMT (Z3).
 
@@ -264,6 +294,17 @@ def verify(
     ``net`` surfaces as an ``unknown`` verdict whose ``reason`` names the
     offending place, never a silent fall-back.
 
+    ``mint_transitions`` (NU-010) declares the transitions (``Transition`` objects
+    or names) whose action writes a freshly minted name (``ctx.fresh_name()``) into
+    every match key, carrier or relay target it writes without consuming one. The
+    ν routes read such a write as a fresh name only when the transition is declared
+    here or consumes a declared budget place: an action may as well copy a
+    correlation id from its input, as the built-in fork does, and two copies of one
+    id join at run time. An undeclared one keeps the net off the ν routes. What the
+    executor writes on timeout is never read as a mint. A name that is no transition
+    of ``net`` makes the verdict ``unknown``; a single string instead of an iterable
+    raises ``TypeError``.
+
     ``priority_semantics`` (NU-052) selects how the ν-aware Route B analyzer
     treats transition priority. ``"none"`` (the default, also selectable as
     ``0``) is the priority- and timing-blind over-approximation: it expands every
@@ -274,6 +315,13 @@ def verify(
     conflicting (shares a consumed input place), strictly-higher-priority
     transition can pre-empt it — pruning exactly those interleavings the eager,
     priority-ordered executor never produces, without hiding a genuine stall.
+    A pruning transition pre-empts nothing while its own action is in flight, and
+    a feeder in flight has not yet enabled it, so by default every pruning
+    transition and every transition depositing into its input or read places is
+    verified in two steps (VER-004). When one of them cannot be split (a ν-join,
+    or a writer of a coloured place such as a mint), the pruning is off for that
+    call and the report says why: the canonical ν-join against a drain then gets
+    the ``"none"`` verdict unless ``assume_atomic_firing=True``.
 
     ``certificate_check`` (default ``True``) re-verifies a ``proven`` verdict
     from the flat IC3/PDR path: the solver's inductive invariant is re-checked
@@ -436,6 +484,32 @@ def verify(
     ``"unknown"`` with ``reason == "verification cancelled during <phase>"``. It
     shares the total budget's stop, so the graph builds and the long loops see it
     too; a token already cancelled returns at once.
+
+    Deadline reaping (TIME-013): a ``deadline`` / ``window`` transition still
+    enabled past its latest bound is disabled by the executor with its tokens left
+    in place, so a late executor can rest at a marking that still enables it. By
+    default every quiescence property reads such a marking as quiescent (VER-002
+    reap-quiescence), so ``"proven"`` holds for late executors too.
+    ``assume_no_reaping=True`` restores the strict reading (no transition
+    enabled), and the report then says the verdict assumes no transition is
+    reaped.
+
+    In-flight actions (VER-004): the executor consumes a firing's inputs when its
+    action starts and deposits its outputs when the action completes, and fires
+    other transitions in between. A transition whose output another transition
+    tests with an inhibitor, reset or drain (``all``, ``at_least``), or that marks a
+    terminal place, is therefore verified in two steps by default: a start that
+    consumes and marks ``inflight:<name>``, and ``complete:<name>``, which deposits.
+    Two readings split more: a :func:`quiescent_count` with a lower bound on a net
+    with a terminal place that does not waive it splits every transition depositing
+    into a counted or waiver place, since a terminal stop abandons an action in
+    flight (EXEC-042); and ``priority_semantics="conflict"`` splits every pruning
+    transition and every transition feeding one, or turns itself off with a report
+    note when one of them cannot be split. A split verdict also says that an action
+    calling ``ctx.flush()`` is not modelled, and a counterexample that starts a
+    transition again while it is in flight says that only the Rust executor does
+    that (CONC-002). ``assume_atomic_firing=True`` reads every firing as one step,
+    and the report then says the verdict rests on that assumption.
     """
     return _ext.verify_net(
         _coerce_net(net),
@@ -453,6 +527,7 @@ def verify(
         nu_max_classes=nu_max_classes,
         fragment_mode=fragment_mode,
         carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
+        mint_transitions=_coerce_mint_transitions(mint_transitions),
         priority_semantics=priority_semantics,
         certificate_check=certificate_check,
         counterexample_replay=counterexample_replay,
@@ -467,6 +542,8 @@ def verify(
         total_budget_ms=total_budget_ms,
         timed_counterexample_check=timed_counterexample_check,
         cancel=cancel,
+        assume_no_reaping=assume_no_reaping,
+        assume_atomic_firing=assume_atomic_firing,
     )
 
 
@@ -490,10 +567,13 @@ def verify_subnet(
     state_space_cache: StateSpaceCache | None = None,
     budget_places: Iterable[PlaceLike] | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
+    mint_transitions: Iterable[BuiltTransition | str] | None = None,
     fragment_mode: str | int | None = None,
     nu_max_classes: int | None = None,
     priority_semantics: str | int | None = None,
     timed_counterexample_check: bool | None = None,
+    assume_no_reaping: bool | None = None,
+    assume_atomic_firing: bool | None = None,
 ) -> SubnetVerificationResult:
     """Verifies a subnet in isolation under a harness (MOD-051).
 
@@ -520,11 +600,15 @@ def verify_subnet(
     it matches nothing, so an unprefixed ``"relay"`` silently declares no sink.
 
     A *ν subnet* -- one that mints and joins correlation names and threads a name
-    through a relay -- needs ``fragment_mode="extended"`` and its
-    ``carrier_places`` (and a budget place where one gates minting). Without them
-    it is verified in the BASE fragment, where a relay reads as a fresh mint: a
-    different model, in which a join the real net reaches may never fire, so a
-    safety property can come back ``proven`` although the net violates it.
+    through a relay -- needs ``fragment_mode="extended"``, its ``carrier_places``
+    and its mints declared (``mint_transitions``, or a budget place the mint
+    consumes). The ν routes read a write as a fresh name only for a declared mint
+    (NU-010), so without the declarations the net stays off them and the verdict
+    comes from the name-blind over-approximation. ``mint_transitions`` takes the
+    subnet's ``Transition`` objects, each read as ``"sut/<its name>"``, or name
+    strings spelled as the synthetic net spells them (``"sut/<transition>"``); a
+    single string raises ``TypeError``, and a name that is no transition of the
+    synthetic net makes the verdict ``unknown``.
     """
     places = lambda ps: None if ps is None else [_coerce_place_name(p) for p in ps]  # noqa: E731
     return _ext.verify_subnet(
@@ -542,10 +626,17 @@ def verify_subnet(
         state_space_cache=state_space_cache,
         budget_places=places(budget_places),
         carrier_places=places(carrier_places),
+        mint_transitions=(
+            None
+            if mint_transitions is None
+            else _coerce_mint_transitions(mint_transitions, prefix="sut/")
+        ),
         fragment_mode=fragment_mode,
         nu_max_classes=nu_max_classes,
         priority_semantics=priority_semantics,
         timed_counterexample_check=timed_counterexample_check,
+        assume_no_reaping=assume_no_reaping,
+        assume_atomic_firing=assume_atomic_firing,
     )
 
 
@@ -560,12 +651,15 @@ def encode_smt_scripts(
     budget_places: Iterable[PlaceLike] | None = None,
     fragment_mode: str | int | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
+    mint_transitions: Iterable[BuiltTransition | str] | None = None,
     counterexample_replay: bool = True,
     semiflow_invariants: bool | Literal["auto"] = False,
     sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = None,
     linear_bound: bool = True,
     state_equation: bool = False,
     state_equation_phase: bool = True,
+    assume_no_reaping: bool = False,
+    assume_atomic_firing: bool = False,
 ) -> dict:
     """The SMT-LIB2 scripts :func:`verify` would send to z3 for this configuration,
     without running a solver (VER-013 AC1); the cross-language golden tests diff
@@ -589,7 +683,12 @@ def encode_smt_scripts(
     adds the marker-unmarked conjuncts to a :func:`deadlock_free` query;
     ``state_equation`` (VER-016) adds the firing counters and marking equation to
     the flat ``"horn"`` and widens the placeholder certificate to ``P + T``
-    arguments.
+    arguments; ``assume_no_reaping`` (TIME-013) keeps the ``deadline`` / ``window``
+    transitions in a quiescence clause, which leaves them out by default;
+    ``assume_atomic_firing`` (VER-004) encodes the net without the in-flight split.
+    ``mint_transitions`` (NU-010) declares the mints as :func:`verify` takes them; a
+    name that is no transition of ``net`` raises ``ValueError`` with the reason
+    :func:`verify` gives for its ``unknown`` verdict.
     """
     return _ext.encode_smt_scripts(
         _coerce_net(net),
@@ -605,12 +704,15 @@ def encode_smt_scripts(
         budget_places=[_coerce_place_name(p) for p in (budget_places or ())],
         fragment_mode=fragment_mode,
         carrier_places=[_coerce_place_name(p) for p in (carrier_places or ())],
+        mint_transitions=_coerce_mint_transitions(mint_transitions),
         counterexample_replay=counterexample_replay,
         semiflow_invariants=semiflow_invariants,
         sink_places_when=_coerce_sink_places_when(sink_places_when),
         linear_bound=linear_bound,
         state_equation=state_equation,
         state_equation_phase=state_equation_phase,
+        assume_no_reaping=assume_no_reaping,
+        assume_atomic_firing=assume_atomic_firing,
     )
 
 
@@ -812,6 +914,9 @@ def verify_open_net(
     firing_bound: bool = True,
     semiflow_invariants: bool | Literal["auto"] = False,
     cancel: CancelToken | None = None,
+    assume_no_reaping: bool = False,
+    assume_atomic_firing: bool = False,
+    mint_transitions: Iterable[BuiltTransition | str] | None = None,
 ) -> OpenNetResult:
     """Verifies ``net`` in isolation against ``contract`` ([VER-022]).
 
@@ -830,12 +935,26 @@ def verify_open_net(
     priority-blind and value-blind. ``"violated"`` lists every broken part in
     ``result.violations``, each with a firing sequence and a port trace;
     ``"unknown"`` says in ``result.reason`` which parts neither route decided.
-    ``result.report`` is the full text, byte-identical to the other
-    implementations'.
+    ``result.report`` is the full text, byte-identical to Rust's; Java and
+    TypeScript write the same text except the ``ctx.flush()`` line of a split
+    verdict, since their actions have no ``flush``.
 
     ``cancel`` (VER-013) is a :class:`CancelToken`: the graph build, every SMT query
     and the termination ranking honour it, and a part it leaves undecided reports
     ``verification cancelled during <phase>``.
+
+    ``assume_no_reaping`` (TIME-013, default ``False``) reads quiescence strictly,
+    as :func:`verify` does with it: by default a marking where only ``deadline`` /
+    ``window`` transitions are enabled counts as quiescent on both routes.
+    ``assume_atomic_firing`` (VER-004, default ``False``) reads every firing as one
+    step on both routes, as :func:`verify` does with it. By default a transition
+    whose output another tests with an inhibitor, reset or drain, or that marks a
+    terminal place (EXEC-042, which inhibits every transition), is verified as a
+    start and a completion step on both routes.
+
+    ``mint_transitions`` (NU-010) declares the transitions the ν routes may read as
+    minting a fresh name, as :func:`verify` takes it. A name that is no transition of
+    ``net`` makes the verdict ``unknown`` with that reason before either route runs.
 
     Raises ``StructureError`` when the net violates CORE-043 or the closure's names
     collide with the net's.
@@ -856,6 +975,9 @@ def verify_open_net(
         firing_bound=firing_bound,
         semiflow_invariants=semiflow_invariants,
         cancel=cancel,
+        assume_no_reaping=assume_no_reaping,
+        assume_atomic_firing=assume_atomic_firing,
+        mint_transitions=_coerce_mint_transitions(mint_transitions),
     )
 
 

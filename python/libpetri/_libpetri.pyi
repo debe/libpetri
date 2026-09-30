@@ -209,7 +209,8 @@ def match_spec(
     keys: list[tuple[Place, Callable[[Any], str]]],
     relay_to: list[tuple[Place, Callable[[Any], str]]] | None = None,
 ) -> MatchSpec:
-    """ν-join correlation (NU-020). ``relay_to`` declares relay targets (NU-054): output
+    """ν-join correlation (NU-020). Each key names a different input place; keying one place
+    twice raises ``ValueError``. ``relay_to`` declares relay targets (NU-054): output
     places onto which the join writes the name it matched; each must be an output of the
     transition, declared once. The executor fails a firing that writes into one a token
     whose projection is not the matched name (a ``None`` value has no name)."""
@@ -533,6 +534,7 @@ def verify_net(
     nu_max_classes: int | None = ...,
     fragment_mode: str | int | None = ...,
     carrier_places: list[str] | None = ...,
+    mint_transitions: list[str] | None = ...,
     priority_semantics: str | int | None = ...,
     certificate_check: bool = ...,
     counterexample_replay: bool = ...,
@@ -547,6 +549,8 @@ def verify_net(
     total_budget_ms: int | None = ...,
     timed_counterexample_check: bool = ...,
     cancel: CancelToken | None = ...,
+    assume_no_reaping: bool = ...,
+    assume_atomic_firing: bool = ...,
 ) -> VerificationResult:
     """``sink_places_when`` maps a marker place name to the place names where a
     token may rest while the marker holds a token, declared in dict order
@@ -563,7 +567,12 @@ def verify_net(
     default, are the pre-fixpoint phases; ``False`` forces the fixpoint path.
     ``total_budget_ms`` caps the whole call's wall clock (VER-013);
     ``timed_counterexample_check`` checks a ``"violated"`` on a timed net against
-    the timed state-class graph (VER-023)."""
+    the timed state-class graph (VER-023). ``assume_no_reaping`` reads quiescence
+    as if no ``deadline`` / ``window`` transition were reaped (TIME-013);
+    ``assume_atomic_firing`` reads every firing as one step instead of splitting a
+    transition an inhibitor, reset, drain or terminal place makes observable
+    mid-action (VER-004). ``mint_transitions`` names the declared mints (NU-010);
+    a name that is no transition of ``net`` makes the verdict ``"unknown"``."""
 def verify_subnet(
     subnet: SubnetDef,
     harness: VerificationHarness,
@@ -578,11 +587,16 @@ def verify_subnet(
     state_space_cache: StateSpaceCache | None = ...,
     budget_places: list[str] | None = ...,
     carrier_places: list[str] | None = ...,
+    mint_transitions: list[str] | None = ...,
     fragment_mode: str | int | None = ...,
     nu_max_classes: int | None = ...,
     priority_semantics: str | int | None = ...,
     timed_counterexample_check: bool | None = ...,
-) -> SubnetVerificationResult: ...
+    assume_no_reaping: bool | None = ...,
+    assume_atomic_firing: bool | None = ...,
+) -> SubnetVerificationResult:
+    """MOD-051. Names are the synthetic net's: ``mint_transitions`` (NU-010) spells a
+    subnet transition ``sut/<transition>``, as the place keywords spell ``sut/<place>``."""
 def encode_smt_scripts(
     net: Net,
     property: SmtProperty,
@@ -594,12 +608,15 @@ def encode_smt_scripts(
     budget_places: list[str] | None = ...,
     fragment_mode: str | int | None = ...,
     carrier_places: list[str] | None = ...,
+    mint_transitions: list[str] | None = ...,
     counterexample_replay: bool = ...,
     semiflow_invariants: bool | Literal["auto"] | None = ...,
     sink_places_when: dict[str, list[str]] | None = ...,
     linear_bound: bool = ...,
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
+    assume_no_reaping: bool = ...,
+    assume_atomic_firing: bool = ...,
 ) -> dict[str, str | bool | None]:
     """Returns ``horn``, ``certificate``, ``coloured``, ``bound`` -- the linear
     state-equation bound query, present exactly when ``verify_net`` would send it
@@ -608,7 +625,9 @@ def encode_smt_scripts(
     ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
     ``state_equation`` (VER-016's counters in ``horn``) and ``state_equation_phase``
     (VER-018; ``False`` returns ``state_equation: None``) shape the scripts as they
-    do for ``verify_net``."""
+    do for ``verify_net``, and so do ``assume_no_reaping`` (TIME-013) and
+    ``assume_atomic_firing`` (VER-004). A ``mint_transitions`` name that is no
+    transition of ``net`` raises ``ValueError`` (NU-010)."""
 def z3_available() -> bool: ...
 
 # Open-net verification (VER-022); present only when HAS_Z3.
@@ -703,7 +722,15 @@ def verify_open_net(
     firing_bound: bool = ...,
     semiflow_invariants: bool | Literal["auto"] | None = ...,
     cancel: CancelToken | None = ...,
-) -> OpenNetResult: ...
+    assume_no_reaping: bool = ...,
+    assume_atomic_firing: bool = ...,
+    mint_transitions: list[str] | None = ...,
+) -> OpenNetResult:
+    """VER-022. ``assume_atomic_firing`` reads every firing as one step on both routes;
+    by default a transition whose output another tests with an inhibitor, reset or
+    drain, or that marks a terminal place (EXEC-042), is split (VER-004). A
+    ``mint_transitions`` name that is no transition of ``net`` makes the verdict
+    ``"unknown"`` before either route runs (NU-010)."""
 
 # ---------------------------------------------------------------------------
 # Export

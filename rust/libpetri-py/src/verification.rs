@@ -432,7 +432,9 @@ fn py_terminates_at_sink() -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::terminates_at_sink() }
 }
 
-/// Property: at most one of `places` is non-empty in any reachable state.
+/// Property ([VER-002]): no two of `places` are marked at once in any reachable state —
+/// pairwise, on every route. A place listed twice pairs with itself; fewer than two
+/// entries are never violated.
 #[pyfunction(name = "mutual_exclusion")]
 fn py_mutual_exclusion(places: Vec<String>) -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::mutual_exclusion(places) }
@@ -658,9 +660,18 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// (VER-017) shares the enumeration route's state space across calls.
 /// `total_budget_ms` (VER-013, default `None`) caps the whole call's wall clock;
 /// `timed_counterexample_check` (VER-023, default `False`) checks a `"violated"`
-/// on a timed net against the timed state-class graph.
+/// on a timed net against the timed state-class graph. `assume_no_reaping`
+/// (TIME-006, TIME-013, default `False`) assumes an on-time executor: quiescence is
+/// read strictly, as if no `deadline` / `window` transition were ever reaped, and
+/// Route B keeps every latest bound. By default a marking where only such
+/// transitions are enabled counts as quiescent (VER-002), and Route B drops the
+/// latest bound of every `deadline`, `window` and `exact` transition.
+/// `assume_atomic_firing` (VER-004, default `False`) reads every firing as one step.
+/// By default a transition whose output another tests with an inhibitor, reset or
+/// drain is verified as a start and a `complete:<name>` step, since the executor
+/// fires other transitions while its action is in flight.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, mint_transitions = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None, assume_no_reaping = false, assume_atomic_firing = false))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -674,6 +685,7 @@ fn py_verify_net(
     nu_max_classes: Option<usize>,
     fragment_mode: Option<Bound<'_, PyAny>>,
     carrier_places: Option<Vec<String>>,
+    mint_transitions: Option<Vec<String>>,
     priority_semantics: Option<Bound<'_, PyAny>>,
     certificate_check: bool,
     counterexample_replay: bool,
@@ -688,6 +700,8 @@ fn py_verify_net(
     total_budget_ms: Option<u64>,
     timed_counterexample_check: bool,
     cancel: Option<PyRef<'_, PyCancelToken>>,
+    assume_no_reaping: bool,
+    assume_atomic_firing: bool,
 ) -> PyResult<PyVerificationResult> {
     #[cfg(feature = "z3")]
     {
@@ -713,6 +727,10 @@ fn py_verify_net(
         // name surfaces as an Unknown verdict from verify(), never a silent
         // fall-back.
         let carrier_places = carrier_places.unwrap_or_default();
+        // NU-010 mint declarations: the transitions whose writes into a coloured
+        // place the ν routes may read as fresh names, beside those consuming a
+        // budget place. An unknown name makes the verdict "unknown".
+        let mint_transitions = mint_transitions.unwrap_or_default();
         // ν-aware Route B priority semantics (NU-052): "none" (default) is the
         // priority-blind over-approximation; "conflict" prunes a lower-priority
         // transition that a ready, conflicting, strictly-higher-priority one
@@ -754,6 +772,7 @@ fn py_verify_net(
                 .budget_places(budget_places)
                 .fragment_mode(fragment_mode)
                 .carrier_places(carrier_places)
+                .mint_transitions(mint_transitions)
                 .priority_semantics(priority_semantics)
                 // Independent validation layers, both on by default: a Proven
                 // is re-checked against the unstrengthened step relation and a
@@ -775,6 +794,10 @@ fn py_verify_net(
                 .firing_bound(firing_bound)
                 // VER-023: the timed counterexample check, off by default.
                 .timed_counterexample_check(timed_counterexample_check)
+                // TIME-013: quiescence read strictly (off by default: reap-aware).
+                .assume_no_reaping(assume_no_reaping)
+                // VER-004: every firing read as one step (off by default: split).
+                .assume_atomic_firing(assume_atomic_firing)
                 .timeout(timeout_ms);
             // VER-013: the optional wall-clock cap on the whole call, and the
             // caller's cancellation, which shares its stop.
@@ -809,7 +832,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound, state_space_cache, total_budget_ms, timed_counterexample_check, cancel);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, mint_transitions, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound, state_space_cache, total_budget_ms, timed_counterexample_check, cancel, assume_no_reaping, assume_atomic_firing);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -820,9 +843,11 @@ fn py_verify_net(
 /// "state_equation": str | None}`. `bound` (VER-015) and `state_equation` (VER-018
 /// AC7, the phase's first query) are `None` exactly when `verify_net` would not send
 /// them, so `linear_bound = False` and `state_equation_phase = False` null them. The
-/// `state_equation` keyword is VER-016's counters in `horn`, not that key.
+/// `state_equation` keyword is VER-016's counters in `horn`, not that key. A declared
+/// mint (`mint_transitions`, NU-010) that is no transition of `net` raises `ValueError`
+/// with the reason `verify_net` gives for its Unknown verdict.
 #[pyfunction(name = "encode_smt_scripts")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, mint_transitions = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true, assume_no_reaping = false, assume_atomic_firing = false))]
 fn py_encode_smt_scripts(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -834,12 +859,15 @@ fn py_encode_smt_scripts(
     budget_places: Option<Vec<String>>,
     fragment_mode: Option<Bound<'_, PyAny>>,
     carrier_places: Option<Vec<String>>,
+    mint_transitions: Option<Vec<String>>,
     counterexample_replay: bool,
     semiflow_invariants: Option<Bound<'_, PyAny>>,
     sink_places_when: Option<Bound<'_, PyDict>>,
     linear_bound: bool,
     state_equation: bool,
     state_equation_phase: bool,
+    assume_no_reaping: bool,
+    assume_atomic_firing: bool,
 ) -> PyResult<Py<PyDict>> {
     #[cfg(feature = "z3")]
     {
@@ -857,6 +885,14 @@ fn py_encode_smt_scripts(
         let marking = parse_initial_marking(initial_marking.as_ref())?;
         let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
         let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
+        let mint_transitions = mint_transitions.unwrap_or_default();
+        // NU-010: `encode_scripts` panics on a declared mint that is not a transition of
+        // the net; raise the same reason as a ValueError, as `verify_net` answers Unknown.
+        if let Some(reason) =
+            libpetri::verification::name_fragment::unknown_mint_reason(&net, &mint_transitions)
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(reason));
+        }
         let scripts = panic_to_py(|| {
             let mut verifier = libpetri::verification::smt_verifier::SmtVerifier::for_net(&net)
                 .initial_marking(marking)
@@ -867,6 +903,7 @@ fn py_encode_smt_scripts(
                 .budget_places(budget_places.unwrap_or_default())
                 .fragment_mode(fragment_mode)
                 .carrier_places(carrier_places.unwrap_or_default())
+                .mint_transitions(mint_transitions)
                 .counterexample_replay(counterexample_replay)
                 .semiflow_invariants(semiflow_invariants)
                 // VER-015: the emitted `bound` script is gated on this exactly as
@@ -876,7 +913,11 @@ fn py_encode_smt_scripts(
                 .state_equation(state_equation)
                 // VER-018 AC7: the `state_equation` script is gated on the phase
                 // exactly as `verify_net` gates the phase itself.
-                .state_equation_phase(state_equation_phase);
+                .state_equation_phase(state_equation_phase)
+                // TIME-013: the quiescence clause keeps reapable transitions only
+                // under the strict reading.
+                .assume_no_reaping(assume_no_reaping)
+                .assume_atomic_firing(assume_atomic_firing);
             for (marker, places) in sink_places_when {
                 verifier = verifier.sink_places_when(marker, places);
             }
@@ -892,7 +933,7 @@ fn py_encode_smt_scripts(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, state_equation_phase);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, mint_transitions, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, state_equation_phase, assume_no_reaping, assume_atomic_firing);
         Err(pyo3::exceptions::PyRuntimeError::new_err("z3 feature not enabled"))
     }
 }
@@ -921,11 +962,13 @@ fn py_z3_available() -> bool {
 /// Place names are the synthetic net's, spelled as the properties spell
 /// them: the subnet's own places as `sut/<place>`, the ports' synthetic places as
 /// `harness_in_<port>` / `harness_out_<port>` / `harness_io_<port>`. A ν subnet
-/// needs `fragment_mode="extended"` and its `carrier_places` (and a budget place
-/// where one gates minting): without them it is verified in BASE, where a relay
-/// reads as a fresh mint.
+/// needs `fragment_mode="extended"`, its `carrier_places` and its mints declared
+/// (`mint_transitions`, spelled `sut/<transition>`, or a budget place the mint
+/// consumes): the ν routes read a write as a fresh name only for a declared mint
+/// (NU-010), so without the declarations the net stays off them and the verdict comes
+/// from the name-blind over-approximation.
 #[pyfunction(name = "verify_subnet")]
-#[pyo3(signature = (subnet, harness, *, environment_mode = None, timeout_ms = None, total_budget_ms = None, cancel = None, sink_places = None, sink_places_when = None, enumeration_max_classes = None, state_space_cache = None, budget_places = None, carrier_places = None, fragment_mode = None, nu_max_classes = None, priority_semantics = None, timed_counterexample_check = None))]
+#[pyo3(signature = (subnet, harness, *, environment_mode = None, timeout_ms = None, total_budget_ms = None, cancel = None, sink_places = None, sink_places_when = None, enumeration_max_classes = None, state_space_cache = None, budget_places = None, carrier_places = None, mint_transitions = None, fragment_mode = None, nu_max_classes = None, priority_semantics = None, timed_counterexample_check = None, assume_no_reaping = None, assume_atomic_firing = None))]
 fn py_verify_subnet(
     py: Python<'_>,
     subnet: &PySubnetDef,
@@ -940,10 +983,13 @@ fn py_verify_subnet(
     state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
     budget_places: Option<Vec<String>>,
     carrier_places: Option<Vec<String>>,
+    mint_transitions: Option<Vec<String>>,
     fragment_mode: Option<Bound<'_, PyAny>>,
     nu_max_classes: Option<usize>,
     priority_semantics: Option<Bound<'_, PyAny>>,
     timed_counterexample_check: Option<bool>,
+    assume_no_reaping: Option<bool>,
+    assume_atomic_firing: Option<bool>,
 ) -> PyResult<PySubnetVerificationResult> {
     // Same default as `verify`: AlwaysAvailable, under which a `proven` holds for any
     // environment. Under Ignore VER-006 refuses to certify (MOD-051 AC3).
@@ -992,6 +1038,9 @@ fn py_verify_subnet(
             if let Some(places) = &carrier_places {
                 v = v.carrier_places(places.iter().cloned());
             }
+            if let Some(names) = &mint_transitions {
+                v = v.mint_transitions(names.iter().cloned());
+            }
             if let Some(mode) = fragment_mode {
                 v = v.fragment_mode(mode);
             }
@@ -1004,12 +1053,18 @@ fn py_verify_subnet(
             if let Some(on) = timed_counterexample_check {
                 v = v.timed_counterexample_check(on);
             }
+            if let Some(on) = assume_no_reaping {
+                v = v.assume_no_reaping(on);
+            }
+            if let Some(on) = assume_atomic_firing {
+                v = v.assume_atomic_firing(on);
+            }
             v
         });
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (timeout_ms, total_budget_ms, cancel, sink_places, sink_places_when, enumeration_max_classes, state_space_cache, budget_places, carrier_places, fragment_mode, nu_max_classes, priority_semantics, timed_counterexample_check);
+        let _ = (timeout_ms, total_budget_ms, cancel, sink_places, sink_places_when, enumeration_max_classes, state_space_cache, budget_places, carrier_places, mint_transitions, fragment_mode, nu_max_classes, priority_semantics, timed_counterexample_check, assume_no_reaping, assume_atomic_firing);
     }
     let mut rust_harness = VerificationHarness::<()>::new();
     #[cfg(feature = "z3")]

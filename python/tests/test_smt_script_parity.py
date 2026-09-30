@@ -49,9 +49,11 @@ def test_smt_scripts_match_the_committed_goldens():
             initial_marking=marking,
             sink_places=fixture.get("sinkPlaces") or None,
             budget_places=fixture.get("budgetPlaces") or None,
+            mint_transitions=fixture.get("mintTransitions") or None,
             semiflow_invariants=bool(fixture.get("semiflowInvariants", False)),
             sink_places_when=fixture.get("sinkPlacesWhen") or None,
             state_equation=bool(fixture.get("stateEquation", False)),
+            assume_no_reaping=bool(fixture.get("assumeNoReaping", False)),
             counterexample_replay=True,
             **env,
         )

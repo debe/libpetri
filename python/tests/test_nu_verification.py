@@ -15,6 +15,12 @@ the rest of the SMT surface).
 import libpetri as lp
 import pytest
 
+def _all_transitions(net):
+    """Every transition of ``net``, declared as mints (NU-010) by a test that exercises
+    something other than the mint declaration."""
+    return [t.name for t in net.transitions]
+
+
 pytestmark = pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
 
 # ``lp.HAS_Z3`` is the compile feature; the Route A coloured quiescence path
@@ -131,7 +137,7 @@ def test_zero_budget_quiescence_decided_by_zero_slot_plan():
         nu_max_classes=1,
         timeout_ms=15_000,
     )
-    assert "exact within budget k=0" in violated.report, violated.report
+    assert "colour-slot bound k=0" in violated.report, violated.report
     assert violated.verdict == "violated", violated.report
     # Declaring `source` a sink makes that marking a legitimate end state.
     proven = lp.verify(
@@ -143,7 +149,7 @@ def test_zero_budget_quiescence_decided_by_zero_slot_plan():
         nu_max_classes=1,
         timeout_ms=15_000,
     )
-    assert "exact within budget k=0" in proven.report, proven.report
+    assert "colour-slot bound k=0" in proven.report, proven.report
     assert proven.verdict == "proven", proven.report
 
 
@@ -157,6 +163,7 @@ def test_structurally_bounded_without_declared_budget_decided_by_route_b():
         net,
         lp.branch_place_bound(budget, 2),
         initial_marking={source: 3, budget: 2},
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "proven", result.report
     assert "Route B" in result.report
@@ -176,6 +183,7 @@ def test_joined_or_dead_lettered_proven_by_route_b():
         net,
         lp.joined_or_dead_lettered(pending),
         initial_marking={source: 3, budget: 2},
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "proven", result.report
     assert "Route B" in result.report
@@ -227,6 +235,7 @@ def test_deadlock_free_violated_by_route_b():
         net,
         lp.deadlock_free(),
         initial_marking={source: 3, budget: 2},
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "violated", result.report
     assert "Route B" in result.report
@@ -313,6 +322,7 @@ def test_distinct_mints_merged_unreachable_proven_no_budget():
         net,
         lp.unreachable(["merged"]),
         initial_marking={source_a: 1, source_b: 1},
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "proven", result.report
     assert "name-partition quotient" in result.report
@@ -327,6 +337,7 @@ def test_same_mint_merged_reachable_violated():
         net,
         lp.unreachable(["merged"]),
         initial_marking={source: 3, "budget": 2},
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "violated", result.report
 
@@ -361,6 +372,7 @@ def test_unbounded_mint_truncates_to_unknown():
         lp.unreachable(["merged"]),
         initial_marking={source: 1},
         nu_max_classes=40,
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "unknown", result.report
     assert "truncated" in result.reason
@@ -425,6 +437,7 @@ def test_extended_deadlock_free_proven_with_drain_via_route_b():
         sink_places=["merged", "deadletter"],
         fragment_mode="extended",
         carrier_places=["stray"],
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "proven", result.report
     # The verdict must come from Route B (name-partition quotient), not a
@@ -443,6 +456,7 @@ def test_extended_deadlock_free_violated_without_drain_via_route_b():
         sink_places=["merged", "deadletter"],
         fragment_mode="extended",
         carrier_places=["stray"],
+        mint_transitions=_all_transitions(net),
     )
     assert result.verdict == "violated", result.report
     assert "Route B" in result.report, result.report
@@ -534,7 +548,7 @@ def _nu_priority_conflict_net(co_mint_both=True, with_drain=True):
     return net.build()
 
 
-def _verify_priority(net, priority_semantics):
+def _verify_priority(net, priority_semantics, assume_atomic_firing=False):
     # EXTENDED DeadlockFree with OUT and DEADLETTER as sinks.
     return lp.verify(
         net,
@@ -543,6 +557,8 @@ def _verify_priority(net, priority_semantics):
         sink_places=["OUT", "DEADLETTER"],
         fragment_mode="extended",
         priority_semantics=priority_semantics,
+        mint_transitions=_all_transitions(net),
+        assume_atomic_firing=assume_atomic_firing,
     )
 
 
@@ -556,6 +572,7 @@ def test_priority_none_default_reports_spurious_stall():
         initial_marking={"SEED": 1},
         sink_places=["OUT", "DEADLETTER"],
         fragment_mode="extended",
+        mint_transitions=_all_transitions(_nu_priority_conflict_net()),
     )
     assert result.verdict == "violated", result.report
     assert "Route B" in result.report, result.report
@@ -568,18 +585,36 @@ def test_priority_none_explicit_reports_spurious_stall():
 
 
 def test_priority_conflict_proves_no_stall():
-    # CONFLICT: the immediate, higher-priority JOIN pre-empts the delayed drain,
-    # so COL_A is never stolen from a live join -> the only quiescent marking is
-    # {OUT}, a declared sink -> proven.
-    result = _verify_priority(_nu_priority_conflict_net(), "conflict")
+    # CONFLICT on atomic firings: the immediate, higher-priority JOIN pre-empts the
+    # delayed drain, so COL_A is never stolen from a live join -> the only quiescent
+    # marking is {OUT}, a declared sink -> proven, resting on the atomic assumption.
+    result = _verify_priority(_nu_priority_conflict_net(), "conflict", assume_atomic_firing=True)
     assert result.verdict == "proven", result.report
     assert "Route B" in result.report, result.report
+    assert "ASSUMPTION: every firing is atomic" in result.report, result.report
 
 
 def test_priority_conflict_int_form_proves_no_stall():
     # The int form (1 == "conflict") threads through identically.
-    result = _verify_priority(_nu_priority_conflict_net(), 1)
+    result = _verify_priority(_nu_priority_conflict_net(), 1, assume_atomic_firing=True)
     assert result.verdict == "proven", result.report
+
+
+def test_priority_conflict_is_off_when_a_pruner_cannot_be_split():
+    # By default the pruning holds only while no pruner (JOIN) and no transition
+    # feeding one (MINT) has an action in flight, which the verifier models by
+    # splitting them (VER-004). MINT writes a coloured place and cannot be split, so
+    # CONFLICT is off, the report says why, and the verdict is NONE's.
+    conflict = _verify_priority(_nu_priority_conflict_net(), "conflict")
+    none = _verify_priority(_nu_priority_conflict_net(), "none")
+    assert (
+        "Conflict priority (NU-052) is off: it holds only while no pruning transition, and no "
+        "transition depositing into the input or read places of one, has an action in flight, "
+        "which the verifier models by splitting them (VER-004), and transition 'MINT' cannot be "
+        "split: it writes the coloured place 'COL_A', whose tokens carry a ν name. Every enabled "
+        "transition is explored."
+    ) in conflict.report, conflict.report
+    assert conflict.verdict == none.verdict == "violated", conflict.report
 
 
 def test_priority_conflict_still_finds_genuine_stall():

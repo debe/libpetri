@@ -40,7 +40,11 @@ class VerificationHarness:
     ) -> VerificationHarness: ...
 
 def always_available() -> EnvironmentAnalysisMode: ...
-def bounded(max_tokens: int) -> EnvironmentAnalysisMode: ...
+def bounded(max_tokens: int) -> EnvironmentAnalysisMode:
+    """At most ``max_tokens`` tokens resident in each environment place at a time
+    (VER-006). The model is the executor only when no transition deposits into an
+    environment place and the initial marking holds at most ``max_tokens`` on each
+    one (AC3); ``verify`` answers unknown, naming the place, when either fails."""
 @overload
 def arrivals(max_tokens: int, /) -> EnvironmentAnalysisMode:
     """At most ``max_tokens`` tokens injected into each environment place over the
@@ -89,6 +93,7 @@ def verify(
     nu_max_classes: int | None = ...,
     fragment_mode: str | int | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,
+    mint_transitions: Iterable[BuiltTransition | str] | None = ...,
     priority_semantics: str | int | None = ...,
     certificate_check: bool = ...,
     counterexample_replay: bool = ...,
@@ -103,6 +108,8 @@ def verify(
     total_budget_ms: int | None = ...,
     timed_counterexample_check: bool = ...,
     cancel: CancelToken | None = ...,
+    assume_no_reaping: bool = ...,
+    assume_atomic_firing: bool = ...,
 ) -> VerificationResult:
     """``sink_places_when`` declares, in dict order, the places where a token may
     rest while its marker place holds a token (VER-014). ``linear_bound`` (default
@@ -126,7 +133,24 @@ def verify(
     whose ``cancel()`` stops the call from another thread, or from an asyncio task
     while the call runs in ``asyncio.to_thread`` / ``run_in_executor``; the
     result is then ``"unknown"`` with ``verification cancelled during <phase>``
-    (VER-013)."""
+    (VER-013). ``assume_no_reaping`` assumes an on-time executor (TIME-006,
+    TIME-013): quiescence is read strictly, as if no ``deadline`` / ``window``
+    transition were ever reaped, and Route B keeps every latest bound. By default a
+    marking where only such transitions are enabled counts as quiescent (VER-002),
+    and Route B drops the latest bound of every ``deadline``, ``window`` and
+    ``exact`` transition. ``assume_atomic_firing`` (VER-004) reads every firing as
+    one step; by default a transition whose output another tests with an
+    inhibitor, reset or drain, or that marks a terminal place, is verified as a
+    start and ``complete:<name>``. A :func:`quiescent_count` with a lower bound on a
+    net with a terminal place that does not waive it also splits every transition
+    depositing into a counted or waiver place (EXEC-042), and
+    ``priority_semantics="conflict"`` splits every pruning transition and its
+    feeders, or turns itself off with a report note when one cannot be split.
+    ``mint_transitions`` (NU-010) declares the transitions (``Transition`` objects or
+    names) whose action writes a freshly minted name (``ctx.fresh_name()``); the ν
+    routes read a write as a fresh name only for a declared mint or a transition
+    consuming a declared budget place. A name that is no transition of ``net``
+    makes the verdict ``"unknown"``; a single string raises ``TypeError``."""
 def verify_subnet(
     subnet: BuiltSubnetDef,
     harness: VerificationHarness | Iterable[SmtProperty],
@@ -141,16 +165,23 @@ def verify_subnet(
     state_space_cache: StateSpaceCache | None = ...,
     budget_places: Iterable[PlaceLike] | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,
+    mint_transitions: Iterable[BuiltTransition | str] | None = ...,
     fragment_mode: str | int | None = ...,
     nu_max_classes: int | None = ...,
     priority_semantics: str | int | None = ...,
     timed_counterexample_check: bool | None = ...,
+    assume_no_reaping: bool | None = ...,
+    assume_atomic_firing: bool | None = ...,
 ) -> SubnetVerificationResult:
     """MOD-051. The keywords after ``environment_mode`` are forwarded to each
     per-property verification, so ``total_budget_ms`` caps each property's call, not
     the whole harness; place names are the synthetic net's (``sut/<place>``,
-    ``harness_in_<port>``, ...). A ν subnet needs ``fragment_mode="extended"`` and
-    its ``carrier_places``."""
+    ``harness_in_<port>``, ...). A ν subnet needs ``fragment_mode="extended"``, its
+    ``carrier_places`` and its mints declared (``mint_transitions``, or a budget
+    place the mint consumes): the ν routes read a write as a fresh name only for a
+    declared mint (NU-010). ``mint_transitions`` takes the subnet's ``Transition``
+    objects, each read as ``"sut/<its name>"``, or name strings spelled
+    ``"sut/<transition>"``; a single string raises ``TypeError``."""
 def encode_smt_scripts(
     net: BuiltNet,
     property: SmtProperty,
@@ -162,12 +193,15 @@ def encode_smt_scripts(
     budget_places: Iterable[PlaceLike] | None = ...,
     fragment_mode: str | int | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,
+    mint_transitions: Iterable[BuiltTransition | str] | None = ...,
     counterexample_replay: bool = ...,
     semiflow_invariants: bool | Literal["auto"] = ...,
     sink_places_when: _PlaceSets | None = ...,
     linear_bound: bool = ...,
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
+    assume_no_reaping: bool = ...,
+    assume_atomic_firing: bool = ...,
 ) -> dict[str, str | bool | None]:
     """Returns ``horn``, ``certificate``, ``coloured``, ``bound`` -- the linear
     state-equation bound query, present exactly when :func:`verify` would send it
@@ -176,7 +210,11 @@ def encode_smt_scripts(
     ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
     ``state_equation`` (VER-016's counters in ``horn``) and ``state_equation_phase``
     (VER-018; ``False`` returns ``state_equation: None``) shape the scripts as they
-    do for :func:`verify`."""
+    do for :func:`verify`. ``assume_no_reaping`` (TIME-013) keeps the ``deadline`` /
+    ``window`` transitions in a quiescence clause, which leaves them out by default;
+    ``assume_atomic_firing`` (VER-004) encodes the net without the in-flight split.
+    ``mint_transitions`` (NU-010) declares the mints as :func:`verify` takes them; a
+    name that is no transition of ``net`` raises ``ValueError``."""
 def z3_available() -> bool: ...
 
 class OpenNetContract:
@@ -219,8 +257,16 @@ def verify_open_net(
     firing_bound: bool = ...,
     semiflow_invariants: bool | Literal["auto"] = ...,
     cancel: CancelToken | None = ...,
+    assume_no_reaping: bool = ...,
+    assume_atomic_firing: bool = ...,
+    mint_transitions: Iterable[BuiltTransition | str] | None = ...,
 ) -> OpenNetResult:
     """Verifies ``net`` in isolation against ``contract`` (VER-022): the closed
     net's untimed state-class graph within ``max_classes``, then, unless ``smt`` is
     ``False``, one SMT query per part of the contract, configured by the remaining
-    keywords as :func:`verify` is."""
+    keywords as :func:`verify` is. ``assume_atomic_firing`` (VER-004) reads every
+    firing as one step on both routes; by default a transition whose output another
+    tests with an inhibitor, reset or drain, or that marks a terminal place
+    (EXEC-042), is verified as a start and a completion step. A ``mint_transitions``
+    name that is no transition of ``net`` makes the verdict ``"unknown"`` before
+    either route runs."""

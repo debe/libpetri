@@ -293,12 +293,79 @@ def _join_chain(relay: bool) -> lp.BuiltNet:
     )
 
 
+def _chain_with_timeout(child) -> lp.BuiltNet:
+    """The join chain with j1's relay into C written by the action, or by the
+    executor on timeout (``child``). j1 also consumes the uncoloured Z, so a
+    forward of a non-key input can be stated."""
+    s, a, b, c, d, z, done = (lp.Place(n) for n in ("S", "A", "B", "C", "D", "Z", "done"))
+    ident = lambda v: v  # noqa: E731
+    return (
+        lp.Net("chain-timeout")
+        .transition(lp.Transition("fork").input(lp.one(s)).output(lp.and_(a, b, d)).action(lp.fork).build())
+        .transition(
+            lp.Transition("j1")
+            .input(lp.one(a))
+            .input(lp.one(b))
+            .input(lp.one(z))
+            .match_spec(lp.match_spec([(a, ident), (b, ident)], relay_to=[(c, ident)]))
+            .output(lp.xor(lp.out(c), lp.timeout(10, child(a, z, c))))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            lp.Transition("j2")
+            .input(lp.one(c))
+            .input(lp.one(d))
+            .match_spec(lp.match_spec([(c, ident), (d, ident)]))
+            .output(lp.out(done))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+
+
+def _chain_timeout_deadlock(net):
+    return lp.verify(
+        net,
+        lp.deadlock_free(),
+        initial_marking={"S": 1, "Z": 1},
+        sink_places=["done"],
+        budget_places=["S"],
+        fragment_mode="extended",
+        enumeration_max_classes=0,
+        timeout_ms=2_000,
+    )
+
+
+@pytest.mark.parametrize(
+    "child",
+    [lambda a, z, c: lp.out(c), lambda a, z, c: lp.forward_input(z, c)],
+    ids=["unit-token", "non-key-forward"],
+)
+def test_a_join_timeout_writing_a_relay_target_without_a_key_is_declined(child) -> None:
+    # The executor checks every relay deposit, timeout branches included: a unit
+    # token or another input's name fails the firing, which deposits nothing, so D
+    # is stranded. The name layer would relay the name instead: a wrong proven.
+    r = _chain_timeout_deadlock(_chain_with_timeout(child))
+    assert r.verdict != "proven", r.report
+    assert "Route B (EXTENDED) declined" in r.report, r.report
+    assert "ν-encoding: name-coloured" not in r.report, r.report
+
+
+def test_a_join_timeout_forwarding_a_key_into_a_relay_target_stays_in_the_fragment() -> None:
+    r = _chain_timeout_deadlock(_chain_with_timeout(lambda a, z, c: lp.forward_input(a, c)))
+    assert r.verdict == "proven", r.report
+    assert "Route B" in r.report and "declined" not in r.report, r.report
+
+
 def test_extended_decides_the_join_chain_through_route_b() -> None:
     reach = lp.verify(
         _join_chain(True),
         lp.unreachable(["done"]),
         initial_marking={"S": 1},
         fragment_mode="extended",
+        mint_transitions=["fork"],
     )
     assert reach.verdict == "violated", reach.report
     assert reach.counterexample_transitions == ["fork", "j1", "j2"]
@@ -308,6 +375,7 @@ def test_extended_decides_the_join_chain_through_route_b() -> None:
         initial_marking={"S": 1},
         sink_places=["done"],
         fragment_mode="extended",
+        mint_transitions=["fork"],
     )
     assert dlf.verdict == "proven", dlf.report
     assert "Route B" in dlf.report, dlf.report

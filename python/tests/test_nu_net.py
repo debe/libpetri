@@ -175,3 +175,23 @@ def test_budget_bounds_concurrency() -> None:
     assert result.count(merged) == 3  # all complete despite k=1 budget
     assert result.count(budget) == 1  # budget token returned
     assert result.count(source) == 0
+
+
+def test_match_spec_rejects_a_place_keyed_twice() -> None:
+    """NU-020: a match names each correlated input once. Route B removed the matched
+    name once per key, where the executor consumes one token per input."""
+    import pytest
+
+    a = lp.Place("A")
+    with pytest.raises(ValueError, match="correlates input place 'A' twice"):
+        lp.match_spec([(a, lambda m: m), (a, lambda m: m)])
+
+
+def test_a_zero_count_input_is_rejected() -> None:
+    """IO-002 / IO-004: an input that requires no token is rejected where it is made."""
+    import pytest
+
+    a = lp.Place("A")
+    for make in (lambda: lp.exactly(0, a), lambda: lp.at_least(0, a)):
+        with pytest.raises(ValueError, match=">= 1"):
+            make()

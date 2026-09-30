@@ -49,7 +49,7 @@ Python exposes one production path backed by Rust's owned precompiled net. The e
 
 `run_async` accepts `async def` actions. Their awaits are bridged to the loop captured by the caller, but the Tokio worker invoking the callback does not itself have a running asyncio loop. Calls such as `asyncio.create_task()` or `asyncio.get_running_loop()` inside an action therefore fail. Prefer structural fan-out into several transitions; use `lp.action_gather(...)` when several Python awaitables genuinely belong inside one action, and `lp.action_to_thread(...)` for blocking functions.
 
-Outputs are normally published atomically when an action returns. In an async action, `ctx.flush()` publishes the current batch early so downstream transitions can run while the action continues. Published batches are not rolled back if the action later fails.
+Outputs are normally published atomically when an action returns. In an async action, `ctx.flush()` publishes the current batch early so downstream transitions can run while the action continues. Published batches are not rolled back if the action later fails. The verifier does not model `ctx.flush()`: it reads the outputs of a transition it verifies in two steps (VER-004) as landing together when the action completes, and the report of such a verdict says so.
 
 ## Capabilities
 

@@ -63,6 +63,8 @@ def _join_with_skip():
     return p, net, {"start": 1}
 
 
+# The queue tests pass `assume_atomic_firing=True`: the phases are under test on the atomic net,
+# and with `produce` in flight the executor can take `bundleEmpty` and strand the queue (VER-004).
 def _queue_and_bundle(n, cancellable=False):
     """A producer fires up to `n` times into `q` until the signal arrives, and the
     bundler takes ``all(q)`` with the signal. With `cancellable` the signal may
@@ -122,7 +124,12 @@ def test_both_phases_off_keep_the_verdict_the_fixpoint_query_reaches():
 def test_state_equation_phase_finds_the_queue_the_cancelled_signal_strands():
     p, net, m0 = _queue_and_bundle(3, cancellable=True)
     result = lp.verify(
-        net, lp.deadlock_free(), initial_marking=m0, sink_places=[p["out"], p["budget"], p["cancelled"]], **SOLVER
+        net,
+        lp.deadlock_free(),
+        initial_marking=m0,
+        sink_places=[p["out"], p["budget"], p["cancelled"]],
+        assume_atomic_firing=True,
+        **SOLVER,
     )
     assert result.verdict == "violated", result.report
     assert result.counterexample_confirmed is True
@@ -156,6 +163,7 @@ def test_firing_bound_proves_the_queue_by_a_bounded_model_check():
         initial_marking=m0,
         sink_places=[p["out"], p["budget"]],
         state_equation_phase=False,
+        assume_atomic_firing=True,
         **SOLVER,
     )
     assert result.verdict == "proven", result.report

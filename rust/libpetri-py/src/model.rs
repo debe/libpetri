@@ -26,7 +26,7 @@ use pyo3::types::PyDict;
 use pyo3::wrap_pyfunction;
 
 use crate::action::{boxed_async_action, boxed_sync_action};
-use crate::error::panic_to_py;
+use crate::error::{panic_to_py, panic_to_value_error};
 use crate::executor::PyCompiledNet;
 use crate::value::PyTokenValue;
 use crate::value::place_name_from_object;
@@ -1284,7 +1284,8 @@ fn py_one(p: &PyPlace) -> PyInputSpec {
 /// ν-net join correlation (spec NU-020): given `[(place, key), ...]` pairs, the
 /// transition is enabled only when a single name (produced by each `key(value)`
 /// projection) is present across all correlated inputs; firing consumes exactly
-/// those name-matched tokens. Attach via `Transition(...).match_spec(...)`.
+/// those name-matched tokens. Attach via `Transition(...).match_spec(...)`. Each
+/// pair names a different place; keying one place twice raises `ValueError`.
 ///
 /// `relay_to=[(place, key), ...]` declares the join's relay targets (NU-054):
 /// output places onto which the join writes the name it matched. They do not
@@ -1301,6 +1302,14 @@ fn py_match_spec(
         return Err(PyValueError::new_err(format!(
             "match_spec must correlate at least 2 input places, got {}",
             keys.len()
+        )));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(keys.len());
+    if let Some((place, _)) = keys.iter().find(|(place, _)| !seen.insert(place.place().name().to_string())) {
+        return Err(PyValueError::new_err(format!(
+            "match_spec correlates input place '{}' twice; a match names each correlated input \
+             once (NU-020)",
+            place.place().name()
         )));
     }
     let match_keys: Vec<MatchKey> = keys
@@ -1321,12 +1330,11 @@ fn py_match_spec(
     })
 }
 
-/// Input arc: consume exactly `count` tokens from `p`.
+/// Input arc: consume exactly `count` tokens from `p`. Raises `ValueError` if `count` is 0.
 #[pyfunction(name = "exactly")]
-fn py_exactly(count: usize, p: &PyPlace) -> PyInputSpec {
-    PyInputSpec {
-        inner: exactly(count, p.place()),
-    }
+fn py_exactly(count: usize, p: &PyPlace) -> PyResult<PyInputSpec> {
+    let inner = panic_to_value_error(|| exactly(count, p.place()))?;
+    Ok(PyInputSpec { inner })
 }
 
 /// Input arc: consume every token currently in `p`.
@@ -1337,12 +1345,12 @@ fn py_all_tokens(p: &PyPlace) -> PyInputSpec {
     }
 }
 
-/// Input arc: require at least `min` tokens in `p`; consume `min` of them.
+/// Input arc: require at least `min` tokens in `p`; consume every token in `p` (IO-004).
+/// Raises `ValueError` if `min` is 0.
 #[pyfunction(name = "at_least")]
-fn py_at_least(min: usize, p: &PyPlace) -> PyInputSpec {
-    PyInputSpec {
-        inner: at_least(min, p.place()),
-    }
+fn py_at_least(min: usize, p: &PyPlace) -> PyResult<PyInputSpec> {
+    let inner = panic_to_value_error(|| at_least(min, p.place()))?;
+    Ok(PyInputSpec { inner })
 }
 
 /// Output spec: deposit one token onto `p`.
@@ -1388,11 +1396,11 @@ fn py_xor_outputs(py: Python<'_>, children: Vec<Py<PyOutputSpec>>) -> PyResult<P
 }
 
 /// Output spec: wrap `child` with a timeout — fires the child if it does not produce within `after_ms`.
+/// Raises `ValueError` if `after_ms` is 0.
 #[pyfunction(name = "timeout_output")]
-fn py_timeout_output(after_ms: u64, child: &PyOutputSpec) -> PyOutputSpec {
-    PyOutputSpec {
-        inner: timeout(after_ms, child.inner.clone()),
-    }
+fn py_timeout_output(after_ms: u64, child: &PyOutputSpec) -> PyResult<PyOutputSpec> {
+    let inner = panic_to_value_error(|| timeout(after_ms, child.inner.clone()))?;
+    Ok(PyOutputSpec { inner })
 }
 
 /// Output spec: forward each consumed token from `from` to `to`.
@@ -1436,35 +1444,35 @@ fn py_immediate() -> PyTiming {
 }
 
 /// Timing: must fire by `by_ms` milliseconds after enablement, else is force-disabled.
+/// Raises `ValueError` if `by_ms` is 0.
 #[pyfunction(name = "deadline")]
-fn py_deadline(by_ms: u64) -> PyTiming {
-    PyTiming {
-        inner: deadline(by_ms),
-    }
+fn py_deadline(by_ms: u64) -> PyResult<PyTiming> {
+    let inner = panic_to_value_error(|| deadline(by_ms))?;
+    Ok(PyTiming { inner })
 }
 
 /// Timing: cannot fire before `after_ms` milliseconds after enablement.
+/// Raises `ValueError` if `after_ms` exceeds `MAX_DURATION_MS`.
 #[pyfunction(name = "delayed")]
-fn py_delayed(after_ms: u64) -> PyTiming {
-    PyTiming {
-        inner: delayed(after_ms),
-    }
+fn py_delayed(after_ms: u64) -> PyResult<PyTiming> {
+    let inner = panic_to_value_error(|| delayed(after_ms))?;
+    Ok(PyTiming { inner })
 }
 
 /// Timing: fire within the closed interval `[earliest_ms, latest_ms]` after enablement.
+/// Raises `ValueError` if `latest_ms < earliest_ms` or `earliest_ms` exceeds `MAX_DURATION_MS`.
 #[pyfunction(name = "window")]
-fn py_window(earliest_ms: u64, latest_ms: u64) -> PyTiming {
-    PyTiming {
-        inner: window(earliest_ms, latest_ms),
-    }
+fn py_window(earliest_ms: u64, latest_ms: u64) -> PyResult<PyTiming> {
+    let inner = panic_to_value_error(|| window(earliest_ms, latest_ms))?;
+    Ok(PyTiming { inner })
 }
 
 /// Timing: fire at exactly `at_ms` after enablement. NB: races deadline enforcement; prefer `window` in tests.
+/// Raises `ValueError` if `at_ms` exceeds `MAX_DURATION_MS`.
 #[pyfunction(name = "exact")]
-fn py_exact(at_ms: u64) -> PyTiming {
-    PyTiming {
-        inner: exact(at_ms),
-    }
+fn py_exact(at_ms: u64) -> PyResult<PyTiming> {
+    let inner = panic_to_value_error(|| exact(at_ms))?;
+    Ok(PyTiming { inner })
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

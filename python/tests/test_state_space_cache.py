@@ -294,3 +294,49 @@ def test_the_cache_is_not_picklable_and_is_falsy_when_empty():
     assert not cache and repr(cache) == "StateSpaceCache(entries=0, builds=0)"
     with pytest.raises(TypeError):
         pickle.dumps(cache)
+
+
+def _in_flight_gap():
+    """``t: p0 -> p1``, and ``u: q -> r`` inhibited by ``p0`` and ``p1``.
+
+    Read atomically ``u`` never fires, since ``p0`` or ``p1`` always holds the
+    token. The executor fires ``t`` in two steps, and between them ``u`` fires
+    (VER-004).
+    """
+    t = lp.Transition("t").input(lp.one(lp.Place("p0"))).output(lp.out(lp.Place("p1"))).action(lp.fork)
+    u = (
+        lp.Transition("u")
+        .input(lp.one(lp.Place("q")))
+        .inhibitor(lp.inhibitor(lp.Place("p0")))
+        .inhibitor(lp.inhibitor(lp.Place("p1")))
+        .output(lp.out(lp.Place("r")))
+        .action(lp.fork)
+    )
+    return lp.Net("in_flight_gap").transition(t.build()).transition(u.build()).build()
+
+
+@pytest.mark.parametrize("atomic_first", [True, False])
+def test_the_in_flight_split_is_part_of_the_key(atomic_first):
+    net = _in_flight_gap()
+
+    def ask(atomic, cache=None):
+        return _verify(
+            net,
+            cache=cache,
+            sinks=(),
+            marking={"p0": 1, "q": 1},
+            prop=lp.unreachable(["r"]),
+            assume_atomic_firing=atomic,
+        )
+
+    split, atomic = ask(False), ask(True)
+    assert split.verdict == "violated", split.report
+    assert atomic.verdict == "proven", atomic.report
+
+    cache = lp.StateSpaceCache()
+    first = ask(atomic_first, cache)
+    second = ask(not atomic_first, cache)
+    assert cache.build_count == 2, "a graph of the atomic net must not answer for the split one"
+    split_cached, atomic_cached = (second, first) if atomic_first else (first, second)
+    _assert_same_answer(split_cached, split)
+    _assert_same_answer(atomic_cached, atomic)

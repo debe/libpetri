@@ -295,6 +295,32 @@ def _net(name: str):
         )
         return net, {"start": 1}, {}
 
+    if name == "reapingWindow":
+        # p0(1) -> t -> p1, t at window(3, 5): a late executor reaps t and rests at
+        # {p0} (TIME-013, Lean ReapingVsUntimed.reaping_refutes_ver004_ac3).
+        p0, p1 = lp.Place("p0"), lp.Place("p1")
+        net = (
+            lp.Net("reapingWindow")
+            .transition(
+                lp.Transition("t").input(lp.one(p0)).output(lp.out(p1)).timing(lp.window(3, 5)).action(lp.fork).build()
+            )
+            .build()
+        )
+        return net, {"p0": 1}, {}
+
+    if name == "reapingShadowed":
+        # reapingWindow plus an immediate u: one(p0) -> p1 that shadows t.
+        p0, p1 = lp.Place("p0"), lp.Place("p1")
+        net = (
+            lp.Net("reapingShadowed")
+            .transition(
+                lp.Transition("t").input(lp.one(p0)).output(lp.out(p1)).timing(lp.window(3, 5)).action(lp.fork).build()
+            )
+            .transition(lp.Transition("u").input(lp.one(p0)).output(lp.out(p1)).action(lp.fork).build())
+            .build()
+        )
+        return net, {"p0": 1}, {}
+
     raise AssertionError(
         f"unknown fixture net {name!r} — add its builder here "
         "(the shared fixtures.json gained a net this implementation does not build yet)"
@@ -366,11 +392,14 @@ def test_verdict_parity_fixtures():
             # ν budget places (NU-040, Route A's coloured encoding).
             sink_places=fixture.get("sinkPlaces") or None,
             budget_places=fixture.get("budgetPlaces") or None,
+            mint_transitions=fixture.get("mintTransitions") or None,
             semiflow_invariants=bool(fixture.get("semiflowInvariants", False)),
             # Conditional sinks (VER-014), declared in the object's order, and the
             # firing-counter state equation (VER-016); both off when absent.
             sink_places_when=fixture.get("sinkPlacesWhen") or None,
             state_equation=bool(fixture.get("stateEquation", False)),
+            # TIME-013's strict reading of quiescence; off when absent.
+            assume_no_reaping=bool(fixture.get("assumeNoReaping", False)),
             # Both independent validation layers explicitly ON — the point of
             # the parity suite (they are also the defaults).
             certificate_check=True,
