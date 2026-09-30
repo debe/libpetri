@@ -1,0 +1,21 @@
+{
+  "name": "libpetri-design-harness",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Design sandbox bundled with the petri-net-design skill: build candidate nets in TypeScript, gate them, measure them, compare them, then port the winner.",
+  "scripts": {
+    "design": "tsx src/cli.ts",
+    "test": "vitest run",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "libpetri": "file:../../../../../typescript",
+    "tsx": "^4.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6",
+    "@types/node": "^26.4.1"
+  }
+}

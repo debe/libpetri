@@ -63,6 +63,15 @@ classic instance is a `pending` marker left unkeyed: the join then matches five 
 name against whichever pending token happens to be at the front. If an input takes part in the
 commit, it takes part in the match.
 
+**Handing the matched name on: the join relay** (NU-054). A join that writes the name it matched onto an output (a **join chain**, `e: C1, D1 → P5` feeding a later join on `P5`, or a **correlated self-loop**, `B: p, Y1 → Y1, w, q` writing back onto its own key) declares those outputs as **relay targets** beside its keys:
+
+- Java `MatchSpec.builder().key(C1, fn).key(D1, fn).relayTo(P5, fn).build()`
+- TypeScript `matchSpec(matchKey(C1, fn), matchKey(D1, fn), relayKey(P5, fn))`
+- Rust `MatchSpec::builder().key(&c1, f).key(&d1, f).relay_to(&p5, f).build()`
+- Python `match_spec(keys=[(c1, fn), (d1, fn)], relay_to=[(p5, fn)])`
+
+A relay target must be an output of the transition (on at least one `Xor` branch; an `Xor` join may relay on one branch and drain on another) and may be declared once; both are rejected at build. The declaration is a checked contract: on **both** executors, every token the firing puts into a relay target must project to the matched name, or the firing fails output validation naming the transition, the place and both names. That includes a unit token from an `Out.place` timeout branch, which has no name, so do not put a relay target in a timeout branch unless the timeout forwards a keyed input. Composition remaps relay targets with the keys. Without the declaration the analysers read any coloured output of a join as a re-mint and fall back, so every quiescence property on such a net comes back `Unknown`.
+
 **Name equality is the only per-token filter in the enablement check** (NU-021). This is not a reintroduction of guards, which were removed from the model deliberately. Everything else stays positional.
 
 Correlation is checked after the bitmap and cardinality phases, so a net that never matches pays the cheap checks first.
@@ -85,6 +94,8 @@ Safety and coverability for the ν fragment are decidable. Full reachability and
 **You must tell the verifier which place gates minting** (`budgetPlaces` / `budget_place(s)`). Declaring it is what asserts the bounded fragment. Without it, a minting net is treated as unbounded and you will get `Unknown`.
 
 If you want a ν-net proved, give it a budget place. This is the single highest-value design decision in the whole ν feature.
+
+**The budget also declares your mints** (NU-010). The verifier cannot tell an action that mints (`ctx.freshName()`) from one that copies a correlation id out of its input, as the built-in `fork` does, and two copies of one id join at run time. So a transition that writes a match key, carrier or relay target without consuming one counts as a mint only when it consumes a declared budget place or is named with `mintTransitions` (`mint_transitions`). Anything else keeps the net off both exact routes. A declared mint must write a name it minted in that firing. What an action timeout writes is never a mint: a `forwardInput` copies the consumed token and a timeout `Out.place` writes a unit token with no name. The report names the mints and relays a verdict trusts (`Mint contract (NU-010) assumed for ...`).
 
 ## 6. When to use ν and when plain structure is better
 
@@ -111,7 +122,8 @@ These are hard modelling constraints, not tuning knobs. Violating one does not p
 - **No reset, read or inhibitor arc on any coloured place** (NU-051), in both fragment modes. Such an arc would be misclassified and drift the name layer from the base marking.
 - **A coloured consumer (a drain or a relay) consumes exactly one coloured input at count exactly one.** Not `exactly(n>=2)`, not `at_least`, not `all`, and not two coloured inputs. Re-emitting a higher input cardinality into the name layer over-counts and could let a join fire by equating two distinct names, which is a false `Proven`.
 - **A join consumes a coloured place only through its own match key.** A non-key input on another join's key place, or on a carrier, takes the oldest token whatever its name, and the exact routes do not model that faithfully, so keep such inputs out of the design. A budget or permit input on the join is fine.
-- **Never consume and re-mint on the same transition.** A relay threads the consumed name into its coloured outputs, or into none of them (a drain). A single `Xor` transition may relay on one branch and drain on another.
+- **Never consume and re-mint on the same transition.** A relay threads the consumed name into its coloured outputs, or into none of them (a drain). A single `Xor` transition may relay on one branch and drain on another. A matched **join** may write a coloured place only as a declared relay target (NU-054); any other coloured output of a join is a re-mint.
+- **Join relays need `EXTENDED`.** Relay targets become coloured places, and the rules above apply to them: no read, inhibitor or reset arc on a relay target anywhere, and the join may not also consume its relay target through a non-key input. A relay target may be one of the join's own keys (the self-loop). Under `BASE` the declarations are ignored, the report says so, and the verdict is the one without them.
 - **Declare carrier places explicitly and spell them correctly.** A mistyped carrier must fail loudly (a builder rejection, or `Unknown` naming the place), never be ignored: silently ignoring it would let two fork branches mint independent names and yield a confident spurious deadlock verdict.
 - **Budget conservation must not leak.** A join must refund no more budget than the cheapest mint consumes. The colour-slot bound comes from a covering non-negative P-semiflow over the coloured set. A fan-out that co-mints a colour into a place no matched join re-collects has no covering semiflow and falls back rather than certifying.
 
@@ -120,9 +132,11 @@ These are hard modelling constraints, not tuning knobs. Violating one does not p
 Two exact routes, plus a sound fallback:
 
 - **Route A, coloured IC3/PDR.** Scales. Wants a declared budget and the clean mint-to-join fragment above. This is where budget-declared untimed safety queries go.
-- **Route B, name-partition state-class quotient.** Solver-free. Names are interchangeable symbols, quotiented under permutation symmetry, which keeps the graph finite even without a budget. Exact over name and time, and the first route tried for **quiescence**; with a declared budget, Route A decides quiescence too when Route B truncates (NU-053). It has no partial-order reduction, so heavy independent-branch parallelism truncates it.
+- **Route B, name-partition state-class quotient.** Solver-free. Names are interchangeable symbols, quotiented under permutation symmetry, which keeps the graph finite even without a budget (a budget-less net still declares its mints with `mintTransitions`). Exact over name and time, and the first route tried for **quiescence**; with a declared budget, Route A decides quiescence too when Route B truncates (NU-053). It has no partial-order reduction, so heavy independent-branch parallelism truncates it.
 - **The over-approximation fallback** is sound for reachability safety, but **not** for quiescence. A `Proven` on a quiescence property never comes from the fallback.
 
 Routing in practice: a quiescence query, or a net with no declared budget, tries Route B first; if Route B truncates on a bounded quiescence query, the verifier defers to the coloured Route A encoder rather than giving up.
 
-If a ν property comes back `Unknown`, work down this list: declare the budget place, check the fragment rules in section 7, reduce places shared between parallel branches, split independent work into separate subnet instances, and turn on the semiflow invariant option.
+**Conflict priority (NU-052) and actions in flight.** The pruning assumes a pruner's inputs are not waiting on an action in flight, so `verify()` splits every pruner and every transition feeding one. A ν-join cannot be split, so on the classic join-versus-drain net the pruning is turned off for that call: the verdict equals the `NONE` verdict, and the report says `Conflict priority (NU-052) is off: ...`. `assumeAtomicFiring(true)` keeps the pruning and states the atomic assumption in the report.
+
+If a ν property comes back `Unknown`, work down this list: read the reason (an undeclared mint is named there, with a pointer to `mintTransitions`; a ν-join or mint whose output an inhibitor, reset or drain tests cannot be split into start and completion, see `verification.md` §2a), declare the budget place, check the fragment rules in section 7, reduce places shared between parallel branches, split independent work into separate subnet instances, and turn on the semiflow invariant option.

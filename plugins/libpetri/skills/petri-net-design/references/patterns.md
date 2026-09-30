@@ -97,6 +97,8 @@ One pending token per dispatched job, consumed as its result lands. The resolver
 
 **Never decide "is this the last one" inside an action and expose it as an `Xor`.** The analysis will take the "not last" branch on the last result, strand the batch, and no proof can pass through. The pending marker plus inhibitor is the provable encoding of the same idea.
 
+**What the verifier does with it.** The inhibitor tests `JOB_PENDING`, an output of `Route`, so by default `Route` is verified as a start and a `complete:Route` step (VER-004, `verification.md` §2a), and so is `Spawn` in section 6. That costs states and no verdict: `ResolveAxis` also needs `ROUTING_DONE`, which the same completion deposits, so it cannot fire while `Route` is in flight. But `Route` mints the round name into coloured places, and the split refuses a coloured writer, so the query comes back `Unknown` naming `Route`. Verify with `assumeAtomicFiring(true)` and record the argument above next to the proof; check that the `ASSUMPTION:` line names no transition you have not argued for.
+
 **The join is the unit of commit, and it consumes rather than reads.** Correlate *every* input on the round name, not just the interesting ones: keying only some inputs leaves a hole where an abandoned round's stragglers can join name-consistently against the next round's fresh empty stores. Consuming rather than reading means there is no marking in which some of a round's results are committed and others are not.
 
 ## 6. The monitor token

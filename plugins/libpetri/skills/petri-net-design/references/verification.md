@@ -6,6 +6,7 @@ How to make a net provable, which route proves what, and what silently destroys 
 
 1. [What is checkable](#1-what-is-checkable)
 2. [The three routes](#2-the-three-routes)
+2a. [Actions in flight: the two-step split](#2a-actions-in-flight-the-two-step-split)
 3. [P-invariants and semiflows: why proofs scale](#3-p-invariants-and-semiflows-why-proofs-scale)
 4. [Environment modes and the vacuity guard](#4-environment-modes-and-the-vacuity-guard)
 5. [What makes a net unprovable](#5-what-makes-a-net-unprovable)
@@ -89,6 +90,7 @@ found.
 Pipeline: flatten `Xor` into virtual transitions (VER-021), run the structural pre-check, compute P-invariants from the incidence matrix, encode as constrained Horn clauses, hand to Z3 Spacer, decode.
 
 - **Untimed.** Timing only restricts behaviour, so `Proven` on the untimed net holds for the timed net. Nothing proved here is *about* time.
+- **Deadline reaping counts as rest (TIME-013, VER-002).** A late executor reaps a `deadline` / `window` transition and keeps its tokens, so the run can stop where that transition is still enabled. Every quiescence property therefore treats a marking whose enabled transitions are all `deadline` / `window` ones as quiescent. A `deadlockFree` that turns `Violated` with the empty trace on a net whose only way forward is a deadline transition is this, not a modelling bug: give the flow an `immediate` or `delayed` path (a fallback, a retry) wherever a deadline can lapse, or opt out with `assumeNoReaping(true)`, whose report then says the verdict assumes no transition is reaped. On a ν-net answered by Route B the opt-out also reads every action as taking no time, and the report says that too.
 - **Value-blind.** Every value-dependent choice (which `Xor` branch the action writes, which token a correlated input picks) is over-approximated as freely available.
 - Therefore `Proven` is trustworthy, `Violated` on the over-approximating path may be spurious, and `Unknown` is common.
 - Transport (VER-013): one `z3` process per query, SMT-LIB2 on stdin, `fp.engine=spacer`. `z3` on `PATH` or `LIBPETRI_Z3`, 4.8.0 or newer. All four languages emit byte-identical scripts. `LIBPETRI_SMT_DUMP=<dir>` keeps every script and reply of a run, which is the fastest way to see what the encoder actually asked.
@@ -99,7 +101,12 @@ State classes are (marking, DBM zone over firing clocks). Solver-free, no Z3.
 
 - **This is the only route that reasons about time.** Timed reachability, "can this deadline be missed", lives here.
 - For ν-nets it is the name-partition quotient (NU-050 Route B): correlation tokens carry interchangeable abstract name symbols, quotiented under name-permutation symmetry, which is what keeps the graph finite even without a budget. Exact over name and time, and it is the route that decides quiescence.
-- Undecidability surfaces as truncation into `Unknown`, never as an unsound verdict.
+- Undecidability surfaces as truncation, never as an unsound verdict. A truncated graph still
+  reports a `Violated` it found in the part it explored, with a real trace: for a safety property
+  (`placeBound`, `mutualExclusion`, `unreachable`, `branchPlaceBound`) any explored class counts;
+  for a quiescence property only a class the builder actually expanded and found without
+  successors counts, never a frontier class nobody expanded. A truncated graph never yields
+  `Proven`; with no violation in its prefix the answer is `Unknown` (VER-012, VER-017).
 
 ### The enumeration route: bounded state-space enumeration (VER-017)
 
@@ -123,8 +130,12 @@ fixpoint path, 0.11 s here**; a 62-place diamond went 53.9 s to 0.0 s.
   environment place. The timed case is excluded deliberately: the graph carries firing domains,
   so there its `Proven` would be the weaker *timed* claim, and a route must not quietly hand back
   less than the one it replaced.
-- Past its budget it **declines** and the SMT pipeline runs unchanged. It can only add verdicts,
-  never remove them, which is why it is on by default. `enumerationMaxClasses(0)` turns it off.
+- Past its budget it **declines** and the SMT pipeline runs unchanged, unless the classes it did
+  explore already violate the property: then it answers `Violated` with the shortest trace inside
+  the explored graph, and the report names the truncation. The same rule as Route B: any explored
+  class for a safety property, only expanded dead classes for a quiescence property, and never
+  `Proven` from a prefix. It can only add verdicts, never remove them, which is why it is on by
+  default. `enumerationMaxClasses(0)` turns it off.
 
 ### Which route runs
 
@@ -148,6 +159,36 @@ method `state-equation`, and list the refinements in `discoveredInvariants`. The
 (VER-019) looks for place weights every firing lowers, then model-checks every run up to that
 length (method `bounded-model-check`). A `Violated` from either is a replayed run. Neither runs on
 a ν-net; the firing bound also skips nets with injected environment places.
+
+## 2a. Actions in flight: the two-step split
+
+Every route used to read a firing as one step. The executor consumes a firing's inputs when the action starts, deposits its outputs when the action completes, and fires other transitions in between: for as long as an asynchronous action runs, and until the end of the firing pass for a synchronous one. The gap only matters to a transition that tests an output non-monotonically, so by default the verifier (VER-004) splits exactly these transitions `t` into `t`, which consumes and marks `inflight:<t>`, and an immediate `complete:<t>`, which deposits the outputs:
+
+- `t` has an output that some transition tests with an inhibitor, a reset, or an `all` / `atLeast` input;
+- `t` deposits into a terminal place, which inhibits every transition;
+- the property is a `QuiescentCount` with `min > 0` and the net has a terminal place not listed in `waivedBy`: every transition depositing into a counted or waiver place, because a terminal stop abandons an action in flight and its tokens never arrive;
+- conflict priority on Route B (NU-052): every pruner (a transition with strictly higher priority than one it shares a consumed input with) and every transition depositing into a pruner's input or read place. A pruner pre-empts nothing while its own action is in flight.
+
+Arrivals and open-net environment steps stay atomic. A net with none of these verifies, and scripts, exactly as before. The report names the split transitions (`In-flight actions (VER-004): start is verified in two steps, ...`).
+
+**Reading a trace.** `inflight:<t>` in a marking is an action still running; `complete:<t>` is the step where it returns and its outputs land. Everything between `t` and `complete:<t>` fired while the action ran. The classic case is the self-guarded latch `start: req + inhibitor(busy) → busy`: from two requests, `placeBound(busy, 1)` is `Violated` with `start, start, complete:start, complete:start` (`metrics.md` §7 has the fix).
+
+**Restarts (CONC-002).** The model lets `t` start again while `inflight:<t>` is marked. The Rust executor does that; the Java and TypeScript executors never start a transition again while it is in flight. A `Violated` whose trace relies on it ends with `NOTE (CONC-002): the counterexample starts 't' again while its earlier firing is still in flight (inflight:t marked). ...`. The verdict stands, since it is sound for all three executors, but on Java and TypeScript that trace may be a false alarm. Model the exclusion with a consumed token and the question goes away.
+
+**Flush (Rust and Python).** A split transition's outputs land together at `complete:<t>`. An action that calls `ctx.flush()` publishes some of them earlier, which the verdict does not model, and every split verdict says so.
+
+**When the split is refused.** Some transitions cannot be cut in two, and then every route answers `Unknown` naming the transition (`transition 't' must be verified as two steps, since ..., but <cause>`):
+
+| Cause | What to do |
+|---|---|
+| a ν-join: its outputs carry the matched name | keep inhibitors, resets and drains off the join's outputs |
+| it writes a coloured place (match key, relay target, declared carrier), a declared mint included | move the tested output to a transition that writes no coloured place |
+| its timeout forwards an `exactly(n)`, `all` or `atLeast` input | forward a `one` input, or stop testing the forward's target |
+| the net already uses `inflight:<t>` or `complete:<t>` | rename |
+
+Under conflict priority a refused pruner or feeder does not give `Unknown`. The pruning is turned off for that call instead, every enabled transition is explored, the verdict is the `NONE` verdict, and the report says `Conflict priority (NU-052) is off: ...`, naming the transition. The canonical ν-join-versus-drain idiom hits this, because the join is the pruner and cannot be split.
+
+**`assumeAtomicFiring(true)`** (`assume_atomic_firing`) reads every firing as one step again, keeps conflict pruning on, and the report states `ASSUMPTION: every firing is atomic ...`, naming every transition the assumption covers. The verdict then holds only for runs in which none of those actions is in flight when it matters. Use it when you can argue the gap is harmless for each named transition, for example when the inhibited transition also needs a token that only the same firing deposits, and write the argument next to the proof. It is also the only way to verify a net whose ν-join or mint has a tested output, since the split refuses those.
 
 ## 3. P-invariants and semiflows: why proofs scale
 
@@ -178,12 +219,16 @@ If your net carries any of those you will no longer see `method: 'structural'`, 
 | Mode | Meaning |
 |---|---|
 | `AlwaysAvailable` | unbounded external source, injection modelled. The sane default. |
-| `Bounded(k)` | the environment supplies at most k tokens per firing. Use it to state what you know. |
+| `Bounded(k)` | at most k tokens **resident** in each environment place, refilled forever. It bounds what one firing can take and leaves the total input unbounded. It holds only when no transition deposits into the environment place and the initial marking holds at most k there; otherwise the verdict is `Unknown` naming the place and the transition (or the count). Register a different place as the environment place, or use `Arrivals(k)`. |
+| `Arrivals(k)` | at most k tokens injected into each environment place **over the whole run**. Implemented as a net rewrite before any route runs: a source place per environment place and an injection transition, plus a decline transition for the optional arrivals. |
+| `Arrivals(min, max)` | between `min` and `max` arrivals per environment place; the first `min` are mandatory. `Arrivals(k, k)` means exactly k. |
 | `Ignore` | injection not modelled at all. |
 
 `Ignore` with registered environment places can never return `Proven`. It returns `Unknown`, because a property that holds only because env-gated transitions never fire is vacuous. This binds every route that can return `Proven`, including the solver-free structural ones. A `Violated` under `Ignore` is still real.
 
 Practical consequence: under `AlwaysAvailable`, a bare `env -> T -> OUT` makes `PlaceBound(OUT, k)` `Violated` for every finite k. That is the correct answer. An unbounded external source really is unbounded. If you want a bound, put a permit or budget place in front of the consuming transition, which is what a real system does anyway.
+
+`Arrivals(k)` is the mode for "a generator delivers at most k events": the same `env -> T -> OUT` proves `PlaceBound(OUT, k)`. For accounting at quiescence ("outcomes equal inputs") use `Arrivals(k, k)`: under `Arrivals(k)` a run may decline its arrivals, and such a run always violates a count that expects all k. `Arrivals` is an assumption about the environment, not something the executor enforces: at run time injection stays unbounded. Under `Arrivals` with an environment place that is a ν match key or carrier, no ν route answers, because an injected token's name is unknown and treating each arrival as a fresh mint could hide two arrivals carrying one name (VER-006).
 
 ## 5. What makes a net unprovable
 
@@ -223,7 +268,11 @@ A `Violated` from the enumeration route is a different animal: the graph path *i
 
 And say which of the three you have. A property you did not run is "not checked", not "fine". A net nobody proved anything about is unverified, however carefully it was read: that is the whole reason this machinery exists.
 
-**`Unknown`** is information, not failure. Read the reason. The common ones map to fixes: truncation (bound something, split the net, or declare a budget), vacuity (`Ignore` mode with env places registered), and a lost invariant (turn on semiflows, or move the draining arc).
+A `Violated` from a **truncated** graph (enumeration, Route B, or the timed check) is just as real: every explored class is reachable. The report says the graph was truncated at `N` classes and that the violation was found in the explored prefix. What a truncated graph never gives you is `Proven`.
+
+**`counterexampleTiming`** says what a `Violated` means for a *timed* net: `UNTIMED_NET` (every transition immediate, timing cannot matter), `UNTIMED_ABSTRACTION` (the trace comes from the untimed abstraction and was not checked under timing), `TIMED_EXACT` (Route B on a timed net), and, with the opt-in `timedCounterexampleCheck(true)` (VER-023): `TIMED_CONFIRMED` (the timed state-class graph reaches a violation; the trace is replaced by its shortest path), `SPURIOUS_UNDER_TIMING` (the timed graph closed and nothing violates: the property holds under timing only) or `TIMED_UNDECIDED` (the timed graph was truncated with no violation in its prefix, or the total budget ran out). **The check never changes the verdict**: a `SPURIOUS_UNDER_TIMING` result is still `Violated`, because the untimed claim is the contract. Two limits: the check does not run with environment places or match transitions, and the timed graph is **priority-blind**, so a `TIMED_CONFIRMED` trace can be one the executor's priority order never schedules (a low-priority transition winning a race a higher-priority one always takes). If a safety argument rests on priority, make it structural.
+
+**`Unknown`** is information, not failure. Read the reason. The common ones map to fixes: truncation (bound something, split the net, or declare a budget), vacuity (`Ignore` mode with env places registered), a lost invariant (turn on semiflows, or move the draining arc), an in-flight split the verifier cannot express (section 2a), an environment place outside the `Bounded(k)` premises (section 4), an undeclared or misspelled mint (`mintTransitions`), and a spent budget: `totalBudget(ms)` caps the whole `verify()` call in wall-clock time, and a cancellation (`signal(abortSignal)` in TypeScript, a cancel token in Rust and Python, thread interrupt in Java) stops it; either returns `Unknown` naming the budget or the cancellation, kills the solver process, and never produces a verdict it would not otherwise have. A graph stopped this way is not a truncation: nothing is read from its prefix.
 
 **But rule out the clock first, because it looks exactly like the others.** A proof that needs four minutes reports the same `Unknown` as one that needs forever. One team read a monotone, reproducible wall between 16 and 20 nodes across three fixtures as a capability limit; a larger budget walked straight through it, and every one of those nets proved, at 35 s, 277 s and 410 s. Three consecutive `Unknown`s are no evidence at all when they share a timeout. Vary the budget before characterising anything, and when you record a limit, record which budget produced it.
 
@@ -340,13 +389,17 @@ library's own solver tests set it).
 
 **`budgetPlaces`.** Name every place whose consumption gates a fresh-name mint. It is **not validated**: a name that fails to resolve silently degrades the verdict to `Unknown`, which is indistinguishable from an honest one unless you check the route.
 
+**`mintTransitions`** (`mint_transitions`, Rust also `mint_transition`). Names the transitions whose action writes a name it minted with `freshName()` in that firing into every coloured place it writes: match keys, declared carriers and relay targets alike. A transition that consumes a declared budget place is declared already; use this for a mint that consumes none. When Route B declines a net only because a writer is undeclared, the report names it and points here. Validated at every entry point with the reason `declared mint transition 'x' not in the net (NU-010)`: Java throws where it is declared; TypeScript throws on a verifier and answers `Unknown` from `verifyOpenNet`; Rust answers `Unknown` from `verify` and `verify_open_net` and panics in `encode_scripts`; Python answers `Unknown` from `verify`, raises `ValueError` from `encode_smt_scripts`, and raises `TypeError` for a bare string where a list belongs.
+
 **`carrierPlaces`.** Validated, and it throws. It names the intermediate places threading a minted name through to the join, so the branches share one colour instead of each minting independently. Keep the list in one constant and filter it against the net's places so that slice nets still work.
 
-**`environmentMode`.** Always set it. `bounded(k)` is sound and states what you know; `alwaysAvailable` is the honest default for an open input; `ignore` with declared environment places is refused as vacuous. Defaults have changed between releases, and inheriting one silently changes what your verdict means.
+**`environmentMode`.** Always set it. `bounded(k)` is sound within its premises (section 4) and states what you know; `alwaysAvailable` is the honest default for an open input; `ignore` with declared environment places is refused as vacuous. Defaults have changed between releases, and inheriting one silently changes what your verdict means.
 
 **`nuMaxClasses`** is a route selector as much as a cap. A large cap lets the state-class route run to exhaustion (and can take the process with it). A deliberately tiny cap makes it truncate at once so the verifier defers to the coloured IC3 route, which is sometimes exactly what you want for a whole-net quiescence query.
 
-**Conflict priority semantics** prunes interleavings where a low-priority drain steals from a high-priority consumer. Reach for it only when a spurious stall traces to priority blindness, and remember that priority blindness is a *feature* for quiescence: admitting more behaviour than the executor is what makes the proof carry.
+**Conflict priority semantics** prunes interleavings where a low-priority drain steals from a high-priority consumer. Reach for it only when a spurious stall traces to priority blindness, and remember that priority blindness is a *feature* for quiescence: admitting more behaviour than the executor is what makes the proof carry. It splits every pruner and its feeders (section 2a); when one cannot be split, as a ν-join cannot, the pruning is off and the report says so.
+
+**`assumeNoReaping`** and **`assumeAtomicFiring`** each trade soundness for the executor you have against a stronger verdict for one you promise. `assumeNoReaping(true)` promises an on-time executor that reaps nothing and fires nothing late, and on Route B also actions that take no time. `assumeAtomicFiring(true)` promises that no tested output is written by an action in flight (section 2a). Both put an `ASSUMPTION:` line in the report; quote it with the verdict.
 
 ## 10. Assertion discipline
 
@@ -392,9 +445,10 @@ Slices are fast, local signal. Build them from the *same* subnet composition cal
 - The state-class graph is priority-blind and name-blind. On a correlated net, the name-blind graph is a sound instrument for boundedness (it over-approximates, so boundedness there implies boundedness in reality), but name-blind deadlock freedom on a correlated net is **not** sound.
 - Its environment handling never consumes environment tokens, so it cannot prove that an environment cell clears. Use the SMT route with a bounded environment mode for that.
 - **The enumeration budget behaves differently from `nuMaxClasses`, and the difference is the point.**
-  Exceeding `nuMaxClasses` yields `Unknown`; exceeding `enumerationMaxClasses` yields nothing at
-  all: the route declines and the SMT pipeline answers. So a small enumeration budget costs you
-  the fast path, never a verdict. If you already enumerate the state space yourself before calling
+  Exceeding `nuMaxClasses` yields `Unknown` (or hands a bounded quiescence query to Route A);
+  exceeding `enumerationMaxClasses` yields nothing at all: the route declines and the SMT pipeline
+  answers. Either way a violation already inside the explored prefix is reported as `Violated`.
+  So a small enumeration budget costs you the fast path, never a verdict. If you already enumerate the state space yourself before calling
   libpetri, set it to `0`: a second enumeration under a smaller budget can only re-explore and
   decline, which one consumer measured at 17 s to 101 s across their suite.
 

@@ -18,6 +18,8 @@ So: an action that needs all-or-nothing output must not flush. Use it for genuin
 
 Since the 5.0 wave this interacts with the tightened output check (IO-015). Validation now succeeds only when exactly one branch of the spec claims exactly the produced set, and flushed tokens are part of that set, so flushing into a declared place and then selecting a branch that does not claim it is a violation. It used to be accepted. Flush only inside the branch you have already committed to.
 
+The verifier does not model a flush. A transition split for an action in flight (`verification.md` §2a) is read as depositing every output at its completion step, and every split verdict says so. Keep flushing actions off transitions whose outputs an inhibitor, reset or drain tests.
+
 ## Actions run on Tokio tasks
 
 Real concurrency, which is what you want, and it means an action that blocks a worker thread hurts the whole runtime. Use async I/O inside actions, or `spawn_blocking` for genuinely blocking work.

@@ -42,6 +42,8 @@ A place can be both an interface port (a composition boundary) and an environmen
 
 `/` is the reserved separator. Never put it in a place name, transition name or subnet name: it drives prefix parsing and cluster reconstruction in export, and must be sanitized out of membership metadata (MOD-010, MOD-026).
 
+To ask which subnet a node belongs to, use `subnetOf(name)` (`subnet_of` in Rust and Python), not your own prefix split (MOD-040). It reads direct-composition membership first, then walks the instance prefix up to the longest `/`-prefix that some **transition** lives under, so a place whose name carries more segments than any instance (`s1/obs/TURN`, with transitions only under `s1/`) belongs to `s1`, not to a phantom subnet `s1/obs`. A shared rendezvous place, a flat name and an undeclared name have none. The DOT exporter's clustering is unchanged and can differ from it on such names.
+
 **`compose(instance, bindings)`** substitutes the instance's renamed port place with the caller place at every arc, brings internal places in under their prefixed names, and adds every transition (MOD-020). Eager, at compose time. Binding a port twice in one call is a build error.
 
 **`compose(instance)`** with no bindings auto-binds each port to the host place carried on its declaration (MOD-024). Channels are never auto-bound: a subnet declaring a channel must use the explicit form.
@@ -192,4 +194,7 @@ Auto-inference and direct composition use the implementation's own `Place` equal
 - Reaching for direct composition when you needed per-instance state. The symptom is two "instances" sharing one token bag.
 - A fusion set with fewer than two members, or two fusion sets sharing a place.
 - `/` anywhere in a name.
+- An arc naming a bound port's **pre-binding** place (MOD-027). After `compose(answer, in -> A_IN)`, `answer.port("in")` still hands out `answer/IN`, but that place is gone from the net: a host reset or read on it used to do nothing, silently. `build()` now rejects it, naming the port, the instance and the caller place to reference instead (`A_IN`).
+- Two output ports of one instance bound to one caller place when an instance transition writes both in one `And` branch (MOD-020): that branch would name the place twice, and outputs are sets. Bind them to distinct places or use one port. Ports that land in different `Xor` alternatives are fine.
+- A place named twice in one `And` output branch, anywhere (IO-011), and two input arcs on one place of one transition (CORE-030). Both are rejected when the transition is built; use a second place, a follow-up transition, or one arc with `exactly(n)`.
 - A nu match spec silently dropped at a channel merge. It must fuse coherently or be rejected (NU-060).

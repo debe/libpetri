@@ -125,6 +125,8 @@ The executor consumes inputs before the action runs, does not restore them on fa
 - A **read arc plus an inhibitor arc**: the streaming transition reads the generation or session token and is inhibited by a barge-in place. Injecting into the barge-in place stops further firing immediately, with no flag to observe at the wrong moment.
 - **Reset arcs clear stale state** at the boundary: the transition that accepts new input resets the in-flight places, so leftovers from the interrupted unit cannot combine with the new one.
 
+The executor can fire that inhibitor or reset while an action that writes the tested place is still running, so the verifier splits each such writer into a start and a `complete:<t>` step (fact 6 below). Keep the design; expect the split in traces, and keep ν-joins and mints from writing the tested places, since those cannot be split.
+
 A cancellation flag read inside an action is the classic stall: the action returns early, tokens sit in the in-flight place forever, and the marking never learned about the cancellation.
 
 ### Observability rides the event store
@@ -210,11 +212,12 @@ The two stopping properties are different claims. `DeadlockFree` is strict: it f
 
 Facts that shape designs (details, numbers and flags in `references/verification.md`):
 
-1. **The SMT route is untimed and value-blind.** `Proven` holds for the timed net too; `Violated` there can be spurious, because the abstraction lets an action route anywhere its spec allows. Read the counterexample before believing it.
-2. **An ordinary untimed net is usually decided by enumeration of the state-class graph**, exactly and with a real firing sequence as counterexample, orders of magnitude faster than IC3 on pipelines. It is skipped for timed nets, ν-nets and nets with environment places. `result.route` says which route answered.
+1. **The SMT route is untimed and value-blind.** `Proven` holds for the timed net too; `Violated` there can be spurious, because the abstraction lets an action route anywhere its spec allows. Read the counterexample before believing it, and read `counterexampleTiming`; `timedCounterexampleCheck(true)` asks the timed state-class graph whether the trace survives timing, without ever changing the verdict.
+2. **An ordinary untimed net is usually decided by enumeration of the state-class graph**, exactly and with a real firing sequence as counterexample, orders of magnitude faster than IC3 on pipelines. It is skipped for timed nets, ν-nets and nets with environment places. `result.route` says which route answered. A graph cut off at its class budget still reports a violation found in the part it explored; it never reports `Proven`.
 3. **The state-class route is the only one that reasons about time.** For correlated nets, quiescence is decided by the name-partition state-class route first and, for budget-declared nets where that truncates, by coloured IC3/PDR; the over-approximation fallback never proves it.
 4. **P-invariants make proofs converge**, and one draining or reset arc on a busy place destroys every invariant whose support touches it.
 5. **`Unknown` is information, and the timeout is the first suspect.** Raise it before concluding anything. Then read the report before reaching for a flag: `Dropped invariant:` / `Dropped semiflow:` lines naming a draining or reset place point at `semiflowInvariants`; a quiescence proof on a pipeline points at `stateEquation(true)`; otherwise bound something, declare the budget place, declare sinks, or move a draining arc.
+6. **Actions take time, and the verifier models it** (VER-004). The executor consumes a firing's inputs when its action starts and deposits the outputs when it completes. A transition whose output an inhibitor, reset or drain tests, or that marks a terminal place, is verified as `t` then `complete:<t>`, with `inflight:<t>` marked in between; a lower-bound `QuiescentCount` beside a terminal and conflict priority split more. A ν-join or a writer into a coloured place cannot be split, and the verdict is `Unknown` naming it. `assumeAtomicFiring(true)` reads every firing as one step and says so in the report. An inhibitor on a transition's own output is no mutex once two transitions share it, and on Rust not even for one transition; use a permit token.
 
 ### Say proven, or say untested
 
@@ -233,15 +236,27 @@ Two limits belong in the same breath:
 
 Read `references/verification.md` before tuning anything: the route split, the exact-gate rule that decides proof cost, the semiflow option, siphons and traps, environment modes and the vacuity guard, open-net contracts, and wiring proofs into a build.
 
+### Check cheaply first, prove the whole net last
+
+Whole-net proofs of a large composed net either finish fast because the design is good, or come back `Unknown` after minutes because it is not. Neither is a usable design-time check. Use this order:
+
+1. **Small scope.** Enumerate the design with one unit and with two (sessions, events, copies). Every bug in controlled experiments appeared there, in milliseconds, with a real counterexample. Check strict `DeadlockFree` with all resting places declared as sinks, plus **accounting**: model arrivals through a generator and assert that outcomes equal inputs at quiescence. `DeadlockFree` alone passes while a reset silently loses events.
+2. **One subnet at a time.** Prove each subnet against its harness, then the glue against the subnet contracts. This only works when nothing outside a subnet touches its internal places, so encapsulation is a precondition of the proof.
+3. **The whole net**, as an overnight regression.
+
+When several designs pass, compare them with the sensors in `references/metrics.md`, not with size. Correct designs are usually bigger. To generate, check, compare and present candidate nets before writing production code, use the design harness described in `references/harness.md`.
+
 ## Where to read more
 
 The files below sit next to this `SKILL.md`; read them from this skill's own directory.
 
 | Read this | When |
 |---|---|
-| `references/verification.md` | any proof question: what is checkable, why a query is `Unknown`, keeping proofs cheap, open-net contracts, CI wiring |
+| `references/verification.md` | any proof question: what is checkable, why a query is `Unknown`, actions in flight and `complete:<t>` steps in a trace, keeping proofs cheap, open-net contracts, CI wiring |
 | `references/composition.md` | building or reusing subnets, ports versus channels, instantiate versus compose, fusion, the cross-language place-equality divergence |
 | `references/nu-nets.md` | correlating parallel work by identity: minting, matching, the tie-break, the budget place, the fragment rules the exact routes require |
+| `references/metrics.md` | comparing designs that all pass their proofs: the check order, lint rules, the sensors that rank correct nets, what not to count, and precise reset rules |
+| `references/harness.md` | designing a net before implementing it: contract, candidates in TypeScript, checks, the comparison artifact, porting the chosen net to the project language, and proving the port equals the design |
 | `references/patterns.md` | worked topologies from a production system: per-session nets, turn handling, barge-in, budgets, queue draining, and changes that made real nets provably deadlock-free |
 | `references/lang-java.md` and the other `lang-*.md` | the per-language facts that change a design decision: API spellings, snapshot/restore, threading |
 
@@ -277,8 +292,10 @@ Run this before calling a net design done.
 - [ ] Every token has an enabled consumer in every reachable state, including every "nothing happened" marker.
 - [ ] Cancellation and staleness are inhibitor and reset arcs, not flags.
 - [ ] Repeated structure is a subnet with named ports, instantiated per use, with port names exported rather than duplicated as strings.
-- [ ] Correlation by identity is used only where several groups are live over shared places, and every minting net declares a budget place.
+- [ ] Correlation by identity is used only where several groups are live over shared places, and every mint is declared (a budget place it consumes, or `mintTransitions`).
 - [ ] Draining and reset arcs stay off the places whose counts a proof depends on.
+- [ ] No reset reaches into another subnet, sits on a place fed by an event source, or clears a place that concurrent units share. Local, atomic cleanup of a one-token latch is fine.
+- [ ] The design passes lint and the small-scope check (one and two units, strict `DeadlockFree` plus accounting) before any whole-net proof is attempted.
 - [ ] Sink places are declared for every resting state (conditional sinks for halts), and the stop property asserted states the intent (`DeadlockFree` for "nothing stranded", `TerminatesAtSink` for "we reached a sink").
 - [ ] Environment places are registered with the verifier under a mode that models injection.
 - [ ] At least one property per subnet and one on the composed net, each asserting `Proven`, and every correctness claim names property, verdict and marking.
