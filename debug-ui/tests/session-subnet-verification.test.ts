@@ -131,10 +131,11 @@ describe('session subnet formal verification', () => {
   it('control: on the full net a subscribe goes out and is answered', async () => {
     // Were injection not modelled, every bound above would hold on a net frozen at its seed.
     // The witness is seven firings deep (connect, open, select, route, subscribed), which is
-    // what makes this the slowest query of the file: about half a minute.
+    // what makes this the slowest query of the file. The witness is sought on the atomic reading:
+    // it is an executor run too, and the in-flight split (VER-004) takes about 90 s per query here.
     const full = debugNet();
-    expect(await check(full, seedInitialMarking, unreachable(new Set([p.subscribing])))).toBe('violated');
-    expect(await check(full, seedInitialMarking, unreachable(new Set([p.subscribedSession])))).toBe('violated');
+    expect(await check(full, seedInitialMarking, unreachable(new Set([p.subscribing])), true)).toBe('violated');
+    expect(await check(full, seedInitialMarking, unreachable(new Set([p.subscribedSession])), true)).toBe('violated');
   }, Z3_TIMEOUT);
 
   it('control: on the slice both modes are reachable, each with its state', async () => {

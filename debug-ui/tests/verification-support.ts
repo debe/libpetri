@@ -65,12 +65,20 @@ export function environmentOf(net: PetriNet) {
   return [...p.allEnvironmentPlaces].filter(env => names.has(env.place.name));
 }
 
-/** The verdict on `property`, every environment place of `net` injectable at any time (VER-006). */
-export async function check(net: PetriNet, marking: (m: MarkingStateBuilder) => void, property: SmtProperty): Promise<string> {
+/**
+ * The verdict on `property`, every environment place of `net` injectable at any time (VER-006).
+ * `atomic` reads each firing as one step (`assumeAtomicFiring`). Only a control that expects
+ * `violated` may pass it: an atomic run is also an executor run, so its witness is real, while a
+ * `proven` would not cover the runs in which an action is in flight (VER-004).
+ */
+export async function check(
+  net: PetriNet, marking: (m: MarkingStateBuilder) => void, property: SmtProperty, atomic = false,
+): Promise<string> {
   const result = await SmtVerifier.forNet(net)
     .initialMarking(marking)
     .environmentPlaces(...environmentOf(net))
     .environmentMode(alwaysAvailable())
+    .assumeAtomicFiring(atomic)
     .property(property)
     .timeout(60_000)
     .verify();
