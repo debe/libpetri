@@ -49,7 +49,8 @@ final class GraphRoute {
 
     /** Builds the closed net's untimed graph and judges it against {@code contract}. */
     static Outcome decideOnGraph(
-            ClosedNet closed, OpenNetContract contract, int maxClasses, List<Place<?>> tracedPlaces
+            ClosedNet closed, OpenNetContract contract, int maxClasses, List<Place<?>> tracedPlaces,
+            Set<String> reapable
     ) {
         var graph = StateClassGraph.build(
             closed.net(), closed.initialMarking(), maxClasses, Set.of(), EnvironmentAnalysisMode.ignore(),
@@ -62,8 +63,10 @@ final class GraphRoute {
         for (int c = 0; c < explored.size(); c++) {
             // In an untimed exploration an enabled transition can always fire, so "nothing
             // enabled" is the graph's own quiescence, and it holds of a class the build never
-            // expanded as well.
-            if (!explored.classes.get(c).enabledTransitions().isEmpty()) {
+            // expanded as well. A late executor also rests where only reapable transitions are
+            // enabled ([VER-002] reap-quiescence, [TIME-013]); with none, that is the same rule.
+            if (!explored.classes.get(c).enabledTransitions().stream()
+                    .allMatch(t -> reapable.contains(t.name()))) {
                 continue;
             }
             for (var finding : QuiescencePredicate.quiescenceFindings(

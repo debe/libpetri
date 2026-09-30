@@ -524,4 +524,44 @@ class StateSpaceCacheTest {
         assertSameAnswer(verify(net, m0, SmtProperty.deadlockFree(), null), deadlock);
         assertSameAnswer(verify(net, m0, SmtProperty.mutualExclusion(a, b), null), mutex);
     }
+
+    // === The in-flight split ([VER-004]) is part of the key ===
+
+    /**
+     * {@code t: p0 -> p1}, and {@code u: q -> r} inhibited by {@code p0} and {@code p1}. Read
+     * atomically {@code u} never fires, since {@code p0} or {@code p1} always holds the token.
+     * The executor fires {@code t} in two steps, and between them {@code u} fires. A graph of
+     * the atomic net under {@code assumeAtomicFiring} must never answer for the split net, in
+     * either order.
+     */
+    @Test
+    void theInFlightSplitIsPartOfTheKey() {
+        var p0 = Place.of("p0", String.class);
+        var p1 = Place.of("p1", String.class);
+        var q = Place.of("q", String.class);
+        var r = Place.of("r", String.class);
+        var net = StructureOnly.bind(PetriNet.builder("in_flight_gap").transitions(
+            Transition.builder("t").inputs(one(p0)).outputs(place(p1)).build(),
+            Transition.builder("u").inputs(one(q)).inhibitor(p0).inhibitor(p1).outputs(place(r)).build())
+            .build());
+        var m0 = MarkingState.builder().tokens(p0, 1).tokens(q, 1).build();
+        var property = SmtProperty.unreachable(java.util.Set.of(r));
+        var split = verify(net, m0, property, null);
+        var atomic = verify(net, m0, property, null, v -> v.assumeAtomicFiring(true));
+        assertTrue(split.isViolated(), split.report());
+        assertTrue(atomic.isProven(), atomic.report());
+
+        for (boolean atomicFirst : new boolean[] {true, false}) {
+            var cache = new StateSpaceCache();
+            var first = verify(net, m0, property, cache, v -> v.assumeAtomicFiring(atomicFirst));
+            var second = verify(net, m0, property, cache, v -> v.assumeAtomicFiring(!atomicFirst));
+            assertEquals(2, cache.buildsForTesting(), "one graph per net");
+            assertSameAnswer(split, atomicFirst ? second : first);
+            assertSameAnswer(atomic, atomicFirst ? first : second);
+            var again = verify(net, m0, property, cache);
+            assertEquals(2, cache.buildsForTesting(), "the split net's own later query reuses its graph");
+            assertTrue(again.report().contains(REUSED), again.report());
+            assertSameAnswer(split, again);
+        }
+    }
 }

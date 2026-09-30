@@ -62,6 +62,11 @@ public sealed interface Timing permits
             if (after == null || after.isNegative()) {
                 throw new IllegalArgumentException("Delay must be non-negative: " + after);
             }
+            // [TIME-001]: [after, MAX_DURATION] would be empty, and a state-class graph would read a
+            // transition that can fire as one that never can.
+            if (after.compareTo(MAX_DURATION) > 0) {
+                throw new IllegalArgumentException("Delay must be at most MAX_DURATION (" + MAX_DURATION + "): " + after);
+            }
         }
     }
 
@@ -75,6 +80,11 @@ public sealed interface Timing permits
         public Window {
             if (earliest == null || earliest.isNegative()) {
                 throw new IllegalArgumentException("Earliest must be non-negative: " + earliest);
+            }
+            // As for Delayed: a verifier that lifts the latest bound reads this as delayed(earliest).
+            if (earliest.compareTo(MAX_DURATION) > 0) {
+                throw new IllegalArgumentException(
+                        "Earliest must be at most MAX_DURATION (" + MAX_DURATION + "): " + earliest);
             }
             if (latest == null || latest.compareTo(earliest) < 0) {
                 throw new IllegalArgumentException(
@@ -97,6 +107,9 @@ public sealed interface Timing permits
         public Exact {
             if (at == null || at.isNegative()) {
                 throw new IllegalArgumentException("Exact time must be non-negative: " + at);
+            }
+            if (at.compareTo(MAX_DURATION) > 0) {
+                throw new IllegalArgumentException("Exact time must be at most MAX_DURATION (" + MAX_DURATION + "): " + at);
             }
         }
     }

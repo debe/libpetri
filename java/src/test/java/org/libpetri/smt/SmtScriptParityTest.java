@@ -141,10 +141,15 @@ class SmtScriptParityTest {
         if (!budgets.isEmpty()) {
             verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
         }
+        var mints = VerdictParityTest.mintTransitions(fixture);
+        if (!mints.isEmpty()) {
+            verifier.mintTransitions(mints.toArray(new String[0]));
+        }
         VerdictParityTest.sinkPlacesWhen(fixture).forEach((marker, places) ->
             verifier.sinkPlacesWhen(marker, places.toArray(new Place<?>[0])));
         verifier.semiflowInvariants(VerdictParityTest.semiflowInvariants(fixture));
         verifier.stateEquation(VerdictParityTest.stateEquation(fixture));
+        verifier.assumeNoReaping(VerdictParityTest.assumeNoReaping(fixture));
         var scripts = verifier.encodeScripts();
 
         compare(id, goldenDir.resolve("horn.smt2"), scripts.horn());

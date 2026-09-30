@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.InFlight;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
@@ -16,11 +17,13 @@ import org.libpetri.core.internal.OutputActionCheck;
 import org.libpetri.core.internal.TerminalEncoding;
 import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.smt.encoding.FlatNet;
+import org.libpetri.smt.encoding.FlatTransition;
 import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
 import org.libpetri.smt.invariant.PInvariant;
 import org.libpetri.smt.invariant.PInvariantComputer;
 import org.libpetri.smt.invariant.StructuralCheck;
+import org.libpetri.smt.opennet.ClosedNetSteps;
 import org.libpetri.smt.opennet.OpenNetClosure;
 import org.libpetri.smt.opennet.OpenNetContract;
 import org.libpetri.smt.z3.AbstractReplayer;
@@ -107,15 +110,29 @@ import java.util.function.Supplier;
  */
 public final class SmtVerifier {
 
-    /** Not final: {@link #applyNetTerminals()} swaps in the terminal encoding ([EXEC-042]). */
+    /**
+     * Not final: {@link #prepare()} swaps in the arrivals closure, the in-flight split
+     * ([VER-004]) and the terminal encoding ([EXEC-042]).
+     */
     private PetriNet net;
     /**
-     * The net as the caller passed it, before {@link #applyNetTerminals()}: the
-     * {@link StateSpaceCache} key, since the rewrite builds a new instance per verification.
+     * The net as the caller passed it, before any rewrite: with {@link #inFlightSplit}, the
+     * {@link StateSpaceCache} key, since the rewrites build a new instance per verification.
      */
     private final PetriNet callerNet;
     private StateSpaceCache stateSpaceCache = null;
+    /** The marking every route reads: the caller's, closed under {@code arrivals(k)} when that applied. */
     private MarkingState initialMarking = MarkingState.empty();
+    /** The initial marking as the caller set it, before the arrivals closure. */
+    private MarkingState callerMarking = MarkingState.empty();
+    /** The environment places as the caller declared them, before the arrivals closure. */
+    private final Set<EnvironmentPlace<?>> callerEnvironmentPlaces = new LinkedHashSet<>();
+    /** The inputs the arrivals closure last ran on; {@code null} before the first call. */
+    private ArrivalsInputs arrivalsInputs = null;
+
+    /** What the arrivals closure of [VER-006] depends on besides the net. */
+    private record ArrivalsInputs(
+        EnvironmentAnalysisMode mode, List<EnvironmentPlace<?>> places, MarkingState marking) {}
     private SmtProperty property = SmtProperty.deadlockFree();
     /** Registration order: {@code arrivals(k)} numbers its sources by it ([VER-006]). */
     private final Set<EnvironmentPlace<?>> environmentPlaces = new LinkedHashSet<>();
@@ -125,7 +142,11 @@ public final class SmtVerifier {
     private final Set<Place<?>> sinkPlaces = new LinkedHashSet<>();
     /** Conditional sinks by marker, in declaration order; repeated markers accumulate. */
     private final Map<Place<?>, Set<Place<?>>> conditionalSinks = new LinkedHashMap<>();
+    /** The places {@link #applyNetTerminals()} added to each terminal's excused set, not the caller. */
+    private final Map<Place<?>, Set<Place<?>>> terminalExcused = new HashMap<>();
     private final Set<String> budgetPlaces = new HashSet<>();
+    /** Transitions declared to mint a fresh ν-name (NU-010); see {@link #mintTransitions}. */
+    private final Set<String> mintTransitions = new HashSet<>();
     private EnvironmentAnalysisMode environmentMode = EnvironmentAnalysisMode.alwaysAvailable();
 
     /**
@@ -165,6 +186,44 @@ public final class SmtVerifier {
     private int replayNodeBudget = AbstractReplayer.DEFAULT_NODE_BUDGET;
     private Duration totalBudget = null;
     private boolean timedCounterexampleCheck = false;
+    /** Quiescence read strictly, as if no transition were reaped ([TIME-013]); see {@link #assumeNoReaping}. */
+    private boolean assumeNoReaping = false;
+    /**
+     * The reapable transitions named by the open-net route before it strips the timing
+     * ([VER-022]); {@code null} names them off {@link #callerNet}.
+     */
+    private Set<String> reapableOverride = null;
+    /** Every firing read as one step ([VER-004]); see {@link #assumeAtomicFiring}. */
+    private boolean assumeAtomicFiring = false;
+    /** The transitions modelling the environment of a closed open net ([VER-022]), left atomic. */
+    private Set<String> environmentSteps = Set.of();
+    /** The report line of the in-flight split ([VER-004]), once {@link #applyInFlight} ran. */
+    private String inFlightLine = null;
+    /** Why the in-flight split cannot express this net ([VER-004]); every route declines when set. */
+    private String inFlightRefusal = null;
+    /**
+     * The net after the arrivals closure and before every later rewrite, kept so the in-flight
+     * split can be redone from it when its inputs change; {@code null} before the first call.
+     */
+    private PetriNet preSplitNet = null;
+    /** The inputs the current in-flight split was computed from; {@code null} before the first call. */
+    private InFlightInputs inFlightInputs = null;
+    /**
+     * Conflict priority ([NU-052]) turned off for this configuration, because a transition the
+     * pruning needs split cannot be ({@link #applyInFlight}); see {@link #effectivePriority()}.
+     */
+    private boolean conflictOff = false;
+
+    /**
+     * What the in-flight split of [VER-004] depends on besides the net: the options, and the
+     * demands of the property ({@link InFlight#quiescentCountDemand}) and of conflict priority
+     * ({@link InFlight#conflictDemand}).
+     */
+    private record InFlightInputs(
+        boolean atomic, Set<String> carriers, Set<String> environment,
+        InFlight.SplitDemand terminal, InFlight.SplitDemand conflict) {}
+    /** The transitions the in-flight split rewrote ([VER-004]), in net order; empty when none was. */
+    private List<String> inFlightSplit = List.of();
     /**
      * The route the running step of the calling {@link #verify()} belongs to, for the result of a
      * budget exhaustion or a cancellation. Bound per call, never an instance field, so calls
@@ -193,7 +252,8 @@ public final class SmtVerifier {
      * Sets the initial marking.
      */
     public SmtVerifier initialMarking(MarkingState marking) {
-        this.initialMarking = Objects.requireNonNull(marking);
+        this.callerMarking = Objects.requireNonNull(marking);
+        this.initialMarking = marking;
         return this;
     }
 
@@ -203,8 +263,7 @@ public final class SmtVerifier {
     public SmtVerifier initialMarking(Consumer<MarkingState.Builder> configurator) {
         var builder = MarkingState.builder();
         configurator.accept(builder);
-        this.initialMarking = builder.build();
-        return this;
+        return initialMarking(builder.build());
     }
 
     /**
@@ -220,6 +279,7 @@ public final class SmtVerifier {
      */
     @SafeVarargs
     public final SmtVerifier environmentPlaces(EnvironmentPlace<?>... places) {
+        this.callerEnvironmentPlaces.addAll(Arrays.asList(places));
         this.environmentPlaces.addAll(Arrays.asList(places));
         return this;
     }
@@ -293,8 +353,9 @@ public final class SmtVerifier {
      * source {@code env:optional[i]} holding {@code k} tokens, an injection transition
      * {@code env:arrive?[i]:P} and a decline {@code env:decline[i]} with no output — before any route
      * and before the terminal rewrite, so terminals inhibit the injection transitions as they
-     * inhibit every other. Afterwards the verifier has no environment places. Runs once per
-     * verifier.
+     * inhibit every other. Afterwards the verifier has no environment places. {@link #prepare()}
+     * runs it on the caller's net and marking, again whenever the mode, the environment places or
+     * the marking change.
      *
      * <p>{@code arrivals(min, max)} maps onto the arrival group {@code min..max} instead: the
      * closure adds a mandatory source {@code env:arrivals[i]} holding {@code min} with
@@ -335,7 +396,9 @@ public final class SmtVerifier {
         if (arrivals == null || arrivals.injected().isEmpty()) {
             return null;
         }
-        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
+        // Every producer of a coloured place counts as declared here: the question is which
+        // places are coloured, not whether the mints are declared.
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, everyTransition(net));
         if (fragment == null) {
             return null;
         }
@@ -356,7 +419,9 @@ public final class SmtVerifier {
      *
      * <p>A net without terminals is left untouched — the same instance, the same sink lists —
      * so its scripts stay byte-identical. The encoded net declares no terminals, so a second
-     * call is a no-op.
+     * call is a no-op. When {@link #prepare()} redoes the in-flight split it calls this again on
+     * the new split, and each terminal's excused set is rebuilt from the new net's places, so the
+     * {@code inflight:} places of an earlier split stop being excused.
      */
     private void applyNetTerminals() {
         if (net.terminals().isEmpty()) {
@@ -367,19 +432,169 @@ public final class SmtVerifier {
         net = TerminalEncoding.inhibited(net);
         for (var p : terminals) {
             sinkPlaces.add(p);
-            conditionalSinks.computeIfAbsent(p, _ -> new LinkedHashSet<>()).addAll(all);
+            // The caller's own entries first, then this net's places, in the order a fresh
+            // verifier would build, so a redone split scripts as a fresh verifier would.
+            var excused = conditionalSinks.computeIfAbsent(p, _ -> new LinkedHashSet<>());
+            var previous = terminalExcused.getOrDefault(p, Set.of());
+            var rebuilt = new LinkedHashSet<Place<?>>();
+            for (var q : excused) {
+                if (!previous.contains(q)) {
+                    rebuilt.add(q);
+                }
+            }
+            var added = new LinkedHashSet<Place<?>>();
+            for (var q : all) {
+                if (rebuilt.add(q)) {
+                    added.add(q);
+                }
+            }
+            excused.clear();
+            excused.addAll(rebuilt);
+            terminalExcused.put(p, added);
         }
     }
 
     /**
-     * The one-time rewrites every call starts with ({@link #applyArrivals()},
-     * {@link #applyNetTerminals()}). Both are idempotent after the first call; the lock makes the
-     * first one safe when several threads share this verifier, and publishes what it wrote.
+     * The rewrites every call starts with ({@link #applyArrivals()}, {@link #applyInertPlaces()},
+     * {@link #applyInFlight}, {@link #applyNetTerminals()}). The arrivals closure runs again, and
+     * every rewrite after it, when the environment mode, the environment places or the initial
+     * marking changed since the last call. The rest are redone from {@link #preSplitNet} whenever an input of the split changed since the
+     * last call ({@link #assumeAtomicFiring}, {@link #carrierPlaces}, the environment steps), so a
+     * verifier reused after changing one of them does not keep the old split. Otherwise they are
+     * idempotent. The lock makes the rewrite safe when several threads share this verifier, and
+     * publishes what it wrote.
      */
     private synchronized void prepare() {
-        applyArrivals();
+        // [VER-006]: the closure depends on the mode, the environment places and the marking. When
+        // one changed since the last call, every rewrite is redone from the caller's net.
+        var arrivalsKey = new ArrivalsInputs(environmentMode, List.copyOf(callerEnvironmentPlaces), callerMarking);
+        if (!arrivalsKey.equals(arrivalsInputs)) {
+            if (arrivalsInputs != null) {
+                net = callerNet;
+                initialMarking = callerMarking;
+                environmentPlaces.clear();
+                environmentPlaces.addAll(callerEnvironmentPlaces);
+                arrivals = null;
+                preSplitNet = null;
+            }
+            arrivalsInputs = arrivalsKey;
+            applyArrivals();
+        }
+        boolean first = preSplitNet == null;
+        if (first) {
+            preSplitNet = net;
+        }
+        var conflict = conflictPruningApplies(preSplitNet)
+            ? InFlight.conflictDemand(preSplitNet) : InFlight.SplitDemand.NONE;
+        var inputs = new InFlightInputs(assumeAtomicFiring, Set.copyOf(carrierPlaces), environmentSteps,
+            quiescentCountDemand(preSplitNet), conflict);
+        if (!first && inputs.equals(inFlightInputs)) {
+            applyInertPlaces();
+            return;
+        }
+        net = preSplitNet;
+        inFlightInputs = inputs;
         applyInertPlaces();
+        applyInFlight(inputs.terminal(), inputs.conflict());
         applyNetTerminals();
+    }
+
+    /** {@link InFlight#quiescentCountDemand} of this verifier's property on {@code net} ([EXEC-042], F1). */
+    private InFlight.SplitDemand quiescentCountDemand(PetriNet net) {
+        if (!(property instanceof SmtProperty.QuiescentCount(var places, int min, var _, var waivedBy))) {
+            return InFlight.SplitDemand.NONE;
+        }
+        return InFlight.quiescentCountDemand(net,
+            places.stream().map(Place::name).toList(), min, waivedBy.stream().map(Place::name).toList());
+    }
+
+    /**
+     * Whether Route B will read {@link PrioritySemantics#CONFLICT} ([NU-052]): it is selected, the
+     * net has a &nu;-join and a property Route B takes (a quiescence one, or any without a declared
+     * budget place), and no transition is read as reapable, since Route B turns the pruning off
+     * itself on a net with one ({@link NuScgVerifier#verifyReaping}). No other route reads it.
+     */
+    private boolean conflictPruningApplies(PetriNet net) {
+        return prioritySemantics == PrioritySemantics.CONFLICT
+            && net.transitions().stream().anyMatch(t -> t.matchSpec() != null)
+            && (!isReachabilitySafety(property) || budgetPlaces.isEmpty())
+            && reapableSet().isEmpty();
+    }
+
+    /**
+     * The priority semantics Route B applies: {@link #prioritySemantics}, unless the in-flight split
+     * turned conflict priority off for this configuration ([NU-052], [VER-004]).
+     */
+    private PrioritySemantics effectivePriority() {
+        return conflictOff ? PrioritySemantics.NONE : prioritySemantics;
+    }
+
+    /**
+     * The in-flight split ([VER-004]): every transition whose output some transition tests
+     * non-monotonically becomes a start and a completion step ({@link InFlight#split}). A net with
+     * no such transition is left untouched, the same instance, so its scripts stay byte-identical.
+     * One the split cannot express is recorded, and no route answers. After the inert places and
+     * before the terminal rewrite, so a terminal's inhibitor counts as a test and also inhibits
+     * each completion step. The transitions the arrivals closure added model the environment and
+     * stay atomic. {@link #prepare()} runs it on the unsplit net, again whenever its inputs change.
+     *
+     * <p>Two readings add to the split ({@link InFlight.SplitDemand}): a {@code QuiescentCount}
+     * with a lower bound on a net with a terminal place ({@code terminal}), and conflict priority
+     * where Route B applies it ({@code conflict}). When a transition the conflict demand adds
+     * cannot be split, conflict priority is turned off for this verification instead
+     * ({@link #effectivePriority()}) and the report says why ({@link InFlight#conflictOffNote}).
+     */
+    private void applyInFlight(InFlight.SplitDemand terminal, InFlight.SplitDemand conflict) {
+        inFlightLine = null;
+        inFlightRefusal = null;
+        inFlightSplit = List.of();
+        conflictOff = false;
+        var environment = new HashSet<>(environmentSteps);
+        if (arrivals != null) {
+            var own = new HashSet<String>();
+            callerNet.transitions().forEach(t -> own.add(t.name()));
+            for (var t : net.transitions()) {
+                if (!own.contains(t.name())) {
+                    environment.add(t.name());
+                }
+            }
+        }
+        var base = InFlight.transitions(net, environment);
+        var withTerminal = InFlight.transitions(net, environment, terminal);
+        boolean conflictReason = !conflict.forced().isEmpty();
+        var demand = terminal.union(conflict);
+        if (assumeAtomicFiring) {
+            var split = InFlight.transitions(net, environment, demand);
+            if (!split.isEmpty()) {
+                inFlightLine = InFlight.atomicAssumptionNoteFor(split,
+                    new InFlight.SplitReasons(!base.isEmpty(), withTerminal.size() > base.size(), conflictReason));
+            }
+            return;
+        }
+        // [NU-052]: the pruning holds only with every pruner and its feeders split. When one of them
+        // cannot be, the pruning is off, not the verification.
+        String off = null;
+        if (conflictReason) {
+            var split = InFlight.transitions(net, environment, demand);
+            var unsplittable = InFlight.firstUnsplittable(net, carrierPlaces, split);
+            if (unsplittable != null) {
+                off = InFlight.conflictOffNote(unsplittable.transition(), unsplittable.cause());
+                conflictOff = true;
+                conflictReason = false;
+                demand = terminal;
+            }
+        }
+        var reasons = new InFlight.SplitReasons(!base.isEmpty(), withTerminal.size() > base.size(), conflictReason);
+        switch (InFlight.split(net, carrierPlaces, environment, demand)) {
+            case InFlight.Outcome.Atomic _ -> inFlightLine = off;
+            case InFlight.Outcome.Split(var rewritten, var split) -> {
+                net = rewritten;
+                inFlightSplit = List.copyOf(split);
+                var note = InFlight.splitNoteFor(split, reasons);
+                inFlightLine = off == null ? note : off + "\n" + note;
+            }
+            case InFlight.Outcome.Refused(var reason) -> inFlightRefusal = reason;
+        }
     }
 
     /**
@@ -444,6 +659,12 @@ public final class SmtVerifier {
      * matched transitions are over-approximated). Without any budget place, a
      * net that mints fresh names is treated as unbounded and the verifier
      * returns {@code Unknown} (NU-050).
+     *
+     * <p>The declaration also states the mint contract of NU-010 for every transition that
+     * consumes the place: where such a transition writes a coloured place (a match key,
+     * carrier or relay target) without consuming one, its action writes a name it minted with
+     * {@code freshName()} in that firing. The &nu; routes read those writes as fresh names.
+     * See {@link #mintTransitions(String...)}.
      */
     @SafeVarargs
     public final SmtVerifier budgetPlaces(Place<?>... places) {
@@ -451,6 +672,72 @@ public final class SmtVerifier {
             this.budgetPlaces.add(p.name());
         }
         return this;
+    }
+
+    /**
+     * Declares transitions that mint (NU-010): where such a transition writes a coloured place
+     * (a match key, carrier or relay target) without consuming one, its action writes a name it
+     * minted with {@code freshName()} in that firing.
+     *
+     * <p>The &nu; routes (Route A and Route B of NU-050) read such a write as a fresh name, and
+     * they cannot check that an action does so: an action may as well copy a correlation id out
+     * of its input, as the built-in {@code fork()} does, and two copies of one id join at run
+     * time. So a transition that writes a coloured place without consuming one is read as a mint
+     * only when it is declared, here or by consuming a declared {@link #budgetPlaces budget
+     * place}. An undeclared one keeps the net off both routes, and the verifier answers through
+     * the name-blind over-approximation. What the executor writes on timeout is never a mint,
+     * declared or not (IO-013, IO-014).
+     *
+     * @throws IllegalArgumentException if a name is not a transition of the net, with the reason
+     *     {@code declared mint transition 'frok' not in the net (NU-010)} naming every such
+     *     name ({@link NameFragment#unknownMintReason})
+     */
+    public SmtVerifier mintTransitions(String... names) {
+        String unknown = NameFragment.unknownMintReason(net, Arrays.asList(names));
+        if (unknown != null) {
+            throw new IllegalArgumentException(unknown);
+        }
+        this.mintTransitions.addAll(Arrays.asList(names));
+        return this;
+    }
+
+    /**
+     * The carrier places declared with {@link #carrierPlaces}, by name. Read by the open-net
+     * verifier, which splits its closed net with them ([VER-022], [VER-004]).
+     */
+    public Set<String> configuredCarrierPlaces() {
+        return Set.copyOf(carrierPlaces);
+    }
+
+    /** The transitions declared with {@link #mintTransitions}, by name ([NU-010]). */
+    public Set<String> configuredMintTransitions() {
+        return Set.copyOf(mintTransitions);
+    }
+
+    /** {@link #mintTransitions(String...)} by transition. */
+    public SmtVerifier mintTransitions(Transition... transitions) {
+        var names = new String[transitions.length];
+        for (int i = 0; i < transitions.length; i++) {
+            names[i] = transitions[i].name();
+        }
+        return mintTransitions(names);
+    }
+
+    /**
+     * The transitions the &nu; routes may read as mints (NU-010): the declared ones and those
+     * consuming a declared budget place.
+     */
+    private Set<String> declaredMints() {
+        return NameFragment.declaredMints(net, budgetPlaces, mintTransitions);
+    }
+
+    /** Every transition name of {@code net}. */
+    private static Set<String> everyTransition(PetriNet net) {
+        var out = new HashSet<String>();
+        for (var t : net.transitions()) {
+            out.add(t.name());
+        }
+        return out;
     }
 
     /**
@@ -518,13 +805,145 @@ public final class SmtVerifier {
      *   <li>the graph does not close and its prefix holds none, or the total budget runs out, or
      *       the call is cancelled — {@code TIMED_UNDECIDED}.</li>
      * </ul>
-     * The verdict is never changed: the untimed claim is the contract. The timed graph grows
+     * The verdict is never changed: the untimed claim is the contract. The timed claim assumes an
+     * on-time executor with atomic firings (no transition reaped or fired after its latest bound, no
+     * action duration), and the report says so. The timed graph grows
      * with every relative ordering of concurrent clocks, so the check is opt-in; it does not use
      * the {@link #stateSpaceCache(StateSpaceCache) state-space cache}.
      */
     public SmtVerifier timedCounterexampleCheck(boolean enabled) {
         this.timedCounterexampleCheck = enabled;
         return this;
+    }
+
+    /**
+     * Assumes an <em>on-time executor</em>: no transition is reaped and none fires after its latest
+     * bound ([VER-002], [VER-004], [TIME-006], [TIME-013]; default {@code false}).
+     *
+     * <p>A {@code deadline} / {@code window} transition still enabled past its latest bound plus
+     * the executor's tolerance is reaped: disabled, its tokens left in place, and not re-enabled
+     * until one of its input places changes. A late executor can therefore come to rest at a
+     * marking that still enables it. By default every quiescence property ({@code deadlockFree},
+     * {@code terminatesAtSink}, {@code quiescentCount}, {@code joinedOrDeadLettered} and the
+     * conditional sinks of [VER-014]) is evaluated at every <em>reap-quiescent</em> marking (one
+     * where every enabled transition is reapable) on every route, so a {@code Proven} holds for
+     * late executors too. A late executor also fires an {@code exact} transition after its bound,
+     * so Route B, the one route that keeps timing, drops the latest bound of every deadline, window
+     * and exact transition for every property.
+     *
+     * <p>{@code true} restores the strict quiescence (no transition enabled) and Route B's
+     * strong-semantics graph, and the report of a net with such a transition then says the verdict
+     * assumes an on-time executor. Route B also reads each firing as one instant step, so a verdict
+     * it reaches this way assumes that an action takes no time as well, and its report says so. A net timed only with {@code immediate} and {@code delayed}
+     * verifies identically either way.
+     */
+    public SmtVerifier assumeNoReaping(boolean assume) {
+        this.assumeNoReaping = assume;
+        return this;
+    }
+
+    /**
+     * Assumes <em>atomic firings</em>: no transition tests a place while an action that writes it
+     * is in flight ([VER-004], [EXEC-003]; default {@code false}).
+     *
+     * <p>The executor consumes a firing's inputs when its action starts and deposits its outputs
+     * when the action completes; an asynchronous action leaves that gap open while it runs, and a
+     * synchronous one until the end of its firing pass. By default every transition whose output
+     * some transition tests with an inhibitor, reset or draining input ({@code all},
+     * {@code atLeast}), or that marks a terminal place, is verified in two steps: a start that
+     * consumes and marks {@code inflight:<name>}, and an immediate {@code complete:<name>} that
+     * deposits ({@link InFlight}). A net with no such transition verifies identically either way.
+     *
+     * <p>Two readings split more. A {@code quiescentCount} with a lower bound, on a net with a
+     * terminal place that does not waive it, also splits every transition depositing into a place
+     * it counts or a waiver place: the terminal stop abandons an action in flight, and its
+     * deposit never lands ([EXEC-042]). {@link PrioritySemantics#CONFLICT} on Route B also splits
+     * every pruning transition and every transition depositing into its input or read places
+     * ([NU-052]), and turns itself off, with a report line, when one of them cannot be split.
+     *
+     * <p>{@code true} reads every firing as one step again, and the report of a net with such a
+     * transition then says the verdict rests on that assumption.
+     *
+     * <p>A counterexample of the split net may start a transition again while an earlier firing of
+     * it is in flight. The Rust executor does that; the Java and TypeScript executors never do, so
+     * on them such a counterexample may be a false alarm, and the report says so ([CONC-002]).
+     */
+    public SmtVerifier assumeAtomicFiring(boolean assume) {
+        this.assumeAtomicFiring = assume;
+        return this;
+    }
+
+    /**
+     * Takes what the open-net route knows about the closed net it hands this verifier ([VER-022]):
+     * the transitions that model the environment, which the in-flight split leaves atomic
+     * ([VER-004]), and the reapable transitions of the timed net whose untimed copy this verifier
+     * reads ([TIME-013]). Only {@link org.libpetri.smt.opennet} can make a {@link ClosedNetSteps},
+     * so no other caller can exempt a transition from the split or replace the reapable set.
+     *
+     * @param steps the closed net's environment steps and reapable transitions
+     */
+    public SmtVerifier closedNetSteps(ClosedNetSteps steps) {
+        Objects.requireNonNull(steps, "steps");
+        this.environmentSteps = steps.environment();
+        this.reapableOverride = steps.reapable();
+        return this;
+    }
+
+    /** The reapable transitions the caller's net has, whether or not they are read so. */
+    private Set<String> reapableInNet() {
+        return reapableOverride != null ? reapableOverride : Reaping.reapableTransitions(callerNet);
+    }
+
+    /**
+     * The transitions whose latest bound a late executor overruns ([TIME-006], [TIME-013]): every
+     * deadline, window and exact transition, none under {@link #assumeNoReaping}. Route B drops
+     * their latest bound ({@link Reaping#relaxLate}).
+     */
+    private Set<String> lateSet() {
+        return assumeNoReaping ? Set.of() : Reaping.lateTransitions(net);
+    }
+
+    /** The transitions whose enabledness does not keep a marking from resting: none under {@link #assumeNoReaping}. */
+    private Set<String> reapableSet() {
+        return assumeNoReaping ? Set.of() : reapableInNet();
+    }
+
+    /** The flat net every encoder reads, its reapable transitions marked. */
+    private FlatNet flatNet() {
+        var reapable = reapableSet();
+        return NetFlattener.flatten(net, environmentPlaces, environmentMode, t -> reapable.contains(t.name()));
+    }
+
+    /**
+     * The report line on reaping ([TIME-013]) for a net with a reapable transition: the reap-aware
+     * reading of a quiescence property, or the on-time executor a verdict reached under
+     * {@link #assumeNoReaping} rests on. On a ν-net Route B also reads the latest bounds
+     * ([TIME-006]), so there an exact transition alone makes the assumption line appear.
+     * {@code null} when the net has no such transition or lateness cannot bear on the verdict (a
+     * marking property off Route B). {@code routeB} picks the assumption line of a verdict Route B
+     * reached, which also assumes that an action takes no time ({@link Reaping#noReapingRouteBNote}).
+     */
+    private String reapingLine(boolean routeB) {
+        var inNet = reapableInNet();
+        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        var lateInNet = new java.util.LinkedHashSet<>(inNet);
+        if (hasMatch) {
+            lateInNet.addAll(Reaping.lateTransitions(net));
+        }
+        if (lateInNet.isEmpty()) {
+            return null;
+        }
+        if (isReachabilitySafety(property) && !hasMatch) {
+            return null;
+        }
+        if (assumeNoReaping && routeB) {
+            return Reaping.noReapingRouteBNote(lateInNet);
+        }
+        if (assumeNoReaping) {
+            return Reaping.noReapingAssumptionNote(lateInNet);
+        }
+        // Route B's own note says which latest bounds it lifted.
+        return inNet.isEmpty() ? null : Reaping.reapAwareNote(inNet);
     }
 
     /**
@@ -591,6 +1010,12 @@ public final class SmtVerifier {
      * — which removes the spurious stalls a timed dead-letter-drain idiom otherwise
      * produces against the priority-blind default. Only affects the ν-net Route B
      * path (a net with a match transition).
+     *
+     * <p>The pruning holds only while no pruning transition, and no transition depositing into
+     * the input or read places of one, has an action in flight. The verifier splits them
+     * ([VER-004], {@link InFlight#conflictDemand}), and a pruner in flight pre-empts nothing.
+     * When one of them cannot be split (a &nu;-join, a writer into a coloured place), conflict
+     * priority is off for the verification and the report says why.
      */
     public SmtVerifier prioritySemantics(PrioritySemantics semantics) {
         this.prioritySemantics = Objects.requireNonNull(semantics);
@@ -955,7 +1380,7 @@ public final class SmtVerifier {
             }
             return ScopedValue.where(VerificationDeadline.carrier(), bound)
                 .where(RUNNING_ROUTE, running)
-                .call(() -> withCounterexampleTiming(pipeline(report), report));
+                .call(() -> finish(withCounterexampleTiming(pipeline(report), report)));
         } catch (VerificationDeadline.Stopped e) {
             String reason = e.reason();
             report.append("\n=== RESULT ===\n\n");
@@ -970,6 +1395,36 @@ public final class SmtVerifier {
                     net.places().size(), net.transitions().size(), 0, why),
                 running.route);
         }
+    }
+
+    /**
+     * The report lines that depend on the result: Route B's assumption line in place of the
+     * generic one under {@link #assumeNoReaping} ([TIME-013], [VER-004]), and at the end the
+     * restart note of a counterexample that starts a transition while an earlier firing of it is
+     * in flight ([CONC-002], {@link InFlight#restartNote}).
+     */
+    private SmtVerificationResult finish(SmtVerificationResult result) {
+        var report = result.report();
+        if (result.route() == SmtVerificationResult.Route.NU_SCG) {
+            var plain = reapingLine(false);
+            var routeB = reapingLine(true);
+            int at = plain == null ? -1 : report.indexOf(plain);
+            if (at >= 0 && !plain.equals(routeB)) {
+                report = report.substring(0, at) + routeB + report.substring(at + plain.length());
+            }
+        }
+        if (result.verdict() instanceof SmtVerificationResult.Verdict.Violated) {
+            var note = InFlight.restartNote(result.counterexampleTrace(), result.counterexampleTransitions());
+            if (note != null) {
+                report = report + (report.endsWith("\n") ? "" : "\n") + note + "\n";
+            }
+        }
+        if (report.equals(result.report())) {
+            return result;
+        }
+        return new SmtVerificationResult(result.verdict(), result.route(), report, result.invariants(),
+            result.discoveredInvariants(), result.counterexampleTrace(), result.counterexampleTransitions(),
+            result.counterexampleConfirmed(), result.counterexampleTiming(), result.elapsed(), result.statistics());
     }
 
     /** {@code d} in milliseconds, saturating where a {@link Duration} holds more than a long does. */
@@ -1033,6 +1488,16 @@ public final class SmtVerifier {
                     .append(String.join(", ", closures)).append(" (VER-006)\n\n");
             }
         }
+        // [TIME-013]: how the verdict reads reaping, on a net that has a reapable transition.
+        // The line of a verdict off Route B; finish() swaps in Route B's when it decided.
+        var reaping = reapingLine(false);
+        if (reaping != null) {
+            report.append(reaping).append("\n\n");
+        }
+        // [VER-004]: the transitions verified in two steps, or the assumption that none need it.
+        if (inFlightLine != null) {
+            report.append(inFlightLine).append("\n\n");
+        }
         // [CORE-037]: a read, inhibitor or reset arc on a place nothing can mark acts on
         // nothing. A warning only — never a verdict.
         var envPlaces = new HashSet<Place<?>>();
@@ -1078,6 +1543,39 @@ public final class SmtVerifier {
                 SmtVerificationResult.Route.UNAVAILABLE);
         }
 
+        // [VER-006] AC3: every route below models a bounded(k) environment place as a source
+        // holding at most k, which is the executor only within the premises. Outside them a
+        // PROVEN can miss a firing and a VIOLATED can report a rest the executor never
+        // reaches, so no route answers.
+        String outsidePremises = boundedPremiseViolation(net, initialMarking, environmentPlaces, environmentMode);
+        if (outsidePremises != null) {
+            report.append("=== RESULT ===\n\n");
+            report.append("UNKNOWN: ").append(outsidePremises).append("\n");
+            return buildResult(
+                new SmtVerificationResult.Verdict.Unknown(outsidePremises),
+                report.toString(), List.of(), List.of(), List.of(), List.of(),
+                Duration.between(start, Instant.now()),
+                new SmtVerificationResult.SmtStatistics(
+                    net.places().size(), net.transitions().size(), 0,
+                    "n/a (bounded(k) premises)"),
+                SmtVerificationResult.Route.UNAVAILABLE);
+        }
+
+        // [VER-004]: every route fires a transition atomically. A net whose in-flight actions
+        // matter and that the split cannot express gets no answer from any of them.
+        if (inFlightRefusal != null) {
+            report.append("=== RESULT ===\n\n");
+            report.append("UNKNOWN: ").append(inFlightRefusal).append("\n");
+            return buildResult(
+                new SmtVerificationResult.Verdict.Unknown(inFlightRefusal),
+                report.toString(), List.of(), List.of(), List.of(), List.of(),
+                Duration.between(start, Instant.now()),
+                new SmtVerificationResult.SmtStatistics(
+                    net.places().size(), net.transitions().size(), 0,
+                    "n/a (in-flight actions)"),
+                SmtVerificationResult.Route.UNAVAILABLE);
+        }
+
         // ν-net awareness (NU-040, NU-050). A transition with a match spec joins
         // by name equality; the untimed encoder over-approximates that (name
         // equality assumed satisfiable). The over-approximation is sound for
@@ -1086,6 +1584,16 @@ public final class SmtVerifier {
         // firing distorts. The applyNuGuard step turns those cases into Unknown.
         boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
         boolean nuBounded = !budgetPlaces.isEmpty();
+        // [NU-010]: a transition that writes a coloured place without consuming one and is not
+        // declared to mint keeps the net off both ν routes. Name it where a route declines or the
+        // ν guard answers Unknown.
+        String undeclaredPointer = null;
+        if (hasMatch) {
+            var undeclared = NameFragment.undeclaredMints(net, fragmentMode, carrierPlaces, declaredMints());
+            if (!undeclared.isEmpty()) {
+                undeclaredPointer = NameFragment.undeclaredMintsPointer(undeclared);
+            }
+        }
 
         // NU-054: BASE reads a join's coloured output as a re-mint whatever it declares, so a
         // relay declaration changes nothing there. Say so, and name the mode that uses it.
@@ -1113,14 +1621,19 @@ public final class SmtVerifier {
             // an inexhaustible input with a frozen count and no injected names, so a verdict
             // that observes either is vacuous. Decline before building it, and do not defer to
             // Route A: it declines under injection too, and the reason would be lost.
-            var fragment = NuScgVerifier.supportedFragment(net, initialMarking, fragmentMode, carrierPlaces);
+            var mints = declaredMints();
+            var fragment = NuScgVerifier.supportedFragment(
+                net, initialMarking, fragmentMode, carrierPlaces, mints);
             boolean quiescenceVacuous = !isReachabilitySafety(property)
                 && SmtEncoder.quiescenceUnreachable(
-                    NetFlattener.flatten(net, environmentPlaces, environmentMode));
-            String colouredArrival = fragment == null ? null : colouredArrivalReason();
-            String envObservation = fragment == null ? null : colouredArrival != null ? colouredArrival : routeBEnvObservation(
+                    flatNet());
+            // An arrival into a coloured place declines whether or not the mints are declared.
+            String colouredArrival = NuScgVerifier.supportedFragment(
+                net, initialMarking, fragmentMode, carrierPlaces, everyTransition(net)) == null
+                ? null : colouredArrivalReason();
+            String envObservation = colouredArrival != null ? colouredArrival : fragment == null ? null : routeBEnvObservation(
                 net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
-                prioritySemantics, quiescenceVacuous);
+                effectivePriority(), quiescenceVacuous);
             if (envObservation != null) {
                 report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.append("  Declined under environment injection: ").append(envObservation).append("\n");
@@ -1132,9 +1645,9 @@ public final class SmtVerifier {
                         net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"),
                     SmtVerificationResult.Route.NU_SCG);
             }
-            var outcome = NuScgVerifier.verify(
+            var outcome = NuScgVerifier.verifyReaping(
                 net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses,
-                fragmentMode, carrierPlaces, prioritySemantics, conditional);
+                fragmentMode, carrierPlaces, mints, effectivePriority(), conditional, reapableSet(), lateSet());
             // Route B truncating to Unknown on a bounded quiescence ν-net is not the final
             // word: defer to the scalable Route A coloured IC3/PDR encoder (NU-053) below
             // instead of returning Unknown here.
@@ -1146,6 +1659,10 @@ public final class SmtVerifier {
                 report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.append("  Name-partition state classes: ").append(outcome.classCount()).append("\n");
                 report.append(outcome.note());
+                // NU-010, NU-051: the actions whose writes the verdict trusts.
+                if (fragment != null) {
+                    report.append(NameFragment.contractNote(fragment.mints(), fragment.relays()));
+                }
                 if (!outcome.transitions().isEmpty()) {
                     report.append("  Counterexample trace: ").append(outcome.trace().size())
                           .append(" states, ").append(outcome.transitions().size()).append(" transitions\n");
@@ -1181,7 +1698,9 @@ public final class SmtVerifier {
             // EXTENDED was requested but the net falls outside the coloured-consumer
             // fragment (classify returned null). Surface a short note instead of a
             // silent fall-back, then continue on the sound over-approximation path.
-            if (fragmentMode == FragmentMode.EXTENDED && !deferToRouteA) {
+            if (undeclaredPointer != null && !deferToRouteA) {
+                report.append("ν-net Route B declined: ").append(undeclaredPointer).append(".\n\n");
+            } else if (fragmentMode == FragmentMode.EXTENDED && !deferToRouteA) {
                 report.append("ν-net Route B (EXTENDED) declined: net outside coloured-consumer "
                     + "fragment (a coloured place consumed count != 1 or by multiple inputs, carries a "
                     + "reset/read/inhibitor arc, or a join writes a coloured place it does not declare "
@@ -1213,11 +1732,14 @@ public final class SmtVerifier {
                 enumerated = ScgVerifier.verify(
                     net, initialMarking, property, sinkPlaces, enumerationMaxClasses, conditional);
             } else {
-                // Keyed by the caller's net: the terminal rewrite above is a new instance per
-                // verification, but a deterministic function of the net it rewrote.
+                // Keyed by the caller's net and the in-flight split ([VER-004]): the inert-place,
+                // split and terminal rewrites are a new instance per verification, but a
+                // deterministic function of the net they rewrote and the transitions split. A key
+                // without the split would let a graph of the atomic net, built under
+                // assumeAtomicFiring, answer a query that runs on the split net.
                 var encoded = net;
-                var lookup = stateSpaceCache.lookup(callerNet, initialMarking, enumerationMaxClasses,
-                    budget -> StateClassGraph.build(encoded, initialMarking, budget));
+                var lookup = stateSpaceCache.lookup(callerNet, inFlightSplit, initialMarking,
+                    enumerationMaxClasses, budget -> StateClassGraph.build(encoded, initialMarking, budget));
                 // A lookup answered as truncated still reads the graph it has — the truncated
                 // build, or a cached one at least as large — as an explored prefix: a violation
                 // in it stands, nothing is proven from it ([VER-017]).
@@ -1268,10 +1790,34 @@ public final class SmtVerifier {
                   .append(" classes (VER-017); verifying via the SMT pipeline.\n");
         }
 
+        // [IO-014]: a timeout forward of an All / AtLeast input deposits the whole drained
+        // batch, a marking-dependent count. Route B and the enumeration above resolve it from
+        // the marking each firing drains, exactly as the executor does
+        // (BranchOutcomes.Deposit.Drained), so they decide such a net. Every route below reads
+        // the flat net, whose post vectors are constants — the structural pre-check, the
+        // P-invariants, the linear bound, the VER-018 / VER-019 phases, the CHC fixpoint query
+        // and Route A — so a Proven from any of them would be about a different net. Refuse
+        // here, after the graph routes and before the first linear one: every exit below this
+        // point is then covered ([VER-003] AC5).
+        var drained = org.libpetri.analysis.BranchOutcomes.drainedForward(net);
+        if (drained.isPresent()) {
+            String reason = drained.get().reason();
+            report.append("=== RESULT ===\n\n");
+            report.append("UNKNOWN: ").append(reason).append("\n");
+            return buildResult(
+                new SmtVerificationResult.Verdict.Unknown(reason),
+                report.toString(), List.of(), List.of(), List.of(), List.of(),
+                Duration.between(start, Instant.now()),
+                new SmtVerificationResult.SmtStatistics(
+                    net.places().size(), net.transitions().size(), 0,
+                    "n/a (drained forward)"),
+                SmtVerificationResult.Route.UNAVAILABLE);
+        }
+
         // Phase 1: Flatten
         enter("flattening", SmtVerificationResult.Route.SMT);
         report.append("Phase 1: Flattening net...\n");
-        FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
+        FlatNet flatNet = flatNet();
         report.append("  Places: ").append(flatNet.placeCount()).append("\n");
         report.append("  Transitions (expanded): ").append(flatNet.transitionCount()).append("\n");
         if (!flatNet.environmentBounds().isEmpty()) {
@@ -1288,8 +1834,12 @@ public final class SmtVerifier {
         // encoding instead. Nets Commoner's theorem does not govern are excluded as well,
         // see {@link #commonerApplies}. The siphon search is exponential, so it runs only
         // when its result can decide the verdict.
+        // Commoner's theorem rules out dead markings only: a net with a reapable transition can
+        // also rest where one is still enabled ([VER-002], [TIME-013]), so the encoders, which
+        // read that, decide it.
         boolean structuralCandidate = property instanceof SmtProperty.DeadlockFree
                 && !hasMatch
+                && flatNet.transitions().stream().noneMatch(FlatTransition::reapable)
                 && commonerApplies(flatNet)
                 && sinkPlaces.isEmpty()
                 && conditional.isEmpty()
@@ -1492,7 +2042,7 @@ public final class SmtVerifier {
                     new SmtVerificationResult.Verdict.Proven("structural", null),
                     report.toString(), invariants, List.of(), List.of(), List.of(),
                     Duration.between(start, Instant.now()), stats,
-                    SmtVerificationResult.Route.STRUCTURAL), hasMatch, nuBounded, false);
+                    SmtVerificationResult.Route.STRUCTURAL), hasMatch, nuBounded, false, undeclaredPointer);
             }
         }
 
@@ -1519,9 +2069,10 @@ public final class SmtVerifier {
 
         SmtEncoder.SmtEncoding encoding;
         if (colouredPlan != null) {
-            report.append("  ν-encoding: name-coloured (exact within budget k=")
+            report.append("  ν-encoding: name-coloured (colour-slot bound k=")
                 .append(colouredPlan.k()).append("; ")
                 .append(colouredPlan.colouredCount()).append(" coloured place(s))\n");
+            report.append(NameFragment.contractNote(colouredPlan.mints(), colouredPlan.relays()));
             encoding = colouredAttempt.encoding();
             if (encoding == null) {
                 // The property names a place that does not resolve in the net (e.g. a
@@ -1689,6 +2240,29 @@ public final class SmtVerifier {
                 }
                 List<MarkingState> decodedList = List.copyOf(decoded.states());
 
+                // The initial marking itself violates: the counterexample is the empty firing
+                // sequence, whatever the proof text holds. Spacer's refutation for it has no
+                // ground Reachable step to decode, and a Violated with no trace cannot be
+                // replayed by anyone, so it is reported as [] from M0, confirmed by evaluating
+                // Bad(M0) — the check the replay would make first — with or without the replay
+                // enabled. Flat count encoding only.
+                if (colouredPlan == null && AbstractReplayer.violates(
+                        flatNet, property, sinkPlaces, conditional,
+                        AbstractReplayer.toVector(flatNet, initialMarking))) {
+                    report.append("  Counterexample: the initial marking violates the property ")
+                          .append("(empty firing sequence)\n\n");
+                    report.append("=== RESULT ===\n\n");
+                    report.append("VIOLATED: ").append(propDesc).append("\n");
+                    appendUntimedCaveat(report);
+                    yield buildResult(
+                        new SmtVerificationResult.Verdict.Violated(),
+                        report.toString(), invariants, List.of(),
+                        List.of(AbstractReplayer.toMarking(flatNet,
+                            AbstractReplayer.toVector(flatNet, initialMarking))),
+                        List.of(), Boolean.TRUE,
+                        Duration.between(start, Instant.now()), stats);
+                }
+
                 if (!counterexampleReplay) {
                     report.append("  Counterexample replay: disabled (counterexampleReplay(false))\n\n");
                     report.append("=== RESULT ===\n\n");
@@ -1773,7 +2347,7 @@ public final class SmtVerifier {
                 );
             }
         };
-        return applyNuGuard(smtResult, hasMatch, nuBounded, colouredPlan != null);
+        return applyNuGuard(smtResult, hasMatch, nuBounded, colouredPlan != null, undeclaredPointer);
     }
 
     /**
@@ -1828,7 +2402,10 @@ public final class SmtVerifier {
         }
         // A truncated graph is read as its explored prefix ([VER-017]): a violating class in it
         // confirms the counterexample; SPURIOUS_UNDER_TIMING needs a closed graph.
-        var outcome = ScgVerifier.decide(graph, property, sinkPlaces, conditionalSinkList(), false);
+        // [TIME-013]: a class also rests where every enabled transition is reapable. The graph
+        // fires every transition on time, so it does not hold the runs a late executor takes
+        // after a reap: SPURIOUS_UNDER_TIMING means no on-time run reaches a violating rest.
+        var outcome = ScgVerifier.decide(graph, property, sinkPlaces, conditionalSinkList(), false, reapableSet());
         if (!(outcome instanceof ScgVerifier.Outcome.Decided decided)) {
             report.append("  UNDECIDED: the timed state-class graph exceeded ")
                 .append(enumerationMaxClasses).append(" classes (enumerationMaxClasses).\n");
@@ -1861,9 +2438,20 @@ public final class SmtVerifier {
             .append("holds under the net's timing — a timed claim only.\n");
         report.append("  The verdict stays VIOLATED: the untimed semantics is the contract (VER-004). The ")
             .append("untimed counterexample above is kept.\n");
+        report.append(TIMED_CHECK_ASSUMPTION);
         return withTiming(result, SmtVerificationResult.CounterexampleTiming.SPURIOUS_UNDER_TIMING,
             report.toString(), result.counterexampleTrace(), result.counterexampleTransitions());
     }
+
+    /**
+     * What a {@code SPURIOUS_UNDER_TIMING} of [VER-023] assumes. The timed graph fires every transition
+     * by its latest bound and each firing takes no time, so its claim covers neither an executor that
+     * runs late (and reaps or fires late, [TIME-006], [TIME-013]) nor actions whose duration lets
+     * other firings interleave.
+     */
+    private static final String TIMED_CHECK_ASSUMPTION = "  The timed claim assumes an on-time executor with "
+        + "atomic firings: no transition is reaped or fires after its latest bound, and an action takes no "
+        + "time. A late executor or a long action can still reach the untimed counterexample.\n";
 
     private static SmtVerificationResult withTiming(
             SmtVerificationResult r, SmtVerificationResult.CounterexampleTiming timing, String report,
@@ -2271,7 +2859,7 @@ public final class SmtVerifier {
         // plain parameter would run the Farkas enumeration on every encodeScripts()
         // call, including the flat nets that never reach this line.
         var plan = NameColouredEncoder.buildPlan(
-            net, flatNet, initialMarking, budgetPlaces, fragmentMode, carrierPlaces,
+            net, flatNet, initialMarking, declaredMints(), fragmentMode, carrierPlaces,
             semiflows.get());
         if (plan == null) {
             return new ColouredAttempt(null, null);
@@ -2290,7 +2878,7 @@ public final class SmtVerifier {
     public EncodedScripts encodeScripts() {
         OutputActionCheck.requireOutputProducingActions(net);
         prepare();
-        FlatNet flatNet = NetFlattener.flatten(net, environmentPlaces, environmentMode);
+        FlatNet flatNet = flatNet();
         // AUTO decides from the same fact here as in verify() — whether the basis lost a law
         // to the H1 guard — so the script this reports is the script that would be sent.
         // Deciding it differently (AUTO read as OFF) made the parity goldens pin something
@@ -2482,6 +3070,55 @@ public final class SmtVerifier {
         return true;
     }
 
+    /**
+     * VER-006 AC3: why the {@code bounded(k)} model does not describe the executor on this
+     * net, or {@code null} when it does. Every route models a {@code bounded(k)} environment
+     * place as a source holding at most k: the flat encoding caps each successor there at k,
+     * the state-class graphs enable an environment input exactly when it demands at most k,
+     * and the quiescence clause calls a demand above k permanently disabled. That holds only
+     * when the initial marking holds at most k on each environment place and no transition
+     * deposits into one. Environment places are checked in code-point order, the initial
+     * marking first; the depositing transition named is the first in code-point order, a
+     * completion step {@code complete:<t>} named as {@code t}.
+     */
+    static String boundedPremiseViolation(
+            PetriNet net, MarkingState initialMarking,
+            Collection<EnvironmentPlace<?>> environmentPlaces, EnvironmentAnalysisMode mode) {
+        if (!(mode instanceof EnvironmentAnalysisMode.Bounded(int k)) || environmentPlaces.isEmpty()) {
+            return null;
+        }
+        var places = environmentPlaces.stream()
+            .map(EnvironmentPlace::place)
+            .sorted(Comparator.comparing(Place::name, CodePointOrder.COMPARATOR))
+            .toList();
+        for (var place : places) {
+            int held = initialMarking.tokens(place);
+            if (held > k) {
+                return boundedPremiseReason(place.name(), k,
+                    "the initial marking holds " + held + " tokens there, more than " + k);
+            }
+        }
+        for (var place : places) {
+            // A split transition deposits through its completion step; name the transition
+            // itself ([VER-004]).
+            var depositor = net.transitions().stream()
+                .filter(t -> t.outputPlaces().contains(place))
+                .map(t -> InFlight.sourceTransition(net, t.name()))
+                .min(CodePointOrder.COMPARATOR);
+            if (depositor.isPresent()) {
+                return boundedPremiseReason(place.name(), k,
+                    "transition '" + depositor.get() + "' deposits into it");
+            }
+        }
+        return null;
+    }
+
+    private static String boundedPremiseReason(String place, int k, String what) {
+        return "environment place '" + place + "' is outside the Bounded(" + k + ") premises (VER-006 AC3): "
+            + what + ". Every route models it as a source holding at most " + k
+            + ", so a verdict would not describe the executor";
+    }
+
     /** The name of the first place the property names that is not in the flat net, or {@code null}. */
     private static String unresolvedPropertyPlace(FlatNet flatNet, SmtProperty property) {
         for (var place : propertyPlaces(property)) {
@@ -2661,21 +3298,22 @@ public final class SmtVerifier {
      * </ul>
      */
     private SmtVerificationResult applyNuGuard(
-            SmtVerificationResult result, boolean hasMatch, boolean nuBounded, boolean exact
+            SmtVerificationResult result, boolean hasMatch, boolean nuBounded, boolean exact, String undeclared
     ) {
         if (!hasMatch || result.verdict() instanceof SmtVerificationResult.Verdict.Unknown) {
             return result;
         }
-        // Exact path (NU-050 #1 / NU-053, Route A) is checked FIRST: name equality is
-        // encoded exactly via bounded name-colouring, so the verdict is sound AND complete
-        // within the budget bound — no spurious different-name counterexample. This holds
-        // for reachability-safety AND quiescence (deadlock / joined-or-dead-lettered), so
-        // the quiescence downgrade below does NOT apply when an exact coloured plan was
-        // used — the colour-aware deadlock encoding does not over-fire joins.
+        // Coloured path (NU-050 #1 / NU-053, Route A) is checked FIRST: name equality is
+        // encoded by name-colouring over the colour-slot bound, so no counterexample equates
+        // two distinct names. This holds for reachability-safety AND quiescence (deadlock /
+        // joined-or-dead-lettered), so the quiescence downgrade below does NOT apply when a
+        // coloured plan was used: the colour-aware deadlock encoding does not over-fire joins.
+        // The verdict rests on the mint and relay contracts (NU-010, NU-051).
         if (exact) {
-            String note = "\nNote: ν-join name equality is encoded exactly via bounded name-colouring "
-                + "(k = budget); the verdict is sound and complete within the budget bound — no "
-                + "spurious different-name counterexample (NU-050 #1 / NU-053).\n";
+            String note = "\nNote: ν-join name equality is encoded by name-colouring over k colour slots, "
+                + "k bounding the live names: a join fires only on one colour, so no counterexample "
+                + "equates two different names (NU-050 #1 / NU-053). The verdict assumes the mint and "
+                + "relay contracts named above.\n";
             return new SmtVerificationResult(
                 result.verdict(), result.route(), result.report() + note, result.invariants(),
                 result.discoveredInvariants(), result.counterexampleTrace(),
@@ -2683,17 +3321,17 @@ public final class SmtVerifier {
                 result.elapsed(), result.statistics());
         }
         if (!isReachabilitySafety(property)) {
-            return downgradeToUnknown(result,
+            return downgradeToUnknown(result, withPointer(
                 "ν-matching transitions present and the property depends on quiescence "
                 + "(deadlock / joined-or-dead-lettered); the name-blind over-approximation "
-                + "cannot decide it soundly — deferred to the exact ν-analysis (NU-050)");
+                + "cannot decide it soundly — deferred to the exact ν-analysis (NU-050)", undeclared));
         }
         if (!nuBounded) {
-            return downgradeToUnknown(result,
+            return downgradeToUnknown(result, withPointer(
                 "ν-matching transitions present with unbounded fresh names (no budget place "
                 + "declared via budgetPlaces(...)); reachability over unbounded fresh names is "
                 + "undecidable (NU-040) — declare the budget place(s) that gate minting to "
-                + "verify within the bounded fragment");
+                + "verify within the bounded fragment", undeclared));
         }
         // Bounded reachability-safety outside the name-coloured fragment: `Proven` is
         // sound; a `Violated` counterexample may be spurious pending the exact ν-analysis.
@@ -2705,6 +3343,11 @@ public final class SmtVerifier {
             result.discoveredInvariants(), result.counterexampleTrace(),
             result.counterexampleTransitions(), result.counterexampleConfirmed(),
             result.elapsed(), result.statistics());
+    }
+
+    /** {@code reason}, then the undeclared-mint pointer when there is one ([NU-010]). */
+    private static String withPointer(String reason, String undeclared) {
+        return undeclared == null ? reason : reason + "; " + undeclared;
     }
 
     private static SmtVerificationResult downgradeToUnknown(

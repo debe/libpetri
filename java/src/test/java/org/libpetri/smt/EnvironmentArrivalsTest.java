@@ -218,4 +218,22 @@ class EnvironmentArrivalsTest {
         assertTrue(r.report().contains("  ν-encoding: name-blind over-approximation (environment place 'IN' carries "
             + "ν-names (a match key or carrier place) and is fed by arrivals(k)"), r.report());
     }
+
+    /**
+     * A verifier reused after a change of the environment mode redoes the arrivals closure from
+     * the caller's net and marking, and scripts what a fresh verifier with that mode scripts. It
+     * used to close the net once and keep that closure (or its absence) for good.
+     */
+    @Test
+    void aReusedVerifierFollowsTheEnvironmentMode() {
+        var property = SmtProperty.placeBound(OUT, 1);
+        var modes = List.of(EnvironmentAnalysisMode.arrivals(2), EnvironmentAnalysisMode.alwaysAvailable(),
+            EnvironmentAnalysisMode.arrivals(1), EnvironmentAnalysisMode.arrivals(1, 2),
+            EnvironmentAnalysisMode.arrivals(2));
+        var reused = forward(modes.getFirst(), property);
+        for (var mode : modes) {
+            assertEquals(forward(mode, property).encodeScripts(), reused.environmentMode(mode).encodeScripts(),
+                mode.toString());
+        }
+    }
 }

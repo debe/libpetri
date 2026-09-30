@@ -1,5 +1,6 @@
 package org.libpetri.verification;
 
+import org.libpetri.analysis.AllMints;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
@@ -29,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -142,17 +144,21 @@ class SubnetVerifyOptionsTest {
     }
 
     @Test
-    void theNuOptionsChangeTheModel_baseProves_extendedWithTheCarrierViolates() {
+    void theNuOptionsChangeTheModel_baseDoesNotProve_extendedWithTheCarrierViolates() {
         var doneObserved = s("harness_out_done");
         var property = SmtProperty.unreachable(Set.of(doneObserved));
         var harness = harness(property);
         var arrivals = SubnetVerifyOptions.DEFAULT.withEnvironmentMode(EnvironmentAnalysisMode.arrivals(1));
 
-        // BASE reads the relay as a fresh mint: the join's two names never match.
-        var base = forkRelayJoin().verify(harness, arrivals).perProperty().get(property);
-        assertTrue(base.isProven(), "BASE, the relay read as a mint:\n" + base.report());
+        // Read as a fresh mint, the relay would keep the join's two names apart and the bound
+        // would be proven falsely. The relay is no declared mint (NU-010), so BASE does not read
+        // it so and the bound is not proven.
+        var base = forkRelayJoin().verify(harness, arrivals.withConfigure((v, synth) -> v
+            .mintTransitions("sut/fork"))).perProperty().get(property);
+        assertFalse(base.isProven(), "BASE must not read the relay as a mint:\n" + base.report());
 
         var extended = forkRelayJoin().verify(harness, arrivals.withConfigure((v, synth) -> v
+            .mintTransitions("sut/fork")
             .fragmentMode(FragmentMode.EXTENDED)
             .carrierPlaces(synth.places().stream().filter(p -> p.name().equals("sut/C")).findFirst().orElseThrow())))
             .perProperty().get(property);

@@ -45,7 +45,7 @@ public final class StructuralCheck {
         /** A siphon was found that does not contain a marked trap. */
         record PotentialDeadlock(Set<Integer> siphon) implements Result {}
 
-        /** Analysis could not decide: the net has too many places, or the siphon search exceeded its node budget. */
+        /** Analysis could not decide: the net has no transition or too many places, or the siphon search exceeded its node budget. */
         record Inconclusive(String reason) implements Result {}
     }
 
@@ -54,10 +54,18 @@ public final class StructuralCheck {
      *
      * @param flatNet the flattened net
      * @param initialMarking the initial marking
-     * @return the check result; {@code Inconclusive} when the net is too large or the siphon search exceeds its budget
+     * @return the check result; {@code Inconclusive} when the net has no transition, is too large, or the siphon search exceeds its budget
      */
     public static Result check(FlatNet flatNet, MarkingState initialMarking) {
         int P = flatNet.placeCount();
+
+        // Commoner's theorem needs at least one transition. With none, every marking is
+        // dead, yet each marked place is a siphon holding a marked trap (itself), so the
+        // condition holds vacuously and {a:1} would come back NoPotentialDeadlock: a
+        // structural PROVEN for a net quiescent from the start with a stranded token.
+        if (flatNet.transitionCount() == 0) {
+            return new Result.Inconclusive("net has no transitions; Commoner's theorem needs one");
+        }
 
         if (P == 0) {
             return new Result.NoPotentialDeadlock();

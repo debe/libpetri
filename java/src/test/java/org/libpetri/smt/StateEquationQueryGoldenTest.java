@@ -3,6 +3,7 @@ package org.libpetri.smt;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
+import org.libpetri.analysis.InFlight;
 import org.libpetri.core.Place;
 import org.libpetri.core.internal.TerminalEncoding;
 import org.libpetri.smt.encoding.FlatNet;
@@ -74,8 +75,22 @@ class StateEquationQueryGoldenTest {
         var named = named(fixture);
         // [EXEC-042] / [VER-014]: the encoder sees the net-declared terminals as the verifier
         // applies them — every terminal inhibits every transition.
-        return NetFlattener.flatten(TerminalEncoding.inhibited(named.net()),
-            named.environmentPlaces(), named.environmentMode());
+        // [TIME-013]: the fixture's `assumeNoReaping` reads quiescence strictly, as the verifier
+        // does with the option set; otherwise a deadline / window transition is reapable.
+        boolean noReaping = VerdictParityTest.assumeNoReaping(fixture);
+        return NetFlattener.flatten(TerminalEncoding.inhibited(split(named.net())),
+            named.environmentPlaces(), named.environmentMode(),
+            t -> !noReaping && Reaping.isReapable(t.timing()));
+    }
+
+    /**
+     * [VER-004]: the net as the verifier encodes it, a transition whose output some transition
+     * tests non-monotonically split into a start and a completion step, before the terminal
+     * rewrite.
+     */
+    private static org.libpetri.core.PetriNet split(org.libpetri.core.PetriNet net) {
+        return InFlight.split(net, java.util.Set.of(), java.util.Set.of()) instanceof InFlight.Outcome.Split(var n, var _)
+            ? n : net;
     }
 
     private static VerificationNets.NamedNet named(JsonNode fixture) {
@@ -93,7 +108,7 @@ class StateEquationQueryGoldenTest {
         VerdictParityTest.sinkPlacesWhen(fixture).forEach((marker, places) ->
             conditionalByMarker.computeIfAbsent(marker, _ -> new LinkedHashSet<>()).addAll(places));
         var sinks = new LinkedHashSet<Place<?>>(VerdictParityTest.sinkPlaces(fixture));
-        var all = NetFlattener.declaredPlaces(named.net());
+        var all = NetFlattener.declaredPlaces(split(named.net()));
         for (var terminal : named.net().terminals()) {
             sinks.add(terminal);
             conditionalByMarker.computeIfAbsent(terminal, _ -> new LinkedHashSet<>()).addAll(all);

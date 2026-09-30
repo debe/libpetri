@@ -2129,7 +2129,9 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                         clearEnabledBit(tid);
                         enabledTransitionCount--;
                         enabledAtNanos[tid] = Long.MIN_VALUE;
-                        markTransitionDirty(tid);
+                        // Not marked dirty: a reaped transition stays disabled at this marking
+                        // (TIME-013). A token change on one of its places marks it dirty through
+                        // markDirty(pid), and it re-enables then with a fresh clock.
                         if (eventStoreEnabled) {
                             Transition t = program.transitionsById[tid];
                             emitEvent(new NetEvent.TransitionTimedOut(

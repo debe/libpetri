@@ -87,19 +87,25 @@ class TerminalPlaceVerificationTest {
     @Test
     void theTerminalEncodingIsTheHandWrittenOne_VER014() {
         // What the verifier does for a terminal equals what a caller would have had to write:
-        // 'done' inhibits every transition, is a sink, and excuses every place.
+        // 'done' inhibits every transition, is a sink, and excuses every place. 'finish' marks
+        // 'done', which every transition tests, so it is verified in two steps (VER-004): its
+        // start, and 'complete:finish', which the terminal also inhibits.
         var declared = StructureOnly.bind(fork().terminal(DONE).build());
         var auto = SmtVerifier.forNet(declared).initialMarking(START).encodeScripts();
 
+        var inFlight = Place.of("inflight:finish", Object.class);
         var handWritten = StructureOnly.bind(PetriNet.builder("fork").transitions(
             Transition.builder("fork").inputs(one(IN)).outputs(and(A, B)).inhibitor(DONE).build(),
-            Transition.builder("finish").inputs(one(A)).outputs(place(DONE)).inhibitor(DONE).build(),
+            Transition.builder("finish").inputs(one(A)).outputs(place(inFlight)).inhibitor(DONE).build(),
+            Transition.builder("complete:finish").inputs(one(inFlight)).outputs(place(DONE)).inhibitor(DONE).build(),
             Transition.builder("straggler").inputs(one(B)).outputs(place(LATE)).inhibitor(DONE).build())
             .place(DONE)
             .build());
-        var all = NetFlattener.declaredPlaces(declared).toArray(new Place<?>[0]);
+        var all = new java.util.ArrayList<Place<?>>(NetFlattener.declaredPlaces(declared));
+        all.add(inFlight);
+        var allPlaces = all.toArray(new Place<?>[0]);
         var manual = SmtVerifier.forNet(handWritten).initialMarking(START)
-            .sinkPlaces(DONE).sinkPlacesWhen(DONE, all).encodeScripts();
+            .sinkPlaces(DONE).sinkPlacesWhen(DONE, allPlaces).encodeScripts();
 
         assertEquals(manual, auto, "VER-014 'Net-declared terminals': the encodings are identical");
     }

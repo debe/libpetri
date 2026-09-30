@@ -190,7 +190,8 @@ class SmtScriptGoldenTest {
         var semiflows = SmtVerifier.validatedSemiflows(flat, m0);
 
         var plan = NameColouredEncoder.buildPlan(
-            net, flat, m0, Set.of("budget"), FragmentMode.BASE, Set.of(), semiflows);
+            net, flat, m0, org.libpetri.analysis.NameFragment.declaredMints(net, Set.of("budget"), Set.of()),
+            FragmentMode.BASE, Set.of(), semiflows);
         assertNotNull(plan, "the scatter-gather net is in the coloured fragment");
         var encoding = NameColouredEncoder.encode(
             plan, flat, m0, SmtProperty.branchPlaceBound(budget, 2), invariants, Set.of());

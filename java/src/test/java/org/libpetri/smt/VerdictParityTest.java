@@ -101,6 +101,11 @@ class VerdictParityTest {
         if (!budgets.isEmpty()) {
             verifier.budgetPlaces(budgets.toArray(new Place<?>[0]));
         }
+        // Optional shared-schema field: declared mint transitions ([NU-010]).
+        var mints = mintTransitions(fixture);
+        if (!mints.isEmpty()) {
+            verifier.mintTransitions(mints.toArray(new String[0]));
+        }
         // Optional shared-schema field: conditional sinks ([VER-014]), marker -> places,
         // declared in the object's own order.
         sinkPlacesWhen(fixture).forEach((marker, places) ->
@@ -109,6 +114,8 @@ class VerdictParityTest {
         verifier.semiflowInvariants(semiflowInvariants(fixture));
         // Optional shared-schema field: [VER-016]'s firing-counter state equation.
         verifier.stateEquation(stateEquation(fixture));
+        // Optional shared-schema field: [TIME-013]'s strict reading of quiescence.
+        verifier.assumeNoReaping(assumeNoReaping(fixture));
         var result = verifier.verify();
 
         // The route marker is checked FIRST: a `route: "B"` fixture that
@@ -163,6 +170,12 @@ class VerdictParityTest {
         return node != null && node.asBoolean(false);
     }
 
+    /** Optional shared-schema field: [TIME-013]'s strict reading of quiescence, off when absent. */
+    static boolean assumeNoReaping(JsonNode fixture) {
+        var node = fixture.get("assumeNoReaping");
+        return node != null && node.asBoolean(false);
+    }
+
     /** Optional shared-schema field: [VER-016]'s state equation, off when absent. */
     static boolean stateEquation(JsonNode fixture) {
         var node = fixture.get("stateEquation");
@@ -184,6 +197,15 @@ class VerdictParityTest {
                 }
                 out.put(place(entry.getKey()), places);
             }
+        }
+        return out;
+    }
+
+    /** The fixture's optional {@code mintTransitions} array ([NU-010]). */
+    static List<String> mintTransitions(JsonNode fixture) {
+        var out = new ArrayList<String>();
+        if (fixture.hasNonNull("mintTransitions")) {
+            fixture.get("mintTransitions").forEach(n -> out.add(n.asText()));
         }
         return out;
     }

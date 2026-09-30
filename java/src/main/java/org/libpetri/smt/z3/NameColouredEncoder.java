@@ -1,5 +1,6 @@
 package org.libpetri.smt.z3;
 
+import org.libpetri.analysis.BranchOutcomes;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.PetriNet;
@@ -37,8 +38,15 @@ import java.util.TreeSet;
  * {@link #buildPlan} / {@link #colourSlotBound}). So names are modelled as a
  * <b>finite set of {@code k} colours</b>. Each coloured place becomes {@code k}
  * per-colour integer counts; a mint introduces a <em>globally-fresh</em> colour; a
- * matched join consumes the <b>same colour</b> from every correlated input. Within the
- * budget bound the encoding is <em>exact</em>.
+ * matched join consumes the <b>same colour</b> from every correlated input, so no
+ * counterexample equates two different names.
+ *
+ * <p>The encoding reads two things it cannot check off the net. A declared mint
+ * ({@link #buildPlan}'s {@code mintTransitions}: named by the caller, or consuming a declared
+ * budget place) writes a freshly minted name (NU-010), and an EXTENDED coloured consumer writes
+ * the name it consumed (NU-051). A {@code Proven} is sound while those contracts hold; the Lean
+ * development proves that inclusion (every run of the net is a run of the encoding), not the
+ * converse.
  *
  * <p><b>Supported fragment.</b> {@link #buildPlan} returns {@code null} (and the
  * verifier falls back to the sound over-approximation) unless the net is in the
@@ -48,7 +56,8 @@ import java.util.TreeSet;
  *       EXTENDED mode, NU-051) the declared carrier places and every join's relay
  *       targets (NU-054);</li>
  *   <li>each coloured place is <em>produced only by</em> minting forks (count 1, no
- *       coloured input, costs &ge;1 budget token) or EXTENDED relays, and
+ *       coloured input, a declared mint, no coloured write on timeout) or EXTENDED relays (a
+ *       timeout write only as a forward of the consumed input), and
  *       <em>consumed only by</em> matched joins or EXTENDED coloured consumers — a relay
  *       threads one colour on, a drain drops it, each consuming exactly one coloured
  *       input at count 1;</li>
@@ -113,16 +122,39 @@ public final class NameColouredEncoder {
         final int[] coloured;
         /** Per flat place: whether it is coloured. */
         final boolean[] isColoured;
-        /** Colour bound — the number of simultaneously-live names (the colour-slot bound). */
+        /**
+         * Colour-slot bound: {@code y·M0} for the tightest non-negative P-semiflow {@code y} that
+         * weights every coloured place, so at least the number of names live at once. Not the
+         * initial budget: it can be several times larger, and it is {@code 0} when no coloured
+         * token can exist.
+         */
         final int k;
         /** Classification, one entry per flat transition (XOR branches included). */
         final List<Klass> classes;
+        /** The net transitions read as mints, in net order (NU-010). */
+        final List<String> mints;
+        /** The net transitions whose rows relay a colour as coloured consumers (NU-051). */
+        final List<String> relays;
 
-        private ColouredPlan(int[] coloured, boolean[] isColoured, int k, List<Klass> classes) {
+        private ColouredPlan(
+                int[] coloured, boolean[] isColoured, int k, List<Klass> classes,
+                List<String> mints, List<String> relays) {
             this.coloured = coloured;
             this.isColoured = isColoured;
             this.k = k;
             this.classes = classes;
+            this.mints = List.copyOf(mints);
+            this.relays = List.copyOf(relays);
+        }
+
+        /** The net transitions read as mints, in net order (NU-010). */
+        public List<String> mints() {
+            return mints;
+        }
+
+        /** The coloured consumers whose action writes the plan reads as relays (NU-051). */
+        public List<String> relays() {
+            return relays;
         }
 
         /** The colour bound (the colour-slot bound from the covering P-semiflow). */
@@ -146,7 +178,11 @@ public final class NameColouredEncoder {
      * @param net              source net (for match specs)
      * @param flat             flattened net (each flat row carries its source transition)
      * @param initial          initial marking
-     * @param budgetPlaceNames declared budget-place names (NU-040)
+     * @param mintTransitions  the declared mint transitions (NU-010; see
+     *                         {@link org.libpetri.analysis.NameFragment#declaredMints}): a row
+     *                         that writes a coloured place without consuming one is a mint only
+     *                         when its transition is named here, and never when the transition
+     *                         writes a coloured place on timeout
      * @param fragmentMode     BASE (mint&rarr;matched-join only) or EXTENDED (NU-051)
      * @param carrierPlaces    EXTENDED carrier-place names (ignored under BASE)
      * @param invariants       the net's non-negative P-semiflows (used to bound the
@@ -154,7 +190,7 @@ public final class NameColouredEncoder {
      */
     public static ColouredPlan buildPlan(
             PetriNet net, FlatNet flat, MarkingState initial,
-            Set<String> budgetPlaceNames, FragmentMode fragmentMode, Set<String> carrierPlaces,
+            Set<String> mintTransitions, FragmentMode fragmentMode, Set<String> carrierPlaces,
             List<PInvariant> invariants) {
         int p = flat.placeCount();
 
@@ -241,16 +277,6 @@ public final class NameColouredEncoder {
             return null;
         }
 
-        // Budget places gate minting: a mint must consume ≥1 budget token — that is what
-        // makes it a fresh-name fork rather than an arbitrary coloured producer.
-        Set<Integer> budgetIdx = new HashSet<>();
-        for (String n : budgetPlaceNames) {
-            Integer i = nameIdx.get(n);
-            if (i != null) {
-                budgetIdx.add(i);
-            }
-        }
-
         // No inhibitor/read/reset/consume-all arc may touch a coloured place.
         for (var ft : flat.transitions()) {
             if (anyColoured(ft.inhibitorPlaces(), isColoured)
@@ -263,9 +289,22 @@ public final class NameColouredEncoder {
 
         // 2. Classify each flat row from its own incidence (matchSpec from its source).
         List<Klass> classes = new ArrayList<>(flat.transitionCount());
+        var mintNames = new ArrayList<String>();
+        var relayTransitions = new ArrayList<String>();
         for (int ti = 0; ti < flat.transitionCount(); ti++) {
             var ft = flat.transitions().get(ti);
             var t = ft.source();
+            // What the executor itself writes into a coloured place on timeout (IO-013, IO-014):
+            // a copy of a consumed value, or a unit token with no name. A flat row does not say
+            // whether the action or the timeout wrote it (equal outcomes share a row), so the
+            // rule reads the source transition.
+            var timeoutColoured = new ArrayList<BranchOutcomes.TimeoutWrite>();
+            for (var w : BranchOutcomes.timeoutWrites(t)) {
+                Integer pid = nameIdx.get(w.to());
+                if (pid != null && isColoured[pid]) {
+                    timeoutColoured.add(w);
+                }
+            }
 
             int[] colouredIn = colouredWithPositive(coloured, ft.preVector());
             int[] colouredOut = colouredWithPositive(coloured, ft.postVector());
@@ -290,6 +329,17 @@ public final class NameColouredEncoder {
                 }
                 for (int pid : colouredIn) {
                     if (ft.preVector()[pid] != 1) {
+                        return null;
+                    }
+                }
+                // What the executor writes into a relay target on timeout is checked like an
+                // action's write (NU-054): only a forward of a match key carries the join's
+                // colour. A unit token has none and a forward of another input carries that
+                // input's, so such a firing fails and deposits nothing, while this row would
+                // relay the colour.
+                for (var w : timeoutColoured) {
+                    if (w.from() == null || t.matchSpec().keys().stream()
+                            .noneMatch(key -> key.place().name().equals(w.from()))) {
                         return null;
                     }
                 }
@@ -320,20 +370,39 @@ public final class NameColouredEncoder {
                         return null;
                     }
                 }
+                // A timeout deposit relays the consumed colour only when it forwards the
+                // coloured input itself (NU-051): a forward of another input copies a name this
+                // row did not consume, and a unit token has none.
+                var inputName = flat.places().get(colouredIn[0]).name();
+                for (var w : timeoutColoured) {
+                    if (!inputName.equals(w.from())) {
+                        return null;
+                    }
+                }
+                if (colouredOut.length != 0 && !relayTransitions.contains(t.name())) {
+                    relayTransitions.add(t.name());
+                }
                 klass = new Consume(colouredIn[0], colouredOut);
             } else if (colouredOut.length != 0) {
-                // Minting fork: produces coloured (count 1), consumes none, costs budget.
+                // Minting fork: produces coloured (count 1), consumes none, and is a declared
+                // mint (named by the caller, or consuming a declared budget place). The
+                // declaration is what states the mint contract of NU-010: the action writes a
+                // name freshly minted by freshName(). Nothing in the net tells a mint from an
+                // action that copies a live correlation id.
                 for (int o : colouredOut) {
                     if (ft.postVector()[o] != 1) {
                         return null;
                     }
                 }
-                int budgetConsumed = 0;
-                for (int b : budgetIdx) {
-                    budgetConsumed += ft.preVector()[b];
-                }
-                if (budgetConsumed < 1) {
+                if (!mintTransitions.contains(t.name())) {
                     return null;
+                }
+                // What the executor writes on timeout is never fresh, declared or not.
+                if (!timeoutColoured.isEmpty()) {
+                    return null;
+                }
+                if (!mintNames.contains(t.name())) {
+                    mintNames.add(t.name());
                 }
                 klass = new Mint(colouredOut);
             } else {
@@ -343,7 +412,7 @@ public final class NameColouredEncoder {
             classes.add(klass);
         }
 
-        return new ColouredPlan(coloured, isColoured, k, classes);
+        return new ColouredPlan(coloured, isColoured, k, classes, mintNames, relayTransitions);
     }
 
     /**
@@ -518,7 +587,7 @@ public final class NameColouredEncoder {
     }
 
     /** A changed column and its update expression. */
-    private record Update(int col, String expr) {}
+    record Update(int col, String expr) {}
 
     /** Contributes a rule's enablement guards and changed-column updates. */
     @FunctionalInterface
@@ -637,14 +706,24 @@ public final class NameColouredEncoder {
                 case Consume co -> {
                     // One rule per colour: consume colour cc from the single coloured input
                     // and thread it into each coloured output (relay), or into none (drain).
+                    // A relay back into its own input (a self-loop) nets to zero, as a join's
+                    // key that is also a relay target does: the column keeps its `>= 1` guard
+                    // and is carried over unchanged. encodeRule keeps one update per column, so
+                    // writing `- 1` and then `+ 1` would leave only the `+ 1`.
+                    boolean selfLoop = contains(co.colouredOut(), co.inputCol());
                     for (int c = 0; c < k; c++) {
                         final int cc = c;
                         lines.add(encodeRule(plan, lay, invariants, (enab, upd) -> {
                             uncolouredIncidence(lay, plan, ft, enab, upd);
                             int icol = lay.colCol[co.inputCol()][cc];
                             enab.add("(>= " + lay.cur.get(icol) + " 1)");
-                            upd.add(new Update(icol, "(- " + lay.cur.get(icol) + " 1)"));
+                            if (!selfLoop) {
+                                upd.add(new Update(icol, "(- " + lay.cur.get(icol) + " 1)"));
+                            }
                             for (int o : co.colouredOut()) {
+                                if (o == co.inputCol()) {
+                                    continue;
+                                }
                                 int ocol = lay.colCol[o][cc];
                                 upd.add(new Update(ocol, "(+ " + lay.cur.get(ocol) + " 1)"));
                             }
@@ -709,6 +788,28 @@ public final class NameColouredEncoder {
     }
 
     /**
+     * The update of each of {@code width} columns, {@code null} where a column is unchanged.
+     *
+     * <p>One update per column: a second write would replace the first rather than add to it,
+     * so every caller nets a self-loop out before pushing. A caller that does not would encode
+     * a rule that silently drops a token change, so this is checked on every build, not only
+     * under {@code -ea}.
+     *
+     * @throws IllegalStateException if two updates write one column
+     */
+    static String[] columnUpdates(int width, List<Update> upd) {
+        String[] changed = new String[width];
+        for (var u : upd) {
+            if (changed[u.col()] != null) {
+                throw new IllegalStateException("name-coloured encoding: column " + u.col()
+                    + " updated twice in one rule (" + changed[u.col()] + ", then " + u.expr() + ")");
+            }
+            changed[u.col()] = u.expr();
+        }
+        return changed;
+    }
+
+    /**
      * Builds one transition CHC rule. {@code fill} contributes the enablement guards and
      * the changed-column updates; every other column is copied unchanged, changed columns
      * get a non-negativity guard, and the (lifted) P-invariants constrain the successor.
@@ -727,11 +828,8 @@ public final class NameColouredEncoder {
         conditions.addAll(enab);
 
         // A changed column gets its update + non-negativity guard; every other column is
-        // copied unchanged. A later update of the same column wins.
-        String[] changed = new String[lay.cur.size()];
-        for (var u : upd) {
-            changed[u.col()] = u.expr();
-        }
+        // copied unchanged. Each column is updated at most once.
+        String[] changed = columnUpdates(lay.cur.size(), upd);
         for (int col = 0; col < lay.cur.size(); col++) {
             if (changed[col] != null) {
                 conditions.add("(= " + lay.nxt.get(col) + " " + changed[col] + ")");
@@ -918,10 +1016,12 @@ public final class NameColouredEncoder {
     }
 
     /**
-     * Colour-aware quiescence predicate (NU-053): every transition is disabled (no colour
-     * enables it). Mirrors {@link SmtEncoder}'s flat quiescence with the same
-     * env-injection relaxation (VER-006), lifted to the coloured layout. Carries no sink
-     * clause — each property conjoins its own.
+     * Colour-aware quiescence predicate (NU-053): every transition that is not reapable is
+     * disabled (no colour enables it). A reapable transition contributes no clause, since a
+     * late executor reaps it and rests with it enabled (VER-002 reap-quiescence, TIME-013).
+     * Mirrors {@link SmtEncoder}'s flat quiescence with the same env-injection relaxation
+     * (VER-006), lifted to the coloured layout. Carries no sink clause; each property
+     * conjoins its own.
      *
      * <p>{@code null} means some transition is enabled in every marking: never quiescent.
      */
@@ -931,6 +1031,10 @@ public final class NameColouredEncoder {
         for (int ti = 0; ti < plan.classes.size(); ti++) {
             Klass cls = plan.classes.get(ti);
             FlatTransition ft = flat.transitions().get(ti);
+            // Reap-quiescence ([VER-002], [TIME-013]), as the flat encoder.
+            if (ft.reapable()) {
+                continue;
+            }
             List<String> reasons = new ArrayList<>();
             boolean permanentlyDisabled = uncolouredDisable(ft, lay, plan, envInj, reasons);
             if (permanentlyDisabled) {

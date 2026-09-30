@@ -77,7 +77,7 @@ class LinearBoundNuTest {
             List.of("S", "S2"), List.of());
         assertTrue(r.isProven(), r.report());
         assertEquals(Route.SMT, r.route(), r.report());
-        assertTrue(r.report().contains("ν-encoding: name-coloured (exact within budget"), r.report());
+        assertTrue(r.report().contains("ν-encoding: name-coloured (colour-slot bound"), r.report());
 
         // A false bound: the linear bound cannot prove it, Route A finds the violation as before.
         var fig = JoinRelayTest.fig12c(true);
@@ -85,7 +85,7 @@ class LinearBoundNuTest {
             JoinRelayTest.FIG12C_CARRIERS);
         assertTrue(v.isViolated(), v.report());
         assertEquals(Route.SMT, v.route(), v.report());
-        assertTrue(v.report().contains("ν-encoding: name-coloured (exact within budget"), v.report());
+        assertTrue(v.report().contains("ν-encoding: name-coloured (colour-slot bound"), v.report());
     }
 
     @Test

@@ -1042,6 +1042,20 @@ class BackendDivergenceRegressionTest {
         }
     }
 
+    /**
+     * TIME-013: both backends reap the same transition once and leave it disabled at the reaped
+     * marking until its input place changes. Both used to mark a reaped transition dirty,
+     * re-arming it on the next cycle at the unchanged marking.
+     */
+    @Test
+    void reaping_backendsAgreeThatAReapedTransitionIsNotRearmed() {
+        var bitmap = ReapingFixture.run(Backend.BITMAP::createWithEventStore);
+        var precompiled = ReapingFixture.run(Backend.PRECOMPILED::createWithEventStore);
+
+        assertEquals(bitmap, precompiled, "backends disagree on reaping");
+        assertEquals(new ReapingFixture.Outcome(0, 2, 1, 0, 2), bitmap);
+    }
+
     /** How many tokens the run removed from {@code placeName} — what the pass consumed there. */
     private static int removedFrom(EventStore eventStore, String placeName) {
         return (int) eventStore.eventsOfType(NetEvent.TokenRemoved.class).stream()

@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -180,7 +181,7 @@ class JoinRelayTest {
     private static SmtVerificationResult verify(
             Q q, boolean withBudget, int nuMaxClasses, Duration timeout, boolean linearBound) {
         var net = q.net.build();
-        var v = SmtVerifier.forNet(net)
+        var v = SmtVerifier.forNet(net).mintTransitions(AllMints.names(net))
             .linearBound(linearBound)
             .initialMarking(m -> q.m0.forEach((p, c) -> m.tokens(q.net.p(p), c)))
             .property(q.property)
@@ -251,10 +252,10 @@ class JoinRelayTest {
 
     @Test
     void extendedAcceptsTheChainOnlyWithTheRelayDeclared() {
-        assertNotNull(NameFragment.classify(chain(true).build(), EXT, Set.of()));
-        assertNull(NameFragment.classify(chain(false).build(), EXT, Set.of()),
+        assertNotNull(NameFragment.classify(chain(true).build(), EXT, Set.of(), AllMints.of(chain(true).build())));
+        assertNull(NameFragment.classify(chain(false).build(), EXT, Set.of(), AllMints.of(chain(false).build())),
             "a join writing an undeclared coloured place is a re-mint");
-        assertNull(NameFragment.classify(chain(true).build(), FragmentMode.BASE, Set.of()),
+        assertNull(NameFragment.classify(chain(true).build(), FragmentMode.BASE, Set.of(), AllMints.of(chain(true).build())),
             "BASE ignores the relay declaration");
     }
 
@@ -264,7 +265,7 @@ class JoinRelayTest {
         var n = new Net("off-key-relay")
             .t("fork", l("S"), l("A", "B"))
             .t("j1", l("A", "B", "C"), l("C"), l("A", "B"), l("C"));
-        assertNull(NameFragment.classify(n.build(), EXT, Set.of()));
+        assertNull(NameFragment.classify(n.build(), EXT, Set.of(), AllMints.of(n.build())));
     }
 
     @Test
@@ -276,7 +277,7 @@ class JoinRelayTest {
             var n = chain(true);
             n.add(arc.apply(Transition.builder("watch").inputs(Arc.In.one(n.p("W")))
                 .outputs(Arc.Out.place(n.p("W2")))).build());
-            assertNull(NameFragment.classify(n.build(), EXT, Set.of()));
+            assertNull(NameFragment.classify(n.build(), EXT, Set.of(), AllMints.of(n.build())));
         }
     }
 
@@ -452,5 +453,70 @@ class JoinRelayTest {
         // k = 1 only: at k = 2 the covering semiflow gives six colour slots and Spacer does not
         // find the violation within 60 s (unknown, never a contradiction).
         assertRoutesAgree(selfLoopDeadlock(true, 1), "violated");
+    }
+
+    // ── A join's timeout writes into a relay target ───────────────────────────────────────
+
+    /**
+     * The AC3 join chain with {@code j1}'s relay into {@code C} written two ways: by the action, or
+     * by the executor on timeout ({@code timeoutChild}). {@code j1} also consumes the uncoloured
+     * {@code Z}, so a forward of a non-key input can be stated.
+     */
+    private static PetriNet chainWithTimeout(java.util.function.Function<Net, Arc.Out> timeoutChild) {
+        var n = new Net("chain-timeout").t("fork", l("S"), l("A", "B", "D"), l(), l());
+        var ms = MatchSpec.builder();
+        ms.key(n.p("A"), (String v) -> NameId.of(v));
+        ms.key(n.p("B"), (String v) -> NameId.of(v));
+        ms.relayTo(n.p("C"), (String v) -> NameId.of(v));
+        n.add(Transition.builder("j1")
+            .inputs(Arc.In.one(n.p("A")), Arc.In.one(n.p("B")), Arc.In.one(n.p("Z")))
+            .outputs(Arc.Out.xor(Arc.Out.place(n.p("C")),
+                Arc.Out.timeout(Duration.ofMillis(10), timeoutChild.apply(n))))
+            .match(ms.build())
+            .build());
+        n.t("j2", l("C", "D"), l("done"), l("C", "D"), l());
+        return n.build();
+    }
+
+    private static SmtVerificationResult chainTimeoutDeadlock(PetriNet net) {
+        var place = (java.util.function.Function<String, Place<?>>) name -> net.places().stream()
+            .filter(p -> p.name().equals(name)).findFirst().orElseThrow();
+        return SmtVerifier.forNet(net)
+            .enumerationMaxClasses(0)
+            .initialMarking(m -> m.tokens(place.apply("S"), 1).tokens(place.apply("Z"), 1))
+            .property(SmtProperty.deadlockFree())
+            .sinkPlaces(place.apply("done"))
+            .budgetPlaces(place.apply("S"))
+            .fragmentMode(EXT)
+            .timeout(Duration.ofSeconds(2))
+            .verify();
+    }
+
+    /**
+     * The executor checks every token a join deposits in a relay target, timeout branches included
+     * (NU-054). A unit token ({@code Out.place} under {@code Timeout}) or a forward of a non-key
+     * input carries no name or another one, so that firing fails and deposits nothing: {@code A}
+     * and {@code B} are gone, {@code D} is stranded and the net deadlocks. The name layer would
+     * relay the matched name into {@code C} instead and let {@code j2} fire, a wrong
+     * {@code Proven}. Only a forward of a match key relays the matched name, and only that timeout
+     * write keeps the join in the fragment, for Route B and for Route A's coloured encoding.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void aJoinTimeoutWriteIntoARelayTargetMustForwardAKey() {
+        var unit = chainWithTimeout(n -> Arc.Out.place(n.p("C")));
+        var other = chainWithTimeout(n -> Arc.Out.forwardInput(n.p("Z"), n.p("C")));
+        for (var net : List.of(unit, other)) {
+            var r = chainTimeoutDeadlock(net);
+            assertFalse(r.isProven(), r.report());
+            assertTrue(r.report().contains("Route B (EXTENDED) declined"), r.report());
+            assertFalse(r.report().contains("ν-encoding: name-coloured"), r.report());
+            assertNull(NameFragment.classify(net, EXT, Set.of(), AllMints.of(net)));
+        }
+        var key = chainWithTimeout(n -> Arc.Out.forwardInput(n.p("A"), n.p("C")));
+        assertNotNull(NameFragment.classify(key, EXT, Set.of(), AllMints.of(key)));
+        var r = chainTimeoutDeadlock(key);
+        assertEquals(Route.NU_SCG, r.route(), r.report());
+        assertTrue(r.isProven(), r.report());
     }
 }

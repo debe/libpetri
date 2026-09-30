@@ -119,7 +119,7 @@ class NameStateClassGraphInterningTest {
     @Test
     void internedBaseKeepsEachArrivalsReadyEarliest() {
         var net = fixture(false);
-        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of());
+        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of(), AllMints.of(net));
         var initial = MarkingState.builder().tokens(P, 2).build();
         var graph = NameStateClassGraph.build(
             net, initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(),
@@ -155,7 +155,7 @@ class NameStateClassGraphInterningTest {
         var keys = new ArrayList<String>();
         for (var nm : NameStateClassGraph.nameSuccessors(
                 fragment.role(transition), names, outputs, fragment, new int[]{fresh})) {
-            keys.add(nm.canonicalKey(fragment.colouredOrder));
+            keys.add(nm.after().canonicalKey(fragment.colouredOrder));
         }
         Collections.sort(keys);
         return keys;
@@ -165,7 +165,7 @@ class NameStateClassGraphInterningTest {
     void nameSuccessorsAreEquivariantUnderRenaming() {
         // The hypothesis Interning.lean rests on: a renamed layer (same canonical key) has
         // successors with the same canonical keys, for every role, given fresh counters.
-        var fragment = NameFragment.classify(fixture(true), FragmentMode.EXTENDED, Set.of());
+        var fragment = NameFragment.classify(fixture(true), FragmentMode.EXTENDED, Set.of(), AllMints.of(fixture(true)));
         var names = new NameMarking();
         names.add(C1.name(), 3, 1);
         names.add(C2.name(), 3, 1);
@@ -229,7 +229,7 @@ class NameStateClassGraphInterningTest {
     @Test
     void classIdentityCarriesReadyEarliestWhenNameLayersCoincide() {
         var net = sameNameLayerFixture();
-        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of());
+        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of(), AllMints.of(net));
         var initial = MarkingState.builder().tokens(P, 2).build();
         var graph = NameStateClassGraph.build(
             net, initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(),

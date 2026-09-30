@@ -783,7 +783,12 @@ public final class SmtEncoder {
     }
 
     /**
-     * Quiescence: every transition is disabled.
+     * Quiescence: every transition that is not reapable is disabled.
+     *
+     * <p>Reap-quiescence ([VER-002], [TIME-013]): a {@code deadline} / {@code window} transition a
+     * late executor reaps stays enabled while the run rests, so a flat transition marked
+     * {@link FlatTransition#reapable()} contributes no clause. On a net without one this is plain
+     * quiescence.
      *
      * <p>Shared core of the quiescence-sensitive properties (VER-002
      * {@link SmtProperty.DeadlockFree}, {@link SmtProperty.TerminatesAtSink} and
@@ -810,6 +815,11 @@ public final class SmtEncoder {
         }
         var disabledConditions = new ArrayList<String>();
         for (var ft : flatNet.transitions()) {
+            // A reapable transition need not be disabled: a late executor reaps it and rests
+            // with it enabled ([VER-002] reap-quiescence, [TIME-013]).
+            if (ft.reapable()) {
+                continue;
+            }
             var disableReasons = new ArrayList<String>();
             boolean permanentlyDisabled = false;
             for (int i = 0; i < flatNet.placeCount(); i++) {

@@ -47,7 +47,7 @@ class NameStateClassGraphOrbitDedupTest {
     }
 
     private static NameStateClassGraph build(PetriNet net, int maxClasses) {
-        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of());
+        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of(), AllMints.of(net));
         return NameStateClassGraph.build(net, MarkingState.builder().tokens(CLERK, 2).build(), fragment,
             maxClasses, Set.of(), EnvironmentAnalysisMode.ignore(), PrioritySemantics.NONE);
     }
@@ -118,7 +118,7 @@ class NameStateClassGraphOrbitDedupTest {
             // Makes C a coloured place (a key) without ever firing: D is never marked.
             Transition.builder("never").inputs(In.one(c), In.one(d)).match(matchCD).outputs(Out.place(done)).build())
             .build());
-        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of());
+        var fragment = NameFragment.classify(net, FragmentMode.BASE, Set.of(), AllMints.of(net));
         var graph = NameStateClassGraph.build(net, MarkingState.builder().tokens(s, 1).tokens(t, 1).build(), fragment,
             1_000, Set.of(), EnvironmentAnalysisMode.ignore(), PrioritySemantics.NONE);
         assertTrue(graph.isComplete());
@@ -162,7 +162,7 @@ class NameStateClassGraphOrbitDedupTest {
                 .match(MatchSpec.builder().key(q, (String v) -> NameId.of(v)).key(y, (String v) -> NameId.of(v)).build())
                 .outputs(Out.place(done)).build())
             .build());
-        var fragment = NameFragment.classify(net, FragmentMode.EXTENDED, Set.of());
+        var fragment = NameFragment.classify(net, FragmentMode.EXTENDED, Set.of(), AllMints.of(net));
         var role = fragment.role("B");
         assertTrue(role instanceof NameFragment.Role.Join j && j.relayTo().equals(Set.of("Y", "q")), role.toString());
 
@@ -174,7 +174,8 @@ class NameStateClassGraphOrbitDedupTest {
         }
         names.add("q", 3, 1);
         Set<Place<?>> outs = Set.of(y, q);
-        var succ = NameStateClassGraph.nameSuccessors(role, names, outs, fragment, new int[] {10});
+        var succ = NameStateClassGraph.nameSuccessors(role, names, outs, fragment, new int[] {10})
+            .stream().map(NameStateClassGraph.NameStep::after).toList();
         assertEquals(2, succ.size(), "one successor per signature: {1,2} and {3}");
 
         // Firing on the dropped symbol 2 by hand gives the key of the kept symbol 1's successor.

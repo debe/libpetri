@@ -185,4 +185,32 @@ class NetFlattenerTest {
         boolean branch1HasOut1 = ft1.postVector()[out1Idx] == 1;
         assertTrue(branch0HasOut1 ^ branch1HasOut1, "Exactly one branch should output to Out1");
     }
+
+    /**
+     * [IO-014]: the timeout outcome of {@code xor(c, timeout(forwardInput(a, b)))} on an
+     * {@code Exactly(2)} input deposits two tokens in {@code b}, as its own row after the two
+     * branches the action may write.
+     */
+    @Test
+    void flattenForwardDepositsEveryConsumedToken() {
+        var a = Place.of("a", Integer.class);
+        var b = Place.of("b", Integer.class);
+        var c = Place.of("c", Integer.class);
+        var t = Transition.builder("t")
+            .inputs(In.exactly(2, a))
+            .outputs(Out.xor(Out.place(c), Out.timeout(java.time.Duration.ofMillis(50), Out.forwardInput(a, b))))
+            .action(TransitionAction.fork())
+            .build();
+        var flat = NetFlattener.flatten(PetriNet.builder("test").transition(t).build(), Set.of(),
+            EnvironmentAnalysisMode.ignore());
+        assertEquals(java.util.List.of("t_b0", "t_b1", "t_b2"),
+            flat.transitions().stream().map(FlatTransition::name).toList());
+        int ia = flat.indexOf(a), ib = flat.indexOf(b), ic = flat.indexOf(c);
+        for (var ft : flat.transitions()) {
+            assertEquals(2, ft.preVector()[ia]);
+        }
+        var posts = flat.transitions().stream()
+            .map(ft -> ft.postVector()[ib] + "," + ft.postVector()[ic]).toList();
+        assertEquals(java.util.List.of("0,1", "1,0", "2,0"), posts);
+    }
 }

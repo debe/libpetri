@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -202,7 +203,9 @@ class NameColouredEncoderTest {
         var matrix = IncidenceMatrix.from(flat);
         var semiflows = PInvariantComputer.computePSemiflows(matrix, flat, initial);
         return NameColouredEncoder.buildPlan(
-            net, flat, initial, Set.of("budget1", "budget2"), mode, Set.of(carriers), semiflows);
+            net, flat, initial,
+            org.libpetri.analysis.NameFragment.declaredMints(net, Set.of("budget1", "budget2"), Set.of()),
+            mode, Set.of(carriers), semiflows);
     }
 
     @Test
@@ -426,5 +429,21 @@ class NameColouredEncoderTest {
         assertTrue(error > 0, "the script carries an error rule");
         int reachable = smt2.lastIndexOf("(Reachable ", error);
         return smt2.substring(smt2.indexOf(") ", reachable) + 2, error);
+    }
+
+    /**
+     * Two updates of one column in one rule would drop a token change: the second write
+     * replaces the first. That is an explicit check, not an {@code assert}, so it holds without
+     * {@code -ea} too.
+     */
+    @Test
+    void aColumnUpdatedTwiceInOneRuleIsRefused() {
+        var once = NameColouredEncoder.columnUpdates(3, List.of(
+            new NameColouredEncoder.Update(0, "(+ m0 1)"), new NameColouredEncoder.Update(2, "(- m2 1)")));
+        assertEquals("(+ m0 1)", once[0]);
+        assertNull(once[1]);
+        var ex = assertThrows(IllegalStateException.class, () -> NameColouredEncoder.columnUpdates(3, List.of(
+            new NameColouredEncoder.Update(1, "(+ m1 1)"), new NameColouredEncoder.Update(1, "(- m1 1)"))));
+        assertTrue(ex.getMessage().contains("column 1 updated twice in one rule"), ex.getMessage());
     }
 }

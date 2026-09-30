@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import java.time.Duration;
 import java.util.List;
 
@@ -61,7 +62,7 @@ class TruncatedPrefixTest {
 
     @Test
     void routeB_fig11b_safetyViolatedBeforeTheCap_withTheDepthThreeTrace() {
-        var r = SmtVerifier.forNet(fig11b()).initialMarking(twoClerks())
+        var r = SmtVerifier.forNet(fig11b()).mintTransitions(AllMints.names(fig11b())).initialMarking(twoClerks())
             .property(SmtProperty.placeBound(ORDER_CLERK, 2))
             .nuMaxClasses(50)
             .verify();
@@ -75,7 +76,7 @@ class TruncatedPrefixTest {
 
     @Test
     void routeB_fig11b_aBoundTheGraphNeverReaches_staysUnknown() {
-        var r = SmtVerifier.forNet(fig11b()).initialMarking(twoClerks())
+        var r = SmtVerifier.forNet(fig11b()).mintTransitions(AllMints.names(fig11b())).initialMarking(twoClerks())
             .property(SmtProperty.placeBound(ORDER_CLERK, 1_000))
             .nuMaxClasses(50)
             .verify();
@@ -97,7 +98,7 @@ class TruncatedPrefixTest {
             Transition.builder("gen").inputs(In.one(g)).outputs(Out.and(g, a, b)).build(),
             Transition.builder("join").inputs(In.one(a), In.one(b)).match(match).outputs(Out.place(done)).build())
             .build());
-        var r = SmtVerifier.forNet(net).initialMarking(m -> m.tokens(g, 1))
+        var r = SmtVerifier.forNet(net).mintTransitions(AllMints.names(net)).initialMarking(m -> m.tokens(g, 1))
             .property(SmtProperty.deadlockFree())
             .nuMaxClasses(50)
             .verify();

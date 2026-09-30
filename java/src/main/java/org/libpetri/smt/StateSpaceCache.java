@@ -37,11 +37,14 @@ import java.util.function.IntFunction;
  * }</pre>
  *
  * <p><b>Keying.</b> An entry is keyed by the net <em>as the caller passed it</em>, by
- * identity, and by the initial marking, structurally and in the order it lists its places
- * (a witness's markings inherit that order). A structurally equal net built separately, or
- * an equal marking listed in another order, misses; that is allowed, it only costs a build. The terminal rewrite of
- * [EXEC-042] is a deterministic function of the net, so the verifier keys on the net before
- * that rewrite and a net with terminals hits across queries.
+ * identity, by the transitions the in-flight split of [VER-004] rewrote (none under
+ * {@code assumeAtomicFiring}), and by the initial marking, structurally and in the order it
+ * lists its places (a witness's markings inherit that order). A structurally equal net built
+ * separately, or an equal marking listed in another order, misses; that is allowed, it only
+ * costs a build. The inert-place, in-flight and terminal ([EXEC-042]) rewrites are a
+ * deterministic function of the net and the transitions split, so the verifier keys on the net
+ * before them and a net with terminals hits across queries, while a graph of the atomic net
+ * never answers a query that runs on the split one.
  *
  * <p><b>Budgets.</b> A <em>closed</em> graph of {@code C} classes is reused for any class
  * budget greater than {@code C}; a budget of {@code C} or less would have truncated and is
@@ -82,20 +85,20 @@ public final class StateSpaceCache {
      * {@link MarkingState#placesWithTokens()}: two equal markings listed differently must not
      * share a graph, or the second caller's witness would list places in the first's order.
      */
-    private record Key(PetriNet net, MarkingState initial, List<Place<?>> listing) {
-        Key(PetriNet net, MarkingState initial) {
-            this(net, initial, List.copyOf(initial.placesWithTokens()));
+    private record Key(PetriNet net, List<String> split, MarkingState initial, List<Place<?>> listing) {
+        Key(PetriNet net, List<String> split, MarkingState initial) {
+            this(net, List.copyOf(split), initial, List.copyOf(initial.placesWithTokens()));
         }
 
         @Override
         public boolean equals(Object o) {
-            return o instanceof Key k && k.net == net && k.initial.equals(initial)
-                && k.listing.equals(listing);
+            return o instanceof Key k && k.net == net && k.split.equals(split)
+                && k.initial.equals(initial) && k.listing.equals(listing);
         }
 
         @Override
         public int hashCode() {
-            return 31 * System.identityHashCode(net) + initial.hashCode();
+            return 31 * (31 * System.identityHashCode(net) + split.hashCode()) + initial.hashCode();
         }
     }
 
@@ -157,6 +160,11 @@ public final class StateSpaceCache {
         return entries.size();
     }
 
+    /** {@link #lookup(PetriNet, List, MarkingState, int, IntFunction)} with no in-flight split. */
+    Lookup lookup(PetriNet key, MarkingState initial, int budget, IntFunction<StateClassGraph> build) {
+        return lookup(key, List.of(), initial, budget, build);
+    }
+
     /** Test seam: how many graphs this cache has built. Package-private — not API. */
     int buildsForTesting() {
         return builds.get();
@@ -167,13 +175,15 @@ public final class StateSpaceCache {
      * building it with {@code build} only when no entry answers the budget.
      *
      * @param key     the net as the caller passed it, before any rewrite
+     * @param split   the transitions the in-flight split of [VER-004] rewrote, empty when none
      * @param initial the initial marking
      * @param budget  the class budget, positive
      * @param build   builds the graph at a budget; must be a deterministic function of
-     *                {@code key} and {@code initial}
+     *                {@code key}, {@code split} and {@code initial}
      */
-    Lookup lookup(PetriNet key, MarkingState initial, int budget, IntFunction<StateClassGraph> build) {
-        var k = new Key(Objects.requireNonNull(key), Objects.requireNonNull(initial));
+    Lookup lookup(PetriNet key, List<String> split, MarkingState initial, int budget,
+            IntFunction<StateClassGraph> build) {
+        var k = new Key(Objects.requireNonNull(key), split, Objects.requireNonNull(initial));
         while (true) {
             var existing = entries.get(k);
             if (existing == null) {

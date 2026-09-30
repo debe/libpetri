@@ -1,5 +1,6 @@
 package org.libpetri.smt.encoding;
 
+import org.libpetri.analysis.BranchOutcomes;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.Arc;
@@ -7,6 +8,7 @@ import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
 import org.libpetri.core.internal.CodePointOrder;
+import org.libpetri.smt.Reaping;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -17,7 +19,8 @@ import java.util.stream.Collectors;
  * <p>Flattening involves:
  * <ol>
  *   <li>Assigning each place a stable integer index (sorted by name)</li>
- *   <li>Expanding XOR outputs into separate flat transitions (one per branch)</li>
+ *   <li>Expanding every way a firing can end ({@link BranchOutcomes#outcomes}: each XOR
+ *       branch, and a timeout that deposits differently) into its own flat transition</li>
  *   <li>Building pre/post vectors from input/output specs</li>
  *   <li>Recording inhibitor, read, and reset arcs</li>
  *   <li>Setting environment bounds for bounded analysis mode</li>
@@ -69,6 +72,27 @@ public final class NetFlattener {
             Set<EnvironmentPlace<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
+        return flatten(net, environmentPlaces, environmentMode, t -> Reaping.isReapable(t.timing()));
+    }
+
+    /**
+     * {@link #flatten(PetriNet, Set, EnvironmentAnalysisMode)} with the caller deciding which
+     * source transitions are reapable ([TIME-013]): none under {@code assumeNoReaping}, or a set
+     * named before a rewrite dropped the timing. The three-argument form marks a transition
+     * reapable exactly when its timing is {@code deadline} or {@code window}.
+     *
+     * @param net              the Petri net to flatten
+     * @param environmentPlaces environment places for reactive analysis
+     * @param environmentMode  how to treat environment places
+     * @param reapable         whether a source transition can be reaped
+     * @return the flattened net
+     */
+    public static FlatNet flatten(
+            PetriNet net,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            java.util.function.Predicate<Transition> reapable
+    ) {
         // 1. Collect ALL places (net.places() may miss new-API-declared places)
         var allPlaces = declaredPlaces(net);
 
@@ -90,6 +114,9 @@ public final class NetFlattener {
         //    the incidence-matrix injector columns; a null value means unbounded
         //    (AlwaysAvailable), an integer caps injection (Bounded). HashMap is used
         //    deliberately so null values are permitted (Map.copyOf rejects them).
+        //    Below the injection guard the post-cap bites only when a transition
+        //    deposits into an environment place or M0 holds more than k there, and
+        //    there it removes executor steps: SmtVerifier refuses both (VER-006 AC3).
         var environmentBounds = new HashMap<Place<?>, Integer>();
         var environmentInjection = new HashMap<Place<?>, Integer>();
         switch (environmentMode) {
@@ -119,10 +146,14 @@ public final class NetFlattener {
         var flatTransitions = new ArrayList<FlatTransition>();
 
         for (var transition : net.transitions()) {
-            var branches = enumerateOutputBranches(transition);
+            // One flat transition per way a firing can end (BranchOutcomes): each branch the
+            // action may write, one token per place ([IO-016]), then the timeout outcome when
+            // it deposits differently — only the timeout child's places, a forward depositing
+            // one token per consumed token ([IO-013] AC5, [IO-014]).
+            var branches = BranchOutcomes.outcomes(transition);
 
             for (int branchIdx = 0; branchIdx < branches.size(); branchIdx++) {
-                var branchPlaces = branches.get(branchIdx);
+                var outcome = branches.get(branchIdx);
                 String name = branches.size() > 1
                     ? transition.name() + "_b" + branchIdx
                     : transition.name();
@@ -150,12 +181,17 @@ public final class NetFlattener {
                     }
                 }
 
-                // Build post-vector from branch output places
+                // Build post-vector from the outcome's deposits. A forward of an All /
+                // AtLeast input deposits the drained batch, which no post vector can hold; its
+                // minimum stands in, and the verifier refuses the net before any flat route
+                // reads it (BranchOutcomes.drainedForward); the graph routes, which count the
+                // batch, decide it first.
                 int[] postVector = new int[n];
-                for (var place : branchPlaces) {
-                    int idx = placeIndex.getOrDefault(place, -1);
+                for (var e : outcome.deposits().entrySet()) {
+                    int idx = placeIndex.getOrDefault(e.getKey(), -1);
                     if (idx >= 0) {
-                        postVector[idx] = 1;
+                        postVector[idx] += BranchOutcomes.Outcome.resolve(e.getValue(),
+                            from -> minimum(transition, from));
                     }
                 }
 
@@ -185,7 +221,8 @@ public final class NetFlattener {
                     branches.size() > 1 ? branchIdx : -1,
                     preVector, postVector,
                     inhibitorPlaces, readPlaces, resetPlaces,
-                    consumeAll
+                    consumeAll,
+                    reapable.test(transition)
                 ));
             }
         }
@@ -200,16 +237,13 @@ public final class NetFlattener {
         );
     }
 
-    /**
-     * Enumerates output branches for a transition.
-     * Returns list of place-sets (one per XOR branch).
-     */
-    private static List<Set<Place<?>>> enumerateOutputBranches(Transition t) {
-        if (t.outputSpec() != null) {
-            return t.outputSpec().enumerateBranches();
+    /** The tokens {@code t} requires from {@code from}: 0 when it is not an input. */
+    private static int minimum(Transition t, Place<?> from) {
+        for (var in : t.inputSpecs()) {
+            if (in.place().name().equals(from.name())) {
+                return in.requiredCount();
+            }
         }
-
-        // No outputs (sink transition)
-        return List.of(Set.of());
+        return 0;
     }
 }

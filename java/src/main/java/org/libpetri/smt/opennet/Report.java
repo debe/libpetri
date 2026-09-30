@@ -32,6 +32,8 @@ final class Report {
         GraphRoute.Outcome graph,
         String graphSkipped,
         List<String> smtLines,
+        /** How quiescence reads reaping ([TIME-013]), for a closed net with a reapable transition; or {@code null}. */
+        String reaping,
         Verdict verdict,
         List<ContractViolation> violations
     ) {}
@@ -48,6 +50,9 @@ final class Report {
         if (!input.closed().undeclared().isEmpty()) {
             lines.add("Not declared by the net: " + String.join(", ", input.closed().undeclared())
                 + " (no arc touches them; a clause there counts zero)");
+        }
+        if (input.reaping() != null) {
+            lines.add(input.reaping());
         }
         lines.add("");
 

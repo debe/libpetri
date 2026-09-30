@@ -72,10 +72,15 @@ public final class StateClassGraph {
      * Berthomieu-Diaz algorithm unchanged while supporting formal XOR analysis.
      */
     record VirtualTransition(
-        Transition transition,      // The original transition
-        int branchIndex,            // Which XOR branch (0 for non-XOR)
-        Set<Place<?>> outputPlaces  // The specific outputs for this branch
+        Transition transition,          // The original transition
+        int branchIndex,                // Which outcome (0 for a single one)
+        BranchOutcomes.Outcome outcome  // What this outcome deposits (BranchOutcomes)
     ) {
+        /** The places this outcome deposits into, in declaration order. */
+        Set<Place<?>> outputPlaces() {
+            return outcome.places();
+        }
+
         String name() {
             return branchIndex == 0 && transition.outputSpec() == null
                 ? transition.name()
@@ -448,6 +453,13 @@ public final class StateClassGraph {
     /**
      * Builds the state class graph for a Time Petri Net.
      *
+     * <p>The graph is built for the net as given, and every firing is one atomic step. The
+     * executor consumes at the start of an action and deposits at its completion, and other
+     * transitions can fire in between ([VER-004], [VER-010] AC4). To get that two-step firing,
+     * call {@link InFlight#split} first and build the graph of the net it returns; its refused
+     * case means no graph of this kind is faithful to the executor. {@code SmtVerifier} does
+     * this itself.
+     *
      * @param net the Time Petri Net
      * @param initialMarking the initial marking
      * @param maxClasses maximum number of state classes (for boundedness check)
@@ -703,26 +715,19 @@ public final class StateClassGraph {
     }
 
     /**
-     * Expands a transition into virtual transitions (one per XOR branch).
-     * For non-XOR transitions, returns a single-element list.
+     * Expands a transition into virtual transitions: every way its firing can end
+     * ({@link BranchOutcomes#outcomes}: each XOR branch, and a timeout that deposits
+     * differently), numbered as the flattener numbers its {@code _b<i>} rows.
      *
      * <p>This is the key to supporting XOR semantics while staying compliant
-     * with the Berthomieu-Diaz algorithm: each XOR branch becomes a separate
-     * virtual transition in structural conflict with other branches.
+     * with the Berthomieu-Diaz algorithm: each outcome becomes a separate
+     * virtual transition in structural conflict with the others.
      */
     static List<VirtualTransition> expandTransition(Transition t) {
-        List<Set<Place<?>>> branches;
-
-        if (t.outputSpec() != null) {
-            branches = t.outputSpec().enumerateBranches();
-        } else {
-            // No outputs (sink transition)
-            branches = List.of(Set.of());
-        }
-
-        var result = new ArrayList<VirtualTransition>();
-        for (int i = 0; i < branches.size(); i++) {
-            result.add(new VirtualTransition(t, i, branches.get(i)));
+        var outcomes = BranchOutcomes.outcomes(t);
+        var result = new ArrayList<VirtualTransition>(outcomes.size());
+        for (int i = 0; i < outcomes.size(); i++) {
+            result.add(new VirtualTransition(t, i, outcomes.get(i)));
         }
         return result;
     }
@@ -751,16 +756,48 @@ public final class StateClassGraph {
             boolean untimed,
             ClockOrder clockOrder
     ) {
+        return computeSuccessor(net, current, fired, environmentPlaces, environmentMode, untimed, clockOrder,
+            t -> true, t -> true);
+    }
+
+    /**
+     * {@link #computeSuccessor(PetriNet, StateClass, VirtualTransition, Set, EnvironmentAnalysisMode,
+     * boolean, ClockOrder)} with an enabling condition beyond the count marking: a transition holds a
+     * clock in the intermediate marking only if {@code enabledBetween} accepts it, and in the new
+     * marking only if {@code enabledAfter} does. {@code current.enabledTransitions()} must already
+     * satisfy the condition for the marking before the firing.
+     *
+     * <p>The ν-aware graph ({@link NameStateClassGraph}) passes a ν-join's name test here: the
+     * executor enables a join only when one name is present in every correlated input ([NU-020]),
+     * and a removal that breaks the binding restarts its clock ([TIME-012]). A count-enabled join
+     * whose inputs share no name has no clock, so its latest bound constrains no other firing.
+     */
+    static StateClass computeSuccessor(
+            PetriNet net,
+            StateClass current,
+            VirtualTransition fired,
+            Set<Place<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            boolean untimed,
+            ClockOrder clockOrder,
+            java.util.function.Predicate<Transition> enabledBetween,
+            java.util.function.Predicate<Transition> enabledAfter
+    ) {
         var transition = fired.transition();
 
         // 1. Compute the intermediate marking (inputs consumed, resets drained) and the new
         // marking, with environment place handling. The VirtualTransition specifies which
         // output places to use (for XOR branches).
         var intermediate = consume(current.marking(), transition, environmentPlaces, environmentMode);
-        var newMarking = produce(intermediate, fired.outputPlaces());
+        var newMarking = produce(current.marking(), intermediate, fired, environmentPlaces, environmentMode);
 
         // 2. Determine persistent and newly enabled transitions
-        var newEnabledAll = findEnabledTransitions(net, newMarking, environmentPlaces, environmentMode);
+        var newEnabledAll = new ArrayList<Transition>();
+        for (var t : findEnabledTransitions(net, newMarking, environmentPlaces, environmentMode)) {
+            if (enabledAfter.test(t)) {
+                newEnabledAll.add(t);
+            }
+        }
 
         // Persistent (Berthomieu-Diaz intermediate semantics, [TIME-012]): enabled before,
         // enabled in the intermediate marking, and enabled after, excluding the fired
@@ -772,7 +809,8 @@ public final class StateClassGraph {
         for (int i = 0; i < current.enabledTransitions().size(); i++) {
             var t = current.enabledTransitions().get(i);
             if (t != transition && newEnabledAll.contains(t)
-                    && isEnabled(t, intermediate, environmentPlaces, environmentMode)) {
+                    && isEnabled(t, intermediate, environmentPlaces, environmentMode)
+                    && enabledBetween.test(t)) {
                 persistent.add(t);
                 persistentIndices.add(i);
             }
@@ -991,18 +1029,42 @@ public final class StateClassGraph {
     }
 
     /**
-     * The second half of a firing: one token into each output place of the branch taken,
-     * on top of the intermediate marking {@link #consume} returned.
+     * The second half of a firing: the fired outcome's tokens on top of the intermediate
+     * marking {@link #consume} returned — one per place an action writes, and for a timeout
+     * forward one per token the firing consumed from its {@code from} place ([IO-014]): a fixed
+     * count for {@code One} / {@code Exactly}, the batch {@code marking} drained for
+     * {@code All} / {@code AtLeast}. An environment place the analysis supplies
+     * ({@code isEnabled}) is not drained; its forward counts the tokens the firing required.
      *
+     * @param marking the marking the transition fires in
      * @param intermediate the firing's intermediate marking
-     * @param outputPlaces the output places of the branch taken (one XOR branch, or the
-     *     whole AND set)
+     * @param fired the outcome taken
      * @return the new marking after firing
      */
-    private static MarkingState produce(MarkingState intermediate, Set<Place<?>> outputPlaces) {
+    private static MarkingState produce(
+            MarkingState marking,
+            MarkingState intermediate,
+            VirtualTransition fired,
+            Set<Place<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode
+    ) {
+        var transition = fired.transition();
         var builder = MarkingState.builder().copyFrom(intermediate);
-        for (var place : outputPlaces) {
-            builder.addTokens(place, 1);
+        for (var e : fired.outcome().deposits().entrySet()) {
+            int n = BranchOutcomes.Outcome.resolve(e.getValue(), from -> {
+                for (var in : transition.inputSpecs()) {
+                    if (!in.place().name().equals(from.name())) continue;
+                    if (environmentPlaces.contains(in.place())
+                            && !(environmentMode instanceof EnvironmentAnalysisMode.Ignore)) {
+                        return in.requiredCount();
+                    }
+                    return inputConsumeCount(in, marking.tokens(in.place()));
+                }
+                return 0;
+            });
+            if (n > 0) {
+                builder.addTokens(e.getKey(), n);
+            }
         }
         return builder.build();
     }

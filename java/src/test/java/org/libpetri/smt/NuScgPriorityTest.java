@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import org.libpetri.fixtures.StructureOnly;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -85,7 +86,7 @@ class NuScgPriorityTest {
     }
 
     private static SmtVerifier verifier(PetriNet net) {
-        return SmtVerifier.forNet(StructureOnly.bind(net))
+        return SmtVerifier.forNet(StructureOnly.bind(net)).mintTransitions(AllMints.names(StructureOnly.bind(net)))
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -102,16 +103,33 @@ class NuScgPriorityTest {
             + "COL_A and strands COL_B.\n" + r.report());
     }
 
+    /**
+     * The graph alone ({@link NuScgVerifier#verify}, no in-flight split): the immediate,
+     * higher-priority join pre-empts the delayed drain, so COL_A is never stolen from a live join.
+     */
     @Test
     void conflictPriorityProvesNoStall() {
-        var r = verifier(fixture(true, true))
-            .prioritySemantics(PrioritySemantics.CONFLICT)
-            .verify();
-        assertTrue(r.report().contains("Route B"),
-            "must be decided via Route B:\n" + r.report());
-        assertTrue(r.isProven(),
-            "CONFLICT must PROVE no-stall: the immediate, higher-priority join preempts the delayed "
-            + "drain, so COL_A is never stolen from a live join.\n" + r.report());
+        var net = StructureOnly.bind(fixture(true, true));
+        var out = NuScgVerifier.verify(net, seedOneTurn(), SmtProperty.deadlockFree(), Set.of(OUT, DEADLETTER),
+            Set.of(), EnvironmentAnalysisMode.ignore(), 100_000, FragmentMode.EXTENDED, Set.of(),
+            Set.of(AllMints.names(net)), PrioritySemantics.CONFLICT, java.util.List.of());
+        assertTrue(out.verdict() instanceof SmtVerificationResult.Verdict.Proven,
+            "CONFLICT must PROVE no-stall on the graph: " + out.verdict());
+    }
+
+    /**
+     * Through {@code verify()} the pruning holds only with the pruner and its feeders split
+     * ([VER-004]). The join and the mint feeding it write coloured places and cannot be split, so
+     * conflict priority is off, the report says why, and the verdict is priority-blind NONE's.
+     */
+    @Test
+    void conflictPriorityIsOffThroughVerifyWhenThePrunerCannotBeSplit() {
+        var conflict = verifier(fixture(true, true)).prioritySemantics(PrioritySemantics.CONFLICT).verify();
+        var none = verifier(fixture(true, true)).verify();
+        assertTrue(conflict.report().contains("Conflict priority (NU-052) is off:"), conflict.report());
+        assertTrue(conflict.report().contains("cannot be split: it writes the coloured place 'COL_A'"),
+            conflict.report());
+        assertTrue(conflict.isViolated() && none.isViolated(), conflict.report() + "\n" + none.report());
     }
 
     @Test
@@ -160,7 +178,7 @@ class NuScgPriorityTest {
     }
 
     private static boolean reachesDeadletter(PetriNet net, MarkingState initial, PrioritySemantics ps) {
-        var fragment = NameFragment.classify(net, FragmentMode.EXTENDED, Set.of());
+        var fragment = NameFragment.classify(net, FragmentMode.EXTENDED, Set.of(), AllMints.of(net));
         var graph = NameStateClassGraph.build(
             StructureOnly.bind(net), initial, fragment, 10_000, Set.of(), EnvironmentAnalysisMode.ignore(), ps);
         for (int i = 0; i < graph.classCount(); i++) {

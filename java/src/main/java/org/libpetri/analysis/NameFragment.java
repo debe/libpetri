@@ -19,7 +19,8 @@ import java.util.TreeSet;
  *
  * <p>Identifies the <b>coloured</b> places (the correlated inputs of &nu;-joins)
  * and the role of each transition in the supported mint &rarr; matched-join
- * fragment: a <i>mint</i> produces a freshly-named token into a coloured place,
+ * fragment: a <i>mint</i> (a declared one, NU-010) produces a freshly-named token into a
+ * coloured place,
  * a <i>join</i> consumes one shared name from every correlated input, and
  * everything else is <i>ordinary</i>. {@link #classify} returns {@code null} when
  * the net is not a &nu;-net or falls outside the fragment (a non-match transition
@@ -66,11 +67,128 @@ public final class NameFragment {
     final List<String> colouredOrder;
     private final Set<String> coloured;
     private final Map<String, Role> roles;
+    private final List<String> mints;
+    private final List<String> relays;
 
-    private NameFragment(List<String> colouredOrder, Set<String> coloured, Map<String, Role> roles) {
+    private NameFragment(
+            List<String> colouredOrder, Set<String> coloured, Map<String, Role> roles,
+            List<String> mints, List<String> relays) {
         this.colouredOrder = colouredOrder;
         this.coloured = coloured;
         this.roles = roles;
+        this.mints = List.copyOf(mints);
+        this.relays = List.copyOf(relays);
+    }
+
+    /**
+     * The transitions read as mints, in net order: the analysis trusts the mint contract of
+     * NU-010 for them.
+     */
+    public List<String> mints() {
+        return mints;
+    }
+
+    /**
+     * The coloured consumers that write a coloured place, in net order: the analysis trusts the
+     * relay contract of NU-051 for their action writes.
+     */
+    public List<String> relays() {
+        return relays;
+    }
+
+    /**
+     * The transitions of {@code net} declared to mint (NU-010): each one named in
+     * {@code explicit} (the verifier's {@code mintTransitions}), plus each one that consumes a
+     * declared budget place, since a budget token is what a fork consumes when it mints
+     * (NU-040).
+     */
+    public static Set<String> declaredMints(PetriNet net, Set<String> budgetPlaces, Set<String> explicit) {
+        var out = new TreeSet<String>(CodePointOrder.COMPARATOR);
+        out.addAll(explicit);
+        for (var t : net.transitions()) {
+            if (t.inputSpecs().stream().anyMatch(in -> budgetPlaces.contains(in.place().name()))) {
+                out.add(t.name());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Why {@code declared} names a mint transition that {@code net} does not have, or
+     * {@code null}: {@code declared mint transition{s} 'a', 'b' not in the net (NU-010)}, the
+     * unknown names deduplicated in code-point order. A typo'd declaration would silently leave a
+     * real mint undeclared, so every entry point rejects it with this reason.
+     */
+    public static String unknownMintReason(PetriNet net, java.util.Collection<String> declared) {
+        var inNet = new HashSet<String>();
+        net.transitions().forEach(t -> inNet.add(t.name()));
+        var unknown = new TreeSet<String>(CodePointOrder.COMPARATOR);
+        for (var n : declared) {
+            if (!inNet.contains(n)) {
+                unknown.add(n);
+            }
+        }
+        if (unknown.isEmpty()) {
+            return null;
+        }
+        var quoted = new ArrayList<String>();
+        unknown.forEach(n -> quoted.add("'" + n + "'"));
+        return "declared mint transition" + (unknown.size() == 1 ? "" : "s") + " " + String.join(", ", quoted)
+            + " not in the net (NU-010)";
+    }
+
+    /**
+     * The transitions of {@code net} that write a coloured place of the fragment without consuming
+     * one and are not in {@code mints}, in net order, when declaring them is all that keeps
+     * {@code net} out of the fragment: {@link #classify} admits {@code net} with every transition
+     * read as a mint and rejects it with {@code mints}. Empty otherwise. These are the undeclared
+     * mints a Route B decline points at (NU-010).
+     */
+    public static List<String> undeclaredMints(
+            PetriNet net, FragmentMode mode, Set<String> carriers, Set<String> mints) {
+        if (classify(net, mode, carriers, mints) != null) {
+            return List.of();
+        }
+        var every = new HashSet<String>();
+        net.transitions().forEach(t -> every.add(t.name()));
+        var fragment = classify(net, mode, carriers, every);
+        if (fragment == null) {
+            return List.of();
+        }
+        return fragment.mints().stream().filter(m -> !mints.contains(m)).toList();
+    }
+
+    /**
+     * The sentence a Route B decline adds when {@link #undeclaredMints} names transitions: which
+     * transitions to declare, and with what.
+     */
+    public static String undeclaredMintsPointer(List<String> undeclared) {
+        var names = new ArrayList<String>();
+        undeclared.forEach(t -> names.add("'" + t + "'"));
+        boolean one = undeclared.size() == 1;
+        return String.join(", ", names) + " " + (one ? "writes" : "write")
+            + " a coloured place without consuming one and " + (one ? "is" : "are")
+            + " not declared to mint (NU-010); if the action writes a name minted with freshName(), declare "
+            + (one ? "it" : "them") + " with mintTransitions";
+    }
+
+    /**
+     * The report lines naming the &nu; contracts a verdict rests on (NU-010, NU-051): the
+     * transitions read as mints, and the coloured consumers whose action writes are read as
+     * relays. Empty when there are none. The analyses cannot check what an action writes, so a
+     * verdict holds only while these actions keep the contracts.
+     */
+    public static String contractNote(List<String> mints, List<String> relays) {
+        var out = new StringBuilder();
+        if (!mints.isEmpty()) {
+            out.append("Mint contract (NU-010) assumed for ").append(String.join(", ", mints))
+               .append(": each writes a freshly minted name into every coloured place it writes.\n");
+        }
+        if (!relays.isEmpty()) {
+            out.append("Relay contract (NU-051) assumed for ").append(String.join(", ", relays))
+               .append(": each writes the name it consumed into every coloured place it writes.\n");
+        }
+        return out.toString();
     }
 
     public boolean isColoured(String place) {
@@ -79,14 +197,6 @@ public final class NameFragment {
 
     Role role(String transition) {
         return roles.getOrDefault(transition, new Role.Ordinary());
-    }
-
-    /**
-     * Classifies {@code net}. Returns {@code null} when it is not a &nu;-net or
-     * falls outside the supported mint&rarr;matched-join fragment.
-     */
-    public static NameFragment classify(PetriNet net) {
-        return classify(net, FragmentMode.BASE, Set.of());
     }
 
     /**
@@ -108,8 +218,22 @@ public final class NameFragment {
      * inhibitor arc: those arcs would be silently misclassified {@code Ordinary} and
      * the name layer would drift from the base marking (a soundness guard; rejection
      * just falls back to the sound over-approximation).
+     *
+     * <p>A transition that writes a coloured place without consuming one is read as a
+     * <b>mint</b> only when it is named in {@code mintTransitions}, the declared mints
+     * ({@link #declaredMints}). The declaration is the net's statement that the action writes
+     * a name freshly minted by {@code freshName()} into each coloured place it writes (NU-010).
+     * An action may write any value, a copied correlation id included, so without the
+     * declaration the name layer cannot give the deposit a fresh symbol and the net is
+     * rejected. A deposit the executor makes on timeout is never a mint, declared or not: a
+     * forward copies a consumed value and an {@code Out.Place} writes a unit token with no name
+     * (IO-013, IO-014). A join's timeout may write a relay target only by forwarding one of its
+     * match keys, the one write that carries the matched name. The executor checks every relay
+     * deposit (NU-054) and fails the firing on any other, so no timeout write relies on a
+     * contract.
      */
-    public static NameFragment classify(PetriNet net, FragmentMode mode, Set<String> carrierPlaces) {
+    public static NameFragment classify(
+            PetriNet net, FragmentMode mode, Set<String> carrierPlaces, Set<String> mintTransitions) {
         // Code-point order: the coloured order indexes the name layer in every implementation.
         var coloured = new TreeSet<String>(CodePointOrder.COMPARATOR);
         boolean anyMatch = false;
@@ -156,17 +280,38 @@ public final class NameFragment {
         }
 
         var roles = new HashMap<String, Role>();
+        var mintNames = new ArrayList<String>();
+        var relayNames = new ArrayList<String>();
         for (var t : net.transitions()) {
             boolean consumesColoured =
                 t.inputSpecs().stream().anyMatch(in -> coloured.contains(in.place().name()));
-            boolean producesColoured = false;
-            if (t.outputSpec() != null) {
-                for (var branch : t.outputSpec().enumerateBranches()) {
-                    for (var p : branch) {
-                        if (coloured.contains(p.name())) {
-                            producesColoured = true;
-                        }
+            var outcomes = BranchOutcomes.outcomes(t);
+            // The name layer adds one symbol per coloured output place of a firing, as the
+            // base marking adds one token per place an action writes. A timeout forward
+            // deposits one token per consumed token ([IO-014]); into a coloured place at any
+            // count but one, the name layer would lose track of the base marking.
+            for (var o : outcomes) {
+                for (var e : o.deposits().entrySet()) {
+                    if (coloured.contains(e.getKey().name())
+                            && !e.getValue().equals(new BranchOutcomes.Deposit.Tokens(1))) {
+                        return null;
                     }
+                }
+            }
+            boolean producesColoured = false;
+            for (var o : outcomes) {
+                for (var p : o.places()) {
+                    if (coloured.contains(p.name())) {
+                        producesColoured = true;
+                    }
+                }
+            }
+            // What the executor itself writes into a coloured place on timeout: a copy of a
+            // consumed value (forward) or a unit token (place). Neither is a fresh name.
+            var timeoutColoured = new ArrayList<BranchOutcomes.TimeoutWrite>();
+            for (var w : BranchOutcomes.timeoutWrites(t)) {
+                if (coloured.contains(w.to())) {
+                    timeoutColoured.add(w);
                 }
             }
 
@@ -181,21 +326,31 @@ public final class NameFragment {
                     }
                 }
                 if (producesColoured) {
-                    for (var branch : t.outputSpec().enumerateBranches()) {
-                        for (var p : branch) {
+                    for (var o : outcomes) {
+                        for (var p : o.places()) {
                             if (coloured.contains(p.name()) && !relayTo.contains(p.name())) {
                                 return null;
                             }
                         }
                     }
                 }
-                // A coloured place consumed off-key is taken FIFO, whatever its name; the
-                // join step only removes the matched name from the keys, so the name layer
-                // would keep a symbol the base marking has lost.
                 var keyPlaces = new HashSet<String>();
                 for (var key : t.matchSpec().keys()) {
                     keyPlaces.add(key.place().name());
                 }
+                // What the executor writes into a relay target on timeout is checked like an
+                // action's write (NU-054). Only a forward of a match key carries the matched
+                // name. A unit token has none and a forward of another input carries that
+                // input's name, so such a firing fails and deposits nothing, while the name
+                // layer would relay the matched name.
+                for (var w : timeoutColoured) {
+                    if (w.from() == null || !keyPlaces.contains(w.from())) {
+                        return null;
+                    }
+                }
+                // A coloured place consumed off-key is taken FIFO, whatever its name; the
+                // join step only removes the matched name from the keys, so the name layer
+                // would keep a symbol the base marking has lost.
                 for (var in : t.inputSpecs()) {
                     if (coloured.contains(in.place().name()) && !keyPlaces.contains(in.place().name())) {
                         return null;
@@ -247,8 +402,27 @@ public final class NameFragment {
                 if (!countOne) {
                     return null; // count != 1 — over-approx fallback (Blocker 1 & 2)
                 }
-                role = new Role.Consume(only.place().name());
+                var inputPlace = only.place().name();
+                // A timeout deposit relays the consumed name only when it forwards the coloured
+                // input itself. A forward of another input copies a name the relay did not
+                // consume, and a unit token has none.
+                for (var w : timeoutColoured) {
+                    if (!inputPlace.equals(w.from())) {
+                        return null;
+                    }
+                }
+                if (producesColoured) {
+                    relayNames.add(t.name());
+                }
+                role = new Role.Consume(inputPlace);
             } else if (producesColoured) {
+                // Minting fork: produces a coloured token, consumes none. Read as a mint only
+                // when declared (NU-010), and never when the executor writes a coloured place on
+                // timeout.
+                if (!mintTransitions.contains(t.name()) || !timeoutColoured.isEmpty()) {
+                    return null;
+                }
+                mintNames.add(t.name());
                 role = new Role.Mint();
             } else {
                 role = new Role.Ordinary();
@@ -256,7 +430,7 @@ public final class NameFragment {
             roles.put(t.name(), role);
         }
 
-        return new NameFragment(new ArrayList<>(coloured), coloured, roles);
+        return new NameFragment(new ArrayList<>(coloured), coloured, roles, mintNames, relayNames);
     }
 
     /**

@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,14 +31,14 @@ class RouteBEarlyStopTest {
             PetriNet net, MarkingState m0, SmtProperty property, Set<Place<?>> sinks, int maxClasses,
             boolean earlyStop) {
         var outcome = NuScgVerifier.verify(net, m0, property, sinks, Set.of(), EnvironmentAnalysisMode.ignore(),
-            maxClasses, FragmentMode.EXTENDED, Set.of(), PrioritySemantics.CONFLICT, List.of(), earlyStop);
+            maxClasses, FragmentMode.EXTENDED, Set.of(), AllMints.of(net), PrioritySemantics.CONFLICT, List.of(), earlyStop);
         assertNotNull(outcome, "the net is in Route B's fragment");
         return outcome;
     }
 
     @Test
     void fig11b_atTheDefaultCap_isViolatedAfterAHandfulOfClasses() {
-        var r = SmtVerifier.forNet(TruncatedPrefixTest.fig11b()).initialMarking(TruncatedPrefixTest.twoClerks())
+        var r = SmtVerifier.forNet(TruncatedPrefixTest.fig11b()).mintTransitions(AllMints.names(TruncatedPrefixTest.fig11b())).initialMarking(TruncatedPrefixTest.twoClerks())
             .property(SmtProperty.placeBound(ORDER_CLERK, 2))
             .verify();
         assertTrue(r.isViolated(), r.report());

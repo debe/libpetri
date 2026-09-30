@@ -3,12 +3,16 @@ package org.libpetri.smt.opennet;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.internal.TerminalEncoding;
+import org.libpetri.analysis.InFlight;
 import org.libpetri.core.internal.VerificationDeadline;
+import org.libpetri.smt.Reaping;
+import org.libpetri.smt.SmtVerifier;
 import org.libpetri.smt.SmtVerificationResult.Verdict;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.libpetri.smt.encoding.NetFlattener;
 
 /**
@@ -45,6 +49,9 @@ public final class OpenNetVerifier {
         "the closed net declares match (ν-join) transitions, which the graph does not model";
     /** Why the graph was not built when the class budget is zero. */
     private static final String GRAPH_SKIPPED_BUDGET = "class budget 0";
+    /** Why the graph was not built on a net whose in-flight actions the split cannot express. */
+    private static final String GRAPH_SKIPPED_IN_FLIGHT =
+        "the closed net has in-flight actions the verifier cannot split (VER-004)";
 
     /** {@link #verifyOpenNet(PetriNet, OpenNetContract, OpenNetOptions)} with {@link OpenNetOptions#DEFAULT}. */
     public static OpenNetResult verifyOpenNet(PetriNet net, OpenNetContract contract) {
@@ -61,11 +68,40 @@ public final class OpenNetVerifier {
      * {@code Unknown} says why neither route decided.
      *
      * @throws IllegalStateException    when the net violates [CORE-043], as every verifier does
-     * @throws IllegalArgumentException when the closure's names collide with the net's
+     * @throws IllegalArgumentException when the closure's names collide with the net's, or when the
+     *     {@code configureSmt} hook declares a mint transition or a carrier place the closed net
+     *     does not have (checked on a probe verifier before either route runs, [NU-010])
      */
     public static OpenNetResult verifyOpenNet(PetriNet net, OpenNetContract contract, OpenNetOptions options) {
         long start = System.nanoTime();
         var closed = OpenNetClosure.closeOpenNet(net, contract);
+        // [NU-051] / [NU-010]: the carrier places and mint transitions a configureSmt hook declares,
+        // read off a probe verifier of the closed net. The split below refuses a writer into a
+        // carrier as the SMT route's own would, and a declared mint that is not in the net is
+        // rejected here, before either route runs, as SmtVerifier.mintTransitions rejects it.
+        var carriers = options.configureSmt().apply(SmtVerifier.forNet(closed.net())).configuredCarrierPlaces();
+        // [VER-004]: a transition whose output another tests non-monotonically is verified as a
+        // start and a completion step. The environment's steps stay atomic. Before the terminal
+        // rewrite, so a terminal counts as a test, inhibits the completion steps too and excuses
+        // the in-flight places.
+        var environment = closed.environment().keySet();
+        String inFlightLine = null;
+        String inFlightRefusal = null;
+        if (options.assumeAtomicFiring()) {
+            var split = InFlight.transitions(closed.net(), environment);
+            if (!split.isEmpty()) {
+                inFlightLine = InFlight.atomicAssumptionNote(split);
+            }
+        } else {
+            switch (InFlight.split(closed.net(), carriers, environment)) {
+                case InFlight.Outcome.Atomic _ -> {}
+                case InFlight.Outcome.Split(var rewritten, var split) -> {
+                    closed = closed.withNet(rewritten);
+                    inFlightLine = InFlight.splitNote(split);
+                }
+                case InFlight.Outcome.Refused(var reason) -> inFlightRefusal = reason;
+            }
+        }
         // EXEC-042 / VER-014: the net's own terminal places, applied without the caller
         // restating them. Each inhibits every transition of the closed net (the environment's
         // too: after a terminal stop the runtime admits nothing), and is merged as a designed
@@ -76,6 +112,16 @@ public final class OpenNetVerifier {
             closed = closed.withNet(TerminalEncoding.inhibited(closed.net()));
         }
         int maxClasses = options.maxClasses();
+        // [TIME-013]: the closed net's reapable transitions, named before the SMT route strips its
+        // timing; none are read so under `assumeNoReaping`.
+        Set<String> reapableInNet = Reaping.reapableTransitions(closed.net());
+        Set<String> reapable = options.assumeNoReaping() ? Set.of() : reapableInNet;
+        String reapingLine = reapableInNet.isEmpty() ? null
+            : options.assumeNoReaping() ? Reaping.noReapingAssumptionNote(reapableInNet)
+            : Reaping.reapAwareNote(reapableInNet);
+        String reaping = reapingLine == null ? inFlightLine
+            : inFlightLine == null ? reapingLine
+            : reapingLine + "\n" + inFlightLine;
         // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
         // reserves "port" for a place the environment shares with the subnet, which is narrower.
         List<Place<?>> tracedPlaces = closed.canonical(contract.places());
@@ -86,7 +132,8 @@ public final class OpenNetVerifier {
         // can stand. The same exclusion as [VER-017] condition 1; the SMT pipeline has exact
         // routes for a ν-net.
         boolean declaresMatch = closed.net().transitions().stream().anyMatch(t -> t.matchSpec() != null);
-        String graphSkipped = declaresMatch ? GRAPH_SKIPPED_MATCH : maxClasses > 0 ? null : GRAPH_SKIPPED_BUDGET;
+        String graphSkipped = inFlightRefusal != null ? GRAPH_SKIPPED_IN_FLIGHT
+            : declaresMatch ? GRAPH_SKIPPED_MATCH : maxClasses > 0 ? null : GRAPH_SKIPPED_BUDGET;
         // [VER-013] cancellation: an interrupt of this thread stops the graph at its next
         // class, and no further query starts (the SMT route's verifiers see it themselves).
         var stop = VerificationDeadline.unlimited("open-net state-class graph");
@@ -98,13 +145,17 @@ public final class OpenNetVerifier {
             try {
                 stop.check();
                 graph = ScopedValue.where(VerificationDeadline.carrier(), stop)
-                    .call(() -> GraphRoute.decideOnGraph(finalClosed, finalContract, maxClasses, tracedPlaces));
+                    .call(() -> GraphRoute.decideOnGraph(finalClosed, finalContract, maxClasses, tracedPlaces, reapable));
             } catch (VerificationDeadline.Cancelled e) {
                 cancelled = e.reason();
             }
         }
 
-        var assembly = new Assembly(net, closed, contract, maxClasses, graph, graphSkipped, start);
+        var assembly = new Assembly(net, closed, contract, maxClasses, graph, graphSkipped, reaping, start);
+        // (The restart notes of [CONC-002] join `reaping` per result, in Assembly.result.)
+        if (inFlightRefusal != null) {
+            return assembly.result(new Verdict.Unknown(inFlightRefusal), OpenNetResult.Route.ENUMERATION, List.of(), null);
+        }
         if (cancelled != null) {
             return assembly.result(new Verdict.Unknown(cancelled), OpenNetResult.Route.ENUMERATION, List.of(), null);
         }
@@ -131,7 +182,8 @@ public final class OpenNetVerifier {
         }
 
         var smt = SmtRoute.decideViaSmt(
-            closed, contract, tracedPlaces, options.configureSmt(), options.terminationTimeout());
+            closed, contract, tracedPlaces, options.configureSmt(), options.terminationTimeout(), reapable,
+            options.assumeAtomicFiring());
         if (!smt.violations().isEmpty()) {
             return assembly.result(new Verdict.Violated(), OpenNetResult.Route.SMT, smt.violations(), smt.lines());
         }
@@ -152,13 +204,27 @@ public final class OpenNetVerifier {
         int maxClasses,
         GraphRoute.Outcome graph,
         String graphSkipped,
+        String reaping,
         long startNanos
     ) {
         OpenNetResult result(
                 Verdict verdict, OpenNetResult.Route route, List<ContractViolation> violations, List<String> smtLines
         ) {
+            // [CONC-002]: a witness that starts a transition while an earlier firing of it is in
+            // flight is a run of the Rust executor only.
+            var notes = new ArrayList<String>();
+            if (reaping != null) {
+                notes.add(reaping);
+            }
+            for (var v : violations) {
+                var note = InFlight.restartNote(v.markings(), v.transitions());
+                if (note != null && !notes.contains(note)) {
+                    notes.add(note);
+                }
+            }
             String report = Report.render(new Report.Input(
-                net, closed, contract, maxClasses, graph, graphSkipped, smtLines, verdict, violations));
+                net, closed, contract, maxClasses, graph, graphSkipped, smtLines,
+                notes.isEmpty() ? null : String.join("\n", notes), verdict, violations));
             return new OpenNetResult(
                 verdict,
                 violations,

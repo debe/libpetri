@@ -43,7 +43,13 @@ public sealed interface SmtProperty {
     record TerminatesAtSink() implements SmtProperty {}
 
     /**
-     * Mutual exclusion: two places never have tokens simultaneously.
+     * Mutual exclusion ([VER-002]): {@code p1} and {@code p2} never have tokens simultaneously.
+     * Violated by a reachable marking that marks both; {@code mutualExclusion(p, p)} is thus
+     * violated by any token in {@code p}.
+     *
+     * <p>The spec defines mutual exclusion over a list pairwise — violated iff any two listed
+     * places are marked at once — and the Rust and Python APIs take a list. Java takes exactly
+     * two places, the one pair; conjoin several properties for more.
      *
      * <p>Useful for verifying resource exclusion properties.
      */

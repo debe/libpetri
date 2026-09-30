@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Bounded state-space enumeration ([VER-017]): decide a property by building the
@@ -168,6 +169,23 @@ public final class ScgVerifier {
             List<RestSet.ConditionalSinks> conditionalSinks,
             boolean asPrefix
     ) {
+        return decide(graph, property, sinkPlaces, conditionalSinks, asPrefix, Set.of());
+    }
+
+    /**
+     * {@link #decide(StateClassGraph, SmtProperty, Collection, List, boolean)} reading quiescence
+     * reap-aware ([VER-002], [TIME-013]): an expanded class whose enabled transitions are all in
+     * {@code reapable} rests too. On a timed graph, build it on {@link Reaping#relaxLate}'s net
+     * to include the runs a late executor takes after a reap. Empty, the rule is the plain one.
+     */
+    static Outcome decide(
+            StateClassGraph graph,
+            SmtProperty property,
+            Collection<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            boolean asPrefix,
+            Set<String> reapable
+    ) {
         boolean closed = graph.isComplete() && !asPrefix;
         var classes = List.copyOf(graph.stateClasses());
         int expanded = graph.expandedCount();
@@ -186,8 +204,11 @@ public final class ScgVerifier {
                 @Override
                 public boolean isQuiescent(int i) {
                     // A frontier class of a truncated graph was never expanded: no successors
-                    // recorded, but not dead.
-                    return i < expanded && graph.successors(classes.get(i)).isEmpty();
+                    // recorded, but not dead. An expanded class also rests where every enabled
+                    // transition is reapable ([VER-002] reap-quiescence, [TIME-013]).
+                    return i < expanded && (graph.successors(classes.get(i)).isEmpty()
+                        || (!reapable.isEmpty() && classes.get(i).enabledTransitions().stream()
+                            .allMatch(t -> reapable.contains(t.name()))));
                 }
             },
             property, sinkPlaces, conditionalSinks);

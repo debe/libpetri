@@ -144,6 +144,9 @@ public final class NameStateClassGraph {
 
         var graph = new NameStateClassGraph();
         var clockOrder = StateClassGraph.ClockOrder.of(net);
+        // No join is enabled here: every correlated input consumes at least one token (NU-020,
+        // IO-002, IO-004) and coloured places start empty (the verifier guards this), so the
+        // count test alone gives the clocks.
         var base0 = StateClassGraph.initialStateClass(net, initialMarking, envPlaces, environmentMode, false, clockOrder);
         // Coloured places start empty in the supported fragment (the verifier
         // guards this), so the initial name partition is empty.
@@ -204,15 +207,21 @@ public final class NameStateClassGraph {
                 }
                 var role = fragment.role(transition.name());
                 for (var vt : StateClassGraph.expandTransition(transition)) {
-                    var baseSucc = StateClassGraph.computeSuccessor(
-                        net, current.base, vt, envPlaces, environmentMode, false, clockOrder);
-                    if (baseSucc == null || baseSucc.isEmpty()) {
-                        continue; // DBM zone infeasible
-                    }
-                    var nameSuccs = nameSuccessors(role, current.names, vt.outputPlaces(), fragment, nextSym);
-                    var sharedBase = internBase(baseIntern, baseSucc);
-                    for (var nm : nameSuccs) {
-                        var sharedNames = internNames(nameIntern, nm, fragment.colouredOrder);
+                    // Name-layer steps of this firing (the join may yield 0). The base successor
+                    // is computed per step: a ν-join holds a clock only while one name is present
+                    // in every correlated input (NU-020), judged on the step's intermediate and
+                    // new layers (TIME-012).
+                    for (var step : nameSuccessors(role, current.names, vt.outputPlaces(), fragment, nextSym)) {
+                        var between = step.intermediate() != null ? step.intermediate() : current.names;
+                        var baseSucc = StateClassGraph.computeSuccessor(
+                            net, current.base, vt, envPlaces, environmentMode, false, clockOrder,
+                            t -> nameEnabled(t, between, fragment),
+                            t -> nameEnabled(t, step.after(), fragment));
+                        if (baseSucc == null || baseSucc.isEmpty()) {
+                            continue; // DBM zone infeasible
+                        }
+                        var sharedBase = internBase(baseIntern, baseSucc);
+                        var sharedNames = internNames(nameIntern, step.after(), fragment.colouredOrder);
                         var id = new ClassId(sharedBase.id(), sharedNames.id());
                         Integer toIdx = indexOf.get(id);
                         if (toIdx == null) {
@@ -340,6 +349,9 @@ public final class NameStateClassGraph {
      * base-enabled yet <b>name-disabled</b> (its inputs carry no shared name). Such a join never
      * consumes the contested token, so it must not pre-empt a conflicting drain — otherwise a
      * genuine straggler would strand.
+     *
+     * <p>A pruner in flight ({@code inflight:<H>} marked, [VER-004]) pre-empts nothing
+     * ({@link InFlight#conflictDemand}).
      */
     private static boolean priorityDominated(
             Transition l, int idxL, List<Transition> enabled, double[] readyEarliest,
@@ -351,6 +363,10 @@ public final class NameStateClassGraph {
             }
             if (h.priority() > l.priority()
                     && readyEarliest[idxH] <= readyEarliest[idxL] + READY_EPS
+                    // [VER-004]: a pruner whose action is in flight pre-empts nothing; the Java and
+                    // TypeScript executors do not start it again while it runs. A no-op on a net
+                    // without the split's place.
+                    && marking.tokens(Place.of(InFlight.inFlightPlace(h.name()), Object.class)) == 0
                     && willFire(h, names, fragment)
                     && sharesConsumedInput(h, l, marking)) {
                 return true;
@@ -419,7 +435,25 @@ public final class NameStateClassGraph {
     }
 
     /**
-     * Name-layer successors of one firing. {@code Ordinary} passes the layer
+     * One name-layer step of a firing: the layer once the firing has taken its inputs
+     * ({@code null} when it takes no symbol, so the layer is the class's own) and the layer once
+     * its outputs have landed. The first is the name half of the intermediate marking of TIME-012.
+     */
+    record NameStep(NameMarking intermediate, NameMarking after) {}
+
+    /**
+     * Whether {@code t} is enabled by the name layer {@code names}, given that the count marking
+     * enables it: a ν-join needs one symbol present at the required multiplicity in every
+     * correlated input (NU-020); every other role is enabled by counts alone (a consumer's input
+     * count is its symbol count).
+     */
+    private static boolean nameEnabled(Transition t, NameMarking names, NameFragment fragment) {
+        return !(fragment.role(t.name()) instanceof NameFragment.Role.Join j)
+            || !enablingSymbols(names, j.colouredIn()).isEmpty();
+    }
+
+    /**
+     * Name-layer successors of one firing, as {@link NameStep}s. {@code Ordinary} passes the layer
      * through; {@code Mint} stamps one globally-fresh symbol into the coloured
      * outputs of this branch (one symbol into several = same-mint siblings);
      * {@code Join} yields one successor per enabling symbol (none =&gt; the join is
@@ -429,12 +463,15 @@ public final class NameStateClassGraph {
      * into the fired branch's coloured outputs, so a branch with no coloured output
      * drains the symbol and a branch with one relays it. Both emit one successor per
      * distinct symbol <em>signature</em> only ({@link #distinctSignatures}, [VER-012]
-     * orbit dedup): symbols with equal signatures give the same canonical key.
+     * orbit dedup): symbols with equal signatures give the same canonical key. A join or consume
+     * step's intermediate layer is the class's layer with the chosen symbol removed from the
+     * consumed places; it is renamed with the successor, and {@link #nameEnabled} reads only
+     * whether some symbol enables a join, so the clocks it decides are invariant too.
      *
      * <p>Package-private for {@code NameStateClassGraphInterningTest}: this step's
      * equivariance under symbol renaming is the hypothesis {@code Interning.lean} rests on.
      */
-    static List<NameMarking> nameSuccessors(
+    static List<NameStep> nameSuccessors(
             NameFragment.Role role,
             NameMarking names,
             Set<Place<?>> outputPlaces,
@@ -442,7 +479,7 @@ public final class NameStateClassGraph {
             int[] nextSym
     ) {
         return switch (role) {
-            case NameFragment.Role.Ordinary _ -> List.of(names.copy());
+            case NameFragment.Role.Ordinary _ -> List.of(new NameStep(null, names.copy()));
             case NameFragment.Role.Mint _ -> {
                 var colouredOut = colouredOutputs(outputPlaces, fragment);
                 var nm = names.copy();
@@ -452,7 +489,7 @@ public final class NameStateClassGraph {
                         nm.add(p, fresh, 1);
                     }
                 }
-                yield List.of(nm);
+                yield List.of(new NameStep(null, nm));
             }
             case NameFragment.Role.Join j -> {
                 // NU-054: the relay targets of the fired branch. Relaying adds back the symbol
@@ -466,16 +503,17 @@ public final class NameStateClassGraph {
                         if (j.relayTo().contains(p.name())) relays.add(p.name());
                     }
                 }
-                var result = new ArrayList<NameMarking>();
+                var result = new ArrayList<NameStep>();
                 for (int s : distinctSignatures(enablingSymbols(names, j.colouredIn()), names, fragment)) {
-                    var nm = names.copy();
+                    var between = names.copy();
                     for (var e : j.colouredIn()) {
-                        nm.remove(e.getKey(), s, e.getValue());
+                        between.remove(e.getKey(), s, e.getValue());
                     }
+                    var after = between.copy();
                     for (var p : relays) {
-                        nm.add(p, s, 1);
+                        after.add(p, s, 1);
                     }
-                    result.add(nm);
+                    result.add(new NameStep(between, after));
                 }
                 yield result;
             }
@@ -487,14 +525,15 @@ public final class NameStateClassGraph {
                 // base-enabled firing vanishes (Blocker 2). Each coloured output
                 // receives EXACTLY ONE symbol, matching the base marking's single
                 // token per output place (Blocker 1).
-                var result = new ArrayList<NameMarking>();
+                var result = new ArrayList<NameStep>();
                 for (int s : distinctSignatures(names.symbolsIn(inputPlace), names, fragment)) {
-                    var nm = names.copy();
-                    nm.remove(inputPlace, s, 1);
+                    var between = names.copy();
+                    between.remove(inputPlace, s, 1);
+                    var after = between.copy();
                     for (var outP : colouredOut) {
-                        nm.add(outP, s, 1); // relay: thread the same symbol; drain adds to none
+                        after.add(outP, s, 1); // relay: thread the same symbol; drain adds to none
                     }
-                    result.add(nm);
+                    result.add(new NameStep(between, after));
                 }
                 yield result;
             }

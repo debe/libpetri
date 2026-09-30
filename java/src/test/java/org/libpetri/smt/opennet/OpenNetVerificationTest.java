@@ -1,5 +1,6 @@
 package org.libpetri.smt.opennet;
 
+import org.libpetri.analysis.AllMints;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.StateClassGraph;
@@ -863,6 +864,13 @@ class OpenNetVerificationTest {
         ).build();
     }
 
+    /**
+     * {@code twoMints} declares both mints (NU-010): the action copies its input, so without the
+     * declaration no ν route reads {@code MINT_A} and {@code MINT_B} as minting.
+     */
+    static final OpenNetOptions TWO_MINTS_OPTIONS =
+        OpenNetOptions.DEFAULT.withConfigureSmt(v -> v.mintTransitions("MINT_A", "MINT_B"));
+
     static OpenNetContract twoMintsContract() {
         return OpenNetContract.builder()
             .initialMarking(m -> m.tokens(SEED_A, 1).tokens(SEED_B, 1))
@@ -876,7 +884,7 @@ class OpenNetVerificationTest {
         @Test
         @EnabledIf("org.libpetri.smt.opennet.OpenNetVerificationTest#z3Available")
         void doesNotProveAJoinThatCanNeverMatchAndSaysWhyItSkippedTheGraph() {
-            var r = verify(twoMints(), twoMintsContract());
+            var r = OpenNetVerifier.verifyOpenNet(twoMints(), twoMintsContract(), TWO_MINTS_OPTIONS);
             assertTrue(r.isViolated(), r.report());
             assertEquals(OpenNetResult.Route.SMT, r.route());
             assertEquals(0, r.classCount());
@@ -913,7 +921,7 @@ class OpenNetVerificationTest {
                 .arrive(1, in)
                 .rest(place("done"), COL_A, COL_B, OUT)
                 .build();
-            var r = verify(race, c);
+            var r = OpenNetVerifier.verifyOpenNet(race, c, TWO_MINTS_OPTIONS);
             assertTrue(r.isViolated(), r.report());
             assertEquals(OpenNetResult.Route.SMT, r.route());
             assertEquals(List.of(ContractViolation.Kind.STRANDED),

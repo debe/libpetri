@@ -639,7 +639,8 @@ public final class AbstractReplayer {
      */
     private static boolean quiescent(FlatNet flatNet, int[] m, Map<Integer, Integer> envInj) {
         for (var ft : flatNet.transitions()) {
-            if (enabledRelaxed(m, ft, envInj)) {
+            // Reap-quiescence ([VER-002], [TIME-013]), as the encoder.
+            if (!ft.reapable() && enabledRelaxed(m, ft, envInj)) {
                 return false;
             }
         }

@@ -58,6 +58,10 @@ public sealed interface EnvironmentAnalysisMode {
      * transition takes at most {@code maxTokens} from it per firing, but the total injected
      * over a run is unbounded. For a bound on the total, use {@link #arrivals(int)}.
      *
+     * <p>The model is the executor only when no transition deposits into an environment place
+     * and the initial marking holds at most {@code maxTokens} on each one ([VER-006] AC3).
+     * {@code SmtVerifier} checks both and answers Unknown, naming the place, when either fails.
+     *
      * @param maxTokens maximum number of tokens to consider (k)
      * @return bounded mode with specified limit
      * @throws IllegalArgumentException if maxTokens is negative

@@ -10,7 +10,10 @@ import org.libpetri.core.MatchSpec;
 import org.libpetri.core.NameId;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Timing;
 import org.libpetri.core.Transition;
+
+import java.time.Duration;
 import org.libpetri.fixtures.StructureOnly;
 
 import java.util.Set;
@@ -65,6 +68,8 @@ public final class VerificationNets {
             case "nuDrainedTerminal" -> nuDrainedTerminal();
             case "nuScatterGather" -> nuScatterGather();
             case "terminalForkInFlight" -> terminalForkInFlight();
+            case "reapingWindow" -> reapingWindow();
+            case "reapingShadowed" -> reapingShadowed();
             default -> throw new IllegalArgumentException("unknown fixture net: " + name);
         };
     }
@@ -86,6 +91,32 @@ public final class VerificationNets {
         return closed(
             PetriNet.builder("terminalForkInFlight").transitions(fork, finish, work).build(),
             MarkingState.builder().tokens(start, 1).build());
+    }
+
+    /**
+     * {@code p0(1), p1; t: one(p0) -> p1} at {@code window(3, 5)}. A late executor reaps {@code t}
+     * and rests at {@code {p0}} ([TIME-013], Lean {@code ReapingVsUntimed.reaping_refutes_ver004_ac3}).
+     */
+    static NamedNet reapingWindow() {
+        var p0 = place("p0");
+        var p1 = place("p1");
+        var t = Transition.builder("t").inputs(In.one(p0)).outputs(Out.place(p1))
+            .timing(Timing.window(Duration.ofMillis(3), Duration.ofMillis(5))).build();
+        return closed(
+            PetriNet.builder("reapingWindow").transitions(t).build(),
+            MarkingState.builder().tokens(p0, 1).build());
+    }
+
+    /** {@link #reapingWindow()} plus an immediate {@code u: one(p0) -> p1} that shadows {@code t}. */
+    static NamedNet reapingShadowed() {
+        var p0 = place("p0");
+        var p1 = place("p1");
+        var t = Transition.builder("t").inputs(In.one(p0)).outputs(Out.place(p1))
+            .timing(Timing.window(Duration.ofMillis(3), Duration.ofMillis(5))).build();
+        var u = Transition.builder("u").inputs(In.one(p0)).outputs(Out.place(p1)).build();
+        return closed(
+            PetriNet.builder("reapingShadowed").transitions(t, u).build(),
+            MarkingState.builder().tokens(p0, 1).build());
     }
 
     /**

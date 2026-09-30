@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -205,7 +206,7 @@ class CancellationTest {
             Transition.builder("join").inputs(In.one(a), In.one(b)).match(match).outputs(Out.place(done)).build())
             .build());
         long start = System.nanoTime();
-        var run = runInterrupted(() -> SmtVerifier.forNet(net).initialMarking(m -> m.tokens(g, 1))
+        var run = runInterrupted(() -> SmtVerifier.forNet(net).mintTransitions(AllMints.names(net)).initialMarking(m -> m.tokens(g, 1))
                 .property(SmtProperty.deadlockFree())
                 .nuMaxClasses(Integer.MAX_VALUE)
                 .verify(),

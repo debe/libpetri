@@ -255,13 +255,18 @@ public final class SubnetDef<P> implements Subnet.Open {
      * names the harness's properties use ({@code sut/<place>} for the subnet's own places).
      *
      * <h3>&nu; subnets need the &nu; options</h3>
-     * A subnet that mints and joins correlation names ([NU-010], [NU-020]) and threads a name
-     * through a relay is verified in the BASE fragment unless the caller says otherwise
-     * ([NU-051]). BASE reads such a relay as a fresh mint: a different model, in which a join
-     * the real net reaches may never fire, so a safety property can come back {@code Proven}
-     * although the net violates it. Pass the carrier places and
-     * {@code fragmentMode(FragmentMode.EXTENDED)} (and a budget place where one gates minting)
-     * through the hook, naming the places {@code sut/<place>}.
+     * The &nu; routes of [NU-050] read a transition that writes a correlation name without
+     * consuming one as a fresh mint only when it is declared ([NU-010]): named in
+     * {@link org.libpetri.smt.SmtVerifier#mintTransitions mintTransitions}, or consuming a
+     * declared budget place. An undeclared one keeps the net off both routes, and the verifier
+     * answers through the name-blind over-approximation, which is sound but often
+     * {@code Unknown} or a spurious {@code Violated}. A subnet is verified in the BASE fragment
+     * unless the caller says otherwise ([NU-051]), and BASE does not see carrier places, so a
+     * relay that copies a name from a carrier into a match key looks like such a write.
+     * Declaring the relay as a mint would be wrong: it copies a live name, and a copy joins.
+     * Pass the carrier places and {@code fragmentMode(FragmentMode.EXTENDED)}, and declare the
+     * transitions that do mint with {@code mintTransitions} (or a budget place where one gates
+     * minting), all through the hook and named {@code sut/<name>}.
      *
      * <h3>Cancellation</h3>
      * Interrupting the thread that runs this method cancels it ([VER-013]): the running

@@ -2654,6 +2654,22 @@ abstract class AbstractNetExecutorEngineTest {
                     "Actual: " + elapsedMs + "ms. If ~200ms, clock was not reset!");
             }
         }
+
+        /**
+         * TIME-013: a reaped transition is not re-armed at the marking it was reaped at. It
+         * rests disabled while another action keeps the loop alive, and a later token change
+         * on its input place re-enables it with a fresh clock. See {@link ReapingFixture}.
+         */
+        @Test
+        void reapedTransitionRestsUntilItsInputChanges() {
+            var outcome = ReapingFixture.run(AbstractNetExecutorEngineTest.this::createExecutor);
+
+            assertEquals(1, outcome.timedOut(), "t was reaped once: " + outcome);
+            assertEquals(0, outcome.startedBeforeV(), "t fired while resting at the reaped marking: " + outcome);
+            assertEquals(2, outcome.startedAfterV(), "the deposit re-enabled t for both tokens: " + outcome);
+            assertEquals(0, outcome.p0(), outcome.toString());
+            assertEquals(2, outcome.p1(), outcome.toString());
+        }
     }
 
     // ==================== SECTION 8: PRIORITY TESTS ====================

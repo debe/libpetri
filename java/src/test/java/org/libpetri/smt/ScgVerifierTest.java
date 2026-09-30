@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.analysis.StateClassGraph;
@@ -177,7 +178,7 @@ class ScgVerifierTest {
             .outputs(Out.place(merged)).build();
         var net = StructureOnly.bind(PetriNet.builder("nu").transitions(fork, join).build());
 
-        var result = SmtVerifier.forNet(net)
+        var result = SmtVerifier.forNet(net).mintTransitions(AllMints.names(net))
             .initialMarking(MarkingState.builder().tokens(source, 1).build())
             .property(SmtProperty.deadlockFree()).sinkPlaces(merged)
             .timeout(Duration.ofSeconds(30)).verify();

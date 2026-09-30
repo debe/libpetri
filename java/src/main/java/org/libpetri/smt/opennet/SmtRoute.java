@@ -112,7 +112,9 @@ final class SmtRoute {
             OpenNetContract contract,
             List<Place<?>> tracedPlaces,
             UnaryOperator<SmtVerifier> configure,
-            Duration terminationTimeout
+            Duration terminationTimeout,
+            Set<String> reapable,
+            boolean assumeAtomicFiring
     ) {
         var violations = new ArrayList<ContractViolation>();
         var undecided = new ArrayList<String>();
@@ -129,7 +131,12 @@ final class SmtRoute {
                         .property(q.property())
                         .sinkPlaces(q.sinks().toArray(new Place<?>[0]))
                         // The graph route already enumerated as far as its budget allows.
-                        .enumerationMaxClasses(0);
+                        .enumerationMaxClasses(0)
+                        // [TIME-013]: the untimed copy has lost the timing that names the reapable
+                        // transitions. [VER-004]: the closed net is already split, or atomic by the
+                        // caller's choice; the environment's steps stay atomic either way.
+                        .closedNetSteps(new ClosedNetSteps(closed.environment().keySet(), reapable))
+                        .assumeAtomicFiring(assumeAtomicFiring);
                     for (var c : q.conditional()) {
                         verifier = verifier.sinkPlacesWhen(c.marker(), c.places().toArray(new Place<?>[0]));
                     }
@@ -299,6 +306,12 @@ final class SmtRoute {
         // [VER-013]: a cancelled call starts no further query.
         if (Thread.currentThread().isInterrupted()) {
             return new Termination(false, "verification cancelled during termination (firing bound)");
+        }
+        // [IO-014]: a drained forward's deposit has no column in the flat net the ranking
+        // reads, so a ranking over it would bound a different net's runs.
+        var drained = org.libpetri.analysis.BranchOutcomes.drainedForward(closed.net());
+        if (drained.isPresent()) {
+            return new Termination(false, drained.get().reason());
         }
         FlatNet flat = NetFlattener.flatten(closed.net(), Set.of(), EnvironmentAnalysisMode.ignore());
         int[] initial = AbstractReplayer.toVector(flat, closed.initialMarking());

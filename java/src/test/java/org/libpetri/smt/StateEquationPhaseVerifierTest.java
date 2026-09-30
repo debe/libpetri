@@ -47,6 +47,9 @@ class StateEquationPhaseVerifierTest {
             // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes these small
             // untimed nets and would decide them with no solver at all, before either phase ran.
             .enumerationMaxClasses(0)
+            // The phases on the atomic net: `skip` inhibits the arms' output, so the default would
+            // verify the arms in two steps ([VER-004]).
+            .assumeAtomicFiring(true)
             .initialMarking(join.m0())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(join.done(), join.skipped())
@@ -56,6 +59,9 @@ class StateEquationPhaseVerifierTest {
     private static SmtVerifier queueVerifier(QueueAndBundle queue, boolean cancellable) {
         return SmtVerifier.forNet(StructureOnly.bind(queue.net()))
             .enumerationMaxClasses(0)
+            // The phases on the atomic net. With `produce` in flight the executor can take
+            // `bundleEmpty` and strand the queue ([VER-004]), which the default would report.
+            .assumeAtomicFiring(true)
             .initialMarking(queue.m0())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(queue.sinks(cancellable).toArray(new Place<?>[0]))

@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -194,7 +195,7 @@ class CounterexampleTimingTest {
 
     @Test
     void routeBOnATimedNet_isTimedExact_evenWithTheCheckOn() {
-        var r = SmtVerifier.forNet(nuFixture())
+        var r = SmtVerifier.forNet(nuFixture()).mintTransitions(AllMints.names(nuFixture()))
             .initialMarking(MarkingState.builder().tokens(Place.of("SEED", String.class), 1).build())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(Place.of("OUT", String.class), Place.of("DEADLETTER", String.class))

@@ -38,6 +38,23 @@ final class NuScgVerifier {
         + "different-name counterexample; quiescence is name-aware), beyond the bounded-budget "
         + "fragment (NU-050, Route B).\n";
 
+    /**
+     * {@link #NOTE_EXACT} for a graph built on a net in which a transition keeps its latest bound
+     * (the on-time executor of {@code assumeNoReaping}, or a direct call on a timed net). The
+     * strong-semantics graph fires every transition by its latest bound and reads each firing as
+     * one instant step, so its verdict is exact for that executor alone ([VER-004], [TIME-013]).
+     */
+    static final String NOTE_ON_TIME =
+        "\nNote: ν-join correlation decided via the state-class-graph name-partition quotient: the "
+        + "symbolic graph closed, and a transition keeps its latest bound in it, so the verdict is exact "
+        + "only for an on-time executor whose actions take no time (quiescence is name-aware; NU-050, "
+        + "Route B).\n";
+
+    /** The note of a closed graph built on {@code net} ({@link #NOTE_EXACT} or {@link #NOTE_ON_TIME}). */
+    private static String closedNote(PetriNet net) {
+        return net.transitions().stream().anyMatch(t -> Reaping.hasLatestBound(t.timing())) ? NOTE_ON_TIME : NOTE_EXACT;
+    }
+
     record Outcome(
         SmtVerificationResult.Verdict verdict,
         List<MarkingState> trace,
@@ -58,11 +75,78 @@ final class NuScgVerifier {
             int maxClasses,
             FragmentMode fragmentMode,
             Set<String> carrierPlaces,
+            Set<String> mintTransitions,
             PrioritySemantics prioritySemantics,
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {
         return verify(net, initial, property, sinkPlaces, environmentPlaces, environmentMode, maxClasses,
-            fragmentMode, carrierPlaces, prioritySemantics, conditionalSinks, true);
+            fragmentMode, carrierPlaces, mintTransitions, prioritySemantics, conditionalSinks, true);
+    }
+
+    /**
+     * {@link #verify} for a late executor ([VER-002], [VER-004], [TIME-006], [TIME-013]):
+     * <ul>
+     *   <li>the graph is built on {@link Reaping#relaxLate}'s net, in which no transition named in
+     *       {@code late} has a latest bound, for <em>every</em> property: a late executor reaps a
+     *       deadline / window transition or fires an exact one after its bound, and fires the others
+     *       meanwhile, and a strong-semantics {@code Proven} of any property could miss those runs
+     *       (Lean: {@code TimedScg/Retrodict.reaping_escapes_timed_graph});</li>
+     *   <li>an expanded class rests when every firing out of it is of a transition in
+     *       {@code reapable}; only a quiescence property reads it;</li>
+     *   <li>{@link PrioritySemantics#CONFLICT} falls back to {@link PrioritySemantics#NONE} when a
+     *       transition in {@code reapable} exists: a reapable transition that pre-empts a
+     *       conflicting one on time is reaped by a late executor, which then fires the other.</li>
+     * </ul>
+     * Both empty (the on-time executor of {@code assumeNoReaping}, or a net timed only with
+     * {@code immediate} and {@code delayed}), it is {@link #verify} exactly.
+     */
+    static Outcome verifyReaping(
+            PetriNet net,
+            MarkingState initial,
+            SmtProperty property,
+            Set<Place<?>> sinkPlaces,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            int maxClasses,
+            FragmentMode fragmentMode,
+            Set<String> carrierPlaces,
+            Set<String> mintTransitions,
+            PrioritySemantics prioritySemantics,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            Set<String> reapable,
+            Set<String> late
+    ) {
+        var reapableInNet = new java.util.LinkedHashSet<String>();
+        var lifted = new java.util.LinkedHashSet<String>();
+        for (var t : net.transitions()) {
+            if (reapable.contains(t.name())) {
+                reapableInNet.add(t.name());
+            }
+            if (late.contains(t.name()) && Reaping.hasLatestBound(t.timing())) {
+                lifted.add(t.name());
+            }
+        }
+        if (reapableInNet.isEmpty() && lifted.isEmpty()) {
+            return verify(net, initial, property, sinkPlaces, environmentPlaces, environmentMode, maxClasses,
+                fragmentMode, carrierPlaces, mintTransitions, prioritySemantics, conditionalSinks);
+        }
+        boolean pruningOff = !reapableInNet.isEmpty() && prioritySemantics == PrioritySemantics.CONFLICT;
+        var semantics = reapableInNet.isEmpty() ? prioritySemantics : PrioritySemantics.NONE;
+        // The marking properties read no rest ([VER-004]).
+        Set<String> restsOn = GraphDecision.safetyViolation(property) == null ? reapableInNet : Set.of();
+        var outcome = verify(Reaping.relaxLate(net, lifted), initial, property, sinkPlaces, environmentPlaces,
+            environmentMode, maxClasses, fragmentMode, carrierPlaces, mintTransitions, semantics, conditionalSinks, true, restsOn);
+        if (outcome == null || outcome.note().isEmpty() || lifted.isEmpty()) {
+            return outcome;
+        }
+        var names = new java.util.TreeSet<String>(org.libpetri.core.internal.CodePointOrder.COMPARATOR);
+        names.addAll(lifted);
+        return new Outcome(outcome.verdict(), outcome.trace(), outcome.transitions(),
+            outcome.note() + "Note: the latest bound of " + String.join(", ", names) + " was lifted"
+                + (pruningOff ? " and priority pruning is off" : "")
+                + ", so the graph holds the runs of a late executor, which reaps a deadline or window "
+                + "transition and fires an exact one after its bound (TIME-006, TIME-013).\n",
+            outcome.classCount());
     }
 
     /**
@@ -79,11 +163,32 @@ final class NuScgVerifier {
             int maxClasses,
             FragmentMode fragmentMode,
             Set<String> carrierPlaces,
+            Set<String> mintTransitions,
             PrioritySemantics prioritySemantics,
             List<RestSet.ConditionalSinks> conditionalSinks,
             boolean earlyStop
     ) {
-        var fragment = supportedFragment(net, initial, fragmentMode, carrierPlaces);
+        return verify(net, initial, property, sinkPlaces, environmentPlaces, environmentMode, maxClasses,
+            fragmentMode, carrierPlaces, mintTransitions, prioritySemantics, conditionalSinks, earlyStop, Set.of());
+    }
+
+    private static Outcome verify(
+            PetriNet net,
+            MarkingState initial,
+            SmtProperty property,
+            Set<Place<?>> sinkPlaces,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            int maxClasses,
+            FragmentMode fragmentMode,
+            Set<String> carrierPlaces,
+            Set<String> mintTransitions,
+            PrioritySemantics prioritySemantics,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            boolean earlyStop,
+            Set<String> reapable
+    ) {
+        var fragment = supportedFragment(net, initial, fragmentMode, carrierPlaces, mintTransitions);
         if (fragment == null) {
             return null;
         }
@@ -100,7 +205,7 @@ final class NuScgVerifier {
         // [VER-017] "Verdicts from a truncated graph"): every stored class is a real reachable
         // class, and only an expanded class counts as quiescent. A hit is a real firing
         // sequence; a prefix never proves anything.
-        int violating = decide(scg, property, sinkPlaces, conditionalSinks);
+        int violating = decide(scg, property, sinkPlaces, conditionalSinks, reapable);
         if (violating >= 0) {
             // The trace below is an explicit path of the name-aware state-class graph —
             // a genuine run of Route B's semantics by construction. The flat abstract
@@ -109,7 +214,7 @@ final class NuScgVerifier {
             var path = counterexamplePath(scg, violating);
             return new Outcome(new SmtVerificationResult.Verdict.Violated(), path.markings(), path.transitions(),
                 scg.stoppedAt() >= 0 ? earlyStopNote(scg.classCount())
-                    : complete ? NOTE_EXACT : GraphDecision.prefixNote("ν name-aware state-class graph", maxClasses),
+                    : complete ? closedNote(net) : GraphDecision.prefixNote("ν name-aware state-class graph", maxClasses),
                 scg.classCount());
         }
         if (!complete) {
@@ -123,7 +228,7 @@ final class NuScgVerifier {
         }
         return new Outcome(
             new SmtVerificationResult.Verdict.Proven("ν name-partition SCG (NU-050, Route B)", null),
-            List.of(), List.of(), NOTE_EXACT, scg.classCount());
+            List.of(), List.of(), closedNote(net), scg.classCount());
     }
 
     /**
@@ -142,9 +247,10 @@ final class NuScgVerifier {
      * initial colour assignment is modelled).
      */
     static NameFragment supportedFragment(
-            PetriNet net, MarkingState initial, FragmentMode fragmentMode, Set<String> carrierPlaces
+            PetriNet net, MarkingState initial, FragmentMode fragmentMode, Set<String> carrierPlaces,
+            Set<String> mintTransitions
     ) {
-        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces);
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, mintTransitions);
         if (fragment == null) {
             return null;
         }
@@ -164,7 +270,7 @@ final class NuScgVerifier {
      */
     private static int decide(
             NameStateClassGraph scg, SmtProperty property, Set<Place<?>> sinkPlaces,
-            List<RestSet.ConditionalSinks> conditionalSinks
+            List<RestSet.ConditionalSinks> conditionalSinks, Set<String> reapable
     ) {
         return GraphDecision.decideOverClasses(
             new GraphDecision.ClassView() {
@@ -181,8 +287,9 @@ final class NuScgVerifier {
                 @Override
                 public boolean isQuiescent(int i) {
                     // A frontier class of a truncated graph was never expanded: no successors
-                    // recorded, but not dead.
-                    return i < scg.expandedCount() && scg.successorsOf(i).isEmpty();
+                    // recorded, but not dead. An expanded class rests when nothing fires out of
+                    // it, or only reapable transitions do ([VER-002] reap-quiescence, [TIME-013]).
+                    return i < scg.expandedCount() && reapable.containsAll(scg.successorLabelsOf(i));
                 }
             },
             property, sinkPlaces, conditionalSinks);

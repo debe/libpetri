@@ -261,14 +261,17 @@ class StateEquationTest {
             Transition.builder("drain").inputs(In.all(q)).outputs(Out.place(done)).build()).build());
         var m0 = MarkingState.builder().tokens(src, 3).build();
         // Explicit opt-outs: enumeration and the linear bound would each decide this before
-        // the fixpoint query whose certificate is under test.
+        // the fixpoint query whose certificate is under test. `drain` drains `fill`'s output,
+        // so by default `fill` is verified in two steps (VER-004); the encoding of the atomic
+        // net is what this test pins.
         var result = SmtVerifier.forNet(net).initialMarking(m0).enumerationMaxClasses(0).linearBound(false)
+            .assumeAtomicFiring(true)
             .property(SmtProperty.placeBound(done, 3)).stateEquation(true)
             .timeout(Duration.ofSeconds(30)).verify();
         assertTrue(result.isProven(), result.report());
         assertTrue(result.report().contains("  Certificate check: PASSED (init, consecution, safety)"), result.report());
         var scripts = SmtVerifier.forNet(net).initialMarking(m0).property(SmtProperty.placeBound(done, 3))
-            .stateEquation(true).encodeScripts();
+            .assumeAtomicFiring(true).stateEquation(true).encodeScripts();
         // Places: done=0, q=1, src=2; transitions fill=0, drain=1.
         assertTrue(scripts.horn().contains("(<= m1p (+ 0 n0p (- n1p)))"), scripts.horn());
         assertTrue(scripts.certificate().contains("(<= m1 (+ 0 n0 (- n1)))"), scripts.certificate());

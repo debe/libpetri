@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import org.libpetri.fixtures.StructureOnly;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
@@ -112,9 +113,12 @@ class SmtVerifierTest {
     void basicTpn_noDeadlockInUntimedSemantics() {
         var net = PaperNetworks.createBasicTpn();
 
+        // Every BasicTPN transition carries a deadline, so every one can be reaped ([TIME-013]).
+        // Read strictly (assumeNoReaping), as the untimed abstraction used to read quiescence:
         var result = SmtVerifier.forNet(StructureOnly.bind(net))
             .initialMarking(m -> m.tokens(PENDING, 1))
             .property(SmtProperty.deadlockFree())
+            .assumeNoReaping(true)
             .timeout(Duration.ofSeconds(30))
             .verify();
 
@@ -127,6 +131,16 @@ class SmtVerifierTest {
         // (Timing constraints would limit this, but SMT operates untimed.)
         assertFalse(result.isViolated(),
             "BasicTPN should not deadlock in untimed semantics (read arcs allow repeated firing)\n" + result.report());
+
+        // Reap-aware ([VER-002]): a late executor reaps `ask` before it fires and rests at the
+        // initial marking with the token stranded on Pending.
+        var reaping = SmtVerifier.forNet(StructureOnly.bind(net))
+            .initialMarking(m -> m.tokens(PENDING, 1))
+            .property(SmtProperty.deadlockFree())
+            .timeout(Duration.ofSeconds(30))
+            .verify();
+        assertTrue(reaping.isViolated(), reaping.report());
+        assertTrue(reaping.counterexampleTransitions().isEmpty(), reaping.report());
     }
 
     @Test
@@ -586,7 +600,7 @@ class SmtVerifierTest {
             List<Transition> transitions, EnvironmentAnalysisMode mode, SmtProperty property
     ) {
         var net = PetriNet.builder("ver006-ac8").transitions(transitions.toArray(Transition[]::new)).build();
-        return SmtVerifier.forNet(StructureOnly.bind(net))
+        return SmtVerifier.forNet(StructureOnly.bind(net)).mintTransitions(AllMints.names(StructureOnly.bind(net)))
             .environmentPlaces(EnvironmentPlace.of(AC8_IN))
             .environmentMode(mode)
             .initialMarking(m -> m.tokens(AC8_SLOT, 1))
@@ -664,8 +678,10 @@ class SmtVerifierTest {
         var transitions = new ArrayList<>(ac8Witness());
         transitions.add(Transition.builder("heartbeat").inputs(In.one(AC8_IN)).reset(beat)
             .outputs(Out.place(beat)).build());
+        // `heartbeat` resets its own output, so by default it is verified in two steps (VER-004)
+        // and under injection starts without bound. The witness is about the environment.
         var vacuous = ac8Verifier(transitions, EnvironmentAnalysisMode.alwaysAvailable(),
-            SmtProperty.deadlockFree()).verify();
+            SmtProperty.deadlockFree()).assumeAtomicFiring(true).verify();
         assertTrue(vacuous.isProven(), vacuous.report());
         assertEquals(SmtVerificationResult.Route.NU_SCG, vacuous.route(), vacuous.report());
         assertTrue(vacuous.report().contains("no marking of this net can be quiescent"), vacuous.report());
@@ -779,7 +795,7 @@ class SmtVerifierTest {
             .nuMaxClasses(1)
             .timeout(Duration.ofSeconds(15))
             .verify();
-        assertTrue(violated.report().contains("exact within budget k=0"),
+        assertTrue(violated.report().contains("colour-slot bound k=0"),
             "the zero-slot plan must be taken\n" + violated.report());
         assertTrue(violated.isViolated(),
             "no budget, no sink: the initial marking is a deadlock\n" + violated.report());
@@ -792,7 +808,7 @@ class SmtVerifierTest {
             .nuMaxClasses(1)
             .timeout(Duration.ofSeconds(15))
             .verify();
-        assertTrue(proven.report().contains("exact within budget k=0"), proven.report());
+        assertTrue(proven.report().contains("colour-slot bound k=0"), proven.report());
         assertTrue(proven.isProven(),
             "with `source` a sink the only quiescent marking is a sink state\n" + proven.report());
     }
@@ -862,7 +878,7 @@ class SmtVerifierTest {
         // returns Unknown, but the name-aware SCG name-partition quotient discovers
         // the structural bound (the budget token caps live groups) and proves the
         // bound exactly — the beyond-bounded win. Pure SCG, so no Z3 binary needed.
-        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet())).mintTransitions(AllMints.names(StructureOnly.bind(nuScatterGatherNet())))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.branchPlaceBound(NU_BUDGET, 2))
             .verify();
@@ -919,7 +935,7 @@ class SmtVerifierTest {
         // NU-050 Route B: quiescence on a ν-net is decided exactly by the name-aware
         // SCG. Same-mint siblings always join, so no quiescent state strands
         // `pending` -> Proven (the SMT path returned Unknown here). No Z3.
-        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet())).mintTransitions(AllMints.names(StructureOnly.bind(nuScatterGatherNet())))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.joinedOrDeadLettered(NU_PENDING))
             .verify();
@@ -933,7 +949,7 @@ class SmtVerifierTest {
         // NU-050 Route B: DeadlockFree is now exact. The net quiesces when `source`
         // is exhausted (budget returned, no group in flight) — a genuine deadlock
         // with no declared sinks -> Violated (was Unknown). No Z3.
-        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet()))
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuScatterGatherNet())).mintTransitions(AllMints.names(StructureOnly.bind(nuScatterGatherNet())))
             .initialMarking(m -> { m.tokens(NU_SOURCE, 3); m.tokens(NU_BUDGET, 2); })
             .property(SmtProperty.deadlockFree())
             .verify();
@@ -1120,7 +1136,7 @@ class SmtVerifierTest {
 
     @Test
     void nuDistinctMints_noBudget_mergedUnreachable_provenByRouteB() {
-        var result = SmtVerifier.forNet(StructureOnly.bind(nuDistinctMintsNoBudgetNet()))
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuDistinctMintsNoBudgetNet())).mintTransitions(AllMints.names(StructureOnly.bind(nuDistinctMintsNoBudgetNet())))
             .initialMarking(m -> { m.tokens(NU_SOURCE_A, 1); m.tokens(NU_SOURCE_B, 1); })
             .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
             .verify();
@@ -1153,7 +1169,7 @@ class SmtVerifierTest {
 
     @Test
     void nuUnboundedMint_truncatesToUnknown() {
-        var result = SmtVerifier.forNet(StructureOnly.bind(nuUnboundedMintNet()))
+        var result = SmtVerifier.forNet(StructureOnly.bind(nuUnboundedMintNet())).mintTransitions(AllMints.names(StructureOnly.bind(nuUnboundedMintNet())))
             .initialMarking(m -> m.tokens(NU_SOURCE, 1))
             .property(SmtProperty.unreachable(Set.of(NU_MERGED)))
             .nuMaxClasses(40)

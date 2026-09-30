@@ -1,6 +1,7 @@
 package org.libpetri.core;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.function.Function;
 
@@ -150,6 +151,36 @@ public final class MatchSpec {
         return new Builder();
     }
 
+    /**
+     * Why two of {@code keys} name one place, or {@code null} when none do (NU-020).
+     *
+     * <p>Keys are compared by place <em>name</em>, not by {@link Place} equality (name and token
+     * type). The executors would run a join keyed on two distinct places that share a name, but
+     * the ν analysis identifies correlated places by name ({@code NameFragment}, the
+     * name-coloured encoder), so there the two keys would read as one coloured place and the
+     * name layer would drift from the marking. TypeScript and Rust identify every place by name,
+     * so all three reject the same keys.
+     */
+    static String duplicateKeyMessage(List<MatchKey> keys) {
+        var seen = new HashMap<String, Place<?>>();
+        for (var k : keys) {
+            var place = k.place();
+            var first = seen.putIfAbsent(place.name(), place);
+            if (first == null) {
+                continue;
+            }
+            if (first.equals(place)) {
+                return "MatchSpec correlates input place '" + place.name() + "' twice. A match names each "
+                    + "correlated input once (NU-020); the input's cardinality sets how many tokens of the "
+                    + "name it takes.";
+            }
+            return "MatchSpec correlates two input places named '" + place.name() + "' (token types "
+                + first.tokenType().getName() + " and " + place.tokenType().getName() + "). A match "
+                + "identifies its correlated inputs by name (NU-020), so each needs a name of its own.";
+        }
+        return null;
+    }
+
     /** Builder for {@link MatchSpec}. */
     public static final class Builder {
         private final List<MatchKey> keys = new ArrayList<>();
@@ -193,12 +224,17 @@ public final class MatchSpec {
          *
          * @return the match spec
          * @throws IllegalArgumentException when fewer than two inputs are
-         *     correlated (a match over a single place is just a guard)
+         *     correlated (a match over a single place is just a guard), or when one place is
+         *     keyed twice (NU-020)
          */
         public MatchSpec build() {
             if (keys.size() < 2) {
                 throw new IllegalArgumentException(
                     "MatchSpec must correlate at least 2 input places, got " + keys.size());
+            }
+            var dup = duplicateKeyMessage(keys);
+            if (dup != null) {
+                throw new IllegalArgumentException(dup);
             }
             return new MatchSpec(keys, relays);
         }

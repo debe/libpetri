@@ -1,6 +1,7 @@
 package org.libpetri.core;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -414,8 +415,13 @@ public final class Transition {
 
             var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, matchSpec, timing, action, priority, placeAlias);
 
-            // Validate MatchSpec correlates only declared input places (NU-020).
+            // Validate MatchSpec correlates only declared input places, each once (NU-020). A
+            // remapped spec (composition) does not go through MatchSpec.Builder.
             if (matchSpec != null) {
+                var dupKey = MatchSpec.duplicateKeyMessage(matchSpec.keys());
+                if (dupKey != null) {
+                    throw new IllegalArgumentException("Transition '%s': %s".formatted(name, dupKey));
+                }
                 var inputPlaces = transition.inputPlaces();
                 for (var key : matchSpec.keys()) {
                     if (!inputPlaces.contains(key.place())) {
@@ -428,12 +434,24 @@ public final class Transition {
                 // branch), declared once.
                 if (!matchSpec.relays().isEmpty()) {
                     var outputPlaces = transition.outputPlaces();
-                    var seenRelays = new HashSet<Place<?>>();
+                    // By name, as the match keys (MatchSpec.duplicateKeyMessage): the ν analysis
+                    // identifies relay targets by name, so two distinct places sharing one would
+                    // read as one coloured place there.
+                    var seenRelays = new HashMap<String, Place<?>>();
                     for (var relay : matchSpec.relays()) {
-                        if (!seenRelays.add(relay.place())) {
+                        var first = seenRelays.putIfAbsent(relay.place().name(), relay.place());
+                        if (first != null && first.equals(relay.place())) {
                             throw new IllegalArgumentException(
                                 "Transition '%s': relay target '%s' is declared twice (NU-054)"
                                     .formatted(name, relay.place().name()));
+                        }
+                        if (first != null) {
+                            throw new IllegalArgumentException(
+                                ("Transition '%s': relay targets are two places named '%s' (token types %s and %s). "
+                                    + "A match identifies its relay targets by name (NU-054), so each needs a name "
+                                    + "of its own.")
+                                    .formatted(name, relay.place().name(), first.tokenType().getName(),
+                                        relay.place().tokenType().getName()));
                         }
                         if (!outputPlaces.contains(relay.place())) {
                             throw new IllegalArgumentException(

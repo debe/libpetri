@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
@@ -204,7 +205,7 @@ class ConditionalSinksTest {
         var stuck = Place.of("stuck", String.class);
         java.util.function.Function<List<RestSet.ConditionalSinks>, NuScgVerifier.Outcome> run = cond ->
             NuScgVerifier.verify(built.net(), built.initialMarking(), SmtProperty.deadlockFree(), sinks(DONE),
-                Set.of(), built.environmentMode(), 10_000, FragmentMode.BASE, Set.of(),
+                Set.of(), built.environmentMode(), 10_000, FragmentMode.BASE, Set.of(), AllMints.of(built.net()),
                 PrioritySemantics.NONE, cond);
         assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, run.apply(List.of()).verdict());
         assertInstanceOf(SmtVerificationResult.Verdict.Proven.class, run.apply(List.of(when(DONE, stuck))).verdict());

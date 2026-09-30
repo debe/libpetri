@@ -71,4 +71,16 @@ class StructuralCheckTest {
     void anExhaustedSearchIsInconclusive() {
         assertNull(StructuralCheck.findMinimalSiphons(guardedRing(), 1));
     }
+
+    @Test
+    void aNetWithoutTransitionsIsNotProven() {
+        // Dead at every marking, yet the marked place is a siphon whose maximal trap
+        // (itself) is marked: Commoner's condition holds vacuously.
+        var a = Place.of("a", Integer.class);
+        var flat = NetFlattener.flatten(PetriNet.builder("empty").places(a).build(),
+            Set.of(), EnvironmentAnalysisMode.ignore());
+        assertEquals(1, flat.placeCount());
+        assertInstanceOf(StructuralCheck.Result.Inconclusive.class,
+            StructuralCheck.check(flat, MarkingState.builder().tokens(a, 1).build()));
+    }
 }

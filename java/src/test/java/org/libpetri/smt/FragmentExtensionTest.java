@@ -1,5 +1,6 @@
 package org.libpetri.smt;
 
+import org.libpetri.analysis.AllMints;
 import org.libpetri.fixtures.StructureOnly;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -105,20 +106,20 @@ class FragmentExtensionTest {
     void baseFragmentRejectsTheDrain() {
         // The drain — a non-match transition consuming coloured COL_A — trips the R5
         // out-of-fragment rule under BASE (carrier declarations are ignored).
-        assertNull(NameFragment.classify(fixture(true)));
-        assertNull(NameFragment.classify(fixture(true), FragmentMode.BASE, CARRIERS));
+        assertNull(NameFragment.classify(fixture(true), FragmentMode.BASE, Set.of(), AllMints.of(fixture(true))));
+        assertNull(NameFragment.classify(fixture(true), FragmentMode.BASE, CARRIERS, AllMints.of(fixture(true))));
     }
 
     @Test
     void extendedFragmentAcceptsDrainAndCoMint() {
-        assertNotNull(NameFragment.classify(fixture(true), FragmentMode.EXTENDED, CARRIERS));
-        assertNotNull(NameFragment.classify(fixture(false), FragmentMode.EXTENDED, CARRIERS));
+        assertNotNull(NameFragment.classify(fixture(true), FragmentMode.EXTENDED, CARRIERS, AllMints.of(fixture(true))));
+        assertNotNull(NameFragment.classify(fixture(false), FragmentMode.EXTENDED, CARRIERS, AllMints.of(fixture(false))));
     }
 
     @Test
     @EnabledIf("z3Available")
     void baseDeadlockFreeIsUnknown() {
-        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(true)))
+        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(true))).mintTransitions(AllMints.names(StructureOnly.bind(fixture(true))))
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -134,7 +135,7 @@ class FragmentExtensionTest {
     // through the solver-free Route B name-partition quotient and never touches Z3.
     @Test
     void extendedProvesNoStall() {
-        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(true)))
+        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(true))).mintTransitions(AllMints.names(StructureOnly.bind(fixture(true))))
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -152,7 +153,7 @@ class FragmentExtensionTest {
 
     @Test
     void extendedFindsGenuineStallWhenDrainRemoved() {
-        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(false))) // no DRAIN_A -> the violation branch strands COL_A
+        var r = SmtVerifier.forNet(StructureOnly.bind(fixture(false))).mintTransitions(AllMints.names(StructureOnly.bind(fixture(false)))) // no DRAIN_A -> the violation branch strands COL_A
             .initialMarking(seedOneTurn())
             .property(SmtProperty.deadlockFree())
             .sinkPlaces(OUT, DEADLETTER)
@@ -180,7 +181,7 @@ class FragmentExtensionTest {
             .outputs(Arc.Out.place(DEADLETTER))
             .build();
         var net = PetriNet.builder("countTwo").transitions(joinTransition(), drain2).build();
-        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of()),
+        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of(), AllMints.of(net)),
             "a coloured consumer at count 2 must be rejected under EXTENDED");
     }
 
@@ -197,9 +198,9 @@ class FragmentExtensionTest {
             .resets(COL_A)                       // reset arc on a coloured (match-key) place
             .build();
         var net = PetriNet.builder("resetColoured").transitions(joinTransition(), clear).build();
-        assertNull(NameFragment.classify(net, FragmentMode.BASE, Set.of()),
+        assertNull(NameFragment.classify(net, FragmentMode.BASE, Set.of(), AllMints.of(net)),
             "reset on a coloured place is rejected under BASE");
-        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of()),
+        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of(), AllMints.of(net)),
             "reset on a coloured place is rejected under EXTENDED");
     }
 
@@ -214,14 +215,14 @@ class FragmentExtensionTest {
     @Test
     void joinConsumingAColouredPlaceOffKeyRejectedBothModes() {
         var net = offKeyColouredNet();
-        assertNull(NameFragment.classify(net, FragmentMode.BASE, Set.of()));
-        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of()));
+        assertNull(NameFragment.classify(net, FragmentMode.BASE, Set.of(), AllMints.of(net)));
+        assertNull(NameFragment.classify(net, FragmentMode.EXTENDED, Set.of(), AllMints.of(net)));
     }
 
     @Test
     @EnabledIf("z3Available")
     void offKeyColouredJoinIsNotProvenStrandingFree() {
-        var r = SmtVerifier.forNet(StructureOnly.bind(offKeyColouredNet()))
+        var r = SmtVerifier.forNet(StructureOnly.bind(offKeyColouredNet())).mintTransitions(AllMints.names(StructureOnly.bind(offKeyColouredNet())))
             .initialMarking(MarkingState.builder()
                 .tokens(Place.of("SRC_A", String.class), 1)
                 .tokens(Place.of("SRC_B", String.class), 1)
@@ -275,7 +276,7 @@ class FragmentExtensionTest {
     void carrierValidationThrowsOnUnknownPlace() {
         var stranger = Place.of("STRANGER", String.class);
         assertThrows(IllegalArgumentException.class,
-            () -> SmtVerifier.forNet(StructureOnly.bind(fixture(true))).carrierPlaces(stranger));
+            () -> SmtVerifier.forNet(StructureOnly.bind(fixture(true))).mintTransitions(AllMints.names(StructureOnly.bind(fixture(true)))).carrierPlaces(stranger));
     }
 
     /** The name-by-name &nu;-join over the two coloured inputs, reused by classify tests. */

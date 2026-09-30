@@ -104,6 +104,9 @@ Options that change what the encoders see:
 | `stateEquation(boolean)` | `false` | Carries the marking equation over firing counters into the flat encoding ([VER-016]) |
 | `semiflowInvariants(boolean)` / `semiflowInvariants(SemiflowMode)` | `OFF` | Unions the gate-validated P-semiflows into the encoders' invariant list; `AUTO` does it exactly when the null-space basis lost a law to the H1 guard ([VER-007]) |
 | `enumerationMaxClasses(int)` | `50_000` | Class budget for the enumeration route; `0` sends every query to the SMT pipeline ([VER-017]) |
+| `assumeNoReaping(boolean)` | `false` | Reads quiescence strictly, as if no `deadline` / `window` transition were ever reaped. By default a marking where every enabled transition is reapable counts as quiescent, so a `Proven` also holds for a late executor ([TIME-013]) |
+| `assumeAtomicFiring(boolean)` | `false` | Reads every firing as one step. By default a transition whose output another tests with an inhibitor, reset or drain, or that marks a terminal place, is verified as a start and a `complete:<name>` step, as the executor fires it ([VER-004]). A `quiescentCount` lower bound under a terminal place and `CONFLICT` priority split more; see the method's Javadoc |
+| `mintTransitions(String…)` / `mintTransitions(Transition…)` | none | Declares the transitions whose action writes a freshly minted ν-name. Without the declaration a transition that writes a match key without consuming one keeps the net off the ν routes, unless it consumes a declared budget place ([NU-010]) |
 
 `SmtVerificationResult.route()` names which route decided the verdict. Read it before concluding anything from an **empty** `invariants()`: off the `SMT` route that means "not computed", never "the net has none" ([VER-003]).
 

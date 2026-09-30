@@ -48,11 +48,15 @@ import static org.libpetri.analysis.AnalysisUtils.formatTransitions;
 public final class TimePetriNetAnalyzer {
 
     private final PetriNet net;
+    /** The net as the caller passed it: the L4 check expects its transitions ([VER-004]). */
+    private final PetriNet callerNet;
     private final MarkingState initialMarking;
     private final Set<Place<?>> goalPlaces;
     private final int maxClasses;
     private final Set<EnvironmentPlace<?>> environmentPlaces;
     private final EnvironmentAnalysisMode environmentMode;
+    /** The in-flight split line of the report ([VER-004]), or {@code null} when nothing was split. */
+    private final String inFlightLine;
 
     private TimePetriNetAnalyzer(
             PetriNet net,
@@ -62,6 +66,21 @@ public final class TimePetriNetAnalyzer {
             Set<EnvironmentPlace<?>> environmentPlaces,
             EnvironmentAnalysisMode environmentMode
     ) {
+        // VER-004: a transition whose output another tests non-monotonically fires in two steps,
+        // as the executor fires it. Before the terminal rewrite, whose inhibitor counts as such a
+        // test.
+        this.callerNet = net;
+        String line = null;
+        switch (InFlight.split(net, Set.of(), Set.of())) {
+            case InFlight.Outcome.Atomic _ -> {}
+            case InFlight.Outcome.Split(var rewritten, var split) -> {
+                net = rewritten;
+                line = InFlight.splitNote(split);
+            }
+            case InFlight.Outcome.Refused(var reason) ->
+                line = "WARNING: " + reason + "; the graph fires it in one step, so it can miss runs of the executor.";
+        }
+        this.inFlightLine = line;
         // EXEC-042: the net's terminal places inhibit every transition, as the runtime stops there.
         // The same instance for a net without terminals.
         this.net = TerminalEncoding.inhibited(net);
@@ -93,6 +112,9 @@ public final class TimePetriNetAnalyzer {
         report.append("Places: ").append(net.places().size()).append("\n");
         report.append("Transitions: ").append(net.transitions().size()).append("\n");
         report.append("Goal places: ").append(formatPlaces(goalPlaces)).append("\n\n");
+        if (inFlightLine != null) {
+            report.append(inFlightLine).append("\n\n");
+        }
 
         // Phase 1: Build State Class Graph
         report.append("Phase 1: Building State Class Graph...\n");
@@ -177,24 +199,29 @@ public final class TimePetriNetAnalyzer {
         report.append("  Property: Every transition can fire from every reachable marking\n");
         report.append("  Formal: ∀t ∈ T, ∀M reachable: ∃σ: M [σt⟩\n\n");
 
-        // For L4 liveness: every terminal SCC must contain all transitions. In the net's order,
-        // which the report lists missing transitions in.
-        var allTransitions = new LinkedHashSet<>(net.transitions());
+        // For L4 liveness: every terminal SCC must contain all transitions. The caller's, in its
+        // net's order, which the report lists missing transitions in. A completion step
+        // complete:<t> of the in-flight split counts as t firing ([VER-004]).
+        var allTransitions = new LinkedHashSet<>(callerNet.transitions());
         var terminalSCCsMissingTransitions = new ArrayList<Set<StateClass>>();
 
         for (var scc : terminalSCCs) {
-            var transitionsInSCC = new HashSet<Transition>();
+            var firedInSCC = new HashSet<String>();
             for (var sc : scc) {
                 for (var entry : scg.outgoingTransitions(sc).entrySet()) {
                     if (scc.contains(entry.getValue())) {
-                        transitionsInSCC.add(entry.getKey());
+                        firedInSCC.add(InFlight.sourceTransition(net, entry.getKey().name()));
                     }
                 }
             }
-            if (!transitionsInSCC.containsAll(allTransitions)) {
+            var missing = new LinkedHashSet<Transition>();
+            for (var t : allTransitions) {
+                if (!firedInSCC.contains(t.name())) {
+                    missing.add(t);
+                }
+            }
+            if (!missing.isEmpty()) {
                 terminalSCCsMissingTransitions.add(scc);
-                var missing = new LinkedHashSet<>(allTransitions);
-                missing.removeAll(transitionsInSCC);
                 report.append("  Terminal SCC missing transitions: ")
                       .append(formatTransitions(missing)).append("\n");
             }
@@ -285,19 +312,30 @@ public final class TimePetriNetAnalyzer {
      * are actually reachable in the state class graph. Unreachable branches may
      * indicate dead code paths or modeling errors.
      *
+     * <p>A graph from {@link #analyze()} is built on the analyzer's rewrite of the net: a
+     * transition split for an in-flight action ([VER-004]) deposits through its completion step
+     * {@code complete:<name>}, and the terminal rewrite ([EXEC-042]) rebuilds every transition.
+     * A completion step's branches are reported under the transition it completes, and
+     * {@link XorBranchAnalysis#branchInfo} finds a transition by name, so the caller's own
+     * transition finds its entry.
+     *
      * @param scg the state class graph to analyze
      * @return XOR branch analysis result
      */
     public static XorBranchAnalysis analyzeXorBranches(StateClassGraph scg) {
         // In the net's order, which the report follows.
         var result = new LinkedHashMap<Transition, XorBranchInfo>();
+        var byName = new HashMap<String, Transition>();
+        for (var t : scg.net().transitions()) {
+            byName.put(t.name(), t);
+        }
 
         for (var transition : scg.net().transitions()) {
-            if (transition.outputSpec() == null) {
-                continue;
-            }
-
-            var allBranches = transition.outputSpec().enumerateBranches();
+            // The graph's virtual transitions: each XOR branch, and a timeout that deposits
+            // differently (BranchOutcomes.outcomes).
+            var allBranches = BranchOutcomes.outcomes(transition).stream()
+                .map(BranchOutcomes.Outcome::places)
+                .toList();
             if (allBranches.size() <= 1) {
                 // Not a XOR transition (single branch or AND-only)
                 continue;
@@ -320,7 +358,10 @@ public final class TimePetriNetAnalyzer {
                 }
             }
 
-            result.put(transition, new XorBranchInfo(
+            // [VER-004]: complete:<t> deposits t's outputs, so its branches are t's.
+            var completed = InFlight.completedTransition(transition);
+            var owner = completed != null && byName.containsKey(completed) ? byName.get(completed) : transition;
+            result.put(owner, new XorBranchInfo(
                     allBranches.size(),
                     takenBranches,
                     untakenBranches,
@@ -390,9 +431,21 @@ public final class TimePetriNetAnalyzer {
 
         /**
          * Returns branch info for a specific transition, or empty if not a XOR transition.
+         * Found by name when {@code t} is not the graph's own instance, as for a transition of
+         * the net passed to {@link TimePetriNetAnalyzer#forNet}, whose graph is built on a
+         * rewrite of it.
          */
         public Optional<XorBranchInfo> branchInfo(Transition t) {
-            return Optional.ofNullable(transitionBranches.get(t));
+            var info = transitionBranches.get(t);
+            if (info != null) {
+                return Optional.of(info);
+            }
+            for (var entry : transitionBranches.entrySet()) {
+                if (entry.getKey().name().equals(t.name())) {
+                    return Optional.of(entry.getValue());
+                }
+            }
+            return Optional.empty();
         }
 
         /**

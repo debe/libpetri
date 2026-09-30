@@ -1470,7 +1470,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                     clearEnabledBit(tid);
                     enabledTransitionCount--;
                     enabledAtNanos[tid] = Long.MIN_VALUE;
-                    markTransitionDirty(tid);  // allow re-enablement next cycle
+                    // Not marked dirty: a reaped transition stays disabled at this marking
+                    // (TIME-013). A token change on one of its places marks it dirty through
+                    // markDirty(pid), and it re-enables then with a fresh clock.
                     if (eventStoreEnabled) emitEvent(new NetEvent.TransitionTimedOut(
                         clockInstant(), t.name(),
                         t.timing().latest(),
