@@ -32,6 +32,17 @@ An action returns a future/promise/task; the orchestrator does not *await* its c
 2. Multiple actions whose handles are backed by concurrent work execute concurrently.
 3. The orchestrator continues processing other transitions while such actions run.
 
+While an action runs its inputs are consumed and its outputs not yet deposited, and other
+transitions fire. Verification models that for every transition it splits in two ([VER-004]):
+one whose output another transition tests with an inhibitor, reset or drain, one that marks a
+terminal place, and the extra transitions a lower-bound `QuiescentCount` beside a terminal
+place and conflict priority ([NU-052]) require. Whether an executor starts a transition again
+while an earlier firing of it is in flight is not specified: Rust does, Java and TypeScript do
+not. The verification model allows it, which is sound for all three. When a counterexample
+starts a transition again while its earlier firing is in flight, the report says so, since on
+Java and TypeScript that trace may be a false alarm. Conflict priority does not rely on the
+restart: a pruner pre-empts nothing while its own action is in flight.
+
 **Test derivation:** Two transitions fire; both actions return handles backed by a 100ms async sleep; verify total time ~100ms, not ~200ms.
 
 ---

@@ -536,10 +536,13 @@ async function main(): Promise<void> {
     .initialMarking(m => m.tokens(fan.plan, 2))
     .property(deadlockFree())
     .sinkPlaces(fan.merged)
+    .mintTransitions('fan-out')        // its action writes a freshName() id (NU-010)
     .fragmentMode('extended')          // run-search / run-fetch relay the id (NU-051)
     .carrierPlaces(fan.search, fan.fetch)
     .verify();
   check(fanResult.verdict.type === 'proven', `tool fan-out: expected proven, got ${fanResult.verdict.type}\n${fanResult.report}`);
+  check(fanResult.route === 'nu-scg', `tool fan-out: expected the nu-scg route, got ${fanResult.route}`);
+  check(fanResult.report.includes('fan-out'), 'tool fan-out: the report names the declared mint');
   const fanRun = await new BitmapNetExecutor(fan.net, new Map([[fan.plan, [tokenOf('turn-1'), tokenOf('turn-2')]]])).run(5_000);
   const mergedValues = fanRun.peekTokens(fan.merged).map(t => t.value).sort();
   check(JSON.stringify(mergedValues) === '["turn-1","turn-2"]', `fan-out joins by id at runtime, got ${JSON.stringify(mergedValues)}`);
@@ -570,7 +573,7 @@ async function main(): Promise<void> {
     verdictLine(hostResult),
     `route: ${hostResult.route}`,
     '',
-    `[tool-fanout] two plans in flight, join matched on call id, deadlockFree, sink merged, fragmentMode extended, carriers search, fetch`,
+    `[tool-fanout] two plans in flight, join matched on call id, deadlockFree, sink merged, mint fan-out, fragmentMode extended, carriers search, fetch`,
     verdictLine(fanResult),
     `route: ${fanResult.route}`,
     '',

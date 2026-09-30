@@ -35,7 +35,9 @@ This document specifies input cardinality and composite output routing semantics
 - `consumptionCount(available)` returns N (when available >= N)
 
 **Acceptance Criteria:**
-1. Construction with N < 1 is rejected (error or panic).
+1. Construction with N < 1 is rejected (error or panic). Where the language lets the spec be
+   written out without the constructor (a public enum variant, an object literal), building
+   the transition rejects it.
 2. Transition enables only when place has >= N tokens.
 3. Exactly N tokens consumed on firing (the N oldest, FIFO).
 4. Place with N-1 tokens → transition not enabled.
@@ -74,7 +76,8 @@ This document specifies input cardinality and composite output routing semantics
 - `consumptionCount(available)` returns `available` (consumes all when available >= minimum)
 
 **Acceptance Criteria:**
-1. Construction with minimum < 1 is rejected (error or panic).
+1. Construction with minimum < 1 is rejected (error or panic), also when building a
+   transition from a spec written out without the constructor, as for [IO-002].
 2. Transition enables when place has >= minimum tokens.
 3. All tokens consumed on firing (not just minimum).
 4. Place with minimum-1 tokens → transition not enabled.
@@ -262,6 +265,15 @@ in place.
    equals the original's and is **not** re-stamped from the epoch clock, while a minted recovery
    token in the same branch *is*. Where it forwards values, both are stamped from the epoch clock
    and the divergence above is documented.
+6. **Analysis deposits what the executor deposits.** Every analysis that expands output
+   branches ([IO-016], [VER-001]) models a timeout forward with the count of AC2: a
+   `ForwardInput(from, to)` whose `from` input is `One` or `Exactly(n)` deposits `1` or `n`
+   tokens in `to` on the timeout outcome, not one. On `t: exactly(2, a) → xor(c, timeout(50,
+   forwardInput(a, b)))` from `{a: 2}`, `PlaceBound(b, 1)` is `Violated` on every route. A
+   forward from an `All` / `AtLeast` input deposits the drained batch, a marking-dependent
+   count, a transfer: the graph routes, which fire each marking, count it exactly and decide
+   the net, while the routes that read the flat net, which no post vector can hold it in,
+   refuse it ([VER-001] AC5).
 
 **Implementation status:** **Rust** forwards tokens and preserves `created_at`, with a test pinning
 the asymmetry against a minted sibling. **Java** forwards values (`TransitionContext.inputs`
@@ -270,7 +282,8 @@ and Python unassessed against AC5.
 **Depends on:** [IO-007], [EXEC-010], [TIME-015], [MOD-024]
 **Test derivation:** Transition with input P1 and ForwardInput(P1, P2) in timeout; action
 times out; verify P2 receives the original P1 values. Repeat with `all()` and
-`exactly(3)` on P1 over 3 tokens; verify P2 receives all 3 in order.
+`exactly(3)` on P1 over 3 tokens; verify P2 receives all 3 in order. The AC6 net verified at
+enumeration budgets 0 and the default: `Violated`, with a one-step trace ending at `{b: 2}`.
 
 ---
 
@@ -381,10 +394,18 @@ A branch is a **set** of places: it says which places receive a token when the b
 taken, not how many tokens each receives. Every analysis built on the enumeration — the
 state-class graph's virtual transitions ([VER-010]), the flattener's post vectors behind
 the SMT encoding ([VER-001]), the ν fragment check ([NU-051]) — deposits **one** token per
-place of the chosen branch. An action that writes `n > 1` tokens to a place its branch
-names once conforms to [IO-015] (which reads the produced set) but is outside what those
-analyses explore, in the direction that can make a `proven` false. A net meant to be
+place of a branch the action writes. An action that writes `n > 1` tokens to a place its
+branch names once conforms to [IO-015] (which reads the produced set) but is outside what
+those analyses explore, in the direction that can make a `proven` false. A net meant to be
 verified expresses multiplicity in its topology, and the executor makes the gap visible:
+see AC4.
+
+The branches describe what an **action** writes. A firing whose `Timeout` fires ([IO-013])
+deposits differently: only the timeout child's places (AC5 of [IO-013]), and one token in a
+`ForwardInput`'s `to` per token consumed from its `from` ([IO-014]). The analyses therefore
+expand a transition into its branches, in the order above, followed by the **timeout
+outcome** when it differs from every branch ([VER-001]). On a spec whose timeout child has
+no sibling in its branch and forwards at most one token, the list is the branches alone.
 
 **Acceptance Criteria:**
 1. `And(P1, P2)` → 1 branch: {P1, P2}

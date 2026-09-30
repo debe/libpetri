@@ -22,6 +22,6 @@ route: enumeration
 verdict: Proven
 route: enumeration
 
-[tool-fanout] two plans in flight, join matched on call id, deadlockFree, sink merged, fragmentMode extended, carriers search, fetch
+[tool-fanout] two plans in flight, join matched on call id, deadlockFree, sink merged, mint fan-out, fragmentMode extended, carriers search, fetch
 verdict: Proven
 route: nu-scg

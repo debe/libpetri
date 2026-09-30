@@ -9,10 +9,10 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 ## Summary
 
 - Active requirements: **224**
-- Proven in Lean (≥ 1 validated theorem fragment): **31**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **12**
-- Referenced by ≥ 1 test file: java **99**, typescript **97**, rust **110**, python **53**
-- Untested anywhere (no test-file reference in any language): **107**
+- Proven in Lean (≥ 1 validated theorem fragment): **34**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **40**
+- Referenced by ≥ 1 test file: java **107**, typescript **106**, rust **119**, python **61**
+- Untested anywhere (no test-file reference in any language): **98**
 
 ## 01-core-model.md — CORE
 
@@ -27,14 +27,14 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-013 | — | — | — | — | ✓ | — |
 | CORE-020 | — | — | — | — | — | — |
 | CORE-021 | — | — | — | — | ✓ | — |
-| CORE-022 | — | — | — | — | — | — |
+| CORE-022 | — | ✓ | — | ✓ | ✓ | — |
 | CORE-030 | `canEnable_insufficient_for_totality` — AC3 retrodiction of divergence (c): with duplicate input arcs on one place, cardinality_check passes each spec individually yet the second ring_remove_first finds the head empty — compile-time duplicate-input-place rejection (DistinctInputPlaces) is necessary for consumption totality | ✓ | ✓ | ✓ | ✓ | ✓ |
-| CORE-031 | — | — | — | — | — | — |
-| CORE-032 | — | — | — | — | — | — |
+| CORE-031 | — | ✓ | — | — | — | — |
+| CORE-032 | — | ✓ | — | — | — | — |
 | CORE-033 | — | — | — | — | — | — |
-| CORE-034 | `reset_arc_semantics` — AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled<br>`fireA_reset_empty` — AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard | ✓ | — | ✓ | ✓ | — |
+| CORE-034 | `reset_arc_semantics` — AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled<br>`fireA_reset_empty` — AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard | ✓ | ✓ | ✓ | ✓ | — |
 | CORE-035 | — | — | — | — | ✓ | — |
-| CORE-036 | — | — | — | — | — | — |
+| CORE-036 | — | ✓ | — | ✓ | ✓ | — |
 | CORE-037 | — | — | ✓ | ✓ | ✓ | ✓ |
 | CORE-040 | — | — | — | — | ✓ | — |
 | CORE-041 | — | — | — | — | — | — |
@@ -59,35 +59,35 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| IO-001 | — | — | — | — | — | — |
-| IO-002 | — | — | — | — | — | — |
+| IO-001 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IO-002 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-003 | — | — | — | — | — | — |
-| IO-004 | — | — | — | — | — | — |
-| IO-005 | — | — | — | — | — | — |
+| IO-004 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IO-005 | — | ✓ | — | — | — | — |
 | IO-007 | `token_conservation` — the balance side of the contract: consumption removes exactly the consumptionCount prefix — no token beyond it leaves an input place in one firing<br>`consume_faithful` — delivered count is consumptionCount(available): required count for One/Exactly, full drain for All/AtLeast — the interpreter realises the spec's consumptionCount column | ✓ | ✓ | ✓ | ✓ | — |
-| IO-010 | — | — | — | — | — | — |
-| IO-011 | — | — | ✓ | ✓ | ✓ | ✓ |
-| IO-012 | — | — | — | — | — | — |
-| IO-013 | — | — | ✓ | ✓ | ✓ | — |
-| IO-014 | — | — | — | ✓ | ✓ | — |
+| IO-010 | — | ✓ | — | — | — | — |
+| IO-011 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IO-012 | — | ✓ | — | — | — | — |
+| IO-013 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IO-014 | `forward_exactly_two_breaks_unit_output` — retrodiction of the pre-fix analyses: on exactly(2, a) -> xor(c, timeout(forward(a, b))) the executor's timeout deposit [b, b] is no row of the one-token-per-leaf expansion, and no old branch satisfies UnitOutput for it (by decide) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-015 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| IO-016 | — | — | ✓ | ✓ | ✓ | ✓ |
+| IO-016 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-017 | — | — | — | — | — | — |
 
 ## 03-timing.md — TIME
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| TIME-001 | — | — | — | — | — | — |
-| TIME-002 | — | — | — | — | — | — |
-| TIME-003 | — | — | — | — | — | — |
+| TIME-001 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| TIME-002 | — | — | ✓ | ✓ | ✓ | ✓ |
+| TIME-003 | — | ✓ | — | — | — | — |
 | TIME-004 | — | — | — | — | — | — |
-| TIME-005 | — | — | ✓ | — | — | — |
+| TIME-005 | — | ✓ | ✓ | — | — | — |
 | TIME-006 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-010 | `collect_ready_general_refines` — ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md) | ✓ | — | — | ✓ | — |
-| TIME-011 | `pb_update_reenables` — the precompiled post-reap re-enablement takes the shared newly-enabled path with a restarted clock (enabled_at = now) - restart-from-zero on re-enablement, on the control-cell fragment | ✓ | — | — | ✓ | — |
+| TIME-011 | `pb_update_reenables` — a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit) | ✓ | — | — | ✓ | — |
 | TIME-012 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| TIME-013 | `deadline_reap_dirty_diverges` — witness that the two shipped enforce_deadlines diverge observably after a reap (precompiled re-dirties, bitmap does not) on a one-transition quiet-net control-cell model - establishes the behaviors differ, does not rule which is spec-correct (post-reap re-enablement is unaddressed by TIME-013)<br>`bb_never_fires_after_reap` — the bitmap side of the divergence: with no token mutation after a reap, the transition stays disabled over every schedule (no re-dirty route exists) - quiet-net fragment only<br>`bb_reaped_stays_disabled` — induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the bitmap cycle over any schedule | ✓ | ✓ | ✓ | ✓ | ✓ |
+| TIME-013 | `deadline_reap_dirty_diverges` — retrodiction of the pre-ruling precompiled re-arm: before the 2026-09-30 TIME-013 ruling the precompiled enforce_deadlines re-dirtied a reaped transition and fired it once its window reopened, the bitmap one never did, on a one-transition quiet-net control-cell model; the ruling took the bitmap side for both backends<br>`bb_never_fires_after_reap` — the TIME-013 ruling, 'stays disabled': with no token mutation after a reap the transition never fires again, over every schedule, in both backends since the ruling - quiet-net control-cell fragment only<br>`bb_reaped_stays_disabled` — induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the shipped cycle over any schedule<br>`reaped_rearms_on_touch` — the TIME-013 ruling, 'until an input changes': a token change marks the reaped cell dirty and the next cycle re-enables it on the fresh clock without reaping it again - one control cell, the token change abstracted to a dirty mark and a presence bit<br>`rest_sound` — holds for any reaping rule that leaves non-reapable transitions alone | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-014 | — | — | — | — | — | — |
 | TIME-015 | — | ✓ | ✓ | ✓ | ✓ | — |
 
@@ -95,7 +95,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| EXEC-001 | — | — | ✓ | ✓ | ✓ | — |
+| EXEC-001 | — | ✓ | ✓ | ✓ | ✓ | — |
 | EXEC-002 | `collect_ready_general_refines` — ready-collection phase only: the canonical (priority DESC, enabled_at ASC, tid ASC) order is the unique sorted permutation of the ready set and both backends' outputs equal it; abstract Nat clocks<br>`tid_order_diverges` — retrodiction of divergence (a): the pre-fix ascending-tid per-level drain is provably not the canonical enablement-time order on a two-transition witness — a divergence witness for the fixed bug, not a positive property of the shipped code | ✓ | ✓ | ✓ | ✓ | — |
 | EXEC-003 | `disable_frame` — loser path only: disable changes no token counts, so skipping dirty-marking for the conflict loser is sound (the winner's consume already marked it); the competitive re-check itself is covered by the immediate-fragment refinement<br>`updateEnablement_sync` — the loser re-evaluation EXEC-003 relies on: after the winner's consume marks competitors dirty, the scan re-derives exact enablement for them; untimed enablement predicate only<br>`precompiled_refines_bitmap_immediate` — both backends make identical conflict decisions on the untimed/immediate fragment (same control bits, same ready order, same winner/loser outcomes); timed competitive scheduling out of scope | ✓ | ✓ | ✓ | ✓ | ✓ |
 | EXEC-010 | `token_conservation` — single-firing consume phase on the compiled consume program: every place's pre-fire FIFO queue is exactly delivered ++ reset-destroyed ++ survivors as an ordered list equality — nothing lost, nothing duplicated; async plumbing out of scope<br>`consume_faithful` — each input place delivers exactly its FIFO prefix into the action's inputs, in queue order; single firing on the compiled consume program | ✓ | ✓ | — | ✓ | — |
@@ -106,17 +106,17 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXEC-022 | — | — | ✓ | ✓ | ✓ | — |
 | EXEC-030 | — | — | — | — | — | — |
 | EXEC-031 | — | — | ✓ | ✓ | ✓ | ✓ |
-| EXEC-040 | — | — | — | — | — | — |
+| EXEC-040 | — | ✓ | — | — | — | — |
 | EXEC-041 | — | — | ✓ | ✓ | ✓ | — |
-| EXEC-042 | — | — | ✓ | ✓ | ✓ | ✓ |
+| EXEC-042 | `split_covers_executor` — the strict stop gates every step of the executor and the split net; an action in flight at the stop is abandoned, which the covering state represents as in flight<br>`split_stop_sound` — covers the executor's terminal stop, which abandons the actions in flight<br>`quiescent_count_stop_sound` — the actions a terminal stop abandons cannot leave a QuiescentCount lower bound short unseen<br>`terminal_stop_witness` — witness that a terminal stop abandons an action in flight | ✓ | ✓ | ✓ | ✓ | ✓ |
 | EXEC-050 | — | — | — | — | — | — |
 
 ## 05-concurrency.md — CONC
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| CONC-001 | — | — | — | — | — | — |
-| CONC-002 | — | — | — | — | — | — |
+| CONC-001 | — | — | — | — | ✓ | — |
+| CONC-002 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CONC-003 | — | — | — | — | — | — |
 | CONC-004 | — | — | — | — | — | — |
 | CONC-005 | `fireConsume_dirty_sound` — dirty-set soundness over one firing's consume phase: any state change that can flip another transition's enablement marks it dirty (canEnable reads only touched places, affected_transitions covers every toucher); bit granularity — u64 word packing and two-level summaries out of scope<br>`updateEnablement_sync` — the dirty scan restores exact enablement: after update_enablement every transition's enabled bit equals canEnable (clean bits were accurate, dirty bits recomputed) — what makes the dirty-set optimization behaviorally invisible; bit granularity | ✓ | — | — | — | — |
@@ -141,7 +141,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ENV-001 | — | — | — | — | — | — |
 | ENV-002 | — | — | — | — | — | — |
 | ENV-003 | — | — | — | — | — | — |
-| ENV-004 | — | — | ✓ | ✓ | — | — |
+| ENV-004 | — | ✓ | ✓ | ✓ | — | — |
 | ENV-005 | — | — | — | ✓ | ✓ | — |
 | ENV-006 | — | — | — | — | — | — |
 | ENV-010 | — | — | — | — | — | — |
@@ -156,26 +156,26 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| VER-001 | — | — | ✓ | ✓ | ✓ | ✓ |
-| VER-002 | `quiescent_count_clause_exact` — AC8: the flat encoder's QuiescentCount Bad is exactly quiescent and ((count < min and every waiver empty) or count > max), so its false fallbacks ([0, inf), no quiescent marking) hide no violation - quiescence encoding taken as a parameter; counted places assumed resolved and duplicate-free as index_ordered returns them | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-003 | — | — | ✓ | ✓ | ✓ | ✓ |
-| VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-001 | `deposit_mem_fixedRows` — every way a firing can end (an action branch, or the timeout outcome of IO-013 AC5 / IO-014 AC2) is a row of the fixed expansion branch_outcomes::outcomes, up to order, when every forward draws from a One/Exactly input; binary And/Xor<br>`fixedRows_mem_deposit` — every row of the fixed expansion is a deposit some firing makes, when every forward draws from a One/Exactly input<br>`drained_forward_has_no_row` — AC5: a timeout forward from an All input deposits a marking-dependent count that no constant row matches, the reason the verifier refuses such nets | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-002 | `quiescent_count_clause_exact` — AC8: the flat encoder's QuiescentCount Bad is exactly quiescent and ((count < min and every waiver empty) or count > max), so its false fallbacks ([0, inf), no quiescent marking) hide no violation - quiescence encoding taken as a parameter; counted places assumed resolved and duplicate-free as index_ordered returns them<br>`quiescent_count_stop_sound` — AC8 lower bound at a terminal stop: with every depositor into a counted or waiver place split (quiescent_count_demand), a Proven of the split net holds at every stop of the executor; untimed<br>`rest_sound` — every marking a timed run of either backend rests at is untimed-reachable and reap-quiescent; atomic firings (sync actions), no environment places<br>`reap_aware_ac3` — reap-aware quiescence (every enabled transition reapable) is the sound reading for the four quiescence properties<br>`witness_caught` — the ReapingVsUntimed witness is caught: the timed run rests at a reap-quiescent marking that strands a token, so the reap-aware DeadlockFree is not Proven while the strict one is<br>`reap_quiescent_iff_quiescent` — with no reapable transition, reap-quiescence is the strict quiescence: nothing changes on untimed nets | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-003 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-004 | `proposition_one` — abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted<br>`guard_hypothesis_is_necessary` — necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)<br>`unit_output_hypothesis_is_necessary` — necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder<br>`bad_rule_nonvacuity` — the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case<br>`old_rows_prove_bound_one` — the pre-fix flat net of that transition reaches only b <= 1 from alpha(M0), so placeBound(b, 1) was Proven of the model while the concrete timed-out firing reaches b = 2 (timeout_firing_reaches_b_two)<br>`forward_reachability_simulated` — Proposition 1 alpha(R(N)) subset R(N-hat) with deposit rows as post vectors (timeout outcomes and multi-token forwards included), under GuardFreeConsumeAll and One/Exactly forward sources; untimed, counts only, the encoder modelled not extracted<br>`split_covers_executor` — AC4-AC6: the in-flight split net covers every interleaving of action starts and completions for any split set containing the transitions with a non-monotonically tested output; untimed, no priorities, no environment places, refusals and ctx.flush() not modelled<br>`atomic_covers_executor` — AC4: with no output tested non-monotonically every interleaving of starts and completions is matched by an atomic run (the commutation lemma); untimed, no priorities<br>`split_safety_sound` — a Proven of an upward-closed marking property on the split net holds at every executor state, actions in flight or abandoned included; untimed, no priorities<br>`split_rest_sound` — where nothing is in flight the executor's marking is a split-net marking with nothing pending, so a quiescence Proven covers the executor's non-terminal rests; untimed, no priorities<br>`split_stop_sound` — a Proven of a property that reads a place set Q exactly and the rest upward-closed holds at every executor state when no transition outside the split deposits into Q<br>`terminal_stop_witness` — the terminal demand is needed: on t: a -> ok, f: s -> done (terminal), QuiescentCount([a, ok], 1), the plain split never falls short, the executor stops with a = ok = 0, and the split with t added reaches that stop<br>`inflight_witness` — the split criterion is needed: an inhibitor on t's output lets the executor mark bad with t in flight, which the atomic net never does and the split net does<br>`reap_aware_ac3` — AC3 for the quiescence properties under reap-aware quiescence: a Proven of ReapQuiescentA and Q over the untimed reachable set means no timed run rests at a marking with Q; atomic firings, no environment places, not composed with the in-flight split<br>`marking_ac3` — AC3 for the marking properties: a Proven for a predicate of the marking holds at every cycle start of every timed run; atomic firings, no environment places | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-005 | `invariant_strengthening_sound` — weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment<br>`strengthened_reach_eq` — under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound<br>`consume_all_hypothesis_is_necessary` — live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard<br>`certificate_sound` — certificate check: a weight vector passing the column-wise y.C = 0 recheck of validate_invariants_exact over the flat incidence matrix (C[k][p] = post - pre) plus the H1 guard is constant along ReachA; injection-free fragment | ✓ | — | — | ✓ | — |
 | VER-006 | `false_proven_without_injection` — retrodiction of 98b9297: without the environment-injection rule the abstract reachable set freezes at M0, so PlaceBound(p1, 0) is proven vacuously — the pre-fix false Proven, on the minimal one-env-place witness net<br>`injection_reaches_violation` — with the injection rule (encode_injection_rule) encoded, the vacuous bound above is refuted (p1 reaches 1) — witnesses the fix on the minimal net, not full environment-analysis-mode soundness<br>`invariant_strengthening_sound_inj` — env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design<br>`strengthened_reach_eq_inj` — under H1+H2+H3', strengthening preserves the injected reachable set<br>`injection_hypothesis_is_necessary` — necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-007 | `semiflow_union_sound` — AC2/AC5: conjoining basis ++ semiflows into the CHC rule bodies preserves the abstract reachable set whenever every member passed the exact gate (H1+H2) - the union is pure strengthening and can never turn Violated into Proven; injection-free fragment, encoder modelled not extracted<br>`semiflow_union_sound_inj` — the env-aware union: with injection rules present the same holds under H3' (zero weight on injectable places), which the injector columns force through the gate<br>`semiflow_gate_is_necessary` — AC1: a semi-positive y.C = 0 row - exactly what the Farkas enumeration returns - that fails H1 prunes a genuinely reachable violating state, so the semiflow source must pass the same gate as the basis rows<br>`strengthening_monotone` — appending one more validated law never changes what the strengthened relation reaches - the monotone-safety of adding laws<br>`farkas_output_semiflow` — the semiflow source is correct: every vector the modelled compute_p_semiflows elimination returns (init rows (C column, e_p), per-column zero rows plus (-rn[t]) rp + rp[t] rn combinations, gcd reduction, any sub-selecting prune standing for the overflow drop, candidate cap, keep_support_minimal and truncation) is non-negative, nonzero, supported below place_count and annihilates every incidence column; unbounded integers, env-injector columns not modelled, completeness not claimed<br>`farkas_output_sound` — Farkas correctness end to end: every enumerated semiflow that passes the H1 guard keeps y.M = y.M0 (its emitted constant) on every abstract reachable marking; injection-free fragment | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-010 | — | — | ✓ | ✓ | ✓ | — |
+| VER-010 | — | ✓ | ✓ | ✓ | ✓ | — |
 | VER-011 | `empty_iff_flagged` — AC2: zone emptiness is detected exactly - for a DBM with a finite reference row, the modelled in-place Floyd-Warshall canonicalize (Rust k/i/j loop order) followed by the negative-diagonal check flags the zone empty iff it has no solution (exact rationals, eps = 0; flagged_empty gives soundness at any eps >= 0, so the 1e-9 tolerance can only miss an emptiness, never invent one); floating point, let_time_pass and fire_transition not modelled<br>`closed_canon` — canonical form: without negative cycles the in-place Floyd-Warshall pass returns a closed matrix (D i j <= D i k + D k j), and sat_canon shows canonicalisation never changes the solution set<br>`sat_permD` — AC4: permuting the clocks (permuted) maps the zone bijectively (theta to theta o sigma) and closed_permD keeps a canonical matrix canonical, so the reordered positional key denotes the same zone; the zone_key string rendering is not modelled | ✓ | ✓ | — | ✓ | — |
 | VER-012 | `interned_keys_eq` — hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven<br>`interned_edges_eq` — the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed<br>`equivariance_is_necessary` — necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-013 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-014 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-015 | — | — | ✓ | ✓ | ✓ | ✓ |
+| VER-015 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-016 | `rows_hold` — AC2: on every reachable augmented state (M, n) of the untimed abstraction with injection, every non-injected place satisfies its row - equality where no consume-all/reset arc clears it, the upper bound where one does; encoder modelled, not extracted<br>`state_equation_reach_eq` — conjoining the rows and gate-validated P-invariants (H1, H2, H3') into the transition-rule bodies preserves the reachable augmented set - the option is pure strengthening; certificate check (AC3) and script identity (AC5) not covered<br>`equality_row_is_unsound_on_a_clearing_place` — AC2 necessity: on an In::All place a reachable augmented state violates the equality row while satisfying the upper bound - why a clearing place carries <= instead of = | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-017 | `net_enumeration_exact` — what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete for the model, and for the shipped route under two assumed premises; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality (the second premise), state-space cache reuse, counterexample path and closing-on-small-nets not modelled<br>`run_complete_iff_reach` — the worklist invariant for any successor function: a run that reports complete has discovered exactly the reachable set (every class reachable; every class not waiting in the queue has all successors discovered)<br>`build_reach` — verdicts from a truncated graph: every class a run discovered is reachable whether or not the run closed (budget, fuel or stop), so a safety violation read off the explored prefix is a reachable bad state; the quiescence half (only expanded classes count) rests on the FIFO/expanded-count premise about the Rust, not proven here, and nothing is claimed for Proven from a prefix | ✓ | ✓ | ✓ | ✓ | ✓ |
-| VER-018 | — | — | ✓ | ✓ | ✓ | ✓ |
-| VER-019 | — | — | ✓ | ✓ | ✓ | ✓ |
-| VER-020 | `commoner` — AC2: Commoner's theorem over the CHC relation ReachA for ordinary nets (commoner_applies: no read/inhibitor/reset arc, no consume-all input, arc weight <= 1) - if every nonempty siphon contains an initially marked trap, no reachable marking is dead; built on siphon_stays_empty (any arcs) and trap_stays_marked (no reset/consume-all on the trap); the Rust fixpoint loops and the minimal-siphon reduction are not modelled<br>`ordinary_is_necessary` — AC3: the spec's witness t: exactly(2, a) -> a from {a:1} satisfies the full siphon/marked-trap condition yet is dead initially, so the arc-weight guard of commoner_applies is load-bearing<br>`marked_trap_is_necessary` — the ordinary cycle a -> b -> a from the empty marking has a nonempty trap in every nonempty siphon yet is dead initially - Commoner needs the trap marked, which is why structural_check requires each minimal siphon's maximal trap to hold a token under the initial marking (it answers PotentialDeadlock on this net) | ✓ | ✓ | — | ✓ | — |
+| VER-018 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-019 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-020 | `commoner` — AC2: Commoner's theorem over the CHC relation ReachA for ordinary nets (commoner_applies: no read/inhibitor/reset arc, no consume-all input, arc weight <= 1) - if every nonempty siphon contains an initially marked trap, no reachable marking is dead; built on siphon_stays_empty (any arcs) and trap_stays_marked (no reset/consume-all on the trap); the Rust fixpoint loops and the minimal-siphon reduction are not modelled<br>`ordinary_is_necessary` — AC3: the spec's witness t: exactly(2, a) -> a from {a:1} satisfies the full siphon/marked-trap condition yet is dead initially, so the arc-weight guard of commoner_applies is load-bearing<br>`marked_trap_is_necessary` — the ordinary cycle a -> b -> a from the empty marking has a nonempty trap in every nonempty siphon yet is dead initially - Commoner needs the trap marked, which is why structural_check requires each minimal siphon's maximal trap to hold a token under the initial marking (it answers PotentialDeadlock on this net) | ✓ | ✓ | ✓ | ✓ | — |
 | VER-021 | — | — | — | — | — | — |
-| VER-022 | — | — | ✓ | ✓ | ✓ | ✓ |
+| VER-022 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-023 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 08-events-observability.md — EVT
@@ -284,16 +284,16 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
 | NU-001 | — | ✓ | ✓ | — | ✓ | — |
-| NU-010 | — | — | ✓ | ✓ | ✓ | ✓ |
+| NU-010 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-011 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-020 | `match_cache_lockstep` — incremental match-cache lockstep: under the three-conjunct fast-path eligibility gate of init_match_caches, cache contents equal the from-scratch per-name FIFO recompute of the live ring after any sequence of modeled pool mutations - queue contents only, at one correlated input's granularity; name selection/tie-break not covered<br>`fire_muts_lockstep` — the eligibility gate isolates a cached place: foreign firings emit no mutation on it, the owner's consume phase is exactly one fixed-count matched consume mirrored by the matcher - consume phase modeled per place, produce/inject as mirrored adds<br>`one_exactly_is_necessary` — necessity of the One/Exactly conjunct: an AtLeast(1) correlated input consumes count_matching tokens while the fixed-consume matcher pops only the minimum - concrete two-token desync<br>`sole_consumer_is_necessary` — necessity of the sole-consumer conjunct: a rival input arc consumes via ring_remove_first, a path with no cache call - concrete one-firing desync<br>`no_reset_is_necessary` — necessity of the never-reset conjunct: a reset arc drains the ring with no cache call - concrete one-sweep desync | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-021 | — | ✓ | ✓ | ✓ | ✓ | — |
 | NU-022 | `sync_matchedRemove_step` — the incremental consume (FIFO-within-name pop paired with ring_remove_matching) preserves content equality with the reference index's underlying queues - contents fragment only; AC2 selection equality remains the differential test's claim | ✓ | — | — | — | — |
 | NU-030 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-040 | — | — | ✓ | ✓ | ✓ | ✓ |
-| NU-050 | `canonicalKey_comp` — Route B symmetry quotient, soundness half: the modelled canonical_key (signature ranking by (signature, raw id), per-place sorted (rank, count) lists) is invariant under every permutation of the name symbols; the string rendering is not modelled (it is injective over a fixed coloured_order)<br>`canonicalKey_complete` — Route B symmetry quotient, completeness half: on finite live supports, equal canonical keys imply the name markings differ by a symbol permutation (N = M o sigma), so the quotient merges exactly the renaming orbits; name_successors equivariance remains a stated hypothesis | — | ✓ | ✓ | ✓ | ✓ |
-| NU-051 | — | — | ✓ | ✓ | ✓ | ✓ |
-| NU-052 | `willFire_guard_is_necessary` — retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment<br>`postFixPrune_agrees_with_executor` — the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer | ✓ | ✓ | ✓ | ✓ | ✓ |
+| NU-050 | `canonicalKey_comp` — Route B symmetry quotient, soundness half: the modelled canonical_key (signature ranking by (signature, raw id), per-place sorted (rank, count) lists) is invariant under every permutation of the name symbols; the string rendering is not modelled (it is injective over a fixed coloured_order)<br>`canonicalKey_complete` — Route B symmetry quotient, completeness half: on finite live supports, equal canonical keys imply the name markings differ by a symbol permutation (N = M o sigma), so the quotient merges exactly the renaming orbits; name_successors equivariance remains a stated hypothesis | ✓ | ✓ | ✓ | ✓ | ✓ |
+| NU-051 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| NU-052 | `willFire_guard_is_necessary` — retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment<br>`postFixPrune_agrees_with_executor` — the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer<br>`inFlight_guard_is_necessary` — retrodiction of the 2026-09-30 in-flight guard: a pruner whose earlier firing is in flight pre-empts nothing on the Java and TypeScript executors; the prune without the guard drops a firing they perform, the shipped one keeps it - untimed fragment, boolean name layer; the split demand (conflict_demand) that makes inflight:H observable is not modelled | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-053 | `covered_place_empty` — AC6, the column side: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero<br>`vacuous_colour_layer` — AC6, the rule side: every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan is exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-054 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-060 | — | — | ✓ | ✓ | ✓ | ✓ |

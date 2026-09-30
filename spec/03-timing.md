@@ -15,13 +15,37 @@ Each transition has an associated timing specification that defines when it can 
 - The transition SHOULD be disabled after `latest` time units (deadline enforcement)
 
 A maximum duration constant (e.g., ~100 years) represents "no constraint" on the upper bound.
+An earliest bound above it is rejected at construction, the way a negative one is:
+`delayed(after)`, `window(earliest, latest)` and `exact(at)` throw (Rust panics) when `after`,
+`earliest` or `at` exceeds the maximum duration. `delayed(after)` has the interval
+`[after, maximum]`, which would be empty, and a state-class graph would read a transition that
+can fire as one that never can: a false timed deadlock and a wrong `SPURIOUS_UNDER_TIMING`
+([VER-023]). `window` and `exact` follow because a verifier that drops their latest bound reads
+them as `delayed(earliest)` ([VER-002]).
+
+The same checks apply to a timing written out without a factory. Where the variants can be
+constructed directly (Rust's public `Timing` enum variants, a TypeScript object literal), the
+transition builder runs the factory's check again when the transition is built and fails with
+the factory's message. Java's timing records run the check in their constructors, so no timing
+escapes it there. Without this, `Timing::Delayed { after_ms: MAX + 1 }` handed to a Rust
+builder reaches the verifier: the timed check reports a wrong `SPURIOUS_UNDER_TIMING`, and a
+directly written `Window` whose earliest bound is above the maximum makes the verifier panic
+when it rebuilds the window as `delayed(earliest)`.
 
 **Acceptance Criteria:**
 1. Each transition has a timing specification (defaults to Immediate).
 2. `earliest()` and `latest()` are queryable.
 3. `hasDeadline()` returns true when latest < maximum duration.
+4. `delayed`, `window` and `exact` reject an earliest bound one millisecond above the maximum
+   duration and accept one equal to it.
+5. A timing written out without a factory is held to AC4 and to the factories' other checks
+   (`deadline(0)`, `window` with latest below earliest): building a transition with one fails
+   with the factory's message, and a valid one builds unchanged.
 
-**Test derivation:** Create each timing variant; verify earliest(), latest(), hasDeadline().
+**Test derivation:** Create each timing variant; verify earliest(), latest(), hasDeadline(). For
+AC4, construct each of the three with `maximum + 1` and expect the construction error. For AC5,
+write each invalid timing out directly (a Rust enum variant, a TypeScript object literal, a Java
+record constructor) and expect the transition build (Java: the constructor) to fail.
 
 ---
 
@@ -198,9 +222,22 @@ When a transition with a **hard deadline** (`Deadline` / `Window`) exceeds its l
 1. Transition with Deadline(5s); not fired within 5s + tolerance → disabled + `TransitionTimedOut`.
 2. The tolerance is documented and configurable; the default is 5ms across implementations.
 3. An `Exact` transition observed past its target is **not** disabled (see [TIME-006]).
+4. A reaped transition does not fire again while its input places stay unchanged, on every
+   executor backend (Bitmap and Precompiled alike). Once a token on one of its input places
+   changes, it is enabled again with a fresh clock and may fire.
+
+A reaped transition keeps its input tokens and is not enabled again until a token on one of its
+input places changes, so an executor that fell behind can come to rest at a marking that still
+enables it. Verification accounts for that: a `Deadline` / `Window` transition is **reapable**, and
+every quiescence property reads a marking whose enabled transitions are all reapable as quiescent
+([VER-002], [VER-004]). The executor that reaps also fires the others late, and fires a late
+`Exact` transition after its target, so Route B ([VER-012]), the timed name-aware graph, drops the
+latest bound of every `Deadline`, `Window` and `Exact` transition for every property. The opt-out
+`assumeNoReaping` assumes an on-time executor instead; on Route B it also assumes actions that
+take no time ([VER-004] AC3).
 
 **Depends on:** [EVT-008]
-**Test derivation:** Create a `Window`/`Deadline` transition; block the executor past `latest + tolerance`; verify timeout event and disablement. Separately, verify an `Exact` transition under the same conditions still fires.
+**Test derivation:** Create a `Window`/`Deadline` transition; block the executor past `latest + tolerance`; verify timeout event and disablement. Separately, verify an `Exact` transition under the same conditions still fires. For AC4, run the reap on both backends, confirm neither fires the reaped transition and both end at the same marking, then add a later transition that deposits into its input place and confirm it fires only after that deposit.
 
 ---
 

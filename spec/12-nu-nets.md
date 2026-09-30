@@ -65,6 +65,35 @@ that is what keeps a resumed execution from re-minting a live name — so a host
 that needs the *whole* name reproduced pins the scope, and a test compares names
 structurally or pins one rather than hard-coding a default-scope name.
 
+**Mint contract (verification).** An action may write any value into a match key, a
+correlation id copied from its input included, and no analysis can tell a minting action
+from a copying one: the stock `fork()` action copies its input. So the ν routes of
+[NU-050] read a transition as a **mint**, one that writes a fresh name, only when the net
+declares it, in one of two ways:
+
+- by naming it as a mint transition on the verifier (`mintTransitions` /
+  `mint_transitions`);
+- by its consuming a declared budget place ([NU-040]), whose token is what a fork
+  consumes when it mints.
+
+A declared mint MUST write, into each coloured place ([NU-051], [NU-054]) it writes
+without consuming one, a name it minted with `freshName()` in that firing. A transition
+that writes a coloured place without consuming one and is not declared keeps the net off
+both routes, and the verifier answers through the name-blind over-approximation. What
+the executor writes on timeout ([IO-013], [IO-014]) is never a mint, declared or not: a
+`ForwardInput` copies a consumed token, name included, and an `Out.Place` writes a unit
+token, which has no name. A declared mint that is not a transition of the net MUST fail
+loudly and name it, the same way at every entry point: verification, script encoding
+([VER-013]) and open-net verification ([VER-022]), with the reason `declared mint transition
+'x' not in the net (NU-010)`. Java throws where the mint is declared, the open-net hook
+included. TypeScript throws where it is declared on a verifier, and open-net verification
+answers `Unknown`. Rust answers `Unknown` from verification and open-net verification before
+any route runs, and its script encoding panics; Python raises `ValueError` from script
+encoding. The report
+of a verdict from either route names the transitions whose mint contract it assumes. When
+Route B declines a net only because a transition writes a coloured place without consuming
+one and is not declared, the report names that transition and points at the declaration.
+
 **Acceptance Criteria:**
 1. Two `freshName()` calls — within one firing or across firings — return
    unequal names.
@@ -72,8 +101,18 @@ structurally or pins one rather than hard-coding a default-scope name.
    tokens that a [NU-020] join later correlates.
 3. For a fixed firing order and a fixed scope ([NU-011]), the sequence of minted
    names is reproducible.
+4. (MUST, where the [NU-050] routes are offered) `mA: S1 → A` and `mB: S2 → B` with the stock `fork()`, and a join on `A`, `B` into
+   `DONE`: with one correlation id in `S1` and `S2` the executor reaches `DONE = 1`, and
+   `placeBound(DONE, 0)` is not `Proven` unless `mA` and `mB` are declared mints. Declared,
+   it is `Proven` by Route B and the report names `mA, mB` under the mint contract.
+5. (MUST, where offered) `t1: budget, reqA → xor(okA, timeout(20, forwardInput(reqA, a)))`, its twin `t2` into
+   `b`, and a join on `a`, `b`: the executor forwards both requests on timeout and joins
+   them when they carry one id. `placeBound(done, 0)` is not `Proven` on either route,
+   with `t1` and `t2` declared or with `budget` a declared budget place.
+6. (MUST, where offered) A declared mint that is not a transition of the net fails loudly and
+   names it.
 
-**Depends on:** [CORE-050], [IO-011]
+**Depends on:** [CORE-050], [IO-011], [IO-013], [IO-014], [NU-040], [NU-050]
 **Test derivation:** A `fork` transition mints a name per firing and stamps both
 output branches; with three source tokens, verify three distinct names reach the
 downstream join and each pair merges (see `nu_fork_mints_unique_ids_then_join_merges`).
@@ -221,6 +260,10 @@ top of the existing input cardinalities ([IO-001]–[IO-004]):
   correlated input (FIFO within a name); non-correlated inputs consume FIFO as
   usual ([EXEC-010]).
 
+A match names each correlated input once: the input's cardinality, not a repeated key, sets how
+many tokens of the name it takes. Building a match or a transition whose match keys one place
+twice MUST fail. Every correlated input requires at least one token ([IO-002], [IO-004]).
+
 **Determinism (tie-break).** When more than one name satisfies the join, the
 implementation MUST choose by this exact rule, so all languages fire identically:
 1. the name whose **oldest matched token** (minimum `createdAt` across the
@@ -245,6 +288,9 @@ implementation MUST choose by this exact rule, so all languages fire identically
    matched name**; `All` consumes all tokens of the matched name.
 4. The tie-break selects the earliest-oldest name, then the lexicographically
    least name, identically across implementations.
+5. A match that keys one place twice is rejected when the match is built, and when a
+   transition is built with such a match from any other construction path (a bindings layer,
+   a composition remap, an object literal).
 
 **Depends on:** [IO-001], [IO-005], [CORE-022], [CORE-013]
 **Test derivation:** `nu_join_matches_by_name_not_fifo` (reversed arrival),
@@ -386,6 +432,10 @@ drawn from a finite live pool, the WSTS stays finite, and these properties becom
 provable. This is the [reask/retry-budget-as-typed-place] discipline applied to
 correlation.
 
+Declaring a budget place to the verifier also declares the mint contract of [NU-010]
+for every transition that consumes it: where such a transition writes a coloured place
+without consuming one, the ν routes read the write as a fresh name.
+
 **Acceptance Criteria:**
 1. A fork gated on a `Budget` input cannot mint more than `k` concurrently-live
    names; `PlaceBound(Budget, k)` holds.
@@ -421,13 +471,15 @@ The exactness goal MAY be realized by either of two routes:
 
 - **Route A — bounded name-colouring** (the budget made literal). Because a
   bounded `Budget` ([NU-040]) caps the live correlation groups at `k`, names are
-  modeled as a finite set of `k` **colours**: each coloured place becomes `k`
+  modeled as a finite set of `k` **colours** (`k` is the colour-slot bound of [NU-053],
+  at least the number of live names): each coloured place becomes `k`
   per-colour counts, a mint introduces a *globally fresh* colour, and a join
-  consumes the **same** colour from every correlated input. Within the budget
-  this is sound *and complete* (exact), and stays in linear arithmetic. It
-  applies to the **mint → matched-join fragment**: coloured places (the matched
-  inputs) are produced only by minting forks and consumed only by matched joins,
-  each mint costs a budget token, **budget is conserved across a mint→join pair**
+  consumes the **same** colour from every correlated input, so no counterexample
+  equates two different names. It stays in linear arithmetic, and its `Proven` is
+  sound while the declared mints and the coloured consumers keep their contracts
+  ([NU-010], [NU-051]). It applies to the **mint → matched-join fragment**: coloured
+  places (the matched inputs) are produced only by minting forks and consumed only by
+  matched joins, each mint is declared ([NU-010]), **budget is conserved across a mint→join pair**
   (a join refunds no more budget than the cheapest mint consumes, so the live
   colours stay ≤ the initial budget `k`), and coloured places carry no
   inhibitor/read/reset arc. A net outside this fragment — including one whose join
@@ -459,14 +511,39 @@ Under modelled injection ([VER-006]) Route B treats an environment place as an i
 input and so cannot observe its count or the names injected into it; it declines (`Unknown`)
 when a verdict would depend on them ([VER-006] AC8).
 
+On a timed net Route B gives a matched join a clock only while one name-symbol is present in
+every correlated input, because the executor enables the join only then ([NU-020]). A join whose
+inputs hold tokens but share no name has no clock, so its latest bound constrains no other
+firing. The clock-restart rule of [TIME-012] reads the name layer too: a firing that takes the
+bound name out of a correlated input restarts the join's clock even when the input still holds
+tokens, and a join whose inputs come to share a name starts a fresh clock then. This holds with
+and without the latest-bound relaxation for a late executor ([TIME-013]).
+
+Route B reads every coloured token through one name. It assumes that each key and relay
+projection reading a coloured place returns the name its writer put there: the name a mint
+stamped, or the name a relay or consumer carried over. The analysis cannot inspect a projection,
+so this is a contract on the net, like the mint contract of [NU-010]. Two projections that read
+one place differently, or a projection that returns no name for a written token, fall outside
+it.
+
+Both routes read a coloured write as a fresh name only for a declared mint ([NU-010]), and as
+the consumed name only for a coloured consumer ([NU-051]). A write the executor makes on timeout
+is read by what it is: a forward carries the consumed token's name and a unit token has none.
+Where no role reads a coloured write faithfully, the net is outside both routes.
+
 **Acceptance Criteria:**
 1. (**NU-050 #1**) A property whose counterexample requires two *different* names
    to be equal is not reported on the exact path, unlike the value-blind
    over-approximation.
 2. (**NU-050 #2**) An unbounded-fresh-name net without a budget place yields
    `Unknown`, not `Proven`/`Violated`.
+3. Two forks mint one name each into the two inputs of a join with `window(0, 5)`, and a
+   watchdog marks `BAD` at `delayed(10)`. Route B reports `unreachable(BAD)` violated, on time
+   and late: the join is never enabled, so its deadline does not hold back the watchdog.
+4. A join at `delayed(10)` is count-enabled from 1 ms and first shares a name at 5 ms. Route B
+   lets it fire at 15 ms at the earliest.
 
-**Depends on:** [VER-004], [NU-020], [NU-040]
+**Depends on:** [VER-004], [NU-020], [NU-040], [TIME-012]
 **Test derivation:** Encode a join whose spurious untimed counterexample equates
 two distinct correlation ids; verify the exact carve-out (Route A bounded
 name-colouring) eliminates it, while a same-name join still reaches its merge.
@@ -509,7 +586,13 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   of them (drain); it MUST NOT mint a *fresh* name into a coloured output while
   consuming a coloured token. A consume-and-remint transition is **out of
   contract** for EXTENDED — the name layer would thread the consumed name where the
-  runtime mints afresh — and such a net is not made exact by this mode.
+  runtime mints afresh, so this mode does not make such a net exact. Selecting
+  EXTENDED is the declaration of this contract, and the report of a verdict names the
+  consumers whose action writes it assumes. A write the executor makes on timeout is
+  no action write: a timeout of a coloured consumer that writes a coloured place is a
+  relay only when it forwards the consumed coloured input itself. A forward of another
+  input copies a name the consumer did not consume, and an `Out.Place` writes a unit
+  token with no name; either puts the net outside the fragment.
 
 - **Carrier places (fork-threaded co-mint).** Under EXTENDED, an author MAY declare
   intermediate **carrier** places (`carrierPlaces` / `carrier_place(s)`) that carry
@@ -566,6 +649,12 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
 7. (MUST) In both BASE and EXTENDED, a matched transition that consumes a coloured
    place through a non-key input is rejected (returns no fragment, no coloured plan),
    and a stranding such a net can reach is not reported `Proven`.
+8. (MUST) Under EXTENDED, a coloured consumer whose timeout forwards another input, or
+   writes a unit token, into a coloured place is rejected on both routes. With
+   `m1: budget → A1`, `m2: budget → A2` minting, `r1: A1, reqA → xor(okA, timeout(20,
+   forwardInput(reqA, KA)))`, its twin `r2` into `KB` and a join on `KA`, `KB`, the
+   executor reaches `done` when both requests carry one id, and `placeBound(done, 0)` is
+   not `Proven`. A consumer whose timeout forwards its coloured input is still a relay.
 
 **Depends on:** [NU-050], [VER-012], [NU-020]
 **Test derivation:** `classify` accepts a drain/relay fixture under EXTENDED and
@@ -630,12 +719,33 @@ at once — a place holding a token for each transition is no conflict. The
 name-disabled-join side-condition (`willFire`) rounds this out on ν-nets: a join
 that cannot consume the contested token must not suppress a genuine straggler.
 
+**In-flight actions.** The argument above reads each firing as one step. The executor
+deposits a firing's outputs only when its action completes ([VER-004], [CONC-002]), and
+two cases break the pruning. A transition `t` that feeds `H`'s input with an action in
+flight leaves `H` disabled, so the executor fires `L` first while the one-step model
+enables `H` at once and prunes `L`. And `H` itself in flight is not started again by the
+Java and TypeScript executors, so a refill of the contested place goes to `L`. So a
+verifier MUST, whenever it applies `CONFLICT` on a net with a ν-join, split every pruner
+`H` (a transition with strictly higher priority than another it shares a consumed input
+with) and every transition that deposits into an input or read place of a pruner, and
+MUST NOT let `H` pre-empt anything while `inflight:<H>` is marked. When one of those
+transitions cannot be split (a ν-join, or a writer into a coloured place, [VER-004]), the
+pruning is off for that call: the verdict is the `NONE` verdict and the report names the
+transition. The idiom above is such a case, because the join is a pruner and cannot be
+split. Under `assumeAtomicFiring` nothing is split and the pruning stays on, and the report
+states the atomic assumption. A direct call to Route B (Rust `verify_via_name_scg`,
+TypeScript `verifyViaNameScg`) applies no split and prunes as before; the in-flight guard
+has no effect on a net without in-flight places.
+
 **Acceptance criteria (MAY):**
 1. `NONE` is the default and the only mode an implementation MUST provide; when
    `CONFLICT` is offered, `NONE` MUST leave every existing Route B verdict unchanged.
 2. The fork-threaded co-mint plus immediate ν-join plus delayed lower-priority drain
    fixture is `Violated` under `NONE` (the spurious stall) and `Proven` deadlock-free
-   under `CONFLICT` (the join always wins the contested token).
+   under `CONFLICT` (the join always wins the contested token) on Route B called
+   directly, and through `verify()` under `assumeAtomicFiring`. Through `verify()` with
+   the split on, the join cannot be split, so the verdict equals the `NONE` verdict and
+   the report says conflict priority is off.
 3. `CONFLICT` MUST NOT over-prune: a genuine orphan — a coloured token with no
    matching sibling, so the join is name-disabled — still reports `Violated` when no
    drain clears it and `Proven` when a drain does.
@@ -648,8 +758,12 @@ that cannot consume the contested token must not suppress a genuine straggler.
 6. The multiplicity precondition prevents over-pruning: when the shared consumed
    place holds enough tokens for both transitions (e.g. two independent coloured
    tokens), `CONFLICT` MUST NOT prune the lower-priority transition.
+7. A pruner in flight pre-empts nothing: with `H: one(c) → ok` at priority 10 and an
+   asynchronous action, `L: one(c) → bad` at priority 0, `g: one(s) + inhibitor(c) → c`,
+   and a declared ν pair beside them, from `{c, s}`, `Unreachable(bad)` under `CONFLICT`
+   is `Violated` with `L` in the trace. The Java and TypeScript executors mark `bad`.
 
-**Depends on:** [VER-012], [NU-050], [NU-020]
+**Depends on:** [VER-012], [NU-050], [NU-020], [VER-004]
 **Test derivation:** the minimal ν-join vs. timed dead-letter-drain fixture is
 `Violated` under `NONE` and `Proven` under `CONFLICT`; a genuine orphan is `Violated`
 under `CONFLICT` without a drain and `Proven` with one; every verdict is attributed
@@ -702,11 +816,21 @@ Under this extension the coloured encoder:
   onward and still MUST NOT refund (the freed budget could mint a `(k+1)`-th live
   colour).
 
+The update of a coloured consumer, per colour `c`, emits `(- x 1)` for its input column
+and `(+ x 1)` for each coloured output column. A consumer that relays into its own
+input (a self-loop, `spin: a, tick → a, tock` with `a` coloured) gets **no** update term
+for that column: it keeps its `>= 1` guard and is carried over unchanged, as a join's
+key that is also a relay target is ([NU-054]). A rule updates each column once, so
+emitting both terms would keep only the `(+ x 1)` and leave the consumer unable to fire
+under any law that weights `a`.
+
 The verifier routes a bounded quiescence query to Route B first; when Route B
-truncates (`Unknown`), it **defers** to this exact, scalable Route A encoding rather
-than returning `Unknown`. A verdict from the exact coloured plan is not downgraded
-(the colour-aware deadlock does not over-fire joins), so both `Proven` and
-`Violated` are trustworthy within the budget bound.
+truncates (`Unknown`), it **defers** to this scalable Route A encoding rather
+than returning `Unknown`. A verdict from the coloured plan is not downgraded
+(the colour-aware deadlock does not over-fire joins). Its `Proven` is sound while the
+declared mints and the coloured consumers keep their contracts ([NU-010], [NU-051]);
+the report prints the colour-slot bound as `colour-slot bound k=<k>` and names the
+transitions whose contracts it assumes.
 
 For a reachability-safety property the linear state-equation bound of [VER-015] runs
 before the coloured query (after Route B). The bound is written over the flat,
@@ -738,6 +862,9 @@ is proven by the state equation in milliseconds.
    no budget token) yields the exact plan with `k = 0`: quiescence is decided, never
    downgraded to `Unknown`, and the emitted encoding is well-formed with zero colour slots.
    The plan is still refused when no covering semiflow exists.
+7. Under EXTENDED, `mint: budget → a, b` (one fresh name), `spin: a, tick → a, tock` and a
+   join on `a`, `b`, from `{budget, tick}`: `placeBound(tock, 0)` is `Violated` through
+   the coloured encoding, since `spin` can fire.
 
 **Depends on:** [NU-050], [NU-051], [VER-004], [VER-006], [VER-012], [VER-015]
 **Test derivation:** a co-mint→join net is `Proven` deadlock-free via Route A when
@@ -798,7 +925,8 @@ against what the action does.
 every join are unioned into the coloured set, as declared carrier places are, **before** the fragment
 rules below are checked, so the off-key and read/inhibitor/reset rules apply to relay targets as
 to any coloured place. A relay target no join consumes is still coloured: its consumers take the
-[NU-051] consume role and any other producer the mint role. A join firing on
+[NU-051] consume role and any other producer the mint role, when it is a declared mint
+([NU-010]). A join firing on
 symbol `s` removes `s` from its keys as before, then adds `s` **once** to each relay target in the
 fired branch. A branch with no relay target drains `s`, as a join does today; an `Xor` join may
 relay on one branch and drain on another. The step mints nothing, so the live-name pool does not
@@ -830,7 +958,14 @@ still rejects, falling back to the sound over-approximation with an "EXTENDED de
 - a relay target that the same join also consumes through an input that is **not** one of its
   match keys (the off-key rule of [NU-051] AC7, which the relay target meets once it is coloured);
 - a relay target carrying a read, inhibitor or reset arc on any transition (the exclusion of
-  [NU-051], for the same reason).
+  [NU-051], for the same reason);
+- a join whose `Timeout` branch writes a relay target by anything other than a forward of one of
+  its match keys. The runtime check above covers timeout deposits too: an `Out.place` leaf writes a
+  unit token with no name, and a forward of another input carries that input's name, so that
+  firing fails and deposits nothing. The name layer would relay the matched name instead, and a
+  later join could then fire in the graph but not at run time. A forward of a match key carries
+  the matched name and is admitted. This is the same rule the coloured consumer of [NU-051] and
+  the declared mint of [NU-010] follow for their timeout writes.
 
 Under **BASE** the relay declarations are ignored by the analyzer, as declared carriers are: the
 coloured set is the match keys alone, and a join producing one is rejected as it is today. BASE is
@@ -854,7 +989,10 @@ the declaration was ignored and name EXTENDED. The runtime check is independent 
    second, independent mint reports `done` unreachable: no two different names are equated.
 4. (MUST) Under EXTENDED, a join that produces a coloured place not declared as a relay target,
    or that consumes its relay target through a non-key input, is rejected (no fragment), as is a
-   relay target with a read, inhibitor or reset arc.
+   relay target with a read, inhibitor or reset arc. So is a join whose timeout writes a relay
+   target as a unit token or as a forward of a non-key input: on the AC3 chain with `j1`'s output
+   `xor(C, timeout(C))`, `deadlockFree` is not `Proven`, and neither Route B nor Route A decides
+   it. The same chain with `timeout(forwardInput(A, C))` is still `Proven` through Route B.
 5. (MUST) Under BASE, a net whose only change is a relay declaration gets the verdict it got
    without one, and the report names the ignored declaration.
 6. (SHOULD) Route A ([NU-053]) and Route B agree on every small relay fixture both decide.
@@ -935,11 +1073,12 @@ it decides; on the proven quiescence cases it returns `Unknown` (Spacer).
   cases (and timed ν-nets) to the **Route B** name-aware state-class graph; only
   when Route B also cannot bound the live-name pool (graph truncation) does the
   verdict remain `Unknown`.
-- The [NU-050] exact carve-out (**Route A — bounded name-colouring**) is
+- The [NU-050] carve-out (**Route A: bounded name-colouring**) is
   implemented for the **mint → matched-join fragment** of a budget-declared
-  ν-net: there, reachability-safety properties are decided *exactly* (sound and
-  complete within the budget `k`) — no spurious different-name counterexample —
-  so neither `Proven` nor `Violated` carries the over-approximation caveat. A
+  ν-net: there, reachability-safety properties are decided over `k` colour slots,
+  with no counterexample that equates two different names, so neither `Proven` nor
+  `Violated` carries the over-approximation caveat. The verdict rests on the mint and
+  relay contracts ([NU-010], [NU-051]). A
   budget-declared ν-net **outside** that fragment falls back to the sound
   over-approximation: a reachability-safety `Proven` is sound (the real net fires
   strictly fewer joins) and a `Violated` is flagged as possibly spurious pending
@@ -949,7 +1088,8 @@ it decides; on the proven quiescence cases it returns `Unknown` (Spacer).
   it through `verify`; Java and TypeScript port it byte-faithfully, sharing the
   canonical name-partition key format). It decides reachability-safety **and**
   quiescence over the mint → matched-join fragment **without requiring a declared
-  budget** (finiteness comes from the name-permutation symmetry quotient), and
+  budget** for finiteness (that comes from the name-permutation symmetry quotient;
+  the mints are still declared, [NU-010]), and
   composes with the timed firing domain (name × time). It is solver-free (it does
   not invoke Z3). The verifier keeps Route A's bounded name-colouring as the
   primary path for budget-declared, untimed reachability-safety (Z3 IC3 scales

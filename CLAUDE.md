@@ -75,10 +75,19 @@ As of 2026-09-20 that reports 0 errors and 43 warnings, all of them pre-existing
 
 **`python3 scripts/lean-fidelity-check.py` is a CI gate** (`.github/workflows/ci.yml`) and is easy
 to miss because it is not a cargo command. The Lean development pins specific Rust items by
-**content hash** (`lean/fidelity.toml`, hashes in `lean/fidelity.lock`), so editing a pinned item — `run_sync`,
-`Token`, and ~110 others — fails the check even when every cargo gate is green. The failure is the
+**content hash** (`lean/fidelity.toml`, hashes in `lean/fidelity.lock`), so editing a pinned item (`run_sync`,
+`Token`, or any other of the 229 pins) fails the check even when every cargo gate is green. The failure is the
 point: it forces you to re-read the named Lean model and confirm it still describes the changed
 Rust before re-pinning. Run `--update` only *after* that re-verification, never as the fix itself.
+The same CI step first runs the checker's own tests: `python3 -m unittest scripts/test_lean_fidelity_check.py`.
+
+**The `conformance` CI job is another non-cargo gate.** It builds the verified Lean reference
+(`lake build reference`), re-derives the expected verdicts of the 305-net corpus in
+`spec/verification-fixtures/conformance/` (`python3 scripts/conformance-corpus.py --check`), then
+replays the corpus in every language (`python3 scripts/conformance-replay.py --lang rust|java|ts|py`).
+Expected verdicts are written by the Lean binary, never by hand. A verifier change that makes any
+language answer `Proven` where the reference says `Violated`, or report a trace the reference
+cannot replay, fails it.
 
 Rust 2024 edition, rustc ≥1.88. Cargo workspace of 10 crates (`libpetri-core`, `-event`, `-runtime`, `-export`, `-verification`, `-debug`, `-docgen`, `libpetri` umbrella, `libpetri-py`, `benches`). **NOT fmt/clippy-gated** — match the existing hand-style; CI runs neither. Verification shells out to the **`z3` executable** via SMT-LIB2 text, as every implementation does (VER-013; the `z3` cargo feature is an empty compile-gate, *not* the z3/z3-sys crate).
 

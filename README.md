@@ -141,8 +141,9 @@ left. The turn sits in `toolCall` and no transition can take it.
 </p>
 
 The counterexample is a real firing sequence from the initial marking, drawn on the net. Adding `give-up`, one
-transition with an inhibitor arc on `toolBudget`, turns the verdict into **Proven**. Both verdicts on this page
-come from the enumeration route, which explores every reachable state of this small net.
+transition with an inhibitor arc on `toolBudget`, turns the verdict into **Proven**. These two verdicts come from
+the enumeration route, which explores every reachable state of this small net. So does the session check below;
+the ν fan-out at the end of the next section is decided by the ν route.
 
 The verifier offers these properties:
 
@@ -191,8 +192,10 @@ fetch of another. libpetri solves this with ν-nets: `fan-out` mints a call id a
 </p>
 
 The verifier checks the join by id. With two plans in flight this net is **Proven** deadlock-free through the
-ν route, which tracks ids up to renaming. The branch places are declared as carrier places so the verifier knows
-the id travels through them. See [ν-nets](spec/12-nu-nets.md).
+ν route, which tracks ids up to renaming. `fan-out` is declared as a mint (`mintTransitions('fan-out')`): the
+verifier cannot tell from an action whether it writes a fresh id or copies one it received, so it reads a write
+as fresh only where the net says so. The branch places are declared as carrier places so the verifier knows the
+id travels through them. See [ν-nets](spec/12-nu-nets.md).
 
 ## How the checker is checked
 

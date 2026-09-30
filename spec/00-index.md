@@ -256,16 +256,16 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ID | Title | Priority | Depends On |
 |----|-------|----------|------------|
 | NU-001 | Name Identity | MUST | CORE-010 |
-| NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011 |
+| NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011, IO-013, IO-014, NU-040, NU-050 |
 | NU-011 | Resume-Safe Fresh-Name Minting | MUST | NU-010, NU-020, CORE-073, TIME-015, VER-004 |
 | NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
 | NU-021 | Match as the Sole Per-Token Filter | MUST | NU-020, IO-006 |
 | NU-022 | Deterministic Match Selection | MUST | NU-020, NU-001 |
 | NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-012, MOD-020 |
 | NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
-| NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040 |
+| NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040, TIME-012 |
 | NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
-| NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020 |
+| NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020, VER-004 |
 | NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-012 |
 | NU-054 | Join Relay | MAY | NU-020, NU-030, NU-051, NU-053, VER-012, IO-015, IO-016, CONC-026 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
@@ -308,9 +308,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ID | Title | Priority | Depends On |
 |----|-------|----------|------------|
 | VER-001 | SMT Verification Pipeline | SHOULD | CORE-072 |
-| VER-002 | Safety Properties | SHOULD | — |
+| VER-002 | Safety Properties | SHOULD | TIME-013 |
 | VER-003 | Verification Result | SHOULD | — |
-| VER-004 | Untimed Over-Approximation | SHOULD | — |
+| VER-004 | Untimed Over-Approximation | SHOULD | TIME-013, EXEC-001, EXEC-003, EXEC-042, CONC-002, NU-052 |
 | VER-005 | P-Invariant Computation | SHOULD | — |
 | VER-006 | Environment Analysis Mode | SHOULD | VER-022, NU-050, NU-051 |
 | VER-007 | Invariant Strengthening from P-Semiflows | SHOULD | VER-004, 005, 006, NU-050, NU-053 |
@@ -474,6 +474,8 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-001–006 | `SmtVerifierTest` | `smt-verifier.test.ts` | `structural_check::tests`, `p_invariant::tests` |
 | VER-003 AC6 (`counterexampleTiming`) | `CounterexampleTimingTest` | `verification/counterexample-timing.test.ts` | `smt_verifier::tests` (`untimed_abstraction_is_the_default_on_a_timed_net`, `an_untimed_net_reports_untimed_net_whatever_the_route`, `a_route_b_violation_on_a_timed_net_is_timed_exact`); Python `test_counterexample_timing.py` |
 | VER-006 AC9–AC11 (`Arrivals`) | `EnvironmentArrivalsTest` | `verification/arrivals-mode.test.ts` | `smt_verifier::tests` (`arrivals_*`), `environment::tests`, `open_net::tests`; Python `test_arrivals.py` |
+| VER-006 AC3 (`Bounded(k)` premises: no deposit into an environment place, initial count at most k) | `EnvironmentBoundedPremisesTest` | `verification/bounded-premises.test.ts` | `tests/env_bounded_premises.rs`; Python `test_bounded_premises.py` |
+| VER-004 AC4–AC6 (in-flight split, `assumeAtomicFiring`) | `InFlightTest` | `verification/in-flight.test.ts` | `tests/inflight_atomicity.rs` (umbrella crate), `in_flight::tests`; Python `test_in_flight.py` |
 | VER-007 | `SemiflowInvariantsTest` (incl. `semiflowsReachTheColouredEncoder`, AC6) | `smt-verifier.test.ts` (semiflow invariants, incl. the coloured encoder) | `smt_verifier::tests` (semiflow invariants, incl. `semiflows_reach_the_coloured_encoder`); Python `test_smt_verification.py` |
 | VER-010–011 | `StateClassGraphTest` | `analysis/*.test.ts` | `state_class_graph::tests` |
 | VER-010 AC2 (executor-faithful consumption, [IO-007]) | `StateClassGraphConsumptionTest#allInputDrainsPlaceSoInhibitedSuccessorIsReachable`, `#atLeastInputDrainsPlaceLeavingNoResidue` | `state-class-graph.test.ts > draining input semantics (IO-007)` (2 cases) | `state_class_graph::tests::all_input_drains_place_so_inhibited_successor_is_reachable`, `at_least_input_drains_place` |
@@ -484,10 +486,16 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-014 | `ConditionalSinksTest`, `VerdictParityTest` (`sinkPlacesWhen` fixtures) | `conditional-sinks.test.ts`, `verdict-parity.test.ts` | `smt_verifier::tests` (conditional sinks), `tests/verdict_parity.rs`; Python `test_verdict_parity.py` |
 | VER-015 | `LinearBoundTest` | `linear-bound.test.ts` | `linear_bound::tests`, `smt_verifier::tests` (linear bound); Python `test_smt_verification.py` |
 | VER-001 AC3, VER-003 AC5 (inert undeclared marked places) | `InertMarkedPlaceTest` | `verification/inert-undeclared-places.test.ts` | `smt_verifier::tests::an_undeclared_marked_place_is_inert_on_every_route`, `a_terminal_excuses_an_inert_marked_place` |
+| VER-001 AC4–AC5, IO-014 AC6 (timeout forwards; drained forwards decided by the graphs, refused by the linear routes) | `ForwardDepositTest` | `verification/forward-deposit.test.ts` | `branch_outcomes::tests`, `smt_verifier::tests::a_forward_of_two_consumed_tokens_violates_a_bound_of_one_on_every_route`, `a_forward_of_a_drained_input_is_decided_by_the_graph_and_refused_by_the_linear_routes`; Python `test_forward_deposit.py` |
+| TIME-001 AC4 (earliest bound above the maximum duration) | `TimingBoundsTest` | `core/timing.test.ts` | `timing::tests`; Python `test_reaping.py` (`test_an_earliest_bound_past_the_open_end_is_rejected`) |
+| TIME-001 AC5 (a timing written out without a factory) | `TimingBoundsTest.aRecordWrittenOutDirectlyIsCheckedToo` | `core/transition.test.ts > timings the factories reject, written out directly (TIME-001 AC5)` | `transition::tests` (`a_delayed_timing_written_out_past_the_maximum_is_rejected_at_build` and siblings); Python builds timings only through the factories |
+| VER-002 AC10 (pairwise MutualExclusion) | two-place API (`mutualExclusion(p1, p2)`) | two-place API (`mutualExclusion(p1, p2)`) | `smt_verifier::tests::a_three_place_mutual_exclusion_is_pairwise_on_every_route`; Python `test_forward_deposit.py::test_a_three_place_mutual_exclusion_is_pairwise` |
+| VER-003 AC8 (an initial violation is the empty trace) | `InitialViolationTraceTest` | `verification/initial-violation-trace.test.ts` | `smt_verifier::tests::an_initial_violation_on_the_fixpoint_query_is_the_empty_trace`; Python `test_forward_deposit.py::test_an_initial_violation_on_the_fixpoint_query_is_the_empty_trace` |
 | VER-015 (on ν-nets, [NU-053]) | `LinearBoundNuTest` | `verification/linear-bound-nu.test.ts` | `tests/nu_join_relay.rs` (`a_trivial_bound_on_a_budgeted_nu_net_is_proven_by_the_linear_bound`) |
 | VER-017 | `ScgVerifierTest`, `StateSpaceCacheTest` (state-space cache) | `scg-verifier.test.ts`, `state-space-cache.test.ts` | `scg_verifier::tests`, `state_space_cache::tests`, `tests/state_space_cache.rs`; Python `test_smt_verification.py`, `test_state_space_cache.py` |
 | VER-016 | `StateEquationTest` | `state-equation.test.ts` | `smt_encoder::tests` (state equation), `smt_verifier::tests` (state equation); Python `test_smt_verification.py` |
 | VER-002 (QuiescentCount) | `QuiescentCountTest` | `quiescent-count.test.ts` | `property::tests`, `smt_verifier::tests` (`quiescent_count_*`) |
+| VER-002 AC11–AC16, VER-004 AC3, VER-022 AC11, VER-023 AC6 (deadline reaping and late firing, [TIME-006], [TIME-013]) | `ReapingTest`, `VerdictParityTest` / `SmtScriptParityTest` (`reaping-*` fixtures) | `verification/reaping.test.ts`, `verdict-parity.test.ts` / `smt-script-parity.test.ts` (`reaping-*` fixtures) | `tests/reaping.rs`, `reaping::tests`, `nu_scg_verifier::tests::route_b_reads_a_reaped_join_as_resting`, `open_net::tests` (`*_reaped_relay_*`), `tests/verdict_parity.rs` / `tests/smt_script_parity.rs` (`reaping-*` fixtures); Python `test_reaping.py`, `test_verdict_parity.py` |
 | VER-018 | `StateEquationQueryTest`, `TrapRefinementTest`, `InvariantSynthesisTest`, `ParikhSearchTest`, `StateEquationPhaseTest`, `StateEquationPhaseVerifierTest`, `StateEquationQueryGoldenTest` | `state-equation-phase.test.ts` (building blocks, end to end, dump phases) | `trap_refinement::tests`, `invariant_synthesis::tests`, `parikh_search::tests`, `state_equation_phase::tests`, `smt_verifier::tests` (`state_equation_phase_*`), `tests/phase_dump.rs`; Python `test_state_equation_phase.py` |
 | VER-019 | `BoundedRunTest`, `StateEquationPhaseVerifierTest` | `state-equation-phase.test.ts` (firing bound) | `bounded_run::tests`, `smt_verifier::tests` (`firing_bound_*`), `tests/phase_dump.rs`; Python `test_state_equation_phase.py` |
 | VER-022 | `OpenNetVerificationTest` | `open-net.test.ts` | `open_net::tests`; Python `test_open_net.py` |

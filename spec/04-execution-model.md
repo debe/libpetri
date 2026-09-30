@@ -24,6 +24,11 @@ The executor runs a loop with the following steps, in order:
 2. No transition fires before completions are processed.
 3. External events are applied before enablement updates.
 
+A firing's inputs leave the marking in step 5 and its outputs arrive in step 1 of a later cycle
+(or, for a synchronous action, inside the firing pass, invisibly to the rest of the pass,
+[EXEC-003]). Other transitions fire in between. Verification models that gap for every
+transition whose output another transition tests with an inhibitor, reset or drain ([VER-004]).
+
 **Test derivation:** Trace execution of a simple net; verify step ordering via event log.
 
 ---
@@ -85,6 +90,10 @@ When multiple transitions compete for the same input tokens, the highest-priorit
    queue ([EXEC-010]), so this is the prefix of length `available - deposited`.
    Without this, a gate that correctly refused to *count* a same-pass deposit
    would still *swallow* it.
+
+So a pass behaves as if every firing in it started before any of them deposited: a drain later
+in the pass sees a place emptier than any one-at-a-time order leaves it. Verification reads a
+firing whose output is drained, reset or inhibited as two steps for that reason ([VER-004]).
 
 **Test derivation:** Two competing transitions; verify only highest priority fires when only 1 token available.
 
@@ -392,20 +401,37 @@ declares terminal places MUST be rejected by `compose` and `instantiate` with an
 the place. Scoped termination (ending one subnet instance) is not defined.
 
 **Verification.** A verifier MUST apply terminal places automatically, with no restatement by
-the caller. For each terminal place `P` it verifies the net in which:
+the caller. For each terminal place `P` it verifies the net, after the in-flight split of
+[VER-004], in which:
 - `P` inhibits every transition;
 - `P` is a sink place ([VER-002]);
 - `P` is a conditional-sink marker for every place ([VER-014]), i.e. `sinkPlacesWhen(P, all
   places)`.
 
-This is exact for the runtime above. A marking with `P` marked is quiescent and excused, and no
-transition fires once `P` is marked. It is merged into open-net contracts ([VER-022]) as a
-designed terminal. A net with no terminal places MUST produce byte-identical scripts ([VER-013]).
+This matches the runtime above for every transition the split of [VER-004] cuts in two: a
+marking with `P` marked is quiescent and excused, and no transition fires once `P` is marked.
+For a transition that stays atomic it holds for the properties named below. It is merged into
+open-net contracts ([VER-022]) as a designed terminal. A net with no terminal places MUST
+produce byte-identical scripts ([VER-013]).
 
-Abandoned in-flight actions are sound for monotone properties (place bounds, mutual exclusion,
-unreachability): the abandoned marking lies below one the model reaches. Where the transition
-that marks `P` tests an input of an abandoned action by an inhibitor, reset or consume-all arc,
-that interleaving is not an atomic-firing behaviour ([VER-010] AC4 applies unchanged).
+The in-flight split of [VER-004] applies first. A transition that marks `P` is always split,
+because `P` inhibits every transition, so the model has the executor's order: other actions
+start while it is in flight, and its completion step marks `P` afterwards. `P` also inhibits
+every completion step, so an action in flight when `P` is marked deposits nothing and leaves
+its in-flight place marked, which `P` excuses. An abandoned action of a transition that stays
+atomic is sound for monotone properties (place bounds, mutual exclusion, unreachability): the
+abandoned marking lies below one the model reaches, where its outputs were deposited. It is
+sound for `DeadlockFree` and `TerminatesAtSink` too, since `P` excuses every place at the
+marking it ends in, and for `JoinedOrDeadLettered` and the upper bound of `QuiescentCount`,
+which fewer tokens can only help.
+
+A lower bound is the exception. Take `t: one(a) → ok` with a 100 ms action, `f: one(s) → done`
+with a 10 ms action, `done` terminal, and `{a, s}` initially. The executor ends with
+`a = ok = 0`, so `QuiescentCount([a, ok], 1, 1)` fails, while every atomic order counts one
+token there. So when a `QuiescentCount` has `min > 0` and the net has a terminal place the
+property does not list in `waivedBy`, every transition that deposits into a counted place or a
+waiver place is split as well ([VER-004]). Its completion step is inhibited by `P` like any
+other, so the model abandons the action as the executor does.
 
 **Acceptance Criteria:**
 1. A net whose initial marking marks a terminal place fires nothing and ends `terminal`.
@@ -424,6 +450,9 @@ that interleaving is not an atomic-firing behaviour ([VER-010] AC4 applies uncha
    work is stranded). With it, the verifier proves `DeadlockFree` without any sink option from
    the caller.
 8. A net without terminal places produces byte-identical verification scripts.
+9. On the net above (`t` 100 ms, `f` 10 ms, `done` terminal, `{a, s}`), `QuiescentCount([a, ok],
+   1, 1)` is `Violated` and both executors end with `a = ok = 0`. With `done` in `waivedBy` it is
+   `Proven`.
 
 **Depends on:** [EXEC-001], [EXEC-040], [EXEC-041], [ENV-004], [ENV-013], [ENV-015], [VER-002],
 [VER-014], [VER-022], [MOD-001]
