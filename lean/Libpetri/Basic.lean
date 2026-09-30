@@ -15,7 +15,7 @@ namespace Libpetri
 
 /-- Place identity. The shipped code keys places by name (`Arc<str>`); the
 flattener sorts and dedups those names into a dense index
-(`net_flattener.rs:31-40`), which is what `PlaceId` models. -/
+(`net_flattener.rs:102-111`, in `flatten_with_reapable`), which is what `PlaceId` models. -/
 abbrev PlaceId := Nat
 
 /-- A token's colour payload. `libpetri-core/src/token.rs` carries an arbitrary
@@ -57,7 +57,7 @@ def Card.required : Card → Nat
   | .atLeast n => n
 
 /-- The `matches!(spec, In::All { .. } | In::AtLeast { .. })` test that drives
-`consume_all` in `net_flattener.rs:53`. -/
+`consume_all` in `net_flattener.rs:124` (`flatten_with_reapable`). -/
 def Card.consumesAll : Card → Bool
   | .all => true
   | .atLeast _ => true
@@ -83,7 +83,7 @@ structure Transition where
 /-!
 ## Per-place projections
 
-`net_flattener.rs:49-56` *sums* `required_count` over every input spec landing on
+`net_flattener.rs:120-127` (`flatten_with_reapable`) *sums* `required_count` over every input spec landing on
 the same place. This development models **at most one input spec per place**,
 which is the case every shipped fixture exercises; `specAt` is the projection
 that assumption buys us. A net with two input arcs on one place is outside the
@@ -94,21 +94,23 @@ model — stated as `InputsDistinctPlaces` where it is needed.
 def specAt (t : Transition) (p : PlaceId) : Option InSpec :=
   t.inputs.find? (fun s => s.place == p)
 
-/-- `pre[p]` of the flat transition (`net_flattener.rs:51-52`). -/
+/-- `pre[p]` of the flat transition (`net_flattener.rs:122-123`). -/
 def pre (t : Transition) (p : PlaceId) : Nat :=
   match specAt t p with
   | none => 0
   | some s => s.card.required
 
-/-- Whether `p` is in `consume_all` (`net_flattener.rs:53-55`). -/
+/-- Whether `p` is in `consume_all` (`net_flattener.rs:124-126`). -/
 def consumeAllAt (t : Transition) (p : PlaceId) : Bool :=
   match specAt t p with
   | none => false
   | some s => s.card.consumesAll
 
-/-- `post[p]` for one flattened XOR branch: `net_flattener.rs:85-88` walks
-`output::all_places` (a `HashSet`) and does `post[pid] += 1`, so every place in
-the branch contributes exactly **one** token. -/
+/-- `post[p]` for one flattened XOR branch the action writes: `flatten` walks the
+branch's deposits (`branch_outcomes::outcomes`) and does `post[pid] += n`, with
+`n = 1` for every place of an action branch, so each contributes exactly **one**
+token. A timeout outcome that forwards `n > 1` tokens is a row this `post` cannot
+express; `Novel/ForwardDeposit.lean` models it (`fireAD`, `fireAD_eq_fireA`). -/
 def post (br : List PlaceId) (p : PlaceId) : Nat :=
   if br.contains p then 1 else 0
 

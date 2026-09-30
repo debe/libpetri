@@ -1,17 +1,26 @@
-import Libpetri.Soundness
+import Libpetri.Novel.ForwardDeposit
 import Mathlib.Logic.Relation
 
 /-!
 # The bounded enumeration route decides exactly ([VER-017])
 
 Model of the enumeration route: `StateClassGraph::build_with_options`
-(`rust/libpetri-verification/src/state_class_graph.rs:111`), which the route reaches through
+(`rust/libpetri-verification/src/state_class_graph.rs:118`), which the route reaches through
 `StateClassGraph::build` with no environment places, and the verdict that
 `decide_over_state_space` (`rust/libpetri-verification/src/scg_verifier.rs:147`) reads off the
-built graph. `verify_via_state_class_graph` (`scg_verifier.rs:121`) is the two in sequence; with a
+built graph. `verify_via_state_class_graph` (`scg_verifier.rs:135`) is the two in sequence; with a
 `StateSpaceCache` attached, `verify_net` calls `decide_over_state_space` directly on a graph the
 cache built or already held, or `decide_over_prefix`, which relabels its answer as a prefix
 reading, on a cached graph larger than the query's budget.
+
+Both Rust items this model reads are wrappers over a more general one, called here with the
+general part switched off. `decide_over_state_space` is `decide_over_state_space_reaping` with an
+empty reapable set, so a class is quiescent exactly when it has no successor. The route passes
+nothing else: it runs only on a net `is_untimed` accepts, where no transition is reapable, and the
+reap-aware reading belongs to the [VER-023] timed check (`ReapAware.lean`). `compute_successor` is
+`compute_successor_gated` with both gates always true, so a transition holds a clock in the
+successor exactly when the count marking enables it. Route B's name gate is `RouteB/Graph.lean`'s
+concern.
 
 The exploration is a breadth-first worklist (`state_class_graph.rs:138-212`):
 * pop the front class, and stop with `complete = false` if the budget is reached
@@ -24,7 +33,7 @@ The exploration is a breadth-first worklist (`state_class_graph.rs:138-212`):
 Lean needs termination, so there is a `fuel` argument, and running out of fuel counts as
 truncation. On a complete graph the verdict is `Violated` iff some discovered class satisfies
 the property's bad predicate (`decide_over_classes`, the first class where it holds), where a
-class is quiescent iff it has no successor (`is_quiescent`, `scg_verifier.rs:111-113`).
+class is quiescent iff it has no successor (`is_quiescent`, `scg_verifier.rs:118-127`).
 
 Results:
 * `run_complete_iff_reach` (the core): if the loop reports `complete`, a state is among the
@@ -38,11 +47,17 @@ Results:
 * `build_reach`: every discovered class is reachable **whether or not the run closed** — the
   first half of the invariant, which no `complete` flag is needed for. It is what makes a
   violation read off a truncated graph real ([VER-017] "Verdicts from a truncated graph").
-* `succNet_iff_step`, `quiescent_iff_dead`, `net_enumeration_exact`: instantiated with the
-  flat net's successor function over abstract markings, the discovered classes are exactly the
-  `ReachA`-reachable markings (the encoders' untimed reachable set), and a quiescent class is
-  exactly a dead marking. So deadlock freedom read off a closed graph is deadlock freedom of
-  `ReachA`.
+* `succRows_iff_step`, `quiescentRows_iff_dead`, `rows_enumeration_exact`: instantiated with
+  the successor function over **deposit rows** (`ForwardDeposit.fireAD`, one successor per
+  enabled row of `branch_outcomes::outcomes`, a forward row with `post[to] = k ≥ 2` included),
+  the discovered classes are exactly the `ReachAD`-reachable markings (the encoders' untimed
+  reachable set, integer posts), and a quiescent class is exactly a dead marking. So deadlock
+  freedom read off a closed graph is deadlock freedom of `ReachAD`.
+* `net_enumeration_exact` is the same over `fireA` rows (`succNet`, `ReachA`): it covers exactly
+  the nets whose rows are duplicate-free, where the two agree (`succNet_eq_succRows`).
+* `forward_enumeration_sound`: composed with `ForwardDeposit.forward_reachability_simulated`, a
+  closed graph's `Proven` over the fixed rows holds of the α-image of every concrete run,
+  whichever way each firing ends.
 
 **Truncated graphs ([VER-017], [VER-012] AC3, [VER-023]).** When the graph does not close,
 `decide_over_state_space` runs the same predicate over the explored prefix. It reports only a
@@ -51,7 +66,7 @@ Results:
 stored class reachable, so its prefix violation is sound. A quiescence property reads "no
 successor", which on a truncated graph the model does not decide for the frontier: the Rust
 therefore counts a class quiescent only when the build **expanded** it
-(`i < expanded_count()`, `scg_verifier.rs:111-113`; the counter is `state_class_graph.rs:211`).
+(`i < expanded_count()`, `scg_verifier.rs:118-127`; the counter is `state_class_graph.rs:211`).
 That an expanded class's recorded successors are all of its successors is the invariant's
 second half (`Inv.closed`: a class not waiting in the queue has every successor discovered),
 and that "expanded" is exactly `index < expanded_count` holds because the queue is FIFO over
@@ -69,12 +84,22 @@ no verdict is read off a stopped one.
 The step from these results to the shipped route rests on two premises that are assumed, not
 proven:
 * **Successors.** On an untimed net a class is modelled by its marking and its successors by
-  the CHC fire relation `fireA`, one per enabled flat transition (XOR branch). The Rust
-  `compute_successor` (`state_class_graph.rs:467`) works on state classes with (trivial) firing
-  domains, iterates the class's enabled transitions in canonical clock order rather than net
-  order, and drops a successor whose domain is empty (`state_class_graph.rs:175-177`). That it
-  yields exactly the `fireA` successors, as a set, on an immediate-only net is the premise of
-  VER-017 condition 3. Order does not matter: every result above is about membership.
+  the CHC fire relation with integer posts, `ForwardDeposit.fireAD`, one per enabled row of
+  `branch_outcomes::outcomes`. Both the graph (`expand_transition`, depositing through
+  `produce_marking`) and the flattener expand a transition by `outcomes`, so their rows agree,
+  and a timeout row that forwards `k > 1` tokens deposits `k`. A forward of a drained batch
+  (`Deposit::Drained`) is resolved by `produce_marking` at the marking the firing drains — a
+  marking-dependent row the fixed rows here cannot hold; `TransferRows.lean` instantiates the
+  loop with those rows (`succTransfer`, `transfer_enumeration_exact`,
+  `transfer_enumeration_sound`), so this route decides such nets, which the linear routes
+  refuse. The Rust `compute_successor` (`state_class_graph.rs:448`)
+  works on state classes with (trivial) firing domains, iterates the class's enabled transitions
+  in canonical clock order rather than net order, and drops a successor whose domain is empty
+  (`state_class_graph.rs:175-177`). That it yields exactly the `fireAD` successors over the
+  `outcomes` rows (`succRows`), as a set, on an immediate-only net is the premise of VER-017
+  condition 3. It is **not** true of the `fireA` successors (`succNet`) once a row deposits two
+  tokens in one place, which is why `net_enumeration_exact` covers duplicate-free rows only.
+  Order does not matter: every result above is about membership.
 * **Class identity.** The Rust dedups classes by `StateClass::canonical_key`, the marking key
   joined with the DBM's `zone_key`. The model takes it to be equality of markings, which holds
   when the zone of an untimed class is determined by its marking.
@@ -87,7 +112,11 @@ Also not modelled:
   places under `Arrivals(k)`, which only the verifier's net rewrite applies, is refused.
 * The state-space cache: that a graph reused under an equal net and marking fingerprint is the
   graph a fresh build would return, and that a remembered truncation's prefix is the prefix a
-  fresh build at that budget would explore.
+  fresh build at that budget would explore. The key is the fingerprint of the net every route
+  reads, taken in `verify_terminals_split` after the [VER-004] in-flight split
+  (`InFlight.lean`) and before the terminal rewrite, which is a function of that net. So the
+  split is part of the key, and a graph of the atomic net built under `assume_atomic_firing`
+  never answers a query on the split net.
 * The counterexample path reconstruction (`counterexample_path`); only reachability of the
   violating class is proven.
 * That the route closes on every small enough state space (budget and fuel large enough). Only
@@ -347,5 +376,102 @@ theorem net_enumeration_exact {net : FlatNet} {maxClasses fuel : Nat} {a0 : AMar
       exact ⟨a, (hmem a).mp ha, (quiescent_iff_dead net a).mp hq⟩
     · rintro ⟨a, ha, hd⟩
       exact ⟨a, (hmem a).mpr ha, (quiescent_iff_dead net a).mpr hd⟩
+
+/-! ## Instantiated with deposit rows -/
+
+open ForwardDeposit in
+/-- The successors of an abstract marking over deposit rows: one per enabled row, in row order,
+each firing with the row's deposit counts as its post vector (`fireAD`). -/
+def succRows (rows : List (Transition × Deposit)) (a : AMarking) : List AMarking :=
+  rows.filterMap fun tr => if enabledA a tr.1 = true then some (fireAD a tr.1 tr.2) else none
+
+open ForwardDeposit in
+theorem succRows_iff_step (rows : List (Transition × Deposit)) (a b : AMarking) :
+    b ∈ succRows rows a ↔ StepAD rows a b := by
+  unfold succRows StepAD
+  rw [List.mem_filterMap]
+  constructor
+  · rintro ⟨tr, hmem, htr⟩
+    split at htr
+    · rename_i hen
+      exact ⟨tr, hmem, hen, (Option.some.inj htr).symm⟩
+    · exact absurd htr (by simp)
+  · rintro ⟨tr, hmem, hen, rfl⟩
+    exact ⟨tr, hmem, by rw [if_pos hen]⟩
+
+open ForwardDeposit in
+theorem reach_succRows_iff (rows : List (Transition × Deposit)) (a0 a : AMarking) :
+    Reach (succRows rows) a0 a ↔ ReachAD rows a0 a := by
+  unfold Reach ReachAD
+  have : (fun x y => y ∈ succRows rows x) = StepAD rows := by
+    funext x y
+    exact propext (succRows_iff_step rows x y)
+  rw [this]
+
+open ForwardDeposit in
+/-- A class is quiescent (no successor) iff its marking is dead. -/
+theorem quiescentRows_iff_dead (rows : List (Transition × Deposit)) (a : AMarking) :
+    succRows rows a = [] ↔ ∀ tr ∈ rows, enabledA a tr.1 = false := by
+  unfold succRows
+  rw [List.filterMap_eq_nil_iff]
+  constructor
+  · intro h tr hmem
+    have := h tr hmem
+    cases hen : enabledA a tr.1 with
+    | false => rfl
+    | true => simp [hen] at this
+  · intro h tr hmem
+    simp [h tr hmem]
+
+open ForwardDeposit in
+/-- On duplicate-free rows the two successor functions agree, so `net_enumeration_exact` is the
+duplicate-free case of `rows_enumeration_exact`. -/
+theorem succNet_eq_succRows {net : FlatNet} (h : ∀ ft ∈ net, ft.2.Nodup) :
+    succNet net = succRows net := by
+  funext a
+  unfold succNet succRows
+  induction net with
+  | nil => rfl
+  | cons ft fts ih =>
+    simp only [List.filterMap_cons]
+    rw [fireAD_eq_fireA (h ft List.mem_cons_self),
+      ih (fun ft' hft' => h ft' (List.mem_cons_of_mem ft hft'))]
+
+open ForwardDeposit in
+/-- **[VER-017] over deposit rows.** If the enumeration closes, its classes are exactly the
+`ReachAD`-reachable markings, rows of any multiplicity included; reading a bad predicate off
+them decides it exactly for `ReachAD`, and the graph has a quiescent class iff some reachable
+marking is dead. -/
+theorem rows_enumeration_exact {rows : List (Transition × Deposit)} {maxClasses fuel : Nat}
+    {a0 : AMarking} [DecidableEq AMarking]
+    (h : (build (succRows rows) maxClasses fuel a0).2 = true) (bad : AMarking → Bool) :
+    (∀ a, a ∈ (build (succRows rows) maxClasses fuel a0).1 ↔ ReachAD rows a0 a) ∧
+    (proven bad (build (succRows rows) maxClasses fuel a0).1 = true ↔
+      ∀ a, ReachAD rows a0 a → bad a = false) ∧
+    ((∃ a ∈ (build (succRows rows) maxClasses fuel a0).1, succRows rows a = []) ↔
+      ∃ a, ReachAD rows a0 a ∧ ∀ tr ∈ rows, enabledA a tr.1 = false) := by
+  have hmem : ∀ a, a ∈ (build (succRows rows) maxClasses fuel a0).1 ↔ ReachAD rows a0 a :=
+    fun a => (run_complete_iff_reach h a).trans (reach_succRows_iff rows a0 a)
+  refine ⟨hmem, ?_, ?_⟩
+  · rw [(decided_exact bad h).1]
+    exact forall_congr' fun a => by rw [reach_succRows_iff]
+  · constructor
+    · rintro ⟨a, ha, hq⟩
+      exact ⟨a, (hmem a).mp ha, (quiescentRows_iff_dead rows a).mp hq⟩
+    · rintro ⟨a, ha, hd⟩
+      exact ⟨a, (hmem a).mpr ha, (quiescentRows_iff_dead rows a).mpr hd⟩
+
+open ForwardDeposit in
+/-- **A closed graph's `Proven` holds for the executor**, timeout outcomes included: over the
+fixed rows of a net whose every forward draws from a `One` / `Exactly` input, no marking a
+concrete run reaches is bad under `alpha`, whichever way each firing ends. -/
+theorem forward_enumeration_sound {net : SpecNet} {maxClasses fuel : Nat} {m0 m : CMarking}
+    [DecidableEq AMarking]
+    (hWF : ∀ x ∈ net, GuardFreeConsumeAll x.1 ∧ FixedForwards x.1 x.2)
+    (h : (build (succRows (flatRows net)) maxClasses fuel (alpha m0)).2 = true)
+    (bad : AMarking → Bool)
+    (hp : proven bad (build (succRows (flatRows net)) maxClasses fuel (alpha m0)).1 = true)
+    (hR : Relation.ReflTransGen (StepCD net) m0 m) : bad (alpha m) = false :=
+  ((rows_enumeration_exact h bad).2.1.mp hp) _ (forward_reachability_simulated hWF hR)
 
 end Libpetri.Novel.Enumeration

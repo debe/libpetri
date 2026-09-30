@@ -1,5 +1,5 @@
 name = "libpetri"
-defaultTargets = ["Libpetri", "proofgraph", "ProofGraphFixture"]
+defaultTargets = ["Libpetri", "proofgraph", "ProofGraphFixture", "reference"]
 
 # Mathlib is pinned to the tag matching `lean-toolchain` exactly.
 #
@@ -25,6 +25,13 @@ name = "Libpetri"
 name = "proofgraph"
 root = "ProofGraph.Main"
 supportInterpreter = true
+
+# `lake exe reference`: the executable, machine-checked reference verifier the conformance
+# corpus is written by (spec/verification-fixtures/conformance/README.md). Its root imports
+# `Libpetri.Reference`, so building it checks every proof the verdicts rest on.
+[[lean_exe]]
+name = "reference"
+root = "Libpetri.Reference.Main"
 
 # The extractor's test fixture (graph/README.md, "Testing the extractor"). Tiny,
 # core-only, never imported by Libpetri; in defaultTargets so the gate builds it.

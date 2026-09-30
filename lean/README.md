@@ -198,7 +198,9 @@ Paper A step 4 states priorities are not encoded, so Theorem 2 never covers this
 mode. `preFixPrune` (before the `willFire` guard) and `postFixPrune` (shipped)
 are separated by `willFire_guard_is_necessary`: a base-enabled but name-disabled
 ν join out-competes the orphan drain, so the pre-fix condition prunes a firing
-the executor really does perform.
+the executor really does perform. `inFlight_guard_is_necessary` does the same for the
+[VER-004] guard added on 2026-09-30: a pruner whose earlier firing is still in
+flight pre-empts nothing, since Java and TypeScript do not start it again.
 
 `Libpetri/Retrodict.lean` — **`98b9297` (VER-006)**.
 `envless_reach_is_trivial` proves that without the injection rule the reachable
@@ -225,9 +227,10 @@ presence/dirty bit machinery, the immediate-fragment backend refinement, and
 the general-path ready ordering with abstract `Nat` clocks. Six later
 modules extend both axes:
 
-- `TimedCycle.lean` — `deadline_reap_dirty_diverges`: the two shipped
-  `enforce_deadlines` diverge observably after a reap. Which behaviour
-  TIME-013 mandates is a pending semantics decision.
+- `TimedCycle.lean`: the TIME-013 ruling. A reaped transition stays disabled
+  until a token on one of its input places changes (`bb_reaped_stays_disabled`,
+  `reaped_rearms_on_touch`), in both backends. `deadline_reap_dirty_diverges`
+  is kept as the retrodiction of the precompiled re-arm the ruling removed.
 - `MatchCache.lean` — `match_cache_lockstep` at queue-contents granularity
   under the fast-path eligibility gate, plus a necessity witness per conjunct.
 - `StateEquation.lean` — the [VER-016] rows hold on every reachable
@@ -244,21 +247,22 @@ modules extend both axes:
   key-equivariance of the successor step; `equivariance_is_necessary`
   witnesses the hypothesis.
 
-**Out:** real-valued time, deadline *refinement* (the reap divergence is
-witnessed in `TimedCycle.lean`, but the TIME-013 semantics ruling and the
-full timed-cycle refinement remain open — only the ready-collection phase is
-covered), DBM / Berthomieu–Diaz state
-classes beyond `Novel/Dbm.lean` (successor zones, float rounding); the async loop and action plumbing (actions are pure
-emission functions here); ν-match `best()` selection and tie-break (NU-022
-AC2 stays a differential-test claim — `MatchCache.lean` covers queue
-contents only); the u64 word packing and two-level summaries (bit/set
-granularity only; PERF-042 AC4 pins the words differentially); the u32
-opcode encoding (FR4 is proven on the structured op stream); the ν name
-layer beyond the boolean `nameEnabled` abstraction in `Priority.lean` (so
-the ν-budget retrodictions `667e67d` and `a4038f5` are **not** covered) and
-beyond the generic key/step model of `Interning.lean` (that
-`name_successors` is equivariant under renaming is a stated hypothesis, not a
-theorem); Lemma 0 quiescence; extraction to the four implementations.
+**Out:** real-valued time; the full timed-cycle refinement between the two
+backends (the TIME-013 reap is modelled on one control cell in
+`TimedCycle.lean`, and of the cycle only the ready-collection phase is
+covered); the timed state-class graph beyond the premises `Novel/TimedScg/`
+states (its successor zones and millisecond grid are modelled there); the
+async loop and action plumbing (actions are pure emission functions here;
+the start and completion of a firing are modelled only as the verifier reads
+them, untimed, in `Novel/InFlight.lean`, which also leaves out priorities and
+`ctx.flush()`); ν-match `best()` selection and tie-break (NU-022 AC2 stays a
+differential-test claim; `MatchCache.lean` covers queue contents only); the
+u64 word packing and two-level summaries (bit/set granularity only; PERF-042
+AC4 pins the words differentially); the u32 opcode encoding (FR4 is proven
+on the structured op stream); the ν-budget retrodiction `a4038f5` (the ν name
+layer itself is modelled by `Novel/RouteA/` and `Novel/RouteB/`, which
+retrodict `667e67d` and discharge the equivariance `Interning.lean` assumes);
+Lemma 0 quiescence; extraction to the four implementations.
 
 `Libpetri/Novel/` holds Mathlib-based proofs on models of the Rust
 functions. Two discharge properties the files above assume: `canonical_key`
@@ -290,6 +294,65 @@ alone:
   affects enablement and leaves its place holding only what the firing
   produced (token counts; tokens a same-pass action deposited, which survive
   a reset per EXEC-003 AC5, are not modelled).
+
+Sixteen more roots import the rest of `Libpetri/Novel/` into `Libpetri.lean`:
+
+- `ForwardDeposit.lean` ([IO-013], [IO-014], [IO-016]): a timeout forward
+  deposits one token per token consumed, so a flat row may deposit more than
+  one token in a place; Proposition 1 holds over such rows
+  (`forward_reachability_simulated`).
+- `Seam.lean` ([VER-001], [CORE-072]): the flat index is a list of declared
+  names, and a CHC `Proven` is a statement about the caller's marking
+  (`chc_proven_sound`).
+- `LinearBound.lean` ([VER-015]): every weighting the shipped check accepts
+  proves the property (`linear_bound_sound`).
+- `TerminalRewrite.lean` ([EXEC-042]): the terminal rewrite reaches exactly
+  the strict-stop markings for atomic firings (`terminal_rewrite_exact`), and
+  only over-approximates them with environment places.
+- `ReapingVsUntimed.lean` ([VER-004] AC3, [TIME-013]): the witness that
+  reaping breaks the untimed quiescence verdict (`reaping_refutes_ver004_ac3`),
+  while every marking property still transfers.
+- `Certificate.lean`: the three IC3/PDR certificate checks prove the verdict
+  (`vc_sound`), and what they cannot catch (`vc_blind_to_seam`).
+- `TimedScg.lean` ([VER-010], [VER-011], [VER-023], [TIME-012], [TIME-013]):
+  the timed state-class successor is sound for the Time Petri net semantics
+  (`successor_sound`), and the graph with latest bounds dropped covers a late
+  executor that reaps (`late_run_sound`).
+- `SiphonSearch.lean` ([VER-020]): the siphon search and trap contraction
+  decide what Commoner's theorem needs (`structural_check_sound`).
+- `FiringBound.lean` ([VER-019]): a ranking bounds every run
+  (`ranking_bounds_runs`), and the bounded model check is exact at each
+  depth (`bmc_complete`).
+- `Pairwise.lean` ([VER-002]): pairwise mutual exclusion is violated iff two
+  entries are marked (`any_pairsOf_iff`).
+- `TransferRows.lean` ([IO-014], [VER-017]): drained forwards are
+  marking-dependent rows the graph routes decide exactly
+  (`transfer_reachability_simulated`).
+- `ReapAware.lean` ([VER-002], [VER-004], [TIME-013]): reap-aware quiescence
+  is sound for every timed run of either backend (`rest_sound`,
+  `reap_aware_ac3`).
+
+- `RouteA.lean` ([NU-050], [NU-053]): the name-coloured encoding covers every
+  ν run for any colour-slot bound (`coloured_simulates`). `build_plan` is
+  modelled with the declared-mint and timeout-write gates of [NU-010]
+  (`RouteA/Plan.lean`), and the shipped consumer rule, which nets a self-loop,
+  needs no self-loop premise (`routeA_safety_sound_shipped`).
+- `RouteB.lean` ([NU-050], [NU-052]): the name-partition graph's `Proven` holds
+  for the untimed, environment-free executor. The shipped `classify` and the
+  builders' checks discharge the distinct-key and positive-count premises
+  (`classifyS_inFragment`, `builderOK_posKeys`).
+- `EnvSemantics.lean` ([VER-006], [VER-022]): injection, the `Bounded(k)`
+  guard, the relaxed quiescence check and `Arrivals`. `verify_net` now checks
+  the two `Bounded(k)` premises (`EnvSemantics/Premise.lean`).
+- `InFlight.lean` ([VER-004], [EXEC-042]): the in-flight split net covers
+  every interleaving of action starts and completions, the actions a
+  terminal stop abandons included (`split_covers_executor`,
+  `split_safety_sound`, `split_rest_sound`), for any split set that contains
+  the transitions with a tested output. A `QuiescentCount` lower bound also
+  needs every depositor into its counted and waiver places split
+  (`quiescent_count_stop_sound`, `terminal_stop_witness`). An atomic run
+  suffices when no output is tested non-monotonically
+  (`atomic_covers_executor`).
 
 The immediate-fragment refinement also idealizes the EXEC-003 recheck the same
 way on both sides — `pcRecheck` and `bbRecheck` both re-read the *live*
@@ -342,7 +405,7 @@ That obligation is mechanized. `fidelity.toml` pins every modeled Rust item —
 one `[[pin]]` per function (or type, where the type itself is what is modeled)
 with the Lean modules that model it — and `fidelity.lock` records a SHA-256 of
 each pinned item's current source span, doc comments and attributes included.
-`scripts/lean-fidelity-check.py` re-hashes the pins against the lock, and runs
+There are 229 pins (2026-09-30). `scripts/lean-fidelity-check.py` re-hashes the pins against the lock, and runs
 two citation guards:
 
 - **file coverage** — every `.rs` file cited in a Lean doc comment (every

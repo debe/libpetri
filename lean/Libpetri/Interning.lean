@@ -70,7 +70,9 @@ the single hypothesis it rests on.
     projections hid the difference constraints the step reads — the
     `equivariance_is_necessary` shape). `priority_dominated` also reads
     `ready_earliest`, which two arrivals at one zone may disagree on; that is
-    why the shipped intern key (`intern_base`) includes it.
+    why the shipped intern key (`intern_base`) includes it. Its [VER-004]
+    in-flight guard reads the count of `inflight:<H>`, a place of the marking,
+    which the key already carries.
 * `interned_keys_eq` / `interned_edges_eq` — under `Equivariant`, exploring
   from any key-preserving representative map reaches exactly the same keys and
   the same `(key, label, key)` edges as exploring from the states themselves.

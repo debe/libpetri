@@ -146,7 +146,7 @@ lean = ["Libpetri/Compile.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "can_enable"
-lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean", "Libpetri/Novel/ResetArc.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Refinement.lean", "Libpetri/Novel/ResetArc.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
@@ -171,19 +171,19 @@ lean = ["Libpetri/Conservation.lean", "Libpetri/Refinement.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "collect_ready_general"
-lean = ["Libpetri/Sched.lean"]
+lean = ["Libpetri/Sched.lean", "Libpetri/Novel/TimedScg/Retrodict.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "update_bitmap_after_consumption"
-lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean"]
+lean = ["Libpetri/Enablement.lean", "Libpetri/Refinement.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
 
 # ---- rust/libpetri-runtime/src/compiled_net.rs ----
 
 [[pin]]
 file = "rust/libpetri-runtime/src/compiled_net.rs"
 fn = "compile"
-lean = ["Libpetri/Compile.lean", "Libpetri/Enablement.lean", "Libpetri/Novel/ResetArc.lean"]
+lean = ["Libpetri/Compile.lean", "Libpetri/Enablement.lean", "Libpetri/Novel/ResetArc.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/compiled_net.rs"
@@ -217,7 +217,7 @@ lean = ["Libpetri/Basic.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/executor_core/executor.rs"
 fn = "run_sync"
-lean = ["Libpetri/Refinement.lean"]
+lean = ["Libpetri/Refinement.lean", "Libpetri/Novel/TerminalRewrite.lean", "Libpetri/Novel/ReapingVsUntimed.lean", "Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
 # ---- rust/libpetri-runtime/src/executor_core/output.rs ----
 
@@ -263,24 +263,24 @@ lean = ["Libpetri/Soundness.lean", "Libpetri/Retrodict.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_net"
-lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Retrodict.lean", "Libpetri/Strengthening.lean", "Libpetri/StateEquation.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Retrodict.lean", "Libpetri/Strengthening.lean", "Libpetri/StateEquation.lean", "Libpetri/Novel/Seam/Index.lean", "Libpetri/Novel/Seam/Sound.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_transition_rule"
-lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Novel/EnvSemantics/Step.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_injection_rule"
-lean = ["Libpetri/Retrodict.lean", "Libpetri/StateEquation.lean"]
+lean = ["Libpetri/Retrodict.lean", "Libpetri/StateEquation.lean", "Libpetri/Novel/EnvSemantics/Step.lean"]
 
 # ---- rust/libpetri-verification/src/net_flattener.rs ----
 
 [[pin]]
 file = "rust/libpetri-verification/src/net_flattener.rs"
 fn = "flatten"
-lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Novel/Commoner.lean"]
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Novel/Commoner.lean", "Libpetri/Novel/Seam/Index.lean", "Libpetri/Novel/Seam/Net.lean", "Libpetri/Novel/ForwardDeposit.lean"]
 
 # ---- rust/libpetri-verification/src/priority_semantics.rs ----
 
@@ -294,18 +294,18 @@ lean = ["Libpetri/Priority.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/name_state_class_graph.rs"
 fn = "priority_dominated"
-lean = ["Libpetri/Priority.lean"]
+lean = ["Libpetri/Priority.lean", "Libpetri/Novel/RouteB/Graph.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_state_class_graph.rs"
 fn = "will_fire"
-lean = ["Libpetri/Priority.lean"]
+lean = ["Libpetri/Priority.lean", "Libpetri/Novel/RouteB/Graph.lean"]
 
 # ---- TimedCycle.lean (deadline reap asymmetry) ----
 [[pin]]
 file = "rust/libpetri-runtime/src/precompiled_backend.rs"
 fn = "enforce_deadlines"
-lean = ["Libpetri/TimedCycle.lean"]
+lean = ["Libpetri/TimedCycle.lean", "Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/TimedScg/Late.lean", "Libpetri/Novel/FiringBound/Reaping.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/precompiled_backend.rs"
@@ -330,17 +330,17 @@ lean = ["Libpetri/TimedCycle.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "enforce_deadlines"
-lean = ["Libpetri/TimedCycle.lean"]
+lean = ["Libpetri/TimedCycle.lean", "Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/TimedScg/Late.lean", "Libpetri/Novel/FiringBound/Reaping.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "update_enablement"
-lean = ["Libpetri/TimedCycle.lean"]
+lean = ["Libpetri/TimedCycle.lean", "Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Late.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
 fn = "flag_clock_restarts"
-lean = ["Libpetri/TimedCycle.lean"]
+lean = ["Libpetri/TimedCycle.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/bitmap_backend.rs"
@@ -399,19 +399,19 @@ lean = ["Libpetri/Strengthening.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_property_violation"
-lean = ["Libpetri/Strengthening.lean"]
+lean = ["Libpetri/Strengthening.lean", "Libpetri/Novel/LinearBound.lean", "Libpetri/Novel/Certificate.lean", "Libpetri/Novel/Seam/Bad.lean"]
 
 # `countClause` / `quiescentCountBad` model the QuiescentCount arm's clause and
 # the place resolution it sums over.
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "count_violation_condition"
-lean = ["Libpetri/Strengthening.lean"]
+lean = ["Libpetri/Strengthening.lean", "Libpetri/Novel/Seam/Bad.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "index_ordered"
-lean = ["Libpetri/Strengthening.lean"]
+lean = ["Libpetri/Strengthening.lean", "Libpetri/Novel/Seam/Bad.lean"]
 
 # ---- StateEquation.lean ([VER-016] firing counters and rows) ----
 [[pin]]
@@ -491,12 +491,12 @@ lean = ["Libpetri/Semiflow.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
 fn = "colour_slot_bound"
-lean = ["Libpetri/Semiflow.lean"]
+lean = ["Libpetri/Semiflow.lean", "Libpetri/Novel/RouteA/Plan.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
 fn = "build_plan"
-lean = ["Libpetri/Semiflow.lean"]
+lean = ["Libpetri/Semiflow.lean", "Libpetri/Novel/RouteA/Plan.lean"]
 
 # ---- Interning.lean (hash-consing in the nu state-class graph) ----
 # `Explorer.succ` models `name_successors` (with the prune folded in); the
@@ -506,12 +506,12 @@ lean = ["Libpetri/Semiflow.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/name_state_class_graph.rs"
 fn = "name_successors"
-lean = ["Libpetri/Interning.lean"]
+lean = ["Libpetri/Interning.lean", "Libpetri/Novel/RouteB/Graph.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_state_class_graph.rs"
 fn = "enabling_symbols"
-lean = ["Libpetri/Interning.lean"]
+lean = ["Libpetri/Interning.lean", "Libpetri/Novel/RouteB/Graph.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_state_class_graph.rs"
@@ -590,27 +590,27 @@ lean = ["Libpetri/Novel/Farkas.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/structural_check.rs"
 fn = "structural_check"
-lean = ["Libpetri/Novel/Commoner.lean"]
+lean = ["Libpetri/Novel/Commoner.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/structural_check.rs"
 fn = "find_minimal_siphons"
-lean = ["Libpetri/Novel/Commoner.lean"]
+lean = ["Libpetri/Novel/Commoner.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/structural_check.rs"
 fn = "grow_siphon"
-lean = ["Libpetri/Novel/Commoner.lean"]
+lean = ["Libpetri/Novel/Commoner.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/structural_check.rs"
 fn = "find_maximal_trap_in"
-lean = ["Libpetri/Novel/Commoner.lean"]
+lean = ["Libpetri/Novel/Commoner.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/smt_verifier.rs"
 fn = "commoner_applies"
-lean = ["Libpetri/Novel/Commoner.lean"]
+lean = ["Libpetri/Novel/Commoner.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
 
 # Enumeration.lean: the VER-017 worklist, its successor step (an assumed
@@ -618,17 +618,17 @@ lean = ["Libpetri/Novel/Commoner.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/state_class_graph.rs"
 fn = "build_with_options"
-lean = ["Libpetri/Novel/Enumeration.lean"]
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Run.lean", "Libpetri/Novel/TimedScg/Retrodict.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/state_class_graph.rs"
 fn = "compute_successor"
-lean = ["Libpetri/Novel/Enumeration.lean"]
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Grid.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/scg_verifier.rs"
 fn = "verify_via_state_class_graph"
-lean = ["Libpetri/Novel/Enumeration.lean"]
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/Seam/Net.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/scg_verifier.rs"
@@ -638,7 +638,7 @@ lean = ["Libpetri/Novel/Enumeration.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/scg_verifier.rs"
 fn = "is_quiescent"
-lean = ["Libpetri/Novel/Enumeration.lean"]
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/ReapAware.lean"]
 
 
 # Dbm.lean: in-place Floyd–Warshall, the emptiness flag, and clock reordering.
@@ -650,7 +650,7 @@ lean = ["Libpetri/Novel/Dbm.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/dbm.rs"
 fn = "canonicalize"
-lean = ["Libpetri/Novel/Dbm.lean"]
+lean = ["Libpetri/Novel/Dbm.lean", "Libpetri/Novel/TimedScg/Zone.lean", "Libpetri/Novel/TimedScg/Grid.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/dbm.rs"
@@ -660,4 +660,607 @@ lean = ["Libpetri/Novel/Dbm.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/dbm.rs"
 fn = "permuted"
-lean = ["Libpetri/Novel/Dbm.lean"]
+lean = ["Libpetri/Novel/Dbm.lean", "Libpetri/Novel/TimedScg/Zone.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/linear_bound.rs"
+fn = "check_linear_bound_exact"
+lean = ["Libpetri/Novel/LinearBound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/linear_bound.rs"
+fn = "violation_demand"
+lean = ["Libpetri/Novel/LinearBound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/linear_bound.rs"
+fn = "zero_weight_places"
+lean = ["Libpetri/Novel/LinearBound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "linear_bound_proof"
+lean = ["Libpetri/Novel/LinearBound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "is_reachability_safety"
+lean = ["Libpetri/Novel/LinearBound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/terminal_places.rs"
+fn = "inhibit_on_terminals"
+lean = ["Libpetri/Novel/TerminalRewrite.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/transition.rs"
+fn = "with_added_inhibitors"
+lean = ["Libpetri/Novel/TerminalRewrite.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "verify_terminals"
+lean = ["Libpetri/Novel/TerminalRewrite.lean", "Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "with_net_terminals"
+lean = ["Libpetri/Novel/TerminalRewrite.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode_quiescent"
+lean = ["Libpetri/Novel/ReapingVsUntimed.lean", "Libpetri/Novel/TerminalRewrite.lean", "Libpetri/Novel/Seam/Bad.lean", "Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/EnvSemantics/Quiescence.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/certificate_check.rs"
+fn = "VerificationConditions"
+lean = ["Libpetri/Novel/Certificate.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "encode_step_relation_smt2"
+lean = ["Libpetri/Novel/Certificate.lean", "Libpetri/Novel/EnvSemantics/Step.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "stranded_conditions"
+lean = ["Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/rest_set.rs"
+fn = "stranding_excuses"
+lean = ["Libpetri/Novel/Seam/Excuses.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/rest_set.rs"
+fn = "strands_token"
+lean = ["Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/rest_set.rs"
+fn = "resting_names"
+lean = ["Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/marking_state.rs"
+fn = "MarkingState"
+lean = ["Libpetri/Novel/Seam/Index.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "inert_places_net"
+lean = ["Libpetri/Novel/Seam/Net.lean", "Libpetri/Novel/Seam/Sound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "with_inert_places"
+lean = ["Libpetri/Novel/Seam/Net.lean", "Libpetri/Novel/Seam/Sound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "verify_closed"
+lean = ["Libpetri/Novel/Seam/Sound.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "unresolved_property_place_in_net"
+lean = ["Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "property_place_names"
+lean = ["Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "outcomes"
+lean = ["Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Novel/Seam/Net.lean", "Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TransferRows.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "timeout_deposits"
+lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "forward_deposit"
+lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "drained_forward"
+lean = ["Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Novel/TransferRows.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/output.rs"
+fn = "enumerate_branches"
+lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/output.rs"
+fn = "find_timeout"
+lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/output.rs"
+fn = "timeout_outputs"
+lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/output.rs"
+fn = "collect_timeout_outputs"
+lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "expand_transition"
+lean = ["Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Novel/Enumeration.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "produce_marking"
+lean = ["Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TransferRows.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "run_async"
+lean = ["Libpetri/Novel/ReapingVsUntimed.lean", "Libpetri/Novel/TerminalRewrite.lean", "Libpetri/Novel/ReapAware.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "handle_signal"
+lean = ["Libpetri/Novel/TerminalRewrite.lean"]
+
+# ---- ReapAware.lean / TimedScg/Late.lean / RouteA / RouteB (deadline reaping and lateness) ----
+# `ReapAware.lean` models the reap-quiescent reading every route uses; `TimedScg/Late.lean` models
+# `relax_late`, the lifted net Route B builds for every property. The open-net graph route is
+# untimed and reads rests only, so it is pinned to `ReapAware.lean`, not to `Late.lean`.
+
+[[pin]]
+file = "rust/libpetri-verification/src/reaping.rs"
+fn = "is_reapable"
+lean = ["Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/RouteA/Reaping.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/reaping.rs"
+fn = "reapable_transitions"
+lean = ["Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/RouteA/Reaping.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/reaping.rs"
+fn = "has_latest_bound"
+lean = ["Libpetri/Novel/TimedScg/Late.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/reaping.rs"
+fn = "late_transitions"
+lean = ["Libpetri/Novel/TimedScg/Late.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/reaping.rs"
+fn = "relax_late"
+lean = ["Libpetri/Novel/TimedScg/Late.lean"]
+
+# `relax_late` rebuilds each lifted transition through it: only the timing changes.
+[[pin]]
+file = "rust/libpetri-verification/src/reaping.rs"
+fn = "with_timing"
+lean = ["Libpetri/Novel/TimedScg/Late.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/net_flattener.rs"
+fn = "flatten_with_reapable"
+lean = ["Libpetri/Basic.lean", "Libpetri/Soundness.lean", "Libpetri/Novel/Commoner.lean", "Libpetri/Novel/Seam/Index.lean", "Libpetri/Novel/Seam/Net.lean", "Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Novel/ReapAware.lean", "Libpetri/InvariantSum.lean", "Libpetri/Novel/SiphonSearch.lean", "Libpetri/Strengthening/Hypotheses.lean", "Libpetri/Novel/RouteA/Reaping.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
+fn = "encode_coloured_quiescent"
+lean = ["Libpetri/Novel/RouteA/Model.lean", "Libpetri/Novel/RouteA/Reaping.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/scg_verifier.rs"
+fn = "decide_over_state_space_reaping"
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/ReapAware.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/nu_scg_verifier.rs"
+fn = "verify_via_name_scg"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Decide.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/nu_scg_verifier.rs"
+fn = "verify_via_name_scg_reaping"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Decide.lean", "Libpetri/Novel/TimedScg/Late.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/nu_scg_verifier.rs"
+fn = "is_quiescent"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Decide.lean"]
+
+# `NameClasses::new`: builds `fires_unreapable`, which `is_quiescent` reads (`Decide.quiescentAt`).
+[[pin]]
+file = "rust/libpetri-verification/src/nu_scg_verifier.rs"
+fn = "new"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Decide.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/open_net/graph_route.rs"
+fn = "decide_on_graph"
+lean = ["Libpetri/Novel/ReapAware.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "verify_net"
+lean = ["Libpetri/Novel/SiphonSearch.lean", "Libpetri/Novel/EnvSemantics/Premise.lean", "Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "reapable_set"
+lean = ["Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/RouteA/Reaping.lean", "Libpetri/Novel/RouteB/Decide.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "late_set"
+lean = ["Libpetri/Novel/TimedScg/Late.lean", "Libpetri/Novel/RouteB.lean"]
+
+# ---- Pairwise.lean / LinearBound.lean / Seam/Bad.lean (pairwise mutual exclusion) ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/property.rs"
+fn = "mutex_pairs"
+lean = ["Libpetri/Novel/Pairwise.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/property.rs"
+fn = "two_marked"
+lean = ["Libpetri/Novel/Pairwise.lean", "Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/property.rs"
+fn = "linear_parts"
+lean = ["Libpetri/Novel/LinearBound.lean", "Libpetri/Novel/Pairwise.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "pairwise_marked"
+lean = ["Libpetri/Novel/Pairwise.lean", "Libpetri/Novel/Seam/Bad.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "linear_bound_part"
+lean = ["Libpetri/Novel/LinearBound.lean"]
+
+# ---- TransferRows.lean (transfer rows on the graph side) ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "input_consume_count"
+lean = ["Libpetri/Novel/TransferRows.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "resolved"
+lean = ["Libpetri/Novel/TransferRows.lean"]
+
+# ---- TimedScg/ (timed state-class graph) ----
+
+[[pin]]
+file = "rust/libpetri-core/src/timing.rs"
+fn = "Timing"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/timing.rs"
+fn = "delayed"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Retrodict.lean", "Libpetri/Novel/TimedScg/Late.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/timing.rs"
+fn = "deadline"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/timing.rs"
+fn = "window"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Late.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "clock_timing"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "timing_latest"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "timing_earliest"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Succ.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "initial_state_class"
+lean = ["Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Retrodict.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "consume_marking"
+lean = ["Libpetri/Novel/TimedScg/Succ.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "canonical_order"
+lean = ["Libpetri/Novel/TimedScg/Succ.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "create"
+lean = ["Libpetri/Novel/TimedScg/Zone.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "let_time_pass"
+lean = ["Libpetri/Novel/TimedScg/Zone.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/dbm.rs"
+fn = "fire_transition"
+lean = ["Libpetri/Novel/TimedScg/Zone.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "timed_counterexample_check"
+lean = ["Libpetri/Novel/TimedScg/Run.lean", "Libpetri/Novel/TimedScg/Progress.lean", "Libpetri/Novel/ReapAware.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "build_until"
+lean = ["Libpetri/Novel/TimedScg/Retrodict.lean", "Libpetri/Novel/RouteB/Graph.lean", "Libpetri/Novel/RouteB/Decide.lean"]
+
+# ---- FiringBound/ (firing-bound phase) ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "can_fire"
+lean = ["Libpetri/Novel/FiringBound/Ranking.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "check_ranking_exact"
+lean = ["Libpetri/Novel/FiringBound/Ranking.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "replay_run"
+lean = ["Libpetri/Novel/FiringBound/Ranking.lean", "Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "encode_bounded_run"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "guard_conditions"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "clears"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "column"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean", "Libpetri/Novel/FiringBound/Ranking.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "shifted"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "decode_bounded_run"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "run_firing_bound_phase"
+lean = ["Libpetri/Novel/FiringBound/Phase.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/abstract_replay.rs"
+fn = "enabled_a"
+lean = ["Libpetri/Novel/FiringBound/Ranking.lean", "Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/abstract_replay.rs"
+fn = "fire_a"
+lean = ["Libpetri/Novel/FiringBound/Ranking.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/timing.rs"
+fn = "has_deadline"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Late.lean"]
+
+# ---- Items cited by the new modules without a proposed pin (added by the integrator) ----
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "is_enabled"
+lean = ["Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/EnvSemantics/Supplied.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/graph_decision.rs"
+fn = "decide_over_classes"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Decide.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_fragment.rs"
+fn = "classify"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Classify.lean", "Libpetri/Novel/RouteB/Exec.lean", "Libpetri/Novel/RouteB/Graph.lean"]
+
+# ---- Items the 2026-09-29 alignment models (lateness, name-gated clocks, ν contracts, builders, env premises, in-flight split) ----
+
+# `Timing.Valid`: `exact(at)` rejects `at > MAX_DURATION_MS`, so `relaxLate` keeps it valid.
+[[pin]]
+file = "rust/libpetri-core/src/timing.rs"
+fn = "exact"
+lean = ["Libpetri/Novel/TimedScg/Timing.lean", "Libpetri/Novel/TimedScg/Late.lean"]
+
+# With both gates `|_| true` it is `compute_successor` (Succ.lean); Route B passes `name_enabled` (Graph.lean, `nameEnabled_comp`).
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "compute_successor_gated"
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Grid.lean", "Libpetri/Novel/RouteB/Graph.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_state_class_graph.rs"
+fn = "name_enabled"
+lean = ["Libpetri/Novel/RouteB/Graph.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/name_fragment.rs"
+fn = "declared_mints"
+lean = ["Libpetri/Novel/RouteB.lean", "Libpetri/Novel/RouteB/Classify.lean", "Libpetri/Novel/RouteA/Plan.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "timeout_writes"
+lean = ["Libpetri/Novel/RouteB/Classify.lean", "Libpetri/Novel/RouteA/Plan.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/branch_outcomes.rs"
+fn = "TimeoutWrite"
+lean = ["Libpetri/Novel/RouteB/Classify.lean", "Libpetri/Novel/RouteA/Plan.lean"]
+
+# The `Class::Consume` arm nets a self-loop: `Shipped.lean` reads it as the join rule on the one input.
+[[pin]]
+file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
+fn = "encode_coloured"
+lean = ["Libpetri/Novel/RouteA/Model.lean", "Libpetri/Novel/RouteA/Shipped.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/match_spec.rs"
+fn = "duplicate_key"
+lean = ["Libpetri/Novel/RouteB/Classify.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/match_spec.rs"
+fn = "build"
+lean = ["Libpetri/Novel/RouteB/Classify.lean"]
+
+# `Classify.BuilderOK`: distinct keys, no zero-count input, one input spec per place.
+# `Timing.Valid` for every built transition: `build` re-runs the timing constructor (TIME-001 AC5).
+[[pin]]
+file = "rust/libpetri-core/src/transition.rs"
+fn = "build"
+lean = ["Libpetri/Novel/RouteB/Classify.lean", "Libpetri/Novel/TimedScg/Timing.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/environment.rs"
+fn = "bounded_premise_violation"
+lean = ["Libpetri/Novel/EnvSemantics/Premise.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_encoder.rs"
+fn = "env_bound_conditions"
+lean = ["Libpetri/Novel/EnvSemantics/Step.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/abstract_replay.rs"
+fn = "within_env_bounds"
+lean = ["Libpetri/Novel/EnvSemantics/Step.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "check_place_enabled"
+lean = ["Libpetri/Novel/EnvSemantics/Supplied.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "non_monotone_places"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "in_flight_transitions"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "split_in_flight"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+# The demand-aware split: `SStep` over any split set that meets the criterion, and
+# `quiescent_count_demand`'s tested places are `quiescent_count_stop_sound`'s `Q`.
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "in_flight_transitions_for"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "split_in_flight_for"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "quiescent_count_demand"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+# `SStep.complete` deposits the row the atomic firing would: a forward leaf's one token.
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "completion_output"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+# A completion is its own `SStep` constructor, never a row, so never split again.
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "is_completion"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/in_flight.rs"
+fn = "halves"
+lean = ["Libpetri/Novel/InFlight.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "with_in_flight"
+lean = ["Libpetri/Novel/InFlight.lean", "Libpetri/Novel/TerminalRewrite.lean", "Libpetri/Novel/RouteB.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "verify_terminals_split"
+lean = ["Libpetri/Novel/TerminalRewrite.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/open_net/verify_open_net.rs"
+fn = "verify_open_net"
+lean = ["Libpetri/Novel/InFlight.lean", "Libpetri/Novel/ReapAware.lean"]

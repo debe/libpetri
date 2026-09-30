@@ -13,24 +13,24 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Conservation.lean"]
-    n781["Libpetri.produceAll"]
-    n782["🔒 Libpetri.produceAll_spec"]
+    n2866["Libpetri.produceAll"]
+    n2867["🔒 Libpetri.produceAll_spec"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
-  c24["📁 Libpetri/Ring/Core.lean (29 declarations, collapsed)"]
-  c25["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
-  c27["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
-  c24 --> c0
-  c24 --> c27
-  c25 --> c24
-  n781 --> c25
-  n782 --> n781
+  c71["📁 Libpetri/Ring/Core.lean (29 declarations, collapsed)"]
+  c72["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
+  c74["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
+  c71 --> c0
+  c71 --> c74
+  c72 --> c71
+  n2866 --> c72
+  n2867 --> n2866
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n782 root
-  class n782 locked
-  class c0,c24,c25,c27 collapsed
+  class n2867 root
+  class n2867 locked
+  class c0,c71,c72,c74 collapsed
 ```
 
 Axioms used:

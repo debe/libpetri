@@ -21,7 +21,7 @@ disabled by handing it an empty transition list; TS
 `y·C = 0` in exact arithmetic — but against the *linearized* incidence
 matrix (`IncidenceMatrix::from_flat_net`, `incidence_matrix.rs:23-60`), whose
 column is `post − pre` with `pre = required_count`
-(`net_flattener.rs:50-54`). Consume-all and reset semantics are not linear —
+(`net_flattener.rs:120-127`). Consume-all and reset semantics are not linear —
 they are the two `m'_i = post[i]` arms of the encoder's fire relation
 (`firing_conditions`, `smt_encoder.rs:376-381`, modelled by `fireA`) — so
 passing the gate is
@@ -369,7 +369,7 @@ theorem strengthened_all_freezes :
 `consumeAllAt tAll 0 = true` with `yUnit 0 = 1 ≠ 0` violates H1, yet `yUnit`
 annihilates `tAll`'s shipped incidence column (first conjunct): the column is
 built from `required_count` and never consults `consume_all`
-(`incidence_matrix.rs:31-38`, `net_flattener.rs:50-54`), so both Farkas
+(`incidence_matrix.rs:31-38`, `net_flattener.rs:120-127`), so both Farkas
 computation and the C2 gate's `y·C = 0` recheck accept `yUnit` in exact
 arithmetic — which is precisely why the gate needed a *separate* H1 guard on
 top of it. The real firing drains BOTH tokens (`fireA`'s consume-all
@@ -396,8 +396,10 @@ theorem consume_all_hypothesis_is_necessary :
 two kinds of case.
 
 * **Unresolved place.** `PlaceBound` and `JoinedOrDeadLettered` (`:741-744`)
-  fall back to `false` for a place the flat net lacks, and `MutualExclusion` and
-  `Unreachable` do so when none resolves. The verifier refuses such a property
+  fall back to `false` for a place the flat net lacks, `Unreachable` does so when
+  none resolves, and the pairwise `MutualExclusion` (`pairwise_marked`) when fewer
+  than two entries resolve — exactly, as an unresolved name is never marked
+  (`Novel/Seam/Bad.lean` `pairMarkedBad_iff`). The verifier refuses such a property
   before any route runs (`unresolved_property_place_in_net`), so no verdict
   reaches this fallback.
 * **Unviolatable predicate.** No marking is quiescent (`encode_quiescent`
@@ -408,7 +410,7 @@ two kinds of case.
 
 With `Bad ≡ false` the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat`, reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:3290-3332`), for every net, marking and
+(`process_z3_result`, `smt_verifier.rs:3701-3742`), for every net, marking and
 semantics. `bad_rule_nonvacuity` quantifies over an arbitrary reachable-set
 predicate to make "regardless of semantics" literal, so it cannot tell the two
 kinds apart; only an exactness proof can. The [VER-014] conditional-sink

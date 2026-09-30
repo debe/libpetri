@@ -341,6 +341,14 @@ def item_line_spans(path: Path, names: list[str]) -> dict[str, list[tuple[int, i
     return out
 
 
+def names_item(name: str, quoted: str) -> bool:
+    """Whether the backticked text `quoted` names the Rust item `name`. A file
+    name is not an item name: `structural_check.rs:120` cites the file
+    `structural_check.rs`, not the function `structural_check` inside it, so a
+    match followed by `.rs` does not count."""
+    return re.search(r"\b" + re.escape(name) + r"\b(?!\.rs\b)", quoted) is not None
+
+
 def check_line_hints(pins: list[dict]) -> list[str]:
     """Every `file.rs:NNN` hint written in the same comment block as a pinned
     item's name must fall inside that item. Hints next to no pinned name (a
@@ -377,7 +385,7 @@ def check_line_hints(pins: list[dict]) -> list[str]:
                 named = {
                     name: rows
                     for name, rows in spans[path].items()
-                    if re.search(r"\b" + re.escape(name) + r"\b", quoted)
+                    if names_item(name, quoted)
                 }
                 if not named:
                     continue  # structural hint — nothing pinned to check it against

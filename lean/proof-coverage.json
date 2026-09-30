@@ -72,6 +72,16 @@
       ]
     },
     {
+      "name": "inFlight_guard_is_necessary",
+      "module": "Libpetri/Priority.lean",
+      "specIds": [
+        {
+          "id": "NU-052",
+          "fragment": "retrodiction of the 2026-09-30 in-flight guard: a pruner whose earlier firing is in flight pre-empts nothing on the Java and TypeScript executors; the prune without the guard drops a firing they perform, the shipped one keeps it - untimed fragment, boolean name layer; the split demand (conflict_demand) that makes inflight:H observable is not modelled"
+        }
+      ]
+    },
+    {
       "name": "token_conservation",
       "module": "Libpetri/Conservation.lean",
       "specIds": [
@@ -243,7 +253,7 @@
       "specIds": [
         {
           "id": "TIME-013",
-          "fragment": "witness that the two shipped enforce_deadlines diverge observably after a reap (precompiled re-dirties, bitmap does not) on a one-transition quiet-net control-cell model - establishes the behaviors differ, does not rule which is spec-correct (post-reap re-enablement is unaddressed by TIME-013)"
+          "fragment": "retrodiction of the pre-ruling precompiled re-arm: before the 2026-09-30 TIME-013 ruling the precompiled enforce_deadlines re-dirtied a reaped transition and fired it once its window reopened, the bitmap one never did, on a one-transition quiet-net control-cell model; the ruling took the bitmap side for both backends"
         }
       ]
     },
@@ -253,7 +263,7 @@
       "specIds": [
         {
           "id": "TIME-011",
-          "fragment": "the precompiled post-reap re-enablement takes the shared newly-enabled path with a restarted clock (enabled_at = now) - restart-from-zero on re-enablement, on the control-cell fragment"
+          "fragment": "a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit)"
         }
       ]
     },
@@ -263,7 +273,7 @@
       "specIds": [
         {
           "id": "TIME-013",
-          "fragment": "the bitmap side of the divergence: with no token mutation after a reap, the transition stays disabled over every schedule (no re-dirty route exists) - quiet-net fragment only"
+          "fragment": "the TIME-013 ruling, 'stays disabled': with no token mutation after a reap the transition never fires again, over every schedule, in both backends since the ruling - quiet-net control-cell fragment only"
         }
       ]
     },
@@ -273,7 +283,17 @@
       "specIds": [
         {
           "id": "TIME-013",
-          "fragment": "induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the bitmap cycle over any schedule"
+          "fragment": "induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the shipped cycle over any schedule"
+        }
+      ]
+    },
+    {
+      "name": "reaped_rearms_on_touch",
+      "module": "Libpetri/TimedCycle.lean",
+      "specIds": [
+        {
+          "id": "TIME-013",
+          "fragment": "the TIME-013 ruling, 'until an input changes': a token change marks the reaped cell dirty and the next cycle re-enables it on the fresh clock without reaping it again - one control cell, the token change abstracted to a dirty mark and a presence bit"
         }
       ]
     },
@@ -694,6 +714,220 @@
         {
           "id": "VER-017",
           "fragment": "verdicts from a truncated graph: every class a run discovered is reachable whether or not the run closed (budget, fuel or stop), so a safety violation read off the explored prefix is a reachable bad state; the quiescence half (only expanded classes count) rests on the FIFO/expanded-count premise about the Rust, not proven here, and nothing is claimed for Proven from a prefix"
+        }
+      ]
+    },
+    {
+      "name": "forward_exactly_two_breaks_unit_output",
+      "module": "Libpetri/Novel/ForwardDeposit.lean",
+      "specIds": [
+        {
+          "id": "IO-014",
+          "fragment": "retrodiction of the pre-fix analyses: on exactly(2, a) -> xor(c, timeout(forward(a, b))) the executor's timeout deposit [b, b] is no row of the one-token-per-leaf expansion, and no old branch satisfies UnitOutput for it (by decide)"
+        }
+      ]
+    },
+    {
+      "name": "old_rows_prove_bound_one",
+      "module": "Libpetri/Novel/ForwardDeposit.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "the pre-fix flat net of that transition reaches only b <= 1 from alpha(M0), so placeBound(b, 1) was Proven of the model while the concrete timed-out firing reaches b = 2 (timeout_firing_reaches_b_two)"
+        }
+      ]
+    },
+    {
+      "name": "deposit_mem_fixedRows",
+      "module": "Libpetri/Novel/ForwardDeposit.lean",
+      "specIds": [
+        {
+          "id": "VER-001",
+          "fragment": "every way a firing can end (an action branch, or the timeout outcome of IO-013 AC5 / IO-014 AC2) is a row of the fixed expansion branch_outcomes::outcomes, up to order, when every forward draws from a One/Exactly input; binary And/Xor"
+        }
+      ]
+    },
+    {
+      "name": "fixedRows_mem_deposit",
+      "module": "Libpetri/Novel/ForwardDeposit.lean",
+      "specIds": [
+        {
+          "id": "VER-001",
+          "fragment": "every row of the fixed expansion is a deposit some firing makes, when every forward draws from a One/Exactly input"
+        }
+      ]
+    },
+    {
+      "name": "forward_reachability_simulated",
+      "module": "Libpetri/Novel/ForwardDeposit.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "Proposition 1 alpha(R(N)) subset R(N-hat) with deposit rows as post vectors (timeout outcomes and multi-token forwards included), under GuardFreeConsumeAll and One/Exactly forward sources; untimed, counts only, the encoder modelled not extracted"
+        }
+      ]
+    },
+    {
+      "name": "drained_forward_has_no_row",
+      "module": "Libpetri/Novel/ForwardDeposit.lean",
+      "specIds": [
+        {
+          "id": "VER-001",
+          "fragment": "AC5: a timeout forward from an All input deposits a marking-dependent count that no constant row matches, the reason the verifier refuses such nets"
+        }
+      ]
+    },
+    {
+      "name": "split_covers_executor",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "AC4-AC6: the in-flight split net covers every interleaving of action starts and completions for any split set containing the transitions with a non-monotonically tested output; untimed, no priorities, no environment places, refusals and ctx.flush() not modelled"
+        },
+        {
+          "id": "EXEC-042",
+          "fragment": "the strict stop gates every step of the executor and the split net; an action in flight at the stop is abandoned, which the covering state represents as in flight"
+        }
+      ]
+    },
+    {
+      "name": "atomic_covers_executor",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "AC4: with no output tested non-monotonically every interleaving of starts and completions is matched by an atomic run (the commutation lemma); untimed, no priorities"
+        }
+      ]
+    },
+    {
+      "name": "split_safety_sound",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "a Proven of an upward-closed marking property on the split net holds at every executor state, actions in flight or abandoned included; untimed, no priorities"
+        }
+      ]
+    },
+    {
+      "name": "split_rest_sound",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "where nothing is in flight the executor's marking is a split-net marking with nothing pending, so a quiescence Proven covers the executor's non-terminal rests; untimed, no priorities"
+        }
+      ]
+    },
+    {
+      "name": "split_stop_sound",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "a Proven of a property that reads a place set Q exactly and the rest upward-closed holds at every executor state when no transition outside the split deposits into Q"
+        },
+        {
+          "id": "EXEC-042",
+          "fragment": "covers the executor's terminal stop, which abandons the actions in flight"
+        }
+      ]
+    },
+    {
+      "name": "quiescent_count_stop_sound",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "AC8 lower bound at a terminal stop: with every depositor into a counted or waiver place split (quiescent_count_demand), a Proven of the split net holds at every stop of the executor; untimed"
+        },
+        {
+          "id": "EXEC-042",
+          "fragment": "the actions a terminal stop abandons cannot leave a QuiescentCount lower bound short unseen"
+        }
+      ]
+    },
+    {
+      "name": "terminal_stop_witness",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "the terminal demand is needed: on t: a -> ok, f: s -> done (terminal), QuiescentCount([a, ok], 1), the plain split never falls short, the executor stops with a = ok = 0, and the split with t added reaches that stop"
+        },
+        {
+          "id": "EXEC-042",
+          "fragment": "witness that a terminal stop abandons an action in flight"
+        }
+      ]
+    },
+    {
+      "name": "inflight_witness",
+      "module": "Libpetri/Novel/InFlight.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "the split criterion is needed: an inhibitor on t's output lets the executor mark bad with t in flight, which the atomic net never does and the split net does"
+        }
+      ]
+    },
+    {
+      "name": "rest_sound",
+      "module": "Libpetri/Novel/ReapAware.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "every marking a timed run of either backend rests at is untimed-reachable and reap-quiescent; atomic firings (sync actions), no environment places"
+        },
+        {
+          "id": "TIME-013",
+          "fragment": "holds for any reaping rule that leaves non-reapable transitions alone"
+        }
+      ]
+    },
+    {
+      "name": "reap_aware_ac3",
+      "module": "Libpetri/Novel/ReapAware.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "AC3 for the quiescence properties under reap-aware quiescence: a Proven of ReapQuiescentA and Q over the untimed reachable set means no timed run rests at a marking with Q; atomic firings, no environment places, not composed with the in-flight split"
+        },
+        {
+          "id": "VER-002",
+          "fragment": "reap-aware quiescence (every enabled transition reapable) is the sound reading for the four quiescence properties"
+        }
+      ]
+    },
+    {
+      "name": "marking_ac3",
+      "module": "Libpetri/Novel/ReapAware.lean",
+      "specIds": [
+        {
+          "id": "VER-004",
+          "fragment": "AC3 for the marking properties: a Proven for a predicate of the marking holds at every cycle start of every timed run; atomic firings, no environment places"
+        }
+      ]
+    },
+    {
+      "name": "witness_caught",
+      "module": "Libpetri/Novel/ReapAware.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "the ReapingVsUntimed witness is caught: the timed run rests at a reap-quiescent marking that strands a token, so the reap-aware DeadlockFree is not Proven while the strict one is"
+        }
+      ]
+    },
+    {
+      "name": "reap_quiescent_iff_quiescent",
+      "module": "Libpetri/Novel/ReapAware.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "with no reapable transition, reap-quiescence is the strict quiescence: nothing changes on untimed nets"
         }
       ]
     }

@@ -25,8 +25,8 @@ reachability relation itself; its env-aware replacement H3′ appears with
 
 /-- **H1 (linearity).** Below the truncation bound, `y` vanishes on every
 place where `fireA` is non-linear: reset places and consume-all places
-(`Card.consumesAll`, i.e. `In::All` / `In::AtLeast` — `flatten`,
-`net_flattener.rs:53-55`).
+(`Card.consumesAll`, i.e. `In::All` / `In::AtLeast`: `flatten` through
+`flatten_with_reapable`, `net_flattener.rs:124-126`).
 Only places below `n` matter: the emitted sum never reads past `place_count`. -/
 def ZeroOnNonlinear (y : Weight) (t : Transition) (n : Nat) : Prop :=
   ∀ p, p < n → t.resets.contains p = true ∨ consumeAllAt t p = true → y p = 0

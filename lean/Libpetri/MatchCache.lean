@@ -21,7 +21,7 @@ theorems over the flat-pool model of `Ring.lean`:
 * `fire_muts_lockstep` — the bridge from the eligibility predicate to that
   hypothesis: under the exact three-conjunct gate of `init_match_caches`,
   the consume phase of ANY transition firing (`consume_for_firing`,
-  `precompiled_backend.rs:1132`) performs only permitted mutations on the
+  `precompiled_backend.rs:1135`) performs only permitted mutations on the
   cached place — a foreign firing performs none at all
   (`foreign_fire_emits_nothing`), the owner performs exactly one matched
   consume with equal ring/cache counts (`owner_fire_emits_lockstep`).
@@ -247,7 +247,7 @@ theorem match_cache_lockstep {key : KeyOf} {p : PlaceId}
 /-! ## What one firing does to the cached place -/
 
 /-- The mutations the consume phase of one firing of `u`
-(`consume_for_firing`, `precompiled_backend.rs:1132-1315`) performs **on the
+(`consume_for_firing`, `precompiled_backend.rs:1135-1318`) performs **on the
 single place `p`**, in program order: for each input spec landing on `p`, a
 matched consume when `p` is one of `u`'s correlated inputs
 (`key_for(...).is_some()`, `:1130-1135`; ring count per `:1143-1153` —

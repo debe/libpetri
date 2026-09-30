@@ -18,62 +18,186 @@ flowchart TD
   f9["Libpetri/MatchCache/Model.lean (32)"]
   f10["Libpetri/MatchCache/Plumbing.lean (12)"]
   f11["Libpetri/Novel/CanonicalKey.lean (40)"]
-  f12["Libpetri/Novel/Commoner.lean (23)"]
-  f13["Libpetri/Novel/Dbm.lean (48)"]
-  f14["Libpetri/Novel/Enumeration.lean (22)"]
-  f15["Libpetri/Novel/Farkas.lean (41)"]
-  f16["Libpetri/Novel/ResetArc.lean (14)"]
-  f17["Libpetri/Priority.lean (19)"]
-  f18["Libpetri/Refinement.lean (20)"]
-  f19["Libpetri/Refinement/Correspondence.lean (2)"]
-  f20["Libpetri/Refinement/Model.lean (39)"]
-  f21["Libpetri/Retrodict.lean (15)"]
-  f22["Libpetri/RetrodictExec.lean (11)"]
-  f23["Libpetri/Ring.lean (3)"]
-  f24["Libpetri/Ring/Core.lean (58)"]
-  f25["Libpetri/Ring/Grow.lean (40)"]
-  f26["Libpetri/Ring/Match.lean (38)"]
-  f27["Libpetri/RingArith.lean (9)"]
-  f28["Libpetri/Sched.lean (19)"]
-  f29["Libpetri/Semiflow.lean (40)"]
-  f30["Libpetri/Soundness.lean (32)"]
-  f31["Libpetri/StateEquation.lean (27)"]
-  f32["Libpetri/Strengthening.lean (30)"]
-  f33["Libpetri/Strengthening/Hypotheses.lean (4)"]
-  f34["Libpetri/TimedCycle.lean (35)"]
-  f1 --> f25
+  f12["Libpetri/Novel/Certificate.lean (18)"]
+  f13["Libpetri/Novel/Commoner.lean (23)"]
+  f14["Libpetri/Novel/Dbm.lean (48)"]
+  f15["Libpetri/Novel/Enumeration.lean (29)"]
+  f16["Libpetri/Novel/EnvSemantics/Arrivals.lean (60)"]
+  f17["Libpetri/Novel/EnvSemantics/Premise.lean (12)"]
+  f18["Libpetri/Novel/EnvSemantics/Quiescence.lean (36)"]
+  f19["Libpetri/Novel/EnvSemantics/Step.lean (56)"]
+  f20["Libpetri/Novel/EnvSemantics/Supplied.lean (65)"]
+  f21["Libpetri/Novel/Farkas.lean (41)"]
+  f22["Libpetri/Novel/FiringBound/Bmc.lean (49)"]
+  f23["Libpetri/Novel/FiringBound/Phase.lean (18)"]
+  f24["Libpetri/Novel/FiringBound/Ranking.lean (25)"]
+  f25["Libpetri/Novel/FiringBound/Reaping.lean (47)"]
+  f26["Libpetri/Novel/ForwardDeposit.lean (76)"]
+  f27["Libpetri/Novel/InFlight.lean (77)"]
+  f28["Libpetri/Novel/LinearBound.lean (52)"]
+  f29["Libpetri/Novel/Pairwise.lean (9)"]
+  f30["Libpetri/Novel/ReapAware.lean (48)"]
+  f31["Libpetri/Novel/ReapingVsUntimed.lean (24)"]
+  f32["Libpetri/Novel/ResetArc.lean (14)"]
+  f33["Libpetri/Novel/RouteA/Model.lean (71)"]
+  f34["Libpetri/Novel/RouteA/Plan.lean (63)"]
+  f35["Libpetri/Novel/RouteA/Reaping.lean (45)"]
+  f36["Libpetri/Novel/RouteA/Retrodict.lean (89)"]
+  f37["Libpetri/Novel/RouteA/Shipped.lean (19)"]
+  f38["Libpetri/Novel/RouteA/Simulate.lean (40)"]
+  f39["Libpetri/Novel/RouteB/Classify.lean (76)"]
+  f40["Libpetri/Novel/RouteB/Decide.lean (48)"]
+  f41["Libpetri/Novel/RouteB/Exec.lean (53)"]
+  f42["Libpetri/Novel/RouteB/Graph.lean (63)"]
+  f43["Libpetri/Novel/RouteB/Name.lean (53)"]
+  f44["Libpetri/Novel/RouteB/Retrodict.lean (44)"]
+  f45["Libpetri/Novel/RouteB/Sim.lean (30)"]
+  f46["Libpetri/Novel/RouteB/Sound.lean (3)"]
+  f47["Libpetri/Novel/Seam/Bad.lean (37)"]
+  f48["Libpetri/Novel/Seam/Excuses.lean (30)"]
+  f49["Libpetri/Novel/Seam/Index.lean (38)"]
+  f50["Libpetri/Novel/Seam/Net.lean (91)"]
+  f51["Libpetri/Novel/Seam/Retrodict.lean (21)"]
+  f52["Libpetri/Novel/Seam/Sound.lean (11)"]
+  f53["Libpetri/Novel/SiphonSearch.lean (106)"]
+  f54["Libpetri/Novel/TerminalRewrite.lean (35)"]
+  f55["Libpetri/Novel/TimedScg/Grid.lean (26)"]
+  f56["Libpetri/Novel/TimedScg/Late.lean (52)"]
+  f57["Libpetri/Novel/TimedScg/Progress.lean (12)"]
+  f58["Libpetri/Novel/TimedScg/Retrodict.lean (71)"]
+  f59["Libpetri/Novel/TimedScg/Run.lean (12)"]
+  f60["Libpetri/Novel/TimedScg/Succ.lean (79)"]
+  f61["Libpetri/Novel/TimedScg/Timing.lean (32)"]
+  f62["Libpetri/Novel/TimedScg/Zone.lean (33)"]
+  f63["Libpetri/Novel/TransferRows.lean (15)"]
+  f64["Libpetri/Priority.lean (27)"]
+  f65["Libpetri/Refinement.lean (20)"]
+  f66["Libpetri/Refinement/Correspondence.lean (2)"]
+  f67["Libpetri/Refinement/Model.lean (39)"]
+  f68["Libpetri/Retrodict.lean (15)"]
+  f69["Libpetri/RetrodictExec.lean (11)"]
+  f70["Libpetri/Ring.lean (3)"]
+  f71["Libpetri/Ring/Core.lean (58)"]
+  f72["Libpetri/Ring/Grow.lean (40)"]
+  f73["Libpetri/Ring/Match.lean (38)"]
+  f74["Libpetri/RingArith.lean (9)"]
+  f75["Libpetri/Sched.lean (19)"]
+  f76["Libpetri/Semiflow.lean (40)"]
+  f77["Libpetri/Soundness.lean (32)"]
+  f78["Libpetri/StateEquation.lean (27)"]
+  f79["Libpetri/Strengthening.lean (30)"]
+  f80["Libpetri/Strengthening/Hypotheses.lean (4)"]
+  f81["Libpetri/TimedCycle.lean (37)"]
+  f1 --> f72
   f2 --> f1
   f2 --> f3
-  f3 --> f24
+  f3 --> f71
   f4 --> f2
-  f6 --> f30
+  f6 --> f77
   f7 --> f8
   f7 --> f10
   f8 --> f9
-  f9 --> f23
-  f9 --> f25
+  f9 --> f70
+  f9 --> f72
   f10 --> f1
   f10 --> f9
-  f12 --> f30
-  f14 --> f30
-  f15 --> f31
-  f16 --> f0
-  f17 --> f0
+  f12 --> f26
+  f12 --> f78
+  f13 --> f77
+  f15 --> f26
+  f16 --> f20
+  f17 --> f20
   f18 --> f19
-  f19 --> f20
-  f20 --> f4
-  f21 --> f30
-  f22 --> f2
-  f22 --> f28
-  f23 --> f26
-  f24 --> f0
-  f24 --> f27
-  f25 --> f24
-  f26 --> f24
-  f29 --> f32
-  f30 --> f0
-  f31 --> f29
-  f32 --> f21
-  f32 --> f33
+  f18 --> f47
+  f19 --> f26
+  f19 --> f68
+  f20 --> f15
+  f20 --> f18
+  f21 --> f78
+  f22 --> f24
+  f23 --> f15
+  f23 --> f22
+  f23 --> f52
+  f24 --> f28
+  f25 --> f23
+  f25 --> f31
+  f26 --> f77
+  f27 --> f26
+  f27 --> f80
+  f28 --> f26
+  f28 --> f29
+  f28 --> f79
+  f30 --> f31
+  f30 --> f47
+  f31 --> f79
+  f31 --> f81
+  f32 --> f0
   f33 --> f6
+  f33 --> f26
+  f34 --> f38
+  f35 --> f30
+  f35 --> f36
+  f36 --> f34
+  f37 --> f36
+  f38 --> f28
+  f38 --> f33
+  f39 --> f45
+  f40 --> f5
+  f41 --> f42
+  f41 --> f63
+  f42 --> f5
+  f42 --> f26
+  f42 --> f43
+  f43 --> f0
+  f43 --> f11
+  f44 --> f39
+  f44 --> f40
+  f45 --> f41
+  f46 --> f40
+  f46 --> f45
+  f47 --> f29
+  f47 --> f48
+  f47 --> f50
+  f47 --> f79
+  f48 --> f49
+  f49 --> f0
+  f50 --> f26
+  f50 --> f49
+  f51 --> f52
+  f52 --> f47
+  f53 --> f13
+  f53 --> f30
+  f54 --> f79
+  f55 --> f59
+  f55 --> f61
+  f56 --> f59
+  f56 --> f61
+  f57 --> f55
+  f58 --> f56
+  f58 --> f57
+  f59 --> f15
+  f59 --> f60
+  f60 --> f26
+  f60 --> f62
+  f61 --> f60
+  f62 --> f14
+  f63 --> f15
+  f64 --> f0
+  f65 --> f66
+  f66 --> f67
+  f67 --> f4
+  f68 --> f77
+  f69 --> f2
+  f69 --> f75
+  f70 --> f73
+  f71 --> f0
+  f71 --> f74
+  f72 --> f71
+  f73 --> f71
+  f76 --> f79
+  f77 --> f0
+  f78 --> f76
+  f79 --> f68
+  f79 --> f80
+  f80 --> f6
 ```

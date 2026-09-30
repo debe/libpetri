@@ -22,7 +22,7 @@ function rather than a `Finsupp`, so concrete vectors stay definable by `if`;
 sums run over the first `n` places (`Finset.range n`, `dotProduct` over
 `Fin n`), which is the sum `invariant_conditions` emits
 (`smt_encoder.rs:406-429`), since the dense index of `flatten`
-(`net_flattener.rs:31-40`) keeps every place id below `place_count`.
+(`flatten_with_reapable`, `net_flattener.rs:102-111`) keeps every place id below `place_count`.
 -/
 
 /-- A P-invariant weight vector `y`: one integer weight per dense place index
@@ -47,7 +47,7 @@ def dot (y : Weight) (m : AMarking) (n : Nat) : Int :=
 /-- `y·(post − pre)` over the first `n` places: `y` applied to one flat
 transition's **incidence column exactly as the shipped matrix builds it** —
 `C[t][p] = post − pre` with `pre = required_count`
-(`incidence_matrix.rs:45-51` from `net_flattener.rs:50-54`; TS
+(`incidence_matrix.rs:45-51` from `net_flattener.rs:120-127`; TS
 `incidence-matrix.ts` from `net-flattener.ts`). `dotInc y ft n = 0` is
 therefore *verbatim* the condition `validate_invariants_exact` re-validates in
 exact arithmetic (`p_invariant.rs:325-343`; TS `p-invariant-computer.ts`).

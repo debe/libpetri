@@ -16,11 +16,14 @@ import Mathlib.Logic.Relation
 
 namespace Libpetri
 
-/-! ## A flat transition is a transition together with one XOR branch
+/-! ## A flat transition is a transition together with one outcome
 
-`net_flattener.rs:98-115` emits one `FlatTransition` per branch of the output
-tree, all sharing the same `pre`. The branch is exactly the set of places that
-receive one token. -/
+`flatten` (through `flatten_with_reapable`, `net_flattener.rs:150-186`) emits one `FlatTransition` per way a firing
+can end (`branch_outcomes::outcomes`), all sharing the same `pre`. For a branch the
+action writes, that is exactly the set of places that receive one token. The
+timeout outcome of a `ForwardInput` batch deposits more than one token in a place;
+`Novel/ForwardDeposit.lean` generalises this file to such rows
+(`forward_reachability_simulated`). -/
 abbrev FlatTransition := Transition × List PlaceId
 
 /-- A net, post-flattening. -/
@@ -200,7 +203,11 @@ theorem ReachA.rec' {net : FlatNet} {a0 : AMarking}
     obtain ⟨ft, hmem, hen, rfl⟩ := hst
     exact step hr hmem hen ih
 
-/-- **Proposition 1.** `α(R(N)) ⊆ R(N̂)`. -/
+/-- **Proposition 1.** `α(R(N)) ⊆ R(N̂)`, for unit-output steps: `StepC` requires
+`UnitOutput`, so every row is read as a set of places receiving one token each. A timeout forward
+row that deposits `k ≥ 2` tokens in one place is outside it; `Novel/ForwardDeposit.lean` is
+Proposition 1 for such rows (`rows_reachability_simulated`, `forward_reachability_simulated`),
+with the integer post `fireAD`. -/
 theorem proposition_one
     {net : FlatNet} {m0 m : CMarking}
     (hWF : WellFormed net) (h : ReachC net m0 m) :
@@ -276,8 +283,9 @@ is `{p₁}`, which is exactly what `Out::Place(p₁)` claims. (The [IO-015]
 exact-explanation rewrite tightened WHICH place sets conform — a claim must now
 equal the produced set — but the two tokens this action writes to place 1 remain
 invisible to it, so the finding stands unchanged.) The encoder fixes the gain at one token per
-branch place (`net_flattener.rs:85-88`). Again the concrete successor escapes
-the abstract relation. -/
+branch place an action writes (`net_flattener.rs:169-171`, in `flatten_with_reapable`). Again the concrete
+successor escapes the abstract relation. (A `ForwardInput` timeout batch is not an
+action write: the flattener deposits its full count, `Novel/ForwardDeposit.lean`.) -/
 theorem unit_output_hypothesis_is_necessary :
     alphaFireC mSimple tSimple prodDouble 1 = 2
     ∧ fireA (alpha mSimple) tSimple [1] 1 = 1 := by
