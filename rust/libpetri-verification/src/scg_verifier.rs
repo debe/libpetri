@@ -34,7 +34,7 @@
 //! turns a verdict into `Unknown` that the solver could have decided, and a
 //! truncated graph never proves anything.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::timing::Timing;
@@ -99,17 +99,31 @@ pub enum ScgOutcome {
 /// A class is quiescent only when it was **expanded** and has no successor: a
 /// frontier class of a truncated graph has no successor recorded only because
 /// nobody computed them ([VER-017]). On a closed graph every class is expanded.
-struct GraphClasses<'g>(&'g StateClassGraph);
+///
+/// With reapable transitions ([`crate::reaping`]) an expanded class also rests when
+/// every transition it enables is reapable: a late executor reaps them and stops
+/// there ([VER-002] reap-quiescence, [TIME-013]). With none, that is the plain rule.
+struct GraphClasses<'g> {
+    graph: &'g StateClassGraph,
+    reapable: &'g BTreeSet<String>,
+}
 
 impl ClassView for GraphClasses<'_> {
     fn count(&self) -> usize {
-        self.0.class_count()
+        self.graph.class_count()
     }
     fn marking_of(&self, i: usize) -> &MarkingState {
-        &self.0.classes()[i].marking
+        &self.graph.classes()[i].marking
     }
     fn is_quiescent(&self, i: usize) -> bool {
-        i < self.0.expanded_count() && self.0.successors(i).is_empty()
+        i < self.graph.expanded_count()
+            && (self.graph.successors(i).is_empty()
+                || (!self.reapable.is_empty()
+                    && self
+                        .graph
+                        .enabled_transitions(i)
+                        .iter()
+                        .all(|t| self.reapable.contains(t))))
     }
 }
 
@@ -118,6 +132,13 @@ impl ClassView for GraphClasses<'_> {
 /// `max_classes` is the class budget; `0` disables the route (the caller then
 /// never calls this). Builds the graph and hands it to
 /// [`decide_over_state_space`].
+///
+/// This is the graph of `net` as given. It applies neither the in-flight split of
+/// [VER-004] ([`crate::in_flight::split_in_flight`]) nor the reap-aware quiescence of
+/// [TIME-013] ([`decide_over_state_space_reaping`]), and its note does not say so:
+/// every firing is read as one atomic step and a marking rests only when nothing is
+/// enabled. `SmtVerifier::verify` applies both before it reaches this route; a direct
+/// caller that wants them splits the net first and decides with the reaping variant.
 pub fn verify_via_state_class_graph(
     net: &PetriNet,
     initial: &MarkingState,
@@ -151,6 +172,30 @@ pub fn decide_over_state_space(
     sink_places: &[String],
     conditional_sinks: &[ConditionalSinks],
 ) -> ScgOutcome {
+    decide_over_state_space_reaping(
+        graph,
+        initial,
+        property,
+        sink_places,
+        conditional_sinks,
+        &BTreeSet::new(),
+    )
+}
+
+/// [`decide_over_state_space`] reading quiescence reap-aware ([VER-002], [TIME-013]):
+/// an expanded class whose enabled transitions are all in `reapable` rests too. The
+/// graph decides only the runs it holds: a timed graph built on the net as written fires
+/// every transition on time, and one built on [`crate::reaping::relax_late`]'s net also
+/// holds the runs a late executor takes after a reap. An empty `reapable` is
+/// [`decide_over_state_space`].
+pub fn decide_over_state_space_reaping(
+    graph: &StateClassGraph,
+    initial: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    reapable: &BTreeSet<String>,
+) -> ScgOutcome {
     if graph.is_stopped() {
         return ScgOutcome::Stopped {
             class_count: graph.class_count(),
@@ -159,7 +204,7 @@ pub fn decide_over_state_space(
     let closed = graph.is_complete();
 
     let violating = decide_over_classes(
-        &GraphClasses(graph),
+        &GraphClasses { graph, reapable },
         property,
         sink_places,
         conditional_sinks,

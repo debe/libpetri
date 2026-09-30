@@ -1,11 +1,21 @@
 use std::collections::HashMap;
 
 use libpetri_core::input::{self, In};
-use libpetri_core::output::{self};
 use libpetri_core::petri_net::PetriNet;
+use libpetri_core::transition::Transition;
 
-/// A flattened transition with pre/post vectors.
+use crate::branch_outcomes;
+use crate::reaping;
+
+/// One way a firing of a transition can end ([`branch_outcomes::outcomes`]), with its
+/// pre and post vectors. A transition with one outcome gives one flat transition under
+/// its own name; one with several gives one per outcome, named `<name>_b<i>`, every
+/// outcome sharing the transition's pre vector and arcs.
+///
+/// `#[non_exhaustive]`: build one outside this crate with [`FlatTransition::new`] and
+/// the `with_*` setters.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FlatTransition {
     pub name: String,
     pub pre: Vec<i64>,
@@ -14,6 +24,58 @@ pub struct FlatTransition {
     pub read_places: Vec<usize>,
     pub reset_places: Vec<usize>,
     pub consume_all: Vec<usize>,
+    /// Whether the executor can reap the source transition ([TIME-013]): a `deadline`
+    /// or `window` one, unless the caller assumes no reaping. Its enabledness then does
+    /// not keep a marking from resting, so every quiescence encoding skips it
+    /// ([VER-002] reap-quiescence, [`crate::reaping`]).
+    pub reapable: bool,
+}
+
+impl FlatTransition {
+    /// A flat transition named `name` with these pre and post vectors, no inhibitor,
+    /// read, reset or drained place, and not reapable.
+    pub fn new(name: impl Into<String>, pre: Vec<i64>, post: Vec<i64>) -> Self {
+        Self {
+            name: name.into(),
+            pre,
+            post,
+            inhibitor_places: Vec::new(),
+            read_places: Vec::new(),
+            reset_places: Vec::new(),
+            consume_all: Vec::new(),
+            reapable: false,
+        }
+    }
+
+    /// Sets the place indices an inhibitor arc tests.
+    pub fn with_inhibitor_places(mut self, places: Vec<usize>) -> Self {
+        self.inhibitor_places = places;
+        self
+    }
+
+    /// Sets the place indices a read arc tests.
+    pub fn with_read_places(mut self, places: Vec<usize>) -> Self {
+        self.read_places = places;
+        self
+    }
+
+    /// Sets the place indices a reset arc clears.
+    pub fn with_reset_places(mut self, places: Vec<usize>) -> Self {
+        self.reset_places = places;
+        self
+    }
+
+    /// Sets the place indices an `all` / `at_least` input drains.
+    pub fn with_consume_all(mut self, places: Vec<usize>) -> Self {
+        self.consume_all = places;
+        self
+    }
+
+    /// Sets whether the executor can reap the source transition ([TIME-013]).
+    pub fn with_reapable(mut self, reapable: bool) -> Self {
+        self.reapable = reapable;
+        self
+    }
 }
 
 /// A flattened net ready for matrix computation and SMT encoding.
@@ -25,8 +87,17 @@ pub struct FlatNet {
     pub transitions: Vec<FlatTransition>,
 }
 
-/// Flattens a PetriNet: XOR branches are expanded into separate flat transitions.
+/// Flattens a PetriNet: each way a firing can end ([`branch_outcomes::outcomes`]) is a flat transition.
+///
+/// A flat transition is [`reapable`](FlatTransition::reapable) exactly when its source
+/// transition's timing is ([`reaping::is_reapable`]).
 pub fn flatten(net: &PetriNet) -> FlatNet {
+    flatten_with_reapable(net, &|t| reaping::is_reapable(t.timing()))
+}
+
+/// [`flatten`] with the caller deciding which source transitions are reapable: none
+/// under `assume_no_reaping`, or a set named before a rewrite dropped the timing.
+pub fn flatten_with_reapable(net: &PetriNet, reapable: &dyn Fn(&Transition) -> bool) -> FlatNet {
     // Collect and sort places for stable indexing
     let mut places: Vec<String> = net.places().iter().map(|p| p.name().to_string()).collect();
     places.sort();
@@ -76,54 +147,41 @@ pub fn flatten(net: &PetriNet) -> FlatNet {
             .map(|r| place_index[r.place.name()])
             .collect();
 
-        // Build post vectors: XOR branches expand into separate transitions
-        if let Some(out_spec) = t.output_spec() {
-            let branches = output::enumerate_branches(out_spec);
-            if branches.len() <= 1 {
-                // No XOR or single branch
-                let mut post = vec![0i64; place_count];
-                for p in output::all_places(out_spec) {
-                    let pid = place_index[p.name()];
-                    post[pid] += 1;
-                }
-                flat_transitions.push(FlatTransition {
-                    name: t.name().to_string(),
-                    pre: base_pre,
-                    post,
-                    inhibitor_places: inhibitor_places.clone(),
-                    read_places: read_places.clone(),
-                    reset_places: reset_places.clone(),
-                    consume_all: consume_all_places.clone(),
-                });
-            } else {
-                // XOR: one flat transition per branch
-                for (bi, branch) in branches.iter().enumerate() {
-                    let mut post = vec![0i64; place_count];
-                    for p in branch {
-                        let pid = place_index[p.name()];
-                        post[pid] += 1;
-                    }
-                    flat_transitions.push(FlatTransition {
-                        name: format!("{}_b{}", t.name(), bi),
-                        pre: base_pre.clone(),
-                        post,
-                        inhibitor_places: inhibitor_places.clone(),
-                        read_places: read_places.clone(),
-                        reset_places: reset_places.clone(),
-                        consume_all: consume_all_places.clone(),
-                    });
-                }
+        // Build post vectors: one flat transition per way a firing can end
+        // (`branch_outcomes`): each branch the action may write, one token per place
+        // ([IO-016]), then the timeout outcome when it deposits differently — only the
+        // timeout child's places, a forward depositing one token per consumed token
+        // ([IO-013] AC5, [IO-014]).
+        let outcomes = branch_outcomes::outcomes(t);
+        let single = outcomes.len() == 1;
+        for (bi, outcome) in outcomes.iter().enumerate() {
+            let mut post = vec![0i64; place_count];
+            // A forward of an `All` / `AtLeast` input deposits the drained batch, which
+            // no post vector can hold; its minimum stands in, and the verifier refuses
+            // the net before any flat route reads it (`branch_outcomes::drained_forward`);
+            // the graph routes, which count the batch, decide it first.
+            let minimum = |from: &str| {
+                t.input_specs()
+                    .iter()
+                    .find(|s| s.place_name() == from)
+                    .map_or(0, input::required_count)
+            };
+            for (place, n) in outcome.resolved(minimum) {
+                post[place_index[place]] += n as i64;
             }
-        } else {
-            // No output spec
             flat_transitions.push(FlatTransition {
-                name: t.name().to_string(),
-                pre: base_pre,
-                post: vec![0i64; place_count],
-                inhibitor_places,
-                read_places,
-                reset_places,
-                consume_all: consume_all_places,
+                name: if single {
+                    t.name().to_string()
+                } else {
+                    format!("{}_b{}", t.name(), bi)
+                },
+                pre: base_pre.clone(),
+                post,
+                inhibitor_places: inhibitor_places.clone(),
+                read_places: read_places.clone(),
+                reset_places: reset_places.clone(),
+                consume_all: consume_all_places.clone(),
+                reapable: reapable(t),
             });
         }
     }
@@ -160,6 +218,28 @@ mod tests {
         assert_eq!(flat.place_count, 2);
         assert_eq!(flat.transitions.len(), 1);
         assert_eq!(flat.transitions[0].name, "t1");
+    }
+
+    /// [IO-014]: the timeout outcome of `xor(c, timeout(forward_input(a, b)))` on an
+    /// `Exactly(2)` input deposits two tokens in `b`, as its own row after the two branches
+    /// the action may write.
+    #[test]
+    fn flatten_forward_deposits_every_consumed_token() {
+        use libpetri_core::input::exactly;
+        use libpetri_core::output::{forward_input, timeout};
+        let (a, b, c) = (Place::<i32>::new("a"), Place::<i32>::new("b"), Place::<i32>::new("c"));
+        let t = Transition::builder("t")
+            .input(exactly(2, &a))
+            .output(xor(vec![out_place(&c), timeout(50, forward_input(&a, &b))]))
+            .action(fork())
+            .build();
+        let flat = flatten(&PetriNet::builder("test").transition(t).build());
+        let names: Vec<&str> = flat.transitions.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["t_b0", "t_b1", "t_b2"]);
+        let (ia, ib, ic) = (flat.place_index["a"], flat.place_index["b"], flat.place_index["c"]);
+        assert!(flat.transitions.iter().all(|t| t.pre[ia] == 2));
+        let posts: Vec<(i64, i64)> = flat.transitions.iter().map(|t| (t.post[ib], t.post[ic])).collect();
+        assert_eq!(posts, [(0, 1), (1, 0), (2, 0)]);
     }
 
     #[test]

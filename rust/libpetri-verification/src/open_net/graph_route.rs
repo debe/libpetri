@@ -11,7 +11,7 @@
 //! quiescent whether or not the build got round to expanding it, and a cycle among explored
 //! classes is a real cycle. Only the absence of findings needs the graph to have closed.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
@@ -38,6 +38,7 @@ pub(super) fn decide_on_graph(
     contract: &OpenNetContract,
     max_classes: usize,
     traced_places: &[String],
+    reapable: &BTreeSet<String>,
 ) -> GraphRouteOutcome {
     let graph = StateClassGraph::build_with_options(
         &closed.net,
@@ -66,8 +67,9 @@ pub(super) fn decide_on_graph(
     for (index, sc) in classes.iter().enumerate() {
         // In an untimed exploration an enabled transition can always fire, so "nothing
         // enabled" is the graph's own quiescence, and it holds of a class the build never
-        // expanded as well.
-        if !sc.enabled_transitions.is_empty() {
+        // expanded as well. A late executor also rests where only reapable transitions are
+        // enabled ([VER-002] reap-quiescence, [TIME-013]); with none, that is the same rule.
+        if !sc.enabled_transitions.iter().all(|t| reapable.contains(t)) {
             continue;
         }
         for finding in quiescence_findings(&sc.marking, contract, &rest) {

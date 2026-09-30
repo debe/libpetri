@@ -124,8 +124,10 @@ fn the_phases_dump_each_query_under_its_own_phase_name() {
     // The candidate, the inequality excluding it, the unsat, and the certificate check.
     let join = join_with_skip();
     let (result, scripts) = dumped(&scratch.join("join"), || {
+        // The phases on the atomic net; `skip` inhibits the arms' output (VER-004).
         SmtVerifier::for_net(&join)
             .enumeration_max_classes(0)
+            .assume_atomic_firing(true)
             .initial_marking(MarkingStateBuilder::new().tokens("start", 1).build())
             .property(SmtProperty::DeadlockFree)
             .sink_places(["done".to_string(), "skipped".to_string()])
@@ -148,8 +150,10 @@ fn the_phases_dump_each_query_under_its_own_phase_name() {
     // The ranking, then one bounded run at the bound itself (5 < 8).
     let queue = queue_and_bundle();
     let (result, scripts) = dumped(&scratch.join("queue"), || {
+        // The phases on the atomic net; `bundle` drains `produce`'s output (VER-004).
         SmtVerifier::for_net(&queue)
             .enumeration_max_classes(0)
+            .assume_atomic_firing(true)
             .initial_marking(MarkingStateBuilder::new().tokens("budget", 3).tokens("src", 1).build())
             .property(SmtProperty::DeadlockFree)
             .sink_places(["out".to_string(), "budget".to_string()])

@@ -13,6 +13,8 @@
 //!   marking, so no run goes on forever. When there are none, the part is undecided and the
 //!   reason names the firings the marking equation lets repeat.
 
+use std::collections::BTreeSet;
+
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::timing::{Timing, immediate};
 use libpetri_core::transition::Transition;
@@ -88,6 +90,8 @@ pub(super) fn decide_via_smt(
     configure: Option<&SmtConfigurator>,
     termination_timeout_ms: u64,
     cancel: Option<&CancelToken>,
+    reapable: &BTreeSet<String>,
+    assume_atomic_firing: bool,
 ) -> SmtRouteOutcome {
     let mut violations: Vec<ContractViolation> = Vec::new();
     let mut undecided: Vec<String> = Vec::new();
@@ -111,7 +115,13 @@ pub(super) fn decide_via_smt(
             .property(q.property.clone())
             .sink_places(q.sinks.iter().cloned())
             // The graph route already enumerated as far as its budget allows.
-            .enumeration_max_classes(0);
+            .enumeration_max_classes(0)
+            // [TIME-013]: the untimed copy has lost the timing that names them.
+            .reapable_transitions(reapable.clone())
+            // [VER-004]: the closed net is already split, or atomic by the caller's choice;
+            // the environment's steps stay atomic either way.
+            .assume_atomic_firing(assume_atomic_firing)
+            .environment_steps(closed.environment.iter().map(|(name, _)| name.clone()));
         for c in &q.conditional {
             verifier = verifier.sink_places_when(c.marker.clone(), c.places.iter().cloned());
         }
@@ -303,6 +313,11 @@ fn termination_by_ranking(
 
 /// [`termination_by_ranking`] without the cancellation checks around it.
 fn ranking_outcome(closed: &ClosedNet, timeout_ms: u64) -> Result<String, String> {
+    // [IO-014]: a drained forward's deposit has no column in the flat net the ranking
+    // reads, so a ranking over it would bound a different net's runs.
+    if let Some(forward) = crate::branch_outcomes::drained_forward(&closed.net) {
+        return Err(forward.reason());
+    }
     let flat = flatten(&closed.net);
     // A count past `i64::MAX` cannot be a marking anyone built; saturating keeps the query
     // well-formed, and the exact re-check then refuses a ranking that relies on it.

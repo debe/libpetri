@@ -3,7 +3,7 @@
 //!
 //! Identifies the **coloured** places (the correlated inputs of ν-joins) and the
 //! role of each transition in the supported **mint → matched-join** fragment:
-//! a *mint* (fork) produces a freshly-named token into a coloured place, a *join*
+//! a *mint* (a declared fork) produces a freshly-named token into a coloured place, a *join*
 //! consumes one shared name from every correlated input, and everything else is
 //! *ordinary*. A net outside the fragment (a non-match transition that consumes a
 //! coloured place, or a join that re-mints into one) yields `None`, and the
@@ -11,14 +11,17 @@
 //!
 //! Unlike Route A's [`crate::name_coloured_encoder`] classifier, this works over
 //! the [`PetriNet`] (place names) rather than the flattened incidence net, and it
-//! does **not** require a declared budget place — finiteness comes from the
-//! symmetry quotient, not the budget. Route A is left byte-stable.
+//! does **not** require a declared budget place for finiteness: that comes from the
+//! symmetry quotient. A mint must still be declared ([NU-010]), by name or by
+//! consuming a declared budget place ([`declared_mints`]), because nothing in the
+//! net tells a minting action from one that copies a correlation id.
 
 use std::collections::{BTreeSet, HashMap};
 
 use libpetri_core::input::In;
 use libpetri_core::petri_net::PetriNet;
 
+use crate::branch_outcomes::{Deposit, TimeoutWrite, timeout_writes};
 use crate::state_class_graph::expand_transition;
 
 /// Selects which coloured-place fragment [`classify`] admits.
@@ -80,6 +83,28 @@ pub(crate) enum Role {
     },
 }
 
+/// The report line naming the ν contracts a verdict rests on ([NU-010], [NU-051]):
+/// the transitions read as mints, and the coloured consumers whose action writes are
+/// read as relays. Empty when there are none. The analyses cannot check what an
+/// action writes, so a verdict holds only while these actions keep the contracts.
+#[cfg_attr(not(feature = "z3"), allow(dead_code))]
+pub(crate) fn contract_note(mints: &[String], relays: &[String]) -> String {
+    let mut out = String::new();
+    if !mints.is_empty() {
+        out.push_str(&format!(
+            "Mint contract (NU-010) assumed for {}: each writes a freshly minted name into every coloured place it writes.\n",
+            mints.join(", ")
+        ));
+    }
+    if !relays.is_empty() {
+        out.push_str(&format!(
+            "Relay contract (NU-051) assumed for {}: each writes the name it consumed into every coloured place it writes.\n",
+            relays.join(", ")
+        ));
+    }
+    out
+}
+
 /// Classification of a net for the name-aware SCG.
 pub(crate) struct NameFragment {
     /// Coloured place names in fixed ascending order (the canonical-key order).
@@ -87,6 +112,14 @@ pub(crate) struct NameFragment {
     coloured: BTreeSet<String>,
     /// Role per transition name.
     roles: HashMap<String, Role>,
+    /// The transitions read as mints, in net order: the analysis trusts the mint
+    /// contract of [NU-010] for them.
+    #[cfg_attr(not(feature = "z3"), allow(dead_code))]
+    pub mints: Vec<String>,
+    /// The coloured consumers that write a coloured place, in net order: the analysis
+    /// trusts the relay contract of [NU-051] for their action writes.
+    #[cfg_attr(not(feature = "z3"), allow(dead_code))]
+    pub relays: Vec<String>,
 }
 
 impl NameFragment {
@@ -97,6 +130,83 @@ impl NameFragment {
     pub(crate) fn role(&self, transition: &str) -> &Role {
         self.roles.get(transition).unwrap_or(&Role::Ordinary)
     }
+}
+
+/// The transitions of `net` declared to mint ([NU-010]): each one named in
+/// `explicit` (the verifier's `mint_transitions`), plus each one that consumes a
+/// declared budget place, since a budget token is what a fork consumes when it mints
+/// ([NU-040]). A name in `explicit` that is not a transition of `net` is kept; the
+/// verifier rejects it before any route runs.
+pub fn declared_mints(
+    net: &PetriNet,
+    budget_places: &std::collections::HashSet<String>,
+    explicit: &std::collections::HashSet<String>,
+) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = explicit.iter().cloned().collect();
+    for t in net.transitions() {
+        if t.input_specs().iter().any(|s| budget_places.contains(s.place_name())) {
+            out.insert(t.name().to_string());
+        }
+    }
+    out
+}
+
+/// Why a mint declaration ([NU-010]) cannot be used on `net`: the declared names that
+/// are not transitions of `net`, in code-point order, as
+/// `declared mint transition 'x' not in the net (NU-010)`. A typo'd declaration would
+/// silently leave a real mint undeclared, so every entry point rejects it:
+/// `SmtVerifier::verify` answers `Unknown` with this reason,
+/// `SmtVerifier::encode_scripts` panics with it, and `verify_open_net` answers `Unknown`
+/// with it before either route runs. `None` when every name is a transition of `net`.
+pub fn unknown_mint_reason<'a>(net: &PetriNet, declared: impl IntoIterator<Item = &'a String>) -> Option<String> {
+    let mut unknown: Vec<&String> = declared
+        .into_iter()
+        .filter(|n| !net.transitions().iter().any(|t| t.name() == n.as_str()))
+        .collect();
+    if unknown.is_empty() {
+        return None;
+    }
+    unknown.sort();
+    unknown.dedup();
+    Some(format!(
+        "declared mint transition{} {} not in the net (NU-010)",
+        if unknown.len() == 1 { "" } else { "s" },
+        unknown.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ")
+    ))
+}
+
+/// The transitions of `net` that write a coloured place of the fragment without
+/// consuming one and are not in `mints`, in net order, when declaring them is all that
+/// keeps `net` out of the fragment: [`classify`] admits `net` with every transition read
+/// as a mint and rejects it with `mints`. Empty otherwise. These are the undeclared mints
+/// a Route B decline points at ([NU-010]).
+pub fn undeclared_mints(
+    net: &PetriNet,
+    mode: FragmentMode,
+    carriers: &BTreeSet<String>,
+    mints: &BTreeSet<String>,
+) -> Vec<String> {
+    if classify(net, mode, carriers, mints).is_some() {
+        return Vec::new();
+    }
+    let every: BTreeSet<String> = net.transitions().iter().map(|t| t.name().to_string()).collect();
+    match classify(net, mode, carriers, &every) {
+        Some(fragment) => fragment.mints.into_iter().filter(|m| !mints.contains(m)).collect(),
+        None => Vec::new(),
+    }
+}
+
+/// The sentence a Route B decline adds when [`undeclared_mints`] names transitions:
+/// which transitions to declare, and with what.
+pub fn undeclared_mints_pointer(undeclared: &[String]) -> String {
+    let names: Vec<String> = undeclared.iter().map(|t| format!("'{t}'")).collect();
+    let (write, it) = if undeclared.len() == 1 { ("writes", "it") } else { ("write", "them") };
+    format!(
+        "{} {write} a coloured place without consuming one and {} not declared to mint (NU-010); \
+         if the action writes a name minted with fresh_name, declare {it} with mint_transitions",
+        names.join(", "),
+        if undeclared.len() == 1 { "is" } else { "are" },
+    )
 }
 
 /// Classifies `net` under `mode`. Returns `None` when it is not a ν-net (no
@@ -115,10 +225,24 @@ impl NameFragment {
 /// inhibitor arc: those arcs would be silently misclassified `Ordinary` and the
 /// name layer would drift from the base marking (a soundness guard; rejection
 /// just falls back to the sound over-approximation).
+///
+/// A transition that writes a coloured place without consuming one is read as a
+/// **mint** only when it is named in `mints`, the declared mint transitions
+/// ([`declared_mints`]). The declaration is the net's statement that the action
+/// writes a name freshly minted by `fresh_name` into each coloured place it writes
+/// ([NU-010]). An action may write any value, a copied correlation id included, so
+/// without the declaration the name layer cannot give the deposit a fresh symbol and
+/// the net is rejected. A deposit the executor makes on timeout is never a mint,
+/// declared or not: a forward copies a consumed value and an `Out::Place` writes a
+/// unit token with no name ([IO-013], [IO-014]). A join's timeout may write a relay
+/// target only by forwarding one of its match keys, the one write that carries the
+/// matched name. The executor checks every relay deposit ([NU-054]) and fails the
+/// firing on any other, so no timeout write relies on a contract.
 pub(crate) fn classify(
     net: &PetriNet,
     mode: FragmentMode,
     carriers: &BTreeSet<String>,
+    mints: &BTreeSet<String>,
 ) -> Option<NameFragment> {
     // 1. Coloured places = union of every match transition's correlated inputs,
     //    plus (EXTENDED only) the declared carrier places and every join's relay
@@ -167,6 +291,8 @@ pub(crate) fn classify(
 
     // 2. Classify each transition; reject nets outside the fragment.
     let mut roles: HashMap<String, Role> = HashMap::new();
+    let mut mint_names: Vec<String> = Vec::new();
+    let mut relay_names: Vec<String> = Vec::new();
     for t in net.transitions() {
         let coloured_inputs: Vec<&In> = t
             .input_specs()
@@ -175,9 +301,24 @@ pub(crate) fn classify(
             .collect();
         let consumes_coloured = !coloured_inputs.is_empty();
         let branches = expand_transition(t);
+        // The name layer adds one symbol per coloured output place of a firing, as the
+        // base marking adds one token per place an action writes. A timeout forward
+        // deposits one token per consumed token ([IO-014]); into a coloured place at any
+        // count but one, the name layer would lose track of the base marking.
+        if branches.iter().any(|(_, o)| {
+            o.deposits.iter().any(|(p, d)| coloured.contains(p) && *d != Deposit::Tokens(1))
+        }) {
+            return None;
+        }
         let produces_coloured = branches
             .iter()
-            .any(|(_, outs)| outs.iter().any(|p| coloured.contains(p)));
+            .any(|(_, outs)| outs.places.iter().any(|p| coloured.contains(p)));
+        // What the executor itself writes into a coloured place on timeout: a copy of
+        // a consumed value (forward) or a unit token (place). Neither is a fresh name.
+        let timeout_coloured: Vec<(String, TimeoutWrite)> = timeout_writes(t)
+            .into_iter()
+            .filter(|(p, _)| coloured.contains(p))
+            .collect();
 
         let role = if let Some(ms) = t.match_spec() {
             // Matched join: consumes the correlated coloured inputs, and writes a
@@ -190,8 +331,18 @@ pub(crate) fn classify(
             };
             if branches
                 .iter()
-                .any(|(_, outs)| outs.iter().any(|p| coloured.contains(p) && !relay_to.contains(p)))
+                .any(|(_, outs)| outs.places.iter().any(|p| coloured.contains(p) && !relay_to.contains(p)))
             {
+                return None;
+            }
+            // What the executor writes into a relay target on timeout is checked like an
+            // action's write ([NU-054]). Only a forward of a match key carries the matched
+            // name. A unit token has none and a forward of another input carries that
+            // input's name, so such a firing fails and deposits nothing, while the name
+            // layer would relay the matched name.
+            if timeout_coloured.iter().any(|(_, w)| {
+                !matches!(w, TimeoutWrite::Forward(from) if ms.keys().iter().any(|k| k.place_name() == from))
+            }) {
                 return None;
             }
             // A coloured place consumed off-key is taken FIFO, whatever its name; the
@@ -242,13 +393,30 @@ pub(crate) fn classify(
                         In::Exactly { count: 1, .. } => {}
                         _ => return None,
                     }
-                    Role::Consume {
-                        input_place: coloured_inputs[0].place_name().to_string(),
+                    let input_place = coloured_inputs[0].place_name().to_string();
+                    // A timeout deposit relays the consumed name only when it forwards
+                    // the coloured input itself. A forward of another input copies a
+                    // name the relay did not consume, and a unit token has none.
+                    if timeout_coloured
+                        .iter()
+                        .any(|(_, w)| *w != TimeoutWrite::Forward(input_place.clone()))
+                    {
+                        return None;
                     }
+                    if produces_coloured {
+                        relay_names.push(t.name().to_string());
+                    }
+                    Role::Consume { input_place }
                 }
             }
         } else if produces_coloured {
-            // Minting fork: produces a coloured token, consumes none.
+            // Minting fork: produces a coloured token, consumes none. Read as a mint
+            // only when declared ([NU-010]), and never when the executor writes a
+            // coloured place on timeout.
+            if !mints.contains(t.name()) || !timeout_coloured.is_empty() {
+                return None;
+            }
+            mint_names.push(t.name().to_string());
             Role::Mint
         } else {
             Role::Ordinary
@@ -261,7 +429,16 @@ pub(crate) fn classify(
         coloured_order,
         coloured,
         roles,
+        mints: mint_names,
+        relays: relay_names,
     })
+}
+
+/// Every transition of `net`, as the declared mints of a test that exercises
+/// something other than the mint declaration ([NU-010]).
+#[cfg(test)]
+pub(crate) fn all_mints(net: &PetriNet) -> BTreeSet<String> {
+    net.transitions().iter().map(|t| t.name().to_string()).collect()
 }
 
 #[cfg(test)]
@@ -277,7 +454,7 @@ mod tests {
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
-    /// Empty carrier set, for the common `classify(net, mode, &no_carriers())`.
+    /// Empty carrier set, for the common `classify(net, mode, &no_carriers(), &crate::name_fragment::all_mints(&net))`.
     fn no_carriers() -> BTreeSet<String> {
         BTreeSet::new()
     }
@@ -311,13 +488,13 @@ mod tests {
     /// must reject it so the verifier falls back to the sound over-approximation.
     #[test]
     fn at_least_correlated_input_is_rejected() {
-        assert!(classify(&join_net(true), FragmentMode::Base, &no_carriers()).is_none());
+        assert!(classify(&join_net(true), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&join_net(true))).is_none());
     }
 
     /// The same shape with One correlated inputs IS in the fragment.
     #[test]
     fn one_correlated_inputs_are_accepted() {
-        assert!(classify(&join_net(false), FragmentMode::Base, &no_carriers()).is_some());
+        assert!(classify(&join_net(false), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&join_net(false))).is_some());
     }
 
     // === EXTENDED coloured-consumer fragment ([NU-051]) ===
@@ -384,11 +561,11 @@ mod tests {
         let net = comint_relay_drain_net(1, 1);
         let carriers = carriers(&["preA", "preB"]);
         assert!(
-            classify(&net, FragmentMode::Extended, &carriers).is_some(),
+            classify(&net, FragmentMode::Extended, &carriers, &crate::name_fragment::all_mints(&net)).is_some(),
             "EXTENDED must admit the drain/relay coloured-consumer fragment"
         );
         assert!(
-            classify(&net, FragmentMode::Base, &carriers).is_none(),
+            classify(&net, FragmentMode::Base, &carriers, &crate::name_fragment::all_mints(&net)).is_none(),
             "BASE rejects a non-match transition consuming a coloured place"
         );
     }
@@ -398,7 +575,7 @@ mod tests {
     #[test]
     fn extended_assigns_consume_roles() {
         let net = comint_relay_drain_net(1, 1);
-        let fragment = classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]))
+        let fragment = classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net))
             .expect("in EXTENDED fragment");
         assert!(matches!(fragment.role("fork"), Role::Mint));
         assert!(matches!(fragment.role("join"), Role::Join { .. }));
@@ -413,7 +590,7 @@ mod tests {
     fn extended_rejects_relay_consuming_count_two() {
         let net = comint_relay_drain_net(2, 1);
         assert!(
-            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"])).is_none(),
+            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net)).is_none(),
             "a coloured consumer at count 2 must be rejected (Blocker 1)"
         );
     }
@@ -425,7 +602,7 @@ mod tests {
     fn extended_rejects_drain_consuming_count_two() {
         let net = comint_relay_drain_net(1, 2);
         assert!(
-            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"])).is_none(),
+            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net)).is_none(),
             "a coloured drain at count 2 must be rejected (Blocker 2)"
         );
     }
@@ -462,13 +639,81 @@ mod tests {
             .build();
 
         assert!(
-            classify(&net, FragmentMode::Base, &no_carriers()).is_none(),
+            classify(&net, FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&net)).is_none(),
             "reset on a coloured place is rejected under BASE"
         );
         assert!(
-            classify(&net, FragmentMode::Extended, &no_carriers()).is_none(),
+            classify(&net, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&net)).is_none(),
             "reset on a coloured place is rejected under EXTENDED"
         );
+    }
+
+    // ---- NU-010 / NU-051: what a timeout writes into a coloured place ----
+
+    /// `m: S → xor(A, timeout(20, A))` and `r: A → xor(C, timeout(20, forward(A, C)))`,
+    /// `j: C, B → done` with `B` minted by `mb: S → B`. `timeout_place` writes a unit
+    /// token into `A` on timeout; `forward_own` makes `r`'s timeout forward its own
+    /// coloured input.
+    fn timeout_net(timeout_place: bool, forward_own: bool) -> PetriNet {
+        use libpetri_core::output::{forward_input, timeout, xor};
+        let p = |n: &str| Place::<String>::new(n);
+        let key = |s: &String| NameId::new(s.clone());
+        let m_out = if timeout_place {
+            xor(vec![out_place(&p("A")), timeout(20, out_place(&p("A")))])
+        } else {
+            out_place(&p("A"))
+        };
+        let r_out = if forward_own {
+            xor(vec![out_place(&p("C")), timeout(20, forward_input(&p("A"), &p("C")))])
+        } else {
+            xor(vec![out_place(&p("C")), timeout(20, forward_input(&p("R"), &p("C")))])
+        };
+        let m = Transition::builder("m").input(one(&p("S"))).output(m_out).action(fork()).build();
+        let mb = Transition::builder("mb").input(one(&p("S"))).output(out_place(&p("B"))).action(fork()).build();
+        let r = Transition::builder("r")
+            .input(one(&p("A")))
+            .input(one(&p("R")))
+            .output(r_out)
+            .action(fork())
+            .build();
+        let j = Transition::builder("j")
+            .input(one(&p("C")))
+            .input(one(&p("B")))
+            .match_spec(MatchSpec::builder().key(&p("C"), key).key(&p("B"), key).build())
+            .output(out_place(&p("done")))
+            .action(fork())
+            .build();
+        PetriNet::builder("timeouts").transitions([m, mb, r, j]).build()
+    }
+
+    #[test]
+    fn a_unit_token_written_on_timeout_is_not_a_mint() {
+        let net = timeout_net(true, true);
+        let mints = all_mints(&net);
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &mints).is_none());
+        let net = timeout_net(false, true);
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &mints).is_some());
+    }
+
+    #[test]
+    fn a_consumer_timeout_relays_only_by_forwarding_its_coloured_input() {
+        let net = timeout_net(false, true);
+        let f = classify(&net, FragmentMode::Extended, &carriers(&["A"]), &all_mints(&net))
+            .expect("forwarding the consumed input on timeout is a relay");
+        assert!(matches!(f.role("r"), Role::Consume { input_place } if input_place == "A"));
+        let net = timeout_net(false, false);
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &all_mints(&net)).is_none());
+    }
+
+    #[test]
+    fn an_undeclared_producer_of_a_coloured_place_is_not_a_mint() {
+        let net = timeout_net(false, true);
+        let declared: BTreeSet<String> = ["m".to_string()].into_iter().collect();
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &declared).is_none());
+        let declared: BTreeSet<String> = ["m".to_string(), "mb".to_string()].into_iter().collect();
+        let f = classify(&net, FragmentMode::Extended, &carriers(&["A"]), &declared).expect("declared");
+        assert_eq!(f.mints, vec!["m", "mb"]);
+        assert_eq!(f.relays, vec!["r"]);
     }
 
     // ---- NU-054: relay targets ----
@@ -481,7 +726,7 @@ mod tests {
     #[test]
     fn extended_colours_relay_targets_and_the_join_carries_them() {
         let net = pnid_net("12c", &fig_12c());
-        let f = classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS))
+        let f = classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS), &crate::name_fragment::all_mints(&net))
             .expect("Fig. 12(c) with the relay is in the EXTENDED fragment");
         assert!(f.is_coloured("P5"));
         let Role::Join { relay_to, .. } = f.role("e") else {
@@ -498,15 +743,15 @@ mod tests {
     #[test]
     fn extended_rejects_a_join_writing_a_coloured_place_it_does_not_declare() {
         let net = pnid_net("12c", &without_relays(&fig_12c()));
-        assert!(classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS)).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS), &crate::name_fragment::all_mints(&net)).is_none());
     }
 
     #[test]
     fn base_ignores_the_declaration() {
-        assert!(classify(&pnid_net("12c", &fig_12c()), FragmentMode::Base, &no_carriers()).is_none());
+        assert!(classify(&pnid_net("12c", &fig_12c()), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&pnid_net("12c", &fig_12c()))).is_none());
         let chain = pnid_net("chain", &join_chain());
-        assert!(classify(&chain, FragmentMode::Base, &no_carriers()).is_none());
-        let f = classify(&chain, FragmentMode::Extended, &no_carriers()).expect("EXTENDED admits the chain");
+        assert!(classify(&chain, FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&chain)).is_none());
+        let f = classify(&chain, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&chain)).expect("EXTENDED admits the chain");
         // BASE-shaped roles are unchanged: j2 drains.
         let Role::Join { relay_to, .. } = f.role("j2") else {
             panic!("j2 is a join")
@@ -563,19 +808,19 @@ mod tests {
 
     #[test]
     fn extended_accepts_the_plain_relay() {
-        assert!(classify(&relay_net("none"), FragmentMode::Extended, &no_carriers()).is_some());
+        assert!(classify(&relay_net("none"), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net("none"))).is_some());
     }
 
     #[test]
     fn extended_rejects_a_relay_target_the_join_also_consumes_off_key() {
-        assert!(classify(&relay_net("off_key"), FragmentMode::Extended, &no_carriers()).is_none());
+        assert!(classify(&relay_net("off_key"), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net("off_key"))).is_none());
     }
 
     #[test]
     fn extended_rejects_a_relay_target_with_a_read_inhibitor_or_reset_arc() {
         for arc in ["read", "inhibitor", "reset"] {
             assert!(
-                classify(&relay_net(arc), FragmentMode::Extended, &no_carriers()).is_none(),
+                classify(&relay_net(arc), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net(arc))).is_none(),
                 "{arc}"
             );
         }
@@ -587,7 +832,7 @@ mod tests {
             relay_nets::t("fork", &["S"], &["A", "B"]),
             relay_nets::j("j", &["A", "B"], &["C"], &["A", "B"], &["C"]),
         ];
-        let f = classify(&pnid_net("sinkRelay", &rows), FragmentMode::Extended, &no_carriers())
+        let f = classify(&pnid_net("sinkRelay", &rows), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&pnid_net("sinkRelay", &rows)))
             .expect("a relay into a sink place is in the fragment");
         assert!(f.is_coloured("C"));
         let p = |n: &str| Place::<String>::new(n);
@@ -600,6 +845,6 @@ mod tests {
         let mut ts: Vec<Transition> = pnid_net("x", &rows).transitions().to_vec();
         ts.push(watcher);
         let net = PetriNet::builder("sinkRelayRead").transitions(ts).build();
-        assert!(classify(&net, FragmentMode::Extended, &no_carriers()).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&net)).is_none());
     }
 }

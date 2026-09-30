@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
-use libpetri_core::output::enumerate_branches;
 use libpetri_core::petri_net::PetriNet;
 
 use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
 use crate::scc::{compute_sccs, find_terminal_sccs};
 use crate::state_class_graph::StateClassGraph;
+use crate::in_flight::{
+    InFlight, completion_transition, in_flight_place, source_transition, split_in_flight, split_note,
+};
 use crate::terminal_places::inhibit_on_terminals;
 
 /// Result of liveness analysis.
@@ -113,9 +115,23 @@ impl<'a> TimePetriNetAnalyzer<'a> {
 
     /// Performs formal liveness analysis.
     pub fn analyze(&self) -> LivenessResult {
+        // [VER-004]: a transition whose output another tests non-monotonically fires in two
+        // steps, as the executor fires it. Before the terminal rewrite, whose inhibitor
+        // counts as such a test.
+        let split = split_in_flight(self.net, &HashSet::new(), &HashSet::new());
+        let (base, in_flight_line) = match &split {
+            InFlight::Atomic => (self.net, None),
+            InFlight::Split { net, split } => (net, Some(split_note(split).trim_end().to_string())),
+            InFlight::Refused { reason } => (
+                self.net,
+                Some(format!(
+                    "WARNING: {reason}; the graph fires it in one step, so it can miss runs of the executor."
+                )),
+            ),
+        };
         // Net-declared terminals ([EXEC-042]): a terminal place inhibits every transition.
-        let rewritten = inhibit_on_terminals(self.net);
-        let net = rewritten.as_ref().unwrap_or(self.net);
+        let rewritten = inhibit_on_terminals(base);
+        let net = rewritten.as_ref().unwrap_or(base);
         let mut report = Vec::new();
         report.push("=== TIME PETRI NET FORMAL ANALYSIS ===\n".to_string());
         report.push("Method: State Class Graph (Berthomieu-Diaz 1991)".to_string());
@@ -123,6 +139,9 @@ impl<'a> TimePetriNetAnalyzer<'a> {
         report.push(format!("Places: {}", net.places().len()));
         report.push(format!("Transitions: {}", net.transitions().len()));
         report.push(format!("Goal places: [{}]\n", self.goal_places.join(", ")));
+        if let Some(line) = in_flight_line {
+            report.push(format!("{line}\n"));
+        }
 
         // Phase 1: Build State Class Graph
         report.push("Phase 1: Building State Class Graph...".to_string());
@@ -213,8 +232,10 @@ impl<'a> TimePetriNetAnalyzer<'a> {
         report
             .push("  Property: Every transition can fire from every reachable marking".to_string());
 
+        // [VER-004]: the caller's transitions. A split `t` fires in the graph as its start
+        // `t` and its completion `complete:t`; either counts as `t` firing.
         let all_transition_names: HashSet<&str> =
-            net.transitions().iter().map(|t| t.name()).collect();
+            self.net.transitions().iter().map(|t| t.name()).collect();
 
         let mut terminal_missing_transitions = 0;
         for scc in &terminal_sccs {
@@ -226,7 +247,7 @@ impl<'a> TimePetriNetAnalyzer<'a> {
                     let edges = scg.branch_edges(class_idx, t_name);
                     for edge in edges {
                         if scc_set.contains(&edge.to) {
-                            transitions_in_scc.insert(t_name.clone());
+                            transitions_in_scc.insert(source_transition(net, t_name).to_string());
                         }
                     }
                 }
@@ -311,23 +332,31 @@ impl<'a> TimePetriNetAnalyzer<'a> {
     }
 
     /// Analyzes XOR branch coverage for a built state class graph.
+    ///
+    /// `scg` may be the graph of `net` itself or of the net [`analyze`](Self::analyze)
+    /// verifies, in which a transition whose output another tests non-monotonically is
+    /// split ([VER-004]): its start `t` has one outcome, and its branches are those of
+    /// `complete:t`. A transition whose place `inflight:t` some class marks, or whose
+    /// completion some edge fires, is read off `complete:t`.
     pub fn analyze_xor_branches(net: &PetriNet, scg: &StateClassGraph) -> XorBranchAnalysis {
         let mut branches = Vec::new();
 
         for transition in net.transitions() {
-            let out_spec = match transition.output_spec() {
-                Some(spec) => spec,
-                None => continue,
-            };
-
-            let all_branches = enumerate_branches(out_spec);
+            // The graph's virtual transitions: each XOR branch, and a timeout that
+            // deposits differently (`branch_outcomes::outcomes`).
+            let all_branches = crate::branch_outcomes::outcomes(transition);
             if all_branches.len() <= 1 {
                 continue;
             }
 
+            let completion = completion_transition(transition.name());
+            let flight = in_flight_place(transition.name());
+            let split = scg.edges().iter().any(|e| e.transition_name == completion)
+                || scg.classes().iter().any(|c| c.marking.count(&flight) > 0);
+            let label = if split { completion.as_str() } else { transition.name() };
             let mut taken = HashSet::new();
             for class_idx in 0..scg.class_count() {
-                for edge in scg.branch_edges(class_idx, transition.name()) {
+                for edge in scg.branch_edges(class_idx, label) {
                     taken.insert(edge.branch_index);
                 }
             }
@@ -614,6 +643,80 @@ mod tests {
         assert!(analysis.branches[0].untaken_branches.is_empty());
         assert!(analysis.is_xor_complete());
         assert!(analysis.unreachable_branches().is_empty());
+    }
+
+    /// `choice: start → xor(A, B)`. `inhibit` adds `watch: q + inhibitor(A) → r`, a
+    /// non-monotone test of an output; `terminal` makes `B` a terminal place. Either
+    /// splits `choice` ([VER-004]), and its branches are then fired by `complete:choice`.
+    fn split_xor_net(inhibit: bool, terminal: bool) -> PetriNet {
+        let (p0, p_a, p_b) = (Place::<i32>::new("start"), Place::<i32>::new("A"), Place::<i32>::new("B"));
+        let choice = Transition::builder("choice")
+            .input(one(&p0))
+            .output(xor(vec![out_place(&p_a), out_place(&p_b)]))
+            .action(fork())
+            .build();
+        let mut b = PetriNet::builder("split-xor").transition(choice);
+        if inhibit {
+            b = b.transition(
+                Transition::builder("watch")
+                    .input(one(&Place::<i32>::new("q")))
+                    .inhibitor(libpetri_core::arc::inhibitor(&p_a))
+                    .output(out_place(&Place::<i32>::new("r")))
+                    .action(fork())
+                    .build(),
+            );
+        }
+        if terminal {
+            b = b.terminal(&p_b);
+        }
+        b.build()
+    }
+
+    /// Before, the branches were looked up under `choice`, whose start has one outcome, so
+    /// a split XOR reported one branch taken and the other untaken, or every branch
+    /// untaken when the terminal inhibited the completion.
+    #[test]
+    fn xor_branches_of_a_split_transition_are_read_off_its_completion() {
+        for (inhibit, terminal) in [(true, false), (false, true)] {
+            let net = split_xor_net(inhibit, terminal);
+            let marking = MarkingStateBuilder::new().tokens("start", 1).tokens("q", 1).build();
+            let result = TimePetriNetAnalyzer::for_net(&net)
+                .initial_marking(marking)
+                .goal_place("A")
+                .max_classes(100)
+                .build()
+                .analyze();
+            assert!(
+                result.state_class_graph.edges().iter().any(|e| e.transition_name == "complete:choice"),
+                "the analyzed net splits choice ({inhibit}, {terminal})"
+            );
+            let analysis = TimePetriNetAnalyzer::analyze_xor_branches(&net, &result.state_class_graph);
+            assert_eq!(analysis.branches.len(), 1);
+            assert_eq!(analysis.branches[0].transition_name, "choice");
+            assert_eq!(analysis.branches[0].taken_branches.len(), 2, "({inhibit}, {terminal}): {}", analysis.report());
+            assert!(analysis.is_xor_complete(), "({inhibit}, {terminal}): {}", analysis.report());
+        }
+    }
+
+    /// The L4 report names the caller's transitions: a split `choice` fires as `choice`
+    /// and `complete:choice`, and neither name leaks as missing.
+    #[test]
+    fn l4_names_the_callers_transitions_of_a_split_net() {
+        let net = split_xor_net(true, false);
+        let marking = MarkingStateBuilder::new().tokens("start", 1).tokens("q", 1).build();
+        let result = TimePetriNetAnalyzer::for_net(&net)
+            .initial_marking(marking)
+            .goal_place("A")
+            .max_classes(100)
+            .build()
+            .analyze();
+        let missing: Vec<&str> = result
+            .report
+            .lines()
+            .filter(|l| l.contains("Terminal SCC missing transitions"))
+            .collect();
+        assert!(!missing.is_empty(), "{}", result.report);
+        assert!(missing.iter().all(|l| !l.contains("complete:")), "{}", result.report);
     }
 
     #[test]

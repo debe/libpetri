@@ -52,5 +52,13 @@ pub enum PrioritySemantics {
     /// conflict is gone. The timing side-condition keeps the reverse case (an
     /// immediate low-priority transition vs. a delayed high-priority one)
     /// unpruned.
+    ///
+    /// **In flight ([VER-004]).** The executor pre-empts `L` only when `H` can start,
+    /// and the Java and TypeScript executors do not start `H` while an earlier firing of
+    /// it is in flight. So `H` pre-empts nothing while `inflight:<H>` is marked, and
+    /// `SmtVerifier::verify` splits every `H` that can pre-empt another, with every
+    /// transition depositing into `H`'s input or read places (more tokens there can
+    /// enable `H` and so disable `L`). When one of them cannot be split, the pruning is
+    /// off for that verification and the report says why.
     Conflict,
 }

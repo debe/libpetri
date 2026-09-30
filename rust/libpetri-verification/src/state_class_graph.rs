@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use libpetri_core::input::{self, In};
-use libpetri_core::output::enumerate_branches;
 use libpetri_core::petri_net::{PetriNet, require_output_producing_actions};
 use libpetri_core::timing::Timing;
 use libpetri_core::transition::Transition;
 
+use crate::branch_outcomes::{self, Outcome};
 use crate::dbm::Dbm;
 use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
@@ -70,6 +70,13 @@ impl StateClassGraph {
     }
 
     /// Builds the state class graph for a Time Petri Net using BFS exploration.
+    ///
+    /// The graph is built for the net as given, and every firing is one atomic step. The
+    /// executor consumes at the start of an action and deposits at its completion, and other
+    /// transitions can fire in between ([VER-004], [VER-010] AC4). To get that two-step firing,
+    /// call [`crate::in_flight::split_in_flight`] first and build the graph of the net it
+    /// returns; its refused case means no graph of this kind is faithful to the executor.
+    /// `SmtVerifier` does this itself.
     pub fn build(net: &PetriNet, initial_marking: &MarkingState, max_classes: usize) -> Self {
         Self::build_with_env(
             net,
@@ -160,13 +167,13 @@ impl StateClassGraph {
                 // Expand XOR branches into virtual transitions
                 let virtual_transitions = expand_transition(transition);
 
-                for (branch_index, output_places) in virtual_transitions {
+                for (branch_index, outcome) in virtual_transitions {
                     let successor = compute_successor(
                         net,
                         &current,
                         clock_idx,
                         transition_name,
-                        &output_places,
+                        &outcome,
                         &env_set,
                         env_mode,
                         untimed,
@@ -413,9 +420,9 @@ pub(crate) fn is_enabled(
 }
 
 /// Whether `place` can supply `required` tokens ([VER-006] AC3). An environment place
-/// under `AlwaysAvailable` always can; under `Bounded(k)` it can exactly when
-/// `required <= k`, whatever it already holds; under `Ignore` it is an ordinary place.
-/// Mirrors Java `StateClassGraph.checkPlaceEnabled`.
+/// under `AlwaysAvailable` always can; under `Bounded(k)` it can exactly when `required <= k`,
+/// whatever it holds (the executor's answer only within the AC3 premises `SmtVerifier` checks);
+/// under `Ignore` it is an ordinary place. Mirrors Java `StateClassGraph.checkPlaceEnabled`.
 fn check_place_enabled(
     place: &str,
     required: usize,
@@ -437,31 +444,12 @@ fn check_place_enabled(
     }
 }
 
+/// The virtual transitions of one firing of `transition`: every way it can end
+/// ([`branch_outcomes::outcomes`]), numbered as the flattener numbers its `_b<i>` rows.
 pub(crate) fn expand_transition(
     transition: &libpetri_core::transition::Transition,
-) -> Vec<(usize, HashSet<String>)> {
-    if let Some(out_spec) = transition.output_spec() {
-        let branches = enumerate_branches(out_spec);
-        if branches.len() <= 1 {
-            let places: HashSet<String> = branches
-                .into_iter()
-                .flat_map(|b| b.into_iter().map(|p| p.name().to_string()))
-                .collect();
-            vec![(0, places)]
-        } else {
-            branches
-                .into_iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    let places: HashSet<String> =
-                        b.into_iter().map(|p| p.name().to_string()).collect();
-                    (i, places)
-                })
-                .collect()
-        }
-    } else {
-        vec![(0, HashSet::new())]
-    }
+) -> Vec<(usize, Outcome)> {
+    branch_outcomes::outcomes(transition).into_iter().enumerate().collect()
 }
 
 pub(crate) fn compute_successor(
@@ -469,10 +457,48 @@ pub(crate) fn compute_successor(
     current: &StateClass,
     fired_clock: usize,
     fired_name: &str,
-    output_places: &HashSet<String>,
+    outcome: &Outcome,
     env_places: &HashSet<&str>,
     env_mode: &EnvironmentAnalysisMode,
     untimed: bool,
+) -> StateClass {
+    compute_successor_gated(
+        net,
+        current,
+        fired_clock,
+        fired_name,
+        outcome,
+        env_places,
+        env_mode,
+        untimed,
+        |_| true,
+        |_| true,
+    )
+}
+
+/// [`compute_successor`] with an enabling condition beyond the count marking:
+/// a transition holds a clock in the intermediate marking only if
+/// `enabled_between` accepts it, and in the new marking only if `enabled_after`
+/// does. `current.enabled_transitions` must already satisfy the condition for
+/// the marking before the firing.
+///
+/// The ν-aware graph ([`crate::name_state_class_graph`]) passes a ν-join's name
+/// test here: the executor enables a join only when one name is present in every
+/// correlated input ([NU-020]), and a removal that breaks the binding restarts its
+/// clock ([TIME-012]). A count-enabled join whose inputs share no name has no clock,
+/// so its latest bound constrains no other firing.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compute_successor_gated(
+    net: &PetriNet,
+    current: &StateClass,
+    fired_clock: usize,
+    fired_name: &str,
+    outcome: &Outcome,
+    env_places: &HashSet<&str>,
+    env_mode: &EnvironmentAnalysisMode,
+    untimed: bool,
+    enabled_between: impl Fn(&Transition) -> bool,
+    enabled_after: impl Fn(&Transition) -> bool,
 ) -> StateClass {
     let transition = net
         .transitions()
@@ -483,7 +509,14 @@ pub(crate) fn compute_successor(
     // 1. The intermediate marking (inputs taken, resets drained, nothing
     //    produced yet), then the new marking.
     let intermediate = consume_marking(&current.marking, transition, env_places, env_mode);
-    let new_marking = produce_marking(&intermediate, output_places);
+    let new_marking = produce_marking(
+        &current.marking,
+        &intermediate,
+        transition,
+        outcome,
+        env_places,
+        env_mode,
+    );
 
     // 2. Determine persistent and newly enabled transitions. A clock survives
     //    the firing only if the firing never disabled its transition: enabled
@@ -491,7 +524,12 @@ pub(crate) fn compute_successor(
     //    Berthomieu-Diaz). A transition whose token the fired one takes and
     //    puts back is newly enabled with a fresh interval, exactly as the
     //    executors restart its clock.
-    let new_enabled_all = find_enabled_transitions(net, &new_marking, env_places, env_mode);
+    let new_enabled_all: Vec<String> = net
+        .transitions()
+        .iter()
+        .filter(|t| is_enabled(t, &new_marking, env_places, env_mode) && enabled_after(t))
+        .map(|t| t.name().to_string())
+        .collect();
 
     // One pass over the net judges the intermediate marking for the clocks
     // that can persist at all: enabled before and after, other than the fired
@@ -508,7 +546,10 @@ pub(crate) fn compute_successor(
     };
     let mut survivors: HashSet<&str> = HashSet::with_capacity(candidates.len());
     for t in net.transitions() {
-        if candidates.remove(t.name()) && is_enabled(t, &intermediate, env_places, env_mode) {
+        if candidates.remove(t.name())
+            && is_enabled(t, &intermediate, env_places, env_mode)
+            && enabled_between(t)
+        {
             survivors.insert(t.name());
         }
     }
@@ -619,12 +660,31 @@ fn consume_marking(
     next
 }
 
-/// `intermediate` with one token deposited into each output place of the fired
-/// branch.
-fn produce_marking(intermediate: &MarkingState, output_places: &HashSet<String>) -> MarkingState {
+/// `intermediate` with the fired outcome's tokens deposited: one per place an action
+/// writes, and for a timeout forward one per token the firing consumed from its `from`
+/// place ([IO-014]) — a fixed count for `One` / `Exactly`, the batch `marking` drained
+/// for `All` / `AtLeast`. An environment place the analysis supplies ([`is_enabled`]) is
+/// not drained; its forward counts the tokens the firing required.
+fn produce_marking(
+    marking: &MarkingState,
+    intermediate: &MarkingState,
+    transition: &Transition,
+    outcome: &Outcome,
+    env_places: &HashSet<&str>,
+    env_mode: &EnvironmentAnalysisMode,
+) -> MarkingState {
+    let drained = |from: &str| {
+        let Some(spec) = transition.input_specs().iter().find(|s| s.place_name() == from) else {
+            return 0;
+        };
+        if env_places.contains(from) && *env_mode != EnvironmentAnalysisMode::Ignore {
+            return input::required_count(spec);
+        }
+        input_consume_count(spec, marking.count(from))
+    };
     let mut next = intermediate.derived();
-    for place in output_places {
-        next.set(place, intermediate.count(place) + 1);
+    for (place, n) in outcome.resolved(drained) {
+        next.set(place, next.count(place) + n);
     }
     next
 }
@@ -665,6 +725,44 @@ mod tests {
     use libpetri_core::output::out_place;
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
+
+    /// `t: <input on a> -> xor(c, timeout(50, forward_input(a, b)))` from `a = 2`.
+    fn forward_graph(input: In) -> StateClassGraph {
+        use libpetri_core::output::{forward_input, timeout, xor};
+        let (a, b, c) = (Place::<i32>::new("a"), Place::<i32>::new("b"), Place::<i32>::new("c"));
+        let t = Transition::builder("t")
+            .input(input)
+            .output(xor(vec![out_place(&c), timeout(50, forward_input(&a, &b))]))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("forward").transition(t).build();
+        StateClassGraph::build(&net, &MarkingStateBuilder::new().tokens("a", 2).build(), 100)
+    }
+
+    fn b_counts(graph: &StateClassGraph) -> Vec<usize> {
+        let mut counts: Vec<usize> = graph.classes().iter().map(|c| c.marking.count("b")).collect();
+        counts.sort();
+        counts.dedup();
+        counts
+    }
+
+    /// [IO-014]: the timeout forwards one token per consumed token. `Exactly(2)` puts
+    /// two in `b`; the action may also write `b` itself, one token ([IO-016]).
+    #[test]
+    fn an_exactly_two_forward_deposits_two_in_the_state_space() {
+        let graph = forward_graph(exactly(2, &Place::<i32>::new("a")));
+        assert!(graph.is_complete());
+        assert_eq!(b_counts(&graph), vec![0, 1, 2]);
+    }
+
+    /// `All` drains the batch and the timeout forwards all of it: the graph reads the
+    /// count from the marking it fires in.
+    #[test]
+    fn an_all_forward_deposits_the_drained_batch_in_the_state_space() {
+        let graph = forward_graph(all(&Place::<i32>::new("a")));
+        assert!(graph.is_complete());
+        assert_eq!(b_counts(&graph), vec![0, 1, 2]);
+    }
 
     /// CORE-043: the graph reads production from the `Out` spec, so a net whose action
     /// can never produce must not be explored as if it could.

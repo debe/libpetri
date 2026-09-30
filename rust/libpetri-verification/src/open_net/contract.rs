@@ -167,6 +167,24 @@ impl OpenNetContract {
         Some(merged)
     }
 
+    /// The contract with `places` added, in order, to the places each designed terminal whose
+    /// marker is one of `markers` excuses ([VER-004]: the in-flight places of the split, which
+    /// a terminal stop leaves marked when it abandons an action). `None` when nothing changes.
+    pub(crate) fn with_excused(&self, markers: &[String], places: &[String]) -> Option<OpenNetContract> {
+        if places.is_empty() || !self.terminals.iter().any(|t| markers.contains(&t.marker)) {
+            return None;
+        }
+        let mut extended = self.clone();
+        for entry in extended.terminals.iter_mut().filter(|t| markers.contains(&t.marker)) {
+            for p in places {
+                if !entry.excused.contains(p) {
+                    entry.excused.push(p.clone());
+                }
+            }
+        }
+        Some(extended)
+    }
+
     /// Transitions the environment fires: neighbours that react to what the subnet sends.
     pub fn environment(&self) -> &[Transition] {
         &self.environment

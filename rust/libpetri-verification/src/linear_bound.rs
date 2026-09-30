@@ -58,6 +58,10 @@ pub struct LinearBound {
 pub fn violation_demand(flat: &FlatNet, property: &SmtProperty) -> Option<BTreeMap<usize, usize>> {
     let mut demand = BTreeMap::new();
     match property {
+        // A pairwise mutual exclusion over three or more places is a disjunction of
+        // demands, not one: the verifier proves it pair by pair
+        // ([`SmtProperty::linear_parts`]). Two places are the one demand below.
+        SmtProperty::MutualExclusion { places } if places.len() > 2 => return None,
         SmtProperty::Unreachable { places } | SmtProperty::MutualExclusion { places } => {
             for name in places {
                 if let Some(&pid) = flat.place_index.get(name) {

@@ -341,6 +341,63 @@ fn a_net_with_terminals_hits() {
     assert_eq!(cache.build_count(), 2);
 }
 
+/// `t: p0 -> p1`, and `u: q -> r` inhibited by `p0` and `p1`. Read atomically `u`
+/// never fires, since `p0` or `p1` always holds the token. The executor fires `t`
+/// in two steps, and between them `u` fires ([VER-004]).
+fn in_flight_gap() -> PetriNet {
+    let (p0, p1, q, r) = (
+        Place::<()>::new("p0"),
+        Place::<()>::new("p1"),
+        Place::<()>::new("q"),
+        Place::<()>::new("r"),
+    );
+    PetriNet::builder("in_flight_gap")
+        .transition(Transition::builder("t").input(one(&p0)).output(out_place(&p1)).action(fork()).build())
+        .transition(
+            Transition::builder("u")
+                .input(one(&q))
+                .inhibitor(inhibitor(&p0))
+                .inhibitor(inhibitor(&p1))
+                .output(out_place(&r))
+                .action(fork())
+                .build(),
+        )
+        .build()
+}
+
+/// The key covers the [VER-004] in-flight split: a graph built from the atomic
+/// net under `assume_atomic_firing` never answers a query that runs on the split
+/// net, in either order.
+#[test]
+fn the_in_flight_split_is_part_of_the_key() {
+    let net = in_flight_gap();
+    let m0 = MarkingStateBuilder::new().tokens("p0", 1).tokens("q", 1).build();
+    let ask = |atomic: bool, cache: Option<&StateSpaceCache>| {
+        let mut v = SmtVerifier::for_net(&net)
+            .initial_marking(m0.clone())
+            .property(SmtProperty::Unreachable { places: vec!["r".to_string()] })
+            .assume_atomic_firing(atomic);
+        if let Some(cache) = cache {
+            v = v.state_space_cache(cache);
+        }
+        v.verify()
+    };
+    let split = ask(false, None);
+    let atomic = ask(true, None);
+    assert!(split.is_violated(), "{}", split.report);
+    assert!(atomic.is_proven(), "{}", atomic.report);
+
+    for atomic_first in [true, false] {
+        let cache = StateSpaceCache::new();
+        let first = ask(atomic_first, Some(&cache));
+        let second = ask(!atomic_first, Some(&cache));
+        assert_eq!(cache.build_count(), 2, "one graph per net");
+        let (split_answer, atomic_answer) = if atomic_first { (&second, &first) } else { (&first, &second) };
+        assert_same_answer(split_answer, &split);
+        assert_same_answer(atomic_answer, &atomic);
+    }
+}
+
 /// AC10: eight threads sharing a cache on one net build its graph once.
 #[test]
 fn parallel_queries_build_once() {

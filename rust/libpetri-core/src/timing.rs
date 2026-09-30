@@ -39,15 +39,30 @@ pub fn deadline(by_ms: u64) -> Timing {
 }
 
 /// Delayed firing: must wait, then can fire anytime.
+///
+/// # Panics
+/// Panics if `after_ms` exceeds [`MAX_DURATION_MS`], the finite stand-in for "no latest
+/// bound": the interval `[after, MAX_DURATION_MS]` would be empty, and a state-class graph
+/// would read a transition that can fire as one that never can.
 pub fn delayed(after_ms: u64) -> Timing {
+    assert!(
+        after_ms <= MAX_DURATION_MS,
+        "Delay must be at most MAX_DURATION_MS ({MAX_DURATION_MS}): {after_ms}"
+    );
     Timing::Delayed { after_ms }
 }
 
 /// Time window: can fire within [earliest, latest].
 ///
 /// # Panics
-/// Panics if `latest_ms < earliest_ms`.
+/// Panics if `latest_ms < earliest_ms`, or if `earliest_ms` exceeds [`MAX_DURATION_MS`]
+/// (as for [`delayed`]: a verifier that lifts the latest bound reads the window as
+/// `delayed(earliest_ms)`).
 pub fn window(earliest_ms: u64, latest_ms: u64) -> Timing {
+    assert!(
+        earliest_ms <= MAX_DURATION_MS,
+        "Earliest must be at most MAX_DURATION_MS ({MAX_DURATION_MS}): {earliest_ms}"
+    );
     assert!(
         latest_ms >= earliest_ms,
         "Latest ({latest_ms}) must be >= earliest ({earliest_ms})"
@@ -64,7 +79,14 @@ pub fn window(earliest_ms: u64, latest_ms: u64) -> Timing {
 /// is enforced *softly* — the transition fires at the first opportunity at or after `at_ms` (like
 /// [`delayed`]) and is never force-disabled for being observed late (TIME-006). Prefer
 /// [`delayed`] for a plain lower bound, or [`window`] for a hard bounded window.
+///
+/// # Panics
+/// Panics if `at_ms` exceeds [`MAX_DURATION_MS`], as [`delayed`] does.
 pub fn exact(at_ms: u64) -> Timing {
+    assert!(
+        at_ms <= MAX_DURATION_MS,
+        "Exact time must be at most MAX_DURATION_MS ({MAX_DURATION_MS}): {at_ms}"
+    );
     Timing::Exact { at_ms }
 }
 
@@ -105,6 +127,31 @@ impl Timing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "Delay must be at most")]
+    fn delayed_rejects_an_earliest_bound_past_the_open_end() {
+        delayed(MAX_DURATION_MS + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Earliest must be at most")]
+    fn window_rejects_an_earliest_bound_past_the_open_end() {
+        window(MAX_DURATION_MS + 1, MAX_DURATION_MS + 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Exact time must be at most")]
+    fn exact_rejects_a_time_past_the_open_end() {
+        exact(MAX_DURATION_MS + 1);
+    }
+
+    #[test]
+    fn the_open_end_itself_is_accepted() {
+        assert_eq!(delayed(MAX_DURATION_MS).earliest(), MAX_DURATION_MS);
+        assert_eq!(window(MAX_DURATION_MS, MAX_DURATION_MS + 1).earliest(), MAX_DURATION_MS);
+        assert_eq!(exact(MAX_DURATION_MS).earliest(), MAX_DURATION_MS);
+    }
 
     #[test]
     fn immediate_bounds() {

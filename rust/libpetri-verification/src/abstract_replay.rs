@@ -226,7 +226,15 @@ fn violates_indexed(
             quiescent(flat, state, env_inject)
                 && index.sinks.iter().all(|&pid| at(state, pid) == 0)
         }
-        SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
+        // Pairwise ([VER-002]): two entries of the list marked at once; an unresolved
+        // name is never marked, as the encoder's `pairwise_marked` reads it.
+        SmtProperty::MutualExclusion { places } => crate::property::two_marked(
+            places
+                .iter()
+                .filter_map(|name| flat.place_index.get(name))
+                .map(|&pid| at(state, pid) >= 1),
+        ),
+        SmtProperty::Unreachable { places } => {
             let resolved: Vec<usize> = places
                 .iter()
                 .filter_map(|name| flat.place_index.get(name).copied())
@@ -302,6 +310,11 @@ fn quiescent(
     };
 
     for ft in &flat.transitions {
+        // Reap-quiescence ([VER-002], [TIME-013]): as the encoder, a reapable
+        // transition does not keep the marking from resting.
+        if ft.reapable {
+            continue;
+        }
         let mut permanently_disabled = false;
         // Mirrors the encoder's `disable_reasons`: `some_reason` = the list is
         // non-empty (the transition CAN be disabled by the marking),
@@ -584,6 +597,7 @@ mod tests {
             read_places: Vec::new(),
             reset_places: Vec::new(),
             consume_all: Vec::new(),
+            reapable: false,
         }
     }
 

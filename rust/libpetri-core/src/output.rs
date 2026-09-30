@@ -128,7 +128,10 @@ fn collect_places(out: &Out, result: &mut HashSet<PlaceRef>) {
 /// the branch is taken, not how many tokens each receives. Every analysis built
 /// on this enumeration deposits one token per place of the chosen branch
 /// (\[IO-016\]); an action that writes more is reported by the executor, not
-/// modelled here.
+/// modelled here. The branches are what an *action* writes: the analyses append
+/// the timeout outcome — the `Timeout` child's places only, a `ForwardInput`
+/// depositing one token per consumed token (\[IO-013\], \[IO-014\]) — after
+/// them (`libpetri_verification::branch_outcomes`).
 pub fn enumerate_branches(out: &Out) -> Vec<HashSet<PlaceRef>> {
     match out {
         Out::Place(p) => {

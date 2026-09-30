@@ -82,7 +82,6 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libpetri_core::action::{passthrough, sync_action};
 use libpetri_core::arc::{inhibitor, read, reset};
@@ -767,157 +766,6 @@ fn run_precompiled_timed(net: &PetriNet, marking: Marking) -> RunResult {
 }
 
 // ---------------------------------------------------------------------------
-//  TIME-013 reap-asymmetry allowlist
-// ---------------------------------------------------------------------------
-
-/// Running count of allowlisted TIME-013 reap divergences, echoed per
-/// occurrence so a run's log shows how often the known divergence was hit.
-static REAP_DIVERGENCES_ALLOWLISTED: AtomicUsize = AtomicUsize::new(0);
-
-/// The ONLY tolerated timed divergence: the TIME-013 reap asymmetry,
-/// CONFIRMED and formally witnessed in Lean (`lean/Libpetri/TimedCycle.lean`,
-/// `deadline_reap_dirty_diverges`). After a hard-deadline reap the
-/// precompiled backend marks the transition dirty, so the next enablement
-/// pass re-enables it with a fresh clock and it can fire again; the bitmap
-/// backend leaves it clean, so in a quiet net it never fires again. Which
-/// behaviour TIME-013 should mandate is a semantics decision deliberately
-/// left open (plan phase 4); until then the harness must neither paper over
-/// the asymmetry (weakening the oracle) nor fail on it (blocking the suite
-/// on a known, documented, formally-modelled divergence).
-///
-/// The signature is detected structurally, not by net shape, and it is the
-/// Lean witness read literally — nothing wider:
-///
-/// 1. the two projections share a common prefix whose **last**
-///    `transition-timed-out` names some transition `r` (the most recent reap;
-///    an older, unrelated reap must not license a divergence that opens
-///    hundreds of events later), and
-/// 2. the first differing position is `transition-enabled r` **in the
-///    precompiled stream** — `pb_update_reenables`, the one-sided re-enable
-///    that is the whole asymmetry. The bitmap stream differs there by
-///    construction (`bb_never_fires_after_reap`).
-///
-/// The reverse direction, a different event kind on `r`, a different
-/// transition, or a divergence that merely happens *after* a reap is a NEW
-/// finding and fails the property with the full diff. The allowlist is also
-/// scoped to the event projection alone: final marking and quiescence stay
-/// asserted unconditionally at the call site, so a reap-shaped event
-/// divergence that also moves tokens still fails.
-///
-/// Expected hit rate: ~zero under the random property. The virtual clock
-/// advances `run_sync` to *exact* timed boundaries and only when a full
-/// cycle fired nothing, and the advance is capped by every enabled hard
-/// deadline via `millis_until_next_timed_transition` — so the executor is
-/// never "blocked past a deadline" the way the Lean schedule
-/// `[0, 10, 12, 15]` requires (a reap needs a stalled orchestrator, e.g. a
-/// blocking sync action on the real clock). The detector is therefore
-/// pinned by [`is_known_reap_divergence_matches_only_the_lean_signature`] on
-/// synthetic projections and by the deterministic real-clock reproduction in
-/// [`time013_reap_asymmetry_witness`], not by random traffic.
-fn is_known_reap_divergence(bitmap: &[String], precompiled: &[String]) -> bool {
-    let prefix = bitmap
-        .iter()
-        .zip(precompiled.iter())
-        .take_while(|(a, b)| a == b)
-        .count();
-    if prefix == bitmap.len() && prefix == precompiled.len() {
-        return false; // no divergence at all
-    }
-    let Some(reaped) = bitmap[..prefix]
-        .iter()
-        .rev()
-        .find_map(|e| e.strip_prefix("transition-timed-out "))
-    else {
-        return false; // divergence not preceded by any reap
-    };
-    let reenable = format!("transition-enabled {reaped}");
-    precompiled.get(prefix) == Some(&reenable)
-}
-
-/// Unit pin for [`is_known_reap_divergence`] over synthetic projections — no
-/// clock, no executor. Without it the predicate has zero executed coverage:
-/// the virtual clock lands exactly on timed boundaries so the random property
-/// never reaps, and [`time013_reap_asymmetry_witness`] is `#[ignore]`d, so
-/// rewriting the body to `|_, _| true` would silently turn the timed property
-/// into a no-op.
-#[test]
-fn is_known_reap_divergence_matches_only_the_lean_signature() {
-    let ev = |s: &str| s.to_string();
-    let prefix = || {
-        vec![
-            ev("execution-started n"),
-            ev("transition-enabled t_w"),
-            ev("transition-timed-out t_w"),
-        ]
-    };
-
-    // ACCEPT — the canonical signature: precompiled re-enables the transition
-    // it just reaped, bitmap goes on to something else.
-    let mut bb = prefix();
-    bb.push(ev("transition-started t_keep"));
-    let mut pb = prefix();
-    pb.push(ev("transition-enabled t_w"));
-    assert!(is_known_reap_divergence(&bb, &pb), "canonical signature");
-
-    // ACCEPT — same shape with the bitmap run already finished at the reap.
-    assert!(
-        is_known_reap_divergence(&prefix(), &pb),
-        "bitmap stream exhausted at the divergence point"
-    );
-
-    // REJECT — no divergence at all.
-    assert!(
-        !is_known_reap_divergence(&prefix(), &prefix()),
-        "identical streams"
-    );
-
-    // REJECT — a divergence with no reap anywhere in the shared prefix.
-    let bb_noreap = vec![ev("execution-started n"), ev("transition-started a")];
-    let pb_noreap = vec![ev("execution-started n"), ev("transition-enabled t_w")];
-    assert!(
-        !is_known_reap_divergence(&bb_noreap, &pb_noreap),
-        "no reap in prefix"
-    );
-
-    // REJECT — right transition, wrong event kind (a fire, not a re-enable).
-    let mut pb_started = prefix();
-    pb_started.push(ev("transition-started t_w"));
-    assert!(!is_known_reap_divergence(&bb, &pb_started), "wrong event kind");
-
-    // REJECT — a re-enable, but of a transition that was never reaped.
-    let mut pb_other = prefix();
-    pb_other.push(ev("transition-enabled t_other"));
-    assert!(!is_known_reap_divergence(&bb, &pb_other), "unreaped transition");
-
-    // REJECT — the asymmetry is directional: a bitmap-only re-enable is a new
-    // finding, not the modelled precompiled-only one.
-    assert!(!is_known_reap_divergence(&pb, &bb), "reversed direction");
-
-    // REJECT — stale reap: `t_old` was reaped, then `t_w`, and the divergence
-    // re-enables `t_old`. Only the most recent reap counts.
-    let stale = || {
-        vec![
-            ev("transition-timed-out t_old"),
-            ev("transition-started t_mid"),
-            ev("transition-timed-out t_w"),
-        ]
-    };
-    let mut bb_stale = stale();
-    bb_stale.push(ev("transition-started t_keep"));
-    let mut pb_stale = stale();
-    pb_stale.push(ev("transition-enabled t_old"));
-    assert!(!is_known_reap_divergence(&bb_stale, &pb_stale), "stale reap");
-
-    // ACCEPT — the same prefix, re-enabling the most recent reap.
-    let mut pb_recent = stale();
-    pb_recent.push(ev("transition-enabled t_w"));
-    assert!(is_known_reap_divergence(&bb_stale, &pb_recent), "most recent reap");
-
-    // REJECT — precompiled exhausted at the divergence point.
-    assert!(!is_known_reap_divergence(&bb, &prefix()), "precompiled exhausted");
-}
-
-// ---------------------------------------------------------------------------
 //  The differential property
 // ---------------------------------------------------------------------------
 
@@ -996,10 +844,9 @@ proptest! {
     /// `transition-clock-restarted` by name and order), timing drawn from
     /// {immediate, delayed, window, deadline, exact}, both backends driven
     /// through `run_sync` on the virtual clock with deadline tolerance 0.
-    /// The single allowlisted divergence is the TIME-013 reap asymmetry
-    /// ([`is_known_reap_divergence`]), and it is allowlisted for the event
-    /// projection ONLY — marking and quiescence are asserted first and
-    /// unconditionally. Anything else fails with the full diff.
+    /// Any divergence fails with the full diff, a TIME-013 reap included: a
+    /// reaped transition stays disabled on both backends until an input
+    /// place changes (see [`time013_reap_is_not_rearmed_on_either_backend`]).
     #[test]
     fn backends_agree_on_timed_nets(g in gen_timed_net()) {
         let (net, marking) = build_net(&g);
@@ -1009,10 +856,6 @@ proptest! {
         let bitmap_proj = project_events(&bitmap.events);
         let precompiled_proj = project_events(&precompiled.events);
 
-        // Marking and quiescence are asserted unconditionally: the TIME-013
-        // allowlist covers the event projection ONLY. A reap-shaped event
-        // divergence that also moves tokens or changes quiescence is a
-        // different, unmodelled thing and must fail here.
         prop_assert_eq!(
             marking_values(&g, &bitmap.marking),
             marking_values(&g, &precompiled.marking),
@@ -1023,18 +866,6 @@ proptest! {
             precompiled.quiescent,
             "quiescence diverged"
         );
-
-        if bitmap_proj != precompiled_proj
-            && is_known_reap_divergence(&bitmap_proj, &precompiled_proj)
-        {
-            let n = REAP_DIVERGENCES_ALLOWLISTED.fetch_add(1, Ordering::Relaxed) + 1;
-            eprintln!(
-                "[differential] allowlisted known divergence #{n}: TIME-013 reap \
-                 asymmetry (lean/Libpetri/TimedCycle.lean `deadline_reap_dirty_diverges`; \
-                 semantics decision pending, plan phase 4)"
-            );
-            return Ok(());
-        }
 
         prop_assert_eq!(
             bitmap_proj,
@@ -1079,9 +910,8 @@ proptest! {
         );
     }
 
-    /// Word-boundary twin of [`backends_agree_on_timed_nets`], down to the same
-    /// TIME-013 reap allowlist (event projection only; marking and quiescence
-    /// stay unconditional).
+    /// Word-boundary twin of [`backends_agree_on_timed_nets`], with the same
+    /// oracle.
     #[test]
     fn backends_agree_on_word_boundary_timed_nets(g in gen_boundary_timed_net()) {
         let (net, marking) = build_net(&g);
@@ -1101,18 +931,6 @@ proptest! {
             precompiled.quiescent,
             "quiescence diverged"
         );
-
-        if bitmap_proj != precompiled_proj
-            && is_known_reap_divergence(&bitmap_proj, &precompiled_proj)
-        {
-            let n = REAP_DIVERGENCES_ALLOWLISTED.fetch_add(1, Ordering::Relaxed) + 1;
-            eprintln!(
-                "[differential] allowlisted known divergence #{n}: TIME-013 reap \
-                 asymmetry (lean/Libpetri/TimedCycle.lean `deadline_reap_dirty_diverges`; \
-                 semantics decision pending, plan phase 4)"
-            );
-            return Ok(());
-        }
 
         prop_assert_eq!(
             bitmap_proj,
@@ -1202,49 +1020,27 @@ fn word_boundary_generator_pins_ids_and_reaches_sign_bit_transitions() {
 }
 
 // ---------------------------------------------------------------------------
-//  TIME-013 reap-asymmetry witness (known divergence, real clock)
+//  TIME-013 reaping: no re-arm on either backend
 // ---------------------------------------------------------------------------
 
-/// Deterministic executable twin of the Lean witness
-/// (`lean/Libpetri/TimedCycle.lean`, `deadline_reap_dirty_diverges`) and the
-/// pin for [`is_known_reap_divergence`]. `#[ignore]`d because it documents a
-/// KNOWN divergence — it stays out of the suite until plan phase 4 decides
-/// which behaviour TIME-013 mandates — and because it needs the real clock
-/// (a `thread::sleep` inside a sync action stalls the single-threaded
-/// orchestrator past the deadline; the virtual clock cannot express that,
-/// which is precisely why the random property never reaps). Run it with
-/// `cargo test -p libpetri-runtime time013 -- --ignored`.
-///
-/// Shape (the Lean schedule `[0, 10, 12, 15]` made concrete):
-/// - `t_block` fires instantly and sleeps 400ms — the blocked gap;
-/// - `t_w` `window(50, 120)` never opens before the stall ends, so both
-///   backends reap it at ~400ms (`transition-timed-out t_w`);
+/// The reaping net of the Lean witness (`lean/Libpetri/TimedCycle.lean`, the
+/// schedule `[0, 10, 12, 15]` made concrete):
+/// - `t_block` fires at once and its sync action stalls the single-threaded
+///   orchestrator for 400ms, through `stall` (a real sleep, or an advance of a
+///   manual clock);
+/// - `t_w` `window(50, 120)` never opens before the stall ends, so it is reaped
+///   at ~400ms (`transition-timed-out t_w`);
 /// - `t_keep` `delayed(1200)` keeps the loop alive past the reap: `run_sync`
-///   exits at `enabled_count == 0` right after `enforce_deadlines`, so
-///   without a still-enabled bystander BOTH backends would terminate at the
-///   reap and the dirty-bit asymmetry would stay invisible. The delay is set
-///   far beyond the ~450ms re-fire so a loaded CI runner cannot turn the
-///   ordering into a race.
-///
-/// After the reap the precompiled backend re-enables `t_w` (fresh clock) and
-/// fires it at ~450ms; the bitmap backend never re-examines it. Final
-/// markings diverge: bitmap keeps the `p_window` token, precompiled consumes
-/// it.
-#[test]
-#[ignore = "documents the known TIME-013 reap divergence (lean/Libpetri/TimedCycle.lean \
-            `deadline_reap_dirty_diverges`; semantics decision pending, plan phase 4); \
-            real clock + thread::sleep, ~2.5s. CI runs it explicitly with --ignored \
-            (.github/workflows/ci.yml, rust job) — it is the only executed check on \
-            the real executor that `is_known_reap_divergence` still matches."]
-fn time013_reap_asymmetry_witness() {
+///   exits at `enabled_count == 0` right after `enforce_deadlines`, so without a
+///   still-enabled bystander a re-armed `t_w` would stay invisible.
+fn reap_witness_net(stall: impl Fn() + Send + Sync + 'static) -> (PetriNet, Marking) {
     let pb = Place::<i32>::new("p_block");
     let pw = Place::<i32>::new("p_window");
     let pk = Place::<i32>::new("p_keep");
-
     let t_block = Transition::builder("t_block")
         .input(one(&pb))
-        .action(sync_action(|_ctx| {
-            std::thread::sleep(std::time::Duration::from_millis(400));
+        .action(sync_action(move |_ctx| {
+            stall();
             Ok(())
         }))
         .build();
@@ -1258,7 +1054,6 @@ fn time013_reap_asymmetry_witness() {
         .timing(delayed(1200))
         .action(passthrough())
         .build();
-
     let net = PetriNet::builder("reap-witness")
         .transitions([t_block, t_w, t_keep])
         .build();
@@ -1266,53 +1061,165 @@ fn time013_reap_asymmetry_witness() {
     marking.add(&pb, Token::at(0, 0));
     marking.add(&pw, Token::at(0, 0));
     marking.add(&pk, Token::at(0, 0));
+    (net, marking)
+}
 
-    // Real clock (no `enable_virtual_clock`), strict deadlines — the same
-    // tolerance the timed property uses.
+/// Runs the reap witness on both backends, strict deadlines, each on the clock
+/// `clock` builds (`None`: the real clock), and asserts TIME-013's no-re-arm on
+/// both: `t_w` is reaped, never fires afterwards, and keeps its `p_window` token,
+/// and the two event projections are identical.
+fn assert_reap_witness_agrees(
+    net_for: impl Fn() -> (PetriNet, Marking),
+    clock: impl Fn() -> Option<Arc<dyn crate::clock::ExecutorClock>>,
+) {
     let (bitmap_proj, bitmap_window_tokens) = {
-        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
-            &net,
-            marking.clone(),
-            ExecutorOptions {
-                deadline_tolerance_ms: Some(0.0),
-                ..ExecutorOptions::default()
-            },
-        );
+        let (net, marking) = net_for();
+        let mut options = ExecutorOptions::default().deadline_tolerance_ms(0.0);
+        if let Some(clock) = clock() {
+            options = options.clock(clock);
+        }
+        let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, options);
         let final_marking = executor.run_sync().into_owned();
-        (
-            project_events(executor.event_store().events()),
-            final_marking.count("p_window"),
-        )
+        (project_events(executor.event_store().events()), final_marking.count("p_window"))
     };
     let (precompiled_proj, precompiled_window_tokens) = {
+        let (net, marking) = net_for();
         let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
-        let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+        let mut builder = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
             .event_store(InMemoryEventStore::new())
-            .deadline_tolerance_ms(0.0)
-            .build();
+            .deadline_tolerance_ms(0.0);
+        if let Some(clock) = clock() {
+            builder = builder.clock(clock);
+        }
+        let mut executor = builder.build();
         let final_marking = executor.run_sync().into_owned();
-        (
-            project_events(executor.event_store().events()),
-            final_marking.count("p_window"),
-        )
+        (project_events(executor.event_store().events()), final_marking.count("p_window"))
     };
 
     let timed_out = "transition-timed-out t_w".to_string();
-    assert!(bitmap_proj.contains(&timed_out), "bitmap must reap t_w");
-    assert!(precompiled_proj.contains(&timed_out), "precompiled must reap t_w");
-    assert!(
-        !bitmap_proj.iter().any(|e| e == "transition-started t_w"),
-        "bitmap never fires the reaped t_w (bb_never_fires_after_reap)"
-    );
-    assert!(
-        precompiled_proj.iter().any(|e| e == "transition-started t_w"),
-        "precompiled re-enables and fires the reaped t_w (pb_update_reenables)"
-    );
-    assert_eq!(bitmap_window_tokens, 1, "bitmap keeps the p_window token");
-    assert_eq!(precompiled_window_tokens, 0, "precompiled consumes it");
-    assert_ne!(bitmap_proj, precompiled_proj, "the projections must diverge");
-    assert!(
-        is_known_reap_divergence(&bitmap_proj, &precompiled_proj),
-        "the allowlist detector must match the canonical reap signature"
-    );
+    for (backend, proj, window_tokens) in [
+        ("bitmap", &bitmap_proj, bitmap_window_tokens),
+        ("precompiled", &precompiled_proj, precompiled_window_tokens),
+    ] {
+        assert!(proj.contains(&timed_out), "{backend} must reap t_w: {proj:?}");
+        assert!(
+            !proj.iter().any(|e| e == "transition-started t_w"),
+            "{backend} must not fire the reaped t_w (TIME-013, no re-arm): {proj:?}"
+        );
+        assert_eq!(window_tokens, 1, "{backend} keeps the p_window token");
+    }
+    assert_eq!(bitmap_proj, precompiled_proj, "the event projections must agree");
+}
+
+/// TIME-013, on the virtual clock: the stall is an advance of the executor's
+/// manual clock from inside `t_block`'s action, so the reap is deterministic
+/// and costs no real time. Before the fix the precompiled backend marked the
+/// reaped `t_w` dirty, re-enabled it on a fresh clock and fired it at ~450ms.
+#[test]
+fn time013_reap_is_not_rearmed_on_either_backend() {
+    use crate::clock::ManualClock;
+    use std::sync::Mutex;
+    // One manual clock per run; the action reaches the current one.
+    let current: Arc<Mutex<Option<Arc<ManualClock>>>> = Arc::new(Mutex::new(None));
+    let net_for = {
+        let current = Arc::clone(&current);
+        move || {
+            let current = Arc::clone(&current);
+            reap_witness_net(move || {
+                let clock = current.lock().unwrap().clone().expect("a manual clock is installed");
+                clock.advance_ms(400.0);
+            })
+        }
+    };
+    let clock = {
+        let current = Arc::clone(&current);
+        move || {
+            let clock = Arc::new(ManualClock::new());
+            *current.lock().unwrap() = Some(Arc::clone(&clock));
+            Some(clock as Arc<dyn crate::clock::ExecutorClock>)
+        }
+    };
+    assert_reap_witness_agrees(net_for, clock);
+}
+
+/// TIME-013, on the real clock: the same witness, with a real 400ms sleep
+/// stalling the orchestrator. The executed check on the real executor path
+/// (about 1.3s per backend).
+#[test]
+fn time013_reap_witness_backends_agree() {
+    let net_for = || reap_witness_net(|| std::thread::sleep(std::time::Duration::from_millis(400)));
+    assert_reap_witness_agrees(net_for, || None);
+}
+
+/// TIME-013, the other half: a reaped transition is enabled again once a token on
+/// one of its input places changes. `t_feed` `delayed(600)` deposits a second
+/// token into `p_window` after the reap at 400ms, so `t_w` re-enables on a fresh
+/// clock and fires, once per token, only after the feed, on both backends alike
+/// (virtual clock).
+#[test]
+fn time013_reaped_transition_rearms_when_an_input_changes() {
+    use crate::clock::{ExecutorClock, ManualClock};
+    let pb = Place::<i32>::new("p_block");
+    let pw = Place::<i32>::new("p_window");
+    let pf = Place::<i32>::new("p_feed");
+    let run = |precompiled: bool| {
+        let clock = Arc::new(ManualClock::new());
+        let stall = Arc::clone(&clock);
+        let t_block = Transition::builder("t_block")
+            .input(one(&pb))
+            .action(sync_action(move |_ctx| {
+                stall.advance_ms(400.0);
+                Ok(())
+            }))
+            .build();
+        let t_w = Transition::builder("t_w")
+            .input(one(&pw))
+            .timing(window(50, 120))
+            .action(passthrough())
+            .build();
+        let t_feed = Transition::builder("t_feed")
+            .input(one(&pf))
+            .output(out_place(&pw))
+            .timing(delayed(600))
+            .action(sync_action(|ctx| {
+                ctx.output("p_window", 7i32)?;
+                Ok(())
+            }))
+            .build();
+        let net = PetriNet::builder("reap-rearm").transitions([t_block, t_w, t_feed]).build();
+        let mut marking = Marking::new();
+        marking.add(&pb, Token::at(0, 0));
+        marking.add(&pw, Token::at(0, 0));
+        marking.add(&pf, Token::at(0, 0));
+        let clock: Arc<dyn ExecutorClock> = clock;
+        if precompiled {
+            let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+            let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+                .event_store(InMemoryEventStore::new())
+                .deadline_tolerance_ms(0.0)
+                .clock(clock)
+                .build();
+            let final_marking = executor.run_sync().into_owned();
+            (project_events(executor.event_store().events()), final_marking.count("p_window"))
+        } else {
+            let options = ExecutorOptions::default().deadline_tolerance_ms(0.0).clock(clock);
+            let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, options);
+            let final_marking = executor.run_sync().into_owned();
+            (project_events(executor.event_store().events()), final_marking.count("p_window"))
+        }
+    };
+    let (bitmap_proj, bitmap_window) = run(false);
+    let (precompiled_proj, precompiled_window) = run(true);
+    for (backend, proj, window_tokens) in
+        [("bitmap", &bitmap_proj, bitmap_window), ("precompiled", &precompiled_proj, precompiled_window)]
+    {
+        let reaped = proj.iter().position(|e| e == "transition-timed-out t_w").expect("t_w is reaped");
+        let fed = proj.iter().position(|e| e == "transition-completed t_feed").expect("t_feed fires");
+        let started: Vec<usize> =
+            proj.iter().enumerate().filter(|(_, e)| *e == "transition-started t_w").map(|(i, _)| i).collect();
+        assert_eq!(started.len(), 2, "{backend}: t_w fires once per token, after the feed: {proj:?}");
+        assert!(reaped < fed && fed < started[0], "{backend}: t_w fires only after the feed: {proj:?}");
+        assert_eq!(window_tokens, 0, "{backend}: both p_window tokens are consumed");
+    }
+    assert_eq!(bitmap_proj, precompiled_proj, "the event projections must agree");
 }

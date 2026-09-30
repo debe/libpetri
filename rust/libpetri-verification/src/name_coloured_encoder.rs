@@ -16,9 +16,15 @@
 //! `k` colours**. Each coloured
 //! place becomes `k` per-colour integer counts; a mint introduces a *globally
 //! fresh* colour (one currently empty everywhere); a matched join consumes the
-//! **same colour** from every correlated input. Within the budget bound the
-//! encoding is *exact* — sound and complete — so no different-name counterexample
-//! survives.
+//! **same colour** from every correlated input, so no counterexample equates two
+//! different names.
+//!
+//! The encoding reads two things it cannot check off the net. A declared mint
+//! ([`build_plan`]'s `mints`: named by the caller, or consuming a declared budget
+//! place) writes a freshly minted name ([NU-010]), and an EXTENDED coloured consumer
+//! writes the name it consumed ([NU-051]). A `Proven` is sound while those contracts
+//! hold; the Lean development proves that inclusion (every run of the net is a run of
+//! the encoding), not the converse.
 //!
 //! ## Supported fragment
 //!
@@ -28,8 +34,10 @@
 //!   EXTENDED mode, [NU-051]) the declared carrier places and the joins' relay
 //!   targets ([NU-054]);
 //! - each coloured place is *produced only by* minting forks (count 1, no coloured
-//!   input, costs ≥1 budget token), EXTENDED relays, or a matched join onto its
-//!   declared relay targets (count 1, the join's shared colour), and *consumed only by*
+//!   input, a declared mint, no coloured write on timeout), EXTENDED relays (a
+//!   timeout write only as a forward of the consumed input), or a matched join onto its
+//!   declared relay targets (count 1, the join's shared colour, a timeout write only as
+//!   a forward of a match key), and *consumed only by*
 //!   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
 //!   drain drops it, each consuming exactly one coloured input at count 1;
 //! - the coloured place set is structurally token-bounded: some non-negative
@@ -52,12 +60,12 @@
 //! [`crate::smt_encoder`] deadlock. The encoding has no injection rule, so the
 //! verifier never calls it with environment injection ([VER-006] AC7).
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
-use libpetri_core::output;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::transition::Transition;
 
+use crate::branch_outcomes::{self, TimeoutWrite};
 use crate::marking_state::MarkingState;
 use crate::name_fragment::FragmentMode;
 use crate::net_flattener::{FlatNet, FlatTransition};
@@ -94,17 +102,33 @@ pub struct ColouredPlan {
     pub coloured: Vec<usize>,
     /// Per flat place: whether it is coloured.
     is_coloured: Vec<bool>,
-    /// Colour bound — the number of simultaneously-live names (= initial budget).
+    /// Colour-slot bound: `y·M0` for the tightest non-negative P-semiflow `y` that
+    /// weights every coloured place, so at least the number of names live at once
+    /// (see `colour_slot_bound`). Not the initial budget: it can be several times
+    /// larger, and it is `0` when no coloured token can exist.
     pub k: usize,
     /// Classification, one entry per flat transition (XOR branches included).
     classes: Vec<Class>,
+    /// The net transitions read as mints, in net order ([NU-010]).
+    mints: Vec<String>,
+    /// The net transitions whose rows relay a colour as coloured consumers, in net
+    /// order ([NU-051]).
+    relays: Vec<String>,
 }
 
-/// Detects whether `net` is in the supported budget-bounded coloured fragment
-/// (mint→matched-join, plus the EXTENDED coloured consumers and carrier places of
-/// [NU-051], with XOR-expanded output branches) and, if so, returns the plan for
-/// [`encode_coloured`]. Returns `None` otherwise — the verifier then uses the sound
-/// over-approximation.
+impl ColouredPlan {
+    /// The net transitions read as mints, in net order ([NU-010]).
+    pub fn mints(&self) -> &[String] {
+        &self.mints
+    }
+
+    /// The net transitions whose rows relay a colour as coloured consumers, in net order
+    /// ([NU-051]).
+    pub fn relays(&self) -> &[String] {
+        &self.relays
+    }
+}
+
 /// Sound colour-slot bound `k`: a colour is live iff some coloured place holds it, so
 /// `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
 /// (`y·C = 0`, `y ≥ 0`) that weights every coloured place `≥ 1`. Returns the tightest
@@ -174,26 +198,35 @@ fn colour_slot_bound(coloured: &[usize], invariants: &[PInvariant]) -> Option<us
     }
 }
 
+/// Detects whether `net` is in the supported budget-bounded coloured fragment
+/// (mint→matched-join, plus the EXTENDED coloured consumers and carrier places of
+/// [NU-051], with XOR-expanded output branches) and, if so, returns the plan for
+/// [`encode_coloured`]. Returns `None` otherwise — the verifier then uses the sound
+/// over-approximation.
+///
+/// `mints` names the transitions declared to mint ([NU-010]; see
+/// [`crate::name_fragment::declared_mints`]). A row that writes a coloured place
+/// without consuming one is a mint only when its transition is named there, and never
+/// when the transition writes a coloured place on timeout. A join's timeout may write a
+/// relay target only by forwarding one of its match keys.
 pub fn build_plan(
     net: &PetriNet,
     flat: &FlatNet,
     initial: &MarkingState,
-    budget_places: &HashSet<String>,
+    mints: &BTreeSet<String>,
     fragment_mode: FragmentMode,
     carrier_places: &HashSet<String>,
     invariants: &[PInvariant],
 ) -> Option<ColouredPlan> {
     let p = flat.place_count;
 
-    // Map each flat row back to its source net transition. An XOR transition expands
-    // to one flat row per output branch (no 1:1 net↔flat assumption), so we read
+    // Map each flat row back to its source net transition. A transition expands to one
+    // flat row per way its firing can end (`branch_outcomes::outcomes`: each XOR branch,
+    // and a timeout that deposits differently — no 1:1 net↔flat assumption), so we read
     // `match_spec` from the source while classifying by the flat row's own incidence.
     let mut source: Vec<&Transition> = Vec::with_capacity(flat.transitions.len());
     for t in net.transitions() {
-        let rows = match t.output_spec() {
-            Some(out) => output::enumerate_branches(out).len().max(1),
-            None => 1,
-        };
+        let rows = branch_outcomes::outcomes(t).len();
         for _ in 0..rows {
             source.push(t);
         }
@@ -268,13 +301,6 @@ pub fn build_plan(
         return None;
     }
 
-    // Budget places gate minting: a mint must consume ≥1 budget token — that is what
-    // makes it a fresh-name fork rather than an arbitrary coloured producer.
-    let budget_idx: HashSet<usize> = budget_places
-        .iter()
-        .filter_map(|n| flat.place_index.get(n).copied())
-        .collect();
-
     // No inhibitor/read/reset/consume-all arc may touch a coloured place.
     for ft in &flat.transitions {
         let touches_coloured = ft
@@ -291,7 +317,20 @@ pub fn build_plan(
 
     // 2. Classify each flat row from its own incidence (match_spec from its source).
     let mut classes = Vec::with_capacity(flat.transitions.len());
+    let mut mint_names: Vec<String> = Vec::new();
+    let mut relay_names: Vec<String> = Vec::new();
     for (&t, ft) in source.iter().zip(&flat.transitions) {
+        // What the executor itself writes into a coloured place on timeout ([IO-013],
+        // [IO-014]): a copy of a consumed value, or a unit token with no name. A flat
+        // row does not say whether the action or the timeout wrote it (equal outcomes
+        // share a row), so the rule reads the source transition.
+        let timeout_coloured: Vec<(usize, TimeoutWrite)> = branch_outcomes::timeout_writes(t)
+            .into_iter()
+            .filter_map(|(p, w)| {
+                let &pid = flat.place_index.get(&p)?;
+                is_coloured[pid].then_some((pid, w))
+            })
+            .collect();
         let coloured_in: Vec<usize> = coloured
             .iter()
             .copied()
@@ -315,6 +354,16 @@ pub fn build_plan(
                 !relays_admitted
                     || !ms.relays().iter().any(|r| r.place_name() == flat.places[pid])
                     || ft.post[pid] != 1
+            }) {
+                return None;
+            }
+            // What the executor writes into a relay target on timeout is checked like an
+            // action's write ([NU-054]): only a forward of a match key carries the
+            // join's colour. A unit token has none and a forward of another input carries
+            // that input's, so such a firing fails and deposits nothing, while this row
+            // would relay the colour.
+            if timeout_coloured.iter().any(|(_, w)| {
+                !matches!(w, TimeoutWrite::Forward(from) if ms.keys().iter().any(|k| k.place_name() == from))
             }) {
                 return None;
             }
@@ -349,21 +398,43 @@ pub fn build_plan(
             if coloured_out.iter().any(|&pid| ft.post[pid] != 1) {
                 return None;
             }
+            // A timeout deposit relays the consumed colour only when it forwards the
+            // coloured input itself ([NU-051]): a forward of another input copies a
+            // name this row did not consume, and a unit token has none.
+            let input_name = &flat.places[coloured_in[0]];
+            if timeout_coloured
+                .iter()
+                .any(|(_, w)| !matches!(w, TimeoutWrite::Forward(from) if from == input_name))
+            {
+                return None;
+            }
+            if !coloured_out.is_empty() && !relay_names.iter().any(|n| n == t.name()) {
+                relay_names.push(t.name().to_string());
+            }
             Class::Consume {
                 input_col: coloured_in[0],
                 coloured_out,
             }
         } else if !coloured_out.is_empty() {
-            // Minting fork: produces coloured (count 1), consumes none, and must consume
-            // ≥1 budget token — that is what makes it a fresh-name fork rather than an
-            // arbitrary coloured producer. (Boundedness is decided by the colour-slot
-            // bound above, not here.)
+            // Minting fork: produces coloured (count 1), consumes none, and is a
+            // declared mint (`mints`: named by the caller, or consuming a declared
+            // budget place). The declaration is what states the mint contract of
+            // [NU-010]: the action writes a name freshly minted by `fresh_name`.
+            // Nothing in the net tells a mint from an action that copies a live
+            // correlation id. (Boundedness is decided by the colour-slot bound above,
+            // not here.)
             if coloured_out.iter().any(|&pid| ft.post[pid] != 1) {
                 return None;
             }
-            let budget_consumed: i64 = budget_idx.iter().map(|&b| ft.pre[b]).sum();
-            if budget_consumed < 1 {
+            if !mints.contains(t.name()) {
                 return None;
+            }
+            // What the executor writes on timeout is never fresh, declared or not.
+            if !timeout_coloured.is_empty() {
+                return None;
+            }
+            if !mint_names.iter().any(|n| n == t.name()) {
+                mint_names.push(t.name().to_string());
             }
             Class::Mint { coloured_out }
         } else {
@@ -378,6 +449,8 @@ pub fn build_plan(
         is_coloured,
         k,
         classes,
+        mints: mint_names,
+        relays: relay_names,
     })
 }
 
@@ -548,14 +621,24 @@ pub fn encode_coloured(
             } => {
                 // One rule per colour: consume colour c from the single coloured
                 // input and thread it into each coloured output (relay), or into none
-                // (drain).
+                // (drain). A relay back into its own input (a self-loop) nets to zero,
+                // as a join's key that is also a relay target does: the column keeps
+                // its `>= 1` guard and is carried over unchanged. `encode_rule` keeps
+                // one update per column, so writing `- 1` and then `+ 1` would leave
+                // only the `+ 1`.
+                let self_loop = coloured_out.contains(input_col);
                 for c in 0..k {
                     lines.push(encode_rule(plan, &lay, invariants, |enab, upd| {
                         uncoloured_incidence(&lay, plan, ft, enab, upd);
                         let icol = lay.col_col[*input_col][c];
                         enab.push(format!("(>= {} 1)", lay.cur[icol]));
-                        upd.push((icol, format!("(- {} 1)", lay.cur[icol])));
+                        if !self_loop {
+                            upd.push((icol, format!("(- {} 1)", lay.cur[icol])));
+                        }
                         for &o in coloured_out {
+                            if o == *input_col {
+                                continue;
+                            }
                             let ocol = lay.col_col[o][c];
                             upd.push((ocol, format!("(+ {} 1)", lay.cur[ocol])));
                         }
@@ -659,6 +742,9 @@ fn encode_rule(
     // copied unchanged.
     let mut changed: Vec<Option<String>> = vec![None; lay.cur.len()];
     for (col, expr) in upd {
+        // One update per column: a second write would replace the first rather than
+        // add to it, so every caller nets a self-loop out before pushing.
+        debug_assert!(changed[col].is_none(), "column {col} updated twice in one rule");
         changed[col] = Some(expr);
     }
     for col in 0..lay.cur.len() {
@@ -790,8 +876,16 @@ fn encode_violation(
             Some(&pid) => Some(format!("(> {} {})", lay.aggregate(pid, plan, &lay.cur), bound)),
             None => None,
         },
-        SmtProperty::Unreachable { places } | SmtProperty::MutualExclusion { places } => {
-            Some(any_place_present(places))
+        SmtProperty::Unreachable { places } => Some(any_place_present(places)),
+        // Pairwise ([VER-002]): some two entries marked at once, over the aggregate
+        // (all-colour) counts — the flat encoder's term, read through the colours.
+        SmtProperty::MutualExclusion { places } => {
+            let marked: Vec<String> = places
+                .iter()
+                .filter_map(|n| flat.place_index.get(n))
+                .map(|&pid| format!("(>= {} 1)", lay.aggregate(pid, plan, &lay.cur)))
+                .collect();
+            Some(crate::smt_encoder::pairwise_marked(&marked))
         }
         // DeadlockFree ([VER-002]): quiescent AND some marked place is not where
         // resting is permitted ([VER-014]). Mirrors the flat encoder's `stranded`
@@ -985,10 +1079,12 @@ fn join_coloured(conds: Vec<String>) -> String {
     }
 }
 
-/// Colour-aware quiescence predicate ([NU-053]): every transition is disabled (no
-/// colour enables it). Mirrors [`crate::smt_encoder`]'s flat `encode_quiescent`
-/// with the same env-injection relaxation (VER-006), lifted to the coloured
-/// layout. Carries no sink clause — each property conjoins its own.
+/// Colour-aware quiescence predicate ([NU-053]): every transition that is not
+/// reapable is disabled (no colour enables it). A reapable transition contributes
+/// no clause, since a late executor reaps it and rests with it enabled ([VER-002]
+/// reap-quiescence, [TIME-013]). Mirrors [`crate::smt_encoder`]'s flat
+/// `encode_quiescent` with the same env-injection relaxation (VER-006), lifted to
+/// the coloured layout. Carries no sink clause; each property conjoins its own.
 ///
 /// `None` means some transition is enabled in every marking: never quiescent.
 fn encode_coloured_quiescent(
@@ -1000,6 +1096,10 @@ fn encode_coloured_quiescent(
     let mut disabled_conditions = Vec::new();
     for (ti, cls) in plan.classes.iter().enumerate() {
         let ft = &flat.transitions[ti];
+        // Reap-quiescence ([VER-002], [TIME-013]), as the flat encoder.
+        if ft.reapable {
+            continue;
+        }
         let (mut reasons, permanently_disabled) = uncoloured_disable(ft, lay, plan, env_inject);
         if permanently_disabled {
             // The transition can never fire — it is always "disabled".
@@ -1221,7 +1321,15 @@ mod tests {
             &flat,
         )
         .valid;
-        build_plan(net, &flat, &initial, &budget, mode, &carrier_set, &semiflows)
+        build_plan(
+            net,
+            &flat,
+            &initial,
+            &crate::name_fragment::declared_mints(net, &budget, &HashSet::new()),
+            mode,
+            &carrier_set,
+            &semiflows,
+        )
     }
 
     /// [NU-053] AC6: with no budget token the covering semiflow's initial sum is
@@ -1524,7 +1632,8 @@ mod tests {
             &flat,
         )
         .valid;
-        let plan = build_plan(&net, &flat, &initial, &budget, mode, &HashSet::new(), &semiflows);
+        let mints = crate::name_fragment::declared_mints(&net, &budget, &HashSet::new());
+        let plan = build_plan(&net, &flat, &initial, &mints, mode, &HashSet::new(), &semiflows);
         (flat, plan)
     }
 

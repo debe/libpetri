@@ -31,7 +31,7 @@ use crate::name_marking::{NameMarking, Sym};
 use crate::name_state_class::NameStateClass;
 use crate::priority_semantics::PrioritySemantics;
 use crate::state_class::StateClass;
-use crate::state_class_graph::{compute_successor, expand_transition, initial_state_class};
+use crate::state_class_graph::{compute_successor_gated, expand_transition, initial_state_class};
 
 /// Edge in the name-aware state class graph (a transition firing).
 #[derive(Debug, Clone)]
@@ -105,6 +105,9 @@ impl NameStateClassGraph {
     ) -> Self {
         env_mode.reject_arrivals(env_places.len(), "NameStateClassGraph::build");
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
+        // No join is enabled here: every correlated input consumes at least one token
+        // ([NU-020], checked when the transition is built) and coloured places start
+        // empty (the verifier guards this), so the count test alone gives the clocks.
         let base0 = initial_state_class(net, initial_marking, &env_set, env_mode, false);
         // Transitions by name, so each class resolves its enabled set in O(1) per
         // transition rather than by a scan of the net.
@@ -196,36 +199,39 @@ impl NameStateClassGraph {
                     continue;
                 }
 
-                for (_branch, output_places) in expand_transition(transition) {
-                    // Base (count + DBM) successor — identical across name-orbits.
-                    let base_succ = compute_successor(
-                        net,
-                        &current.base,
-                        clock_idx,
-                        t_name,
-                        &output_places,
-                        &env_set,
-                        env_mode,
-                        false,
-                    );
-                    if base_succ.is_empty() {
-                        continue; // DBM zone infeasible
-                    }
-
-                    // Name-layer successors for this firing (the join may yield 0).
-                    let name_succs =
-                        name_successors(role, &current.names, &output_places, fragment, &mut next_sym);
-
-                    let (bid, shared_base) = intern_base(&mut base_intern, base_succ);
-                    for names in name_succs {
+                for (_branch, outcome) in expand_transition(transition) {
+                    // Name-layer steps for this firing (the join may yield 0). The base
+                    // successor is computed per step: a ν-join holds a clock only while
+                    // one name is present in every correlated input ([NU-020]), judged
+                    // on the step's intermediate and new layers ([TIME-012]).
+                    let steps =
+                        name_successors(role, &current.names, &outcome.places, fragment, &mut next_sym);
+                    for step in steps {
+                        let between = step.intermediate.as_ref().unwrap_or(&current.names);
+                        let base_succ = compute_successor_gated(
+                            net,
+                            &current.base,
+                            clock_idx,
+                            t_name,
+                            &outcome,
+                            &env_set,
+                            env_mode,
+                            false,
+                            |t| name_enabled(t, between, fragment),
+                            |t| name_enabled(t, &step.after, fragment),
+                        );
+                        if base_succ.is_empty() {
+                            continue; // DBM zone infeasible
+                        }
+                        let (bid, shared_base) = intern_base(&mut base_intern, base_succ);
                         let (nid, shared_names) =
-                            intern_names(&mut name_intern, names, &fragment.coloured_order);
+                            intern_names(&mut name_intern, step.after, &fragment.coloured_order);
                         let (to_idx, fresh) = if let Some(&i) = index_of.get(&(bid, nid)) {
                             (i, false)
                         } else {
                             let idx = graph.classes.len();
                             graph.push_class(
-                                NameStateClass::new(Rc::clone(&shared_base), shared_names),
+                                NameStateClass::new(shared_base, shared_names),
                                 (bid, nid),
                                 &mut index_of,
                             );
@@ -360,15 +366,25 @@ fn coloured_outputs<'a>(
         .collect()
 }
 
-/// Name-layer successors of one transition firing. `Ordinary` passes the layer
+/// One name-layer step of a firing: the layer once the firing has taken its
+/// inputs (`None` when it takes no symbol, so the layer is the class's own) and
+/// the layer once its outputs have landed. The first is the name half of the
+/// intermediate marking of [TIME-012].
+pub(crate) struct NameStep {
+    pub intermediate: Option<NameMarking>,
+    pub after: NameMarking,
+}
+
+/// Name-layer successors of one transition firing, as [`NameStep`]s. `Ordinary` passes the layer
 /// through; `Mint` stamps one globally-fresh symbol into the coloured outputs of
 /// this branch (one symbol into several = same-mint siblings); `Join` yields one
-/// successor per **distinct signature** among the enabling symbols (none ⇒ the
+/// step per **distinct signature** among the enabling symbols (none ⇒ the
 /// join is name-disabled), adding that symbol back once to each relay target of
-/// the fired branch (EXTENDED, [NU-054]); `Consume` (EXTENDED, [NU-051]) yields one successor per
+/// the fired branch (EXTENDED, [NU-054]); `Consume` (EXTENDED, [NU-051]) yields one step per
 /// distinct signature among the resident symbols of the single coloured input,
 /// threading that symbol into every coloured output (relay) or dropping it
-/// (drain).
+/// (drain). A `Join` or `Consume` step's intermediate layer is the class's layer
+/// with the chosen symbol removed from the consumed places.
 ///
 /// **Orbit dedup ([VER-012]).** A symbol's signature is its count vector over
 /// `coloured_order`, as in [`NameMarking::canonical_key`]. Two symbols with equal
@@ -381,16 +397,21 @@ fn coloured_outputs<'a>(
 /// successor only to collapse them into one class — quadratic in the class count
 /// on a join-heavy graph. The number of distinct signatures, and the key each
 /// one yields, are themselves invariant under renaming, which is what keeps the
-/// step key-equivariant (`Interning.lean`, `Equivariant`).
+/// step key-equivariant (`Interning.lean`, `Equivariant`). The intermediate
+/// layers are renamed with the successors, and [`name_enabled`] reads only
+/// whether some symbol enables a join, so the clocks they decide are invariant too.
 fn name_successors(
     role: &Role,
     names: &NameMarking,
     output_places: &HashSet<String>,
     fragment: &NameFragment,
     next_sym: &mut Sym,
-) -> Vec<NameMarking> {
+) -> Vec<NameStep> {
     match role {
-        Role::Ordinary => vec![names.clone()],
+        Role::Ordinary => vec![NameStep {
+            intermediate: None,
+            after: names.clone(),
+        }],
         Role::Mint => {
             let coloured_out = coloured_outputs(output_places, fragment);
             let mut nm = names.clone();
@@ -401,7 +422,10 @@ fn name_successors(
                     nm.add(p, fresh, 1);
                 }
             }
-            vec![nm]
+            vec![NameStep {
+                intermediate: None,
+                after: nm,
+            }]
         }
         Role::Join {
             coloured_in,
@@ -421,14 +445,18 @@ fn name_successors(
             distinct_signatures(names, enabling_symbols(names, coloured_in), fragment)
                 .into_iter()
                 .map(|s| {
-                    let mut nm = names.clone();
+                    let mut between = names.clone();
                     for (p, req) in coloured_in {
-                        nm.remove(p, s, *req);
+                        between.remove(p, s, *req);
                     }
+                    let mut after = between.clone();
                     for p in &relays {
-                        nm.add(p, s, 1);
+                        after.add(p, s, 1);
                     }
-                    nm
+                    NameStep {
+                        intermediate: Some(between),
+                        after,
+                    }
                 })
                 .collect()
         }
@@ -442,15 +470,30 @@ fn name_successors(
             distinct_signatures(names, names.symbols_in(input_place), fragment)
                 .into_iter()
                 .map(|s| {
-                    let mut nm = names.clone();
-                    nm.remove(input_place, s, 1);
+                    let mut between = names.clone();
+                    between.remove(input_place, s, 1);
+                    let mut after = between.clone();
                     for p in &coloured_out {
-                        nm.add(p, s, 1);
+                        after.add(p, s, 1);
                     }
-                    nm
+                    NameStep {
+                        intermediate: Some(between),
+                        after,
+                    }
                 })
                 .collect()
         }
+    }
+}
+
+/// Whether `t` is enabled by the name layer `names`, given that the count
+/// marking enables it: a ν-join needs one symbol present at the required
+/// multiplicity in every correlated input ([NU-020]); every other role is
+/// enabled by counts alone (a consumer's input count is its symbol count).
+fn name_enabled(t: &Transition, names: &NameMarking, fragment: &NameFragment) -> bool {
+    match fragment.role(t.name()) {
+        Role::Join { coloured_in, .. } => !enabling_symbols(names, coloured_in).is_empty(),
+        Role::Consume { .. } | Role::Ordinary | Role::Mint => true,
     }
 }
 
@@ -522,6 +565,12 @@ fn enabling_symbols(names: &NameMarking, coloured_in: &[(String, usize)]) -> Vec
 /// be base-enabled yet **name-disabled** (its inputs carry no shared name). Such
 /// a join never consumes the contested token, so it must not pre-empt a
 /// conflicting drain — otherwise a genuine straggler would strand.
+///
+/// **In flight ([VER-004]).** On a net the verifier split, `h` pre-empts nothing
+/// while its place `inflight:<h>` is marked: its action is still running, and the
+/// Java and TypeScript executors do not start `h` again then, so `l` fires. The
+/// verifier splits every pruner for this ([`crate::in_flight::conflict_demand`]); on
+/// a net with no such place the guard never applies.
 fn priority_dominated(
     l: &Transition,
     idx_l: usize,
@@ -538,6 +587,7 @@ fn priority_dominated(
         h.name() != l.name()
             && h.priority() > l.priority()
             && ready_earliest[idx_h] <= ready_earliest[idx_l] + EPS
+            && marking.count(&crate::in_flight::in_flight_place(h.name())) == 0
             && will_fire(h, names, fragment)
             && shares_consumed_input(h, l, marking)
     })
@@ -698,7 +748,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let net = interning_fixture(false);
-        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
             .expect("the interning fixture is in the base fragment");
         let initial = MarkingStateBuilder::new().tokens("P", 2).build();
         let graph = NameStateClassGraph::build(
@@ -812,7 +862,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let net = same_name_layer_fixture();
-        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
             .expect("the fixture is in the base fragment");
         let initial = MarkingStateBuilder::new().tokens("P", 2).build();
         let graph = NameStateClassGraph::build(
@@ -873,7 +923,7 @@ pub(crate) mod tests {
         let mut keys: Vec<String> =
             name_successors(fragment.role(transition), names, outputs, fragment, &mut fresh)
                 .iter()
-                .map(|nm| nm.canonical_key(&fragment.coloured_order))
+                .map(|step| step.after.canonical_key(&fragment.coloured_order))
                 .collect();
         keys.sort();
         keys
@@ -889,7 +939,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let net = interning_fixture(true);
-        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new())
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
             .expect("the drain is an EXTENDED coloured consumer");
         let mut names = NameMarking::new();
         names.add("C1", 3, 1);
@@ -1093,7 +1143,7 @@ pub(crate) mod tests {
             .transitions([mint, join, drain])
             .build();
 
-        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new())
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
             .expect("EXTENDED must admit the delayed priority fixture");
         let initial = MarkingStateBuilder::new().tokens("SEED", 1).build();
 
@@ -1170,7 +1220,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let (net, m0) = fig11b();
-        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new())
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
             .expect("Fig. 11(b) is in the base fragment");
         let graph = NameStateClassGraph::build(
             &net,
@@ -1216,7 +1266,7 @@ pub(crate) mod tests {
             let mut fresh: Sym = 100;
             name_successors(fragment.role("send_order"), names, &outputs, &fragment, &mut fresh)
                 .iter()
-                .map(|nm| nm.canonical_key(&fragment.coloured_order))
+                .map(|step| step.after.canonical_key(&fragment.coloured_order))
                 .collect::<Vec<_>>()
         };
 
@@ -1267,7 +1317,7 @@ pub(crate) mod tests {
                 &mut fresh,
             )
             .iter()
-            .map(|nm| nm.canonical_key(&fragment.coloured_order))
+            .map(|step| step.after.canonical_key(&fragment.coloured_order))
             .collect();
             let distinct: BTreeSet<String> = keys.iter().cloned().collect();
             assert_eq!(distinct.len(), keys.len(), "one successor per key");
@@ -1370,7 +1420,7 @@ pub(crate) mod tests {
         for (name, rows, (place, k), carriers) in cases {
             let net = pnid_net("orbit", &rows);
             let carrier_set: BTreeSet<String> = carriers.iter().map(|s| s.to_string()).collect();
-            let fragment = classify(&net, FragmentMode::Extended, &carrier_set).expect(name);
+            let fragment = classify(&net, FragmentMode::Extended, &carrier_set, &crate::name_fragment::all_mints(&net)).expect(name);
             let graph = NameStateClassGraph::build(
                 &net,
                 &crate::marking_state::MarkingStateBuilder::new().tokens(place, k).build(),
@@ -1397,12 +1447,12 @@ pub(crate) mod tests {
                         let emitted: Vec<String> = name_successors(
                             fragment.role(tname),
                             &class.names,
-                            &outputs,
+                            &outputs.places,
                             &fragment,
                             &mut fresh,
                         )
                         .iter()
-                        .map(|nm| nm.canonical_key(&fragment.coloured_order))
+                        .map(|step| step.after.canonical_key(&fragment.coloured_order))
                         .collect();
                         // Per-symbol reference step: every enabling symbol, no dedup.
                         let enabling = enabling_symbols(&class.names, coloured_in);
@@ -1413,7 +1463,7 @@ pub(crate) mod tests {
                                 for (p, req) in coloured_in {
                                     nm.remove(p, s, *req);
                                 }
-                                for p in outputs.iter().filter(|p| relay_to.contains(*p)) {
+                                for p in outputs.places.iter().filter(|p| relay_to.contains(*p)) {
                                     nm.add(p, s, 1);
                                 }
                                 nm.canonical_key(&fragment.coloured_order)
@@ -1434,5 +1484,90 @@ pub(crate) mod tests {
                 assert!(collapsed > 0, "{name}: the fixture exercises the dedup");
             }
         }
+    }
+
+    /// [TIME-012] on a ν-join: a firing that takes the join's matched name out of a
+    /// key place breaks the binding in the intermediate marking even when the count
+    /// stays, so the join's clock restarts. `M0` mints `m` into `A`, `M1` co-mints `n`
+    /// into `A` and `B`, both by 1 ms, and the relay `R` (EXTENDED, `delayed(3)`) takes
+    /// one name from `A` and puts it back. Taking `n` leaves `A = {m}`, `B = {n}` in between: `J` restarts with its
+    /// full 10 ms. Taking `m` leaves `J` enabled throughout: its clock continues.
+    #[test]
+    fn a_broken_binding_in_the_intermediate_marking_restarts_the_join_clock() {
+        use crate::marking_state::MarkingStateBuilder;
+        use crate::name_fragment::{FragmentMode, classify};
+        use libpetri_core::input::one;
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        use libpetri_core::output::{and, out_place};
+        use libpetri_core::place::Place;
+        use libpetri_core::timing;
+        use std::collections::BTreeSet;
+
+        let p = |n: &str| Place::<String>::new(n);
+        let key = |s: &String| NameId::new(s.clone());
+        let m0 = Transition::builder("M0")
+            .input(one(&p("s0")))
+            .output(out_place(&p("A")))
+            .timing(timing::deadline(1))
+            .action(fork())
+            .build();
+        let m1 = Transition::builder("M1")
+            .input(one(&p("s1")))
+            .output(and(vec![out_place(&p("A")), out_place(&p("B"))]))
+            .timing(timing::deadline(1))
+            .action(fork())
+            .build();
+        let j = Transition::builder("J")
+            .input(one(&p("A")))
+            .input(one(&p("B")))
+            .match_spec(MatchSpec::builder().key(&p("A"), key).key(&p("B"), key).build())
+            .output(out_place(&p("OUT")))
+            .timing(timing::delayed(10))
+            .action(fork())
+            .build();
+        let r = Transition::builder("R")
+            .input(one(&p("A")))
+            .input(one(&p("go")))
+            .output(out_place(&p("A")))
+            .timing(timing::delayed(3))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("broken_binding").transitions([m0, m1, j, r]).build();
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+            .expect("R is an EXTENDED relay");
+        let initial = MarkingStateBuilder::new()
+            .tokens("s0", 1)
+            .tokens("s1", 1)
+            .tokens("go", 1)
+            .build();
+        let graph = NameStateClassGraph::build(
+            &net,
+            &initial,
+            &fragment,
+            10_000,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            PrioritySemantics::None,
+        );
+        assert!(graph.is_complete());
+        let j_ready_after_r: BTreeSet<u64> = graph
+            .edges
+            .iter()
+            .filter(|e| e.transition_name == "R")
+            .filter_map(|e| {
+                let base = &graph.classes[e.to].base;
+                let k = base.enabled_transitions.iter().position(|t| t == "J")?;
+                Some((base.ready_earliest[k] * 1000.0).round() as u64)
+            })
+            .collect();
+        assert!(
+            j_ready_after_r.contains(&10),
+            "taking the matched name restarts J: ready in {j_ready_after_r:?} ms"
+        );
+        assert!(
+            j_ready_after_r.iter().any(|&ms| ms <= 8),
+            "taking the other name keeps J's clock: ready in {j_ready_after_r:?} ms"
+        );
     }
 }

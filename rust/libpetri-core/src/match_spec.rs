@@ -149,6 +149,20 @@ impl std::fmt::Debug for MatchSpec {
     }
 }
 
+/// The first place named by two of `keys`, if any.
+pub(crate) fn duplicate_key(keys: &[MatchKey]) -> Option<&str> {
+    let mut seen = std::collections::HashSet::with_capacity(keys.len());
+    keys.iter().map(MatchKey::place_name).find(|p| !seen.insert(*p))
+}
+
+/// The panic message for a place keyed twice ([NU-020]).
+pub(crate) fn duplicate_key_message(place: &str) -> String {
+    format!(
+        "MatchSpec correlates input place '{place}' twice. A match names each correlated \
+         input once (NU-020); the input's cardinality sets how many tokens of the name it takes."
+    )
+}
+
 /// Builder for [`MatchSpec`].
 pub struct MatchSpecBuilder {
     keys: Vec<MatchKey>,
@@ -207,13 +221,16 @@ impl MatchSpecBuilder {
     ///
     /// # Panics
     /// Panics when fewer than two inputs are correlated — a match over a single
-    /// place correlates nothing.
+    /// place correlates nothing — and when one place is keyed twice ([NU-020]).
     pub fn build(self) -> MatchSpec {
         assert!(
             self.keys.len() >= 2,
             "MatchSpec must correlate at least 2 input places, got {}",
             self.keys.len()
         );
+        if let Some(place) = duplicate_key(&self.keys) {
+            panic!("{}", duplicate_key_message(place));
+        }
         MatchSpec {
             keys: self.keys,
             relays: self.relays,
@@ -265,6 +282,19 @@ mod tests {
     fn single_input_panics() {
         let a = Place::<Msg>::new("a");
         MatchSpec::builder()
+            .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
+            .build();
+    }
+
+    /// [NU-020]: a match names each correlated input once. Two keys on one place
+    /// would make the analyses remove the matched name twice where the executor
+    /// consumes it once.
+    #[test]
+    #[should_panic(expected = "MatchSpec correlates input place 'a' twice")]
+    fn a_place_keyed_twice_panics() {
+        let a = Place::<Msg>::new("a");
+        MatchSpec::builder()
+            .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
             .key(&a, |m: &Msg| NameId::new(m.cid.clone()))
             .build();
     }

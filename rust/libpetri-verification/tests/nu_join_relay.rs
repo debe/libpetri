@@ -22,6 +22,15 @@ use libpetri_verification::smt_verifier::{SmtVerifier, z3_available};
 
 use relay_nets::*;
 
+use libpetri_core::action::fork;
+use libpetri_core::input::one;
+use libpetri_core::match_spec::MatchSpec;
+use libpetri_core::name::NameId;
+use libpetri_core::output::{Out, and, forward_input, out_place, timeout, xor};
+use libpetri_core::petri_net::PetriNet;
+use libpetri_core::place::Place;
+use libpetri_core::transition::Transition;
+
 #[derive(Clone)]
 struct Q {
     rows: Vec<Row>,
@@ -97,6 +106,15 @@ fn verify_with(
     }
     if with_budget && !q.budgets.is_empty() {
         v = v.budget_places(q.budgets.iter().map(|s| s.to_string()));
+    } else {
+        // Without the budget declaration the mints are declared by name ([NU-010]):
+        // the transitions that consume a budget place.
+        let mints = net
+            .transitions()
+            .iter()
+            .filter(|t| t.input_specs().iter().any(|s| q.budgets.contains(&s.place_name())))
+            .map(|t| t.name().to_string());
+        v = v.mint_transitions(mints);
     }
     if !q.carriers.is_empty() {
         v = v.carrier_places(q.carriers.iter().map(|s| s.to_string()));
@@ -127,7 +145,7 @@ fn unreachable(p: &str) -> SmtProperty {
 #[test]
 fn chain_reaches_done_and_is_deadlock_free_via_route_b() {
     let reach = verify(
-        &Q::new(join_chain(), &[("S", 1)], unreachable("done")),
+        &Q::new(join_chain(), &[("S", 1)], unreachable("done")).budgets(&["S"]),
         false,
         100_000,
         60_000,
@@ -136,7 +154,7 @@ fn chain_reaches_done_and_is_deadlock_free_via_route_b() {
     assert!(reach.is_violated(), "{}", reach.report);
     assert_eq!(reach.counterexample_transitions, vec!["fork", "j1", "j2"]);
 
-    let dlf = route_b(&Q::new(join_chain(), &[("S", 1)], SmtProperty::DeadlockFree).sinks(&["done"]));
+    let dlf = route_b(&Q::new(join_chain(), &[("S", 1)], SmtProperty::DeadlockFree).sinks(&["done"]).budgets(&["S"]));
     assert_eq!(dlf.route, VerificationRoute::NuScg, "{}", dlf.report);
     assert!(dlf.is_proven(), "{}", dlf.report);
 }
@@ -144,7 +162,7 @@ fn chain_reaches_done_and_is_deadlock_free_via_route_b() {
 #[test]
 fn chain_with_an_independent_mint_never_reaches_done() {
     let r = verify(
-        &Q::new(join_chain_split(), &[("S", 1), ("S2", 1)], unreachable("done")),
+        &Q::new(join_chain_split(), &[("S", 1), ("S2", 1)], unreachable("done")).budgets(&["S", "S2"]),
         false,
         100_000,
         60_000,
@@ -515,4 +533,73 @@ fn a_bound_the_linear_bound_cannot_prove_still_reaches_the_coloured_encoding() {
     assert_eq!(r.route, VerificationRoute::Smt, "{}", r.report);
     assert!(r.report.contains("ν-encoding: name-coloured"), "{}", r.report);
     assert!(!r.report.contains("proven structurally"), "{}", r.report);
+}
+
+// ── A join's timeout writes into a relay target ──────────────────────────────
+
+/// The AC3 join chain with `j1`'s relay into `C` written two ways: by the action,
+/// or by the executor on timeout (`timeout_child`). `j1` also consumes the
+/// uncoloured `Z`, so a forward of a non-key input can be stated.
+fn chain_with_timeout(timeout_child: impl Fn(&Place<String>, &Place<String>, &Place<String>) -> Out) -> PetriNet {
+    let p = |n: &str| Place::<String>::new(n);
+    let key = |s: &String| NameId::new(s.clone());
+    let (s, a, b, c, d, z, done) = (p("S"), p("A"), p("B"), p("C"), p("D"), p("Z"), p("done"));
+    let fork_t = Transition::builder("fork")
+        .input(one(&s))
+        .output(and(vec![out_place(&a), out_place(&b), out_place(&d)]))
+        .action(fork())
+        .build();
+    let j1 = Transition::builder("j1")
+        .input(one(&a))
+        .input(one(&b))
+        .input(one(&z))
+        .output(xor(vec![out_place(&c), timeout(10, timeout_child(&a, &z, &c))]))
+        .match_spec(MatchSpec::builder().key(&a, key).key(&b, key).relay_to(&c, key).build())
+        .action(fork())
+        .build();
+    let j2 = Transition::builder("j2")
+        .input(one(&c))
+        .input(one(&d))
+        .output(out_place(&done))
+        .match_spec(MatchSpec::builder().key(&c, key).key(&d, key).build())
+        .action(fork())
+        .build();
+    PetriNet::builder("chain_timeout").transitions([fork_t, j1, j2]).build()
+}
+
+fn chain_timeout_deadlock(net: &PetriNet) -> VerificationResult {
+    SmtVerifier::for_net(net)
+        .enumeration_max_classes(0)
+        .initial_marking(MarkingStateBuilder::new().tokens("S", 1).tokens("Z", 1).build())
+        .property(SmtProperty::DeadlockFree)
+        .sink_places(["done".to_string()])
+        .budget_places(["S".to_string()])
+        .fragment_mode(FragmentMode::Extended)
+        // Out of the fragment, the net falls back to the count abstraction, which
+        // cannot decide a quiescence property: nothing to wait for.
+        .timeout(2_000)
+        .verify()
+}
+
+/// The executor checks every token a join deposits in a relay target, timeout
+/// branches included ([NU-054]). A unit token (`Out::Place` under `Timeout`) or a
+/// forward of a non-key input carries no name or another one, so that firing
+/// fails and deposits nothing: `A` and `B` are gone, `D` is stranded and the net
+/// deadlocks. The name layer would relay the matched name into `C` instead and
+/// let `j2` fire, a wrong `Proven`. Only a forward of a match key relays the
+/// matched name, and only that timeout write keeps the join in the fragment.
+#[test]
+fn a_join_timeout_write_into_a_relay_target_must_forward_a_key() {
+    let unit = chain_timeout_deadlock(&chain_with_timeout(|_, _, c| out_place(c)));
+    let other = chain_timeout_deadlock(&chain_with_timeout(|_, z, c| forward_input(z, c)));
+    for (what, r) in [("a unit token", &unit), ("the non-key Z", &other)] {
+        assert!(!r.is_proven(), "timeout writes {what} into C:\n{}", r.report);
+        // Both ν routes decline it: Route B, and Route A's coloured encoding.
+        assert!(r.report.contains("Route B (EXTENDED) declined"), "{what}:\n{}", r.report);
+        assert!(!r.report.contains("ν-encoding: name-coloured"), "{what}:\n{}", r.report);
+    }
+
+    let key = chain_timeout_deadlock(&chain_with_timeout(|a, _, c| forward_input(a, c)));
+    assert_eq!(key.route, VerificationRoute::NuScg, "{}", key.report);
+    assert!(key.is_proven(), "timeout forwards the key A into C:\n{}", key.report);
 }

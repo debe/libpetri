@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 
 use crate::marking_state::MarkingState;
-use crate::property::SmtProperty;
+use crate::property::{SmtProperty, two_marked};
 use crate::rest_set::{ConditionalSinks, strands_token};
 
 /// A finite graph of classes, indexed `0 .. count() - 1`, class 0 the initial one.
@@ -94,9 +94,8 @@ pub(crate) fn marking_violates(property: &SmtProperty, m: &MarkingState) -> bool
         SmtProperty::PlaceBound { place, bound }
         | SmtProperty::BranchPlaceBound { place, bound } => m.count(place) > *bound,
         SmtProperty::Unreachable { places } => places.iter().all(|p| m.count(p) >= 1),
-        SmtProperty::MutualExclusion { places } => {
-            places.iter().filter(|p| m.count(p) >= 1).count() >= 2
-        }
+        // Pairwise ([VER-002]): two entries of the list marked at once.
+        SmtProperty::MutualExclusion { places } => two_marked(places.iter().map(|p| m.count(p) >= 1)),
         SmtProperty::DeadlockFree
         | SmtProperty::TerminatesAtSink
         | SmtProperty::JoinedOrDeadLettered { .. }

@@ -8,7 +8,7 @@ use crate::input::In;
 use crate::match_spec::MatchSpec;
 use crate::output::{Out, all_places, duplicate_in_branch, find_forward_inputs, find_timeout};
 use crate::place::PlaceRef;
-use crate::timing::{Timing, immediate};
+use crate::timing::{Timing, deadline, delayed, exact, immediate, window};
 
 /// Unique identifier for a transition instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -314,7 +314,8 @@ impl TransitionBuilder {
         self
     }
 
-    /// Set timing specification.
+    /// Set timing specification. A `Timing` variant written out directly is checked
+    /// in [`build`](Self::build), with the factories' rules ([TIME-001] AC5).
     pub fn timing(mut self, timing: Timing) -> Self {
         self.timing = timing;
         self
@@ -342,6 +343,9 @@ impl TransitionBuilder {
     ///   transition.
     /// - Panics if one output branch names a place twice (**IO-011**): outputs are
     ///   sets of places, so `and(P, P)` is not two tokens into `P`.
+    /// - Panics if an input requires no token (`In::Exactly { count: 0 }`,
+    ///   `In::AtLeast { minimum: 0 }`; **IO-002**, **IO-004**).
+    /// - Panics if the match specification keys one place twice (**NU-020**).
     /// - Panics if ForwardInput references a non-input place.
     pub fn build(self) -> Transition {
         // [CORE-030] AC3: duplicate input places are rejected where the
@@ -352,6 +356,43 @@ impl TransitionBuilder {
         for spec in &self.input_specs {
             if !seen_inputs.insert(spec.place_name()) {
                 panic!("{}", duplicate_input_message(&self.name, spec.place_name()));
+            }
+            // [IO-002] AC1 / [IO-004] AC1: `exactly()` and `at_least()` reject a count
+            // below 1, but the `In` variants are public, so a spec written out directly
+            // is checked here. The executors would still wait for a token that the
+            // analyses do not require.
+            let required = crate::input::required_count(spec);
+            if required == 0 {
+                panic!(
+                    "input '{}' of transition '{}' requires 0 tokens; exactly(n) and \
+                     at_least(n) need n >= 1 (IO-002, IO-004)",
+                    spec.place_name(),
+                    self.name
+                );
+            }
+        }
+
+        // [TIME-001] AC5: the `Timing` variants are public, so a timing written out
+        // directly skips the factories' asserts. Run them again here, as for `In`
+        // above: past `MAX_DURATION_MS` a state-class graph reads a transition that can
+        // fire as one that never can, and `reaping::relax_late` would panic inside the
+        // verifier when it rebuilds a window as `delayed(earliest)`.
+        match self.timing {
+            Timing::Immediate => {}
+            Timing::Deadline { by_ms } => {
+                deadline(by_ms);
+            }
+            Timing::Delayed { after_ms } => {
+                delayed(after_ms);
+            }
+            Timing::Window {
+                earliest_ms,
+                latest_ms,
+            } => {
+                window(earliest_ms, latest_ms);
+            }
+            Timing::Exact { at_ms } => {
+                exact(at_ms);
             }
         }
 
@@ -383,8 +424,16 @@ impl TransitionBuilder {
             }
         }
 
-        // Validate MatchSpec correlates only declared input places (NU-020).
+        // Validate MatchSpec correlates only declared input places, each once (NU-020).
+        // `MatchSpec::from_keys` (the FFI path) does not go through the builder.
         if let Some(ref ms) = self.match_spec {
+            if let Some(place) = crate::match_spec::duplicate_key(ms.keys()) {
+                panic!(
+                    "Transition '{}': {}",
+                    self.name,
+                    crate::match_spec::duplicate_key_message(place)
+                );
+            }
             let input_place_names: HashSet<_> =
                 self.input_specs.iter().map(|s| s.place_name()).collect();
             for key in ms.keys() {
@@ -650,6 +699,85 @@ mod tests {
             .build();
     }
 
+    /// TIME-001 AC5: the `Timing` variants are public, so a timing written out
+    /// directly skips the factories' checks. `build` runs them again, with the
+    /// factories' messages.
+    fn with_timing(timing: crate::timing::Timing) -> Transition {
+        Transition::builder("t").timing(timing).build()
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Delay must be at most MAX_DURATION_MS"
+    )]
+    fn a_delayed_timing_written_out_past_the_maximum_is_rejected_at_build() {
+        use crate::timing::{MAX_DURATION_MS, Timing};
+        with_timing(Timing::Delayed {
+            after_ms: MAX_DURATION_MS + 1,
+        });
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Earliest must be at most MAX_DURATION_MS"
+    )]
+    fn a_window_written_out_past_the_maximum_is_rejected_at_build() {
+        use crate::timing::{MAX_DURATION_MS, Timing};
+        with_timing(Timing::Window {
+            earliest_ms: MAX_DURATION_MS + 1,
+            latest_ms: MAX_DURATION_MS + 2,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Latest (3) must be >= earliest (5)")]
+    fn an_inverted_window_written_out_is_rejected_at_build() {
+        use crate::timing::Timing;
+        with_timing(Timing::Window {
+            earliest_ms: 5,
+            latest_ms: 3,
+        });
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Exact time must be at most MAX_DURATION_MS"
+    )]
+    fn an_exact_timing_written_out_past_the_maximum_is_rejected_at_build() {
+        use crate::timing::{MAX_DURATION_MS, Timing};
+        with_timing(Timing::Exact {
+            at_ms: MAX_DURATION_MS + 1,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Deadline must be positive: 0")]
+    fn a_zero_deadline_written_out_is_rejected_at_build() {
+        use crate::timing::Timing;
+        with_timing(Timing::Deadline { by_ms: 0 });
+    }
+
+    #[test]
+    fn a_valid_timing_written_out_builds() {
+        use crate::timing::{MAX_DURATION_MS, Timing};
+        for timing in [
+            Timing::Immediate,
+            Timing::Deadline { by_ms: 1 },
+            Timing::Delayed {
+                after_ms: MAX_DURATION_MS,
+            },
+            Timing::Window {
+                earliest_ms: MAX_DURATION_MS,
+                latest_ms: MAX_DURATION_MS,
+            },
+            Timing::Exact {
+                at_ms: MAX_DURATION_MS,
+            },
+        ] {
+            assert_eq!(*with_timing(timing).timing(), timing);
+        }
+    }
+
     /// IO-011 AC4: `And(P, P)`, `And(P, And(Q, P))` and `Xor(A, And(P, P))` are
     /// rejected naming the transition and `P`; `Xor(And(P, A), And(P, B))` builds.
     #[test]
@@ -737,5 +865,54 @@ mod tests {
         let p = Place::<i32>::new("out");
         let t = Transition::builder("test").output(out_place(&p)).build();
         assert_eq!(t.action_timeout(), None);
+    }
+
+    // ---- IO-002 / IO-004 / NU-020: arcs the builders reject, written out directly ----
+
+    fn join_with(b_input: In, ms: crate::match_spec::MatchSpec) -> Transition {
+        Transition::builder("join")
+            .input(one(&Place::<String>::new("A")))
+            .input(b_input)
+            .output(out_place(&Place::<String>::new("merged")))
+            .match_spec(ms)
+            .build()
+    }
+
+    fn key_ab() -> crate::match_spec::MatchSpec {
+        use crate::match_spec::MatchSpec;
+        use crate::name::NameId;
+        let key = |s: &String| NameId::new(s.clone());
+        MatchSpec::builder()
+            .key(&Place::<String>::new("A"), key)
+            .key(&Place::<String>::new("B"), key)
+            .build()
+    }
+
+    /// `In::Exactly { count: 0 }` is a public variant, so `exactly()`'s check does not
+    /// cover it. Route B read such a join key as always satisfied and proved
+    /// `DeadlockFree` for a join the executor never fires.
+    #[test]
+    #[should_panic(expected = "input 'B' of transition 'join' requires 0 tokens")]
+    fn an_exactly_zero_input_panics() {
+        use crate::place::PlaceRef;
+        join_with(In::Exactly { place: PlaceRef::new("B"), count: 0 }, key_ab());
+    }
+
+    #[test]
+    #[should_panic(expected = "input 'B' of transition 'join' requires 0 tokens")]
+    fn an_at_least_zero_input_panics() {
+        use crate::place::PlaceRef;
+        join_with(In::AtLeast { place: PlaceRef::new("B"), minimum: 0 }, key_ab());
+    }
+
+    /// `MatchSpec::from_keys` (the FFI path) skips the builder, so the transition
+    /// checks the keys too ([NU-020]).
+    #[test]
+    #[should_panic(expected = "MatchSpec correlates input place 'A' twice")]
+    fn a_place_keyed_twice_through_from_keys_panics() {
+        use crate::match_spec::MatchSpec;
+        let keys = key_ab().keys().to_vec();
+        let ms = MatchSpec::from_keys(vec![keys[0].clone(), keys[0].clone()]);
+        join_with(one(&Place::<String>::new("B")), ms);
     }
 }

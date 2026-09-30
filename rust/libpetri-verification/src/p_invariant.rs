@@ -606,6 +606,7 @@ mod tests {
                     read_places: Vec::new(),
                     reset_places: Vec::new(),
                     consume_all: Vec::new(),
+                    reapable: false,
                 })
                 .collect(),
         }

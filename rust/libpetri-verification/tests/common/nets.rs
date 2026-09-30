@@ -15,6 +15,7 @@ use libpetri_core::name::NameId;
 use libpetri_core::output::{and, out_place};
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::{Place, PlaceRef};
+use libpetri_core::timing::window;
 use libpetri_core::transition::Transition;
 use libpetri_verification::environment::EnvironmentAnalysisMode;
 use libpetri_verification::marking_state::{MarkingState, MarkingStateBuilder};
@@ -467,6 +468,42 @@ pub fn build(name: &str) -> FixtureNet {
                     .tokens("source", 3)
                     .tokens("budget", 2)
                     .build(),
+            )
+        }
+        // p0(1) -> t -> p1, t at window(3, 5): a late executor reaps t and rests at
+        // {p0} ([TIME-013], Lean `ReapingVsUntimed.reaping_refutes_ver004_ac3`).
+        "reapingWindow" => {
+            let p0 = Place::<i32>::new("p0");
+            let p1 = Place::<i32>::new("p1");
+            let t = Transition::builder("t")
+                .input(one(&p0))
+                .output(out_place(&p1))
+                .timing(window(3, 5))
+                .action(fork())
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("reapingWindow").transitions([t]).build(),
+                MarkingStateBuilder::new().tokens("p0", 1).build(),
+            )
+        }
+        // reapingWindow plus an immediate u: one(p0) -> p1 that shadows t.
+        "reapingShadowed" => {
+            let p0 = Place::<i32>::new("p0");
+            let p1 = Place::<i32>::new("p1");
+            let t = Transition::builder("t")
+                .input(one(&p0))
+                .output(out_place(&p1))
+                .timing(window(3, 5))
+                .action(fork())
+                .build();
+            let u = Transition::builder("u")
+                .input(one(&p0))
+                .output(out_place(&p1))
+                .action(fork())
+                .build();
+            FixtureNet::closed(
+                PetriNet::builder("reapingShadowed").transitions([t, u]).build(),
+                MarkingStateBuilder::new().tokens("p0", 1).build(),
             )
         }
         other => panic!(

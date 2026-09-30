@@ -17,8 +17,11 @@
 //!
 //! A [`PetriNet`] has no stable identity to key on — it is `Clone` without `Eq`,
 //! and the Python binding deep-clones it on every call — so an entry is keyed on a
-//! **structural fingerprint** of the net as the caller passed it, plus the initial
-//! marking. The fingerprint is the `Debug` rendering of everything the graph reads:
+//! **structural fingerprint** of the net every route reads, plus the initial
+//! marking. That net is the caller's, closed under [VER-006] `Arrivals(k)`, with its
+//! inert places, and split in flight ([VER-004]) unless `assume_atomic_firing` kept
+//! it atomic. The split changes the graph, so a key taken before it would let a graph
+//! of the atomic net answer a query on the split one. The fingerprint is the `Debug` rendering of everything the graph reads:
 //! the set of places (sorted by name: a net's listing of its places depends on
 //! `HashSet` order, so two builds of one net may list them differently, and the
 //! graph never reads that order), the terminal places, and per transition, in net
@@ -34,7 +37,7 @@
 //! net, whose transitions keep their ids anyway, always hits.
 //!
 //! The terminal rewrite of [EXEC-042] is a deterministic function of the net, so the
-//! key is the caller's net while the graph is built from the rewritten one.
+//! key is the net before it while the graph is built from the rewritten one.
 //!
 //! The marking is keyed by its counts in code-point order of place names, so the
 //! same marking listed in another order hits. The one place a marking's listing

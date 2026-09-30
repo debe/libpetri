@@ -87,6 +87,11 @@ fn verifier_for<'a>(fixture: &Json, built: &'a nets::FixtureNet) -> SmtVerifier<
     if !budgets.is_empty() {
         verifier = verifier.budget_places(budgets.iter().cloned());
     }
+    // Optional shared-schema field: declared mint transitions ([NU-010]).
+    let mints = fixture.str_arr_opt("mintTransitions");
+    if !mints.is_empty() {
+        verifier = verifier.mint_transitions(mints.iter().cloned());
+    }
     // Optional shared-schema field: [VER-007]'s semiflow union.
     verifier = verifier.semiflow_invariants(fixture.bool_opt("semiflowInvariants"));
     // Optional shared-schema field: [VER-014]'s conditional sinks, declared in the
@@ -96,6 +101,8 @@ fn verifier_for<'a>(fixture: &Json, built: &'a nets::FixtureNet) -> SmtVerifier<
     }
     // Optional shared-schema field: [VER-016]'s firing-counter state equation.
     verifier = verifier.state_equation(fixture.bool_opt("stateEquation"));
+    // Optional shared-schema field: [TIME-013]'s strict reading of quiescence.
+    verifier = verifier.assume_no_reaping(fixture.bool_opt("assumeNoReaping"));
     // Optional fields of the [NU-054] relay fixtures: [NU-051]'s carrier places and
     // fragment mode. Absent everywhere else, where the defaults stand.
     let carriers = fixture.str_arr_opt("carrierPlaces");

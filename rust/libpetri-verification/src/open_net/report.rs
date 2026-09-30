@@ -23,12 +23,16 @@ pub(super) struct ReportInput<'a> {
     /// Why the graph was not built, when [`ReportInput::graph`] is `None`.
     pub graph_skipped: Option<&'a str>,
     pub smt_lines: Option<&'a [String]>,
+    /// How quiescence reads reaping ([TIME-013]), for a closed net with a reapable
+    /// transition.
+    pub reaping: Option<&'a str>,
     pub verdict: &'a Verdict,
     pub violations: &'a [ContractViolation],
 }
 
 pub(super) fn render_report(input: &ReportInput<'_>) -> String {
-    let ReportInput { net, closed, contract, graph, graph_skipped, smt_lines, verdict, violations, .. } = input;
+    let ReportInput { net, closed, contract, graph, graph_skipped, smt_lines, reaping, verdict, violations, .. } =
+        input;
     let mut lines: Vec<String> =
         vec!["=== OPEN-NET CONTRACT VERIFICATION (VER-022) ===".to_string(), String::new()];
     lines.push(format!(
@@ -44,6 +48,9 @@ pub(super) fn render_report(input: &ReportInput<'_>) -> String {
             "Not declared by the net: {} (no arc touches them; a clause there counts zero)",
             closed.undeclared.join(", ")
         ));
+    }
+    if let Some(reaping) = reaping {
+        lines.push(reaping.to_string());
     }
     lines.push(String::new());
 

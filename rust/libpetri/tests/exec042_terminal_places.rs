@@ -739,9 +739,18 @@ mod verification {
         // Places declared up front so both nets share one place order.
         let mut nb = PetriNet::builder("terminalForkInFlight")
             .places([(&start).into(), (&a).into(), (&b).into(), (&done).into(), (&result).into()])
-            .transition(t("fork").input(one(&start)).output(and(vec![out_place(&a), out_place(&b)])).build())
-            .transition(t("finish").input(one(&a)).output(out_place(&done)).build())
-            .transition(t("work").input(one(&b)).output(out_place(&result)).build());
+            .transition(t("fork").input(one(&start)).output(and(vec![out_place(&a), out_place(&b)])).build());
+        // `done` inhibits every transition, so `finish`, which marks it, is verified in two
+        // steps ([VER-004]): its start, and `complete:finish`, which the terminal also
+        // inhibits (an abandoned action deposits nothing). The explicit form writes both.
+        nb = if explicit {
+            let in_flight = Place::<i32>::new("inflight:finish");
+            nb.transition(t("finish").input(one(&a)).output(out_place(&in_flight)).build())
+                .transition(t("complete:finish").input(one(&in_flight)).output(out_place(&done)).build())
+        } else {
+            nb.transition(t("finish").input(one(&a)).output(out_place(&done)).build())
+        };
+        nb = nb.transition(t("work").input(one(&b)).output(out_place(&result)).build());
         if terminal {
             nb = nb.terminal(&done);
         }
@@ -790,7 +799,8 @@ mod verification {
 
         // Exactness: the declared net scripts byte-identically to the same
         // encoding written out by the caller.
-        let all: Vec<String> = ["start", "a", "b", "done", "result"].iter().map(|s| s.to_string()).collect();
+        let all: Vec<String> =
+            ["start", "a", "b", "done", "result", "inflight:finish"].iter().map(|s| s.to_string()).collect();
         let explicit_net = fork_net(false, true);
         let explicit = verifier(&explicit_net)
             .sink_places(["done".to_string()])

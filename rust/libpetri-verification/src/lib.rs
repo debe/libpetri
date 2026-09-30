@@ -43,7 +43,7 @@
 //! ([`SmtProperty`](property::SmtProperty)):
 //!
 //! - **DeadlockFree** — no reachable deadlock state
-//! - **MutualExclusion** — at most one token across given places
+//! - **MutualExclusion** — no two of the given places marked at once (pairwise)
 //! - **PlaceBound** — upper bound on tokens in a place
 //! - **Unreachable** — given places cannot all be simultaneously marked
 //!
@@ -101,6 +101,7 @@
 
 pub mod abstract_replay;
 pub mod analyzer;
+pub mod branch_outcomes;
 pub mod cancel;
 #[cfg(feature = "z3")]
 pub mod certificate_check;
@@ -109,6 +110,7 @@ pub mod dbm;
 pub mod environment;
 pub mod graph_decision;
 pub mod harness;
+pub mod in_flight;
 pub mod incidence_matrix;
 pub mod marking_state;
 #[cfg(feature = "z3")]
@@ -122,6 +124,7 @@ pub mod nu_scg_verifier;
 pub mod p_invariant;
 pub mod priority_semantics;
 pub mod property;
+pub mod reaping;
 pub mod rest_set;
 pub mod result;
 pub mod scc;

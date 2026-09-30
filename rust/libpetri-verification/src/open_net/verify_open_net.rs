@@ -6,15 +6,19 @@
 //! When it does not, a violation found among the explored classes is still real, and the
 //! rest of the contract goes to the SMT pipeline, through the properties it already has.
 
+use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::time::Instant;
 
 use libpetri_core::petri_net::PetriNet;
 
 use crate::cancel::CancelToken;
+use crate::reaping;
 use crate::result::Verdict;
 use crate::total_budget;
 use crate::smt_verifier::SmtVerifier;
+use crate::in_flight::{self, InFlight};
+use crate::name_fragment;
 use crate::terminal_places::inhibit_on_terminals;
 
 use super::closure::close_open_net;
@@ -29,6 +33,16 @@ use super::smt_route::{SubjectCertificate, decide_via_smt};
 pub type SmtConfigurator = Box<dyn for<'a> Fn(SmtVerifier<'a>) -> SmtVerifier<'a> + Send + Sync>;
 
 /// Options for [`verify_open_net`].
+///
+/// `#[non_exhaustive]`, as `ExecutorOptions` is: this struct gains options, and each one
+/// would break a struct literal. Start from [`Default`] and the `with_*` setters:
+///
+/// ```ignore
+/// OpenNetOptions::default()
+///     .with_max_classes(0)
+///     .with_configure_smt(Box::new(|v| v.timeout(120_000)))
+/// ```
+#[non_exhaustive]
 pub struct OpenNetOptions {
     /// Class budget for the state-class graph (default 50 000, as for [VER-017]). `0` skips
     /// the graph.
@@ -46,6 +60,19 @@ pub struct OpenNetOptions {
     /// undecided by it reports `verification cancelled during <phase>`, and the verdict is
     /// `Unknown`.
     pub cancel: Option<CancelToken>,
+    /// Reads quiescence strictly, as if no `deadline` / `window` transition were ever
+    /// reaped ([TIME-013]; default `false`). By default a marking where every enabled
+    /// transition is reapable counts as quiescent on both routes, as
+    /// [`SmtVerifier::assume_no_reaping`] describes; with `true` the report of a net with
+    /// such a transition says the verdict assumes none is reaped.
+    pub assume_no_reaping: bool,
+    /// Reads every firing as one atomic step ([VER-004]; default `false`). By default a
+    /// transition whose output some transition tests with an inhibitor, reset or drain, or
+    /// that marks a terminal place ([EXEC-042], which inhibits every transition), is
+    /// verified as a start and a completion step on both routes, as
+    /// [`SmtVerifier::assume_atomic_firing`] describes; with `true` the report of a net
+    /// with such a transition says the verdict assumes atomic firings.
+    pub assume_atomic_firing: bool,
 }
 
 impl Default for OpenNetOptions {
@@ -56,7 +83,55 @@ impl Default for OpenNetOptions {
             configure_smt: None,
             termination_timeout_ms: 60_000,
             cancel: None,
+            assume_no_reaping: false,
+            assume_atomic_firing: false,
         }
+    }
+}
+
+impl OpenNetOptions {
+    /// Sets the class budget for the state-class graph; `0` skips the graph.
+    pub fn with_max_classes(mut self, max_classes: usize) -> Self {
+        self.max_classes = max_classes;
+        self
+    }
+
+    /// Sets whether to ask the SMT pipeline when the graph does not close.
+    pub fn with_smt(mut self, smt: bool) -> Self {
+        self.smt = smt;
+        self
+    }
+
+    /// Configures each `SmtVerifier` the SMT route builds. Carrier places and mint
+    /// transitions declared here also reach the in-flight split and the mint check that
+    /// run before either route ([VER-004], [NU-010]).
+    pub fn with_configure_smt(mut self, configure: SmtConfigurator) -> Self {
+        self.configure_smt = Some(configure);
+        self
+    }
+
+    /// Sets the time for the firing-bound query that decides termination on the SMT route.
+    pub fn with_termination_timeout_ms(mut self, ms: u64) -> Self {
+        self.termination_timeout_ms = ms;
+        self
+    }
+
+    /// Cancels the verification from outside it ([VER-013]).
+    pub fn with_cancel(mut self, token: &CancelToken) -> Self {
+        self.cancel = Some(token.clone());
+        self
+    }
+
+    /// Reads quiescence strictly, as if no transition were ever reaped ([TIME-013]).
+    pub fn with_assume_no_reaping(mut self, assume: bool) -> Self {
+        self.assume_no_reaping = assume;
+        self
+    }
+
+    /// Reads every firing as one atomic step ([VER-004]).
+    pub fn with_assume_atomic_firing(mut self, assume: bool) -> Self {
+        self.assume_atomic_firing = assume;
+        self
     }
 }
 
@@ -68,6 +143,8 @@ impl fmt::Debug for OpenNetOptions {
             .field("configure_smt", &self.configure_smt.as_ref().map(|_| ".."))
             .field("termination_timeout_ms", &self.termination_timeout_ms)
             .field("cancel", &self.cancel)
+            .field("assume_no_reaping", &self.assume_no_reaping)
+            .field("assume_atomic_firing", &self.assume_atomic_firing)
             .finish()
     }
 }
@@ -81,6 +158,10 @@ const METHOD_SMT: &str = "open-net contract by the SMT pipeline (VER-022)";
 const GRAPH_SKIPPED_MATCH: &str = "the closed net declares match (ν-join) transitions, which the graph does not model";
 /// Why the graph was not built when the class budget is zero.
 const GRAPH_SKIPPED_BUDGET: &str = "class budget 0";
+/// Why the graph was not built on a net whose in-flight actions the split cannot express.
+const GRAPH_SKIPPED_IN_FLIGHT: &str = "the closed net has in-flight actions the verifier cannot split (VER-004)";
+/// Why the graph was not built when a declared mint transition is not in the net.
+const GRAPH_SKIPPED_MINT: &str = "a declared mint transition is not in the net (NU-010)";
 /// The phase a cancellation of the graph build is reported in ([VER-013]).
 const PHASE_GRAPH: &str = "open-net state-class graph";
 
@@ -104,10 +185,67 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     let merged = contract.with_net_terminals(net);
     let contract = merged.as_ref().unwrap_or(contract);
     let mut closed = close_open_net(net, contract);
+    // [NU-051] / [NU-010]: the carrier places and mint transitions a `configure_smt` hook
+    // declares. The split below refuses a writer into a carrier as the SMT route's own
+    // would, and a declared mint that is not in the net is rejected before either route
+    // runs, as `SmtVerifier::verify` rejects it.
+    let (carriers, unknown_mint) = match options.configure_smt.as_ref() {
+        Some(configure) => {
+            let probe = configure(SmtVerifier::for_net(&closed.net));
+            let carriers = probe.configured_carrier_places().clone();
+            (carriers, name_fragment::unknown_mint_reason(&closed.net, probe.configured_mint_transitions()))
+        }
+        None => (HashSet::new(), None),
+    };
+    // [VER-004]: a transition whose output another tests non-monotonically is verified as a
+    // start and a completion step, environment transitions included. Before the terminal
+    // rewrite, so a terminal counts as a test and inhibits the completion steps too.
+    let mut in_flight_refusal: Option<String> = None;
+    let mut in_flight_places: Vec<String> = Vec::new();
+    let environment: HashSet<String> = closed.environment.iter().map(|(name, _)| name.clone()).collect();
+    let in_flight_line = if options.assume_atomic_firing {
+        let split = in_flight::in_flight_transitions(&closed.net, &environment);
+        (!split.is_empty()).then(|| in_flight::atomic_assumption_note(&split))
+    } else {
+        match in_flight::split_in_flight(&closed.net, &carriers, &environment) {
+            InFlight::Atomic => None,
+            InFlight::Split { net: split_net, split } => {
+                closed.net = split_net;
+                in_flight_places = split.iter().map(|t| in_flight::in_flight_place(t)).collect();
+                Some(format!("{}{}", in_flight::split_note(&split), in_flight::FLUSH_NOTE))
+            }
+            InFlight::Refused { reason } => {
+                in_flight_refusal = Some(reason);
+                None
+            }
+        }
+    };
+    // A terminal stop abandons an action in flight, leaving its in-flight place marked: each
+    // net terminal excuses those places too, as it excuses every place of the net.
+    let markers: Vec<String> = net.terminals().iter().map(|p| p.name().to_string()).collect();
+    let excusing = contract.with_excused(&markers, &in_flight_places);
+    let contract = excusing.as_ref().unwrap_or(contract);
     if let Some(inhibited) = inhibit_on_terminals(&closed.net) {
         closed.net = inhibited;
     }
     let max_classes = options.max_classes;
+    // [TIME-013]: the closed net's reapable transitions, named before the SMT route strips
+    // its timing; none are read so under `assume_no_reaping`.
+    let reapable_in_net = reaping::reapable_transitions(&closed.net);
+    let reapable = if options.assume_no_reaping { BTreeSet::new() } else { reapable_in_net.clone() };
+    let reaping_line = (!reapable_in_net.is_empty()).then(|| {
+        let note = if options.assume_no_reaping {
+            reaping::no_reaping_assumption_note(&reapable_in_net)
+        } else {
+            reaping::reap_aware_note(&reapable_in_net)
+        };
+        note.trim_end().to_string()
+    });
+    let notes: Vec<String> = [reaping_line, in_flight_line.map(|l| l.trim_end().to_string())]
+        .into_iter()
+        .flatten()
+        .collect();
+    let reaping_line = (!notes.is_empty()).then(|| notes.join("\n"));
     // Every place a port trace may mention: the contract's own, plus the closure's. [VER-022]
     // reserves "port" for a place the environment shares with the subnet, which is narrower.
     let traced_places = contract.places();
@@ -115,7 +253,11 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     // contract it errs both ways (it reaches the join's output and misses the inputs a
     // non-matching join strands) and neither verdict could stand. As [VER-017] condition 1;
     // the SMT pipeline has exact ν routes.
-    let graph_skipped: Option<&'static str> = if closed.net.transitions().iter().any(|t| t.match_spec().is_some()) {
+    let graph_skipped: Option<&'static str> = if unknown_mint.is_some() {
+        Some(GRAPH_SKIPPED_MINT)
+    } else if in_flight_refusal.is_some() {
+        Some(GRAPH_SKIPPED_IN_FLIGHT)
+    } else if closed.net.transitions().iter().any(|t| t.match_spec().is_some()) {
         Some(GRAPH_SKIPPED_MATCH)
     } else if max_classes > 0 {
         None
@@ -133,7 +275,7 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
         None
     } else {
         let _stop = total_budget::enter(None, options.cancel.clone());
-        let g = decide_on_graph(&closed, contract, max_classes, &traced_places);
+        let g = decide_on_graph(&closed, contract, max_classes, &traced_places, &reapable);
         graph_cancelled = g.stopped;
         (!g.stopped).then_some(g)
     };
@@ -142,6 +284,20 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
                   route: OpenNetRoute,
                   violations: Vec<ContractViolation>,
                   smt_lines: Option<&[String]>| {
+        // [CONC-002]: a witness that starts a transition while an earlier firing of it is
+        // in flight is a run of the Rust executor only.
+        let restarts: Vec<String> = violations
+            .iter()
+            .filter_map(|v| in_flight::restart_note(&v.markings, &v.transitions))
+            .map(|note| note.trim_end().to_string())
+            .fold(Vec::new(), |mut seen, note| {
+                if !seen.contains(&note) {
+                    seen.push(note);
+                }
+                seen
+            });
+        let notes: Vec<&str> = reaping_line.iter().map(String::as_str).chain(restarts.iter().map(String::as_str)).collect();
+        let notes = (!notes.is_empty()).then(|| notes.join("\n"));
         let report = render_report(&ReportInput {
             net,
             closed: &closed,
@@ -150,6 +306,7 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
             graph: graph.as_ref(),
             graph_skipped,
             smt_lines,
+            reaping: notes.as_deref(),
             verdict: &verdict,
             violations: &violations,
         });
@@ -166,6 +323,12 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
         }
     };
 
+    if let Some(reason) = unknown_mint {
+        return result(Verdict::Unknown { reason }, OpenNetRoute::Enumeration, Vec::new(), None);
+    }
+    if let Some(reason) = in_flight_refusal {
+        return result(Verdict::Unknown { reason }, OpenNetRoute::Enumeration, Vec::new(), None);
+    }
     if graph_cancelled {
         let verdict = Verdict::Unknown { reason: total_budget::cancelled_reason(PHASE_GRAPH) };
         return result(verdict, OpenNetRoute::Enumeration, Vec::new(), None);
@@ -197,6 +360,8 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
         options.configure_smt.as_ref(),
         options.termination_timeout_ms,
         cancel,
+        &reapable,
+        options.assume_atomic_firing,
     );
     if !smt.violations.is_empty() {
         return result(Verdict::Violated, OpenNetRoute::Smt, smt.violations, Some(&smt.lines));

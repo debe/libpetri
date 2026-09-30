@@ -366,11 +366,12 @@ mod options {
 
     /// PNID Fig. 13(b) as a subnet (`research/net-metrics/validation/pnid/`):
     /// `a: R → P1, OR` mints a case, `b: P1 → B1, B2` relays it, and the joins
-    /// `c: B1, OR → R` / `d: B2, OR → R` refund the input port `R`. In BASE the
-    /// relay `b` reads as a fresh mint, so the joins never fire, `R` is never
-    /// refunded, at most two cases run and `B2` stays within 2: a false `Proven`.
-    /// With carrier `P1` in EXTENDED the joins refund `R`, every case strands a
-    /// `B2` token, and `B2` passes 2.
+    /// `c: B1, OR → R` / `d: B2, OR → R` refund the input port `R`. Read as a
+    /// fresh mint, the relay `b` would keep the joins from firing, `R` would never
+    /// be refunded and `B2` would stay within 2: a false `Proven`. `b` is not a
+    /// declared mint ([NU-010]), so BASE does not read it so. With carrier `P1` in
+    /// EXTENDED the joins refund `R`, every case strands a `B2` token, and `B2`
+    /// passes 2.
     fn fig13b() -> SubnetDef<()> {
         let p = |n: &str| Place::<String>::new(n);
         let (r, p1, or, b1, b2) = (p("R"), p("P1"), p("OR"), p("B1"), p("B2"));
@@ -415,17 +416,24 @@ mod options {
 
     /// AC7: without the ν options a ν subnet is verified in BASE, a different
     /// model; the options set through the hook reach the verifier and change it.
+    /// BASE used to read the relay `b` as a fresh mint and prove the bound
+    /// falsely. `b` is not a declared mint ([NU-010]), so BASE now keeps the net
+    /// off the ν routes and the bound is not proven.
     #[test]
     fn nu_options_reach_the_per_property_verifier() {
-        let base = fig13b().verify_with_options(nu_harness(), arrivals(2));
+        let base = fig13b().verify_with_options(
+            nu_harness(),
+            arrivals(2).with_configure(|v, _| v.mint_transition("sut/a")),
+        );
         let r = only(&base);
-        assert!(r.is_proven(), "BASE reads the relay as a fresh mint\n{}", r.report);
+        assert!(!r.is_proven(), "BASE must not read the relay as a fresh mint\n{}", r.report);
 
         let extended = fig13b().verify_with_options(
             nu_harness(),
             arrivals(2).with_configure(|v, _| {
                 v.fragment_mode(FragmentMode::Extended)
                     .carrier_places(["sut/P1".to_string()])
+                    .mint_transition("sut/a")
                     .nu_max_classes(2_000)
             }),
         );

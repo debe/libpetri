@@ -25,10 +25,16 @@ const SIPHON_SEARCH_BUDGET: usize = 10_000;
 /// since a trap inside a minimal siphon lies inside every siphon containing it.
 /// So `NoPotentialDeadlock` needs two things: the search found **every**
 /// minimal siphon, and each one's maximal trap holds a token in `initial`.
-/// Answers `Inconclusive` for nets with more than 50 places, or when the siphon
-/// search exceeds its 10 000-node budget.
+/// Answers `Inconclusive` for nets with more than 50 places, for nets with no
+/// transition, or when the siphon search exceeds its 10 000-node budget.
+///
+/// Commoner's theorem needs at least one transition. With none, every marking is
+/// dead, yet every marked place is a siphon holding a marked trap (itself), so the
+/// condition holds vacuously: `{a:1}` on a net with no transition would come back
+/// `NoPotentialDeadlock`, and `verify_net` would return `Proven` for a net that is
+/// quiescent from the start with a stranded token.
 pub fn structural_check(flat: &FlatNet, initial: &MarkingState) -> StructuralCheckResult {
-    if flat.place_count > 50 {
+    if flat.place_count > 50 || flat.transitions.is_empty() {
         return StructuralCheckResult::Inconclusive;
     }
 
@@ -365,5 +371,17 @@ mod tests {
     fn an_exhausted_search_is_inconclusive() {
         let flat = flatten(&ring(true));
         assert!(find_minimal_siphons(&flat, 1).is_none());
+    }
+
+    /// A net with no transition is dead at every marking, but its marked place is a
+    /// siphon whose maximal trap (itself) is marked. Commoner's theorem does not
+    /// cover it, so the check must not answer `NoPotentialDeadlock`.
+    #[test]
+    fn a_net_without_transitions_is_not_proven() {
+        let a = Place::<i32>::new("a");
+        let flat = flatten(&PetriNet::builder("empty").place(a.as_ref()).build());
+        assert_eq!(flat.place_count, 1);
+        let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
+        assert_eq!(structural_check(&flat, &m0), StructuralCheckResult::Inconclusive);
     }
 }

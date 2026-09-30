@@ -17,7 +17,13 @@ pub enum SmtProperty {
     /// least one sink declared; with none, every quiescent marking violates
     /// vacuously.
     TerminatesAtSink,
-    /// At most one token across the given places in any reachable state.
+    /// No two of the listed places are marked at once, in any reachable state
+    /// ([VER-002]): violated iff some two entries of the list, at different
+    /// positions, both hold a token. Two places is the spec's
+    /// `MutualExclusion(p1, p2)`; a longer list is the pairwise conjunction of
+    /// those, the same on every route. A place listed twice pairs with itself, so
+    /// any token there violates, as `MutualExclusion(p, p)` does; a list of fewer
+    /// than two entries is never violated.
     MutualExclusion { places: Vec<String> },
     /// A place has at most `bound` tokens in any reachable state.
     PlaceBound { place: String, bound: usize },
@@ -67,8 +73,26 @@ impl SmtProperty {
         Self::TerminatesAtSink
     }
 
+    /// Pairwise mutual exclusion over `places` ([VER-002]). See
+    /// [`SmtProperty::MutualExclusion`].
     pub fn mutual_exclusion(places: Vec<String>) -> Self {
         Self::MutualExclusion { places }
+    }
+
+    /// The parts a linear route proves one by one: a [`SmtProperty::MutualExclusion`]
+    /// over three or more entries is violated iff one of its pairs is, so it splits
+    /// into one two-place property per pair (positions `i < j`, in list order); every
+    /// other property is its own single part. A linear demand ([VER-015]) is a
+    /// conjunction, and the pairwise property is a disjunction of them.
+    pub fn linear_parts(&self) -> Vec<SmtProperty> {
+        match self {
+            Self::MutualExclusion { places } if places.len() > 2 => mutex_pairs(places.len())
+                .map(|(i, j)| Self::MutualExclusion {
+                    places: vec![places[i].clone(), places[j].clone()],
+                })
+                .collect(),
+            other => vec![other.clone()],
+        }
     }
 
     pub fn place_bound(place: impl Into<String>, bound: usize) -> Self {
@@ -180,6 +204,19 @@ impl SmtProperty {
             }
         }
     }
+}
+
+/// The position pairs `(i, j)`, `i < j < n`, in lexicographic order: the pairs of a
+/// [`SmtProperty::MutualExclusion`] list, one of which must be marked on both sides for
+/// a violation ([VER-002]). Empty for `n < 2`.
+pub(crate) fn mutex_pairs(n: usize) -> impl Iterator<Item = (usize, usize)> {
+    (0..n).flat_map(move |i| (i + 1..n).map(move |j| (i, j)))
+}
+
+/// Whether some pair of `marked` (one flag per listed entry) is marked on both sides:
+/// the pairwise [`SmtProperty::MutualExclusion`] violation, as every route reads it.
+pub(crate) fn two_marked(marked: impl IntoIterator<Item = bool>) -> bool {
+    marked.into_iter().filter(|&m| m).nth(1).is_some()
 }
 
 /// `exactly 1`, `at most 1`, `at least 2`, `between 1 and 3`, `any number`: a count's

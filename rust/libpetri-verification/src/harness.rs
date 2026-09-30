@@ -199,11 +199,11 @@ pub type SubnetConfigurator =
 ///
 /// **ν subnets need the ν options.** A subnet that mints and joins correlation
 /// names and threads a name through a relay is verified in the BASE fragment
-/// unless the caller says otherwise ([NU-051]). BASE reads such a relay as a
-/// fresh mint — a different model, in which a join the real net reaches may
-/// never fire, so a safety property can come back `Proven` although the net
-/// violates it. Declare the carrier places and select
-/// `FragmentMode::Extended` through `configure`.
+/// unless the caller says otherwise ([NU-051]). The ν routes read a transition
+/// as a mint only when it is declared ([NU-010]: a mint transition, or one
+/// consuming a budget place), so an undeclared relay keeps the net off them and
+/// the verdict comes from the name-blind over-approximation. Declare the mints,
+/// the carrier places and `FragmentMode::Extended` through `configure`.
 pub struct SubnetVerifyOptions {
     /// How injection into the synthetic environment places is modelled
     /// ([VER-006]); default [`EnvironmentAnalysisMode::AlwaysAvailable`]. See

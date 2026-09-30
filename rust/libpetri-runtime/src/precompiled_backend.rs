@@ -1042,11 +1042,14 @@ impl<'a> ExecutorBackend for PrecompiledBackend<'a> {
                     let elapsed = now_ms - self.enabled_at_ms[tid];
                     let latest_ms = self.program.latest_ms[tid];
 
+                    // TIME-013: a reaped transition stays disabled until a token on one of
+                    // its input places changes, which marks it dirty; it is not marked
+                    // dirty here, or the next pass would re-enable it on a fresh clock
+                    // (the bitmap backend's `enforce_deadlines` is the model).
                     if elapsed > latest_ms + self.deadline_tolerance_ms {
                         self.clear_enabled_bit(tid);
                         self.enabled_transition_count -= 1;
                         self.enabled_at_ms[tid] = f64::NEG_INFINITY;
-                        self.mark_transition_dirty(tid);
                         out.push(tid);
                     }
                 }

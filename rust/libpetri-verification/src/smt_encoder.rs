@@ -428,7 +428,7 @@ pub(crate) fn invariant_conditions(invariants: &[PInvariant], mp_vars: &[String]
     conditions
 }
 
-/// Environment post-cap conjuncts on the next marking (legacy Bounded mode).
+/// Environment post-cap conjuncts on the next marking (Bounded mode; exact only within the [VER-006] AC3 premises, which `SmtVerifier` checks).
 fn env_bound_conditions(
     flat: &FlatNet,
     env_bounds: &[(String, usize)],
@@ -697,18 +697,18 @@ pub(crate) fn encode_property_violation(
             }
             join_conditions(conditions)
         }
+        // MutualExclusion ([VER-002]), pairwise: some two entries of the list marked at
+        // once. Two entries are the one conjunction `(and a b)` — the script every
+        // implementation emits for `MutualExclusion(p1, p2)` — and a longer list is
+        // the disjunction of its pairs'. A name without an index is never marked, so it
+        // is in no pair; fewer than two entries can never be violated.
         SmtProperty::MutualExclusion { places } => {
-            // Violation: all specified places simultaneously have tokens
-            let conditions: Vec<String> = places
+            let marked: Vec<String> = places
                 .iter()
                 .filter_map(|name| flat.place_index.get(name))
                 .map(|&pid| format!("(>= {} 1)", m_vars[pid]))
                 .collect();
-            if conditions.is_empty() {
-                "false".to_string()
-            } else {
-                format!("(and {})", conditions.join(" "))
-            }
+            pairwise_marked(&marked)
         }
         // BranchPlaceBound is the ν-net budget lever (NU-040): a count bound,
         // encoded identically to PlaceBound. Sound under the matched-transition
@@ -837,6 +837,23 @@ pub(crate) fn index_ordered(flat: &FlatNet, names: &[String]) -> Vec<usize> {
     idx
 }
 
+/// The pairwise [`SmtProperty::MutualExclusion`] violation over one "marked" term per
+/// listed entry ([VER-002]): `false` below two entries, `(and a b)` for two, and the
+/// disjunction of every pair's conjunction (positions `i < j`, lexicographic) beyond.
+/// Shared by the flat and the name-coloured encoders.
+pub(crate) fn pairwise_marked(marked: &[String]) -> String {
+    match marked {
+        [] | [_] => "false".to_string(),
+        [a, b] => format!("(and {a} {b})"),
+        _ => {
+            let pairs: Vec<String> = crate::property::mutex_pairs(marked.len())
+                .map(|(i, j)| format!("(and {} {})", marked[i], marked[j]))
+                .collect();
+            format!("(or {})", pairs.join(" "))
+        }
+    }
+}
+
 /// Joins violation conjuncts into the final `Bad(M)` term. An empty conjunction
 /// is vacuously true — a net with no transitions is quiescent everywhere.
 fn join_conditions(conditions: Vec<String>) -> String {
@@ -847,8 +864,27 @@ fn join_conditions(conditions: Vec<String>) -> String {
     }
 }
 
-#[allow(clippy::needless_range_loop)]
-/// Encodes quiescence: every transition is disabled.
+/// Whether NO marking of this net can be quiescent, because some transition is
+/// enabled in every marking — an environment-gated one whose input injection can
+/// always satisfy it ([VER-006]).
+///
+/// Every quiescence property is then unviolatable and comes back `Proven` for a
+/// reason that has nothing to do with the net's own behaviour: an open net with an
+/// always-available source never comes to rest, so "no reachable quiescent marking
+/// strands a token" is vacuously true. The verdict is correct and says nothing, and
+/// a caller reading it as "this workflow completes properly" is misreading it, so
+/// the verifier says so in the report.
+pub fn quiescence_unreachable(flat: &FlatNet, env_inject: &[(usize, Option<usize>)]) -> bool {
+    let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
+    encode_quiescent(flat, &m_vars, env_inject).is_none()
+}
+
+/// Encodes quiescence: every transition that is not reapable is disabled.
+///
+/// Reap-quiescence ([VER-002], [TIME-013]): a `deadline` / `window` transition a late
+/// executor reaps stays enabled while the run rests, so a flat transition marked
+/// [`reapable`](crate::net_flattener::FlatTransition::reapable) contributes no clause.
+/// On a net without one this is plain quiescence, every transition disabled.
 ///
 /// Shared core of the three quiescence-sensitive properties ([VER-002]
 /// DeadlockFree and TerminatesAtSink, [NU-040] JoinedOrDeadLettered). Each
@@ -866,21 +902,7 @@ fn join_conditions(conditions: Vec<String>) -> String {
 /// state class graph's always-available enablement so a reactive net merely
 /// waiting for input is not reported as quiescent; only a genuinely stuck
 /// marking is.
-/// Whether NO marking of this net can be quiescent, because some transition is
-/// enabled in every marking — an environment-gated one whose input injection can
-/// always satisfy it ([VER-006]).
-///
-/// Every quiescence property is then unviolatable and comes back `Proven` for a
-/// reason that has nothing to do with the net's own behaviour: an open net with an
-/// always-available source never comes to rest, so "no reachable quiescent marking
-/// strands a token" is vacuously true. The verdict is correct and says nothing, and
-/// a caller reading it as "this workflow completes properly" is misreading it, so
-/// the verifier says so in the report.
-pub fn quiescence_unreachable(flat: &FlatNet, env_inject: &[(usize, Option<usize>)]) -> bool {
-    let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
-    encode_quiescent(flat, &m_vars, env_inject).is_none()
-}
-
+#[allow(clippy::needless_range_loop)]
 fn encode_quiescent(
     flat: &FlatNet,
     m_vars: &[String],
@@ -894,6 +916,11 @@ fn encode_quiescent(
     let mut disabled_conditions = Vec::new();
 
     for ft in &flat.transitions {
+        // A reapable transition need not be disabled: a late executor reaps it and
+        // rests with it enabled ([VER-002] reap-quiescence, [TIME-013]).
+        if ft.reapable {
+            continue;
+        }
         // A transition is disabled if any pre-condition is not met,
         // or any inhibitor arc is active, or any read arc is not met.
         let mut disable_reasons = Vec::new();

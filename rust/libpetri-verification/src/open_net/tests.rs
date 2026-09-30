@@ -310,7 +310,7 @@ fn graph_reports_a_run_that_never_comes_to_rest_as_a_lasso() {
     let start = v.cycle_start.expect("a lasso marks where its cycle starts");
     assert_eq!(v.transitions[start..].to_vec(), vec!["X/spin"]);
     assert_eq!(v.markings[start], *v.markings.last().unwrap());
-    assert!(r.report.contains("Firing sequence: env:arrive[0]:X/in, X/start, then repeating X/spin"));
+    assert!(r.report.contains("Firing sequence: env:arrive[0]:X/in, X/start, then repeating X/spin"), "{}", r.report);
 }
 
 #[test]
@@ -935,6 +935,17 @@ fn two_mints() -> PetriNet {
         .build()
 }
 
+/// `two_mints` declares both mints ([NU-010]): `fork()` copies its input, so without the
+/// declaration no ν route reads `MINT_A` and `MINT_B` as minting.
+fn two_mints_options() -> OpenNetOptions {
+    OpenNetOptions {
+        configure_smt: Some(Box::new(|v| {
+            v.mint_transitions(["MINT_A".to_string(), "MINT_B".to_string()])
+        })),
+        ..Default::default()
+    }
+}
+
 fn two_mints_contract() -> OpenNetContract {
     OpenNetContract::builder()
         .initial_tokens("SEED_A", 1)
@@ -948,7 +959,7 @@ fn a_nu_net_is_not_proven_by_the_name_blind_graph() {
     if skip_without_z3("a_nu_net_is_not_proven_by_the_name_blind_graph") {
         return;
     }
-    let r = verify_open_net(&two_mints(), &two_mints_contract(), &OpenNetOptions::default());
+    let r = verify_open_net(&two_mints(), &two_mints_contract(), &two_mints_options());
     assert!(matches!(r.verdict, Verdict::Violated), "{}", r.report);
     assert_eq!(r.route, OpenNetRoute::Smt);
     assert_eq!(r.class_count, 0);
@@ -996,7 +1007,7 @@ fn a_nu_net_gets_the_untimed_verdict_a_deadline_that_keeps_slow_from_firing_does
         .arrive(1, ["in"])
         .rest(["done", "COL_A", "COL_B", "OUT"])
         .build();
-    let r = verify(&race, &c);
+    let r = verify_open_net(&race, &c, &two_mints_options());
     assert!(matches!(r.verdict, Verdict::Violated), "{}", r.report);
     assert_eq!(r.route, OpenNetRoute::Smt);
     let kinds: Vec<_> = r.violations.iter().map(|v| v.kind).collect();
@@ -1042,4 +1053,54 @@ fn net_declared_terminals_are_merged_as_designed_terminals_on_both_routes() {
     assert!(r.verdict.is_proven(), "SMT route:\n{}", r.report);
     let r = verify_open_net(&terminal_fork(false), &c, &smt_only());
     assert!(matches!(r.verdict, Verdict::Violated), "SMT route, undeclared:\n{}", r.report);
+}
+
+// ==================== reaping ([TIME-013]) ====================
+
+/// `q —relay→ out` with the relay at `window(3, 5)`: a late executor reaps the relay after
+/// the arrival and rests with the token on `q`, so neither route may prove the contract.
+/// Under `assume_no_reaping` the relay always fires and both routes prove it.
+fn reaped_relay() -> (PetriNet, OpenNetContract) {
+    let q = place("q");
+    let out = place("out");
+    let relay = Transition::builder("relay")
+        .input(one(&q))
+        .output(out_place(&out))
+        .timing(libpetri_core::timing::window(3, 5))
+        .action(fork())
+        .build();
+    let net = PetriNet::builder("reaped-relay").transition(relay).build();
+    (net, OpenNetContract::builder().arrive(1, ["q"]).expect("out", 1, ["out"]).build())
+}
+
+#[test]
+fn graph_route_reads_a_reaped_relay_as_resting() {
+    let (net, c) = reaped_relay();
+    let r = verify(&net, &c);
+    assert!(r.verdict.is_violated(), "{}", r.report);
+    assert_eq!(r.route, OpenNetRoute::Enumeration);
+    assert!(subjects(&r).contains(&"out"), "{}", r.report);
+    assert!(r.report.contains("Reaping (TIME-013): relay can be reaped"), "{}", r.report);
+
+    let strict = verify_open_net(&net, &c, &OpenNetOptions { assume_no_reaping: true, ..Default::default() });
+    assert!(strict.verdict.is_proven(), "{}", strict.report);
+    assert!(strict.report.contains("ASSUMPTION: no transition is reaped"), "{}", strict.report);
+}
+
+#[test]
+fn smt_route_reads_a_reaped_relay_as_resting() {
+    if skip_without_z3("smt_route_reads_a_reaped_relay_as_resting") {
+        return;
+    }
+    let (net, c) = reaped_relay();
+    let r = verify_open_net(&net, &c, &smt_only());
+    assert!(r.verdict.is_violated(), "{}", r.report);
+    assert_eq!(r.route, OpenNetRoute::Smt);
+
+    let strict = verify_open_net(
+        &net,
+        &c,
+        &OpenNetOptions { max_classes: 0, assume_no_reaping: true, ..Default::default() },
+    );
+    assert!(strict.verdict.is_proven(), "{}", strict.report);
 }

@@ -31,6 +31,7 @@ use crate::name_fragment::{self, FragmentMode};
 use crate::name_state_class_graph::NameStateClassGraph;
 use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
+use crate::reaping;
 use crate::rest_set::ConditionalSinks;
 use crate::result::Verdict;
 
@@ -50,9 +51,42 @@ name-partition quotient — the symbolic graph closed, so the verdict is sound A
 (no spurious different-name counterexample; quiescence is name-aware), beyond the \
 bounded-budget fragment (NU-050, Route B).\n";
 
+/// [`NOTE_EXACT`] for a graph built on a net in which a transition keeps its latest
+/// bound (the on-time executor of `assume_no_reaping`, or a direct call of
+/// [`verify_via_name_scg`] on a timed net). The strong-semantics graph fires every
+/// transition by its latest bound and reads each firing as one instant step, so its
+/// verdict is exact for that executor alone ([VER-004], [TIME-013]).
+const NOTE_ON_TIME: &str = "Note: ν-join correlation decided via the state-class-graph \
+name-partition quotient: the symbolic graph closed, and a transition keeps its latest bound in \
+it, so the verdict is exact only for an on-time executor whose actions take no time (quiescence \
+is name-aware; NU-050, Route B).\n";
+
+/// The note of a closed graph built on `net` ([`NOTE_EXACT`] or [`NOTE_ON_TIME`]).
+fn closed_note(net: &PetriNet) -> &'static str {
+    if net.transitions().iter().any(|t| reaping::has_latest_bound(t.timing())) {
+        NOTE_ON_TIME
+    } else {
+        NOTE_EXACT
+    }
+}
+
 /// Tries to decide `property` exactly via the name-aware SCG. Returns `None` when
 /// `net` is not in the supported fragment (the caller falls back to the SMT /
 /// Route A path).
+///
+/// `mint_transitions` names the transitions declared to mint ([NU-010]; the
+/// verifier passes [`name_fragment::declared_mints`]). A transition that writes a
+/// coloured place without consuming one and is not named there puts the net outside
+/// the fragment.
+///
+/// This is the graph of `net` as given, for an on-time executor. It applies neither the
+/// in-flight split of [VER-004] ([`crate::in_flight::split_in_flight`]) nor the late
+/// executor of [TIME-013] ([`verify_via_name_scg_reaping`]): every firing is one atomic,
+/// instant step, a transition fires by its latest bound, and a marking rests only when
+/// nothing fires. Its note says the verdict is exact only for such an executor when a
+/// transition keeps a latest bound, and says nothing of the split. `SmtVerifier::verify`
+/// applies both, and splits every conflict pruner under
+/// [`PrioritySemantics::Conflict`]; a direct caller that wants them does the same.
 #[allow(clippy::too_many_arguments)]
 pub fn verify_via_name_scg(
     net: &PetriNet,
@@ -64,8 +98,155 @@ pub fn verify_via_name_scg(
     max_classes: usize,
     fragment_mode: FragmentMode,
     carrier_places: &BTreeSet<String>,
+    mint_transitions: &BTreeSet<String>,
     priority_semantics: PrioritySemantics,
     conditional_sinks: &[ConditionalSinks],
+) -> Option<NuScgOutcome> {
+    verify_via_name_scg_reaping(
+        net,
+        initial,
+        property,
+        sink_places,
+        env_places,
+        env_mode,
+        max_classes,
+        fragment_mode,
+        carrier_places,
+        mint_transitions,
+        priority_semantics,
+        conditional_sinks,
+        &BTreeSet::new(),
+        &BTreeSet::new(),
+    )
+}
+
+/// [`verify_via_name_scg`] for a late executor ([VER-002], [VER-004], [TIME-006],
+/// [TIME-013]).
+///
+/// - The graph is built on [`reaping::relax_late`]'s net, in which no transition named
+///   in `late` has a latest bound, for **every** property. A late executor reaps a
+///   `deadline` / `window` transition or fires an `exact` one after its bound, and
+///   fires the others meanwhile; the strong-semantics zone would forbid those runs, and
+///   a `Proven` of any property, marking properties included, could miss them (Lean:
+///   `TimedScg/Retrodict.reaping_escapes_timed_graph`, `TimedScg/Late.late_run_sound`).
+/// - An expanded class rests when every firing out of it is of a transition in
+///   `reapable` (none is the plain rule): the executor reaps those and stops. Only a
+///   quiescence property reads it.
+/// - [`PrioritySemantics::Conflict`] falls back to [`PrioritySemantics::None`] when a
+///   transition in `reapable` exists: a reapable transition that pre-empts a
+///   conflicting one on time is reaped by a late executor, which then fires the other,
+///   so no firing can be pruned for it.
+///
+/// Empty `reapable` and `late` (the on-time executor of `assume_no_reaping`, or a net
+/// timed only with `immediate` and `delayed`) is [`verify_via_name_scg`] exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_via_name_scg_reaping(
+    net: &PetriNet,
+    initial: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    env_places: &[&str],
+    env_mode: &EnvironmentAnalysisMode,
+    max_classes: usize,
+    fragment_mode: FragmentMode,
+    carrier_places: &BTreeSet<String>,
+    mint_transitions: &BTreeSet<String>,
+    priority_semantics: PrioritySemantics,
+    conditional_sinks: &[ConditionalSinks],
+    reapable: &BTreeSet<String>,
+    late: &BTreeSet<String>,
+) -> Option<NuScgOutcome> {
+    let in_net = |names: &BTreeSet<String>| -> BTreeSet<String> {
+        net.transitions()
+            .iter()
+            .filter(|t| names.contains(t.name()))
+            .map(|t| t.name().to_string())
+            .collect()
+    };
+    let reapable = in_net(reapable);
+    let lifted: BTreeSet<String> = in_net(late)
+        .into_iter()
+        .filter(|name| {
+            net.transitions()
+                .iter()
+                .any(|t| t.name() == name && reaping::has_latest_bound(t.timing()))
+        })
+        .collect();
+    let relaxed = reaping::relax_late(net, &lifted);
+    let net = relaxed.as_ref().unwrap_or(net);
+    let pruning_off = !reapable.is_empty() && priority_semantics == PrioritySemantics::Conflict;
+    let priority_semantics = if reapable.is_empty() {
+        priority_semantics
+    } else {
+        PrioritySemantics::None
+    };
+    let late_note = if lifted.is_empty() {
+        String::new()
+    } else {
+        lateness_note(&lifted, pruning_off)
+    };
+    // The marking properties read no rest ([VER-004]).
+    let rests_on: BTreeSet<String> =
+        if is_reachability_safety(property) { BTreeSet::new() } else { reapable };
+    let mut outcome = verify_name_scg(
+        net,
+        initial,
+        property,
+        sink_places,
+        env_places,
+        env_mode,
+        max_classes,
+        fragment_mode,
+        carrier_places,
+        mint_transitions,
+        priority_semantics,
+        conditional_sinks,
+        &rests_on,
+    )?;
+    if !outcome.note.is_empty() {
+        outcome.note.push_str(&late_note);
+    }
+    Some(outcome)
+}
+
+/// Whether `property` reads the marking alone (no quiescence clause).
+fn is_reachability_safety(property: &SmtProperty) -> bool {
+    matches!(
+        property,
+        SmtProperty::PlaceBound { .. }
+            | SmtProperty::BranchPlaceBound { .. }
+            | SmtProperty::Unreachable { .. }
+            | SmtProperty::MutualExclusion { .. }
+    )
+}
+
+/// The note Route B adds when it lifted latest bounds.
+fn lateness_note(lifted: &BTreeSet<String>, pruning_off: bool) -> String {
+    let names: Vec<&str> = lifted.iter().map(String::as_str).collect();
+    format!(
+        "Note: the latest bound of {} was lifted{}, so the graph holds the runs of a late \
+         executor, which reaps a deadline or window transition and fires an exact one after its \
+         bound (TIME-006, TIME-013).\n",
+        names.join(", "),
+        if pruning_off { " and priority pruning is off" } else { "" }
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_name_scg(
+    net: &PetriNet,
+    initial: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    env_places: &[&str],
+    env_mode: &EnvironmentAnalysisMode,
+    max_classes: usize,
+    fragment_mode: FragmentMode,
+    carrier_places: &BTreeSet<String>,
+    mint_transitions: &BTreeSet<String>,
+    priority_semantics: PrioritySemantics,
+    conditional_sinks: &[ConditionalSinks],
+    reapable: &BTreeSet<String>,
 ) -> Option<NuScgOutcome> {
     // CORE-043: this is a public entry that reaches the ν-SCG without going through
     // `StateClassGraph::build_with_env`, where the check otherwise sits.
@@ -92,7 +273,7 @@ pub fn verify_via_name_scg(
         }
     }
 
-    let fragment = name_fragment::classify(net, fragment_mode, carrier_places)?;
+    let fragment = name_fragment::classify(net, fragment_mode, carrier_places, mint_transitions)?;
     // We model no initial colour assignment, so coloured places must start empty.
     for p in &fragment.coloured_order {
         if initial.count(p) != 0 {
@@ -144,7 +325,7 @@ pub fn verify_via_name_scg(
     // AC3, [VER-017]): every stored class is a real reachable class, and only an
     // expanded class counts as quiescent.
     let complete = scg.is_complete();
-    let (verdict, violating) = decide(&scg, property, sink_places, conditional_sinks);
+    let (verdict, violating) = decide(&scg, property, sink_places, conditional_sinks, reapable);
     if let Some(idx) = violating {
         let (trace, transitions) = counterexample_path(&scg, idx);
         return Some(NuScgOutcome {
@@ -152,7 +333,7 @@ pub fn verify_via_name_scg(
             trace,
             transitions,
             note: if complete {
-                NOTE_EXACT.to_string()
+                closed_note(net).to_string()
             } else if scg.stopped_at_violation() {
                 early_stop_note(scg.class_count())
             } else {
@@ -183,7 +364,7 @@ pub fn verify_via_name_scg(
         verdict,
         trace: Vec::new(),
         transitions: Vec::new(),
-        note: NOTE_EXACT.to_string(),
+        note: closed_note(net).to_string(),
         class_count: scg.class_count(),
     })
 }
@@ -211,8 +392,9 @@ fn decide(
     property: &SmtProperty,
     sink_places: &[String],
     conditional_sinks: &[ConditionalSinks],
+    reapable: &BTreeSet<String>,
 ) -> (Verdict, Option<usize>) {
-    match decide_over_classes(&NameClasses(scg), property, sink_places, conditional_sinks) {
+    match decide_over_classes(&NameClasses::new(scg, reapable), property, sink_places, conditional_sinks) {
         Some(idx) => (Verdict::Violated, Some(idx)),
         None => (
             Verdict::Proven {
@@ -225,19 +407,46 @@ fn decide(
 }
 
 /// The name-partition graph's classes as the shared predicate reads them.
-struct NameClasses<'g>(&'g NameStateClassGraph);
+///
+/// `fires_unreapable[i]` is whether some firing out of class `i` is of a transition
+/// that cannot be reaped; `None` when nothing is reapable, where "no firing at all"
+/// is the rule ([VER-002] reap-quiescence, [TIME-013]).
+struct NameClasses<'g> {
+    scg: &'g NameStateClassGraph,
+    fires_unreapable: Option<Vec<bool>>,
+}
+
+impl<'g> NameClasses<'g> {
+    fn new(scg: &'g NameStateClassGraph, reapable: &BTreeSet<String>) -> Self {
+        let fires_unreapable = (!reapable.is_empty()).then(|| {
+            let mut out = vec![false; scg.class_count()];
+            for e in &scg.edges {
+                if !reapable.contains(&e.transition_name) {
+                    out[e.from] = true;
+                }
+            }
+            out
+        });
+        NameClasses { scg, fires_unreapable }
+    }
+}
 
 impl ClassView for NameClasses<'_> {
     fn count(&self) -> usize {
-        self.0.class_count()
+        self.scg.class_count()
     }
     fn marking_of(&self, i: usize) -> &MarkingState {
-        &self.0.classes[i].base.marking
+        &self.scg.classes[i].base.marking
     }
     /// A frontier class of a truncated graph was never expanded: no successors
-    /// recorded, but not dead ([VER-017]).
+    /// recorded, but not dead ([VER-017]). An expanded class rests when nothing fires
+    /// out of it, or only reapable transitions do.
     fn is_quiescent(&self, i: usize) -> bool {
-        i < self.0.expanded_count() && self.0.successors(i).is_empty()
+        i < self.scg.expanded_count()
+            && match &self.fires_unreapable {
+                None => self.scg.successors(i).is_empty(),
+                Some(fires) => !fires[i],
+            }
     }
 }
 
@@ -318,6 +527,7 @@ mod tests {
             MAX,
             FragmentMode::Base,
             &BTreeSet::new(),
+            &crate::name_fragment::all_mints(&net),
             PrioritySemantics::None,
             &[],
         )
@@ -421,7 +631,7 @@ mod tests {
             ),
         ];
         for (name, net, m0, property) in cases {
-            let fragment = name_fragment::classify(net, FragmentMode::Base, &BTreeSet::new())
+            let fragment = name_fragment::classify(net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
                 .expect("in the base fragment");
             let build = |stop_at: Option<&dyn Fn(&MarkingState) -> bool>| {
                 NameStateClassGraph::build_until(
@@ -438,8 +648,8 @@ mod tests {
             let full = build(None);
             let violates = |m: &MarkingState| marking_violates(&property, m);
             let stopped = build(Some(&violates));
-            let (full_verdict, full_idx) = decide(&full, &property, &[], &[]);
-            let (stop_verdict, stop_idx) = decide(&stopped, &property, &[], &[]);
+            let (full_verdict, full_idx) = decide(&full, &property, &[], &[], &BTreeSet::new());
+            let (stop_verdict, stop_idx) = decide(&stopped, &property, &[], &[], &BTreeSet::new());
             assert!(full_verdict.is_violated(), "{name}");
             assert!(stop_verdict.is_violated(), "{name}");
             assert!(stopped.stopped_at_violation(), "{name}");
@@ -615,6 +825,64 @@ mod tests {
         assert!(out.verdict.is_violated(), "timed same-mint join still reaches merged: {:?}", out.verdict);
     }
 
+    /// [TIME-013] on Route B: the same-mint join with a `window(50, 200)` join. On time
+    /// the join fires and the run rests at `{merged}`; a late executor reaps it and rests
+    /// with both branches marked. Read reap-aware, the class after the fork rests.
+    #[test]
+    fn route_b_reads_a_reaped_join_as_resting() {
+        use libpetri_core::timing;
+
+        let source = Place::<()>::new("source");
+        let a = Place::<String>::new("branchA");
+        let b = Place::<String>::new("branchB");
+        let merged = Place::<String>::new("merged");
+        let t_fork = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .timing(timing::window(50, 200))
+            .action(fork())
+            .build();
+        let net = PetriNet::builder("reaped_join").transitions([t_fork, join]).build();
+        let initial = MarkingStateBuilder::new().tokens("source", 1).build();
+        let run = |reapable: &BTreeSet<String>| {
+            verify_via_name_scg_reaping(
+                &net,
+                &initial,
+                &SmtProperty::DeadlockFree,
+                &["merged".to_string()],
+                &[],
+                &EnvironmentAnalysisMode::Ignore,
+                1_000,
+                FragmentMode::Base,
+                &BTreeSet::new(),
+                &crate::name_fragment::all_mints(&net),
+                PrioritySemantics::Conflict,
+                &[],
+                reapable,
+                reapable,
+            )
+            .expect("in the fragment")
+        };
+        let strict = run(&BTreeSet::new());
+        assert!(strict.verdict.is_proven(), "on time the join always fires: {:?}", strict.verdict);
+        let reaping = run(&BTreeSet::from(["join".to_string()]));
+        assert!(reaping.verdict.is_violated(), "a reaped join strands both branches: {:?}", reaping.verdict);
+        assert_eq!(reaping.transitions, vec!["fork".to_string()]);
+        assert!(reaping.note.contains("latest bound of join was lifted"), "{}", reaping.note);
+    }
+
     #[test]
     fn unbounded_mint_truncates_to_unknown() {
         // A self-refilling fork mints a fresh name every firing with no join able
@@ -657,6 +925,7 @@ mod tests {
             40,
             FragmentMode::Base,
             &BTreeSet::new(),
+            &crate::name_fragment::all_mints(&net),
             PrioritySemantics::None,
             &[],
         )
@@ -691,6 +960,7 @@ mod tests {
             MAX,
             FragmentMode::Base,
             &BTreeSet::new(),
+            &crate::name_fragment::all_mints(&net),
             PrioritySemantics::None,
             &[],
         )
@@ -756,6 +1026,7 @@ mod tests {
                 MAX,
                 mode,
                 &BTreeSet::new(),
+                &crate::name_fragment::all_mints(&net),
                 PrioritySemantics::None,
                 &[],
             );
@@ -827,6 +1098,7 @@ mod tests {
             MAX,
             FragmentMode::Extended,
             &carriers,
+            &crate::name_fragment::all_mints(&net),
             PrioritySemantics::None,
             &[],
         );
@@ -849,6 +1121,7 @@ mod tests {
             MAX,
             FragmentMode::Extended,
             &carriers,
+            &crate::name_fragment::all_mints(&net),
             PrioritySemantics::None,
             &[],
         )
@@ -928,6 +1201,7 @@ mod tests {
             MAX,
             FragmentMode::Extended,
             &BTreeSet::new(),
+            &crate::name_fragment::all_mints(&net),
             ps,
             &[],
         )
@@ -982,5 +1256,91 @@ mod tests {
             "CONFLICT must let the drain clear a genuine orphan: {:?}",
             out.verdict
         );
+    }
+
+    // ---- [NU-020] / [TIME-012]: a join's clock follows its name-enabledness ----
+
+    /// `forkA` and `forkB` mint one name each into `branchA` and `branchB`
+    /// (`deadline(1)`), `forkC` co-mints one name into both at `exact(5)` when
+    /// `with_co_mint`, and `join` matches the two on the name with `join_timing`. The
+    /// watchdog `W -> BAD` fires with `watchdog_timing`.
+    fn clocked_join_net(
+        join_timing: libpetri_core::timing::Timing,
+        watchdog_timing: libpetri_core::timing::Timing,
+        with_co_mint: bool,
+    ) -> PetriNet {
+        use libpetri_core::timing;
+        let p = |n: &str| Place::<String>::new(n);
+        let key = |s: &String| NameId::new(s.clone());
+        let mint = |name: &str, from: &str, to: Vec<&str>, timing| {
+            Transition::builder(name)
+                .input(one(&p(from)))
+                .output(and(to.into_iter().map(|t| out_place(&p(t))).collect()))
+                .timing(timing)
+                .action(fork())
+                .build()
+        };
+        let mut ts = vec![
+            mint("forkA", "sourceA", vec!["branchA"], timing::deadline(1)),
+            mint("forkB", "sourceB", vec!["branchB"], timing::deadline(1)),
+            Transition::builder("join")
+                .input(one(&p("branchA")))
+                .input(one(&p("branchB")))
+                .match_spec(MatchSpec::builder().key(&p("branchA"), key).key(&p("branchB"), key).build())
+                .output(out_place(&p("merged")))
+                .timing(join_timing)
+                .action(fork())
+                .build(),
+            Transition::builder("watchdog")
+                .input(one(&p("W")))
+                .output(out_place(&p("BAD")))
+                .timing(watchdog_timing)
+                .action(fork())
+                .build(),
+        ];
+        if with_co_mint {
+            ts.push(mint("forkC", "sourceC", vec!["branchA", "branchB"], timing::exact(5)));
+        }
+        PetriNet::builder("clocked_join").transitions(ts).build()
+    }
+
+    /// R6: the two names never match, so the executor never enables `join` and the
+    /// watchdog fires at 10 ms. A graph that clocked the count-enabled join would let
+    /// its `window(0, 5)` deadline forbid the watchdog and prove `BAD` unreachable.
+    /// Checked on time (no reaping), where the join keeps its latest bound.
+    #[test]
+    fn a_name_disabled_join_has_no_clock() {
+        use libpetri_core::timing;
+        let net = clocked_join_net(timing::window(0, 5), timing::delayed(10), false);
+        let initial = MarkingStateBuilder::new()
+            .tokens("sourceA", 1)
+            .tokens("sourceB", 1)
+            .tokens("W", 1)
+            .build();
+        let out = verify(&net, &initial, SmtProperty::unreachable(vec!["BAD".into()]));
+        assert!(out.verdict.is_violated(), "the watchdog fires at 10 ms: {:?}", out.verdict);
+        assert!(!out.transitions.iter().any(|t| t == "join"), "{:?}", out.transitions);
+    }
+
+    /// The join is count-enabled from 1 ms but name-enabled only when `forkC` co-mints
+    /// at 5 ms, so its `delayed(10)` clock starts at 5 ms and it fires at 15 ms at the
+    /// earliest, after the watchdog's `exact(12)`: `merged` and `W` are never marked
+    /// together. Clocking the join from its count enabling lets it fire at 10 ms.
+    #[test]
+    fn a_join_clock_starts_when_its_binding_appears() {
+        use libpetri_core::timing;
+        let net = clocked_join_net(timing::delayed(10), timing::exact(12), true);
+        let initial = MarkingStateBuilder::new()
+            .tokens("sourceA", 1)
+            .tokens("sourceB", 1)
+            .tokens("sourceC", 1)
+            .tokens("W", 1)
+            .build();
+        let out = verify(
+            &net,
+            &initial,
+            SmtProperty::mutual_exclusion(vec!["merged".into(), "W".into()]),
+        );
+        assert!(out.verdict.is_proven(), "the join fires at 15 ms at the earliest: {:?}", out.verdict);
     }
 }

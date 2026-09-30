@@ -14,6 +14,12 @@ pub enum EnvironmentAnalysisMode {
     /// time: injection refills the place up to `max_tokens`, forever, so a
     /// transition can take at most `max_tokens` from it per firing, but the total
     /// injected over a run is unbounded. For a total, see [`Self::Arrivals`].
+    ///
+    /// Every route reads the place as a source that holds at most `max_tokens`,
+    /// which is the executor only when no transition deposits into an environment
+    /// place and the initial marking holds at most `max_tokens` on each one
+    /// ([VER-006] AC3). `SmtVerifier` checks both and answers `Unknown`, naming
+    /// the place, when either fails.
     Bounded { max_tokens: usize },
     /// Environment places are treated as regular places (no special handling).
     Ignore,
@@ -68,6 +74,53 @@ impl EnvironmentAnalysisMode {
             );
         }
     }
+}
+
+/// [VER-006] AC3: why the `Bounded(k)` model does not describe the executor on this
+/// net, or `None` when it does. Every route models a `Bounded(k)` environment place
+/// as a source holding at most `k`: the flat encoding caps each successor there at
+/// `k`, the state-class graphs enable an environment input exactly when it demands at
+/// most `k`, and the quiescence clause calls a demand above `k` permanently disabled.
+/// That holds only when the initial marking holds at most `k` on each environment
+/// place and no transition deposits into one. Environment places are checked in
+/// code-point order, the initial marking first; the depositing transition named is
+/// the first in code-point order. Any other mode, or no environment place, is `None`.
+#[cfg_attr(not(feature = "z3"), allow(dead_code))]
+pub(crate) fn bounded_premise_violation(
+    net: &libpetri_core::petri_net::PetriNet,
+    initial_marking: &crate::marking_state::MarkingState,
+    env_places: &std::collections::BTreeSet<String>,
+    mode: &EnvironmentAnalysisMode,
+) -> Option<String> {
+    let EnvironmentAnalysisMode::Bounded { max_tokens: k } = *mode else {
+        return None;
+    };
+    let outside = |place: &str, what: String| {
+        format!(
+            "environment place '{place}' is outside the Bounded({k}) premises (VER-006 AC3): \
+             {what}. Every route models it as a source holding at most {k}, so a verdict \
+             would not describe the executor"
+        )
+    };
+    for place in env_places {
+        let held = initial_marking.count(place);
+        if held > k {
+            return Some(outside(place, format!("the initial marking holds {held} tokens there, more than {k}")));
+        }
+    }
+    for place in env_places {
+        let depositor = net
+            .transitions()
+            .iter()
+            .filter(|t| t.output_places().iter().any(|p| p.name() == place.as_str()))
+            // [VER-004]: a split net deposits through `complete:<t>`; name `t`.
+            .map(|t| crate::in_flight::source_transition(net, t.name()))
+            .min();
+        if let Some(t) = depositor {
+            return Some(outside(place, format!("transition '{t}' deposits into it")));
+        }
+    }
+    None
 }
 
 /// Creates an `AlwaysAvailable` environment mode.

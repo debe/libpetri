@@ -125,6 +125,11 @@ fn verdict_parity_fixtures() {
         if !budgets.is_empty() {
             verifier = verifier.budget_places(budgets.iter().cloned());
         }
+        // Optional shared-schema field: declared mint transitions ([NU-010]).
+        let mints = fixture.str_arr_opt("mintTransitions");
+        if !mints.is_empty() {
+            verifier = verifier.mint_transitions(mints.iter().cloned());
+        }
         // Optional shared-schema field: [VER-007]'s semiflow union.
         verifier = verifier.semiflow_invariants(fixture.bool_opt("semiflowInvariants"));
         // Optional shared-schema field: [VER-014]'s conditional sinks, declared in
@@ -134,6 +139,8 @@ fn verdict_parity_fixtures() {
         }
         // Optional shared-schema field: [VER-016]'s firing-counter state equation.
         verifier = verifier.state_equation(fixture.bool_opt("stateEquation"));
+        // Optional shared-schema field: [TIME-013]'s strict reading of quiescence.
+        verifier = verifier.assume_no_reaping(fixture.bool_opt("assumeNoReaping"));
         let result = verifier.verify();
 
         let got = verdict_word(&result.verdict);
