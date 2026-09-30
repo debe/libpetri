@@ -1,0 +1,16 @@
+{
+  "id": "fixture-fork-in-flight",
+  "places": ["start", "a", "b", "done", "result"],
+  "marking": {"start": 1},
+  "transitions": [
+    {"name": "fork", "inputs": [{"place": "start", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "a"}, {"type": "place", "place": "b"}]}, "priority": 0},
+    {"name": "finish", "inputs": [{"place": "a", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "done"}, "priority": 0},
+    {"name": "work", "inputs": [{"place": "b", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "result"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["done"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["done"]},
+    {"id": "prop2", "type": "quiescent-count", "places": ["done", "result"], "min": 2, "max": 2},
+    {"id": "prop3", "type": "unreachable", "places": ["a", "result"]}
+  ]
+}

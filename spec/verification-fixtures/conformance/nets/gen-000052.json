@@ -1,0 +1,17 @@
+{
+  "id": "gen-000052",
+  "places": ["p0", "p1", "p2", "p3", "p4"],
+  "marking": {"p2": 3, "p3": 2, "p4": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p3", "kind": "all"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p0"}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p2", "kind": "one"}], "inhibitors": [], "reads": ["p1"], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "p3", "kind": "atLeast", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0},
+    {"name": "t3", "inputs": [{"place": "p4", "kind": "one"}], "inhibitors": [], "reads": ["p2"], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p1"}, {"type": "place", "place": "p1"}]}, "priority": 0},
+    {"name": "t4", "inputs": [{"place": "p0", "kind": "all"}, {"place": "p2", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "terminates-at-sink", "sinks": ["p0"]},
+    {"id": "prop1", "type": "place-bound", "place": "p3", "bound": 2},
+    {"id": "prop2", "type": "quiescent-count", "places": ["p1"], "min": 2, "max": 3}
+  ]
+}

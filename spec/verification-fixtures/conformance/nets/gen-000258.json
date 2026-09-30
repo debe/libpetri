@@ -1,0 +1,15 @@
+{
+  "id": "gen-000258",
+  "places": ["p0", "p1", "p2"],
+  "marking": {"p1": 2, "p2": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p0"}, {"type": "timeout", "afterMs": 50, "child": {"type": "and", "children": [{"type": "forward", "from": "p0", "to": "p0"}, {"type": "place", "place": "p2"}]}}]}, "priority": 0, "timing": {"kind": "delayed", "earliestMs": 1}},
+    {"name": "t1", "inputs": [{"place": "p0", "kind": "all"}, {"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p2"}, {"type": "place", "place": "p1"}]}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p1", "to": "p2"}}]}, "priority": 0, "timing": {"kind": "window", "earliestMs": 1, "latestMs": 21}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": []},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": []},
+    {"id": "prop2", "type": "place-bound", "place": "p0", "bound": 0},
+    {"id": "prop3", "type": "unreachable", "places": ["p0", "p2"]}
+  ]
+}

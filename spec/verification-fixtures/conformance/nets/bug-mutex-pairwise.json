@@ -1,0 +1,17 @@
+{
+  "id": "bug-mutex-pairwise",
+  "places": ["s", "a", "b", "c", "s2", "x", "y", "z"],
+  "marking": {"s": 1, "s2": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "s", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "a"}, {"type": "place", "place": "b"}]}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "s2", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "x"}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "x", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "y"}, "priority": 0},
+    {"name": "t3", "inputs": [{"place": "y", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "z"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "mutual-exclusion", "places": ["c", "a", "b"]},
+    {"id": "prop1", "type": "mutual-exclusion", "places": ["x", "y", "z"]},
+    {"id": "prop2", "type": "mutual-exclusion", "places": ["z", "z"]},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["a", "c"]}
+  ]
+}

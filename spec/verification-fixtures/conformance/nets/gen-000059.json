@@ -1,0 +1,19 @@
+{
+  "id": "gen-000059",
+  "places": ["p0", "p1", "p2"],
+  "marking": {"p0": 1, "p1": 3, "p2": 3},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p2", "kind": "one"}, {"place": "p1", "kind": "one"}], "inhibitors": [], "reads": ["p0"], "resets": [], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p2", "to": "p1"}}, "priority": 0, "timing": {"kind": "immediate"}},
+    {"name": "t1", "inputs": [{"place": "p1", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": ["p0"], "resets": [], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p1", "to": "p0"}}, "priority": 0, "timing": {"kind": "window", "earliestMs": 3, "latestMs": 23}},
+    {"name": "t2", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 10}},
+    {"name": "t3", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": ["p1"], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p1"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p0", "to": "p1"}}]}, "priority": 0, "timing": {"kind": "delayed", "earliestMs": 1}},
+    {"name": "t4", "inputs": [{"place": "p1", "kind": "atLeast", "n": 1}, {"place": "p2", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p0"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p2", "to": "p2"}}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 50}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p2", "p1"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p1"]},
+    {"id": "prop2", "type": "mutual-exclusion", "places": ["p2", "p0"]},
+    {"id": "prop3", "type": "unreachable", "places": ["p1", "p0"]},
+    {"id": "prop4", "type": "quiescent-count", "places": ["p1", "p0", "p2"], "min": 1, "max": 7}
+  ]
+}

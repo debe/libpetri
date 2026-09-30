@@ -1,0 +1,20 @@
+{
+  "id": "gen-000135",
+  "places": ["p0", "p1", "p2", "p3", "p4", "p5"],
+  "marking": {"p0": 2, "p3": 3},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p1", "kind": "atLeast", "n": 2}, {"place": "p3", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p5"}, "priority": 0, "timing": {"kind": "window", "earliestMs": 1, "latestMs": 21}},
+    {"name": "t1", "inputs": [{"place": "p1", "kind": "atLeast", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p1", "to": "p1"}}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 5}},
+    {"name": "t2", "inputs": [{"place": "p3", "kind": "one"}], "inhibitors": ["p1"], "reads": ["p5"], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 50}},
+    {"name": "t3", "inputs": [{"place": "p5", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p0"}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 10}},
+    {"name": "t4", "inputs": [{"place": "p2", "kind": "atLeast", "n": 2}], "inhibitors": [], "reads": [], "resets": ["p1"], "output": {"type": "and", "children": [{"type": "place", "place": "p4"}, {"type": "place", "place": "p1"}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 50}},
+    {"name": "t5", "inputs": [{"place": "p3", "kind": "all"}, {"place": "p4", "kind": "one"}], "inhibitors": [], "reads": [], "resets": ["p4"], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p4"}, {"type": "place", "place": "p3"}]}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p3", "to": "p5"}}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 50}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p2", "p1"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p5"]},
+    {"id": "prop2", "type": "mutual-exclusion", "places": ["p4", "p3"]},
+    {"id": "prop3", "type": "unreachable", "places": ["p1", "p0"]},
+    {"id": "prop4", "type": "quiescent-count", "places": ["p4"], "min": 0}
+  ]
+}

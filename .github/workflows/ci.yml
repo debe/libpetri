@@ -108,25 +108,6 @@ jobs:
       # field added to a shared struct once broke that arm alone and shipped green
       # through every gate above, because none of them builds it.
       - run: cargo check --workspace --exclude libpetri-py
-      # The TIME-013 reap witness is `#[ignore]`d (real clock + thread::sleep,
-      # ~2.5s) and nothing else runs `--ignored`, so without this step the
-      # allowlist in the timed differential property has no executed check
-      # against the real executor at all. Stable only — it is a semantics
-      # witness, not an MSRV concern.
-      - if: matrix.rust == 'stable'
-        name: TIME-013 reap-asymmetry witness (ignored by default)
-        shell: bash
-        run: |
-          # `cargo test` exits 0 when a filter matches nothing, so assert the
-          # witness actually ran — a rename must fail here, not pass silently.
-          out=$(cargo test -p libpetri-runtime --all-features \
-                  differential_prop_tests::time013_reap_asymmetry_witness \
-                  -- --ignored --exact --nocapture 2>&1) || { echo "$out"; exit 1; }
-          echo "$out"
-          grep -q "test result: ok. 1 passed" <<< "$out" || {
-            echo "the TIME-013 witness did not run — renamed, moved, or re-gated"
-            exit 1
-          }
       # Compile-check the PyO3 binding too. The steps above exclude libpetri-py
       # (it needs maturin's python-extension linkage to *build*), so a binding-only
       # compile error would otherwise slip through to `maturin develop` / the python
@@ -212,6 +193,7 @@ jobs:
         run: |
           cat > /tmp/axioms.lean <<'EOF'
           import Libpetri
+          import Libpetri.Reference
           #print axioms Libpetri.proposition_one
           #print axioms Libpetri.guard_hypothesis_is_necessary
           #print axioms Libpetri.unit_output_hypothesis_is_necessary
@@ -270,6 +252,43 @@ jobs:
           #print axioms Libpetri.Novel.Dbm.empty_iff_flagged
           #print axioms Libpetri.Novel.Dbm.sat_canon
           #print axioms Libpetri.Novel.Dbm.sat_permD
+          #print axioms Libpetri.Novel.ForwardDeposit.forward_exactly_two_breaks_unit_output
+          #print axioms Libpetri.Novel.ForwardDeposit.rows_reachability_simulated
+          #print axioms Libpetri.Novel.ForwardDeposit.forward_reachability_simulated
+          #print axioms Libpetri.Novel.ForwardDeposit.drained_forward_has_no_row
+          #print axioms Libpetri.Novel.Seam.inert_covers
+          #print axioms Libpetri.Novel.Seam.StrayToken.covers_is_necessary
+          #print axioms Libpetri.Novel.Seam.StrayToken.stray_token_not_covered
+          #print axioms Libpetri.Novel.Seam.chc_proven_sound
+          #print axioms Libpetri.Novel.Seam.postfix_proven_sound
+          #print axioms Libpetri.Novel.Seam.spec_proven_sound
+          #print axioms Libpetri.Novel.Seam.routes_same_seed
+          #print axioms Libpetri.Novel.Seam.deadlockBad_iff
+          #print axioms Libpetri.Novel.LinearBound.linear_bound_sound
+          #print axioms Libpetri.Novel.LinearBound.linear_bound_sound_rows
+          #print axioms Libpetri.Novel.LinearBound.linear_bound_sound_noH1
+          #print axioms Libpetri.Novel.LinearBound.env_zero_is_necessary
+          #print axioms Libpetri.Novel.TerminalRewrite.terminal_rewrite_exact
+          #print axioms Libpetri.Novel.TerminalRewrite.terminal_rewrite_inj_not_exact
+          #print axioms Libpetri.Novel.ReapingVsUntimed.reaping_refutes_ver004_ac3
+          #print axioms Libpetri.Novel.ReapingVsUntimed.marking_properties_transfer
+          #print axioms Libpetri.Novel.Certificate.vc_sound
+          #print axioms Libpetri.Novel.Certificate.vc_sound_rows
+          #print axioms Libpetri.Novel.Certificate.vc_blind_to_seam
+          #print axioms Libpetri.Novel.Enumeration.rows_enumeration_exact
+          #print axioms Libpetri.Novel.Enumeration.forward_enumeration_sound
+          #print axioms Libpetri.Reference.mem_succ_iff
+          #print axioms Libpetri.Reference.outcomesB_counts
+          #print axioms Libpetri.Reference.Link.mem_succ_iff_stepCD
+          #print axioms Libpetri.Reference.Link.step_iff_stepNC
+          #print axioms Libpetri.Reference.Link.deadlock_iff_NDeadlock
+          #print axioms Libpetri.Reference.explored_eq_reachable
+          #print axioms Libpetri.Reference.explored_sound
+          #print axioms Libpetri.Reference.Link.explore_agrees_enumeration
+          #print axioms Libpetri.Reference.verdict_proven_iff
+          #print axioms Libpetri.Reference.verdict_violated_run
+          #print axioms Libpetri.Reference.replayViolates_iff
+          #print axioms Libpetri.Reference.Link.step_alpha_iff
           #print axioms Libpetri.Novel.Dbm.closed_permD
           #print axioms Libpetri.Novel.Commoner.commoner
           #print axioms Libpetri.Novel.Commoner.ordinary_is_necessary
@@ -277,6 +296,213 @@ jobs:
           #print axioms Libpetri.Novel.Enumeration.run_complete_iff_reach
           #print axioms Libpetri.Novel.Enumeration.decided_exact
           #print axioms Libpetri.Novel.Enumeration.net_enumeration_exact
+          #print axioms Libpetri.Novel.TimedScg.reachable_quiescent_iff_dead
+          #print axioms Libpetri.Novel.TimedScg.reachable_quiescent_iff_dead_grid
+          #print axioms Libpetri.Novel.TimedScg.faithful_quiescent_iff_dead
+          #print axioms Libpetri.Novel.TimedScg.graph_grid
+          #print axioms Libpetri.Novel.TimedScg.flagged_of_flagged_zero
+          #print axioms Libpetri.Novel.TimedScg.timingWF_iff
+          #print axioms Libpetri.Novel.TimedScg.lftT_ne_top
+          #print axioms Libpetri.Novel.TimedScg.timingWF_of_timings
+          #print axioms Libpetri.Novel.TimedScg.netGrid_of_timings
+          #print axioms Libpetri.Novel.TimedScg.on_time_is_late
+          #print axioms Libpetri.Novel.TimedScg.late_sim
+          #print axioms Libpetri.Novel.TimedScg.late_run_sound
+          #print axioms Libpetri.Novel.TimedScg.late_safety_of_closed
+          #print axioms Libpetri.Novel.TimedScg.late_quiescence_sound
+          #print axioms Libpetri.Novel.TimedScg.late_quiescent_safety_of_closed
+          #print axioms Libpetri.Novel.TimedScg.dead_reapable
+          #print axioms Libpetri.Novel.TimedScg.successor_sound
+          #print axioms Libpetri.Novel.TimedScg.delay_sound
+          #print axioms Libpetri.Novel.TimedScg.timed_run_sound
+          #print axioms Libpetri.Novel.TimedScg.graph_persistent_iff
+          #print axioms Libpetri.Novel.TimedScg.old_rule_loses_run
+          #print axioms Libpetri.Novel.TimedScg.reaping_escapes_timed_graph
+          #print axioms Libpetri.Novel.TimedScg.reaping_witness_in_relaxed_graph
+          #print axioms Libpetri.Novel.TimedScg.late_rest_witness
+          #print axioms Libpetri.Novel.TimedScg.action_duration_escapes
+          #print axioms Libpetri.Novel.TimedScg.delayed_past_max_escapes
+          #print axioms Libpetri.Novel.TimedScg.name_disabled_join_escapes
+          #print axioms Libpetri.Novel.SiphonSearch.findMinimalSiphons_complete
+          #print axioms Libpetri.Novel.SiphonSearch.findMinimalSiphons_sound
+          #print axioms Libpetri.Novel.SiphonSearch.maximalTrapIn_spec
+          #print axioms Libpetri.Novel.SiphonSearch.siphonVerdict_sound
+          #print axioms Libpetri.Novel.SiphonSearch.structural_check_sound
+          #print axioms Libpetri.Novel.SiphonSearch.structuralCheck_ne_nil
+          #print axioms Libpetri.Novel.SiphonSearch.structuralCheck_eq_unguarded
+          #print axioms Libpetri.Novel.SiphonSearch.structural_proven_sound
+          #print axioms Libpetri.Novel.SiphonSearch.structural_proven_no_dlf_violation
+          #print axioms Libpetri.Novel.SiphonSearch.empty_net_structural_proven_dead
+          #print axioms Libpetri.Novel.SiphonSearch.structural_proven_is_untimed_only
+          #print axioms Libpetri.Novel.SiphonSearch.execCycleT_tR
+          #print axioms Libpetri.Novel.SiphonSearch.pre_fix_padding_proves_dead_net
+          #print axioms Libpetri.Novel.SiphonSearch.pre_fix_unmarked_trap_proves_dead_net
+          #print axioms Libpetri.Novel.SiphonSearch.growZ_fuel_irrelevant
+          #print axioms Libpetri.Novel.SiphonSearch.searchZ_fuel_irrelevant
+          #print axioms Libpetri.Novel.SiphonSearch.contractZ_fuel_irrelevant
+          #print axioms Libpetri.Novel.SiphonSearch.maximalTrapIn_fuel_irrelevant
+          #print axioms Libpetri.Novel.FiringBound.markingFaithfulRows_of_markingFaithful
+          #print axioms Libpetri.Novel.FiringBound.phase_proven_timed_marking
+          #print axioms Libpetri.Novel.FiringBound.execStep_faithfulRows
+          #print axioms Libpetri.Novel.FiringBound.execRun_path
+          #print axioms Libpetri.Novel.FiringBound.ranking_bounds_timed_netR
+          #print axioms Libpetri.Novel.FiringBound.phase_proven_timed_marking_netR
+          #print axioms Libpetri.Novel.FiringBound.noReap_halt_quiescent
+          #print axioms Libpetri.Novel.FiringBound.noReap_timedDeadlockFree
+          #print axioms Libpetri.Novel.FiringBound.reaping_not_timedDeadlockFree
+          #print axioms Libpetri.Novel.FiringBound.gateReaping_proven
+          #print axioms Libpetri.Novel.FiringBound.gated_witness_steps_aside
+          #print axioms Libpetri.Novel.FiringBound.gated_dlf_timed_sound_netR
+          #print axioms Libpetri.Novel.FiringBound.ranking_bounds_timed
+          #print axioms Libpetri.Novel.FiringBound.bmc_proven_marking_timed
+          #print axioms Libpetri.Novel.FiringBound.firing_bound_proves_reaped_net
+          #print axioms Libpetri.Novel.FiringBound.phase_proven_concrete
+          #print axioms Libpetri.Novel.FiringBound.phase_postfix_deadlock_sound
+          #print axioms Libpetri.Novel.FiringBound.phase_proven_sound
+          #print axioms Libpetri.Novel.FiringBound.bmc_complete
+          #print axioms Libpetri.Novel.FiringBound.bmc_exact_at_bound
+          #print axioms Libpetri.Novel.FiringBound.bmc_agrees_with_enumeration
+          #print axioms Libpetri.Novel.ReapAware.reap_quiescent_iff_quiescent
+          #print axioms Libpetri.Novel.ReapAware.reapQuiescent_of_quiescent
+          #print axioms Libpetri.Novel.ReapAware.halts_reapQuiescent
+          #print axioms Libpetri.Novel.ReapAware.rest_sound
+          #print axioms Libpetri.Novel.ReapAware.rest_sound_BB
+          #print axioms Libpetri.Novel.ReapAware.rest_sound_PB
+          #print axioms Libpetri.Novel.ReapAware.reap_aware_ac3
+          #print axioms Libpetri.Novel.ReapAware.marking_ac3
+          #print axioms Libpetri.Novel.ReapAware.marking_ac3_phase
+          #print axioms Libpetri.Novel.ReapAware.witness_rests_BB
+          #print axioms Libpetri.Novel.ReapAware.witness_rests_PB
+          #print axioms Libpetri.Novel.ReapAware.witness_caught
+          #print axioms Libpetri.Novel.ReapAware.witness_rest_reapQuiescent
+          #print axioms Libpetri.Novel.ReapAware.quiescentBad_filter_iff
+          #print axioms Libpetri.Novel.ReapAware.deadlockBad_filter_eq
+          #print axioms Libpetri.Novel.ReapAware.nQuiescent_liveNet_iff
+          #print axioms Libpetri.Novel.ReapAware.reapDeadlockBad_iff
+          #print axioms Libpetri.Novel.Pairwise.twoMarked_eq_any
+          #print axioms Libpetri.Novel.Pairwise.any_pairsOf_iff
+          #print axioms Libpetri.Novel.Seam.pairMarkedBad_iff
+          #print axioms Libpetri.Novel.LinearBound.pairwise_linear_bound_sound
+          #print axioms Libpetri.Novel.TransferRows.transfer_step_simulated
+          #print axioms Libpetri.Novel.TransferRows.transfer_reachability_simulated
+          #print axioms Libpetri.Novel.TransferRows.transfer_enumeration_exact
+          #print axioms Libpetri.Novel.TransferRows.transfer_enumeration_sound
+          #print axioms Libpetri.Novel.TransferRows.all_forward_transfer_row
+          #print axioms Libpetri.Reference.Quiescent.reap
+          #print axioms Libpetri.Reference.reapQuiescent_iff_quiescent
+          #print axioms Libpetri.Reference.quiescentB_iff
+          #print axioms Libpetri.Reference.Link.reapQuiescent_iff_live
+          #print axioms Libpetri.Novel.RouteA.colour_slots_suffice
+          #print axioms Libpetri.Novel.RouteA.coloured_simulates
+          #print axioms Libpetri.Novel.RouteA.routeA_safety_sound
+          #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound
+          #print axioms Libpetri.Novel.RouteA.colourSlotBound_sound
+          #print axioms Libpetri.Novel.RouteA.buildPlanG_premisesS
+          #print axioms Libpetri.Novel.RouteA.shipped_mint
+          #print axioms Libpetri.Novel.RouteA.shipped_consume
+          #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound_reaping
+          #print axioms Libpetri.Novel.RouteA.routeA_reap_aware_sound
+          #print axioms Libpetri.Novel.RouteA.deadERs_iff
+          #print axioms Libpetri.Novel.RouteA.deadERs_nil
+          #print axioms Libpetri.Novel.RouteA.nuRest_of_reapQuiescent
+          #print axioms Libpetri.Novel.RouteA.ReapW.reaping_breaks_routeA_quiescence
+          #print axioms Libpetri.Novel.RouteA.ReapW.planW
+          #print axioms Libpetri.Novel.RouteA.premises_shipped
+          #print axioms Libpetri.Novel.RouteA.reachNu_shipped
+          #print axioms Libpetri.Novel.RouteA.routeA_safety_sound_shipped
+          #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound_shipped
+          #print axioms Libpetri.Novel.RouteA.selfLoop_premises_shipped
+          #print axioms Libpetri.Novel.RouteA.Retro.budget_k_false_proven
+          #print axioms Libpetri.Novel.RouteA.Retro.inflating_net_refused
+          #print axioms Libpetri.Novel.RouteA.Retro.injection_breaks_closed_encoding
+          #print axioms Libpetri.Novel.RouteA.Retro.forward_mint_false_proven
+          #print axioms Libpetri.Novel.RouteA.Retro.forward_mint_refused
+          #print axioms Libpetri.Novel.RouteA.Retro.self_loop_consume_false_proven
+          #print axioms Libpetri.Novel.RouteA.Retro.selfLoop_false_proven_any_basis
+          #print axioms Libpetri.Novel.RouteB.routeB_equivariant
+          #print axioms Libpetri.Novel.RouteB.routeB_interned_keys_eq
+          #print axioms Libpetri.Novel.RouteB.routeB_interned_edges_eq
+          #print axioms Libpetri.Novel.RouteB.nameEnabled_comp
+          #print axioms Libpetri.Novel.RouteB.exec_names_step
+          #print axioms Libpetri.Novel.RouteB.name_step_simulates_exec
+          #print axioms Libpetri.Novel.RouteB.exec_reach_simulated
+          #print axioms Libpetri.Novel.RouteB.exec_rests_succ_reap
+          #print axioms Libpetri.Novel.RouteB.Decide.truncated_never_proven
+          #print axioms Libpetri.Novel.RouteB.Decide.prefix_safety_sound
+          #print axioms Libpetri.Novel.RouteB.Decide.prefix_quiescence_sound
+          #print axioms Libpetri.Novel.RouteB.Decide.complete_proven_safety
+          #print axioms Libpetri.Novel.RouteB.Decide.complete_proven_quiescence
+          #print axioms Libpetri.Novel.RouteB.routeB_untimed_safety_sound
+          #print axioms Libpetri.Novel.RouteB.routeB_untimed_quiescence_sound
+          #print axioms Libpetri.Novel.RouteB.classifyT_inFragment
+          #print axioms Libpetri.Novel.RouteB.classifyS_inFragment
+          #print axioms Libpetri.Novel.RouteB.classifyS_mint
+          #print axioms Libpetri.Novel.RouteB.classifyS_consume
+          #print axioms Libpetri.Novel.RouteB.classifyS_join
+          #print axioms Libpetri.Novel.RouteB.builderOK_posKeys
+          #print axioms Libpetri.Novel.RouteB.offKey_rule_is_necessary
+          #print axioms Libpetri.Novel.RouteB.dupKey_breaks_simulation
+          #print axioms Libpetri.Novel.RouteB.dupKey_refused
+          #print axioms Libpetri.Novel.RouteB.copyingMint_breaks_simulation
+          #print axioms Libpetri.Novel.RouteB.copyingMint_refused
+          #print axioms Libpetri.Novel.RouteB.zeroKey_breaks_quiescence
+          #print axioms Libpetri.Novel.RouteB.zeroKey_refused
+          #print axioms Libpetri.Novel.RouteB.joinEnab_perm_of_pos
+          #print axioms Libpetri.Novel.RouteB.zeroKey_order_matters
+          #print axioms Libpetri.Novel.RouteB.WF.willFire_guard_is_necessary_routeB
+          #print axioms Libpetri.Novel.RouteB.Ignore.ver006_binds_routeB
+          #print axioms Libpetri.Novel.EnvSemantics.proposition_one_inj
+          #print axioms Libpetri.Novel.EnvSemantics.proposition_one_inj_bounded
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_demand_gate
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_initial_overflow_wrong_proven
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_producer_overflow_wrong_proven
+          #print axioms Libpetri.Novel.EnvSemantics.retrodict_98b9297
+          #print axioms Libpetri.Novel.EnvSemantics.relaxed_quiescence_sound
+          #print axioms Libpetri.Novel.EnvSemantics.relaxed_violation_real
+          #print axioms Libpetri.Novel.EnvSemantics.relaxed_quiescence_exact
+          #print axioms Libpetri.Novel.EnvSemantics.relaxed_quiescence_sound_executor
+          #print axioms Libpetri.Novel.EnvSemantics.quiescence_vacuity_sound
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_safety_exact
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_quiescence_exact
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_executor_sound
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_enumeration_sound
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_bounded_deposit_wrong_proven
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_bounded_initial_wrong_proven
+          #print axioms Libpetri.Novel.EnvSemantics.quiescence_bounded_initial_spurious
+          #print axioms Libpetri.Novel.EnvSemantics.arrivals_closure_reach
+          #print axioms Libpetri.Novel.EnvSemantics.arrivals_closure_quiescent
+          #print axioms Libpetri.Novel.EnvSemantics.arrivals_enumeration_sound
+          #print axioms Libpetri.Novel.EnvSemantics.boundedPremiseOK_iff
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_checked_sound
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_checked_supplied_sound
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_checked_quiescence_sound
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_initial_overflow_refused
+          #print axioms Libpetri.Novel.EnvSemantics.bounded_producer_overflow_refused
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_bounded_deposit_refused
+          #print axioms Libpetri.Novel.EnvSemantics.supplied_bounded_initial_refused
+          #print axioms Libpetri.Novel.EnvSemantics.quiescence_bounded_initial_refused
+          #print axioms Libpetri.Novel.EnvSemantics.witnesses_guardFree
+          #print axioms Libpetri.Novel.InFlight.commute_add
+          #print axioms Libpetri.Novel.InFlight.split_covers_executor
+          #print axioms Libpetri.Novel.InFlight.atomic_covers_executor
+          #print axioms Libpetri.Novel.InFlight.split_safety_sound
+          #print axioms Libpetri.Novel.InFlight.split_rest_sound
+          #print axioms Libpetri.Novel.InFlight.inflight_witness
+          #print axioms Libpetri.Novel.TimedScg.relaxLate_fromTimings
+          #print axioms Libpetri.Novel.TimedScg.relax_relaxMax
+          #print axioms Libpetri.Novel.TimedScg.capped_run_in_rust_graph
+          #print axioms Libpetri.Novel.TimedScg.timingWF_of_valid_timings
+          #print axioms Libpetri.Novel.TimedScg.netBig_rejected
+          #print axioms Libpetri.Novel.SiphonSearch.structural_proven_sound_timed
+          #print axioms Libpetri.Novel.SiphonSearch.reapGate_refuses_witness
+          #print axioms Libpetri.Novel.TerminalRewrite.deadlock_bad_transfer
+          #print axioms Libpetri.Novel.InFlight.split_covers_executor
+          #print axioms Libpetri.Novel.InFlight.split_safety_sound
+          #print axioms Libpetri.Novel.InFlight.split_stop_sound
+          #print axioms Libpetri.Novel.InFlight.quiescent_count_stop_sound
+          #print axioms Libpetri.Novel.InFlight.terminal_stop_witness
+          #print axioms Libpetri.reaped_rearms_on_touch
+          #print axioms Libpetri.inFlight_guard_is_necessary
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out
@@ -301,7 +527,9 @@ jobs:
       # model is consciously re-verified (workflow in lean/README.md).
       - name: Lean fidelity pins match cited Rust source
         working-directory: ${{ github.workspace }}
-        run: python3 scripts/lean-fidelity-check.py
+        run: |
+          python3 -m unittest scripts/test_lean_fidelity_check.py
+          python3 scripts/lean-fidelity-check.py
       # spec/coverage-matrix.md is generated; keep it in lockstep with the
       # spec index, lean/proof-coverage.json, and the test suites.
       - name: Spec coverage matrix is up to date
@@ -320,6 +548,71 @@ jobs:
   # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
   # Graphviz-WASM must instantiate + render, and the committed assets must be
   # the reproducible output of the locked toolchain (no silent dep drift).
+  # Conformance against the verified Lean reference (spec/verification-fixtures/conformance/):
+  # the Lean binary re-derives every expected verdict (freshness), then each language's verifier
+  # runs the corpus on every route and must never contradict the reference, and every Violated
+  # trace it reports is replayed by the verified firing rule. LIBPETRI_CONFORMANCE_REQUIRE=1 turns
+  # a missing corpus into a failure, and an empty trace dump fails the replay step.
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LIBPETRI_CONFORMANCE_REQUIRE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: ~/.elan
+          key: elan-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
+      - name: Install elan
+        run: |
+          curl -fsSL https://elan.lean-lang.org/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/mathlib
+          key: mathlib-${{ runner.os }}-${{ hashFiles('lean/lake-manifest.json') }}
+      - name: Fetch Lean dependencies (imported Mathlib closure only)
+        working-directory: lean
+        run: bash ../scripts/lean-ci-deps.sh
+      - name: Build the Lean reference
+        working-directory: lean
+        run: lake build reference
+      - uses: ./.github/actions/install-z3
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '25-ea'
+          distribution: 'temurin'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Expected verdicts are fresh (re-derived by the Lean reference)
+        run: python3 scripts/conformance-corpus.py --check
+      - run: python3 scripts/conformance-replay.py --lang rust
+      - run: python3 scripts/conformance-replay.py --lang java
+      - name: TypeScript dependencies
+        working-directory: typescript
+        run: npm ci
+      - run: python3 scripts/conformance-replay.py --lang ts
+      - name: Python wheel
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin pytest pytest-asyncio
+          maturin build --release --locked --out dist --compatibility pypi
+          python -m pip install dist/libpetri-*.whl
+      - run: python3 scripts/conformance-replay.py --lang py
+
   viewer:
     runs-on: ubuntu-latest
     timeout-minutes: 10

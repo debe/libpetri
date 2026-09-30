@@ -1,0 +1,13 @@
+{
+  "id": "reap-shadowed",
+  "places": ["p0", "p1"],
+  "marking": {"p0": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0, "timing": {"kind": "window", "earliestMs": 3, "latestMs": 5}},
+    {"name": "u", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0, "timing": {"kind": "immediate"}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p1"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p1"]}
+  ]
+}

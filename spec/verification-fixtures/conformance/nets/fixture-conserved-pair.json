@@ -1,0 +1,15 @@
+{
+  "id": "fixture-conserved-pair",
+  "places": ["p0", "p1"],
+  "marking": {"p0": 3},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "place-bound", "place": "p1", "bound": 3},
+    {"id": "prop1", "type": "place-bound", "place": "p1", "bound": 2},
+    {"id": "prop2", "type": "deadlock-free", "sinks": ["p1"]},
+    {"id": "prop3", "type": "terminates-at-sink", "sinks": ["p1"]},
+    {"id": "prop4", "type": "quiescent-count", "places": ["p1"], "min": 3, "max": 3}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "gen-000164",
+  "places": ["p0", "p1", "p2", "p3", "p4", "q0"],
+  "marking": {"p0": 2, "p2": 1, "p3": 1, "q0": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p4", "kind": "one"}, {"place": "p3", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p2"}]}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p0", "kind": "one"}, {"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p0"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["q0"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p1"]},
+    {"id": "prop2", "type": "place-bound", "place": "p4", "bound": 0},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["q0", "p3"]},
+    {"id": "prop4", "type": "unreachable", "places": ["q0", "p2"]},
+    {"id": "prop5", "type": "quiescent-count", "places": ["q0", "p1", "p2"], "min": 3, "max": 3}
+  ]
+}

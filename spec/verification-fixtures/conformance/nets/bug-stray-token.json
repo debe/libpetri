@@ -1,0 +1,13 @@
+{
+  "id": "bug-stray-token",
+  "places": ["c", "d"],
+  "marking": {"a": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "c", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "d"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["d"]},
+    {"id": "prop1", "type": "place-bound", "place": "a", "bound": 0},
+    {"id": "prop2", "type": "terminates-at-sink", "sinks": ["d"]}
+  ]
+}

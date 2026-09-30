@@ -1,0 +1,7 @@
+{ "id": "gen-000005", "reference": "5a8f7cf51d9602865b8944c49bbe92e6e76340870a9f781d830bbca44d0b8127", "classes": 1, "complete": true,
+  "results": [
+    { "property": "prop0", "verdict": "proven" },
+    { "property": "prop1", "verdict": "proven" },
+    { "property": "prop2", "verdict": "violated", "trace": [] },
+    { "property": "prop3", "verdict": "proven" }
+  ] }

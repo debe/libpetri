@@ -1,0 +1,19 @@
+{
+  "id": "gen-000124",
+  "places": ["p0", "p1", "p2", "p3", "p4", "p5"],
+  "marking": {"p0": 1, "p1": 2, "p2": 1, "p5": 1},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p0", "kind": "atLeast", "n": 1}], "inhibitors": ["p1"], "reads": [], "resets": ["p0"], "output": {"type": "place", "place": "p0"}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p1"}, {"type": "place", "place": "p5"}]}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p1", "to": "p4"}}]}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "p1", "kind": "exactly", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p1"}]}, "priority": 0},
+    {"name": "t3", "inputs": [{"place": "p1", "kind": "one"}, {"place": "p2", "kind": "exactly", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p3"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p2", "to": "p5"}}]}, "priority": 0},
+    {"name": "t4", "inputs": [{"place": "p4", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "p5"}, {"type": "place", "place": "p2"}]}, "priority": 0},
+    {"name": "t5", "inputs": [{"place": "p3", "kind": "one"}, {"place": "p5", "kind": "one"}], "inhibitors": ["p1"], "reads": ["p1"], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "p1"}, {"type": "place", "place": "p4"}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": []},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p2"]},
+    {"id": "prop2", "type": "place-bound", "place": "p4", "bound": 0},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["p1", "p2"]}
+  ]
+}

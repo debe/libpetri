@@ -1,0 +1,12 @@
+{
+  "id": "reap-self-loop",
+  "places": ["p0"],
+  "marking": {"p0": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p0"}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 10}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": []},
+    {"id": "prop1", "type": "place-bound", "place": "p0", "bound": 1}
+  ]
+}

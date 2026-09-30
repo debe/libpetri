@@ -1,0 +1,15 @@
+{
+  "id": "gen-000075",
+  "places": ["p0", "p1"],
+  "marking": {"p1": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": null, "priority": 0, "timing": {"kind": "deadline", "latestMs": 10}},
+    {"name": "t1", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0, "timing": {"kind": "immediate"}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p1", "p0"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p1", "p0"]},
+    {"id": "prop2", "type": "place-bound", "place": "p1", "bound": 1},
+    {"id": "prop3", "type": "quiescent-count", "places": ["p0"], "min": 0, "max": 0}
+  ]
+}

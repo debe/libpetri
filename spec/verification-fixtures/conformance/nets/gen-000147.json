@@ -1,0 +1,21 @@
+{
+  "id": "gen-000147",
+  "places": ["p0", "p1", "p2", "p3", "p4", "p5"],
+  "marking": {"p0": 1, "p1": 2, "p3": 1},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p4", "kind": "one"}, {"place": "p2", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p2", "to": "p4"}}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p5", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p5"}, {"type": "place", "place": "p2"}]}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "p4", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": [], "resets": ["p5"], "output": {"type": "xor", "children": [{"type": "place", "place": "p1"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p4", "to": "p5"}}]}, "priority": 0},
+    {"name": "t3", "inputs": [{"place": "p4", "kind": "one"}, {"place": "p1", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": ["p5"], "resets": [], "output": null, "priority": 0},
+    {"name": "t4", "inputs": [{"place": "p3", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": ["p5"], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p2"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p3", "to": "p3"}}]}, "priority": 0},
+    {"name": "t5", "inputs": [{"place": "p5", "kind": "exactly", "n": 2}], "inhibitors": ["p3"], "reads": [], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": []},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p5"]},
+    {"id": "prop2", "type": "place-bound", "place": "p1", "bound": 2},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["p5", "p4"]},
+    {"id": "prop4", "type": "unreachable", "places": ["p5", "p0"]},
+    {"id": "prop5", "type": "quiescent-count", "places": ["p3"], "min": 1, "max": 1}
+  ]
+}

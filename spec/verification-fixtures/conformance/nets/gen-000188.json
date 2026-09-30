@@ -1,0 +1,19 @@
+{
+  "id": "gen-000188",
+  "places": ["p0", "p1", "q0"],
+  "marking": {"p1": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": ["p0"], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p1", "to": "p0"}}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p1", "kind": "exactly", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p1"}]}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p1", "to": "p0"}}]}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "p1", "kind": "exactly", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p1"}]}, "priority": 0},
+    {"name": "t3", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": ["p1"], "output": {"type": "and", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p1"}]}, "priority": 0},
+    {"name": "t4", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p0"}, "priority": 0},
+    {"name": "t5", "inputs": [{"place": "p0", "kind": "all"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p0"}, {"type": "timeout", "afterMs": 50, "child": {"type": "and", "children": [{"type": "forward", "from": "p0", "to": "p1"}, {"type": "place", "place": "p0"}]}}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["q0", "p0"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["q0"]},
+    {"id": "prop2", "type": "mutual-exclusion", "places": ["p0", "q0"]},
+    {"id": "prop3", "type": "unreachable", "places": ["p1", "p0"]}
+  ]
+}

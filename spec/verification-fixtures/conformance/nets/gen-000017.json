@@ -1,0 +1,21 @@
+{
+  "id": "gen-000017",
+  "places": ["p0", "p1", "p2", "p3", "p4", "q0"],
+  "marking": {"p4": 2, "q0": 2, "s0": 1},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p4", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p2"}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 5}},
+    {"name": "t1", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "p1"}, {"type": "place", "place": "p0"}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 50}},
+    {"name": "t2", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p0"}, "priority": 0, "timing": {"kind": "window", "earliestMs": 3, "latestMs": 8}},
+    {"name": "t3", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": ["p4"], "output": {"type": "place", "place": "p1"}, "priority": 0, "timing": {"kind": "immediate"}},
+    {"name": "t4", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": ["p3"], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0, "timing": {"kind": "window", "earliestMs": 1, "latestMs": 21}},
+    {"name": "t5", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": ["p0"], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p4"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p0", "to": "p3"}}]}, "priority": 0, "timing": {"kind": "window", "earliestMs": 0, "latestMs": 20}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p0", "q0"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": []},
+    {"id": "prop2", "type": "place-bound", "place": "p3", "bound": 0},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["q0", "p2"]},
+    {"id": "prop4", "type": "unreachable", "places": ["p1"]},
+    {"id": "prop5", "type": "quiescent-count", "places": ["q0"], "min": 2, "max": 3}
+  ]
+}

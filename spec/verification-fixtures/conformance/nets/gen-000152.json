@@ -1,0 +1,14 @@
+{
+  "id": "gen-000152",
+  "places": ["p0", "p1", "p2"],
+  "marking": {},
+  "transitions": [
+    {"name": "t0", "inputs": [], "inhibitors": [], "reads": [], "resets": ["p1"], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p2"}, {"type": "place", "place": "p1"}]}, {"type": "place", "place": "p0"}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p0", "p2"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p0", "p2"]},
+    {"id": "prop2", "type": "place-bound", "place": "p0", "bound": 0},
+    {"id": "prop3", "type": "unreachable", "places": ["p1"]}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "gen-000204",
+  "places": ["p0", "p1", "p2", "p3", "p4", "p5"],
+  "marking": {"p0": 2, "p1": 3, "p3": 1, "p4": 3, "p5": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p3", "kind": "atLeast", "n": 1}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p4", "kind": "exactly", "n": 3}], "inhibitors": ["p5"], "reads": [], "resets": [], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "p4", "to": "p3"}}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "p0", "kind": "exactly", "n": 3}, {"place": "p3", "kind": "all"}], "inhibitors": [], "reads": [], "resets": [], "output": null, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p4"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p4", "p2"]},
+    {"id": "prop2", "type": "unreachable", "places": ["p4"]},
+    {"id": "prop3", "type": "quiescent-count", "places": ["p1"], "min": 4, "max": 5}
+  ]
+}

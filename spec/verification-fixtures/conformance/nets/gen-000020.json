@@ -1,0 +1,17 @@
+{
+  "id": "gen-000020",
+  "places": ["p0", "p1", "p2", "p3"],
+  "marking": {"p2": 1, "p3": 3},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p2", "kind": "all"}], "inhibitors": [], "reads": ["p1"], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": null, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p1", "p3"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p2"]},
+    {"id": "prop2", "type": "place-bound", "place": "p2", "bound": 0},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["p1", "p0"]},
+    {"id": "prop4", "type": "unreachable", "places": ["p3"]},
+    {"id": "prop5", "type": "quiescent-count", "places": ["p1", "p3", "p2"], "min": 5}
+  ]
+}

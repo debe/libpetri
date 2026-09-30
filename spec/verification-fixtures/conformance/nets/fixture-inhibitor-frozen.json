@@ -1,0 +1,13 @@
+{
+  "id": "fixture-inhibitor-frozen",
+  "places": ["p0", "blocker", "p1"],
+  "marking": {"p0": 1, "blocker": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": ["blocker"], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "unreachable", "places": ["p1"]},
+    {"id": "prop1", "type": "deadlock-free", "sinks": []},
+    {"id": "prop2", "type": "place-bound", "place": "p0", "bound": 1}
+  ]
+}

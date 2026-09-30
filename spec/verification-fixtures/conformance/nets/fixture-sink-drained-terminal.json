@@ -1,0 +1,13 @@
+{
+  "id": "fixture-sink-drained-terminal",
+  "places": ["p0", "done"],
+  "marking": {"p0": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": null, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["done"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["done"]},
+    {"id": "prop2", "type": "place-bound", "place": "done", "bound": 0}
+  ]
+}

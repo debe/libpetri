@@ -1,0 +1,9 @@
+{ "id": "gen-000080", "reference": "5a8f7cf51d9602865b8944c49bbe92e6e76340870a9f781d830bbca44d0b8127", "classes": 100000, "complete": false,
+  "results": [
+    { "property": "prop0", "verdict": "violated", "trace": [] },
+    { "property": "prop1", "verdict": "unknown", "reason": "cap" },
+    { "property": "prop2", "verdict": "unknown", "reason": "cap" },
+    { "property": "prop3", "verdict": "violated", "trace": [] },
+    { "property": "prop4", "verdict": "violated", "trace": [] },
+    { "property": "prop5", "verdict": "unknown", "reason": "cap" }
+  ] }

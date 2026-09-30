@@ -1,0 +1,19 @@
+{
+  "id": "gen-000174",
+  "places": ["p0", "p1", "p2", "p3", "p4", "p5"],
+  "marking": {"p0": 1, "p2": 1, "p3": 3, "p4": 1, "s0": 2},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p1", "kind": "exactly", "n": 2}, {"place": "p2", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p4"}, {"type": "place", "place": "p0"}]}, {"type": "timeout", "afterMs": 50, "child": {"type": "and", "children": [{"type": "forward", "from": "p2", "to": "p2"}, {"type": "place", "place": "p3"}]}}]}, "priority": 0, "timing": {"kind": "delayed", "earliestMs": 5}},
+    {"name": "t1", "inputs": [], "inhibitors": ["p1"], "reads": [], "resets": ["p2"], "output": {"type": "place", "place": "p5"}, "priority": 0, "timing": {"kind": "immediate"}},
+    {"name": "t2", "inputs": [{"place": "p1", "kind": "one"}, {"place": "p5", "kind": "all"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p5"}, "priority": 0, "timing": {"kind": "immediate"}},
+    {"name": "t3", "inputs": [{"place": "p3", "kind": "exactly", "n": 3}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0, "timing": {"kind": "delayed", "earliestMs": 5}},
+    {"name": "t4", "inputs": [{"place": "p4", "kind": "atLeast", "n": 1}], "inhibitors": [], "reads": [], "resets": ["p2"], "output": {"type": "and", "children": [{"type": "place", "place": "p0"}, {"type": "place", "place": "p3"}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 50}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["s0"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p4", "p5"]},
+    {"id": "prop2", "type": "mutual-exclusion", "places": ["p1", "p5"]},
+    {"id": "prop3", "type": "unreachable", "places": ["p3", "p5"]},
+    {"id": "prop4", "type": "quiescent-count", "places": ["p1", "p2"], "min": 1, "max": 1}
+  ]
+}

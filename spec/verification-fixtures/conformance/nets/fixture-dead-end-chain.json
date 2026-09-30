@@ -1,0 +1,16 @@
+{
+  "id": "fixture-dead-end-chain",
+  "places": ["p0", "p1", "p2"],
+  "marking": {"p0": 1},
+  "transitions": [
+    {"name": "t01", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0},
+    {"name": "t12", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p2"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": []},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p2"]},
+    {"id": "prop2", "type": "place-bound", "place": "p2", "bound": 0},
+    {"id": "prop3", "type": "unreachable", "places": ["p0", "p2"]},
+    {"id": "prop4", "type": "deadlock-free", "sinks": ["p2"]}
+  ]
+}

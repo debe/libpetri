@@ -1,0 +1,16 @@
+{
+  "id": "gen-000129",
+  "places": ["p0", "p1", "p2", "p3", "p4"],
+  "marking": {"p2": 3, "p3": 3, "p4": 1},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p2", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "and", "children": [{"type": "place", "place": "p3"}, {"type": "place", "place": "p1"}]}, {"type": "place", "place": "p0"}]}, "priority": 0},
+    {"name": "t1", "inputs": [{"place": "p3", "kind": "exactly", "n": 3}, {"place": "p4", "kind": "one"}], "inhibitors": [], "reads": ["p0"], "resets": ["p3"], "output": {"type": "timeout", "afterMs": 50, "child": {"type": "and", "children": [{"type": "forward", "from": "p3", "to": "p2"}, {"type": "place", "place": "p3"}]}}, "priority": 0},
+    {"name": "t2", "inputs": [{"place": "p2", "kind": "atLeast", "n": 1}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p2"}, {"type": "place", "place": "p0"}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "terminates-at-sink", "sinks": ["p1"]},
+    {"id": "prop1", "type": "place-bound", "place": "p4", "bound": 0},
+    {"id": "prop2", "type": "unreachable", "places": ["p3", "p2"]},
+    {"id": "prop3", "type": "quiescent-count", "places": ["p2"], "min": 0}
+  ]
+}

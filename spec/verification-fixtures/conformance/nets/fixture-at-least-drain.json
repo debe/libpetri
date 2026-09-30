@@ -1,0 +1,13 @@
+{
+  "id": "fixture-at-least-drain",
+  "places": ["p0", "p1"],
+  "marking": {"p0": 3},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "atLeast", "n": 2}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "p1"}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "place-bound", "place": "p1", "bound": 1},
+    {"id": "prop1", "type": "quiescent-count", "places": ["p0"], "min": 0, "max": 0},
+    {"id": "prop2", "type": "deadlock-free", "sinks": ["p1"]}
+  ]
+}

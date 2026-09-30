@@ -1,0 +1,16 @@
+{
+  "id": "gen-000008",
+  "places": ["p0", "p1", "p2", "p3", "p4"],
+  "marking": {"p1": 1},
+  "transitions": [
+    {"name": "t0", "inputs": [{"place": "p1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "p4"}, {"type": "place", "place": "p4"}]}, "priority": 0, "timing": {"kind": "deadline", "latestMs": 10}}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["p2"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["p1", "p0"]},
+    {"id": "prop2", "type": "place-bound", "place": "p3", "bound": 0},
+    {"id": "prop3", "type": "mutual-exclusion", "places": ["p3", "p1"]},
+    {"id": "prop4", "type": "unreachable", "places": ["p3", "p4"]},
+    {"id": "prop5", "type": "quiescent-count", "places": ["p0"], "min": 0, "max": 1}
+  ]
+}

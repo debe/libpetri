@@ -1,0 +1,17 @@
+{
+  "id": "fixture-mutex-locked",
+  "places": ["idle1", "idle2", "lock", "crit1", "crit2"],
+  "marking": {"idle1": 1, "idle2": 1, "lock": 1},
+  "transitions": [
+    {"name": "enter1", "inputs": [{"place": "idle1", "kind": "one"}, {"place": "lock", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "crit1"}, "priority": 0},
+    {"name": "exit1", "inputs": [{"place": "crit1", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "idle1"}, {"type": "place", "place": "lock"}]}, "priority": 0},
+    {"name": "enter2", "inputs": [{"place": "idle2", "kind": "one"}, {"place": "lock", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "place", "place": "crit2"}, "priority": 0},
+    {"name": "exit2", "inputs": [{"place": "crit2", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "idle2"}, {"type": "place", "place": "lock"}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "mutual-exclusion", "places": ["crit1", "crit2"]},
+    {"id": "prop1", "type": "deadlock-free", "sinks": []},
+    {"id": "prop2", "type": "place-bound", "place": "lock", "bound": 1},
+    {"id": "prop3", "type": "unreachable", "places": ["crit1", "lock"]}
+  ]
+}

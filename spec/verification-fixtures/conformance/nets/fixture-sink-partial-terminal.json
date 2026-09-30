@@ -1,0 +1,13 @@
+{
+  "id": "fixture-sink-partial-terminal",
+  "places": ["p0", "done", "stuck"],
+  "marking": {"p0": 1},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "p0", "kind": "one"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "and", "children": [{"type": "place", "place": "done"}, {"type": "place", "place": "stuck"}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "deadlock-free", "sinks": ["done"]},
+    {"id": "prop1", "type": "terminates-at-sink", "sinks": ["done"]},
+    {"id": "prop2", "type": "mutual-exclusion", "places": ["done", "stuck"]}
+  ]
+}

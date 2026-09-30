@@ -1,0 +1,13 @@
+{
+  "id": "bug-drained-forward",
+  "places": ["a", "b", "c"],
+  "marking": {"a": 2},
+  "transitions": [
+    {"name": "t", "inputs": [{"place": "a", "kind": "all"}], "inhibitors": [], "reads": [], "resets": [], "output": {"type": "xor", "children": [{"type": "place", "place": "c"}, {"type": "timeout", "afterMs": 50, "child": {"type": "forward", "from": "a", "to": "b"}}]}, "priority": 0}
+  ],
+  "properties": [
+    {"id": "prop0", "type": "place-bound", "place": "b", "bound": 1},
+    {"id": "prop1", "type": "place-bound", "place": "b", "bound": 2},
+    {"id": "prop2", "type": "deadlock-free", "sinks": ["b", "c"]}
+  ]
+}
