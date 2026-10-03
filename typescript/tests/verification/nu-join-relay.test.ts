@@ -331,7 +331,7 @@ describe('NU-054 Route A plan', () => {
     const initial = m.build();
     const flat = flatten(net);
     const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    return { flat, plan: buildColouredPlan(net, flat, initial, declaredMints(net, new Set(budgets), new Set()), mode, new Set(), semiflows) };
+    return { flat, plan: buildColouredPlan(net, flat, initial, declaredMints(net, new Set(budgets), new Set()), mode, new Set(), () => semiflows) };
   }
 
   it('colours a relay target no join consumes, and produces on it from the join', () => {

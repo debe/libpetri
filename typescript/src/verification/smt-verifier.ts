@@ -1000,12 +1000,14 @@ export class SmtVerifier {
    *
    * `invariants` is what the encoder conjoins into every rule body (the null-space
    * basis, unioned with the semiflows when VER-007 is enabled); `semiflows` sets the
-   * colour-slot bound k (NU-053). They are not the same list.
+   * colour-slot bound k (NU-053). They are not the same list. `semiflows` is a thunk,
+   * passed through to `buildColouredPlan`, which calls it only once every structural
+   * check has passed, because their enumeration is worst-case exponential.
    */
   private colouredAttempt(
     flatNet: FlatNet,
     invariants: readonly PInvariant[],
-    semiflows: readonly PInvariant[],
+    semiflows: () => readonly PInvariant[],
   ): { plan: ColouredPlan | null; encoding: SmtEncoding | null } {
     const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const nuBounded = this._budgetPlaces.size > 0;
@@ -1055,17 +1057,18 @@ export class SmtVerifier {
     // something the pipeline never emits.
     const autoUnion = this._semiflowInvariants === 'auto'
       && basisDropped.some(d => d.reason.includes('Strengthening.lean H1'));
-    // Same gate as verify(): only compute what something will read (see there).
+    // Same gate as verify(): only compute what something will read (see there). The
+    // coloured plan's slot bound asks for them through the thunk, only when it is built.
     const scriptsHasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
-    const { valid: semiflows } = this._semiflowInvariants === true || autoUnion || (scriptsHasMatch && this._budgetPlaces.size > 0)
-      ? validateInvariantsExact(
-          matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
-        )
-      : { valid: [] as PInvariant[] };
+    const unionWanted = this._semiflowInvariants === true || autoUnion;
+    const computeSemiflows = (): readonly PInvariant[] => validateInvariantsExact(
+      matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
+    ).valid;
+    const semiflows = unionWanted ? computeSemiflows() : null;
     let invariants: readonly PInvariant[] = basis;
-    if (this._semiflowInvariants === true || autoUnion) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
+    if (semiflows !== null) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
     invariants = canonicalInvariantOrder(invariants);
-    const attempt = this.colouredAttempt(flatNet, invariants, semiflows);
+    const attempt = this.colouredAttempt(flatNet, invariants, () => semiflows ?? computeSemiflows());
     // The bound query (VER-015) exactly when verify() would send it: enabled, not refused
     // by VER-006, and a property with a linear demand (else null). A coloured plan does not
     // suppress it: verify() sends the bound before the name-coloured query.
@@ -1616,8 +1619,10 @@ export class SmtVerifier {
     // buildColouredPlan / colourSlotBound) — validated the same way (incl. the H1
     // linearity guard) before they can set that bound, mirroring the Rust verifier.
     //
-    // Computed ONLY when something will read them: the [VER-007] union, or the
-    // coloured plan's slot bound. The enumeration is worst-case exponential — the
+    // Computed ONLY when something will read them: the [VER-007] union here, or the
+    // coloured plan's slot bound, which asks for them on demand once the linear bound
+    // ([VER-015]) has failed to end the query without them. The enumeration is
+    // worst-case exponential — the
     // minimal semiflows of `k` independent diamonds in series number 2^k, measured
     // at 2 048 for eleven and 8 189 (the backstop) beyond thirteen — so running it
     // for a caller who asked for neither is a large cost, and on a wide net an
@@ -1631,11 +1636,9 @@ export class SmtVerifier {
     // drops are already known at this point, so this decides in ONE pass rather
     // than running the pipeline twice to read its own report.
     const basisLostALaw = droppedInvariants.some(d => d.reason.includes('Strengthening.lean H1'));
-    const semiflowsWanted =
-      this._semiflowInvariants === true ||
-      (this._semiflowInvariants === 'auto' && basisLostALaw) ||
-      (hasMatch && nuBounded);
-    const { valid: semiflows, dropped: droppedSemiflows } = semiflowsWanted
+    const unionWanted =
+      this._semiflowInvariants === true || (this._semiflowInvariants === 'auto' && basisLostALaw);
+    const { valid: semiflows, dropped: droppedSemiflows } = unionWanted
       ? validateInvariantsExact(
           matrix,
           computePSemiflows(matrix, flatNet, this._initialMarking, run.deadline),
@@ -1653,10 +1656,8 @@ export class SmtVerifier {
         : '  Semiflow union: off (auto — the basis is complete, so the semiflows would add no ' +
           'constraint the encoding does not already have; they may still differ in FORM)');
     }
-    // The UNION is a separate decision from computing them: a coloured plan needs
-    // the slot bound without wanting the laws conjoined.
-    const unionWanted =
-      this._semiflowInvariants === true || (this._semiflowInvariants === 'auto' && basisLostALaw);
+    // The UNION is a separate decision from the slot bound: a coloured plan needs the
+    // semiflows without wanting the laws conjoined, and computes them itself below.
     let invariants: readonly PInvariant[] = basisInvariants;
     if (unionWanted) {
       const { invariants: strengthened, added } = strengthenWithSemiflows(basisInvariants, semiflows);
@@ -1724,18 +1725,6 @@ export class SmtVerifier {
     }
     report.push(`  Solver: z3 ${formatZ3Version(solver.version)}`);
 
-    // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
-    // the supported fragment, encode names as a finite colour set (k = the declared
-    // budget) with exact same-colour join matching, instead of the name-blind
-    // over-approximation — this rules out spurious counterexamples that would equate
-    // two distinct names. Reachability-safety AND quiescence (NU-053) properties are
-    // both routed here; a net outside the fragment keeps the flat encoding.
-    //
-    // After the solver resolves, not before: the helper encodes as well as plans, and
-    // encoding for a solver that turns out to be missing is work thrown away. Java and
-    // Rust order it the same way.
-    const colouredAttempt = this.colouredAttempt(flatNet, invariants, semiflows);
-    const colouredPlan: ColouredPlan | null = colouredAttempt.plan;
     if (hasMatch && nuBounded && flatNet.environmentInjection.size > 0) {
       report.push('  ν-encoding: name-blind over-approximation (the name-coloured encoding does not');
       report.push('  model environment injection, VER-006)');
@@ -1797,6 +1786,38 @@ export class SmtVerifier {
         if (decided != null) return decided;
       }
     }
+
+    // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
+    // the supported fragment, encode names as a finite colour set (k = the declared
+    // budget) with exact same-colour join matching, instead of the name-blind
+    // over-approximation — this rules out spurious counterexamples that would equate
+    // two distinct names. Reachability-safety AND quiescence (NU-053) properties are
+    // both routed here; a net outside the fragment keeps the flat encoding.
+    //
+    // Built only after the linear bound: the plan's slot bound reads the semiflows, and
+    // on a composed net their enumeration costs seconds to tens of seconds (and truncates)
+    // that a structural Proven never needed. Nothing above reads the plan.
+    const colouredAttempt = this.colouredAttempt(flatNet, invariants, () => {
+      let valid = semiflows;
+      if (!unionWanted) {
+        // The enumeration was the tail of the P-invariant phase before it moved here,
+        // so a total budget that ends it still names that phase (VER-013).
+        this.enter(run, 'P-invariant computation');
+        const validation = validateInvariantsExact(
+          matrix,
+          computePSemiflows(matrix, flatNet, this._initialMarking, run.deadline),
+          flatNet,
+          this._initialMarking,
+        );
+        for (const { invariant, reason } of validation.dropped) {
+          report.push(`  Dropped semiflow: ${formatInvariant(invariant, flatNet)} - ${reason}`);
+        }
+        valid = validation.valid;
+      }
+      report.push(`  P-semiflows for the colour-slot bound: ${valid.length}`);
+      return valid;
+    });
+    const colouredPlan: ColouredPlan | null = colouredAttempt.plan;
 
     let encoding: SmtEncoding;
     if (colouredPlan != null) {

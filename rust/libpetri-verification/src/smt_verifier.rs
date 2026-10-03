@@ -1610,8 +1610,10 @@ impl<'a> SmtVerifier<'a> {
         // (see build_plan / colour_slot_bound) — validated the same way before they
         // can set that bound.
         //
-        // Computed ONLY when something will read them ([VER-007]): the union, or
-        // the coloured plan's slot bound. The enumeration is worst-case
+        // Computed ONLY when something will read them ([VER-007]): the union here, or
+        // the coloured plan's slot bound, which asks for them on demand once the
+        // linear bound ([VER-015]) has failed to end the query without them. The
+        // enumeration is worst-case
         // exponential — the minimal semiflows of `k` independent diamonds in
         // series number 2^k — so running it for a caller who asked for neither is
         // a large cost, and on a wide net an uncatchable one: the heap it exhausts
@@ -1629,10 +1631,9 @@ impl<'a> SmtVerifier<'a> {
             .dropped
             .iter()
             .any(|d| d.contains("Strengthening.lean H1"));
-        let semiflows_wanted = self.semiflow_invariants == SemiflowMode::On
-            || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law)
-            || (has_match && nu_bounded);
-        let semiflow_validation = if semiflows_wanted {
+        let union_wanted = self.semiflow_invariants == SemiflowMode::On
+            || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law);
+        let semiflow_validation = if union_wanted {
             p_invariant::validate_invariants_exact(
                 p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
                 &matrix,
@@ -1658,10 +1659,9 @@ impl<'a> SmtVerifier<'a> {
 no constraint the encoding does not already have; they may still differ in FORM)\n"
             });
         }
-        // The UNION is a separate decision from computing them: a coloured plan
-        // needs the slot bound without wanting the laws conjoined.
-        let union_wanted = self.semiflow_invariants == SemiflowMode::On
-            || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law);
+        // The UNION is a separate decision from the slot bound: a coloured plan
+        // needs the semiflows without wanting the laws conjoined, and computes them
+        // itself below.
         let invariants = if union_wanted {
             let (strengthened, added) =
                 p_invariant::strengthen_with_semiflows(invariants, &semiflows);
@@ -1758,26 +1758,6 @@ no constraint the encoding does not already have; they may still differ in FORM)
             }
         };
 
-        // ν-net refinement (NU-050 #1, Route A). For a budget-declared ν-net in the
-        // supported mint→matched-join fragment, encode names as a finite colour set
-        // (k = the colour-slot bound of a covering non-negative P-semiflow, which
-        // bounds the live names) with same-colour join matching, instead of the
-        // name-blind over-approximation. This rules out counterexamples that would
-        // equate two distinct names. A verdict holds while the declared mints and
-        // the coloured consumers keep their contracts ([NU-010], [NU-051]).
-        // Reachability-safety AND quiescence ([NU-053]) properties are both routed
-        // here; a net outside the fragment keeps the flat encoding.
-        let (coloured_plan, coloured_encoding) = match self.coloured_attempt(
-            &flat,
-            &property,
-            &invariants,
-            &semiflows,
-            &sink_places,
-            &env_injection,
-        ) {
-            Some((plan, encoding)) => (Some(plan), encoding),
-            None => (None, None),
-        };
         if has_match && nu_bounded && !env_injection.is_empty() {
             report.push_str(
                 "  ν-encoding: name-blind over-approximation (the name-coloured encoding does not\n  model environment injection, VER-006)\n",
@@ -1789,31 +1769,31 @@ no constraint the encoding does not already have; they may still differ in FORM)
             }
         }
 
-        // Flat path: a property naming a place outside the net would encode to a
-        // vacuous violation predicate (`false` proves anything), and its linear
-        // demand ([VER-015]) would be that of a stricter property. Refuse before any
-        // query, as the coloured path does, so a mis-named place never silently
-        // certifies.
-        if coloured_plan.is_none() {
-            if let Some(name) = unresolved_property_place(&flat, &property) {
-                let reason = format!(
-                    "property names a place that does not resolve in the net ('{name}'); \
-                     refusing to certify (the encoding would be vacuously proven)"
-                );
-                report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
-                let elapsed_ms = start.elapsed().as_millis() as u64;
-                return build_result(
-                    Verdict::Unknown { reason },
-                    VerificationRoute::Unavailable,
-                    report,
-                    elapsed_ms,
-                    flat_statistics(&flat, invariants.len(), structural_str),
-                    Diagnostics {
-                        invariants,
-                        ..Diagnostics::none()
-                    },
-                );
-            }
+        // A property naming a place outside the net would encode to a vacuous
+        // violation predicate (`false` proves anything), and its linear demand
+        // ([VER-015]) would be that of a stricter property. Refuse before any query,
+        // as the coloured path does, so a mis-named place never silently certifies.
+        // Not gated on the coloured plan, which is built only after the linear bound
+        // (below): the plan's own refusal reads the same flat net, so the gate never
+        // separated the two.
+        if let Some(name) = unresolved_property_place(&flat, &property) {
+            let reason = format!(
+                "property names a place that does not resolve in the net ('{name}'); \
+                 refusing to certify (the encoding would be vacuously proven)"
+            );
+            report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            return build_result(
+                Verdict::Unknown { reason },
+                VerificationRoute::Unavailable,
+                report,
+                elapsed_ms,
+                flat_statistics(&flat, invariants.len(), structural_str),
+                Diagnostics {
+                    invariants,
+                    ..Diagnostics::none()
+                },
+            );
         }
 
         // Linear state-equation bound ([VER-015]): a reachability-safety property
@@ -1904,6 +1884,63 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 return result;
             }
         }
+
+        // ν-net refinement (NU-050 #1, Route A). For a budget-declared ν-net in the
+        // supported mint→matched-join fragment, encode names as a finite colour set
+        // (k = the colour-slot bound of a covering non-negative P-semiflow, which
+        // bounds the live names) with same-colour join matching, instead of the
+        // name-blind over-approximation. This rules out counterexamples that would
+        // equate two distinct names. A verdict holds while the declared mints and
+        // the coloured consumers keep their contracts ([NU-010], [NU-051]).
+        // Reachability-safety AND quiescence ([NU-053]) properties are both routed
+        // here; a net outside the fragment keeps the flat encoding.
+        //
+        // Built only after the linear bound: the plan's slot bound reads the
+        // semiflows, and on a composed net their enumeration costs seconds to tens of
+        // seconds (and truncates) that a structural Proven never needed. Nothing above
+        // reads the plan.
+        let (coloured_plan, coloured_encoding) = match self.coloured_attempt(
+            &flat,
+            &property,
+            &invariants,
+            || {
+                let valid = if union_wanted {
+                    semiflows
+                } else {
+                    // The enumeration was the tail of the P-invariant phase before it
+                    // moved here, so a total budget that ends it still names that
+                    // phase ([VER-013]). A stop already due is charged to the step
+                    // before and ends the query at the next step; skip the work.
+                    if total_budget::step("P-invariant computation") {
+                        return Vec::new();
+                    }
+                    let validation = p_invariant::validate_invariants_exact(
+                        p_invariant::compute_p_semiflows(
+                            &matrix,
+                            &self.initial_marking,
+                            &flat.places,
+                        ),
+                        &matrix,
+                        &self.initial_marking,
+                        &flat,
+                    );
+                    for reason in &validation.dropped {
+                        report.push_str(&format!("  Dropped semiflow: {reason}\n"));
+                    }
+                    validation.valid
+                };
+                report.push_str(&format!(
+                    "  P-semiflows for the colour-slot bound: {}\n",
+                    valid.len()
+                ));
+                valid
+            },
+            &sink_places,
+            &env_injection,
+        ) {
+            Some((plan, encoding)) => (Some(plan), encoding),
+            None => (None, None),
+        };
 
         step!("IC3/PDR query", VerificationRoute::Smt, stats());
         let encoding = if let Some(plan) = &coloured_plan {
@@ -2158,7 +2195,7 @@ no constraint the encoding does not already have; they may still differ in FORM)
             &flat,
             &property,
             &invariants,
-            &semiflows,
+            || semiflows,
             &sink_places,
             &env_injection,
         );
@@ -2255,15 +2292,18 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// the shared fixtures.)
     ///
     /// `invariants` is what the encoder conjoins into every rule body (the null-space
-    /// basis, unioned with the semiflows when [VER-007] is enabled); `semiflows` sets
-    /// the colour-slot bound `k` ([NU-053]). They are not the same list.
+    /// basis, unioned with the semiflows when [VER-007] is enabled); `semiflows`
+    /// supplies the gate-validated semiflows that set the colour-slot bound `k`
+    /// ([NU-053]). They are not the same list. Deferred so a net that never reaches
+    /// `build_plan` never pays for the enumeration, and so `verify()` can build the
+    /// plan after the linear bound without computing them before it.
     #[allow(clippy::too_many_arguments)]
     fn coloured_attempt(
         &self,
         flat: &FlatNet,
         property: &SmtProperty,
         invariants: &[PInvariant],
-        semiflows: &[PInvariant],
+        semiflows: impl FnOnce() -> Vec<PInvariant>,
         sink_places: &[String],
         env_injection: &[(String, Option<usize>)],
     ) -> Option<(name_coloured_encoder::ColouredPlan, Option<smt_encoder::SmtEncoding>)> {

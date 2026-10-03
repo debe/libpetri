@@ -651,7 +651,9 @@ beyond thirteen. Computing them for a caller who enabled neither this option nor
 colour-slot bound is a large unforced cost — 27 s of preprocessing on a 24-layer net before the
 solver sees anything — and on a wide net an **uncatchable** one, since the heap it exhausts
 aborts the process rather than returning a verdict. An implementation MUST compute semiflows
-only when the option is enabled or a coloured plan needs the bound.
+only when the option is enabled or a coloured plan needs the bound. A coloured plan needs it only
+once the query reaches the coloured encoding: the [VER-015] bound runs first and does not read
+it, so a query the bound proves never runs the enumeration.
 
 An implementation SHOULD therefore offer an option that unions the gate-validated semiflows
 into the invariant list the encoders receive, and SHOULD offer an **`auto`** setting that
@@ -1067,7 +1069,10 @@ conditions as the flat path (enabled, a reachability-safety property, not `Ignor
 environment places, the total budget and cancellation of [VER-013] respected), with the same
 phase name. `Proven` returns as on the flat path — method `structural`, the lines of AC1 — and
 keeps any ν-encoding notes already in the report; anything else hands over to the coloured
-query, whose verdict and notes are unchanged. Route B ([VER-012]) keeps its place in the
+query, whose verdict and notes are unchanged. The coloured plan is built only after the bound
+fails to prove, because its colour-slot bound reads the semiflows ([VER-007]). On a composed
+ν-net of 255 places and 341 transitions their enumeration took 15 to 25 s per query and
+truncated, while the bound proved each property in about 100 ms. Route B ([VER-012]) keeps its place in the
 dispatch: the bound runs after it, never before. The colour-slot bound of the coloured encoding
 is a structural P-semiflow count, often two to four times the declared budget, and IC3 over that
 many colour slots can time out on a bound the flat state equation proves in milliseconds. On six

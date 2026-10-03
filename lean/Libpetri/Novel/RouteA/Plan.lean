@@ -426,18 +426,24 @@ theorem classifyAll_spec {C : List PlaceId} {ext : Bool} {g : Gate} :
         exact ⟨s', List.mem_cons_of_mem s hs', h1, h2, h3⟩
     · exact absurd h (by simp)
 
-/-- `build_plan` (`name_coloured_encoder.rs`), from the coloured set on, with the gates `g`. -/
+/-- `build_plan` (`name_coloured_encoder.rs`), from the coloured set on, with the gates `g`.
+The colour-slot bound comes last, as in the Rust: every refusal before it is independent of
+`k`, and the semiflow enumeration it reads is the expensive step. Each branch is a pure
+`Option` refusal, so the order changes which `none` is returned first, never the result. -/
 def buildPlanG (n : Nat) (C : List PlaceId) (ext : Bool) (g : Gate) (a0 : AMarking)
     (laws : List Law) (src : List SrcRow) : Option (Nat × List CRow) :=
   if C = [] then none
   else if C.any (fun p => a0 p != 0) then none
+  else if src.any (fun s => !arcsOK C s.t) then none
   else
-    match colourSlotBound n C laws with
+    match classifyAllG C ext g src with
     | none => none
-    | some k =>
-      if k = 0 ∧ C.length = n then none
-      else if src.any (fun s => !arcsOK C s.t) then none
-      else (classifyAllG C ext g src).map fun rows => (k, rows)
+    | some rows =>
+      match colourSlotBound n C laws with
+      | none => none
+      | some k =>
+        if k = 0 ∧ C.length = n then none
+        else some (k, rows)
 
 /-- **`build_plan` as shipped**: the gates of `shippedGate` (declared mints, timeout writes). -/
 def buildPlan (n : Nat) (C : List PlaceId) (ext : Bool) (a0 : AMarking) (laws : List Law)
@@ -488,15 +494,17 @@ theorem buildPlanG_premisesS {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate
   rename_i hempty
   split at h
   · exact absurd h (by simp)
+  rename_i harcs
+  split at h
+  · exact absurd h (by simp)
+  rename_i rows' hrows'
+  split at h
+  · exact absurd h (by simp)
   rename_i k' hk
   split at h
   · exact absurd h (by simp)
-  split at h
-  · exact absurd h (by simp)
-  rename_i harcs
-  obtain ⟨rows', hrows', hkr⟩ := Option.map_eq_some_iff.mp h
-  simp only [Prod.mk.injEq] at hkr
-  obtain ⟨rfl, rfl⟩ := hkr
+  simp only [Option.some.injEq, Prod.mk.injEq] at h
+  obtain ⟨rfl, rfl⟩ := h
   obtain ⟨hmap, hall⟩ := classifyAll_spec hrows'
   simp only [List.any_eq_true, Bool.not_eq_true', not_exists, not_and, Bool.not_eq_false]
     at harcs hempty

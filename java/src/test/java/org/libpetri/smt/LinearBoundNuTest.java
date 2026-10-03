@@ -9,10 +9,19 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.libpetri.analysis.FragmentMode;
+import org.libpetri.core.Arc.In;
+import org.libpetri.core.Arc.Out;
+import org.libpetri.core.MatchSpec;
+import org.libpetri.core.NameId;
+import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.Transition;
+import org.libpetri.fixtures.StructureOnly;
 import org.libpetri.smt.SmtVerificationResult.Route;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,6 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @EnabledIf("z3Available")
 class LinearBoundNuTest {
+
+    /** The report line the colour-slot bound prints when it reads the semiflows. */
+    private static final String SLOT_SEMIFLOWS = "P-semiflows for the colour-slot bound";
 
     static boolean z3Available() {
         return SmtVerifier.z3Available();
@@ -63,6 +75,9 @@ class LinearBoundNuTest {
             assertEquals(Route.STRUCTURAL, r.route(), r.report());
             assertTrue(r.report().contains("PROVEN (structural)"), r.report());
             assertTrue(r.report().contains("(VER-015)"), r.report());
+            // The coloured plan is built after the bound, so a structural Proven never runs
+            // the semiflow enumeration it would read (25 s on a composed 341-transition net).
+            assertFalse(r.report().contains(SLOT_SEMIFLOWS), r.report());
             assertTrue(r.elapsed().compareTo(Duration.ofSeconds(2)) < 0,
                 "a structural proof, far under the 8 s timeout: " + r.elapsed());
         }
@@ -78,6 +93,7 @@ class LinearBoundNuTest {
         assertTrue(r.isProven(), r.report());
         assertEquals(Route.SMT, r.route(), r.report());
         assertTrue(r.report().contains("ν-encoding: name-coloured (colour-slot bound"), r.report());
+        assertTrue(r.report().contains(SLOT_SEMIFLOWS), r.report());
 
         // A false bound: the linear bound cannot prove it, Route A finds the violation as before.
         var fig = JoinRelayTest.fig12c(true);
@@ -86,6 +102,34 @@ class LinearBoundNuTest {
         assertTrue(v.isViolated(), v.report());
         assertEquals(Route.SMT, v.route(), v.report());
         assertTrue(v.report().contains("ν-encoding: name-coloured (colour-slot bound"), v.report());
+    }
+
+    @Test
+    void aNuNetThePlanRefuses_neverRunsTheSemiflowEnumeration() {
+        // mB consumes the budget place S2, so it is a declared mint; mA writes A from the plain
+        // place W and is not one (NU-010). The plan refuses the net at the classification, which
+        // needs no colour-slot bound, so the semiflows behind that bound are never enumerated.
+        Place<String> w = Place.of("W", String.class);
+        Place<String> s2 = Place.of("S2", String.class);
+        Place<String> a = Place.of("A", String.class);
+        Place<String> b = Place.of("B", String.class);
+        Place<String> done = Place.of("DONE", String.class);
+        var net = StructureOnly.bind(PetriNet.builder("undeclared_producer").transitions(
+            Transition.builder("mA").inputs(In.one(w)).outputs(Out.place(a)).build(),
+            Transition.builder("mB").inputs(In.one(s2)).outputs(Out.place(b)).build(),
+            Transition.builder("J").inputs(In.one(a), In.one(b))
+                .match(MatchSpec.builder().key(a, (String x) -> NameId.of(x)).key(b, (String x) -> NameId.of(x)).build())
+                .outputs(Out.place(done)).build()).build());
+        var r = SmtVerifier.forNet(net)
+            .initialMarking(m -> m.tokens(w, 1).tokens(s2, 1))
+            .property(SmtProperty.placeBound(done, 0))
+            .budgetPlaces(s2)
+            .timeout(Duration.ofSeconds(8))
+            .verify();
+        assertFalse(r.isProven(), r.report());
+        assertFalse(r.report().contains("ν-encoding: name-coloured"), r.report());
+        assertNotEquals(Route.NU_SCG, r.route(), r.report());
+        assertFalse(r.report().contains(SLOT_SEMIFLOWS), r.report());
     }
 
     @Test

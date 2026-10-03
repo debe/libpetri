@@ -209,14 +209,19 @@ fn colour_slot_bound(coloured: &[usize], invariants: &[PInvariant]) -> Option<us
 /// without consuming one is a mint only when its transition is named there, and never
 /// when the transition writes a coloured place on timeout. A join's timeout may write a
 /// relay target only by forwarding one of its match keys.
-pub fn build_plan(
+///
+/// `invariants` supplies the gate-validated P-semiflows that set the colour-slot
+/// bound. It is called once, and only after every structural refusal has passed: the
+/// enumeration behind it is worst-case exponential, and none of those refusals reads
+/// `k`.
+pub fn build_plan<S: AsRef<[PInvariant]>>(
     net: &PetriNet,
     flat: &FlatNet,
     initial: &MarkingState,
     mints: &BTreeSet<String>,
     fragment_mode: FragmentMode,
     carrier_places: &HashSet<String>,
-    invariants: &[PInvariant],
+    invariants: impl FnOnce() -> S,
 ) -> Option<ColouredPlan> {
     let p = flat.place_count;
 
@@ -277,28 +282,6 @@ pub fn build_plan(
         if initial.count(&flat.places[pid]) != 0 {
             return None;
         }
-    }
-
-    // Colour-slot bound k: a colour is live iff some coloured place holds it, so
-    // `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
-    // weighting every coloured place `≥ 1`. `k` is the tightest such `y·M0` (each
-    // `PInvariant.constant` is `y·M0`); any `k ≥ #live` is sound — a larger k only
-    // costs O(k) columns, never under-approximates, since a mint may take any free
-    // slot behind the freshness guard. If no covering non-negative semiflow exists the
-    // coloured set is not structurally token-bounded (a genuine unbounded colour leak),
-    // so fall back to the sound over-approximation. This replaces the old budget-count
-    // `k` and both structural discipline checks (atomic-rejoin + budget-Φ) below.
-    let Some(k) = colour_slot_bound(&coloured, invariants) else {
-        return None;
-    };
-    // [NU-053] AC6: `k = 0` is an exact plan — no coloured token can ever exist, so
-    // every mint / join / consumer is dead and the zero-slot encoding emits no rule
-    // for them (`Semiflow.lean`, `vacuous_colour_layer`). The one shape it cannot
-    // encode is a net with no uncoloured place at all: `Reachable` would be nullary
-    // and every rule's `forall` binder list empty. Such a net holds no token at
-    // `M0` (coloured places start empty), so fall back to the flat encoding.
-    if k == 0 && coloured.len() == p {
-        return None;
     }
 
     // No inhibitor/read/reset/consume-all arc may touch a coloured place.
@@ -421,7 +404,7 @@ pub fn build_plan(
             // budget place). The declaration is what states the mint contract of
             // [NU-010]: the action writes a name freshly minted by `fresh_name`.
             // Nothing in the net tells a mint from an action that copies a live
-            // correlation id. (Boundedness is decided by the colour-slot bound above,
+            // correlation id. (Boundedness is decided by the colour-slot bound below,
             // not here.)
             if coloured_out.iter().any(|&pid| ft.post[pid] != 1) {
                 return None;
@@ -442,6 +425,31 @@ pub fn build_plan(
             Class::Untouched
         };
         classes.push(class);
+    }
+
+    // Colour-slot bound k, computed last: the semiflow enumeration it reads is the
+    // expensive step, and every refusal above is independent of k.
+    //
+    // A colour is live iff some coloured place holds it, so
+    // `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
+    // weighting every coloured place `≥ 1`. `k` is the tightest such `y·M0` (each
+    // `PInvariant.constant` is `y·M0`); any `k ≥ #live` is sound — a larger k only
+    // costs O(k) columns, never under-approximates, since a mint may take any free
+    // slot behind the freshness guard. If no covering non-negative semiflow exists the
+    // coloured set is not structurally token-bounded (a genuine unbounded colour leak),
+    // so fall back to the sound over-approximation. This replaces the old budget-count
+    // `k` and both structural discipline checks (atomic-rejoin + budget-Φ).
+    let Some(k) = colour_slot_bound(&coloured, invariants().as_ref()) else {
+        return None;
+    };
+    // [NU-053] AC6: `k = 0` is an exact plan — no coloured token can ever exist, so
+    // every mint / join / consumer is dead and the zero-slot encoding emits no rule
+    // for them (`Semiflow.lean`, `vacuous_colour_layer`). The one shape it cannot
+    // encode is a net with no uncoloured place at all: `Reachable` would be nullary
+    // and every rule's `forall` binder list empty. Such a net holds no token at
+    // `M0` (coloured places start empty), so fall back to the flat encoding.
+    if k == 0 && coloured.len() == p {
+        return None;
     }
 
     Some(ColouredPlan {
@@ -1328,7 +1336,7 @@ mod tests {
             &crate::name_fragment::declared_mints(net, &budget, &HashSet::new()),
             mode,
             &carrier_set,
-            &semiflows,
+            || &semiflows,
         )
     }
 
@@ -1633,7 +1641,7 @@ mod tests {
         )
         .valid;
         let mints = crate::name_fragment::declared_mints(&net, &budget, &HashSet::new());
-        let plan = build_plan(&net, &flat, &initial, &mints, mode, &HashSet::new(), &semiflows);
+        let plan = build_plan(&net, &flat, &initial, &mints, mode, &HashSet::new(), || &semiflows);
         (flat, plan)
     }
 

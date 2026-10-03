@@ -1889,8 +1889,10 @@ public final class SmtVerifier {
         // NameColouredEncoder.buildPlan / colourSlotBound). Same exact gate: a wrong
         // semiflow would under-bound k and unsound the coloured encoding.
         //
-        // Computed ONLY when something will read them ([VER-007] AC2): the union, or the
-        // coloured plan's slot bound. The Farkas enumeration is worst-case exponential —
+        // Computed ONLY when something will read them ([VER-007] AC2): the union here, or the
+        // coloured plan's slot bound, which asks for them on demand once the linear bound
+        // ([VER-015]) has failed to end the query without them. The Farkas enumeration is
+        // worst-case exponential —
         // the minimal semiflows of `k` independent diamonds in series number 2^k, measured
         // at 2 048 for eleven and past the backstop beyond thirteen — so running it for a
         // caller who asked for neither is a large cost, and on a wide net an uncatchable
@@ -1906,10 +1908,9 @@ public final class SmtVerifier {
         // read its own report.
         boolean basisLostALaw = invariantValidation.dropped().stream()
             .anyMatch(r -> r.contains("Strengthening.lean H1"));
-        boolean semiflowsWanted = semiflowInvariants == SemiflowMode.ON
-            || (semiflowInvariants == SemiflowMode.AUTO && basisLostALaw)
-            || (hasMatch && nuBounded);
-        var semiflowValidation = semiflowsWanted
+        boolean unionWanted = semiflowInvariants == SemiflowMode.ON
+            || (semiflowInvariants == SemiflowMode.AUTO && basisLostALaw);
+        var semiflowValidation = unionWanted
             ? PInvariantComputer.validateExact(
                 PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking),
                 matrix, flatNet, initialMarking)
@@ -1923,10 +1924,9 @@ public final class SmtVerifier {
                     + "add no constraint the encoding does not already have; they may still "
                     + "differ in FORM)\n");
         }
-        // The UNION is a separate decision from computing them: a coloured plan needs the
-        // slot bound without wanting the laws conjoined.
-        if (semiflowInvariants == SemiflowMode.ON
-                || (semiflowInvariants == SemiflowMode.AUTO && basisLostALaw)) {
+        // The UNION is a separate decision from the slot bound: a coloured plan needs the
+        // semiflows without wanting the laws conjoined, and computes them itself below.
+        if (unionWanted) {
             // See #semiflowInvariants(boolean): the minimal conservation laws, as extra
             // invariants for the encoder.
             var strengthened = new ArrayList<>(invariants);
@@ -1999,15 +1999,6 @@ public final class SmtVerifier {
         }
         report.append("  Solver: z3 ").append(z3.version()).append("\n");
 
-        // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
-        // the supported mint→matched-join fragment, encode names as a finite colour
-        // set (k = the declared budget) with exact same-colour join matching, instead
-        // of the name-blind over-approximation — this rules out spurious
-        // counterexamples that would equate two distinct names. Reachability-safety AND
-        // quiescence (NU-053) properties are both routed here; a net outside the
-        // fragment keeps the flat encoding.
-        var colouredAttempt = colouredAttempt(flatNet, invariants, () -> semiflows);
-        NameColouredEncoder.ColouredPlan colouredPlan = colouredAttempt.plan();
         if (hasMatch && nuBounded && !flatNet.environmentInjection().isEmpty()) {
             report.append("  ν-encoding: name-blind over-approximation (the name-coloured encoding does not\n")
                 .append("  model environment injection, VER-006)\n");
@@ -2066,6 +2057,37 @@ public final class SmtVerifier {
                 return decided;
             }
         }
+
+        // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
+        // the supported mint→matched-join fragment, encode names as a finite colour
+        // set (k = the declared budget) with exact same-colour join matching, instead
+        // of the name-blind over-approximation — this rules out spurious
+        // counterexamples that would equate two distinct names. Reachability-safety AND
+        // quiescence (NU-053) properties are both routed here; a net outside the
+        // fragment keeps the flat encoding.
+        //
+        // Built only after the linear bound: the plan's slot bound reads the semiflows, and
+        // on a composed net their enumeration costs seconds to tens of seconds (and truncates)
+        // that a structural Proven never needed. Nothing above reads the plan.
+        var colouredAttempt = colouredAttempt(flatNet, invariants, () -> {
+            if (!unionWanted) {
+                // The enumeration was the tail of the P-invariant phase before it moved here,
+                // so a total budget that ends it still names that phase ([VER-013]).
+                enter("P-invariant computation", SmtVerificationResult.Route.SMT);
+            }
+            var validation = unionWanted ? semiflowValidation : PInvariantComputer.validateExact(
+                PInvariantComputer.computePSemiflows(matrix, flatNet, initialMarking),
+                matrix, flatNet, initialMarking);
+            if (!unionWanted) {
+                for (var reason : validation.dropped()) {
+                    report.append("  Dropped semiflow: ").append(reason).append("\n");
+                }
+            }
+            report.append("  P-semiflows for the colour-slot bound: ")
+                .append(validation.valid().size()).append("\n");
+            return validation.valid();
+        });
+        NameColouredEncoder.ColouredPlan colouredPlan = colouredAttempt.plan();
 
         SmtEncoder.SmtEncoding encoding;
         if (colouredPlan != null) {
@@ -2839,7 +2861,8 @@ public final class SmtVerifier {
      *                   basis, unioned with the semiflows when [VER-007] is enabled
      * @param semiflows  supplies the gate-validated semiflows, which set the colour-slot
      *                   bound {@code k} ([NU-053]) and are <em>not</em> the same list.
-     *                   Deferred so a flat net never pays for the enumeration.
+     *                   Deferred so a flat net, or a net the plan refuses, never pays for
+     *                   the enumeration.
      */
     private ColouredAttempt colouredAttempt(
             FlatNet flatNet, List<PInvariant> invariants, Supplier<List<PInvariant>> semiflows) {
@@ -2857,10 +2880,11 @@ public final class SmtVerifier {
         }
         // Supplied rather than passed by value: Java evaluates arguments eagerly, so a
         // plain parameter would run the Farkas enumeration on every encodeScripts()
-        // call, including the flat nets that never reach this line.
+        // call, including the flat nets that never reach this line. buildPlan reads it
+        // only after its structural checks, so a net they refuse never runs it either.
         var plan = NameColouredEncoder.buildPlan(
             net, flatNet, initialMarking, declaredMints(), fragmentMode, carrierPlaces,
-            semiflows.get());
+            semiflows);
         if (plan == null) {
             return new ColouredAttempt(null, null);
         }

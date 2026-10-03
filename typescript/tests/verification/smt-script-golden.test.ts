@@ -147,7 +147,7 @@ describe('SMT script parity with the Rust reference (VER-013 AC1)', () => {
     const net = PetriNet.builder('nu').transitions(fork, join).build();
     const flat = flatten(net, new Set(), ignore());
     const m0 = MarkingState.builder().tokens(source, 3).tokens(budget, 2).build();
-    const plan = buildColouredPlan(net, flat, m0, declaredMints(net, new Set(['budget']), new Set()), 'base', new Set(), validatedSemiflows(flat, m0));
+    const plan = buildColouredPlan(net, flat, m0, declaredMints(net, new Set(['budget']), new Set()), 'base', new Set(), () => validatedSemiflows(flat, m0));
     expect(plan, 'the scatter-gather net is in the coloured fragment').not.toBeNull();
     const encoding = encodeColoured(plan!, flat, m0, branchPlaceBound(budget, 2), encoderInvariants(flat, m0), new Set());
     expect(encoding).not.toBeNull();

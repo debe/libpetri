@@ -127,3 +127,41 @@ fn verify_open_net_splits_with_the_carriers_its_hook_declares() {
     let result = verify_open_net(&net, &contract, &options);
     assert!(matches!(&result.verdict, Verdict::Unknown { reason } if reason.contains(refusal)), "{}", result.report);
 }
+
+/// `build_plan` asks for the semiflows only after every structural refusal: the
+/// colour-slot bound is the one step that reads them, and their enumeration is
+/// worst-case exponential. With `copy: extra → branchA` writing a coloured place as an
+/// undeclared mint, the classification refuses the plan, so the supplier never runs
+/// and its report line never appears. Without `copy` the plan is built and the line is
+/// there, which is what makes its absence mean something.
+#[test]
+fn an_undeclared_mint_refuses_the_coloured_plan_before_the_semiflows_are_computed() {
+    if !z3_available() {
+        eprintln!("skipping: z3 binary not on PATH");
+        return;
+    }
+    const SLOT_SEMIFLOWS: &str = "P-semiflows for the colour-slot bound";
+    let run = |net: &PetriNet| {
+        SmtVerifier::for_net(net)
+            .initial_marking(MarkingStateBuilder::new().tokens("source", 1).tokens("extra", 1).build())
+            .property(SmtProperty::place_bound("merged", 5))
+            .budget_place("source")
+            .linear_bound(false)
+            .enumeration_max_classes(0)
+            .verify()
+    };
+
+    let declared = run(&fork_join());
+    assert!(declared.report.contains("ν-encoding: name-coloured"), "{}", declared.report);
+    assert!(declared.report.contains(SLOT_SEMIFLOWS), "{}", declared.report);
+
+    let (extra, a) = (Place::<()>::new("extra"), Place::<String>::new("branchA"));
+    let copy = Transition::builder("copy").input(one(&extra)).output(out_place(&a)).action(fork()).build();
+    let base = fork_join();
+    let net = PetriNet::builder("fork-join-copy")
+        .transitions(base.transitions().iter().cloned().chain([copy]))
+        .build();
+    let undeclared = run(&net);
+    assert!(!undeclared.report.contains("ν-encoding: name-coloured"), "{}", undeclared.report);
+    assert!(!undeclared.report.contains(SLOT_SEMIFLOWS), "{}", undeclared.report);
+}

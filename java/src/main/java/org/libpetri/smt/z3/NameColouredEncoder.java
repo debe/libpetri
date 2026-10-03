@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Supplier;
 
 /**
  * Bounded <b>name-coloured</b> CHC encoding for &nu;-net join correlation
@@ -192,6 +193,19 @@ public final class NameColouredEncoder {
             PetriNet net, FlatNet flat, MarkingState initial,
             Set<String> mintTransitions, FragmentMode fragmentMode, Set<String> carrierPlaces,
             List<PInvariant> invariants) {
+        return buildPlan(net, flat, initial, mintTransitions, fragmentMode, carrierPlaces,
+            () -> invariants);
+    }
+
+    /**
+     * {@link #buildPlan(PetriNet, FlatNet, MarkingState, Set, FragmentMode, Set, List)} with the
+     * semiflows supplied on demand: {@code invariants} is read only once every structural check
+     * has passed, so a net outside the fragment never pays for their enumeration.
+     */
+    public static ColouredPlan buildPlan(
+            PetriNet net, FlatNet flat, MarkingState initial,
+            Set<String> mintTransitions, FragmentMode fragmentMode, Set<String> carrierPlaces,
+            Supplier<List<PInvariant>> invariants) {
         int p = flat.placeCount();
 
         // Each flat row already carries its source transition (an XOR transition expands
@@ -251,30 +265,6 @@ public final class NameColouredEncoder {
             if (initial.tokens(flat.places().get(pid)) != 0) {
                 return null;
             }
-        }
-
-        // Colour-slot bound k: a colour is live iff some coloured place holds it, so
-        // #live colours ≤ Σ_{coloured} M(p) ≤ y·M0 for any non-negative P-semiflow y
-        // weighting every coloured place ≥ 1. k is the tightest such y·M0 (each
-        // PInvariant.constant is y·M0); any k ≥ #live is sound — a larger k only costs O(k)
-        // columns, never under-approximates, since a mint may take any free slot behind the
-        // freshness guard. If no covering non-negative semiflow exists the coloured set is
-        // not structurally token-bounded (a genuine unbounded colour leak), so fall back to
-        // the sound over-approximation. This replaces the old budget-count k and both
-        // structural discipline checks (atomic-rejoin + budget-Φ) below.
-        Integer kBound = colourSlotBound(coloured, invariants);
-        if (kBound == null) {
-            return null;
-        }
-        int k = kBound;
-        // NU-053 AC6: k = 0 is an exact plan — no coloured token can ever exist, so every
-        // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
-        // (Semiflow.lean, vacuous_colour_layer). The one shape it cannot encode is a net
-        // with no uncoloured place at all (Reachable would be nullary and every rule's
-        // quantifier empty); such a net holds no token at M0, so fall back to the flat
-        // encoding.
-        if (k == 0 && coloured.length == p) {
-            return null;
         }
 
         // No inhibitor/read/reset/consume-all arc may touch a coloured place.
@@ -410,6 +400,34 @@ public final class NameColouredEncoder {
                 klass = new Untouched();
             }
             classes.add(klass);
+        }
+
+        // Colour-slot bound k: a colour is live iff some coloured place holds it, so
+        // #live colours ≤ Σ_{coloured} M(p) ≤ y·M0 for any non-negative P-semiflow y
+        // weighting every coloured place ≥ 1. k is the tightest such y·M0 (each
+        // PInvariant.constant is y·M0); any k ≥ #live is sound — a larger k only costs O(k)
+        // columns, never under-approximates, since a mint may take any free slot behind the
+        // freshness guard. If no covering non-negative semiflow exists the coloured set is
+        // not structurally token-bounded (a genuine unbounded colour leak), so fall back to
+        // the sound over-approximation. This replaces the old budget-count k and both
+        // structural discipline checks (atomic-rejoin + budget-Φ).
+        //
+        // Computed last: its semiflows are the expensive input (a worst-case exponential
+        // enumeration, seconds on a composed net) and every refusal above is independent of
+        // k, so a net outside the fragment never runs it.
+        Integer kBound = colourSlotBound(coloured, invariants.get());
+        if (kBound == null) {
+            return null;
+        }
+        int k = kBound;
+        // NU-053 AC6: k = 0 is an exact plan — no coloured token can ever exist, so every
+        // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
+        // (Semiflow.lean, vacuous_colour_layer). The one shape it cannot encode is a net
+        // with no uncoloured place at all (Reachable would be nullary and every rule's
+        // quantifier empty); such a net holds no token at M0, so fall back to the flat
+        // encoding.
+        if (k == 0 && coloured.length == p) {
+            return null;
         }
 
         return new ColouredPlan(coloured, isColoured, k, classes, mintNames, relayTransitions);

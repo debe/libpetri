@@ -838,7 +838,8 @@ name-blind net, which over-approximates the ν semantics, so its `Proven` (metho
 `structural`) is sound here and ends the query; any other outcome hands over to the
 coloured query unchanged. The colour-slot bound `k` is often several times the budget,
 and a trivially true bound that IC3 cannot close over `k` colours within the timeout
-is proven by the state equation in milliseconds.
+is proven by the state equation in milliseconds. The coloured plan, and the P-semiflow
+enumeration its slot bound reads, are built only when the bound does not prove.
 
 **Acceptance criteria (MAY):**
 1. A budget-bounded EXTENDED ν-net whose only quiescent marking holds sink tokens is

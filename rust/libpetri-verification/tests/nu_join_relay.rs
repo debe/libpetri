@@ -479,6 +479,9 @@ fn a_self_loop_key_is_guarded_and_carried_over_unchanged() {
 
 // ── [VER-015] the linear bound before the name-coloured encoding ─────────────
 
+/// The report line the coloured plan's lazy semiflow supplier writes, and only it.
+const SLOT_SEMIFLOWS: &str = "P-semiflows for the colour-slot bound";
+
 /// `placeBound(X, 1000)` at budget 2: trivially true, and out of Route A's reach
 /// (its colour-slot bound is 2–4× the budget, so Spacer times out). The flat
 /// state equation over-approximates the ν semantics, so its structural `Proven`
@@ -517,6 +520,9 @@ fn a_trivial_bound_on_a_budgeted_nu_net_is_proven_by_the_linear_bound() {
             r.report
         );
         assert!(!r.report.contains("ν-encoding: name-coloured"), "{name}\n{}", r.report);
+        // The coloured plan is built only after the linear bound, so the semiflow
+        // enumeration its slot bound reads never runs for a structural Proven.
+        assert!(!r.report.contains(SLOT_SEMIFLOWS), "{name}\n{}", r.report);
     }
 }
 
@@ -532,6 +538,7 @@ fn a_bound_the_linear_bound_cannot_prove_still_reaches_the_coloured_encoding() {
     assert!(r.is_violated(), "{}", r.report);
     assert_eq!(r.route, VerificationRoute::Smt, "{}", r.report);
     assert!(r.report.contains("ν-encoding: name-coloured"), "{}", r.report);
+    assert!(r.report.contains(SLOT_SEMIFLOWS), "{}", r.report);
     assert!(!r.report.contains("proven structurally"), "{}", r.report);
 }
 

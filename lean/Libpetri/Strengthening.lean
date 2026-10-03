@@ -410,7 +410,7 @@ two kinds of case.
 
 With `Bad ≡ false` the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat`, reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:3701-3742`), for every net, marking and
+(`process_z3_result`, `smt_verifier.rs:3741-3782`), for every net, marking and
 semantics. `bad_rule_nonvacuity` quantifies over an arbitrary reachable-set
 predicate to make "regardless of semantics" literal, so it cannot tell the two
 kinds apart; only an exactness proof can. The [VER-014] conditional-sink

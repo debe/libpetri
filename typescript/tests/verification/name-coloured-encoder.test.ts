@@ -54,7 +54,7 @@ describe('name-coloured fragment gate (colour-slot bound)', () => {
     const flat = flatten(net);
     const initial = MarkingState.builder().tokens(budget1, budgetTokens).build();
     const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    return buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), 'base', new Set(), semiflows);
+    return buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), 'base', new Set(), () => semiflows);
   }
 
   it('yields the exact zero-slot plan when no budget token exists (NU-053 AC6)', () => {
@@ -91,7 +91,7 @@ describe('name-coloured fragment gate (NU-053 EXTENDED + XOR)', () => {
     const initial = MarkingState.builder().tokens(budget1, 1).build();
     const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
     return buildColouredPlan(
-      net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), mode, new Set(carriers), semiflows);
+      net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), mode, new Set(carriers), () => semiflows);
   }
 
   // mint→join plus an EXTENDED coloured drain: a non-match transition that consumes
@@ -276,7 +276,7 @@ describe('coloured quiescence arms (VER-002 / NU-040)', () => {
     const flat = flatten(net);
     const initial = MarkingState.builder().tokens(budget1, 1).build();
     const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    const plan = buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1']), new Set()), 'base', new Set(), semiflows);
+    const plan = buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1']), new Set()), 'base', new Set(), () => semiflows);
     return { flat, initial, plan, a, b };
   }
 
