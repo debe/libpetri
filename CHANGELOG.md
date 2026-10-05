@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 9.0.0 / TypeScript 8.1.0 / Rust 10.0.0 / Python 7.1.0 — 2026-10-05
 
 **Rust 10.0.0 and Java 9.0.0 are major** (the plan-builder signature below); TypeScript 8.1.0 and Python 7.1.0 are minor.
 
