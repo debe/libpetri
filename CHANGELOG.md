@@ -2,24 +2,25 @@
 
 ## Unreleased
 
+**Rust 10.0.0 and Java 9.0.0 are major** (the plan-builder signature below); TypeScript 8.1.0 and Python 7.1.0 are minor.
+
 ### Changed
 
-- **Route A's colour-slot bound is a linear program, solved in exact arithmetic (all languages, [NU-053]).** The name-coloured encoding gives every coloured place `k` colour columns, and `k` must bound the names live at once. It used to be the least `y·M0` over the enumerated P-semiflows that weight every coloured place. That enumeration is worst-case exponential and stopped at 8192 laws: on a composed 255-place order-fulfilment net it ran for about 10 s, truncated, and fell back to a summed bound of `k = 1188`. Now `k` is the floor of the least `y·M0` over every weighting `y ≥ 0` that weights each coloured place at least 1 and that no flat transition increases. The verifier solves this program itself with an exact rational simplex, so `encode_scripts()` still starts no solver, and it uses the weighting only after re-checking it against every flat transition in arbitrary-precision arithmetic. On that net a prototype of the program gave `k = 6` (two budget tokens times three keys); a seeded stand-in of the same size in the shared fixtures solves in under a millisecond in a release build.
+- **Route A's colour-slot bound is a linear program, solved in exact arithmetic (all languages, [NU-053]).** The name-coloured encoding gives every coloured place `k` colour columns, and `k` must bound the names live at once. It used to be the least `y·M0` over the enumerated P-semiflows that weight every coloured place. That enumeration is worst-case exponential and stopped at 8192 laws: on a composed 255-place order-fulfilment net it ran for about 10 s, truncated, and fell back to `k = 1188`. Now `k` is the floor of the least `y·M0` over every weighting `y ≥ 0` that weights each coloured place at least 1 and that no flat transition increases. The verifier solves it with its own exact rational simplex (Bland's rule), so `encode_scripts()` still starts no solver, and it uses the weighting only after re-checking it against every flat transition in arbitrary-precision arithmetic. On that net a prototype of the program gave `k = 6`; the seeded stand-in of the same size in the shared fixtures takes about 1.3 ms for solve plus re-check in a release build.
 
-  What this changes for you:
-
-  - `k` is never larger than before, and often much smaller. The scatter-gather net of the shared parity fixtures goes from `k = 10` to `k = 4`, which shrinks its HORN script from 24 to 12 columns; the two goldens under `spec/verification-fixtures/scripts/nu-scatter-gather-*/horn.smt2` changed accordingly. A smaller `k` lets Spacer close queries it timed out on before.
-  - More nets get a plan. A reset or `all()` / `atLeast(n)` arc on an uncoloured place, an `Arrivals(k)` source, or a transition that destroys tokens no longer refuses the plan: each used to drop every covering semiflow. A net whose program is infeasible (a genuine colour leak) is still refused and falls back to the flat encoding, as before.
-  - `SemiflowMode::Off` (the default) now never enumerates semiflows. Only the [VER-007] union computes them.
-  - **Potential break: the report line changed.** `  P-semiflows for the colour-slot bound: N` is gone. Its place holds one of:
+  - `k` is never larger than before, and often much smaller. The scatter-gather parity net goes from `k = 10` to `k = 4`, shrinking its HORN script from 24 to 12 columns (goldens `spec/verification-fixtures/scripts/nu-scatter-gather-*/horn.smt2`).
+  - More nets get a plan. A reset or `all()` / `atLeast(n)` arc on an uncoloured place, an `Arrivals(k)` source, or a transition that destroys tokens no longer refuses it. An infeasible program (a genuine colour leak) still falls back to the flat encoding.
+  - Three limits bound the solve's time with or without a total budget (well under a second on sparse nets, a few seconds at worst on dense weighted ones): 4096 places or 16384 transitions after the presolve, 4000000 tableau entry updates, and 63-bit coefficients. A refused program falls back to the flat encoding, as an infeasible one does. The solve is its own step, `colour-slot bound`, under the total budget and cancellation of [VER-013].
+  - The report gains a `Colour-slot bound:` line before `colour-slot bound k=<k>`, for example:
 
     ```
       Colour-slot bound: LP optimum 14/3 over 3 places and 2 transitions, so k=4 (re-checked in exact arithmetic)
       Colour-slot bound: none (LP infeasible over 4 places and 3 transitions: no weighting bounds the coloured tokens)
     ```
 
-    or the refusals for a program over 4096 places or 16384 transitions, a pivot limit, or a weighting that fails the re-check. Code that matched the old line should match `Colour-slot bound: `. The solve is its own step, named `colour-slot bound`, under the total budget and cancellation of [VER-013].
-  - **Potential break (Rust): `name_coloured_encoder::build_plan` takes the solver and a report sink** in place of the semiflow thunk. Pass the exact simplex unless you want to supply a weighting yourself; whatever you pass is re-checked, and `k` never comes from an unchecked answer:
+  - The coloured plan and its slot bound are built only when the [VER-015] linear bound does not prove the property.
+  - `SemiflowMode::Off` (the default) never enumerates semiflows. Only the [VER-007] union computes them.
+  - **Potential break (Rust): `name_coloured_encoder::build_plan` takes the solver and a report sink** in place of the semiflow thunk. Whatever the solver returns is re-checked; `k` never comes from an unchecked answer:
 
     ```rust
     let plan = name_coloured_encoder::build_plan(
@@ -29,9 +30,8 @@
     );
     ```
 
-    The new module `slot_bound_lp` holds `solve`, the checker `check_cover`, `checked` and the answer types; `exact` holds the arbitrary-precision `BigInt` and `Rational` they use, so the crate still has no third-party dependency.
-
-  - **Potential break (Java): `NameColouredEncoder.buildPlan` takes the solver and a report sink** in place of the semiflow list, the same way:
+    The new module `slot_bound_lp` holds `solve`, the checker `check_cover`, `checked` and the answer types `LpAnswer`, `SlotBound` and `CheckedCover`, all `#[non_exhaustive]`; `solve_counted` is `#[doc(hidden)]`. `exact` holds the arbitrary-precision `BigInt` and `Rational`, so the crate still has no third-party dependency.
+  - **Potential break (Java): `NameColouredEncoder.buildPlan` takes the solver and a report sink** in place of the semiflow list:
 
     ```java
     var plan = NameColouredEncoder.buildPlan(net, flat, initial, mints, FragmentMode.BASE, carriers,
@@ -39,7 +39,7 @@
         bound -> { if (bound.reportLine() != null) System.out.println(bound.reportLine()); });
     ```
 
-    `SlotBoundLp` holds `solve`, `checkCover`, `checked` and the answer types, on `BigInteger` arithmetic. TypeScript's plan builder is internal, so TypeScript users only see the report line and the smaller `k`.
+    New public types `SlotBoundLp` (`solve`, `checkCover`, `checked`, the answer types) and `Rational`, on `BigInteger`. TypeScript's plan builder is internal, so TypeScript and Python users only see the report line and the smaller `k`.
 
 ## Java 8.0.0 / TypeScript 8.0.0 / Rust 9.0.0 / Python 7.0.0 — 2026-09-30
 

@@ -214,7 +214,7 @@ pub fn compute_p_semiflows(
         .filter(|(_, w)| w.iter().any(|&x| x != 0))
         .filter_map(|(_, weights)| {
             // Checked `constant = Σ weight·M0`; on overflow drop this semiflow (fewer
-            // covering semiflows → sound fallback, never a wrong bound).
+            // semiflows weaken the [VER-007] union, never make it wrong).
             let mut constant: i64 = 0;
             for p in 0..np {
                 let term = weights[p].checked_mul(initial_marking.count(&place_names[p]) as i64)?;

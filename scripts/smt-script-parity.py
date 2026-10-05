@@ -4,9 +4,12 @@
 The scripts every implementation sends to z3 for the shared verdict-parity
 fixtures are pinned under ``spec/verification-fixtures/scripts/<id>/``. The Rust
 verifier writes them; every language's script-parity test diffs its own output
-against them byte for byte.
+against them byte for byte. The same Rust test writes the expected answers of the
+colour-slot LP cases of NU-053 (``spec/verification-fixtures/slot-bound-lp.json``),
+which every language's fixture test asserts.
 
-    scripts/smt-script-parity.py --update   regenerate the goldens from Rust
+    scripts/smt-script-parity.py --update   regenerate the goldens and the
+                                            slot-bound-lp.json expectations from Rust
     scripts/smt-script-parity.py --check    (default) fail when Rust's output drifts
 
 ``--check`` is what ``cargo test --workspace --all-features`` already runs in CI

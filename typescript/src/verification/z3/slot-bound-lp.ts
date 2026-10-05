@@ -60,15 +60,27 @@
  *    `y_p = π_i + [p coloured]` for `p = U[i]` and `y_p = 0` off `U`. `D` is the least common
  *    multiple of the denominators of the `y_p` in lowest terms and `Y = y·D`.
  *
- * Limits, both functions of the presolved program and the pivot sequence, so every
- * implementation refuses the same nets: `too-large` past {@link SLOT_LP_MAX_PLACES} places or
- * {@link SLOT_LP_MAX_ROWS} rows after the presolve, before any pivot; `pivot-limit` past
- * {@link SLOT_LP_PIVOTS_PER_SIZE}` · (n' + m')` pivots. The solve calls its `stop` poll before
- * every pivot ([VER-013]); the verifier passes a deadline poll, which throws once the run must
- * stop, and `encodeScripts` passes none. Each round of the loop decides in this order: no
- * entering column, optimal; no leaving row, infeasible; the limit's pivots already made,
- * pivot limit; a stop, stopped; otherwise pivot. A solve that ends without needing another
- * pivot is therefore never refused by the limit.
+ * Limits, all functions of the presolved program and the pivot sequence, so every
+ * implementation refuses the same nets, and together they bound the time of a solve whether
+ * or not a total budget is set:
+ *
+ * - `too-large` past {@link SLOT_LP_MAX_PLACES} places or {@link SLOT_LP_MAX_ROWS} rows after
+ *   the presolve, before any pivot.
+ * - `work-limit` when the next pivot would take the work past {@link SLOT_LP_WORK_LIMIT}. The
+ *   work of a pivot is the length of the pivot row `p`, plus `len(row) + p` for every row it
+ *   updates (the other constraint rows with a non-zero entry in the entering column, and the
+ *   objective row when it has one there), lengths counted in non-zero entries before the
+ *   pivot, slacks included. The work of a solve is the sum over its pivots.
+ * - `coefficient-limit` when a pivot leaves an entry of the tableau (a constraint row, its
+ *   right-hand side, the objective row or its value) whose numerator or denominator in lowest
+ *   terms exceeds `2^63 − 1` in absolute value. The initial tableau is held to the same limit.
+ *
+ * The solve calls its `stop` poll before every pivot ([VER-013]); the verifier passes a
+ * deadline poll, which throws once the run must stop, and `encodeScripts` passes none. Each
+ * round of the loop decides in this order: no entering column, optimal; no leaving row,
+ * infeasible; the next pivot's work past the limit, work limit; a stop, stopped; otherwise
+ * pivot, then the coefficient limit. A solve that ends without needing another pivot is
+ * therefore never refused by the work limit.
  *
  * All arithmetic is exact, over `bigint`; no floating point is involved. Mirrors the Rust
  * reference `slot_bound_lp.rs`.
@@ -88,8 +100,14 @@ export const SLOT_LP_MAX_PLACES = 4096;
 /** The most rows (transitions) the presolved program may have. */
 export const SLOT_LP_MAX_ROWS = 16384;
 
-/** The pivot limit is this many pivots per presolved place and row. */
-export const SLOT_LP_PIVOTS_PER_SIZE = 50;
+/**
+ * The most work a solve may do, in entry updates (see the module documentation). A tenth of a
+ * second on a sparse net, a few seconds at worst on a dense weighted one.
+ */
+export const SLOT_LP_WORK_LIMIT = 4_000_000;
+
+/** The largest magnitude a tableau entry's numerator or denominator may reach: `2^63 − 1`. */
+const COEFFICIENT_MAX = 2n ** 63n - 1n;
 
 // ---- exact rationals ----
 
@@ -206,8 +224,10 @@ export type LpAnswer =
   | { readonly type: 'infeasible'; readonly places: number; readonly rows: number }
   /** The presolved program exceeds {@link SLOT_LP_MAX_PLACES} or {@link SLOT_LP_MAX_ROWS}. */
   | { readonly type: 'too-large'; readonly places: number; readonly rows: number }
-  /** No optimum within `limit` pivots. */
-  | { readonly type: 'pivot-limit'; readonly limit: number }
+  /** No optimum within {@link SLOT_LP_WORK_LIMIT}; `pivots` were made. */
+  | { readonly type: 'work-limit'; readonly pivots: number }
+  /** A pivot left a tableau entry outside 63 bits; `pivots` were made, that one included. */
+  | { readonly type: 'coefficient-limit'; readonly pivots: number }
   /** The verification was stopped (total budget or cancellation, [VER-013]). */
   | { readonly type: 'stopped' };
 
@@ -228,15 +248,11 @@ export type SlotBound =
   | { readonly type: 'bound'; readonly k: number; readonly value: Rational; readonly places: number; readonly rows: number }
   | { readonly type: 'infeasible'; readonly places: number; readonly rows: number }
   | { readonly type: 'too-large'; readonly places: number; readonly rows: number }
-  | { readonly type: 'pivot-limit'; readonly limit: number }
+  | { readonly type: 'work-limit'; readonly pivots: number }
+  | { readonly type: 'coefficient-limit'; readonly pivots: number }
   /** The simplex's weighting failed the exact re-check (a simplex bug); no bound. */
   | { readonly type: 'check-failed'; readonly reason: string }
   | { readonly type: 'stopped' };
-
-/** The bound, when there is one. */
-export function slotBoundK(bound: SlotBound): number | null {
-  return bound.type === 'bound' ? bound.k : null;
-}
 
 /**
  * The report line, with its two-space indent and no newline. `null` for a stop: the budget
@@ -253,8 +269,11 @@ export function slotBoundReportLine(bound: SlotBound): string | null {
     case 'too-large':
       return `  Colour-slot bound: none (LP over ${bound.places} places and ${bound.rows} transitions ` +
         `exceeds the limit of ${SLOT_LP_MAX_PLACES} places and ${SLOT_LP_MAX_ROWS} transitions)`;
-    case 'pivot-limit':
-      return `  Colour-slot bound: none (no LP optimum within the pivot limit of ${bound.limit})`;
+    case 'work-limit':
+      return `  Colour-slot bound: none (no LP optimum within the work limit of ${SLOT_LP_WORK_LIMIT} ` +
+        `entry updates, after ${bound.pivots} pivots)`;
+    case 'coefficient-limit':
+      return `  Colour-slot bound: none (an LP coefficient outgrew 63 bits after ${bound.pivots} pivots)`;
     case 'check-failed':
       return `  Colour-slot bound: none (LP weighting failed the exact re-check: ${bound.reason})`;
     case 'stopped':
@@ -284,8 +303,10 @@ export function checkedSlotBound(
       return { type: 'infeasible', places: answer.places, rows: answer.rows };
     case 'too-large':
       return { type: 'too-large', places: answer.places, rows: answer.rows };
-    case 'pivot-limit':
-      return { type: 'pivot-limit', limit: answer.limit };
+    case 'work-limit':
+      return { type: 'work-limit', pivots: answer.pivots };
+    case 'coefficient-limit':
+      return { type: 'coefficient-limit', pivots: answer.pivots };
     case 'stopped':
       return { type: 'stopped' };
   }
@@ -341,8 +362,9 @@ export function checkCover(
   for (const row of flat.transitions) {
     let delta = 0n;
     for (let p = 0; p < n; p++) {
-      const column = exactCount(row.postVector[p] ?? 0) - exactCount(row.preVector[p] ?? 0);
-      if (column !== 0n) delta += y[p]! * column;
+      const post = row.postVector[p] ?? 0;
+      const pre = row.preVector[p] ?? 0;
+      if (post !== pre) delta += y[p]! * (exactCount(post) - exactCount(pre));
     }
     if (delta > 0n) return { ok: false, reason: `transition '${row.name}' increases the weighted sum by ${delta}` };
   }
@@ -373,13 +395,19 @@ export function solveSlotBound(
   return solveSlotBoundCounted(flat, initial, coloured, stop).answer;
 }
 
-/** {@link solveSlotBound}, with the number of pivots it performed. */
+/** What a solve spent: its pivots and its work (see the module documentation). */
+export interface SolveCounts {
+  readonly pivots: number;
+  readonly work: number;
+}
+
+/** {@link solveSlotBound}, with what it spent. Exported for the shared fixtures and tests. */
 export function solveSlotBoundCounted(
   flat: FlatNet,
   initial: MarkingState,
   coloured: readonly number[],
   stop: () => boolean = NEVER,
-): { readonly answer: LpAnswer; readonly pivots: number } {
+): { readonly answer: LpAnswer; readonly counts: SolveCounts } {
   const n = flat.places.length;
   const isColoured = new Array<boolean>(n).fill(false);
   for (const p of coloured) if (p >= 0 && p < n) isColoured[p] = true;
@@ -387,7 +415,7 @@ export function solveSlotBoundCounted(
   const places = program.places.length;
   const rows = program.rows.length;
   if (places > SLOT_LP_MAX_PLACES || rows > SLOT_LP_MAX_ROWS) {
-    return { answer: { type: 'too-large', places, rows }, pivots: 0 };
+    return { answer: { type: 'too-large', places, rows }, counts: { pivots: 0, work: 0 } };
   }
 
   // Constraint row i is place U[i]: `A[i][j] = −N_j[U[i]]` for kept row j, then its slack.
@@ -406,8 +434,7 @@ export function solveSlotBoundCounted(
     if (c !== 0n) obj.push([j, Rational.of(-c)]);
   });
   const tableau = new SlotTableau(a, b, obj, Array.from({ length: places }, (_, i) => rows + i));
-  const limit = SLOT_LP_PIVOTS_PER_SIZE * (places + rows);
-  const outcome = tableau.run('bland', limit, stop);
+  const outcome = tableau.run('bland', SLOT_LP_WORK_LIMIT, stop);
   let answer: LpAnswer;
   switch (outcome) {
     case 'optimal': {
@@ -425,14 +452,17 @@ export function solveSlotBoundCounted(
     case 'unbounded':
       answer = { type: 'infeasible', places, rows };
       break;
-    case 'pivot-limit':
-      answer = { type: 'pivot-limit', limit };
+    case 'work-limit':
+      answer = { type: 'work-limit', pivots: tableau.pivots };
+      break;
+    case 'coefficient-limit':
+      answer = { type: 'coefficient-limit', pivots: tableau.pivots };
       break;
     case 'stopped':
       answer = { type: 'stopped' };
       break;
   }
-  return { answer, pivots: tableau.pivots };
+  return { answer, counts: { pivots: tableau.pivots, work: tableau.work } };
 }
 
 /**
@@ -450,8 +480,9 @@ export function presolve(flat: FlatNet, isColoured: readonly boolean[]): Presolv
   const columns: (readonly [number, bigint])[][] = flat.transitions.map(t => {
     const col: [number, bigint][] = [];
     for (let p = 0; p < n; p++) {
-      const v = exactCount(t.postVector[p] ?? 0) - exactCount(t.preVector[p] ?? 0);
-      if (v !== 0n) col.push([p, v]);
+      const post = t.postVector[p] ?? 0;
+      const pre = t.preVector[p] ?? 0;
+      if (post !== pre) col.push([p, exactCount(post) - exactCount(pre)]);
     }
     return col;
   });
@@ -515,6 +546,18 @@ function lookup(row: SparseRow, col: number): Rational | undefined {
   return i < 0 ? undefined : row[i]![1];
 }
 
+/**
+ * Whether a value is within the coefficient limit: numerator and denominator in lowest terms
+ * at most `2^63 − 1` in absolute value.
+ */
+function fits(v: Rational): boolean {
+  return (v.num < 0n ? -v.num : v.num) <= COEFFICIENT_MAX && v.den <= COEFFICIENT_MAX;
+}
+
+function rowFits(row: SparseRow): boolean {
+  return row.every(([, v]) => fits(v));
+}
+
 /** `row − f·prow`, both sorted, zeros dropped. */
 function subScaled(row: SparseRow, f: Rational, prow: SparseRow): SparseRow {
   const out: SparseRow = [];
@@ -547,7 +590,7 @@ function subScaled(row: SparseRow, f: Rational, prow: SparseRow): SparseRow {
 export type PivotRule = 'bland' | 'largest';
 
 /** @internal How a run of the tableau ended. */
-export type SimplexOutcome = 'optimal' | 'unbounded' | 'pivot-limit' | 'stopped';
+export type SimplexOutcome = 'optimal' | 'unbounded' | 'work-limit' | 'coefficient-limit' | 'stopped';
 
 /**
  * @internal A maximisation tableau `z + Σ obj_j·x_j = objValue`, `rows·x = rhs`, one basic
@@ -557,6 +600,8 @@ export class SlotTableau {
   objValue: Rational = Rational.ZERO;
   /** Pivots performed so far. */
   pivots = 0;
+  /** Work done so far, in entry updates (see the module documentation). */
+  work = 0;
 
   constructor(
     public rows: SparseRow[],
@@ -611,40 +656,69 @@ export class SlotTableau {
     return best === null ? null : best.i;
   }
 
-  pivot(r: number, e: number): void {
+  /** Whether every entry is within the coefficient limit. */
+  fits(): boolean {
+    return this.rows.every(rowFits) && this.rhs.every(fits) && rowFits(this.obj) && fits(this.objValue);
+  }
+
+  /**
+   * The work of pivoting on `(r, e)`: the pivot row's entries, plus, for every row it updates,
+   * that row's entries and the pivot row's.
+   */
+  pivotWork(r: number, e: number): number {
+    const p = this.rows[r]!.length;
+    const updated = (row: SparseRow): number => (lookupIndex(row, e) < 0 ? 0 : row.length + p);
+    let work = p + updated(this.obj);
+    for (let i = 0; i < this.rows.length; i++) if (i !== r) work += updated(this.rows[i]!);
+    return work;
+  }
+
+  /** Pivots on `(r, e)`; whether every entry it wrote is within the coefficient limit. */
+  pivot(r: number, e: number): boolean {
     const a = lookup(this.rows[r]!, e);
     if (a === undefined) throw new Error('pivot entry');
     const prow: SparseRow = this.rows[r]!.map(([c, v]) => [c, v.div(a)] as const);
     const prhs = this.rhs[r]!.div(a);
+    let within = rowFits(prow) && fits(prhs);
     for (let i = 0; i < this.rows.length; i++) {
       if (i === r) continue;
       const f = lookup(this.rows[i]!, e);
       if (f !== undefined) {
         this.rows[i] = subScaled(this.rows[i]!, f, prow);
         this.rhs[i] = this.rhs[i]!.sub(f.mul(prhs));
+        within &&= rowFits(this.rows[i]!) && fits(this.rhs[i]!);
       }
     }
     const f = lookup(this.obj, e);
     if (f !== undefined) {
       this.obj = subScaled(this.obj, f, prow);
       this.objValue = this.objValue.sub(f.mul(prhs));
+      within &&= rowFits(this.obj) && fits(this.objValue);
     }
     this.rows[r] = prow;
     this.rhs[r] = prhs;
     this.basis[r] = e;
+    return within;
   }
 
-  /** Pivots until optimal or unbounded, at most `limit` times in all, polling `stop` before every pivot. */
+  /**
+   * Pivots until optimal or unbounded, within `limit` work in all and the coefficient limit,
+   * polling `stop` before every pivot.
+   */
   run(rule: PivotRule, limit: number, stop: () => boolean = NEVER): SimplexOutcome {
+    if (!this.fits()) return 'coefficient-limit';
     for (;;) {
       const e = this.entering(rule);
       if (e === null) return 'optimal';
       const r = this.leaving(rule, e);
       if (r === null) return 'unbounded';
-      if (this.pivots >= limit) return 'pivot-limit';
+      const work = this.pivotWork(r, e);
+      if (this.work + work > limit) return 'work-limit';
       if (stop()) return 'stopped';
-      this.pivot(r, e);
+      const within = this.pivot(r, e);
       this.pivots++;
+      this.work += work;
+      if (!within) return 'coefficient-limit';
     }
   }
 }

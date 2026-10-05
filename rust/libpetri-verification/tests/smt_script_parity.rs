@@ -22,7 +22,7 @@
 //!
 //! The same test writes and checks the `expected` objects of the shared colour-slot LP
 //! cases of [NU-053] (`spec/verification-fixtures/slot-bound-lp.json`): status, presolved
-//! sizes, pivots, optimum, `k` and the weighting of the exact simplex, which every
+//! sizes, pivots, work, optimum, `k` and the weighting of the exact simplex, which every
 //! implementation must reproduce.
 
 #![cfg(feature = "z3")]

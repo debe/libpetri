@@ -1,7 +1,6 @@
 package org.libpetri.smt.z3;
 
 import java.math.BigInteger;
-import java.util.Objects;
 
 /**
  * An exact rational number over unbounded integers, always in lowest terms with a positive
@@ -75,26 +74,31 @@ public final class Rational implements Comparable<Rational> {
         return num.signum();
     }
 
-    public boolean isZero() {
+    /** Whether this is zero. */
+    boolean isZero() {
         return num.signum() == 0;
     }
 
-    public Rational negate() {
+    /** {@code -this}. */
+    Rational negate() {
         return new Rational(num.negate(), den);
     }
 
-    public Rational add(Rational o) {
+    /** {@code this + o}. */
+    Rational add(Rational o) {
         if (den.equals(o.den)) {
             return of(num.add(o.num), den);
         }
         return of(num.multiply(o.den).add(o.num.multiply(den)), den.multiply(o.den));
     }
 
-    public Rational subtract(Rational o) {
+    /** {@code this - o}. */
+    Rational subtract(Rational o) {
         return add(o.negate());
     }
 
-    public Rational multiply(Rational o) {
+    /** {@code this · o}. */
+    Rational multiply(Rational o) {
         if (num.signum() == 0 || o.num.signum() == 0) {
             return ZERO;
         }
@@ -102,28 +106,32 @@ public final class Rational implements Comparable<Rational> {
     }
 
     /** {@code this / o}. Throws {@link ArithmeticException} when {@code o} is zero. */
-    public Rational divide(Rational o) {
+    Rational divide(Rational o) {
         if (o.num.signum() == 0) {
             throw new ArithmeticException("division by zero");
         }
         return of(num.multiply(o.den), den.multiply(o.num));
     }
 
+    /** Orders by value. */
     @Override
     public int compareTo(Rational o) {
         return num.multiply(o.den).compareTo(o.num.multiply(den));
     }
 
+    /** Equal values: both are in lowest terms, so numerators and denominators are equal. */
     @Override
     public boolean equals(Object o) {
         return o instanceof Rational r && num.equals(r.num) && den.equals(r.den);
     }
 
+    /** Consistent with {@link #equals}. */
     @Override
     public int hashCode() {
-        return Objects.hash(num, den);
+        return 31 * num.hashCode() + den.hashCode();
     }
 
+    /** {@code n} for an integer, {@code n/d} otherwise. */
     @Override
     public String toString() {
         return den.equals(BigInteger.ONE) ? num.toString() : num + "/" + den;

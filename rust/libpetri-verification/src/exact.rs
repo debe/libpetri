@@ -11,7 +11,9 @@
 //!
 //! A value that fits an `i64` is stored as one, and every operation on two such values
 //! first tries the checked `i64` operation. Only a result that does not fit moves to the
-//! limb representation, so the common case allocates nothing. Both representations
+//! limb representation, so the common case allocates nothing. [`Rational`] does the same
+//! one level up: when both operands' parts fit an `i64`, it forms the cross products in
+//! `i128` and reduces them there. Both representations
 //! hold exactly the same set of values and a value has one representation (a limb
 //! number never fits an `i64`), so equality and hashing are structural.
 
@@ -454,6 +456,26 @@ fn mag_div_rem(a: &[u32], d: &[u32]) -> (Vec<u32>, Vec<u32>) {
     (q, r)
 }
 
+/// Binary GCD: `u128` division is a software routine, so Euclid's remainders cost more
+/// than shifts and subtractions.
+fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
+    if a == 0 || b == 0 {
+        return a | b;
+    }
+    let shift = (a | b).trailing_zeros();
+    a >>= a.trailing_zeros();
+    loop {
+        b >>= b.trailing_zeros();
+        if a > b {
+            (a, b) = (b, a);
+        }
+        b -= a;
+        if b == 0 {
+            return a << shift;
+        }
+    }
+}
+
 fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
     while b != 0 {
         let r = a % b;
@@ -515,7 +537,35 @@ impl Rational {
         self.num.is_positive()
     }
 
+    /// Numerators and denominators of both operands, when all four fit in `i64`.
+    fn small(&self, o: &Rational) -> Option<[i128; 4]> {
+        Some([
+            self.num.to_i64()? as i128,
+            self.den.to_i64()? as i128,
+            o.num.to_i64()? as i128,
+            o.den.to_i64()? as i128,
+        ])
+    }
+
+    /// `num / den` in lowest terms from `i128` parts; `None` when `den` is zero. The fast
+    /// path of the arithmetic below, which keeps operands that fit in `i64` off the
+    /// limb representation.
+    fn from_i128(num: i128, den: i128) -> Option<Self> {
+        if den == 0 {
+            return None;
+        }
+        let g = gcd_u128(num.unsigned_abs(), den.unsigned_abs()) as i128;
+        let (num, den) = (num / g, den / g);
+        let (num, den) = if den < 0 { (num.checked_neg()?, -den) } else { (num, den) };
+        Some(Rational { num: BigInt::from(num), den: BigInt::from(den) })
+    }
+
     pub fn add(&self, o: &Rational) -> Rational {
+        if let Some([a, b, c, d]) = self.small(o)
+            && let Some(r) = (a * d).checked_add(c * b).and_then(|n| Rational::from_i128(n, b * d))
+        {
+            return r;
+        }
         if self.den == o.den {
             return Rational::new(&self.num + &o.num, self.den.clone());
         }
@@ -523,6 +573,11 @@ impl Rational {
     }
 
     pub fn sub(&self, o: &Rational) -> Rational {
+        if let Some([a, b, c, d]) = self.small(o)
+            && let Some(r) = (a * d).checked_sub(c * b).and_then(|n| Rational::from_i128(n, b * d))
+        {
+            return r;
+        }
         if self.den == o.den {
             return Rational::new(&self.num - &o.num, self.den.clone());
         }
@@ -530,11 +585,22 @@ impl Rational {
     }
 
     pub fn mul(&self, o: &Rational) -> Rational {
+        if let Some([a, b, c, d]) = self.small(o)
+            && let Some(r) = Rational::from_i128(a * c, b * d)
+        {
+            return r;
+        }
         Rational::new(&self.num * &o.num, &self.den * &o.den)
     }
 
     /// Panics when `o` is zero.
     pub fn div(&self, o: &Rational) -> Rational {
+        if let Some([a, b, c, d]) = self.small(o)
+            && c != 0
+            && let Some(r) = Rational::from_i128(a * d, b * c)
+        {
+            return r;
+        }
         Rational::new(&self.num * &o.den, &self.den * &o.num)
     }
 

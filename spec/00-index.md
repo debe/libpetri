@@ -266,7 +266,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040, TIME-012 |
 | NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
 | NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020, VER-004 |
-| NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-005, VER-012, VER-013 |
+| NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-005, VER-006, VER-012, VER-013, VER-015 |
 | NU-054 | Join Relay | MAY | NU-020, NU-030, NU-051, NU-053, VER-012, IO-015, IO-016, CONC-026 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 

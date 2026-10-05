@@ -565,8 +565,8 @@ export class SmtVerifier {
    * Cancels {@link verify} when `signal` fires ([VER-013]; default: none).
    *
    * Cancellation is the {@link totalBudget}'s stop mechanism with a different trigger: every
-   * point that polls the budget — the graph builds, the siphon/trap search, the semiflow
-   * enumeration, the colour-slot simplex, the start of each phase — also sees the signal, and a
+   * point that polls the budget (the graph builds, the siphon/trap search, the semiflow
+   * enumeration, the colour-slot simplex, the start of each phase) also sees the signal, and a
    * z3 process in flight is killed the moment it fires rather than at its watchdog. The verdict
    * is then `unknown` with the reason and report line `verification cancelled during <phase>`,
    * the phase named as for an exhausted budget. A verdict reached before the signal fires stands. A signal that has
@@ -1628,8 +1628,8 @@ export class SmtVerifier {
     // Computed ONLY when the [VER-007] union will read them. Nothing else does: the
     // colour-slot bound of the name-coloured encoder ([NU-053]) is a linear program over
     // the incidence matrix (`slot-bound-lp`), not a semiflow search. The enumeration is
-    // worst-case exponential — the minimal semiflows of `k` independent diamonds in series
-    // number 2^k, measured at 2 048 for eleven and 8 189 (the backstop) beyond thirteen —
+    // worst-case exponential (the minimal semiflows of `k` independent diamonds in series
+    // number 2^k, measured at 2 048 for eleven and 8 189, the backstop, beyond thirteen),
     // so running it for a caller who did not ask for it is a large cost, and on a wide net
     // an uncatchable one: the heap it exhausts aborts the process rather than returning a
     // verdict. Skipping it is invisible to every other phase.
@@ -1794,7 +1794,7 @@ export class SmtVerifier {
     // the supported fragment, encode names as a finite colour set (k = the colour-slot
     // bound: the floor of a linear program's optimum, re-checked exactly, which bounds the
     // coloured tokens and so the live names) with exact same-colour join matching, instead
-    // of the name-blind over-approximation — this rules out spurious counterexamples that
+    // of the name-blind over-approximation. This rules out spurious counterexamples that
     // would equate two distinct names. Reachability-safety AND quiescence (NU-053)
     // properties are both routed here; a net outside the fragment keeps the flat encoding.
     //

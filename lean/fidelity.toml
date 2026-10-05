@@ -499,7 +499,9 @@ lean = ["Libpetri/Semiflow.lean", "Libpetri/Novel/RouteA/Plan.lean"]
 # `k` only through `checked`. The simplex (`solve`, `solve_counted` and their presolve
 # and pivot helpers in the same file) is deliberately NOT pinned: it is untrusted, the
 # model takes its answer as arbitrary (`buildPlan`'s `ans`), and editing it needs no
-# Lean re-verification because nothing uses its answer unchecked.
+# Lean re-verification because nothing uses its answer unchecked. `check_cover` computes in
+# `exact.rs` (`BigInt`, `Rational`), which the model reads as Lean's `Int`: that arithmetic
+# is trusted base, unpinned, and held to it by the property tests in `exact.rs`.
 [[pin]]
 file = "rust/libpetri-verification/src/slot_bound_lp.rs"
 fn = "check_cover"

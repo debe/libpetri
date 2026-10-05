@@ -19,8 +19,8 @@ import type { PInvariant } from '../../src/verification/invariant/p-invariant.js
 import { declaredMints, type FragmentMode } from '../../src/verification/analysis/name-fragment.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from '../../src/verification/z3/name-coloured-encoder.js';
 import {
-  checkCover, checkedSlotBound, presolve, Rational, slotBoundK, slotBoundReportLine, SlotTableau,
-  solveSlotBound, solveSlotBoundCounted, SLOT_LP_MAX_PLACES,
+  checkCover, checkedSlotBound, presolve, Rational, slotBoundReportLine, SlotTableau,
+  solveSlotBound, solveSlotBoundCounted, SLOT_LP_MAX_PLACES, SLOT_LP_WORK_LIMIT,
   type LpAnswer, type ScaledCover, type SlotBound,
 } from '../../src/verification/z3/slot-bound-lp.js';
 import { placeBound } from '../../src/verification/smt-property.js';
@@ -101,6 +101,11 @@ function bound(net: FlatNet, m0: MarkingState, coloured: readonly number[]): Slo
   return checkedSlotBound(net, m0, coloured, solveSlotBound(net, m0, coloured));
 }
 
+/** The bound, when there is one. */
+function kOf(b: SlotBound): number | null {
+  return b.type === 'bound' ? b.k : null;
+}
+
 function cover(weights: readonly number[], d: number): ScaledCover {
   return { weights: big(weights), denominator: BigInt(d) };
 }
@@ -132,7 +137,7 @@ function beale(): SlotTableau {
 describe('the exact simplex core', () => {
   it("Bland's rule solves Beale's cycling example in 6 pivots", () => {
     const t = beale();
-    expect(t.run('bland', 1000)).toBe('optimal');
+    expect(t.run('bland', SLOT_LP_WORK_LIMIT)).toBe('optimal');
     expect(t.objValue.toString()).toBe('5/4');
     expect(t.pivots).toBe(6);
   });
@@ -168,17 +173,39 @@ describe('the exact simplex core', () => {
       [q(0n), q(0n), q(1n), q(1n)],
       [q(1n), q(2n)],
     );
-    expect(t.run('bland', 100)).toBe('optimal');
+    expect(t.run('bland', SLOT_LP_WORK_LIMIT)).toBe('optimal');
     expect([t.pivots, t.basis, t.objValue.toString()]).toEqual([2, [2, 1, 4, 5], '0']);
   });
 
-  it('polls the pivot limit and the stop before a pivot', () => {
+  it('polls the work limit and the stop before a pivot', () => {
+    // Beale's example takes 6 pivots and 171 entry updates. A limit of exactly 171 still
+    // solves it, since the solve then needs no further pivot; one less refuses before the
+    // last pivot.
+    const full = beale();
+    expect(full.run('bland', SLOT_LP_WORK_LIMIT)).toBe('optimal');
+    expect([full.pivots, full.work]).toEqual([6, 171]);
+    expect(beale().run('bland', 171)).toBe('optimal');
     const limited = beale();
-    expect(limited.run('bland', 3)).toBe('pivot-limit');
-    expect(limited.pivots).toBe(3);
+    expect(limited.run('bland', 170)).toBe('work-limit');
+    expect(limited.pivots).toBe(5);
     const stopped = beale();
-    expect(stopped.run('bland', 1000, () => true)).toBe('stopped');
-    expect(stopped.pivots).toBe(0);
+    expect(stopped.run('bland', SLOT_LP_WORK_LIMIT, () => true)).toBe('stopped');
+    expect([stopped.pivots, stopped.work]).toEqual([0, 0]);
+  });
+
+  it('holds every entry of the tableau to the coefficient limit', () => {
+    // A pivot that divides 2^63 − 1 by 1/3 writes an entry past the limit; it is counted, and
+    // the solve ends after it. An initial entry past the limit refuses before any pivot.
+    const max = 2n ** 63n - 1n;
+    const over = SlotTableau.standard([[q(1n, 3n)]], [q(max)], [q(1n)]);
+    expect(over.run('bland', SLOT_LP_WORK_LIMIT)).toBe('coefficient-limit');
+    expect(over.pivots).toBe(1);
+    const within = SlotTableau.standard([[q(1n)]], [q(max)], [q(1n)]);
+    expect(within.run('bland', SLOT_LP_WORK_LIMIT)).toBe('optimal');
+    expect(within.objValue.equals(q(max))).toBe(true);
+    const initial = SlotTableau.standard([[q(1n)]], [q(2n ** 63n)], [q(1n)]);
+    expect(initial.run('bland', SLOT_LP_WORK_LIMIT)).toBe('coefficient-limit');
+    expect(initial.pivots).toBe(0);
   });
 
   it('rationals stay in lowest terms with a positive denominator', () => {
@@ -217,13 +244,13 @@ describe('the colour-slot program (NU-053)', () => {
     expect(answer.cover.weights).toEqual([3n, 3n, 2n]);
     const b = checkedSlotBound(net, m0, [0, 1], answer);
     expect(b.type).toBe('bound');
-    expect(slotBoundK(b)).toBe(4);
+    expect(kOf(b)).toBe(4);
     expect(b.type === 'bound' && b.value.toString()).toBe('14/3');
     expect(slotBoundReportLine(b)).toBe(
       '  Colour-slot bound: LP optimum 14/3 over 3 places and 2 transitions, so k=4 (re-checked in exact arithmetic)',
     );
     // One budget token: below one coloured token, so the exact zero-slot plan.
-    expect(slotBoundK(bound(net, marking(net, { budget: 1 }), [0, 1]))).toBe(0);
+    expect(kOf(bound(net, marking(net, { budget: 1 }), [0, 1]))).toBe(0);
   });
 
   it("enters by Bland's rule, the smallest column, not the largest coefficient", () => {
@@ -234,10 +261,10 @@ describe('the colour-slot program (NU-053)', () => {
       ['two', { budget: 1 }, { a: 2 }],
     ]);
     const m0 = marking(net, { budget: 1 });
-    const { answer, pivots } = solveSlotBoundCounted(net, m0, [0]);
-    expect(pivots).toBe(2);
+    const { answer, counts } = solveSlotBoundCounted(net, m0, [0]);
+    expect(counts.pivots).toBe(2);
     expect(answer.type === 'optimal' && answer.cover.weights).toEqual([1n, 2n]);
-    expect(slotBoundK(checkedSlotBound(net, m0, [0], answer))).toBe(2);
+    expect(kOf(checkedSlotBound(net, m0, [0], answer))).toBe(2);
   });
 
   it('gives k = 0 without a budget token and refuses an inflating join as infeasible', () => {
@@ -245,8 +272,8 @@ describe('the colour-slot program (NU-053)', () => {
       ['mint', { budget: 1 }, { a: 1, b: 1 }],
       ['join', { a: 1, b: 1 }, { budget: 1 }],
     ]);
-    expect(slotBoundK(bound(conserving, marking(conserving, {}), [0, 1]))).toBe(0);
-    expect(slotBoundK(bound(conserving, marking(conserving, { budget: 3 }), [0, 1]))).toBe(6);
+    expect(kOf(bound(conserving, marking(conserving, {}), [0, 1]))).toBe(0);
+    expect(kOf(bound(conserving, marking(conserving, { budget: 3 }), [0, 1]))).toBe(6);
     // The join refunds two tokens, one to each budget place: the colours multiply.
     const inflating = flat(['a', 'b', 'budget1', 'budget2'], [
       ['mint1', { budget1: 1 }, { a: 1, b: 1 }],
@@ -279,7 +306,7 @@ describe('the colour-slot program (NU-053)', () => {
     // m' = 0: nothing produces into the coloured place.
     const empty = flat(['a', 'b'], [['t', { a: 1 }, { b: 1 }]]);
     expect(presolve(empty, [true, false]).rows.length).toBe(0);
-    expect(slotBoundK(bound(empty, marking(empty, { b: 4 }), [0]))).toBe(0);
+    expect(kOf(bound(empty, marking(empty, { b: 4 }), [0]))).toBe(0);
   });
 
   it('keeps big counts and denominators exact', () => {
@@ -300,7 +327,7 @@ describe('the colour-slot program (NU-053)', () => {
     const expected = Rational.of((2n ** 50n - 1n) * 2n ** 30n, 2n ** 50n);
     expect(expected.toString()).toBe('1125899906842623/1048576');
     expect(b.type === 'bound' && b.value.equals(expected)).toBe(true);
-    expect(slotBoundK(b)).toBe(2 ** 30 - 1);
+    expect(kOf(b)).toBe(2 ** 30 - 1);
   });
 
   it('decides the size limit before any pivot', () => {
@@ -313,9 +340,9 @@ describe('the colour-slot program (NU-053)', () => {
     post[0] = 1;
     const net = flatFromVectors(names, [{ name: 'gather', pre, post }]);
     const m0 = MarkingState.empty();
-    const { answer, pivots } = solveSlotBoundCounted(net, m0, [0]);
+    const { answer, counts } = solveSlotBoundCounted(net, m0, [0]);
     expect(answer).toEqual({ type: 'too-large', places: n, rows: 1 });
-    expect(pivots).toBe(0);
+    expect(counts).toEqual({ pivots: 0, work: 0 });
     expect(slotBoundReportLine(checkedSlotBound(net, m0, [0], answer))).toBe(
       '  Colour-slot bound: none (LP over 4097 places and 1 transitions exceeds the limit of 4096 places and 16384 transitions)',
     );
@@ -354,17 +381,22 @@ describe('the colour-slot program (NU-053)', () => {
     expect(presolve(net, [true, false, false]).rows.length).toBe(2);
     // z = 1: spill raises the sum by 2·1 − 1 = 1.
     expect(reasonOf(checkCover(net, m0, [0], cover([1, 1, 1], 1)))).toBe("transition 'spill' increases the weighted sum by 1");
-    expect(slotBoundK(bound(net, m0, [0]))).toBe(1);
+    expect(kOf(bound(net, m0, [0]))).toBe(1);
   });
 
   it('gives no bound for every answer without a weighting', () => {
     const net = fractionalFork();
     const m0 = marking(net, {});
-    const limited = checkedSlotBound(net, m0, [0, 1], { type: 'pivot-limit', limit: 250 });
-    expect(slotBoundK(limited)).toBeNull();
-    expect(slotBoundReportLine(limited)).toBe('  Colour-slot bound: none (no LP optimum within the pivot limit of 250)');
+    const limited = checkedSlotBound(net, m0, [0, 1], { type: 'work-limit', pivots: 250 });
+    expect(kOf(limited)).toBeNull();
+    expect(slotBoundReportLine(limited)).toBe(
+      '  Colour-slot bound: none (no LP optimum within the work limit of 4000000 entry updates, after 250 pivots)',
+    );
+    const outgrown = checkedSlotBound(net, m0, [0, 1], { type: 'coefficient-limit', pivots: 7 });
+    expect(kOf(outgrown)).toBeNull();
+    expect(slotBoundReportLine(outgrown)).toBe('  Colour-slot bound: none (an LP coefficient outgrew 63 bits after 7 pivots)');
     const stopped = checkedSlotBound(net, m0, [0, 1], { type: 'stopped' });
-    expect(slotBoundK(stopped)).toBeNull();
+    expect(kOf(stopped)).toBeNull();
     expect(slotBoundReportLine(stopped)).toBeNull();
     const short = checkedSlotBound(net, m0, [0, 1], { type: 'optimal', cover: cover([1, 1], 1), places: 3, rows: 2 });
     expect(slotBoundReportLine(short)).toBe(
@@ -394,6 +426,7 @@ interface JsonCase {
     readonly places?: number;
     readonly rows?: number;
     readonly pivots: number;
+    readonly work: number;
     readonly optimum?: string;
     readonly k?: number;
     readonly weights?: Record<string, string>;
@@ -445,20 +478,24 @@ const paritySubjects = (): Subject[] => LP_CASES.map(buildCase);
 
 describe('the shared colour-slot LP cases (spec/verification-fixtures/slot-bound-lp.json)', () => {
   it('lists cases', () => {
-    expect(LP_CASES.length).toBeGreaterThanOrEqual(16);
+    expect(LP_CASES.length).toBeGreaterThanOrEqual(18);
+    // Each limit the solve can end on has a case.
+    const statuses = new Set(LP_CASES.map(c => c.expected.status));
+    for (const status of ['optimal', 'infeasible', 'work-limit', 'coefficient-limit']) expect(statuses).toContain(status);
   });
 
   for (const c of LP_CASES) {
-    it(`${c.id}: the same status, sizes, pivots, optimum, k and weighting as Rust`, () => {
+    it(`${c.id}: the same status, sizes, pivots, work, optimum, k and weighting as Rust`, () => {
       const s = buildCase(c);
-      const { answer, pivots } = solveSlotBoundCounted(s.flat, s.initial, s.coloured);
+      const { answer, counts } = solveSlotBoundCounted(s.flat, s.initial, s.coloured);
       const status = answer.type;
       const actual: Record<string, unknown> = { status };
       if (answer.type === 'optimal' || answer.type === 'infeasible' || answer.type === 'too-large') {
         actual.places = answer.places;
         actual.rows = answer.rows;
       }
-      actual.pivots = pivots;
+      actual.pivots = counts.pivots;
+      actual.work = counts.work;
       if (answer.type === 'optimal') {
         const b = checkedSlotBound(s.flat, s.initial, s.coloured, answer);
         expect(b.type, `[${c.id}] the simplex's weighting failed the re-check: ${slotBoundReportLine(b)}`).toBe('bound');
@@ -479,12 +516,13 @@ describe('the shared colour-slot LP cases (spec/verification-fixtures/slot-bound
     const s = paritySubjects().find(x => x.id === 'composed-workflow-7')!;
     expect([s.flat.places.length, s.flat.transitions.length]).toEqual([255, 341]);
     const t0 = performance.now();
-    const { answer, pivots } = solveSlotBoundCounted(s.flat, s.initial, s.coloured);
+    const { answer, counts } = solveSlotBoundCounted(s.flat, s.initial, s.coloured);
     const elapsed = performance.now() - t0;
     expect(answer.type).toBe('optimal');
     if (answer.type !== 'optimal') return;
-    expect(pivots).toBeLessThanOrEqual(2 * (answer.places + answer.rows));
-    expect(slotBoundK(checkedSlotBound(s.flat, s.initial, s.coloured, answer))).toBe(6);
+    expect(counts.pivots).toBeLessThanOrEqual(2 * (answer.places + answer.rows));
+    expect(counts.work * 100).toBeLessThanOrEqual(SLOT_LP_WORK_LIMIT);
+    expect(kOf(checkedSlotBound(s.flat, s.initial, s.coloured, answer))).toBe(6);
     // A generous ceiling for a loaded CI machine; the solve takes tens of milliseconds.
     expect(elapsed).toBeLessThan(2_000);
   });
@@ -630,9 +668,14 @@ function randomSubject(seed: number): Subject {
   return { id: `random-${seed}`, flat: net, initial: m.build(), coloured: keys };
 }
 
+/**
+ * The differential subjects: the parity cases the simplex answers (the limit cases have no
+ * optimum to compare), the relay nets and 300 random nets.
+ */
 let corpusCache: Subject[] | null = null;
 function corpus(): Subject[] {
-  corpusCache ??= [...paritySubjects(), ...relaySubjects(), ...Array.from({ length: 300 }, (_, i) => randomSubject(i))];
+  const answered = LP_CASES.filter(c => c.expected.status === 'optimal' || c.expected.status === 'infeasible');
+  corpusCache ??= [...answered.map(buildCase), ...relaySubjects(), ...Array.from({ length: 300 }, (_, i) => randomSubject(i))];
   return corpusCache;
 }
 
@@ -981,7 +1024,8 @@ describe('buildColouredPlan takes k only from a weighting the re-check accepts',
 
   it('refuses the plan on every answer without a weighting', () => {
     const answers: LpAnswer[] = [
-      { type: 'infeasible', places: 5, rows: 2 }, { type: 'pivot-limit', limit: 350 }, { type: 'stopped' },
+      { type: 'infeasible', places: 5, rows: 2 }, { type: 'work-limit', pivots: 350 },
+      { type: 'coefficient-limit', pivots: 3 }, { type: 'stopped' },
     ];
     for (const a of answers) expect(planWith(net, initial, () => a).plan, a.type).toBeNull();
   });

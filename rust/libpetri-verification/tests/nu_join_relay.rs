@@ -398,7 +398,7 @@ fn routes_agree_on_the_relay_fixtures() {
         &Q::new(join_chain_split(), &[("S", 1), ("S2", 1)], unreachable("done")).budgets(&["S", "S2"]),
         "proven",
     );
-    // k = 1 only: at k = 2 the covering semiflow gives six colour slots and Spacer
+    // k = 1 only: at k = 2 the colour-slot bound doubles the colour columns and Spacer
     // does not find the violation in time (as in Java).
     assert_routes_agree("self-loop independent q deadlockFree, k=1", &self_loop_deadlock(true, 1), "violated");
 }

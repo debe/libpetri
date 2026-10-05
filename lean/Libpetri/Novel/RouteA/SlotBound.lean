@@ -28,8 +28,8 @@ weighting scaled to integers, a vector `Y` and a denominator `D` that stand for 
 plan uses it, and computes `k` itself as `⌊Y·M₀ / D⌋`. It accepts when `D ≥ 1`, `Y_p ≥ 0` on
 every place, `Y_p ≥ D` on every coloured place, `Y·C_r ≤ 0` on every flat row (the rows the
 simplex's presolve dropped included), and `k ≤ slotCap`. `checked` (`slot_bound_lp.rs`) passes
-an optimal answer through `check_cover` and turns every other answer (infeasible, over a size or
-pivot limit, stopped) into no bound. `checkCover` and `colourSlotBoundLP` model the two
+an optimal answer through `check_cover` and turns every other answer (infeasible, over a size,
+work or coefficient limit, stopped) into no bound. `checkCover` and `colourSlotBoundLP` model the two
 functions. The model reads `Y` as a total `Weight` and `D` as a `Nat`. The Rust's length check
 on `Y` and its refusal of a negative `D` have no counterpart in the model, and both only refuse
 more.

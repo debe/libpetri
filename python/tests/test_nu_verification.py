@@ -138,6 +138,8 @@ def test_zero_budget_quiescence_decided_by_zero_slot_plan():
         timeout_ms=15_000,
     )
     assert "colour-slot bound k=0" in violated.report, violated.report
+    assert "  Colour-slot bound: LP optimum 0 over " in violated.report, violated.report
+    assert "  P-semiflows for the colour-slot bound" not in violated.report, violated.report
     assert violated.verdict == "violated", violated.report
     # Declaring `source` a sink makes that marking a legitimate end state.
     proven = lp.verify(

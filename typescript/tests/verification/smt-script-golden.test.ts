@@ -59,7 +59,6 @@ function encoderInvariants(flat: FlatNet, m0: MarkingState) {
   return canonicalInvariantOrder(validateInvariantsExact(matrix, computePInvariants(matrix, flat, m0), flat, m0).valid);
 }
 
-
 describe('SMT script parity with the Rust reference (VER-013 AC1)', () => {
   it('chain: p0(1) -> p1, placeBound(p1, 0)', () => {
     const p0 = place('p0');

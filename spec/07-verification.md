@@ -647,7 +647,7 @@ laws of the net, computed by the Farkas / Colom-Silva enumeration) are the missi
 semiflows of a net are worst-case exponential in its branching: `k` independent diamonds in
 series have `2^k` of them, measured at 2 048 for eleven and past the implementation's backstop
 beyond thirteen. Computing them for a caller who did not enable this option is a large unforced
-cost — 27 s of preprocessing on a 24-layer net before the solver sees anything — and on a wide
+cost (27 s of preprocessing on a 24-layer net before the solver sees anything), and on a wide
 net an **uncatchable** one, since the heap it exhausts aborts the process rather than returning a
 verdict. An implementation MUST compute semiflows only when the option is enabled. No other phase
 reads them: the colour-slot bound of [NU-053] is a linear program over the incidence matrix, not

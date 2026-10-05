@@ -114,7 +114,7 @@ A single circulating token acts as a mutex over shared batch state, so collectio
 
 ## 7. Routing a correlation name around a lossy region
 
-A region that folds N tokens into one is not token-conservative, so no semiflow covers it and a correlation colour cannot travel through it.
+A region that folds N tokens into one cannot carry a correlation colour: a coloured consumer takes exactly one coloured input at count one (see `nu-nets.md` section 7), so a fold falls outside the ν fragment.
 
 The fix: emit a routing token carrying the name **in parallel with** the region, keep the region itself colourless, and rejoin using a pending marker plus an inhibitor arc.
 

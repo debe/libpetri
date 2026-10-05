@@ -287,7 +287,7 @@ export function buildColouredPlan(
   onSlotBound(bound);
   if (bound.type !== 'bound') return null;
   const k = bound.k;
-  // NU-053 AC6: `k = 0` is an exact plan — no coloured token can ever exist, so every
+  // NU-053 AC6: `k = 0` is an exact plan: no coloured token can ever exist, so every
   // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
   // (`SlotBound.lean`, `vacuous_colour_layer_lp`). The one shape it cannot encode is a net
   // with no uncoloured place at all (`Reachable` would be nullary and every rule's

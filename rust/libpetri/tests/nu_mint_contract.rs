@@ -18,6 +18,8 @@
 //!
 //! Lives in the umbrella crate so it can run the executor and the verifier together.
 
+#![cfg(feature = "z3")]
+
 use libpetri::core::action::{async_action, fork, sync_action};
 use libpetri::core::input::one;
 use libpetri::core::match_spec::MatchSpec;

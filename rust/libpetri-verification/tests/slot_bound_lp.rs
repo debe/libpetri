@@ -56,6 +56,8 @@ fn parity_subjects() -> Vec<Subject> {
     let doc = json::parse_json(&std::fs::read_to_string(path).expect("read slot-bound-lp.json"));
     doc.arr("cases")
         .iter()
+        // The limit cases have no optimum to compare; the parity test pins them.
+        .filter(|c| matches!(c.get("expected").and_then(|e| e.get("status")), Some(json::Json::Str(s)) if s == "optimal" || s == "infeasible"))
         .map(|c| {
             let built = slot_lp_cases::build(c);
             Subject { id: built.id, flat: built.flat, initial: built.initial, coloured: built.coloured }
@@ -519,9 +521,11 @@ fn the_lp_optimum_agrees_with_z3() {
 fn the_composed_workflow_solves_in_few_pivots() {
     let s = parity_subjects().into_iter().find(|s| s.id == "composed-workflow-7").expect("composed workflow");
     assert_eq!((s.flat.place_count, s.flat.transitions.len()), (255, 341));
-    let (answer, pivots) = slot_bound_lp::solve_counted(&s.flat, &s.initial, &s.coloured);
+    let (answer, counts) = slot_bound_lp::solve_counted(&s.flat, &s.initial, &s.coloured);
     let LpAnswer::Optimal { places, rows, .. } = &answer else { panic!("{answer:?}") };
+    let pivots = counts.pivots;
     assert!(pivots <= 2 * (places + rows), "{pivots} pivots over {places} places and {rows} rows");
+    assert!(counts.work * 100 <= slot_bound_lp::WORK_LIMIT, "{} entry updates", counts.work);
     let bound = slot_bound_lp::checked(&s.flat, &s.initial, &s.coloured, answer);
     assert_eq!(bound.k(), Some(6), "{bound:?}");
 }
@@ -619,7 +623,8 @@ fn build_plan_takes_k_only_from_a_weighting_the_re_check_accepts() {
     let (plan, bound) = plan_with(&net, &m0, |flat| weights(flat, &[("branchA", 1), ("branchB", 1), ("budget", 2), ("source", 1)], 1));
     assert_eq!(plan.map(|p| p.k), Some(7), "{bound:?}");
     // Every answer without a weighting refuses the plan.
-    for answer in [LpAnswer::Infeasible { places: 5, rows: 2 }, LpAnswer::PivotLimit { limit: 350 }, LpAnswer::Stopped] {
+    for answer in [LpAnswer::Infeasible { places: 5, rows: 2 }, LpAnswer::WorkLimit { pivots: 350 },
+        LpAnswer::CoefficientLimit { pivots: 3 }, LpAnswer::Stopped] {
         let (plan, _) = plan_with(&net, &m0, |_| answer.clone());
         assert!(plan.is_none(), "{answer:?}");
     }

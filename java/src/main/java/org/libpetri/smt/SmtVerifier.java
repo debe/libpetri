@@ -753,9 +753,9 @@ public final class SmtVerifier {
      * Sets an optional <b>total</b> wall-clock budget for one {@link #verify()} call ([VER-013];
      * default: none).
      *
-     * <p>{@link #timeout(Duration)} is a per-query budget: each solver phase gets its own —
-     * the bound query, the state-equation phase and its certificate check, the firing bound
-     * (half), the fixpoint query and its certificate check — so the worst case is several times
+     * <p>{@link #timeout(Duration)} is a per-query budget: each solver phase gets its own
+     * (the bound query, the state-equation phase and its certificate check, the firing bound
+     * (half), the fixpoint query and its certificate check), so the worst case is several times
      * the timeout, plus the solver-free work (enumeration, Route B, the siphon/trap search, the
      * semiflow enumeration, the colour-slot simplex), which no timeout bounds at all. This
      * option bounds the whole call: the deadline starts when {@code verify()} is entered, and
@@ -1893,11 +1893,11 @@ public final class SmtVerifier {
         // Computed ONLY when the union will read them ([VER-007] AC2). Nothing else does: the
         // colour-slot bound of the name-coloured encoder ([NU-053]) is a linear program over
         // the incidence matrix (SlotBoundLp), not a semiflow search. The Farkas enumeration is
-        // worst-case exponential —
-        // the minimal semiflows of `k` independent diamonds in series number 2^k, measured
-        // at 2 048 for eleven and past the backstop beyond thirteen — so running it for a
-        // caller who did not ask for it is a large cost, and on a wide net an uncatchable
-        // one: the heap it exhausts kills the process rather than returning a verdict.
+        // worst-case exponential: the minimal semiflows of `k` independent diamonds in series
+        // number 2^k, measured at 2 048 for eleven and past the backstop beyond thirteen. So
+        // running it for a caller who did not ask for it is a large cost, and on a wide net
+        // an uncatchable one: the heap it exhausts kills the process rather than returning a
+        // verdict.
         // Skipping it is invisible to every other phase.
         //
         // AUTO ([VER-007]): compute them exactly when the basis LOST a law to the H1 guard,
@@ -2906,7 +2906,7 @@ public final class SmtVerifier {
         var coloured = colouredAttempt(
             flatNet, invariants, c -> SlotBoundLp.solve(flatNet, initialMarking, c), _ -> {});
         // The bound query (VER-015) exactly when verify() would send it: enabled, not refused
-        // by VER-006, and a property with a linear demand (else null) — on the flat path and
+        // by VER-006, and a property with a linear demand (else null), on the flat path and
         // ahead of the name-coloured encoding alike.
         String bound = linearBound
                 && !ignoresEnvironment()

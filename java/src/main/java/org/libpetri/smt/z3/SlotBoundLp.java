@@ -78,16 +78,29 @@ import java.util.function.BooleanSupplier;
  *       {@code y_p} in lowest terms and {@code Y = y·D}.</li>
  * </ol>
  *
- * <p>Limits, both functions of the presolved program and the pivot sequence, so every
- * implementation refuses the same nets: {@link LpAnswer.TooLarge} past {@link #MAX_PLACES}
- * places or {@link #MAX_ROWS} rows after the presolve, before any pivot;
- * {@link LpAnswer.PivotLimit} past {@link #PIVOTS_PER_SIZE}{@code · (n' + m')} pivots. The solve
- * calls {@link VerificationDeadline#checkpoint()} before every pivot ([VER-013]), which throws
- * when the verification must stop; outside a {@code verify()} call (as in
+ * <p>Limits, all functions of the presolved program and the pivot sequence, so every
+ * implementation refuses the same nets, and together they bound the time of a solve whether or
+ * not a total budget is set:
+ * <ul>
+ *   <li>{@link LpAnswer.TooLarge} past {@link #MAX_PLACES} places or {@link #MAX_ROWS} rows after
+ *       the presolve, before any pivot.</li>
+ *   <li>{@link LpAnswer.WorkLimit} when the next pivot would take the work past
+ *       {@link #WORK_LIMIT}. The work of a pivot is the length of the pivot row {@code p}, plus
+ *       {@code len(row) + p} for every row it updates (the other constraint rows with a non-zero
+ *       entry in the entering column, and the objective row when it has one there), lengths
+ *       counted in non-zero entries before the pivot, slacks included. The work of a solve is
+ *       the sum over its pivots.</li>
+ *   <li>{@link LpAnswer.CoefficientLimit} when a pivot leaves an entry of the tableau (a
+ *       constraint row, its right-hand side, the objective row or its value) whose numerator or
+ *       denominator in lowest terms exceeds {@code 2^63 - 1} in absolute value. The initial
+ *       tableau is held to the same limit.</li>
+ * </ul>
+ * The solve calls {@link VerificationDeadline#checkpoint()} before every pivot ([VER-013]), which
+ * throws when the verification must stop; outside a {@code verify()} call (as in
  * {@code encodeScripts()}) the checkpoint does nothing. Each round of the loop decides in this
- * order: no entering column, optimal; no leaving row, infeasible; the limit's pivots already
- * made, pivot limit; a stop, stopped; otherwise pivot. A solve that ends without needing another
- * pivot is therefore never refused by the limit.
+ * order: no entering column, optimal; no leaving row, infeasible; the next pivot's work past the
+ * limit, work limit; a stop, stopped; otherwise pivot, then the coefficient limit. A solve that
+ * ends without needing another pivot is therefore never refused by the work limit.
  *
  * <p>This mirrors the Rust reference {@code slot_bound_lp.rs}: the same pivots, the same
  * weighting, the same report lines and refusal reasons.
@@ -108,8 +121,11 @@ public final class SlotBoundLp {
     /** The most rows (transitions) the presolved program may have. */
     public static final int MAX_ROWS = 16384;
 
-    /** The pivot limit is this many pivots per presolved place and row. */
-    public static final int PIVOTS_PER_SIZE = 50;
+    /**
+     * The most work a solve may do, in entry updates (see the class documentation). A tenth of a
+     * second on a sparse net, a few seconds at worst on a dense weighted one.
+     */
+    public static final long WORK_LIMIT = 4_000_000L;
 
     /**
      * A weighting scaled to integers: {@code y_p = weights[p] / denominator}, one entry per flat
@@ -132,8 +148,11 @@ public final class SlotBoundLp {
         /** The presolved program exceeds {@link #MAX_PLACES} or {@link #MAX_ROWS}. */
         record TooLarge(int places, int rows) implements LpAnswer {}
 
-        /** No optimum within {@code limit} pivots. */
-        record PivotLimit(int limit) implements LpAnswer {}
+        /** No optimum within {@link #WORK_LIMIT}; {@code pivots} were made. */
+        record WorkLimit(int pivots) implements LpAnswer {}
+
+        /** A pivot left a tableau entry outside 63 bits; {@code pivots} were made, that one included. */
+        record CoefficientLimit(int pivots) implements LpAnswer {}
 
         /**
          * The verification was stopped ([VER-013]). {@link #solve} itself never answers it: its
@@ -159,15 +178,22 @@ public final class SlotBoundLp {
         /** A re-checked weighting: the bound {@code k}, the weighting's value, the presolved sizes. */
         record Bound(int k, Rational value, int places, int rows) implements SlotBound {}
 
+        /** The program is infeasible: no weighting bounds the coloured tokens. */
         record Infeasible(int places, int rows) implements SlotBound {}
 
+        /** The presolved program exceeds {@link #MAX_PLACES} or {@link #MAX_ROWS}. */
         record TooLarge(int places, int rows) implements SlotBound {}
 
-        record PivotLimit(int limit) implements SlotBound {}
+        /** No optimum within {@link #WORK_LIMIT}; {@code pivots} were made. */
+        record WorkLimit(int pivots) implements SlotBound {}
+
+        /** A tableau entry outgrew 63 bits; {@code pivots} were made. */
+        record CoefficientLimit(int pivots) implements SlotBound {}
 
         /** The simplex's weighting failed the exact re-check (a simplex bug); no bound. */
         record CheckFailed(String reason) implements SlotBound {}
 
+        /** The verification was stopped ([VER-013]); the budget machinery reports it. */
         record Stopped() implements SlotBound {}
 
         /** The bound {@code k}, when there is one. */
@@ -189,8 +215,10 @@ public final class SlotBoundLp {
                 case TooLarge t -> "  Colour-slot bound: none (LP over " + t.places() + " places and "
                     + t.rows() + " transitions exceeds the limit of " + MAX_PLACES + " places and "
                     + MAX_ROWS + " transitions)";
-                case PivotLimit l -> "  Colour-slot bound: none (no LP optimum within the pivot limit of "
-                    + l.limit() + ")";
+                case WorkLimit w -> "  Colour-slot bound: none (no LP optimum within the work limit of "
+                    + WORK_LIMIT + " entry updates, after " + w.pivots() + " pivots)";
+                case CoefficientLimit c -> "  Colour-slot bound: none (an LP coefficient outgrew 63 bits after "
+                    + c.pivots() + " pivots)";
                 case CheckFailed f -> "  Colour-slot bound: none (LP weighting failed the exact re-check: "
                     + f.reason() + ")";
                 case Stopped s -> null;
@@ -211,7 +239,8 @@ public final class SlotBoundLp {
             };
             case LpAnswer.Infeasible i -> new SlotBound.Infeasible(i.places(), i.rows());
             case LpAnswer.TooLarge t -> new SlotBound.TooLarge(t.places(), t.rows());
-            case LpAnswer.PivotLimit l -> new SlotBound.PivotLimit(l.limit());
+            case LpAnswer.WorkLimit w -> new SlotBound.WorkLimit(w.pivots());
+            case LpAnswer.CoefficientLimit c -> new SlotBound.CoefficientLimit(c.pivots());
             case LpAnswer.Stopped s -> new SlotBound.Stopped();
         };
     }
@@ -296,11 +325,11 @@ public final class SlotBoundLp {
         return solveCounted(flat, initial, coloured).answer();
     }
 
-    /** {@link #solve}'s answer and the number of pivots it performed. */
-    public record Solved(LpAnswer answer, int pivots) {}
+    /** {@link #solve}'s answer and what it spent: its pivots and its work (see the class documentation). */
+    record Solved(LpAnswer answer, int pivots, long work) {}
 
-    /** {@link #solve}, with the number of pivots it performed. */
-    public static Solved solveCounted(FlatNet flat, MarkingState initial, int[] coloured) {
+    /** {@link #solve}, with what it spent. For the shared fixtures. */
+    static Solved solveCounted(FlatNet flat, MarkingState initial, int[] coloured) {
         int n = flat.placeCount();
         boolean[] isColoured = new boolean[n];
         for (int p : coloured) {
@@ -312,7 +341,7 @@ public final class SlotBoundLp {
         int places = program.places.length;
         int rows = program.rows.size();
         if (places > MAX_PLACES || rows > MAX_ROWS) {
-            return new Solved(new LpAnswer.TooLarge(places, rows), 0);
+            return new Solved(new LpAnswer.TooLarge(places, rows), 0, 0);
         }
 
         // Constraint row i is place U[i]: A[i][j] = -N_j[U[i]] for kept row j, then its slack.
@@ -371,8 +400,7 @@ public final class SlotBoundLp {
             basis[i] = rows + i;
         }
         var tableau = new Tableau(a, b, new SparseRow(objCols, objVals, objSize), Rational.ZERO, basis);
-        int limit = PIVOTS_PER_SIZE * (places + rows);
-        Outcome outcome = tableau.run(Rule.BLAND, limit, () -> {
+        Outcome outcome = tableau.run(Rule.BLAND, WORK_LIMIT, () -> {
             VerificationDeadline.checkpoint();
             return false;
         });
@@ -400,10 +428,11 @@ public final class SlotBoundLp {
                 yield new LpAnswer.Optimal(new ScaledCover(weights, denominator), places, rows);
             }
             case UNBOUNDED -> new LpAnswer.Infeasible(places, rows);
-            case PIVOT_LIMIT -> new LpAnswer.PivotLimit(limit);
+            case WORK_LIMIT -> new LpAnswer.WorkLimit(tableau.pivots);
+            case COEFFICIENT_LIMIT -> new LpAnswer.CoefficientLimit(tableau.pivots);
             case STOPPED -> new LpAnswer.Stopped();
         };
-        return new Solved(answer, tableau.pivots);
+        return new Solved(answer, tableau.pivots, tableau.work);
     }
 
     /** A kept row: positions in {@code U} ascending and the row's column {@code post - pre} there. */
@@ -576,6 +605,16 @@ public final class SlotBoundLp {
             return new SparseRow(outCols, outVals, out);
         }
 
+        /** Whether every entry is within the coefficient limit. */
+        boolean fits() {
+            for (int i = 0; i < size; i++) {
+                if (!SlotBoundLp.fits(vals[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         /** Every entry divided by {@code a}. */
         SparseRow divide(Rational a) {
             Rational[] out = new Rational[size];
@@ -597,7 +636,20 @@ public final class SlotBoundLp {
         LARGEST
     }
 
-    enum Outcome { OPTIMAL, UNBOUNDED, PIVOT_LIMIT, STOPPED }
+    enum Outcome { OPTIMAL, UNBOUNDED, WORK_LIMIT, COEFFICIENT_LIMIT, STOPPED }
+
+    /**
+     * Whether a value is within the coefficient limit: numerator and denominator in lowest terms
+     * at most {@code 2^63 - 1} in absolute value.
+     */
+    static boolean fits(Rational v) {
+        return within(v.numerator()) && within(v.denominator());
+    }
+
+    /** {@code |b| <= 2^63 - 1}: a bit length of 63 admits {@code -2^63}, which is excluded. */
+    private static boolean within(BigInteger b) {
+        return b.bitLength() <= 63 && b.longValue() != Long.MIN_VALUE;
+    }
 
     /**
      * A maximisation tableau {@code z + Σ obj_j·x_j = objValue}, {@code rows·x = rhs}, one basic
@@ -611,6 +663,8 @@ public final class SlotBoundLp {
         final int[] basis;
         /** Pivots performed so far. */
         int pivots;
+        /** Work done so far, in entry updates. */
+        long work;
 
         Tableau(SparseRow[] rows, Rational[] rhs, SparseRow obj, Rational objValue, int[] basis) {
             this.rows = rows;
@@ -702,7 +756,37 @@ public final class SlotBoundLp {
             return best;
         }
 
-        void pivot(int r, int e) {
+        /** Whether every entry is within the coefficient limit. */
+        boolean fits() {
+            for (int i = 0; i < rows.length; i++) {
+                if (!rows[i].fits() || !SlotBoundLp.fits(rhs[i])) {
+                    return false;
+                }
+            }
+            return obj.fits() && SlotBoundLp.fits(objValue);
+        }
+
+        /**
+         * The work of pivoting on {@code (r, e)}: the pivot row's entries, plus, for every row it
+         * updates, that row's entries and the pivot row's.
+         */
+        long work(int r, int e) {
+            long p = rows[r].size;
+            long work = p;
+            for (int i = 0; i < rows.length; i++) {
+                if (i != r && rows[i].get(e) != null) {
+                    work += rows[i].size + p;
+                }
+            }
+            if (obj.get(e) != null) {
+                work += obj.size + p;
+            }
+            return work;
+        }
+
+        /** Pivots on {@code (r, e)}; whether every entry it wrote is within the coefficient limit. */
+        boolean pivot(int r, int e) {
+            boolean within = true;
             Rational a = rows[r].get(e);
             SparseRow prow = rows[r].divide(a);
             Rational prhs = rhs[r].divide(a);
@@ -714,23 +798,30 @@ public final class SlotBoundLp {
                 if (f != null) {
                     rows[i] = rows[i].subtractScaled(f, prow);
                     rhs[i] = rhs[i].subtract(f.multiply(prhs));
+                    within &= rows[i].fits() && SlotBoundLp.fits(rhs[i]);
                 }
             }
             Rational f = obj.get(e);
             if (f != null) {
                 obj = obj.subtractScaled(f, prow);
                 objValue = objValue.subtract(f.multiply(prhs));
+                within &= obj.fits() && SlotBoundLp.fits(objValue);
             }
+            within &= prow.fits() && SlotBoundLp.fits(prhs);
             rows[r] = prow;
             rhs[r] = prhs;
             basis[r] = e;
+            return within;
         }
 
         /**
-         * Pivots until optimal or unbounded, at most {@code limit} times in all, polling
-         * {@code stop} before every pivot.
+         * Pivots until optimal or unbounded, within {@code limit} work in all and the coefficient
+         * limit, polling {@code stop} before every pivot.
          */
-        Outcome run(Rule rule, int limit, BooleanSupplier stop) {
+        Outcome run(Rule rule, long limit, BooleanSupplier stop) {
+            if (!fits()) {
+                return Outcome.COEFFICIENT_LIMIT;
+            }
             while (true) {
                 int e = entering(rule);
                 if (e < 0) {
@@ -740,14 +831,19 @@ public final class SlotBoundLp {
                 if (r < 0) {
                     return Outcome.UNBOUNDED;
                 }
-                if (pivots >= limit) {
-                    return Outcome.PIVOT_LIMIT;
+                long w = work(r, e);
+                if (work + w > limit) {
+                    return Outcome.WORK_LIMIT;
                 }
                 if (stop.getAsBoolean()) {
                     return Outcome.STOPPED;
                 }
-                pivot(r, e);
+                boolean within = pivot(r, e);
                 pivots++;
+                work += w;
+                if (!within) {
+                    return Outcome.COEFFICIENT_LIMIT;
+                }
             }
         }
     }

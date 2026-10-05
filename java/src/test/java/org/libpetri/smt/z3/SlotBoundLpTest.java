@@ -1,5 +1,6 @@
 package org.libpetri.smt.z3;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -67,7 +68,7 @@ class SlotBoundLpTest {
     @Test
     void blandSolvesBealesCyclingExample() {
         var t = beale();
-        assertEquals(Outcome.OPTIMAL, t.run(Rule.BLAND, 1000, () -> false));
+        assertEquals(Outcome.OPTIMAL, t.run(Rule.BLAND, SlotBoundLp.WORK_LIMIT, () -> false));
         assertEquals(q(5, 4), t.objValue);
         assertEquals(6, t.pivots);
     }
@@ -122,14 +123,43 @@ class SlotBoundLpTest {
         assertEquals(0, t.leaving(Rule.LARGEST, 0));
     }
 
+    /**
+     * Beale's example takes 6 pivots and 171 entry updates. A limit of exactly 171 still solves
+     * it, since the solve then needs no further pivot; one less refuses before the last pivot.
+     */
     @Test
-    void thePivotLimitAndTheStopArePolledBeforeAPivot() {
+    void theWorkLimitAndTheStopArePolledBeforeAPivot() {
         var t = beale();
-        assertEquals(Outcome.PIVOT_LIMIT, t.run(Rule.BLAND, 3, () -> false));
-        assertEquals(3, t.pivots);
+        assertEquals(Outcome.OPTIMAL, t.run(Rule.BLAND, SlotBoundLp.WORK_LIMIT, () -> false));
+        assertEquals(List.of(6L, 171L), List.of((long) t.pivots, t.work));
+        assertEquals(Outcome.OPTIMAL, beale().run(Rule.BLAND, 171, () -> false));
         var u = beale();
-        assertEquals(Outcome.STOPPED, u.run(Rule.BLAND, 1000, () -> true));
-        assertEquals(0, u.pivots);
+        assertEquals(Outcome.WORK_LIMIT, u.run(Rule.BLAND, 170, () -> false));
+        assertEquals(5, u.pivots);
+        var v = beale();
+        assertEquals(Outcome.STOPPED, v.run(Rule.BLAND, SlotBoundLp.WORK_LIMIT, () -> true));
+        assertEquals(List.of(0L, 0L), List.of((long) v.pivots, v.work));
+    }
+
+    /**
+     * A pivot that divides {@code 2^63 - 1} by {@code 1/3} writes an entry past the limit; it is
+     * counted, and the solve ends after it. An initial entry past the limit refuses before any
+     * pivot.
+     */
+    @Test
+    void theCoefficientLimitHoldsForEveryEntryOfTheTableau() {
+        var t = Tableau.standard(new Rational[][] {{q(1, 3)}}, new Rational[] {q(Long.MAX_VALUE, 1)},
+            new Rational[] {q(1, 1)});
+        assertEquals(Outcome.COEFFICIENT_LIMIT, t.run(Rule.BLAND, SlotBoundLp.WORK_LIMIT, () -> false));
+        assertEquals(1, t.pivots);
+        var u = Tableau.standard(new Rational[][] {{q(1, 1)}}, new Rational[] {q(Long.MAX_VALUE, 1)},
+            new Rational[] {q(1, 1)});
+        assertEquals(Outcome.OPTIMAL, u.run(Rule.BLAND, SlotBoundLp.WORK_LIMIT, () -> false));
+        assertEquals(q(Long.MAX_VALUE, 1), u.objValue);
+        var big = Rational.of(BigInteger.ONE.shiftLeft(63));
+        var v = Tableau.standard(new Rational[][] {{q(1, 1)}}, new Rational[] {big}, new Rational[] {q(1, 1)});
+        assertEquals(Outcome.COEFFICIENT_LIMIT, v.run(Rule.BLAND, SlotBoundLp.WORK_LIMIT, () -> false));
+        assertEquals(0, v.pivots);
     }
 
     private static SlotBound bound(FlatNet net, MarkingState m0, int[] coloured) {
@@ -262,7 +292,7 @@ class SlotBoundLpTest {
         var empty = marking(net, counts());
         var solved = SlotBoundLp.solveCounted(net, empty, new int[] {0});
         assertEquals(new LpAnswer.TooLarge(n, 1), solved.answer());
-        assertEquals(0, solved.pivots());
+        assertEquals(List.of(0L, 0L), List.of((long) solved.pivots(), solved.work()));
         assertEquals("  Colour-slot bound: none (LP over 4097 places and 1 transitions exceeds the limit "
             + "of 4096 places and 16384 transitions)",
             SlotBoundLp.checked(net, empty, new int[] {0}, solved.answer()).reportLine());
@@ -355,9 +385,14 @@ class SlotBoundLpTest {
     void everyAnswerWithoutAWeightingIsNoBound() {
         var net = fractionalFork();
         var m0 = marking(net, counts());
-        var limited = SlotBoundLp.checked(net, m0, ab(), new LpAnswer.PivotLimit(250));
+        var limited = SlotBoundLp.checked(net, m0, ab(), new LpAnswer.WorkLimit(250));
         assertEquals(OptionalInt.empty(), limited.bound());
-        assertEquals("  Colour-slot bound: none (no LP optimum within the pivot limit of 250)", limited.reportLine());
+        assertEquals("  Colour-slot bound: none (no LP optimum within the work limit of 4000000 entry updates, "
+            + "after 250 pivots)", limited.reportLine());
+        var outgrown = SlotBoundLp.checked(net, m0, ab(), new LpAnswer.CoefficientLimit(7));
+        assertEquals(OptionalInt.empty(), outgrown.bound());
+        assertEquals("  Colour-slot bound: none (an LP coefficient outgrew 63 bits after 7 pivots)",
+            outgrown.reportLine());
         var stopped = SlotBoundLp.checked(net, m0, ab(), new LpAnswer.Stopped());
         assertEquals(OptionalInt.empty(), stopped.bound());
         assertNull(stopped.reportLine());
@@ -369,63 +404,69 @@ class SlotBoundLpTest {
     // ---- the shared parity cases ----
 
     /**
-     * Every case of {@code slot-bound-lp.json}: the status, the presolved sizes, the pivot count,
-     * the optimum, {@code k} and the scaled weighting Rust's simplex gives, exactly.
+     * Every case of {@code slot-bound-lp.json}: the status, the presolved sizes, the pivots, the
+     * work, the optimum, {@code k} and the scaled weighting Rust's simplex gives, exactly. The
+     * expected object is compared whole, so a field missing on either side fails.
      */
     @TestFactory
     List<DynamicTest> theSharedParityCasesMatchRust() {
         var cases = SlotLpFixtures.parityCases();
-        assertTrue(cases.size() >= 16, "slot-bound-lp.json lists " + cases.size() + " cases");
+        assertTrue(cases.size() >= 18, "slot-bound-lp.json lists " + cases.size() + " cases");
         return cases.stream().map(c -> DynamicTest.dynamicTest(c.id(), () -> {
             var solved = SlotBoundLp.solveCounted(c.flat(), c.initial(), c.coloured());
-            var expected = c.expected();
-            String status = switch (solved.answer()) {
-                case LpAnswer.Optimal o -> "optimal";
-                case LpAnswer.Infeasible i -> "infeasible";
-                case LpAnswer.TooLarge t -> "too-large";
-                case LpAnswer.PivotLimit l -> "pivot-limit";
-                case LpAnswer.Stopped s -> "stopped";
-            };
-            assertEquals(expected.get("status").asText(), status, c.id());
+            var actual = new LinkedHashMap<String, Object>();
             switch (solved.answer()) {
-                case LpAnswer.Optimal o -> {
-                    assertEquals(expected.get("places").asInt(), o.places(), c.id());
-                    assertEquals(expected.get("rows").asInt(), o.rows(), c.id());
-                }
-                case LpAnswer.Infeasible i -> {
-                    assertEquals(expected.get("places").asInt(), i.places(), c.id());
-                    assertEquals(expected.get("rows").asInt(), i.rows(), c.id());
-                }
-                case LpAnswer.TooLarge t -> {
-                    assertEquals(expected.get("places").asInt(), t.places(), c.id());
-                    assertEquals(expected.get("rows").asInt(), t.rows(), c.id());
-                }
-                default -> { }
+                case LpAnswer.Optimal o -> sized(actual, "optimal", o.places(), o.rows());
+                case LpAnswer.Infeasible i -> sized(actual, "infeasible", i.places(), i.rows());
+                case LpAnswer.TooLarge t -> sized(actual, "too-large", t.places(), t.rows());
+                case LpAnswer.WorkLimit w -> actual.put("status", "work-limit");
+                case LpAnswer.CoefficientLimit l -> actual.put("status", "coefficient-limit");
+                case LpAnswer.Stopped s -> actual.put("status", "stopped");
             }
-            assertEquals(expected.get("pivots").asInt(), solved.pivots(), c.id() + " pivots");
+            actual.put("pivots", (long) solved.pivots());
+            actual.put("work", solved.work());
             if (solved.answer() instanceof LpAnswer.Optimal o) {
                 var b = SlotBoundLp.checked(c.flat(), c.initial(), c.coloured(), o);
                 if (!(b instanceof SlotBound.Bound bound)) {
                     fail("[" + c.id() + "] the simplex's weighting failed the re-check: " + b);
                     return;
                 }
-                assertEquals(expected.get("optimum").asText(), bound.value().toString(), c.id());
-                assertEquals(expected.get("k").asInt(), bound.k(), c.id());
-                var weights = new LinkedHashMap<String, String>();
+                actual.put("optimum", bound.value().toString());
+                actual.put("k", (long) bound.k());
+                var weights = new LinkedHashMap<String, Object>();
                 for (int p = 0; p < c.flat().placeCount(); p++) {
                     var w = o.cover().weights().get(p);
                     if (w.signum() != 0) {
                         weights.put(c.flat().places().get(p).name(), w.toString());
                     }
                 }
-                var expectedWeights = new LinkedHashMap<String, String>();
-                expected.get("weights").properties().forEach(e -> expectedWeights.put(e.getKey(), e.getValue().asText()));
-                assertEquals(expectedWeights, weights, c.id());
-                assertEquals(expected.get("denominator").asText(), o.cover().denominator().toString(), c.id());
-            } else {
-                assertNull(expected.get("optimum"), c.id());
+                actual.put("weights", weights);
+                actual.put("denominator", o.cover().denominator().toString());
             }
+            assertEquals(plain(c.expected()), actual, c.id());
         })).toList();
+    }
+
+    private static void sized(Map<String, Object> out, String status, int places, int rows) {
+        out.put("status", status);
+        out.put("places", (long) places);
+        out.put("rows", (long) rows);
+    }
+
+    /** A fixture object as maps, strings and longs, to compare whole against what Java computes. */
+    private static Object plain(JsonNode node) {
+        if (node.isObject()) {
+            var out = new LinkedHashMap<String, Object>();
+            node.properties().forEach(e -> out.put(e.getKey(), plain(e.getValue())));
+            return out;
+        }
+        if (node.isIntegralNumber()) {
+            return node.asLong();
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        throw new AssertionError("unexpected fixture value " + node);
     }
 
     /**
@@ -444,8 +485,27 @@ class SlotBoundLpTest {
         var opt = assertInstanceOf(LpAnswer.Optimal.class, solved.answer());
         assertTrue(solved.pivots() <= 2 * (opt.places() + opt.rows()),
             solved.pivots() + " pivots over " + opt.places() + " places and " + opt.rows() + " rows");
+        assertTrue(solved.work() * 100 <= SlotBoundLp.WORK_LIMIT, solved.work() + " entry updates");
         var b = SlotBoundLp.checked(c.flat(), c.initial(), c.coloured(), solved.answer());
         assertEquals(OptionalInt.of(6), b.bound(), String.valueOf(b));
         System.out.println("[slot-bound LP] composed workflow: " + solved.pivots() + " pivots in " + micros + " µs");
+    }
+
+    /** The two limit cases end where Rust's do; the time it takes is printed, not asserted. */
+    @Test
+    void theLimitCasesStopWithinTheirLimits() {
+        for (var c : SlotLpFixtures.parityCases()) {
+            if (!c.id().equals("work-chain-320") && !c.id().equals("coefficient-chain-1000")) {
+                continue;
+            }
+            long start = System.nanoTime();
+            var solved = SlotBoundLp.solveCounted(c.flat(), c.initial(), c.coloured());
+            long millis = (System.nanoTime() - start) / 1_000_000;
+            assertTrue(solved.work() <= SlotBoundLp.WORK_LIMIT, c.id() + ": " + solved.work());
+            assertTrue(solved.answer() instanceof LpAnswer.WorkLimit || solved.answer() instanceof LpAnswer.CoefficientLimit,
+                c.id() + ": " + solved.answer());
+            System.out.println("[slot-bound LP] " + c.id() + ": " + solved.answer() + ", work " + solved.work()
+                + " in " + millis + " ms");
+        }
     }
 }

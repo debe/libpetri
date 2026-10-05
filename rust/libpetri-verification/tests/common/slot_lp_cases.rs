@@ -3,7 +3,7 @@
 //! Each case is a flat net given as rows (pre and post counts per place, optionally the
 //! places a reset or consume-all arc clears), the coloured places and an initial marking.
 //! The inputs are written by hand; the `expected` object of every case (status, presolved
-//! sizes, pivots, optimum, `k` and the scaled weighting) is written by the Rust
+//! sizes, pivots, work, optimum, `k` and the scaled weighting) is written by the Rust
 //! script-parity test under `scripts/smt-script-parity.py --update` and read by every
 //! language. Test-only code, shared through `#[path]`.
 
@@ -73,15 +73,17 @@ pub fn build(case: &Json) -> LpCase {
 
 /// What the simplex and the checker give on a case, as the `expected` object.
 pub fn expected(case: &LpCase) -> Json {
-    let (answer, pivots) = slot_bound_lp::solve_counted(&case.flat, &case.initial, &case.coloured);
+    let (answer, counts) = slot_bound_lp::solve_counted(&case.flat, &case.initial, &case.coloured);
     let mut fields: Vec<(String, Json)> = Vec::new();
     let num = |v: usize| Json::Num(v as f64);
     let status = match &answer {
         LpAnswer::Optimal { .. } => "optimal",
         LpAnswer::Infeasible { .. } => "infeasible",
         LpAnswer::TooLarge { .. } => "too-large",
-        LpAnswer::PivotLimit { .. } => "pivot-limit",
+        LpAnswer::WorkLimit { .. } => "work-limit",
+        LpAnswer::CoefficientLimit { .. } => "coefficient-limit",
         LpAnswer::Stopped => "stopped",
+        other => panic!("unknown answer {other:?}"),
     };
     fields.push(("status".into(), Json::Str(status.into())));
     match &answer {
@@ -93,7 +95,8 @@ pub fn expected(case: &LpCase) -> Json {
         }
         _ => {}
     }
-    fields.push(("pivots".into(), num(pivots)));
+    fields.push(("pivots".into(), num(counts.pivots)));
+    fields.push(("work".into(), num(counts.work as usize)));
     if let LpAnswer::Optimal { cover, .. } = &answer {
         let bound = slot_bound_lp::checked(&case.flat, &case.initial, &case.coloured, answer.clone());
         let SlotBound::Bound { k, value, .. } = bound else {

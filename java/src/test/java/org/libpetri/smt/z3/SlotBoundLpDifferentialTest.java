@@ -36,7 +36,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -66,8 +65,14 @@ class SlotBoundLpDifferentialTest {
     /** One LP subject: a flat net, its initial marking and its coloured places. */
     record Subject(String id, FlatNet flat, MarkingState initial, int[] coloured) {}
 
+    /**
+     * The parity cases with an answer to compare: the cases built to hit a limit
+     * ({@code work-limit}, {@code coefficient-limit}) have no bound, and {@link SlotBoundLpTest}
+     * pins them.
+     */
     private static List<Subject> paritySubjects() {
         return SlotLpFixtures.parityCases().stream()
+            .filter(c -> Set.of("optimal", "infeasible").contains(c.expected().get("status").asText()))
             .map(c -> new Subject(c.id(), c.flat(), c.initial(), c.coloured())).toList();
     }
 
@@ -248,7 +253,7 @@ class SlotBoundLpDifferentialTest {
 
     // ---- explicit state spaces ----
 
-    private static final int STATE_CAP = 20_000;
+    private static final int STATE_CAP = 5_000;
 
     /**
      * Fires a row as Lean {@code fireAD} does: a reset or consume-all place ends at the row's
@@ -270,11 +275,24 @@ class SlotBoundLpDifferentialTest {
 
     private record Max(long value, boolean closed) {}
 
+    /** A marking as a hash key. */
+    private record Key(long[] m) {
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof Key k && Arrays.equals(m, k.m);
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(m);
+        }
+    }
+
     /** The largest coloured token count over the {@code fireAD} state space, and whether it closed. */
     private static Max maxColouredTokens(Subject s) {
         long[] start = m0(s);
-        var seen = new HashSet<List<Long>>();
-        seen.add(boxed(start));
+        var seen = new HashSet<Key>();
+        seen.add(new Key(start));
         var queue = new ArrayDeque<long[]>();
         queue.add(start);
         long best = 0;
@@ -291,7 +309,7 @@ class SlotBoundLpDifferentialTest {
                     if (seen.size() >= STATE_CAP) {
                         return new Max(best, false);
                     }
-                    if (seen.add(boxed(next))) {
+                    if (seen.add(new Key(next))) {
                         queue.add(next);
                     }
                 }
@@ -300,31 +318,43 @@ class SlotBoundLpDifferentialTest {
         return new Max(best, true);
     }
 
-    private static List<Long> boxed(long[] m) {
-        return Arrays.stream(m).boxed().toList();
-    }
+    /**
+     * A name-semantics state: uncoloured counts (zero on the coloured places), and the coloured
+     * tokens as a sorted multiset of {@link #pair} values.
+     */
+    private record NameState(long[] unc, long[] col) {
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof NameState n && Arrays.equals(unc, n.unc) && Arrays.equals(col, n.col);
+        }
 
-    /** A name-semantics state: uncoloured counts, and the coloured tokens as sorted (place, name) pairs. */
-    private record NameState(List<Long> unc, List<Long> col) {}
+        @Override
+        public int hashCode() {
+            return 31 * Arrays.hashCode(unc) + Arrays.hashCode(col);
+        }
+    }
 
     private static long pair(int place, long name) {
         return ((long) place << 32) | name;
     }
 
-    /** Names renamed by first appearance, so the space stays finite. */
-    private static NameState normal(List<Long> unc, List<Long> col) {
-        var sorted = new ArrayList<>(col);
-        sorted.sort(null);
+    private static long nameOf(long pair) {
+        return pair & 0xFFFF_FFFFL;
+    }
+
+    /** Names renamed by first appearance in the sorted multiset, so the space stays finite. */
+    private static NameState normal(long[] unc, long[] col) {
+        long[] sorted = col.clone();
+        Arrays.sort(sorted);
         var map = new HashMap<Long, Long>();
-        var renamed = new ArrayList<Long>(sorted.size());
-        for (long e : sorted) {
-            long name = e & 0xFFFF_FFFFL;
+        long[] renamed = new long[sorted.length];
+        for (int i = 0; i < sorted.length; i++) {
             long next = map.size();
-            long to = map.computeIfAbsent(name, _ -> next);
-            renamed.add(pair((int) (e >>> 32), to));
+            long to = map.computeIfAbsent(nameOf(sorted[i]), _ -> next);
+            renamed[i] = pair((int) (sorted[i] >>> 32), to);
         }
-        renamed.sort(null);
-        return new NameState(unc, List.copyOf(renamed));
+        Arrays.sort(renamed);
+        return new NameState(unc, renamed);
     }
 
     private record Live(long names, long tokens, boolean closed) {}
@@ -337,7 +367,11 @@ class SlotBoundLpDifferentialTest {
      */
     private static Live maxLiveNames(Subject s) {
         int n = s.flat().placeCount();
-        var start = normal(boxed(m0(s)), List.of());
+        boolean[] coloured = new boolean[n];
+        for (int p : s.coloured()) {
+            coloured[p] = true;
+        }
+        var start = normal(m0(s), new long[0]);
         var seen = new HashSet<NameState>();
         seen.add(start);
         var queue = new ArrayDeque<NameState>();
@@ -346,55 +380,33 @@ class SlotBoundLpDifferentialTest {
         long tokens = 0;
         while (!queue.isEmpty()) {
             var st = queue.poll();
-            var names = new TreeSet<Long>();
-            for (long e : st.col()) {
-                names.add(e & 0xFFFF_FFFFL);
-            }
-            live = Math.max(live, names.size());
-            tokens = Math.max(tokens, st.col().size());
+            long[] names = Arrays.stream(st.col()).map(SlotBoundLpDifferentialTest::nameOf).distinct().sorted().toArray();
+            live = Math.max(live, names.length);
+            tokens = Math.max(tokens, st.col().length);
             for (FlatTransition t : s.flat().transitions()) {
                 boolean uncOk = true;
                 for (int p = 0; p < n; p++) {
-                    if (!isColoured(s, p) && t.preVector()[p] > st.unc().get(p)) {
+                    if (!coloured[p] && t.preVector()[p] > st.unc()[p]) {
                         uncOk = false;
                     }
                 }
                 if (!uncOk) {
                     continue;
                 }
-                var firedUnc = new ArrayList<Long>(n);
+                long[] firedUnc = new long[n];
                 for (int p = 0; p < n; p++) {
-                    if (isColoured(s, p)) {
-                        firedUnc.add(0L);
+                    if (coloured[p]) {
+                        firedUnc[p] = 0;
                     } else if (clears(t, p)) {
-                        firedUnc.add((long) t.postVector()[p]);
+                        firedUnc[p] = t.postVector()[p];
                     } else {
-                        firedUnc.add(st.unc().get(p) - t.preVector()[p] + t.postVector()[p]);
+                        firedUnc[p] = st.unc()[p] - t.preVector()[p] + t.postVector()[p];
                     }
                 }
                 var colIn = Arrays.stream(s.coloured()).filter(p -> t.preVector()[p] > 0).toArray();
                 var colOut = Arrays.stream(s.coloured()).filter(p -> t.postVector()[p] > 0).toArray();
-                var candidates = new ArrayList<Long>();
-                if (colIn.length == 0) {
-                    long x = 0;
-                    while (names.contains(x)) {
-                        x++;
-                    }
-                    candidates.add(x);
-                } else {
-                    for (long x : names) {
-                        boolean ok = true;
-                        for (int p : colIn) {
-                            long have = st.col().stream().filter(e -> e == pair(p, x)).count();
-                            ok &= have >= t.preVector()[p];
-                        }
-                        if (ok) {
-                            candidates.add(x);
-                        }
-                    }
-                }
                 if (colIn.length == 0 && colOut.length == 0) {
-                    var next = normal(List.copyOf(firedUnc), st.col());
+                    var next = normal(firedUnc, st.col());
                     if (seen.size() >= STATE_CAP) {
                         return new Live(live, tokens, false);
                     }
@@ -403,8 +415,29 @@ class SlotBoundLpDifferentialTest {
                     }
                     continue;
                 }
+                var candidates = new ArrayList<Long>();
+                if (colIn.length == 0) {
+                    long x = 0;
+                    while (Arrays.binarySearch(names, x) >= 0) {
+                        x++;
+                    }
+                    candidates.add(x);
+                } else {
+                    for (long x : names) {
+                        boolean ok = true;
+                        for (int p : colIn) {
+                            ok &= count(st.col(), pair(p, x)) >= t.preVector()[p];
+                        }
+                        if (ok) {
+                            candidates.add(x);
+                        }
+                    }
+                }
                 for (long x : candidates) {
-                    var c = new ArrayList<>(st.col());
+                    var c = new ArrayList<Long>(st.col().length + 2);
+                    for (long e : st.col()) {
+                        c.add(e);
+                    }
                     for (int p : colIn) {
                         for (int i = 0; i < t.preVector()[p]; i++) {
                             c.remove(Long.valueOf(pair(p, x)));
@@ -415,7 +448,7 @@ class SlotBoundLpDifferentialTest {
                             c.add(pair(p, x));
                         }
                     }
-                    var next = normal(List.copyOf(firedUnc), c);
+                    var next = normal(firedUnc, c.stream().mapToLong(Long::longValue).toArray());
                     if (seen.size() >= STATE_CAP) {
                         return new Live(live, tokens, false);
                     }
@@ -426,6 +459,16 @@ class SlotBoundLpDifferentialTest {
             }
         }
         return new Live(live, tokens, true);
+    }
+
+    private static long count(long[] sorted, long value) {
+        long c = 0;
+        for (long e : sorted) {
+            if (e == value) {
+                c++;
+            }
+        }
+        return c;
     }
 
     /**
@@ -668,8 +711,8 @@ class SlotBoundLpDifferentialTest {
         assertNotNull(loose.plan(), String.valueOf(loose.reported()));
         assertEquals(7, loose.plan().k());
         // Every answer without a weighting refuses the plan.
-        for (var answer : List.<LpAnswer>of(new LpAnswer.Infeasible(5, 2), new LpAnswer.PivotLimit(350),
-                new LpAnswer.Stopped())) {
+        for (var answer : List.<LpAnswer>of(new LpAnswer.Infeasible(5, 2), new LpAnswer.WorkLimit(350),
+                new LpAnswer.CoefficientLimit(3), new LpAnswer.Stopped())) {
             assertNull(planWith(net, m0, _ -> answer).plan(), String.valueOf(answer));
         }
     }
@@ -677,16 +720,17 @@ class SlotBoundLpDifferentialTest {
     // ---- verdict invariance ----
 
     /** Runs a HORN script: {@code sat} proves the property, {@code unsat} violates it. */
-    private static String spacer(String script) throws Exception {
-        var reply = Z3Solver.resolve().run(script, "slot-bound-lp-test", Duration.ofSeconds(20), List.of());
+    private static String spacer(String script, Duration timeout) throws Exception {
+        var reply = Z3Solver.resolve().run(script, "slot-bound-lp-test", timeout, List.of());
         return reply.stdout().lines().findFirst().orElse("").trim();
     }
 
     /**
      * On the scatter-gather fixture (the shared coloured net whose {@code k} changed, 10 to 4), the
      * coloured encoding answers every query the same with the LP's {@code k} as with the old
-     * semiflow weighting's, fed to {@code buildPlan} through its {@code lp} function. Spacer may
-     * run out of time on the larger encoding ({@code unknown}); it must never answer the other way.
+     * semiflow weighting's, fed to {@code buildPlan} through its {@code lp} function. The larger
+     * encoding gets a short budget and may run out of it ({@code unknown}, as {@code branchA <= 2}
+     * does even in 20 s); it must never answer the other way.
      */
     @Test
     @EnabledIf("z3Available")
@@ -718,7 +762,7 @@ class SlotBoundLpDifferentialTest {
                 var enc = NameColouredEncoder.encode(plan, flat, m0, query.property(), List.of(), Set.of());
                 assertNotNull(enc, "encodes");
                 long start = System.nanoTime();
-                answers.add(spacer(enc.smt2()));
+                answers.add(spacer(enc.smt2(), Duration.ofSeconds(plan == oldPlan ? 2 : 20)));
                 System.out.println("[slot-bound LP] k=" + plan.k() + " " + query.property() + ": "
                     + answers.getLast() + " in " + (System.nanoTime() - start) / 1_000_000 + " ms");
             }

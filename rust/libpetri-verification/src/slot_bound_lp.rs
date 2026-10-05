@@ -57,15 +57,29 @@
 //!    `y_p = π_i + [p coloured]` for `p = U[i]` and `y_p = 0` off `U`. `D` is the least
 //!    common multiple of the denominators of the `y_p` in lowest terms and `Y = y·D`.
 //!
-//! Limits, both functions of the presolved program and the pivot sequence, so every
-//! implementation refuses the same nets: [`LpAnswer::TooLarge`] past [`MAX_PLACES`] places
-//! or [`MAX_ROWS`] rows after the presolve, before any pivot; [`LpAnswer::PivotLimit`] past
-//! [`PIVOTS_PER_SIZE`]` · (n' + m')` pivots. The solve polls the verification's stop
-//! ([VER-013]) before every pivot and answers [`LpAnswer::Stopped`]; without a stop scope
-//! (as in `encode_scripts`) the poll does nothing. Each round of the loop decides in this
-//! order: no entering column, optimal; no leaving row, infeasible; the limit's pivots
-//! already made, pivot limit; a stop, stopped; otherwise pivot. A solve that ends without
-//! needing another pivot is therefore never refused by the limit.
+//! Limits, all functions of the presolved program and the pivot sequence, so every
+//! implementation refuses the same nets, and together they bound the time of a solve
+//! whether or not a total budget is set:
+//!
+//! - [`LpAnswer::TooLarge`] past [`MAX_PLACES`] places or [`MAX_ROWS`] rows after the
+//!   presolve, before any pivot.
+//! - [`LpAnswer::WorkLimit`] when the next pivot would take the work past [`WORK_LIMIT`].
+//!   The work of a pivot is the length of the pivot row `p`, plus `len(row) + p` for every
+//!   row it updates (the other constraint rows with a non-zero entry in the entering
+//!   column, and the objective row when it has one there), lengths counted in non-zero
+//!   entries before the pivot, slacks included. The work of a solve is the sum over its
+//!   pivots.
+//! - [`LpAnswer::CoefficientLimit`] when a pivot leaves an entry of the tableau (a
+//!   constraint row, its right-hand side, the objective row or its value) whose numerator
+//!   or denominator in lowest terms exceeds `2^63 − 1` in absolute value. The initial
+//!   tableau is held to the same limit.
+//!
+//! The solve polls the verification's stop ([VER-013]) before every pivot and answers
+//! [`LpAnswer::Stopped`]; without a stop scope (as in `encode_scripts`) the poll does
+//! nothing. Each round of the loop decides in this order: no entering column, optimal; no
+//! leaving row, infeasible; the next pivot's work past the limit, work limit; a stop,
+//! stopped; otherwise pivot, then the coefficient limit. A solve that ends without needing
+//! another pivot is therefore never refused by the work limit.
 
 use std::collections::HashSet;
 
@@ -83,8 +97,9 @@ pub const MAX_PLACES: usize = 4096;
 /// The most rows (transitions) the presolved program may have.
 pub const MAX_ROWS: usize = 16384;
 
-/// The pivot limit is this many pivots per presolved place and row.
-pub const PIVOTS_PER_SIZE: usize = 50;
+/// The most work a solve may do, in entry updates (see the module documentation). A tenth of a
+/// second on a sparse net, a few seconds at worst on a dense weighted one.
+pub const WORK_LIMIT: u64 = 4_000_000;
 
 /// A weighting scaled to integers: `y_p = weights[p] / denominator`, one entry per flat
 /// place.
@@ -96,6 +111,7 @@ pub struct ScaledCover {
 
 /// What [`solve`] answers. `places` and `rows` are the presolved sizes `n'` and `m'`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LpAnswer {
     /// An optimal weighting, still to be re-checked.
     Optimal { cover: ScaledCover, places: usize, rows: usize },
@@ -104,8 +120,10 @@ pub enum LpAnswer {
     Infeasible { places: usize, rows: usize },
     /// The presolved program exceeds [`MAX_PLACES`] or [`MAX_ROWS`].
     TooLarge { places: usize, rows: usize },
-    /// No optimum within `limit` pivots.
-    PivotLimit { limit: usize },
+    /// No optimum within [`WORK_LIMIT`]; `pivots` were made.
+    WorkLimit { pivots: usize },
+    /// A pivot left a tableau entry outside 63 bits; `pivots` were made, that one included.
+    CoefficientLimit { pivots: usize },
     /// The verification was stopped (total budget or cancellation, [VER-013]).
     Stopped,
 }
@@ -113,6 +131,7 @@ pub enum LpAnswer {
 /// A weighting [`check_cover`] accepted: `k = ⌊Y·M0 / D⌋` and the value `Y·M0 / D` in
 /// lowest terms.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CheckedCover {
     pub k: usize,
     pub value: Rational,
@@ -120,12 +139,14 @@ pub struct CheckedCover {
 
 /// The colour-slot bound as `build_plan` receives it: [`checked`] of the simplex's answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SlotBound {
     /// A re-checked weighting: the bound `k`, the weighting's value, the presolved sizes.
     Bound { k: usize, value: Rational, places: usize, rows: usize },
     Infeasible { places: usize, rows: usize },
     TooLarge { places: usize, rows: usize },
-    PivotLimit { limit: usize },
+    WorkLimit { pivots: usize },
+    CoefficientLimit { pivots: usize },
     /// The simplex's weighting failed the exact re-check (a simplex bug); no bound.
     CheckFailed { reason: String },
     Stopped,
@@ -156,9 +177,13 @@ impl SlotBound {
                 "  Colour-slot bound: none (LP over {places} places and {rows} transitions \
                  exceeds the limit of {MAX_PLACES} places and {MAX_ROWS} transitions)"
             ),
-            SlotBound::PivotLimit { limit } => {
-                format!("  Colour-slot bound: none (no LP optimum within the pivot limit of {limit})")
-            }
+            SlotBound::WorkLimit { pivots } => format!(
+                "  Colour-slot bound: none (no LP optimum within the work limit of {WORK_LIMIT} \
+                 entry updates, after {pivots} pivots)"
+            ),
+            SlotBound::CoefficientLimit { pivots } => format!(
+                "  Colour-slot bound: none (an LP coefficient outgrew 63 bits after {pivots} pivots)"
+            ),
             SlotBound::CheckFailed { reason } => {
                 format!("  Colour-slot bound: none (LP weighting failed the exact re-check: {reason})")
             }
@@ -178,7 +203,8 @@ pub fn checked(flat: &FlatNet, initial: &MarkingState, coloured: &[usize], answe
         },
         LpAnswer::Infeasible { places, rows } => SlotBound::Infeasible { places, rows },
         LpAnswer::TooLarge { places, rows } => SlotBound::TooLarge { places, rows },
-        LpAnswer::PivotLimit { limit } => SlotBound::PivotLimit { limit },
+        LpAnswer::WorkLimit { pivots } => SlotBound::WorkLimit { pivots },
+        LpAnswer::CoefficientLimit { pivots } => SlotBound::CoefficientLimit { pivots },
         LpAnswer::Stopped => SlotBound::Stopped,
     }
 }
@@ -266,8 +292,17 @@ pub fn solve(flat: &FlatNet, initial: &MarkingState, coloured: &[usize]) -> LpAn
     solve_counted(flat, initial, coloured).0
 }
 
-/// [`solve`], with the number of pivots it performed.
-pub fn solve_counted(flat: &FlatNet, initial: &MarkingState, coloured: &[usize]) -> (LpAnswer, usize) {
+/// What a solve spent: its pivots and its work (see the module documentation).
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SolveCounts {
+    pub pivots: usize,
+    pub work: u64,
+}
+
+/// [`solve`], with what it spent. Public for the shared fixtures and the benches only.
+#[doc(hidden)]
+pub fn solve_counted(flat: &FlatNet, initial: &MarkingState, coloured: &[usize]) -> (LpAnswer, SolveCounts) {
     let n = flat.place_count;
     let mut is_coloured = vec![false; n];
     for &p in coloured {
@@ -278,7 +313,7 @@ pub fn solve_counted(flat: &FlatNet, initial: &MarkingState, coloured: &[usize])
     let program = presolve(flat, &is_coloured);
     let (places, rows) = (program.places.len(), program.rows.len());
     if places > MAX_PLACES || rows > MAX_ROWS {
-        return (LpAnswer::TooLarge { places, rows }, 0);
+        return (LpAnswer::TooLarge { places, rows }, SolveCounts::default());
     }
 
     // Constraint row i is place U[i]: `A[i][j] = −N_j[U[i]]` for kept row j, then its
@@ -314,9 +349,8 @@ pub fn solve_counted(flat: &FlatNet, initial: &MarkingState, coloured: &[usize])
         obj_value: Rational::zero(),
         basis: (rows..rows + places).collect(),
     };
-    let limit = PIVOTS_PER_SIZE * (places + rows);
-    let mut pivots = 0;
-    let outcome = tableau.run(Rule::Bland, limit, &mut pivots, crate::total_budget::cut);
+    let mut counts = SolveCounts::default();
+    let outcome = tableau.run(Rule::Bland, WORK_LIMIT, &mut counts, crate::total_budget::cut);
     let answer = match outcome {
         Outcome::Optimal => {
             let mut y = vec![Rational::zero(); n];
@@ -336,10 +370,11 @@ pub fn solve_counted(flat: &FlatNet, initial: &MarkingState, coloured: &[usize])
             LpAnswer::Optimal { cover: ScaledCover { weights, denominator }, places, rows }
         }
         Outcome::Unbounded => LpAnswer::Infeasible { places, rows },
-        Outcome::PivotLimit => LpAnswer::PivotLimit { limit },
+        Outcome::WorkLimit => LpAnswer::WorkLimit { pivots: counts.pivots },
+        Outcome::CoefficientLimit => LpAnswer::CoefficientLimit { pivots: counts.pivots },
         Outcome::Stopped => LpAnswer::Stopped,
     };
-    (answer, pivots)
+    (answer, counts)
 }
 
 /// The presolved program: the places of `U` ascending, and the kept rows, each a sparse
@@ -413,6 +448,17 @@ fn lookup(row: &SparseRow, col: usize) -> Option<&Rational> {
     row.binary_search_by_key(&col, |e| e.0).ok().map(|i| &row[i].1)
 }
 
+/// Whether a value is within the coefficient limit: numerator and denominator in lowest
+/// terms at most `2^63 − 1` in absolute value.
+fn fits(v: &Rational) -> bool {
+    let within = |b: &BigInt| b.to_i64().is_some_and(|x| x != i64::MIN);
+    within(v.numer()) && within(v.denom())
+}
+
+fn row_fits(row: &SparseRow) -> bool {
+    row.iter().all(|(_, v)| fits(v))
+}
+
 /// `row − f·prow`, both sorted, zeros dropped.
 fn sub_scaled(row: &SparseRow, f: &Rational, prow: &SparseRow) -> SparseRow {
     let mut out = Vec::with_capacity(row.len() + prow.len());
@@ -453,7 +499,8 @@ enum Rule {
 enum Outcome {
     Optimal,
     Unbounded,
-    PivotLimit,
+    WorkLimit,
+    CoefficientLimit,
     Stopped,
 }
 
@@ -530,7 +577,23 @@ impl Tableau {
         best.map(|(i, _)| i)
     }
 
-    fn pivot(&mut self, r: usize, e: usize) {
+    /// Whether every entry is within the coefficient limit.
+    fn fits(&self) -> bool {
+        self.rows.iter().all(row_fits) && self.rhs.iter().all(fits) && row_fits(&self.obj) && fits(&self.obj_value)
+    }
+
+    /// The work of pivoting on `(r, e)`: the pivot row's entries, plus, for every row it
+    /// updates, that row's entries and the pivot row's.
+    fn work(&self, r: usize, e: usize) -> u64 {
+        let p = self.rows[r].len();
+        let updated = |row: &SparseRow| if lookup(row, e).is_some() { row.len() + p } else { 0 };
+        let rows: usize = self.rows.iter().enumerate().filter(|&(i, _)| i != r).map(|(_, row)| updated(row)).sum();
+        (p + rows + updated(&self.obj)) as u64
+    }
+
+    /// Pivots on `(r, e)`; whether every entry it wrote is within the coefficient limit.
+    fn pivot(&mut self, r: usize, e: usize) -> bool {
+        let mut within = true;
         let a = lookup(&self.rows[r], e).expect("pivot entry").clone();
         let prow: SparseRow = self.rows[r].iter().map(|(c, v)| (*c, v.div(&a))).collect();
         let prhs = self.rhs[r].div(&a);
@@ -541,20 +604,27 @@ impl Tableau {
             if let Some(f) = lookup(&self.rows[i], e).cloned() {
                 self.rows[i] = sub_scaled(&self.rows[i], &f, &prow);
                 self.rhs[i] = self.rhs[i].sub(&f.mul(&prhs));
+                within &= row_fits(&self.rows[i]) && fits(&self.rhs[i]);
             }
         }
         if let Some(f) = lookup(&self.obj, e).cloned() {
             self.obj = sub_scaled(&self.obj, &f, &prow);
             self.obj_value = self.obj_value.sub(&f.mul(&prhs));
+            within &= row_fits(&self.obj) && fits(&self.obj_value);
         }
+        within &= row_fits(&prow) && fits(&prhs);
         self.rows[r] = prow;
         self.rhs[r] = prhs;
         self.basis[r] = e;
+        within
     }
 
-    /// Pivots until optimal or unbounded, at most `limit` times, polling `stop` before
-    /// every pivot.
-    fn run(&mut self, rule: Rule, limit: usize, pivots: &mut usize, stop: impl Fn() -> bool) -> Outcome {
+    /// Pivots until optimal or unbounded, within `limit` work and the coefficient limit,
+    /// polling `stop` before every pivot.
+    fn run(&mut self, rule: Rule, limit: u64, counts: &mut SolveCounts, stop: impl Fn() -> bool) -> Outcome {
+        if !self.fits() {
+            return Outcome::CoefficientLimit;
+        }
         loop {
             let Some(e) = self.entering(rule) else {
                 return Outcome::Optimal;
@@ -562,14 +632,19 @@ impl Tableau {
             let Some(r) = self.leaving(rule, e) else {
                 return Outcome::Unbounded;
             };
-            if *pivots >= limit {
-                return Outcome::PivotLimit;
+            let work = self.work(r, e);
+            if counts.work + work > limit {
+                return Outcome::WorkLimit;
             }
             if stop() {
                 return Outcome::Stopped;
             }
-            self.pivot(r, e);
-            *pivots += 1;
+            let within = self.pivot(r, e);
+            counts.pivots += 1;
+            counts.work += work;
+            if !within {
+                return Outcome::CoefficientLimit;
+            }
         }
     }
 }
@@ -601,10 +676,10 @@ mod tests {
     #[test]
     fn bland_solves_beales_cycling_example() {
         let mut t = beale();
-        let mut pivots = 0;
-        assert_eq!(t.run(Rule::Bland, 1000, &mut pivots, || false), Outcome::Optimal);
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || false), Outcome::Optimal);
         assert_eq!(t.obj_value, q(5, 4));
-        assert_eq!(pivots, 6);
+        assert_eq!(counts.pivots, 6);
     }
 
     /// The largest-coefficient rule with lowest-row ties revisits a basis on the same data,
@@ -642,21 +717,51 @@ mod tests {
             vec![q(0, 1), q(2, 1)],
         ];
         let mut t = Tableau::standard(&a, vec![q(0, 1), q(0, 1), q(1, 1), q(1, 1)], &[q(1, 1), q(2, 1)]);
-        let mut pivots = 0;
-        assert_eq!(t.run(Rule::Bland, 100, &mut pivots, || false), Outcome::Optimal);
-        assert_eq!((pivots, t.basis.clone(), t.obj_value.clone()), (2, vec![2, 1, 4, 5], q(0, 1)));
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || false), Outcome::Optimal);
+        assert_eq!((counts.pivots, t.basis.clone(), t.obj_value.clone()), (2, vec![2, 1, 4, 5], q(0, 1)));
     }
 
+    /// Beale's example takes 6 pivots and 171 entry updates. A limit of exactly 171 still
+    /// solves it, since the solve then needs no further pivot; one less refuses before the
+    /// last pivot.
     #[test]
-    fn the_pivot_limit_and_the_stop_are_polled_before_a_pivot() {
+    fn the_work_limit_and_the_stop_are_polled_before_a_pivot() {
         let mut t = beale();
-        let mut pivots = 0;
-        assert_eq!(t.run(Rule::Bland, 3, &mut pivots, || false), Outcome::PivotLimit);
-        assert_eq!(pivots, 3);
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || false), Outcome::Optimal);
+        assert_eq!(counts, SolveCounts { pivots: 6, work: 171 });
         let mut t = beale();
-        let mut pivots = 0;
-        assert_eq!(t.run(Rule::Bland, 1000, &mut pivots, || true), Outcome::Stopped);
-        assert_eq!(pivots, 0);
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, 171, &mut counts, || false), Outcome::Optimal);
+        let mut t = beale();
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, 170, &mut counts, || false), Outcome::WorkLimit);
+        assert_eq!(counts.pivots, 5);
+        let mut t = beale();
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || true), Outcome::Stopped);
+        assert_eq!(counts, SolveCounts::default());
+    }
+
+    /// A pivot that divides `2^63 − 1` by `1/3` writes an entry past the limit; it is
+    /// counted, and the solve ends after it. An initial entry past the limit refuses
+    /// before any pivot.
+    #[test]
+    fn the_coefficient_limit_holds_for_every_entry_of_the_tableau() {
+        let mut t = Tableau::standard(&[vec![q(1, 3)]], vec![q(i64::MAX, 1)], &[q(1, 1)]);
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || false), Outcome::CoefficientLimit);
+        assert_eq!(counts.pivots, 1);
+        let mut t = Tableau::standard(&[vec![q(1, 1)]], vec![q(i64::MAX, 1)], &[q(1, 1)]);
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || false), Outcome::Optimal);
+        assert_eq!(t.obj_value, q(i64::MAX, 1));
+        let big = Rational::from_int(BigInt::from(1i128 << 63));
+        let mut t = Tableau::standard(&[vec![q(1, 1)]], vec![big], &[q(1, 1)]);
+        let mut counts = SolveCounts::default();
+        assert_eq!(t.run(Rule::Bland, WORK_LIMIT, &mut counts, || false), Outcome::CoefficientLimit);
+        assert_eq!(counts.pivots, 0);
     }
 
     /// Places `names` in this (already sorted) order, rows `(name, pre, post)` as
@@ -732,8 +837,8 @@ mod tests {
             &[("one", &[("budget", 1)], &[("a", 1)]), ("two", &[("budget", 1)], &[("a", 2)])],
         );
         let m0 = marking(&[("budget", 1)]);
-        let (answer, pivots) = solve_counted(&net, &m0, &[0]);
-        assert_eq!(pivots, 2);
+        let (answer, counts) = solve_counted(&net, &m0, &[0]);
+        assert_eq!(counts.pivots, 2);
         let LpAnswer::Optimal { cover, .. } = &answer else { panic!("{answer:?}") };
         assert_eq!(cover.weights, vec![BigInt::from(1i64), BigInt::from(2i64)]);
         assert_eq!(checked(&net, &m0, &[0], answer).k(), Some(2));
@@ -828,9 +933,9 @@ mod tests {
         post[0] = 1;
         let transitions = vec![FlatTransition::new("gather", pre, post)];
         let net = FlatNet { places, place_index, place_count: n, transitions };
-        let (answer, pivots) = solve_counted(&net, &MarkingState::new(), &[0]);
+        let (answer, counts) = solve_counted(&net, &MarkingState::new(), &[0]);
         assert_eq!(answer, LpAnswer::TooLarge { places: n, rows: 1 });
-        assert_eq!(pivots, 0);
+        assert_eq!(counts, SolveCounts::default());
         assert_eq!(
             checked(&net, &MarkingState::new(), &[0], answer).report_line().unwrap(),
             "  Colour-slot bound: none (LP over 4097 places and 1 transitions exceeds the limit \
@@ -901,7 +1006,17 @@ mod tests {
         let net = fractional_fork();
         let m0 = marking(&[]);
         for (answer, line) in [
-            (LpAnswer::PivotLimit { limit: 250 }, Some("  Colour-slot bound: none (no LP optimum within the pivot limit of 250)")),
+            (
+                LpAnswer::WorkLimit { pivots: 250 },
+                Some(
+                    "  Colour-slot bound: none (no LP optimum within the work limit of 4000000 entry \
+                     updates, after 250 pivots)",
+                ),
+            ),
+            (
+                LpAnswer::CoefficientLimit { pivots: 7 },
+                Some("  Colour-slot bound: none (an LP coefficient outgrew 63 bits after 7 pivots)"),
+            ),
             (LpAnswer::Stopped, None),
         ] {
             let b = checked(&net, &m0, &[0, 1], answer);

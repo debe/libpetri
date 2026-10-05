@@ -833,11 +833,55 @@ truncates (`Unknown`), it **defers** to this scalable Route A encoding rather
 than returning `Unknown`. A verdict from the coloured plan is not downgraded
 (the colour-aware deadlock does not over-fire joins). Its `Proven` is sound while the
 declared mints and the coloured consumers keep their contracts ([NU-010], [NU-051]);
-the report prints the colour-slot bound as `colour-slot bound k=<k>`, after the line
-`Colour-slot bound: LP optimum <opt> over <n> places and <m> transitions, so k=<k>
-(re-checked in exact arithmetic)`, and names the transitions whose contracts it assumes.
-When the program yields no bound the line reads `Colour-slot bound: none (<reason>)` and
-no plan is built.
+the report prints the colour-slot bound as `colour-slot bound k=<k>`, after the
+`Colour-slot bound:` line below, and names the transitions whose contracts it assumes.
+
+**The solve is normative**, so every implementation performs the same pivots, returns the
+same weighting and refuses the same nets:
+
+1. *Presolve.* `U` is the least set of places containing the coloured ones such that a flat
+   transition producing into `U` has every place it consumes from in `U`. The kept rows are
+   the transitions producing into `U`, in flat order, restricted to `U`; a kept row equal to an
+   earlier one after the restriction is dropped. `<n>` and `<m>` in the report lines are the
+   presolved sizes: `|U|` and the number of kept rows.
+2. *Tableau.* The dual in standard form, maximise `c·σ` subject to `A·σ + s = b`,
+   `σ, s ≥ 0`: one constraint row per place `U[i]`, ascending (`A[i][j]` is `pre − post` of kept
+   row `j` at `U[i]`, `b_i = M0[U[i]]`), and `c_j` the net production of kept row `j` into the
+   coloured places. Columns are the kept rows, then the slacks in the order of `U`; the slacks
+   are the initial basis.
+3. *Bland's rule.* Entering: the smallest column with a negative objective-row entry; none
+   means optimal. Leaving: the least ratio `rhs_i / a_ie` over rows with `a_ie > 0`, ties to the
+   row whose basic column is smallest; none means the program is infeasible. The weighting is
+   `y_p = π_i + [p coloured]` for `p = U[i]`, `π_i` the objective-row entry of slack `i`, and
+   `y_p = 0` off `U`.
+4. *Limits.* A program over more than 4096 places or 16384 rows after the presolve is refused
+   before any pivot. The **work** of a pivot on row `r` and column `e` is the number of non-zero
+   entries of row `r`, plus, for every other constraint row with a non-zero entry in column `e`
+   and for the objective row when it has one, that row's non-zero count plus row `r`'s, all
+   counted before the pivot and slack entries included; the work of a solve is the sum over its
+   pivots, and it MUST NOT exceed 4000000. Every tableau entry (constraint rows, right-hand
+   sides, objective row and value) MUST have numerator and denominator in lowest terms at most
+   `2^63 − 1` in absolute value: the initial tableau is checked before any pivot, and every
+   entry a pivot writes is checked after it, that pivot counted. Each round decides in this
+   order: no entering column, optimal; no leaving row, infeasible; the next pivot's work past
+   the limit, refused; a stop ([VER-013]), stopped; otherwise pivot, then the coefficient check.
+
+The limits bound the time of the solve whether or not a total budget is set. The report line
+is one of:
+
+```
+  Colour-slot bound: LP optimum <opt> over <n> places and <m> transitions, so k=<k> (re-checked in exact arithmetic)
+  Colour-slot bound: none (LP infeasible over <n> places and <m> transitions: no weighting bounds the coloured tokens)
+  Colour-slot bound: none (LP over <n> places and <m> transitions exceeds the limit of 4096 places and 16384 transitions)
+  Colour-slot bound: none (no LP optimum within the work limit of 4000000 entry updates, after <pivots> pivots)
+  Colour-slot bound: none (an LP coefficient outgrew 63 bits after <pivots> pivots)
+  Colour-slot bound: none (LP weighting failed the exact re-check: <reason>)
+```
+
+On every line but the first no plan is built and the query falls back as for an infeasible
+program; a stopped solve prints no line and reports the stop instead. The shared fixture
+`spec/verification-fixtures/slot-bound-lp.json` pins each case's status, pivots and work, and
+for a solved case its presolved sizes, optimum, `k` and weighting, for every implementation.
 
 For a reachability-safety property the linear state-equation bound of [VER-015] runs
 before the coloured query (after Route B). The bound is written over the flat,
@@ -856,21 +900,22 @@ behind its slot bound, are built only when the bound does not prove.
 3. Route A and Route B agree on every small fixture both can decide (differential
    soundness).
 4. A net whose coloured set has **no covering weighting** (the slot-bound program is
-   infeasible) — an
-   unbounded colour leak, e.g. an over-refund that inflates the *minting* budget, or
-   a relay that refunds and frees a token for a `(k+1)`-th colour — falls back to the
+   infeasible), an unbounded colour leak such as an over-refund that inflates the *minting*
+   budget or a relay that refunds and frees a token for a `(k+1)`-th colour, falls back to the
    sound over-approximation rather than a false `Proven`. (A refund to a *non-minting*
    place keeps the minting budget a covering weighting, so it stays bounded and is
-   admitted — the structural bound is more precise than the old budget-conservation
+   admitted: the structural bound is more precise than the old budget-conservation
    heuristic.)
 5. A leaky co-mint fan-out — a fork co-minting one colour into a place the refunding
    join never re-collects (e.g. an un-drained carrier) — falls back rather than a
    false `Proven`: the colour would otherwise outlive its budget and the k-colour
    encoding would under-approximate.
-6. A slot-bound optimum below one (a mid-phase marking with no budget token, or a mint that
-   needs more budget tokens than the marking can ever supply) yields the exact plan with
+6. A slot-bound optimum below one (a mid-phase marking with no budget token, or an
+   `exactly(3)` fork from one budget token, optimum `2/3`) yields the exact plan with
    `k = 0`: quiescence is decided, never downgraded to `Unknown`, and the emitted encoding is
-   well-formed with zero colour slots. The plan is still refused when the program is
+   well-formed with zero colour slots. The program is a relaxation over the reals, so a mint
+   that can never fire does not always give `k = 0` (an `exactly(2)` fork from one budget
+   token that a join refunds has optimum 1). The plan is still refused when the program is
    infeasible.
 7. Under EXTENDED, `mint: budget → a, b` (one fresh name), `spin: a, tick → a, tock` and a
    join on `a`, `b`, from `{budget, tick}`: `placeBound(tock, 0)` is `Violated` through
@@ -963,9 +1008,9 @@ still applies: two enabling symbols with equal signatures still yield successors
 
 **Coloured IC3 ([NU-053], Route A).** The per-colour expansion of a join additionally produces
 colour `c` on each relay target of the fired branch. The encoding stays in linear arithmetic, and
-the colour-slot bound is unchanged in kind: the relay targets are coloured places, so the covering
-non-negative P-semiflow that bounds `k` MUST weight them too, and a net with no such semiflow falls
-back as it does today.
+the colour-slot bound is unchanged in kind: the relay targets are coloured places, so the colour-slot
+program of [NU-053] weights them at least one like any coloured place, and a net whose program is
+infeasible falls back as it does today.
 
 The update of a relaying join, per colour `c`, is fixed so the scripts stay byte-identical across
 languages ([VER-013]): the guards are unchanged (each key column `>= 1`); the update emits
