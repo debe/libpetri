@@ -123,8 +123,8 @@ def test_linear_bound_precedes_the_coloured_encoding():
 
 
 def test_zero_budget_quiescence_decided_by_zero_slot_plan():
-    # NU-053 AC6: a mid-phase marking with no budget token (the covering semiflow's
-    # initial sum is zero) is decided exactly by the zero-slot coloured plan instead of
+    # NU-053 AC6: a mid-phase marking with no budget token (the slot-bound optimum is
+    # zero) is decided exactly by the zero-slot coloured plan instead of
     # being downgraded to unknown. Route B is forced to truncate (nu_max_classes=1) so
     # the deferral to Route A is exercised. No sink: the initial marking is quiescent
     # with `source` tokens stranded.

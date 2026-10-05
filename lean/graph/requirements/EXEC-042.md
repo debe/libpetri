@@ -65,11 +65,11 @@ flowchart TD
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c26["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
-  c77["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c80["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c78["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
+  c81["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
   c26 --> c0
-  c77 --> c0
-  c80 --> c77
+  c78 --> c0
+  c81 --> c78
   n741 --> n744
   n742 --> c0
   n743 --> n744
@@ -170,7 +170,7 @@ flowchart TD
   n806 --> n765
   n806 --> n778
   n806 --> n807
-  n807 --> c80
+  n807 --> c81
   n807 --> n742
   n807 --> n768
   n807 --> n805
@@ -181,7 +181,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n794 root
-  class c0,c26,c77,c80 collapsed
+  class c0,c26,c78,c81 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.split_covers_executor`
@@ -229,11 +229,11 @@ flowchart TD
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c26["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
-  c77["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c80["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c78["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
+  c81["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
   c26 --> c0
-  c77 --> c0
-  c80 --> c77
+  c78 --> c0
+  c81 --> c78
   n741 --> n744
   n742 --> c0
   n743 --> n744
@@ -319,7 +319,7 @@ flowchart TD
   n806 --> n765
   n806 --> n778
   n806 --> n807
-  n807 --> c80
+  n807 --> c81
   n807 --> n742
   n807 --> n768
   n807 --> n805
@@ -327,7 +327,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n800 root
-  class c0,c26,c77,c80 collapsed
+  class c0,c26,c78,c81 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.split_stop_sound`
@@ -381,11 +381,11 @@ flowchart TD
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c26["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
-  c77["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c80["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c78["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
+  c81["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
   c26 --> c0
-  c77 --> c0
-  c80 --> c77
+  c78 --> c0
+  c81 --> c78
   n741 --> n744
   n742 --> c0
   n743 --> n744
@@ -484,7 +484,7 @@ flowchart TD
   n806 --> n765
   n806 --> n778
   n806 --> n807
-  n807 --> c80
+  n807 --> c81
   n807 --> n742
   n807 --> n768
   n807 --> n805
@@ -492,7 +492,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n804 root
-  class c0,c26,c77,c80 collapsed
+  class c0,c26,c78,c81 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.terminal_stop_witness`
@@ -516,18 +516,18 @@ flowchart TD
     n77["Libpetri.InSpec.card"]
     n79["Libpetri.InSpec.mk"]
     n80["Libpetri.InSpec.place"]
-    n2374["Libpetri.PlaceId"]
-    n2605["Libpetri.Transition"]
-    n2606["Libpetri.Transition.inhibitors"]
-    n2607["Libpetri.Transition.inputs"]
-    n2608["Libpetri.Transition.mk"]
-    n2609["Libpetri.Transition.name"]
-    n2611["Libpetri.Transition.reads"]
-    n2612["Libpetri.Transition.resets"]
-    n2682["Libpetri.consumeAllAt"]
-    n2734["Libpetri.enabledA"]
-    n2857["Libpetri.pre"]
-    n2912["Libpetri.specAt"]
+    n2400["Libpetri.PlaceId"]
+    n2631["Libpetri.Transition"]
+    n2632["Libpetri.Transition.inhibitors"]
+    n2633["Libpetri.Transition.inputs"]
+    n2634["Libpetri.Transition.mk"]
+    n2635["Libpetri.Transition.name"]
+    n2637["Libpetri.Transition.reads"]
+    n2638["Libpetri.Transition.resets"]
+    n2708["Libpetri.consumeAllAt"]
+    n2760["Libpetri.enabledA"]
+    n2883["Libpetri.pre"]
+    n2938["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
     n668["Libpetri.Novel.ForwardDeposit.Deposit"]
@@ -565,7 +565,7 @@ flowchart TD
     n812["Libpetri.Novel.InFlight.tF"]
     n815["Libpetri.Novel.InFlight.terminal_stop_witness"]
   end
-  n0 --> n2374
+  n0 --> n2400
   n9 --> n8
   n10 --> n8
   n11 --> n9
@@ -584,17 +584,17 @@ flowchart TD
   n79 --> n8
   n79 --> n74
   n79 --> n76
-  n79 --> n2374
+  n79 --> n2400
   n80 --> n76
-  n80 --> n2374
-  n668 --> n2374
+  n80 --> n2400
+  n668 --> n2400
   n696 --> n0
   n696 --> n668
-  n696 --> n2612
-  n696 --> n2682
-  n696 --> n2857
+  n696 --> n2638
+  n696 --> n2708
+  n696 --> n2883
   n744 --> n668
-  n744 --> n2605
+  n744 --> n2631
   n745 --> n746
   n745 --> n756
   n746 --> n0
@@ -605,21 +605,21 @@ flowchart TD
   n747 --> n755
   n747 --> n756
   n747 --> n757
-  n747 --> n2609
-  n747 --> n2734
+  n747 --> n2635
+  n747 --> n2760
   n748 --> n746
   n748 --> n755
   n748 --> n756
   n748 --> n757
   n748 --> n768
-  n748 --> n2609
+  n748 --> n2635
   n749 --> n746
   n749 --> n755
   n749 --> n756
   n749 --> n757
   n749 --> n805
-  n749 --> n2609
-  n749 --> n2734
+  n749 --> n2635
+  n749 --> n2760
   n753 --> n756
   n753 --> n758
   n755 --> n0
@@ -635,14 +635,14 @@ flowchart TD
   n759 --> n757
   n759 --> n758
   n759 --> n768
-  n759 --> n2609
+  n759 --> n2635
   n760 --> n755
   n760 --> n756
   n760 --> n757
   n760 --> n758
   n760 --> n805
-  n760 --> n2609
-  n760 --> n2734
+  n760 --> n2635
+  n760 --> n2760
   n761 --> n0
   n768 --> n0
   n768 --> n668
@@ -663,11 +663,11 @@ flowchart TD
   n780 --> n797
   n781 --> n13
   n781 --> n79
-  n781 --> n2608
+  n781 --> n2634
   n787 --> n0
   n791 --> n795
   n791 --> n799
-  n791 --> n2609
+  n791 --> n2635
   n792 --> n745
   n792 --> n747
   n792 --> n748
@@ -685,38 +685,38 @@ flowchart TD
   n808 --> n0
   n812 --> n13
   n812 --> n79
-  n812 --> n2608
+  n812 --> n2634
   n815 --> n776
   n815 --> n780
   n815 --> n791
   n815 --> n792
-  n2606 --> n2374
-  n2606 --> n2605
-  n2607 --> n76
-  n2607 --> n2605
-  n2608 --> n76
-  n2608 --> n2374
-  n2608 --> n2605
-  n2609 --> n2605
-  n2611 --> n2374
-  n2611 --> n2605
-  n2612 --> n2374
-  n2612 --> n2605
-  n2682 --> n11
-  n2682 --> n77
-  n2682 --> n2912
-  n2734 --> n0
-  n2734 --> n14
-  n2734 --> n77
-  n2734 --> n80
-  n2734 --> n2606
-  n2734 --> n2607
-  n2734 --> n2611
-  n2857 --> n14
-  n2857 --> n77
-  n2857 --> n2912
-  n2912 --> n80
-  n2912 --> n2607
+  n2632 --> n2400
+  n2632 --> n2631
+  n2633 --> n76
+  n2633 --> n2631
+  n2634 --> n76
+  n2634 --> n2400
+  n2634 --> n2631
+  n2635 --> n2631
+  n2637 --> n2400
+  n2637 --> n2631
+  n2638 --> n2400
+  n2638 --> n2631
+  n2708 --> n11
+  n2708 --> n77
+  n2708 --> n2938
+  n2760 --> n0
+  n2760 --> n14
+  n2760 --> n77
+  n2760 --> n80
+  n2760 --> n2632
+  n2760 --> n2633
+  n2760 --> n2637
+  n2883 --> n14
+  n2883 --> n77
+  n2883 --> n2938
+  n2938 --> n80
+  n2938 --> n2633
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

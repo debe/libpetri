@@ -8,8 +8,9 @@ The ν-net Route A ([NU-050], [NU-051], [NU-053], [NU-054]) encodes a correlatio
 of `k` **colours**: every coloured place becomes `k` per-colour counters, a mint takes a
 *globally fresh* colour (one no coloured place holds), a matched join consumes one token of
 the **same** colour from every key, a coloured consumer threads the colour it consumes.
-`Semiflow.lean` (`vacuous_colour_layer`) covers `k = 0`. This file and its siblings cover
-every `k`.
+`Semiflow.lean` (`vacuous_colour_layer`) covers `k = 0` under the old semiflow bound, and
+`RouteA/SlotBound.lean` (`vacuous_colour_layer_lp`) under the LP bound. This file and its
+siblings cover every `k`.
 
 This module is the **model**. It states, in the vocabulary of `Basic.lean`,
 `Novel/ForwardDeposit.lean` and `Novel/LinearBound.lean`:
@@ -250,7 +251,8 @@ def ColourStep (C : List PlaceId) (k : Nat) :
 structure Enc where
   /-- `plan.coloured` (sorted, deduplicated flat indices). -/
   C : List PlaceId
-  /-- `plan.k`, from `colour_slot_bound`. -/
+  /-- `plan.k`, the checked colour-slot bound (`checked`, `slot_bound_lp.rs`;
+  `RouteA/SlotBound.lean`). -/
   k : Nat
   /-- `flat.place_count`. -/
   n : Nat

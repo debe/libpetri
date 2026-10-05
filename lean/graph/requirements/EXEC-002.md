@@ -11,46 +11,46 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/RetrodictExec.lean"]
     n82["Libpetri.Ka"]
-    n2939["🔒 Libpetri.tid_order_diverges"]
+    n2965["🔒 Libpetri.tid_order_diverges"]
   end
   subgraph g1["Libpetri/Sched.lean"]
     n84["Libpetri.LevelBlocks"]
     n87["Libpetri.LevelBlocks.mk"]
-    n2571["Libpetri.SchedKey"]
-    n2572["Libpetri.SchedKey.clock"]
-    n2573["Libpetri.SchedKey.lt"]
-    n2574["🔒 Libpetri.SchedKey.lt_asymm"]
-    n2577["Libpetri.SchedKey.mk"]
-    n2578["Libpetri.SchedKey.prio"]
-    n2679["🔒 Libpetri.collect_ready_general_refines"]
-    n2740["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n2816["🔒 Libpetri.levelBlocks_sorted"]
-    n2841["🔒 Libpetri.pairwise_imp_mem"]
+    n2597["Libpetri.SchedKey"]
+    n2598["Libpetri.SchedKey.clock"]
+    n2599["Libpetri.SchedKey.lt"]
+    n2600["🔒 Libpetri.SchedKey.lt_asymm"]
+    n2603["Libpetri.SchedKey.mk"]
+    n2604["Libpetri.SchedKey.prio"]
+    n2705["🔒 Libpetri.collect_ready_general_refines"]
+    n2766["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n2842["🔒 Libpetri.levelBlocks_sorted"]
+    n2867["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n82 --> n2577
-  n84 --> n2571
+  n82 --> n2603
+  n84 --> n2597
   n87 --> n84
-  n87 --> n2572
-  n87 --> n2578
-  n2572 --> n2571
-  n2573 --> n2572
-  n2573 --> n2578
-  n2574 --> n2573
-  n2577 --> n2571
-  n2578 --> n2571
-  n2679 --> n2740
-  n2679 --> n2816
-  n2740 --> n2574
-  n2816 --> n87
-  n2816 --> n2573
-  n2816 --> n2841
-  n2939 --> n82
-  n2939 --> n2573
+  n87 --> n2598
+  n87 --> n2604
+  n2598 --> n2597
+  n2599 --> n2598
+  n2599 --> n2604
+  n2600 --> n2599
+  n2603 --> n2597
+  n2604 --> n2597
+  n2705 --> n2766
+  n2705 --> n2842
+  n2766 --> n2600
+  n2842 --> n87
+  n2842 --> n2599
+  n2842 --> n2867
+  n2965 --> n82
+  n2965 --> n2599
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2679,n2939 root
-  class n2574,n2679,n2740,n2816,n2841,n2939 locked
+  class n2705,n2965 root
+  class n2600,n2705,n2766,n2842,n2867,n2965 locked
 ```
 
 Axioms used:

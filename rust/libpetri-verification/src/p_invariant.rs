@@ -136,8 +136,8 @@ const MAX_SEMIFLOW_CANDIDATES: usize = 65_536;
 /// `y·C = 0` — via the Colom–Silva / Farkas method. Unlike [`compute_p_invariants`]
 /// (a signed null-space basis), every returned `PInvariant.weights` is non-negative, a
 /// genuine P-semiflow, with `constant = y·M0`. A non-negative conservation law soundly
-/// **bounds** the token sum over its support: `Σ_{support} M(p) ≤ y·M0`. Used to bound
-/// the number of simultaneously-live colours in the name-coloured encoder.
+/// **bounds** the token sum over its support: `Σ_{support} M(p) ≤ y·M0`. Used by the
+/// [VER-007] union; the colour-slot bound is a linear program (`slot_bound_lp`).
 pub fn compute_p_semiflows(
     matrix: &IncidenceMatrix,
     initial_marking: &MarkingState,
@@ -195,8 +195,8 @@ pub fn compute_p_semiflows(
                 let cn = rp.0[t]; // > 0
                 // Checked combination: on i64 overflow, DROP this generator rather than
                 // push a wrapped (invalid, non-`y·C=0`) row. Dropping it can at worst
-                // lose a covering semiflow, which makes `colour_slot_bound` fall back to
-                // the sound over-approximation — never an under-approximation.
+                // lose a semiflow from the union, which conjoins one law fewer — never a
+                // wrong one.
                 let (Some(mut sig), Some(mut weight)) =
                     (combine_row(cp, &rp.0, cn, &rn.0), combine_row(cp, &rp.1, cn, &rn.1))
                 else {
@@ -434,7 +434,7 @@ fn describe_invariant(inv: &PInvariant, place_names: &[String]) -> String {
 }
 
 /// `cp*a + cn*b` componentwise, or `None` on i64 overflow — so the caller drops the
-/// generator and the colour bound falls back soundly rather than using wrapped values.
+/// generator, losing at most a law, rather than using wrapped values.
 fn combine_row(cp: i64, a: &[i64], cn: i64, b: &[i64]) -> Option<Vec<i64>> {
     a.iter()
         .zip(b)
@@ -943,8 +943,8 @@ mod tests {
             assert_eq!(v.support, c.support);
         }
 
-        // The semiflow path feeds the coloured encoder's slot bound — it must
-        // survive the same validation unchanged too.
+        // The semiflow path feeds the [VER-007] union — it must survive the same
+        // validation unchanged too.
         let semiflows = compute_p_semiflows(&matrix, &initial, &flat.places);
         assert!(!semiflows.is_empty());
         let sf_validation =
@@ -958,8 +958,8 @@ mod tests {
     /// finds y = (1, 1) with constant 2, and the y·C = 0 gate alone would accept it —
     /// but the real firing drains BOTH tokens (y·M drops 2 → 1), so the invariant is
     /// false on the net and the linearity guard must drop it. The semiflow path feeds
-    /// the coloured encoder's slot bound through the same validator, so it must drop
-    /// its (1, 1) row too.
+    /// the [VER-007] union through the same validator, so it must drop its (1, 1) row
+    /// too.
     #[test]
     fn h1_guard_drops_invariant_on_consume_all_place() {
         let p0 = Place::<i32>::new("p0");
@@ -999,7 +999,7 @@ mod tests {
             validation.dropped[0]
         );
 
-        // Semiflow symmetry: the same validator guards the coloured-plan bound path.
+        // Semiflow symmetry: the same validator guards the [VER-007] union path.
         let semiflows = compute_p_semiflows(&matrix, &initial, &flat.places);
         assert!(!semiflows.is_empty());
         let sf_validation =

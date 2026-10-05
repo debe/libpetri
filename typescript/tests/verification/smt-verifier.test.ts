@@ -543,8 +543,8 @@ describeZ3('SmtVerifier ν-net carve-out (NU-040/NU-050)', () => {
   });
 
   it('decides quiescence at zero budget via the zero-slot plan (NU-053 AC6)', async () => {
-    // A mid-phase marking with no budget token — the covering semiflow's initial sum
-    // is zero — is decided exactly by the zero-slot coloured plan instead of being
+    // A mid-phase marking with no budget token (the slot-bound optimum is zero) is
+    // decided exactly by the zero-slot coloured plan instead of being
     // downgraded to unknown. Route B is forced to truncate (nuMaxClasses(1)) so the
     // deferral to Route A is exercised. No sink: the initial marking is quiescent with
     // `source` tokens stranded.

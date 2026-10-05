@@ -5,8 +5,8 @@
 //! [`CancelToken::cancel`] from any thread. Cancellation is not a second stop
 //! mechanism: it rides the total budget's deadline ([`crate::total_budget`]), so
 //! every place that polls the deadline — the clamp before each z3 process, the
-//! graph builds, the siphon/trap search, the semiflow enumeration — sees it at the
-//! same points, and the watchdog loop of the z3 transport kills a running process
+//! graph builds, the siphon/trap search, the semiflow enumeration, the colour-slot
+//! simplex — sees it at the same points, and the watchdog loop of the z3 transport kills a running process
 //! at once. The verdict is `Unknown` with the reason
 //! `verification cancelled during <phase>`.
 

@@ -15,7 +15,7 @@ import { flatten } from '../../src/verification/encoding/net-flattener.js';
 import type { FlatNet } from '../../src/verification/encoding/flat-net.js';
 import { IncidenceMatrix } from '../../src/verification/encoding/incidence-matrix.js';
 import {
-  canonicalInvariantOrder, computePInvariants, computePSemiflows, validateInvariantsExact,
+  canonicalInvariantOrder, computePInvariants, validateInvariantsExact,
 } from '../../src/verification/invariant/p-invariant-computer.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import {
@@ -24,6 +24,7 @@ import {
 import { encode } from '../../src/verification/z3/smt-encoder.js';
 import { vcScript } from '../../src/verification/z3/certificate-checker.js';
 import { buildColouredPlan, encodeColoured } from '../../src/verification/z3/name-coloured-encoder.js';
+import { solveSlotBound } from '../../src/verification/z3/slot-bound-lp.js';
 import { declaredMints } from '../../src/verification/analysis/name-fragment.js';
 
 /**
@@ -35,6 +36,11 @@ import { declaredMints } from '../../src/verification/analysis/name-fragment.js'
  * No solver is needed: the encoders are pure text.
  */
 const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'smt-golden');
+/** The cross-language golden of the same ν query (`scripts/smt-script-parity.py`, written by Rust). */
+const SCATTER_GATHER_GOLDEN = join(
+  dirname(fileURLToPath(import.meta.url)), '..', '..', '..',
+  'spec', 'verification-fixtures', 'scripts', 'nu-scatter-gather-budget-bound-proven', 'horn.smt2',
+);
 
 function golden(name: string): string {
   return readFileSync(join(GOLDEN_DIR, name), 'utf8');
@@ -53,10 +59,6 @@ function encoderInvariants(flat: FlatNet, m0: MarkingState) {
   return canonicalInvariantOrder(validateInvariantsExact(matrix, computePInvariants(matrix, flat, m0), flat, m0).valid);
 }
 
-function validatedSemiflows(flat: FlatNet, m0: MarkingState) {
-  const matrix = IncidenceMatrix.from(flat);
-  return validateInvariantsExact(matrix, computePSemiflows(matrix, flat, m0), flat, m0).valid;
-}
 
 describe('SMT script parity with the Rust reference (VER-013 AC1)', () => {
   it('chain: p0(1) -> p1, placeBound(p1, 0)', () => {
@@ -147,10 +149,11 @@ describe('SMT script parity with the Rust reference (VER-013 AC1)', () => {
     const net = PetriNet.builder('nu').transitions(fork, join).build();
     const flat = flatten(net, new Set(), ignore());
     const m0 = MarkingState.builder().tokens(source, 3).tokens(budget, 2).build();
-    const plan = buildColouredPlan(net, flat, m0, declaredMints(net, new Set(['budget']), new Set()), 'base', new Set(), () => validatedSemiflows(flat, m0));
+    const plan = buildColouredPlan(net, flat, m0, declaredMints(net, new Set(['budget']), new Set()), 'base', new Set(), c => solveSlotBound(flat, m0, c));
     expect(plan, 'the scatter-gather net is in the coloured fragment').not.toBeNull();
     const encoding = encodeColoured(plan!, flat, m0, branchPlaceBound(budget, 2), encoderInvariants(flat, m0), new Set());
     expect(encoding).not.toBeNull();
-    expect(encoding!.smt2).toBe(golden('nu-bound-horn-coloured.smt2'));
+    // The shared Rust golden of the same query, so no copy can go stale (k = 4).
+    expect(encoding!.smt2).toBe(readFileSync(SCATTER_GATHER_GOLDEN, 'utf8'));
   });
 });

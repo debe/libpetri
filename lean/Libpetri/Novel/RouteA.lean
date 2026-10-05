@@ -1,4 +1,5 @@
 import Libpetri.Novel.RouteA.Model
+import Libpetri.Novel.RouteA.SlotBound
 import Libpetri.Novel.RouteA.Simulate
 import Libpetri.Novel.RouteA.Plan
 import Libpetri.Novel.RouteA.Retrodict
@@ -14,11 +15,19 @@ Root of the `Novel/RouteA/` modules, which close gap R4 of the Lean coverage ana
 * `Model.lean`: the plan, the CHC relation `encode_coloured` emitted before the self-loop fix
   (the old `Class::Consume` write order, `sConsume`), its strict quiescence predicate, and the ν
   semantics it must over-approximate, with every premise about the runtime named (P1 to P6).
-* `Simulate.lean`: `colour_slots_suffice` (a covering semiflow bound caps the live names by
-  `k`), `coloured_simulates` (every ν-reachable marking maps, injectively on its live names,
-  into a reachable state of the `k`-slot encoding), and the two verdict transfers
+* `SlotBound.lean`: the colour-slot bound. `k` is the floor of the optimum of a linear program
+  over the flat rows, which each implementation solves with its own exact simplex. The simplex
+  is not trusted: its scaled weighting `(Y, D)` passes the exact checker `check_cover`
+  (`slot_bound_lp.rs`) before `k` is used. `checkCover_sound` turns an accepted answer into a
+  scaled cover, `coloured_tokens_le` bounds the coloured tokens of every flat-reachable marking
+  by `k`, and `vacuous_colour_layer_lp` makes the `k = 0` plan exact ([NU-053] AC6).
+* `Simulate.lean`: `colour_slots_suffice` (a scaled cover at `k` caps the live names by `k`),
+  `coloured_simulates` (every ν-reachable marking maps, injectively on its live names, into a
+  reachable state of the `k`-slot encoding), and the two verdict transfers
   `routeA_safety_sound` / `routeA_quiescence_sound`.
-* `Plan.lean`: `build_plan` / `colour_slot_bound` modelled, with the classification gates as
+* `Plan.lean`: `build_plan` modelled, its bound the checked LP answer (`buildPlan`,
+  `colourSlotBoundLP`; `buildPlan_premisesS` needs no hypothesis about the simplex), with the
+  classification gates as
   parameters (`classifyRowG`): the shipped gates (`buildPlan`, `shippedGate`: a `Mint` row must
   be a declared mint whose timeout writes no coloured place, a `Consume` row must forward its
   input in every coloured timeout write, `shipped_mint`, `shipped_consume`) and the ones before
@@ -28,7 +37,8 @@ Root of the `Novel/RouteA/` modules, which close gap R4 of the Lean coverage ana
   that refusal. It only refuses more, so every plan the shipped `build_plan` returns is one
   `buildPlan` returns, and the results about accepted plans carry over.
   `buildPlanG_premisesS`: a plan either returns discharges every plan premise but
-  `ConsumeNoSelfLoop`.
+  `ConsumeNoSelfLoop`. The semiflow bound `build_plan` read before the LP bound is kept as
+  history (`colourSlotBound`, used by `buildPlanBudget`).
 * `Retrodict.lean`: the `667e67d` budget-count `k` and the `f52c482` injection `Proven`s
   reproduced, and two wrong `Proven`s that were live until the NU-010 and self-loop fixes: a
   coloured output with no coloured input classified as a mint because it consumed a budget
@@ -46,13 +56,15 @@ Root of the `Novel/RouteA/` modules, which close gap R4 of the Lean coverage ana
   (`deadERs_nil`). It is sound for every ν-reachable marking a timed run of either backend
   rests at (`routeA_quiescence_sound_reaping`, `routeA_reap_aware_sound`, the latter over
   `Novel/ReapAware.lean`'s executor model). The witness `ReapW.reaping_breaks_routeA_quiescence`
-  is a plan `build_plan` returns (`C = [a, b]`, `k = 1`): the strict query is `Proven`, the
+  is a plan `build_plan` returns (`C = [a, b]`, `k = 0`): the strict query is `Proven`, the
   executor rests at a marking that strands a token, and the shipped query is not `Proven`.
 * `Shipped.lean`: the shipped `Class::Consume` arm nets a self-loop to zero, which is the join
   rule on the one input (`Cls.shipped`). The ν semantics is unchanged (`reachNu_shipped`), and
   the shipped encoding meets every premise from the plan premises alone (`premises_shipped`), so
   `routeA_safety_sound_shipped` / `routeA_quiescence_sound_shipped` need no `ConsumeNoSelfLoop`.
   On the self-loop witness every premise now holds (`selfLoop_premises_shipped`).
+  `routeA_safety_sound_plan` / `routeA_quiescence_sound_plan` state the verdict transfers from
+  the plan the shipped `build_plan` returns, whatever its simplex answered.
 
 What is proved is **soundness** (inclusion of the ν-reachable markings, under the premises),
 not exactness. The report used to say "exact within budget k"; it now says "colour-slot bound

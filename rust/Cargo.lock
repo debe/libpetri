@@ -522,6 +522,7 @@ version = "9.0.0"
 dependencies = [
  "criterion",
  "libpetri",
+ "libpetri-verification",
  "tokio",
 ]
 

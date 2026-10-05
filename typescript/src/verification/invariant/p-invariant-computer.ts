@@ -386,8 +386,7 @@ interface SemiflowRow {
  * (a signed null-space basis), every returned `PInvariant.weights` is non-negative:
  * a genuine P-semiflow, with `constant = y·M0`. A non-negative conservation law
  * soundly **bounds** the token sum over its support: `Σ_{support} M(p) ≤ y·M0`. Used
- * to bound the number of simultaneously-live colours in the name-coloured encoder
- * (see `colourSlotBound`).
+ * by the [VER-007] union; the colour-slot bound is a linear program (`slot-bound-lp`).
  *
  * Mirrors the Rust reference `compute_p_semiflows`.
  */
@@ -490,8 +489,8 @@ export function computePSemiflows(
         const cn = rp.sig[t]!; // > 0
         // Checked combination: `number` is f64 and loses integer precision above 2^53,
         // so DROP this generator if any coefficient leaves the safe-integer range rather
-        // than keep an imprecise (invalid) row. colourSlotBound then falls back to the
-        // sound over-approximation — never an under-approximation.
+        // than keep an imprecise (invalid) row. Dropping it can at worst lose a semiflow
+        // from the union, which conjoins one law fewer, never a wrong one.
         const sig = combineRow(cp, rp.sig, cn, rn.sig);
         const weight = combineRow(cp, rp.weight, cn, rn.weight);
         if (sig === null || weight === null) continue;
@@ -514,8 +513,8 @@ export function computePSemiflows(
         constant += weight[p]! * initialMarking.tokens(flatNet.places[p]!);
       }
     }
-    // Drop a semiflow whose `Σ weight·M0` left the safe-integer range — fewer covering
-    // semiflows just means colourSlotBound falls back soundly.
+    // Drop a semiflow whose `Σ weight·M0` left the safe-integer range: the union then
+    // conjoins one law fewer, never a wrong one.
     if (!Number.isSafeInteger(constant)) continue;
     semiflows.push(pInvariant(weight, constant, support));
   }

@@ -141,8 +141,8 @@ public final class PInvariantComputer {
             // A signed null-space basis, exactly as the Rust reference computes it
             // (VER-013 script parity): a mixed-sign row is a conservation law like any
             // other and passes the same exact gate; a semi-negative row is the same law
-            // negated. Non-negativity is only required of the P-semiflows that bound
-            // the colour slots (computePSemiflows), never of the strengthening laws.
+            // negated. Non-negativity is only required of the P-semiflows of the
+            // [VER-007] union (computePSemiflows), never of the basis laws.
             if (!hasPositive && !hasNegative) continue;
             if (!hasPositive) {
                 for (int i = 0; i < P; i++) {
@@ -225,8 +225,8 @@ public final class PInvariantComputer {
      * {@link #compute} (a signed null-space basis), every returned
      * {@link PInvariant#weights()} is non-negative, a genuine P-semiflow, with
      * {@code constant = y·M0}. A non-negative conservation law soundly <b>bounds</b> the
-     * token sum over its support: {@code sum_{support} M(p) <= y·M0}. Used to bound the
-     * number of simultaneously-live colours in the name-coloured encoder.
+     * token sum over its support: {@code sum_{support} M(p) <= y·M0}. Used by the [VER-007]
+     * union; the colour-slot bound is a linear program ({@code SlotBoundLp}).
      *
      * @param matrix         the incidence matrix
      * @param flatNet        the flat net (for place info)
@@ -288,8 +288,8 @@ public final class PInvariantComputer {
                     long cn = rp.sig[t];  // > 0
                     // Checked combination: on long overflow DROP this generator rather
                     // than keep a wrapped (invalid) row. Dropping it can at worst lose a
-                    // covering semiflow, so colourSlotBound falls back to the sound
-                    // over-approximation — never an under-approximation.
+                    // semiflow from the union, which conjoins one law fewer, never a wrong
+                    // one.
                     long[] sig = combineRow(cp, rp.sig, cn, rn.sig);
                     long[] weight = combineRow(cp, rp.weight, cn, rn.weight);
                     if (sig == null || weight == null) {
@@ -340,8 +340,8 @@ public final class PInvariantComputer {
                     }
                 }
             }
-            // Drop a semiflow whose weight or `Σ weight·M0` does not fit int — fewer
-            // covering semiflows just means colourSlotBound falls back soundly.
+            // Drop a semiflow whose weight or `Σ weight·M0` does not fit int: the union then
+            // conjoins one law fewer, which is sound.
             if (overflow || constant > Integer.MAX_VALUE || constant < Integer.MIN_VALUE) {
                 continue;
             }
@@ -390,8 +390,7 @@ public final class PInvariantComputer {
      *       {@link PInvariant#constant()}.</li>
      *   <li>Overflow ({@link ArithmeticException}) or any mismatch drops the candidate
      *       with a reason. Dropping only weakens the strengthening (resp. loses a
-     *       covering semiflow, so the colour bound falls back soundly) — it never
-     *       affects soundness.</li>
+     *       semiflow from the union). It never affects soundness.</li>
      * </ul>
      *
      * <p>The drop reasons are canonical strings: the Java, TypeScript, Rust and
@@ -575,8 +574,7 @@ public final class PInvariantComputer {
 
     /**
      * {@code cp*a + cn*b} componentwise, or {@code null} on long overflow (so the caller
-     * drops the generator and the colour bound falls back soundly rather than using
-     * wrapped values).
+     * drops the generator, losing at most a law, rather than using wrapped values).
      */
     private static long[] combineRow(long cp, long[] a, long cn, long[] b) {
         long[] out = new long[a.length];

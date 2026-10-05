@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 libpetri = { path = "../libpetri", features = ["tokio"] }
+libpetri-verification = { workspace = true }
 tokio = { workspace = true }
 criterion = { workspace = true }
 
@@ -21,4 +22,8 @@ harness = false
 
 [[bench]]
 name = "state_class_graph"
+harness = false
+
+[[bench]]
+name = "slot_bound_lp"
 harness = false

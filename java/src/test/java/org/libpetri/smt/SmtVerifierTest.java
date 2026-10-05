@@ -783,8 +783,8 @@ class SmtVerifierTest {
     @Test
     @EnabledIf("z3Available")
     void nuZeroBudget_quiescenceDecidedByZeroSlotPlan() {
-        // NU-053 AC6: a mid-phase marking with no budget token — the covering semiflow's
-        // initial sum is zero — is decided exactly by the zero-slot coloured plan instead of
+        // NU-053 AC6: a mid-phase marking with no budget token (the slot-bound optimum is
+        // zero) is decided exactly by the zero-slot coloured plan instead of
         // being downgraded to Unknown. Route B is forced to truncate (nuMaxClasses(1)) so the
         // deferral to Route A is exercised. No sink: the initial marking is quiescent with
         // `source` tokens stranded.
@@ -1260,7 +1260,7 @@ class SmtVerifierTest {
             .sinkPlaces(NU053_MERGED, NU053_BUDGET)
             .budgetPlaces(NU053_BUDGET)
             .nuMaxClasses(1)
-            // 60s (not 15s): the sound P-semiflow colour bound makes k larger, so the
+            // 60s (not 15s): the colour-slot bound counts coloured tokens, not names, so the
             // coloured encoding is heavier and in-process JNI Z3 (Spacer) is slower here.
             // Rust's z3 binary and TS's WASM Z3 solve the same net fast — this is JNI-only.
             .timeout(Duration.ofSeconds(60))
@@ -1306,8 +1306,8 @@ class SmtVerifierTest {
                 .sinkPlaces(NU053_MERGED, NU053_BUDGET)
                 .budgetPlaces(NU053_BUDGET)
                 .nuMaxClasses(maxClasses)
-                // 60s (not 15s): the sound P-semiflow colour bound makes k larger, so the
-                // coloured encoding is heavier and in-process JNI Z3 (Spacer) is slower here.
+                // 60s (not 15s): the colour-slot bound counts coloured tokens, not names, so
+                // the coloured encoding is heavier and in-process JNI Z3 (Spacer) is slower here.
                 // Rust's z3 binary and TS's WASM Z3 solve the same net fast — this is JNI-only.
                 .timeout(Duration.ofSeconds(60))
                 .verify();

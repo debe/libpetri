@@ -7,8 +7,7 @@ import { NameStateClassGraph, nameSuccessors } from '../../src/verification/anal
 import { expandTransition } from '../../src/verification/analysis/state-class-graph.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import { flatten } from '../../src/verification/encoding/net-flattener.js';
-import { IncidenceMatrix } from '../../src/verification/encoding/incidence-matrix.js';
-import { computePSemiflows } from '../../src/verification/invariant/p-invariant-computer.js';
+import { solveSlotBound } from '../../src/verification/z3/slot-bound-lp.js';
 import { buildColouredPlan } from '../../src/verification/z3/name-coloured-encoder.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
@@ -330,8 +329,7 @@ describe('NU-054 Route A plan', () => {
     for (const [n, k] of marking) m.tokens(places.get(n)!, k);
     const initial = m.build();
     const flat = flatten(net);
-    const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    return { flat, plan: buildColouredPlan(net, flat, initial, declaredMints(net, new Set(budgets), new Set()), mode, new Set(), () => semiflows) };
+    return { flat, plan: buildColouredPlan(net, flat, initial, declaredMints(net, new Set(budgets), new Set()), mode, new Set(), c => solveSlotBound(flat, initial, c)) };
   }
 
   it('colours a relay target no join consumes, and produces on it from the join', () => {

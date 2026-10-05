@@ -138,4 +138,46 @@ class MintDeclarationTest {
         var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(), result.report());
         assertTrue(unknown.reason().contains(refusal), unknown.reason());
     }
+
+    /**
+     * {@code buildPlan} solves the colour-slot program only after every structural refusal, and
+     * writes its report line right after the re-check. With {@code copy: extra -> branchA}
+     * writing a coloured place as an undeclared mint, the classification refuses the plan, so the
+     * simplex never runs and the line never appears. Without {@code copy} the plan is built and
+     * the line is there, which is what makes its absence mean something. Neither run enumerates a
+     * semiflow: the slot bound is not a semiflow search.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void anUndeclaredMintRefusesTheColouredPlanBeforeTheSlotBoundIsSolved() {
+        final String slotBound = "Colour-slot bound: ";
+        var extra = Place.of("extra", Object.class);
+        java.util.function.Function<PetriNet, SmtVerificationResult> run = net -> SmtVerifier.forNet(net)
+            .initialMarking(MarkingState.builder().tokens(SOURCE, 1).tokens(extra, 1).build())
+            .property(SmtProperty.placeBound(MERGED, 5))
+            .budgetPlaces(SOURCE)
+            .linearBound(false)
+            .enumerationMaxClasses(0)
+            .timeout(Duration.ofSeconds(30))
+            .verify();
+
+        var declared = run.apply(forkJoin());
+        assertTrue(declared.report().contains("ν-encoding: name-coloured (colour-slot bound k=2;"), declared.report());
+        // `source` weighs at least both keys: optimum 2 over source, branchA and branchB, and the
+        // fork, the one row producing into them.
+        assertTrue(declared.report().contains("  Colour-slot bound: LP optimum 2 over 3 places and 1 transitions, "
+            + "so k=2 (re-checked in exact arithmetic)\n"), declared.report());
+        assertEquals(1, declared.report().split(slotBound, -1).length - 1, declared.report());
+
+        var copy = Transition.builder("copy").inputs(In.one(extra)).outputs(Out.place(BRANCH_A)).build();
+        var net = StructureOnly.bind(PetriNet.builder("fork-join-copy")
+            .transitions(forkJoin().transitions().toArray(Transition[]::new))
+            .transition(copy).build());
+        var undeclared = run.apply(net);
+        assertFalse(undeclared.report().contains("ν-encoding: name-coloured"), undeclared.report());
+        assertFalse(undeclared.report().contains(slotBound), undeclared.report());
+        for (var report : java.util.List.of(declared.report(), undeclared.report())) {
+            assertFalse(report.contains("semiflow"), report);
+        }
+    }
 }

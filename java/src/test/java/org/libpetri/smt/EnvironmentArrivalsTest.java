@@ -207,10 +207,8 @@ class EnvironmentArrivalsTest {
     @EnabledIf("z3Available")
     void anArrivalIntoAColouredPlace_routeADeclinesToTheFlatEncoding_namingThePlace() {
         // Budgeted reachability-safety is Route A's (coloured IC3). Read as a mint, the arrival
-        // would carry a fresh colour and the join would never match: an unsound Proven. (Route A
-        // cannot plan this closed net anyway — env:decline[0] rules out a semiflow covering the
-        // coloured places — so the guard is defence in depth; the report line is what AC10 and
-        // AC7 require.)
+        // would carry a fresh colour and the join would never match: an unsound Proven. The guard
+        // refuses before the plan is built; the report line is what AC10 and AC7 require.
         var r = colouredEnvironment(SmtProperty.unreachable(Set.of(ACCEPTED)))
             .budgetPlaces(SLOT)
             .verify();

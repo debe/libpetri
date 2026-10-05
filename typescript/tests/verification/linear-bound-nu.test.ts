@@ -51,8 +51,13 @@ it('encodeScripts emits the bound script alongside the coloured encoding', () =>
   expect(scripts.bound).not.toBeNull();
 });
 
-/** The report line the colour-slot bound prints when it reads the semiflows. */
-const SLOT_SEMIFLOWS = 'P-semiflows for the colour-slot bound';
+/**
+ * The report line the coloured plan's slot bound writes, and only it (the ν-encoding line
+ * spells it `colour-slot bound`, lower case and without the colon).
+ */
+const SLOT_BOUND = 'Colour-slot bound: ';
+
+const occurrences = (text: string, needle: string): number => text.split(needle).length - 1;
 
 describeZ3('VER-015 before the name-coloured encoding (NU-053)', () => {
   it('PNID N1: placeBound(Y1, 1000) at budget 2 is proven structurally, in milliseconds', async () => {
@@ -63,9 +68,10 @@ describeZ3('VER-015 before the name-coloured encoding (NU-053)', () => {
     expect(result.route).toBe('structural');
     expect(result.report).toContain('PROVEN (structural)');
     expect(result.report).toContain('(VER-015)');
-    // The coloured plan is built after the bound, so a structural Proven never runs the
-    // semiflow enumeration it would read (15-25 s on a composed 341-transition net).
-    expect(result.report).not.toContain(SLOT_SEMIFLOWS);
+    // The coloured plan is built after the bound, so a structural Proven never runs its
+    // slot-bound simplex, and nothing enumerates semiflows.
+    expect(result.report).not.toContain(SLOT_BOUND);
+    expect(result.report).not.toContain('semiflow');
     expect(elapsed).toBeLessThan(1_000);
   }, 30_000);
 
@@ -81,14 +87,18 @@ describeZ3('VER-015 before the name-coloured encoding (NU-053)', () => {
     expect(withBound.route).toBe(without.route);
     expect(withBound.counterexampleTransitions).toEqual(without.counterexampleTransitions);
     expect(withBound.report).toContain('Linear state-equation bound: none separates the violation');
-    expect(withBound.report).toContain('name-coloured');
-    expect(withBound.report).toContain(SLOT_SEMIFLOWS);
+    expect(withBound.report).toContain('ν-encoding: name-coloured (colour-slot bound k=6;');
+    expect(withBound.report).toContain('  Colour-slot bound: LP optimum 6 over ');
+    expect(withBound.report).toContain(', so k=6 (re-checked in exact arithmetic)\n');
+    expect(occurrences(withBound.report, SLOT_BOUND), withBound.report).toBe(1);
+    expect(withBound.report).not.toContain('semiflow');
   }, 60_000);
 
-  it('a ν-net outside the fragment through an undeclared mint never enumerates the semiflows', async () => {
+  it('a ν-net outside the fragment through an undeclared mint never solves the slot bound', async () => {
     // mA: budget, S1 -> A mints (it consumes the declared budget); mB: S2 -> B writes the
     // other coloured place without consuming a budget or being named (NU-010), so the
-    // coloured plan refuses in its classification and the slot bound must never be asked for.
+    // coloured plan refuses in its classification and the slot bound must never be solved, so
+    // its report line never appears.
     const [budget, s1, s2, a, b, done] = ['budget', 'S1', 'S2', 'A', 'B', 'DONE'].map(n => place<string>(n));
     const net = PetriNet.builder('undeclared_mint').transitions(
       Transition.builder('mA').inputs(one(budget!), one(s1!)).outputs(outPlace(a!)).action(produces()).build(),
@@ -97,17 +107,30 @@ describeZ3('VER-015 before the name-coloured encoding (NU-053)', () => {
         .match(matchSpec(matchKey(a!, (x: string) => nameId(x)), matchKey(b!, (x: string) => nameId(x))))
         .outputs(and(outPlace(done!), outPlace(budget!))).action(produces()).build(),
     ).build();
-    const result = await SmtVerifier.forNet(net)
+    const run = (mints: readonly string[]) => SmtVerifier.forNet(net)
       .enumerationMaxClasses(0)
       .initialMarking(m => m.tokens(budget!, 1).tokens(s1!, 1).tokens(s2!, 1))
       .property(placeBound(done!, 0))
       .budgetPlaces(budget!)
+      .mintTransitions(...mints)
       .linearBound(false)
       .timeout(30_000)
       .verify();
+    const result = await run([]);
     expect(result.route, result.report).toBe('smt');
     expect(result.report).toContain('IC3/PDR');
     expect(result.report).not.toContain('ν-encoding: name-coloured');
-    expect(result.report).not.toContain(SLOT_SEMIFLOWS);
+    expect(result.report).not.toContain(SLOT_BOUND);
+    expect(result.report).not.toContain('semiflow');
+    // Declaring mB a mint admits the plan, and the line is there once, which is what makes
+    // its absence above mean something. S2 weighs at least B, and S1 plus the budget at least
+    // A: optimum 2 over A, B, S1, S2 and the budget, and the three rows producing into them.
+    const declared = await run(['mB']);
+    expect(declared.report).toContain('ν-encoding: name-coloured (colour-slot bound k=2;');
+    expect(declared.report).toContain(
+      '\n  Colour-slot bound: LP optimum 2 over 5 places and 3 transitions, so k=2 (re-checked in exact arithmetic)\n',
+    );
+    expect(occurrences(declared.report, SLOT_BOUND), declared.report).toBe(1);
+    expect(declared.report).not.toContain('semiflow');
   }, 60_000);
 });

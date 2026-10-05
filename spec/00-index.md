@@ -266,7 +266,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040, TIME-012 |
 | NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
 | NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020, VER-004 |
-| NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-012 |
+| NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-005, VER-012, VER-013 |
 | NU-054 | Join Relay | MAY | NU-020, NU-030, NU-051, NU-053, VER-012, IO-015, IO-016, CONC-026 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 
@@ -551,7 +551,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | NU-001–060 | `AbstractNetExecutorEngineTest#nuJoin_matchesByName_notFifo`, `nuJoin_blocksWithoutMatchingName`, `nuFork_mintsUniqueIds_thenJoinMerges` (both executors) | `nu-net.test.ts > join matches by name, not FIFO` (+ siblings, both executors) | `backend_suite_tests::nu_join_matches_by_name_not_fifo`, `nu_join_blocks_without_matching_name`, `nu_fork_mints_unique_ids_then_join_merges` (both backends); Python `test_nu_net.py` |
 | NU-011 (resume; the NU-001–060 row covers the rest) | `AbstractResumeSafeMintingTest` (`BitmapResumeSafeMintingTest`, `PrecompiledResumeSafeMintingTest`) | `snapshot-restore.test.ts > NU-011 — resume-safe fresh-name minting` (both executors) | `tests/core073_snapshot_restore.rs` (Bitmap, Precompiled and Owned); Python `test_marking_snapshot.py` |
 | NU-052 | `NuScgPriorityTest` | `name-scg-priority.test.ts` | `nu_scg_verifier::tests` (priority); Python `test_nu_verification.py` |
-| NU-053 | `SmtVerifierTest` (Route A quiescence) | `smt-verifier.test.ts` (Route A quiescence) | `name_coloured_encoder::tests`, `smt_verifier::tests` (nu053); Python `test_nu_verification.py` |
+| NU-053 | `SmtVerifierTest` (Route A quiescence) | `smt-verifier.test.ts` (Route A quiescence) | `name_coloured_encoder::tests`, `smt_verifier::tests` (nu053); the colour-slot LP: `slot_bound_lp::tests`, `tests/slot_bound_lp.rs`, `spec/verification-fixtures/slot-bound-lp.json` (via `tests/smt_script_parity.rs`); Python `test_nu_verification.py` |
 | NU-054 | `MatchSpecRelayTest` (AC1), `AbstractNetExecutorEngineTest#nuRelay_*` (AC2, both executors; incl. `nuRelay_checkPrecedesMultiplicityWarning`, `nuRelay_throwingKeyFunctionIsNoName`), `JoinRelayTest` (AC3–AC6) | `runtime/nu-join-relay.test.ts` (AC1, AC2 both executors; incl. `a key function that throws projects no name`), `verification/nu-join-relay.test.ts` (AC3–AC6) | `transition::tests` (relay), `nu_match_composition` (AC1), `nu_relay_tests` (AC2, both backends), `tests/nu_join_relay.rs` (AC3–AC6), `smt_script_parity` (relay goldens); Python `test_nu_join_relay.py` |
 
 ---

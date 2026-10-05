@@ -397,7 +397,12 @@ jobs:
           #print axioms Libpetri.Novel.RouteA.routeA_safety_sound
           #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound
           #print axioms Libpetri.Novel.RouteA.colourSlotBound_sound
+          #print axioms Libpetri.Novel.RouteA.checkCover_sound
+          #print axioms Libpetri.Novel.RouteA.colourSlotBoundLP_sound
+          #print axioms Libpetri.Novel.RouteA.coloured_tokens_le
+          #print axioms Libpetri.Novel.RouteA.vacuous_colour_layer_lp
           #print axioms Libpetri.Novel.RouteA.buildPlanG_premisesS
+          #print axioms Libpetri.Novel.RouteA.buildPlan_premisesS
           #print axioms Libpetri.Novel.RouteA.shipped_mint
           #print axioms Libpetri.Novel.RouteA.shipped_consume
           #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound_reaping
@@ -411,9 +416,12 @@ jobs:
           #print axioms Libpetri.Novel.RouteA.reachNu_shipped
           #print axioms Libpetri.Novel.RouteA.routeA_safety_sound_shipped
           #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound_shipped
+          #print axioms Libpetri.Novel.RouteA.routeA_safety_sound_plan
+          #print axioms Libpetri.Novel.RouteA.routeA_quiescence_sound_plan
           #print axioms Libpetri.Novel.RouteA.selfLoop_premises_shipped
           #print axioms Libpetri.Novel.RouteA.Retro.budget_k_false_proven
           #print axioms Libpetri.Novel.RouteA.Retro.inflating_net_refused
+          #print axioms Libpetri.Novel.RouteA.Retro.inflating_net_refused_semiflows
           #print axioms Libpetri.Novel.RouteA.Retro.injection_breaks_closed_encoding
           #print axioms Libpetri.Novel.RouteA.Retro.forward_mint_false_proven
           #print axioms Libpetri.Novel.RouteA.Retro.forward_mint_refused

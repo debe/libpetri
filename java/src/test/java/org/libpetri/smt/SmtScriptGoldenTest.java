@@ -15,12 +15,15 @@ import org.libpetri.smt.encoding.FlatNet;
 import org.libpetri.smt.encoding.NetFlattener;
 import org.libpetri.smt.z3.CertificateChecker;
 import org.libpetri.smt.z3.NameColouredEncoder;
+import org.libpetri.smt.z3.SlotBoundLp;
 import org.libpetri.smt.z3.SmtEncoder;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,7 +33,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * VER-013 AC1: the scripts this verifier sends to z3 are byte-identical to the Rust
  * reference. The goldens under {@code src/test/resources/smt-golden/} were written by
  * the Rust verifier ({@code LIBPETRI_SMT_DUMP}) for the nets rebuilt here; a diff is a
- * parity finding in whichever emitter drifted, never a reason to edit the golden.
+ * parity finding in whichever emitter drifted, never a reason to edit the golden. The
+ * name-coloured case reads the shared fixture golden under
+ * {@code spec/verification-fixtures/scripts/} directly, which
+ * {@code scripts/smt-script-parity.py --update} keeps current.
  *
  * <p>No solver is needed: the encoders are pure text.
  */
@@ -40,6 +46,16 @@ class SmtScriptGoldenTest {
         try (InputStream in = SmtScriptGoldenTest.class.getResourceAsStream("/smt-golden/" + name)) {
             assertNotNull(in, "missing golden " + name);
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /** The HORN golden of a shared fixture, {@code spec/verification-fixtures/scripts/<id>/horn.smt2}. */
+    private static String sharedGolden(String id) {
+        Path file = VerdictParityTest.locateFixtures().resolveSibling("scripts").resolve(id).resolve("horn.smt2");
+        try {
+            return Files.readString(file, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new AssertionError(e);
         }
@@ -187,15 +203,17 @@ class SmtScriptGoldenTest {
         var flat = flatten(net);
         var m0 = MarkingState.builder().tokens(source, 3).tokens(budget, 2).build();
         var invariants = SmtVerifier.encoderInvariants(flat, m0, false);
-        var semiflows = SmtVerifier.validatedSemiflows(flat, m0);
 
         var plan = NameColouredEncoder.buildPlan(
             net, flat, m0, org.libpetri.analysis.NameFragment.declaredMints(net, Set.of("budget"), Set.of()),
-            FragmentMode.BASE, Set.of(), semiflows);
+            FragmentMode.BASE, Set.of(), c -> SlotBoundLp.solve(flat, m0, c), _ -> {});
         assertNotNull(plan, "the scatter-gather net is in the coloured fragment");
+        // [NU-053] the colour-slot program's optimum: two budget tokens, two keys each.
+        assertEquals(4, plan.k());
         var encoding = NameColouredEncoder.encode(
             plan, flat, m0, SmtProperty.branchPlaceBound(budget, 2), invariants, Set.of());
         assertNotNull(encoding);
-        assertEquals(golden("nu-bound-horn-coloured.smt2"), encoding.smt2());
+        // The shared fixture golden of the same net and property, written by Rust.
+        assertEquals(sharedGolden("nu-scatter-gather-budget-bound-proven"), encoding.smt2());
     }
 }

@@ -21,65 +21,65 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n2675["🔒 Libpetri.canEnable_spec"]
-    n2686["Libpetri.consumeForFiring"]
-    n2694["🔒 Libpetri.consume_faithful"]
-    n2743["Libpetri.execOp"]
-    n2744["🔒 Libpetri.execOp_input_spec"]
-    n2745["🔒 Libpetri.execOp_pop_spec"]
-    n2746["Libpetri.execOpsFrom"]
-    n2748["🔒 Libpetri.execOpsFrom_cons"]
-    n2750["🔒 Libpetri.execOps_inputs"]
-    n2751["🔒 Libpetri.execOps_resets"]
-    n2848["Libpetri.peekReads"]
+    n2701["🔒 Libpetri.canEnable_spec"]
+    n2712["Libpetri.consumeForFiring"]
+    n2720["🔒 Libpetri.consume_faithful"]
+    n2769["Libpetri.execOp"]
+    n2770["🔒 Libpetri.execOp_input_spec"]
+    n2771["🔒 Libpetri.execOp_pop_spec"]
+    n2772["Libpetri.execOpsFrom"]
+    n2774["🔒 Libpetri.execOpsFrom_cons"]
+    n2776["🔒 Libpetri.execOps_inputs"]
+    n2777["🔒 Libpetri.execOps_resets"]
+    n2874["Libpetri.peekReads"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
   c3["📁 Libpetri/Conservation/Pop.lean (8 declarations, collapsed)"]
-  c71["📁 Libpetri/Ring/Core.lean (52 declarations, collapsed)"]
-  c74["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
-  c1 --> c71
-  c3 --> c71
-  c71 --> c0
-  c71 --> c74
+  c72["📁 Libpetri/Ring/Core.lean (52 declarations, collapsed)"]
+  c75["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
+  c1 --> c72
+  c3 --> c72
+  c72 --> c0
+  c72 --> c75
   n29 --> c3
   n29 --> n28
   n30 --> c3
   n30 --> n28
   n31 --> c3
   n31 --> n28
-  n32 --> c71
+  n32 --> c72
   n32 --> n28
-  n2675 --> c1
-  n2686 --> n2746
-  n2686 --> n2848
-  n2694 --> n2675
-  n2694 --> n2686
-  n2694 --> n2750
-  n2694 --> n2751
-  n2743 --> c1
-  n2743 --> n29
-  n2743 --> n30
-  n2743 --> n31
-  n2743 --> n32
-  n2744 --> n2743
-  n2744 --> n2745
-  n2745 --> n29
-  n2745 --> n30
-  n2745 --> n31
-  n2745 --> n32
-  n2746 --> n2743
-  n2748 --> n2746
-  n2750 --> n2744
-  n2750 --> n2748
-  n2751 --> n2748
-  n2848 --> c3
+  n2701 --> c1
+  n2712 --> n2772
+  n2712 --> n2874
+  n2720 --> n2701
+  n2720 --> n2712
+  n2720 --> n2776
+  n2720 --> n2777
+  n2769 --> c1
+  n2769 --> n29
+  n2769 --> n30
+  n2769 --> n31
+  n2769 --> n32
+  n2770 --> n2769
+  n2770 --> n2771
+  n2771 --> n29
+  n2771 --> n30
+  n2771 --> n31
+  n2771 --> n32
+  n2772 --> n2769
+  n2774 --> n2772
+  n2776 --> n2770
+  n2776 --> n2774
+  n2777 --> n2774
+  n2874 --> c3
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2694 root
-  class n2675,n2694,n2744,n2745,n2748,n2750,n2751 locked
-  class c0,c1,c3,c71,c74 collapsed
+  class n2720 root
+  class n2701,n2720,n2770,n2771,n2774,n2776,n2777 locked
+  class c0,c1,c3,c72,c75 collapsed
 ```
 
 ### `Libpetri.token_conservation`
@@ -94,65 +94,65 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n2675["🔒 Libpetri.canEnable_spec"]
-    n2686["Libpetri.consumeForFiring"]
-    n2743["Libpetri.execOp"]
-    n2744["🔒 Libpetri.execOp_input_spec"]
-    n2745["🔒 Libpetri.execOp_pop_spec"]
-    n2746["Libpetri.execOpsFrom"]
-    n2748["🔒 Libpetri.execOpsFrom_cons"]
-    n2750["🔒 Libpetri.execOps_inputs"]
-    n2751["🔒 Libpetri.execOps_resets"]
-    n2848["Libpetri.peekReads"]
-    n2940["🔒 Libpetri.token_conservation"]
+    n2701["🔒 Libpetri.canEnable_spec"]
+    n2712["Libpetri.consumeForFiring"]
+    n2769["Libpetri.execOp"]
+    n2770["🔒 Libpetri.execOp_input_spec"]
+    n2771["🔒 Libpetri.execOp_pop_spec"]
+    n2772["Libpetri.execOpsFrom"]
+    n2774["🔒 Libpetri.execOpsFrom_cons"]
+    n2776["🔒 Libpetri.execOps_inputs"]
+    n2777["🔒 Libpetri.execOps_resets"]
+    n2874["Libpetri.peekReads"]
+    n2966["🔒 Libpetri.token_conservation"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
   c3["📁 Libpetri/Conservation/Pop.lean (8 declarations, collapsed)"]
-  c71["📁 Libpetri/Ring/Core.lean (52 declarations, collapsed)"]
-  c74["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
-  c1 --> c71
-  c3 --> c71
-  c71 --> c0
-  c71 --> c74
+  c72["📁 Libpetri/Ring/Core.lean (52 declarations, collapsed)"]
+  c75["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
+  c1 --> c72
+  c3 --> c72
+  c72 --> c0
+  c72 --> c75
   n29 --> c3
   n29 --> n28
   n30 --> c3
   n30 --> n28
   n31 --> c3
   n31 --> n28
-  n32 --> c71
+  n32 --> c72
   n32 --> n28
-  n2675 --> c1
-  n2686 --> n2746
-  n2686 --> n2848
-  n2743 --> c1
-  n2743 --> n29
-  n2743 --> n30
-  n2743 --> n31
-  n2743 --> n32
-  n2744 --> n2743
-  n2744 --> n2745
-  n2745 --> n29
-  n2745 --> n30
-  n2745 --> n31
-  n2745 --> n32
-  n2746 --> n2743
-  n2748 --> n2746
-  n2750 --> n2744
-  n2750 --> n2748
-  n2751 --> n2748
-  n2848 --> c3
-  n2940 --> n2675
-  n2940 --> n2686
-  n2940 --> n2750
-  n2940 --> n2751
+  n2701 --> c1
+  n2712 --> n2772
+  n2712 --> n2874
+  n2769 --> c1
+  n2769 --> n29
+  n2769 --> n30
+  n2769 --> n31
+  n2769 --> n32
+  n2770 --> n2769
+  n2770 --> n2771
+  n2771 --> n29
+  n2771 --> n30
+  n2771 --> n31
+  n2771 --> n32
+  n2772 --> n2769
+  n2774 --> n2772
+  n2776 --> n2770
+  n2776 --> n2774
+  n2777 --> n2774
+  n2874 --> c3
+  n2966 --> n2701
+  n2966 --> n2712
+  n2966 --> n2776
+  n2966 --> n2777
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2940 root
-  class n2675,n2744,n2745,n2748,n2750,n2751,n2940 locked
-  class c0,c1,c3,c71,c74 collapsed
+  class n2966 root
+  class n2701,n2770,n2771,n2774,n2776,n2777,n2966 locked
+  class c0,c1,c3,c72,c75 collapsed
 ```
 
 Axioms used:

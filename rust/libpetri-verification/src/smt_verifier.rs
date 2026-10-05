@@ -25,6 +25,7 @@ use crate::property::SmtProperty;
 use crate::reaping;
 use crate::rest_set::{ConditionalSinks, describe_sinks};
 use crate::scg_verifier::{self, ScgOutcome};
+use crate::slot_bound_lp;
 use crate::state_class_graph::{StateClassGraph, StateClassGraphOptions};
 use crate::state_space_cache::{StateSpaceCache, StateSpaceKey, StateSpaceLookup};
 use crate::result::{
@@ -47,7 +48,7 @@ use crate::z3_process::{self, Z3Solver};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemiflowMode {
     /// The encoders see only the null-space basis (the default). The semiflows
-    /// are not computed at all unless a coloured plan needs the slot bound.
+    /// are not computed at all.
     Off,
     /// Union the validated semiflows into the invariant list the encoders receive.
     On,
@@ -1527,9 +1528,9 @@ impl<'a> SmtVerifier<'a> {
             .filter_map(|(name, _)| flat.place_index.get(name).copied())
             .collect();
 
-        // [VER-013]: the siphon/trap search and the semiflow enumeration also poll
-        // the stop inside their loops; one that gives up early is caught by the
-        // next step, since the stop is sticky.
+        // [VER-013]: the siphon/trap search, the semiflow enumeration and the
+        // colour-slot simplex also poll the stop inside their loops; one that gives up
+        // early is caught by the next step, since the stop is sticky.
         step!("structural pre-check", VerificationRoute::Smt, flat_statistics(&flat, 0, "n/a"));
 
         // Phase 2: Structural pre-check
@@ -1605,20 +1606,17 @@ impl<'a> SmtVerifier<'a> {
             &flat,
         );
         let invariants = validation.valid;
-        // P-semiflows (non-negative conservation laws) bound the simultaneously-live
-        // colour count that sets the name-coloured encoder's slot count `k`
-        // (see build_plan / colour_slot_bound) — validated the same way before they
-        // can set that bound.
+        // P-semiflows (non-negative conservation laws), validated the same way before
+        // the union may conjoin them.
         //
-        // Computed ONLY when something will read them ([VER-007]): the union here, or
-        // the coloured plan's slot bound, which asks for them on demand once the
-        // linear bound ([VER-015]) has failed to end the query without them. The
-        // enumeration is worst-case
-        // exponential — the minimal semiflows of `k` independent diamonds in
-        // series number 2^k — so running it for a caller who asked for neither is
-        // a large cost, and on a wide net an uncatchable one: the heap it exhausts
-        // aborts the process rather than returning a verdict. Skipping it is
-        // invisible to every other phase.
+        // Computed ONLY when the union will read them ([VER-007]). Nothing else does:
+        // the colour-slot bound of the name-coloured encoder ([NU-053]) is a linear
+        // program over the incidence matrix (`slot_bound_lp`), not a semiflow search.
+        // The enumeration is worst-case exponential — the minimal semiflows of `k`
+        // independent diamonds in series number 2^k — so running it for a caller who
+        // did not ask for it is a large cost, and on a wide net an uncatchable one: the
+        // heap it exhausts aborts the process rather than returning a verdict. Skipping
+        // it is invisible to every other phase.
         //
         // `Auto`: compute them exactly when the basis LOST a law to the H1 guard,
         // which is the condition the option exists for — a consume-all / reset arc
@@ -1659,9 +1657,6 @@ impl<'a> SmtVerifier<'a> {
 no constraint the encoding does not already have; they may still differ in FORM)\n"
             });
         }
-        // The UNION is a separate decision from the slot bound: a coloured plan
-        // needs the semiflows without wanting the laws conjoined, and computes them
-        // itself below.
         let invariants = if union_wanted {
             let (strengthened, added) =
                 p_invariant::strengthen_with_semiflows(invariants, &semiflows);
@@ -1887,53 +1882,35 @@ no constraint the encoding does not already have; they may still differ in FORM)
 
         // ν-net refinement (NU-050 #1, Route A). For a budget-declared ν-net in the
         // supported mint→matched-join fragment, encode names as a finite colour set
-        // (k = the colour-slot bound of a covering non-negative P-semiflow, which
-        // bounds the live names) with same-colour join matching, instead of the
-        // name-blind over-approximation. This rules out counterexamples that would
-        // equate two distinct names. A verdict holds while the declared mints and
-        // the coloured consumers keep their contracts ([NU-010], [NU-051]).
-        // Reachability-safety AND quiescence ([NU-053]) properties are both routed
-        // here; a net outside the fragment keeps the flat encoding.
+        // (k = the colour-slot bound: the floor of a linear program's optimum, re-checked
+        // exactly, which bounds the coloured tokens and so the live names) with
+        // same-colour join matching, instead of the name-blind over-approximation.
+        // This rules out counterexamples that would equate two distinct names. A
+        // verdict holds while the declared mints and the coloured consumers keep their
+        // contracts ([NU-010], [NU-051]). Reachability-safety AND quiescence ([NU-053])
+        // properties are both routed here; a net outside the fragment keeps the flat
+        // encoding.
         //
-        // Built only after the linear bound: the plan's slot bound reads the
-        // semiflows, and on a composed net their enumeration costs seconds to tens of
-        // seconds (and truncates) that a structural Proven never needed. Nothing above
-        // reads the plan.
+        // Built only after the linear bound, which never needs it: a structural Proven
+        // skips the plan and its slot-bound simplex. Nothing above reads the plan.
         let (coloured_plan, coloured_encoding) = match self.coloured_attempt(
             &flat,
             &property,
             &invariants,
-            || {
-                let valid = if union_wanted {
-                    semiflows
-                } else {
-                    // The enumeration was the tail of the P-invariant phase before it
-                    // moved here, so a total budget that ends it still names that
-                    // phase ([VER-013]). A stop already due is charged to the step
-                    // before and ends the query at the next step; skip the work.
-                    if total_budget::step("P-invariant computation") {
-                        return Vec::new();
-                    }
-                    let validation = p_invariant::validate_invariants_exact(
-                        p_invariant::compute_p_semiflows(
-                            &matrix,
-                            &self.initial_marking,
-                            &flat.places,
-                        ),
-                        &matrix,
-                        &self.initial_marking,
-                        &flat,
-                    );
-                    for reason in &validation.dropped {
-                        report.push_str(&format!("  Dropped semiflow: {reason}\n"));
-                    }
-                    validation.valid
-                };
-                report.push_str(&format!(
-                    "  P-semiflows for the colour-slot bound: {}\n",
-                    valid.len()
-                ));
-                valid
+            |coloured| {
+                // The simplex is a solver-free loop under [VER-013]: its own step, and a
+                // poll before every pivot. A stop already due is charged to the step
+                // before and ends the query at the next step; skip the work.
+                if total_budget::step("colour-slot bound") {
+                    return slot_bound_lp::LpAnswer::Stopped;
+                }
+                slot_bound_lp::solve(&flat, &self.initial_marking, coloured)
+            },
+            |bound| {
+                if let Some(line) = bound.report_line() {
+                    report.push_str(&line);
+                    report.push('\n');
+                }
             },
             &sink_places,
             &env_injection,
@@ -2164,11 +2141,11 @@ no constraint the encoding does not already have; they may still differ in FORM)
             .iter()
             .any(|d| d.contains("Strengthening.lean H1"));
         let invariants = basis.valid;
-        // Same gate as verify(): only compute what something will read (see there).
+        // Same gate as verify(): the semiflows only when the union reads them.
         let scripts_has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
         let union_wanted = self.semiflow_invariants == SemiflowMode::On
             || (self.semiflow_invariants == SemiflowMode::Auto && basis_lost_a_law);
-        let semiflows = if union_wanted || (scripts_has_match && !self.budget_places.is_empty()) {
+        let semiflows = if union_wanted {
             p_invariant::validate_invariants_exact(
                 p_invariant::compute_p_semiflows(&matrix, &self.initial_marking, &flat.places),
                 &matrix,
@@ -2191,11 +2168,14 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 .then_with(|| a.constant.cmp(&b.constant))
         });
 
+        // The colour-slot bound is solved bare: no deadline is bound here, so the
+        // simplex's polls do nothing and the script carries the `k` verify() would use.
         let attempt = self.coloured_attempt(
             &flat,
             &property,
             &invariants,
-            || semiflows,
+            |coloured| slot_bound_lp::solve(&flat, &self.initial_marking, coloured),
+            |_| {},
             &sink_places,
             &env_injection,
         );
@@ -2292,18 +2272,19 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// the shared fixtures.)
     ///
     /// `invariants` is what the encoder conjoins into every rule body (the null-space
-    /// basis, unioned with the semiflows when [VER-007] is enabled); `semiflows`
-    /// supplies the gate-validated semiflows that set the colour-slot bound `k`
-    /// ([NU-053]). They are not the same list. Deferred so a net that never reaches
-    /// `build_plan` never pays for the enumeration, and so `verify()` can build the
-    /// plan after the linear bound without computing them before it.
+    /// basis, unioned with the semiflows when [VER-007] is enabled). `lp` solves the
+    /// colour-slot program of [NU-053] ([`slot_bound_lp`]) and `on_slot_bound` receives
+    /// the re-checked bound; both go to `build_plan` unchanged, which calls `lp` only
+    /// after every structural refusal. `verify()` runs the solve as its own step and
+    /// reports the bound; `encode_scripts()` solves bare and reports nothing.
     #[allow(clippy::too_many_arguments)]
     fn coloured_attempt(
         &self,
         flat: &FlatNet,
         property: &SmtProperty,
         invariants: &[PInvariant],
-        semiflows: impl FnOnce() -> Vec<PInvariant>,
+        lp: impl FnOnce(&[usize]) -> slot_bound_lp::LpAnswer,
+        on_slot_bound: impl FnOnce(&slot_bound_lp::SlotBound),
         sink_places: &[String],
         env_injection: &[(String, Option<usize>)],
     ) -> Option<(name_coloured_encoder::ColouredPlan, Option<smt_encoder::SmtEncoding>)> {
@@ -2326,7 +2307,8 @@ no constraint the encoding does not already have; they may still differ in FORM)
             &self.declared_mints(),
             self.fragment_mode,
             &self.carrier_places,
-            semiflows,
+            lp,
+            on_slot_bound,
         )?;
         let encoding = name_coloured_encoder::encode_coloured(
             &plan,
@@ -3886,8 +3868,9 @@ impl<'a> SmtVerifier<'a> {
     /// timeout at all. With a total budget the deadline starts when `verify()` is
     /// entered, before the terminal rewrite; every z3 process gets
     /// `min(its budget, what is left)` and none starts once nothing is; the graph
-    /// builds poll the deadline once per class; and the siphon/trap search and
-    /// the semiflow enumeration poll it inside their loops and give up without a
+    /// builds poll the deadline once per class; and the siphon/trap search, the
+    /// semiflow enumeration and the colour-slot simplex (its own step,
+    /// `colour-slot bound`) poll it inside their loops and give up without a
     /// result once it has passed. When the deadline passes before a verdict
     /// is reached the verdict is `Unknown` with the reason
     /// `total verification budget of <N> ms exhausted during <phase>`, and the
@@ -3909,9 +3892,10 @@ impl<'a> SmtVerifier<'a> {
     /// Cancellation is the [`total_budget`](Self::total_budget)'s stop with a
     /// different trigger, and works with or without a budget: everything that
     /// polls the deadline — the clamp before each z3 process, the graph builds,
-    /// the siphon/trap search and the semiflow enumeration, the start of each
-    /// step — sees it at the same points, and a z3 process running when it
-    /// comes is killed and reaped at once, not left to its timeout. No further
+    /// the siphon/trap search, the semiflow enumeration and the colour-slot
+    /// simplex, the start of each step — sees it at the same points, and a z3
+    /// process running when it comes is killed and reaped at once, not left to its
+    /// timeout. No further
     /// process starts. The verdict is `Unknown` with the reason
     /// `verification cancelled during <phase>`, and the report carries the same
     /// line; a verdict reached before cancellation stands. A token cancelled
@@ -8112,6 +8096,68 @@ mod tests {
             "the enumeration must run with the option on\n{}",
             on.report
         );
+    }
+
+    /// [VER-007] AC2 and [NU-053]: the coloured plan takes its slot bound from the
+    /// linear program, so building it enumerates no semiflow. A draining loop whose
+    /// semiflows fail the H1 gate sits beside the scatter-gather ν-net: the enumeration
+    /// would report them as `Dropped semiflow:` lines, as the `On` run shows. With the
+    /// option off the plan is built and no such line appears. The semiflow slot bound
+    /// that preceded the linear program enumerated them here and wrote those lines.
+    #[test]
+    fn the_coloured_plan_enumerates_no_semiflows() {
+        if !z3_available() {
+            eprintln!("skipping the_coloured_plan_enumerates_no_semiflows: z3 binary not on PATH");
+            return;
+        }
+        let loop_budget = Place::<i32>::new("loopBudget");
+        let queue = Place::<i32>::new("queue");
+        let work = Place::<i32>::new("work");
+        let sink = Place::<i32>::new("sink");
+        let take = Transition::builder("take")
+            .input(one(&loop_budget))
+            .input(all(&queue))
+            .output(out_place(&work))
+            .action(fork())
+            .build();
+        let done = Transition::builder("done")
+            .input(one(&work))
+            .output(libpetri_core::output::and(vec![out_place(&loop_budget), out_place(&sink)]))
+            .action(fork())
+            .build();
+        let nu = nu_scatter_gather_net();
+        let net = PetriNet::builder("drain_beside_scatter_gather")
+            .transitions(nu.transitions().iter().cloned().chain([take, done]))
+            .build();
+        let run = |mode: SemiflowMode| {
+            SmtVerifier::for_net(&net)
+                .enumeration_max_classes(0)
+                .linear_bound(false)
+                .initial_marking(
+                    MarkingStateBuilder::new()
+                        .tokens("source", 3)
+                        .tokens("budget", 2)
+                        .tokens("loopBudget", 1)
+                        .tokens("queue", 2)
+                        .build(),
+                )
+                .property(SmtProperty::place_bound("merged", 3))
+                .budget_place("budget")
+                .semiflow_invariants(mode)
+                .timeout(30_000)
+                .verify()
+        };
+        let off = run(SemiflowMode::Off);
+        assert!(off.report.contains("ν-encoding: name-coloured (colour-slot bound k=4;"), "{}", off.report);
+        assert!(
+            off.report.contains("  Colour-slot bound: LP optimum 4 over 5 places and 2 transitions, so k=4"),
+            "{}",
+            off.report
+        );
+        assert!(!off.report.contains("Dropped semiflow:"), "the plan must not enumerate semiflows\n{}", off.report);
+        let on = run(SemiflowMode::On);
+        assert!(on.report.contains("Dropped semiflow:"), "the net must have semiflows the gate drops\n{}", on.report);
+        assert!(on.report.contains("ν-encoding: name-coloured (colour-slot bound k=4;"), "{}", on.report);
     }
 
     /// [VER-007] AC3: `Auto` says which way it went and why, and the union happens

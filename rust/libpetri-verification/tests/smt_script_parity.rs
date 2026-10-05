@@ -19,6 +19,11 @@
 //! query, and with both phases off, where the fixpoint path sends the HORN query they
 //! would otherwise decide before. The environment is process-global, so this file
 //! holds exactly ONE `#[test]`.
+//!
+//! The same test writes and checks the `expected` objects of the shared colour-slot LP
+//! cases of [NU-053] (`spec/verification-fixtures/slot-bound-lp.json`): status, presolved
+//! sizes, pivots, optimum, `k` and the weighting of the exact simplex, which every
+//! implementation must reproduce.
 
 #![cfg(feature = "z3")]
 
@@ -30,6 +35,8 @@ mod nets;
 mod relay_fixtures;
 #[path = "common/relay_nets.rs"]
 mod relay_nets;
+#[path = "common/slot_lp_cases.rs"]
+mod slot_lp_cases;
 use json::{Json, parse_json};
 
 use std::fs;
@@ -236,6 +243,36 @@ fn smt_scripts_match_the_committed_goldens() {
             compare(&mut findings, id, &state_equation, scripts.state_equation.as_deref());
         }
         encoded.push((id.to_string(), scripts));
+    }
+
+    // [NU-053] the colour-slot LP parity cases: hand-written inputs, Rust-written
+    // expectations. Rewritten under update with every input kept as it was.
+    let lp_path = root.join("slot-bound-lp.json");
+    let mut lp_doc = parse_json(&fs::read_to_string(&lp_path).expect("read slot-bound-lp.json"));
+    let Json::Obj(top) = &mut lp_doc else { panic!("slot-bound-lp.json is not an object") };
+    let Some((_, Json::Arr(lp_cases))) = top.iter_mut().find(|(k, _)| k == "cases") else {
+        panic!("slot-bound-lp.json lists no cases")
+    };
+    assert!(!lp_cases.is_empty(), "slot-bound-lp.json lists no cases");
+    for case in lp_cases.iter_mut() {
+        let built = slot_lp_cases::build(case);
+        let expected = slot_lp_cases::expected(&built);
+        let Json::Obj(fields) = case else { panic!("an LP case is not an object") };
+        match fields.iter_mut().find(|(k, _)| k == "expected") {
+            Some((_, old)) if *old == expected => {}
+            Some((_, old)) if update => *old = expected,
+            None if update => fields.push(("expected".into(), expected)),
+            found => findings.push(format!(
+                "SLOT-BOUND LP PARITY FINDING [{}]: expected {} but the simplex gives {}",
+                built.id,
+                found.map_or("nothing".to_string(), |(_, old)| slot_lp_cases::pretty(old, 0)),
+                slot_lp_cases::pretty(&expected, 0)
+            )),
+        }
+    }
+    if update {
+        fs::write(&lp_path, slot_lp_cases::pretty(&lp_doc, 0) + "\n").expect("write slot-bound-lp.json");
+        eprintln!("[script-parity] wrote {}", lp_path.display());
     }
 
     // API ↔ pipeline: the scripts verify() sends are the ones encode_scripts()

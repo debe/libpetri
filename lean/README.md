@@ -175,7 +175,9 @@ row on `netAll`). **`vacuous_colour_layer`** ([NU-053] AC6): at colour-slot
 bound `k = 0` every place a covering semiflow weights is empty on the whole
 reachable set, so every mint, join and coloured consumer is dead and the
 zero-slot coloured encoding — which emits no rule for them — is exact rather
-than a fallback.
+than a fallback. That is the semiflow bound `build_plan` read before the LP
+bound; the shipped bound has the twin `vacuous_colour_layer_lp`
+(`Novel/RouteA/SlotBound.lean`).
 
 `Libpetri/Interning.lean` — hash-consing in `NameStateClassGraph.build`.
 **`interned_keys_eq`** / `interned_edges_eq` ([VER-012]): under
@@ -241,7 +243,8 @@ modules extend both axes:
   guard now in all three validators.
 - `Semiflow.lean` — `semiflow_union_sound`: the gate-validated P-semiflows
   may be conjoined alongside the basis ([VER-007]); `vacuous_colour_layer`:
-  the `k = 0` colour-slot plan is exact ([NU-053] AC6).
+  the `k = 0` plan of the semiflow bound is exact ([NU-053] AC6;
+  `vacuous_colour_layer_lp` is the twin for the LP bound).
 - `Interning.lean` — `interned_keys_eq`: hash-consing the ν graph's base
   class and name layer reaches the same quotient graph, given
   key-equivariance of the successor step; `equivariance_is_necessary`
@@ -336,7 +339,12 @@ Sixteen more roots import the rest of `Libpetri/Novel/` into `Libpetri.lean`:
   ν run for any colour-slot bound (`coloured_simulates`). `build_plan` is
   modelled with the declared-mint and timeout-write gates of [NU-010]
   (`RouteA/Plan.lean`), and the shipped consumer rule, which nets a self-loop,
-  needs no self-loop premise (`routeA_safety_sound_shipped`).
+  needs no self-loop premise (`routeA_safety_sound_shipped`). The slot bound
+  `k` is the floor of a linear program's optimum, found by an untrusted exact
+  simplex in each implementation; only the checker that re-validates its
+  weighting is modelled (`RouteA/SlotBound.lean`, `checkCover_sound`), so a
+  plan from the shipped `build_plan` meets the premises whatever the simplex
+  answered (`buildPlan_premisesS`, `routeA_safety_sound_plan`).
 - `RouteB.lean` ([NU-050], [NU-052]): the name-partition graph's `Proven` holds
   for the untimed, environment-free executor. The shipped `classify` and the
   builders' checks discharge the distinct-key and positive-count premises

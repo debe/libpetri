@@ -35,8 +35,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @EnabledIf("z3Available")
 class LinearBoundNuTest {
 
-    /** The report line the colour-slot bound prints when it reads the semiflows. */
-    private static final String SLOT_SEMIFLOWS = "P-semiflows for the colour-slot bound";
+    /**
+     * The report line the coloured plan's slot bound writes, and only it (the ν-encoding line
+     * spells it {@code colour-slot bound}, lower case and without the colon).
+     */
+    private static final String SLOT_BOUND = "Colour-slot bound: ";
+
+    private static int occurrences(String haystack, String needle) {
+        return haystack.split(java.util.regex.Pattern.quote(needle), -1).length - 1;
+    }
 
     static boolean z3Available() {
         return SmtVerifier.z3Available();
@@ -75,9 +82,10 @@ class LinearBoundNuTest {
             assertEquals(Route.STRUCTURAL, r.route(), r.report());
             assertTrue(r.report().contains("PROVEN (structural)"), r.report());
             assertTrue(r.report().contains("(VER-015)"), r.report());
-            // The coloured plan is built after the bound, so a structural Proven never runs
-            // the semiflow enumeration it would read (25 s on a composed 341-transition net).
-            assertFalse(r.report().contains(SLOT_SEMIFLOWS), r.report());
+            // The coloured plan is built after the bound, so a structural Proven never runs its
+            // slot-bound simplex, and nothing enumerates semiflows.
+            assertFalse(r.report().contains(SLOT_BOUND), r.report());
+            assertFalse(r.report().contains("semiflow"), r.report());
             assertTrue(r.elapsed().compareTo(Duration.ofSeconds(2)) < 0,
                 "a structural proof, far under the 8 s timeout: " + r.elapsed());
         }
@@ -93,7 +101,8 @@ class LinearBoundNuTest {
         assertTrue(r.isProven(), r.report());
         assertEquals(Route.SMT, r.route(), r.report());
         assertTrue(r.report().contains("ν-encoding: name-coloured (colour-slot bound"), r.report());
-        assertTrue(r.report().contains(SLOT_SEMIFLOWS), r.report());
+        assertEquals(1, occurrences(r.report(), SLOT_BOUND), r.report());
+        assertTrue(r.report().contains(" (re-checked in exact arithmetic)\n"), r.report());
 
         // A false bound: the linear bound cannot prove it, Route A finds the violation as before.
         var fig = JoinRelayTest.fig12c(true);
@@ -101,14 +110,18 @@ class LinearBoundNuTest {
             JoinRelayTest.FIG12C_CARRIERS);
         assertTrue(v.isViolated(), v.report());
         assertEquals(Route.SMT, v.route(), v.report());
-        assertTrue(v.report().contains("ν-encoding: name-coloured (colour-slot bound"), v.report());
+        assertTrue(v.report().contains("ν-encoding: name-coloured (colour-slot bound k=6;"), v.report());
+        assertTrue(v.report().contains("  Colour-slot bound: LP optimum 6 over "), v.report());
+        assertTrue(v.report().contains(", so k=6 (re-checked in exact arithmetic)\n"), v.report());
+        assertEquals(1, occurrences(v.report(), SLOT_BOUND), v.report());
+        assertFalse(v.report().contains("semiflow"), v.report());
     }
 
     @Test
-    void aNuNetThePlanRefuses_neverRunsTheSemiflowEnumeration() {
+    void aNuNetThePlanRefuses_neverSolvesTheSlotBound() {
         // mB consumes the budget place S2, so it is a declared mint; mA writes A from the plain
         // place W and is not one (NU-010). The plan refuses the net at the classification, which
-        // needs no colour-slot bound, so the semiflows behind that bound are never enumerated.
+        // needs no colour-slot bound, so the simplex behind that bound never runs.
         Place<String> w = Place.of("W", String.class);
         Place<String> s2 = Place.of("S2", String.class);
         Place<String> a = Place.of("A", String.class);
@@ -129,7 +142,7 @@ class LinearBoundNuTest {
         assertFalse(r.isProven(), r.report());
         assertFalse(r.report().contains("ν-encoding: name-coloured"), r.report());
         assertNotEquals(Route.NU_SCG, r.route(), r.report());
-        assertFalse(r.report().contains(SLOT_SEMIFLOWS), r.report());
+        assertFalse(r.report().contains(SLOT_BOUND), r.report());
     }
 
     @Test

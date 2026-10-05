@@ -641,19 +641,17 @@ place into a chain whose other combinations avoid it (dropped by the gate). On a
 handful of reset arcs this can lose every law of the chains those arcs touch, and IC3 then has
 to rediscover each conservation law itself, which on a net of a hundred places it does not do
 within any practical budget. The non-negative **P-semiflows** (`y ≥ 0`, `y·C = 0`, the minimal
-laws of the net, computed by the Farkas / Colom-Silva enumeration that [NU-053] already uses
-for the colour-slot bound) are the missing laws.
+laws of the net, computed by the Farkas / Colom-Silva enumeration) are the missing laws.
 
 **The enumeration is expensive and MUST be skipped when nothing will read it.** The minimal
 semiflows of a net are worst-case exponential in its branching: `k` independent diamonds in
 series have `2^k` of them, measured at 2 048 for eleven and past the implementation's backstop
-beyond thirteen. Computing them for a caller who enabled neither this option nor the [NU-053]
-colour-slot bound is a large unforced cost — 27 s of preprocessing on a 24-layer net before the
-solver sees anything — and on a wide net an **uncatchable** one, since the heap it exhausts
-aborts the process rather than returning a verdict. An implementation MUST compute semiflows
-only when the option is enabled or a coloured plan needs the bound. A coloured plan needs it only
-once the query reaches the coloured encoding: the [VER-015] bound runs first and does not read
-it, so a query the bound proves never runs the enumeration.
+beyond thirteen. Computing them for a caller who did not enable this option is a large unforced
+cost — 27 s of preprocessing on a 24-layer net before the solver sees anything — and on a wide
+net an **uncatchable** one, since the heap it exhausts aborts the process rather than returning a
+verdict. An implementation MUST compute semiflows only when the option is enabled. No other phase
+reads them: the colour-slot bound of [NU-053] is a linear program over the incidence matrix, not
+a semiflow search.
 
 An implementation SHOULD therefore offer an option that unions the gate-validated semiflows
 into the invariant list the encoders receive, and SHOULD offer an **`auto`** setting that
@@ -706,8 +704,7 @@ away.
 1. Semiflows are re-validated by the same exact gate as the basis rows before use; a semiflow
    that fails it is dropped with a `Dropped semiflow:` report line and is never encoded.
 2. With the option disabled (the default) the semiflows do not reach the encoders, are not
-   computed at all unless a coloured plan needs the bound, and the report is byte-identical to
-   a build without the feature.
+   computed at all, and the report is byte-identical to a build without the feature.
 3. Under `auto` the report says which way it went and why, the union happens only when a law
    was dropped, and the verdict never differs from whichever explicit setting `auto` chose. The
    report's "off" wording MUST say that the skipped semiflows add no *constraint*, not that they
@@ -769,7 +766,8 @@ it: the bound query ([VER-015]), the state-equation phase shared across its refi
 timeout ([VER-019]), the HORN query and its certificate check and detail re-run add up to about
 7.5 timeouts, plus 2 s of watchdog slack per process, plus the solver-free work (the enumeration
 route [VER-017], Route B [VER-012], the timed check [VER-023], the siphon and trap search
-[VER-020], Farkas), which no timeout bounds. An implementation SHOULD therefore offer an
+[VER-020], Farkas, the colour-slot simplex of [NU-053]), which no timeout bounds. An
+implementation SHOULD therefore offer an
 optional **total budget**, a wall-clock limit on the whole call. It is off by default, and with
 it unset behaviour and reports are byte-identical to the above. When it is set:
 
@@ -779,8 +777,10 @@ it unset behaviour and reports are byte-identical to the above. When it is set:
   `-t`, `-T` and the watchdog from that clamped value by the formulas above. When nothing
   remains, no process is started.
 - The solver-free graph builds (the enumeration route, Route B, the timed check) and the long
-  solver-free loops (siphon and trap search, Farkas) poll the deadline, cheaply (every so many
-  classes or iterations), and stop when it has passed.
+  solver-free loops (siphon and trap search, Farkas, the colour-slot simplex) poll the deadline,
+  cheaply (every so many classes or iterations), and stop when it has passed. The colour-slot
+  simplex runs as its own step, `colour-slot bound`, entered once every other check of the
+  coloured plan has passed, and polls before every pivot.
 - When the deadline passes before a verdict is reached, the verdict is `Unknown` with the reason
   `total verification budget of <N> ms exhausted during <phase>`, `<phase>` naming the step
   that was running when the budget ran out, and the report carries the same line. A poll made
@@ -924,7 +924,9 @@ U+FFFF meets one in U+E000–U+FFFF.
   `(define-fun Reachable (…) Bool true)`; the goldens under
   `spec/verification-fixtures/scripts/<id>/` are written by the Rust verifier
   (`scripts/smt-script-parity.py --update`) and diffed by every implementation's
-  script-parity test.
+  script-parity test. A name-coloured HORN script carries the colour-slot bound `k` of
+  [NU-053]; each implementation computes it with its own exact simplex, so `encodeScripts()`
+  still starts no solver.
 
 **Depends on:** [VER-001], [VER-003], [VER-007], [VER-017], [VER-022], [MOD-051], [IO-016]
 
@@ -1070,11 +1072,9 @@ environment places, the total budget and cancellation of [VER-013] respected), w
 phase name. `Proven` returns as on the flat path — method `structural`, the lines of AC1 — and
 keeps any ν-encoding notes already in the report; anything else hands over to the coloured
 query, whose verdict and notes are unchanged. The coloured plan is built only after the bound
-fails to prove, because its colour-slot bound reads the semiflows ([VER-007]). On a composed
-ν-net of 255 places and 341 transitions their enumeration took 15 to 25 s per query and
-truncated, while the bound proved each property in about 100 ms. Route B ([VER-012]) keeps its place in the
+fails to prove; nothing before it reads the plan. Route B ([VER-012]) keeps its place in the
 dispatch: the bound runs after it, never before. The colour-slot bound of the coloured encoding
-is a structural P-semiflow count, often two to four times the declared budget, and IC3 over that
+counts coloured tokens rather than names, often two to four times the declared budget, and IC3 over that
 many colour slots can time out on a bound the flat state equation proves in milliseconds. On six
 PNID ν-nets (`research/net-metrics/validation/pnid/`), `placeBound(X, 1000)` under a budget of 2
 went from `Unknown` after about 8 s to `Proven` in about 12 ms.

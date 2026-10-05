@@ -19,7 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Bounded <b>name-coloured</b> CHC encoding for &nu;-net join correlation
@@ -34,9 +35,10 @@ import java.util.function.Supplier;
  *
  * <p>This encoder removes that imprecision for the bounded fragment. The decidability
  * lever (NU-040) is a bounded live-name count: a budget place gates minting, and a
- * non-negative <b>P-semiflow</b> weighting every coloured place bounds the
- * simultaneously-live names to a finite {@code k} ({@code Σ_{coloured} M <= y·M0}; see
- * {@link #buildPlan} / {@link #colourSlotBound}). So names are modelled as a
+ * non-negative weighting of the flat places that weights every coloured place at least one
+ * and that no flat row increases bounds the simultaneously-live names to a finite {@code k}
+ * ({@code Σ_{coloured} M <= y·M0}; see {@link #buildPlan} and {@link SlotBoundLp}, which takes
+ * the least such bound as a linear program). So names are modelled as a
  * <b>finite set of {@code k} colours</b>. Each coloured place becomes {@code k}
  * per-colour integer counts; a mint introduces a <em>globally-fresh</em> colour; a
  * matched join consumes the <b>same colour</b> from every correlated input, so no
@@ -62,11 +64,12 @@ import java.util.function.Supplier;
  *       <em>consumed only by</em> matched joins or EXTENDED coloured consumers — a relay
  *       threads one colour on, a drain drops it, each consuming exactly one coloured
  *       input at count 1;</li>
- *   <li>the coloured place set is structurally token-bounded: some non-negative
- *       P-semiflow weights every coloured place, so the simultaneously-live colour count
- *       is bounded by that semiflow's initial value {@code k}
- *       ({@code Σ_{coloured} M <= y·M0}). A net with no covering non-negative semiflow
- *       (an unbounded colour leak) falls back;</li>
+ *   <li>the coloured place set is structurally token-bounded: the colour-slot program of
+ *       {@link SlotBoundLp} has an optimum, and its re-checked weighting bounds the
+ *       simultaneously-live colour count by {@code k = ⌊y·M0⌋}
+ *       ({@code Σ_{coloured} M <= y·M0}). A net whose program is infeasible (an unbounded
+ *       colour leak) falls back, as does one whose weighting fails the re-check or that
+ *       exceeds the program's limits;</li>
  *   <li>coloured places start empty; no inhibitor/read/reset/consume-all arc touches a
  *       coloured place.</li>
  * </ul>
@@ -124,10 +127,10 @@ public final class NameColouredEncoder {
         /** Per flat place: whether it is coloured. */
         final boolean[] isColoured;
         /**
-         * Colour-slot bound: {@code y·M0} for the tightest non-negative P-semiflow {@code y} that
-         * weights every coloured place, so at least the number of names live at once. Not the
-         * initial budget: it can be several times larger, and it is {@code 0} when no coloured
-         * token can exist.
+         * Colour-slot bound: the floor of the colour-slot program's optimum, re-checked
+         * ({@link SlotBoundLp}), so at least the number of names live at once. It counts coloured
+         * tokens rather than names, so it can exceed the initial budget, and it is {@code 0} when
+         * no coloured token can exist.
          */
         final int k;
         /** Classification, one entry per flat transition (XOR branches included). */
@@ -158,7 +161,7 @@ public final class NameColouredEncoder {
             return relays;
         }
 
-        /** The colour bound (the colour-slot bound from the covering P-semiflow). */
+        /** The colour bound (the re-checked colour-slot bound of {@link SlotBoundLp}). */
         public int k() {
             return k;
         }
@@ -186,26 +189,20 @@ public final class NameColouredEncoder {
      *                         writes a coloured place on timeout
      * @param fragmentMode     BASE (mint&rarr;matched-join only) or EXTENDED (NU-051)
      * @param carrierPlaces    EXTENDED carrier-place names (ignored under BASE)
-     * @param invariants       the net's non-negative P-semiflows (used to bound the
-     *                         colour-slot count {@code k} via {@link #colourSlotBound})
+     * @param lp               solves the colour-slot program ({@link SlotBoundLp}) for the
+     *                         coloured places it is given; the verifier passes
+     *                         {@link SlotBoundLp#solve} inside its {@code colour-slot bound}
+     *                         step. Its answer is untrusted: {@code k} comes only from
+     *                         {@link SlotBoundLp#checked}, which re-checks the weighting against
+     *                         every flat row in exact arithmetic. Called once, and only after
+     *                         every structural refusal has passed, none of which reads {@code k}
+     * @param onSlotBound      receives the checked bound right after the check, before the
+     *                         {@code k = 0} refusal; the verifier writes its report line there
      */
     public static ColouredPlan buildPlan(
             PetriNet net, FlatNet flat, MarkingState initial,
             Set<String> mintTransitions, FragmentMode fragmentMode, Set<String> carrierPlaces,
-            List<PInvariant> invariants) {
-        return buildPlan(net, flat, initial, mintTransitions, fragmentMode, carrierPlaces,
-            () -> invariants);
-    }
-
-    /**
-     * {@link #buildPlan(PetriNet, FlatNet, MarkingState, Set, FragmentMode, Set, List)} with the
-     * semiflows supplied on demand: {@code invariants} is read only once every structural check
-     * has passed, so a net outside the fragment never pays for their enumeration.
-     */
-    public static ColouredPlan buildPlan(
-            PetriNet net, FlatNet flat, MarkingState initial,
-            Set<String> mintTransitions, FragmentMode fragmentMode, Set<String> carrierPlaces,
-            Supplier<List<PInvariant>> invariants) {
+            Function<int[], SlotBoundLp.LpAnswer> lp, Consumer<SlotBoundLp.SlotBound> onSlotBound) {
         int p = flat.placeCount();
 
         // Each flat row already carries its source transition (an XOR transition expands
@@ -242,7 +239,7 @@ public final class NameColouredEncoder {
                     isColoured[pid] = true;
                 }
             }
-            // NU-054: relay targets are coloured places, so the covering semiflow below must
+            // NU-054: relay targets are coloured places, so the colour-slot bound below must
             // weight them too.
             for (var t : net.transitions()) {
                 if (t.matchSpec() == null) continue;
@@ -402,27 +399,25 @@ public final class NameColouredEncoder {
             classes.add(klass);
         }
 
-        // Colour-slot bound k: a colour is live iff some coloured place holds it, so
-        // #live colours ≤ Σ_{coloured} M(p) ≤ y·M0 for any non-negative P-semiflow y
-        // weighting every coloured place ≥ 1. k is the tightest such y·M0 (each
-        // PInvariant.constant is y·M0); any k ≥ #live is sound — a larger k only costs O(k)
-        // columns, never under-approximates, since a mint may take any free slot behind the
-        // freshness guard. If no covering non-negative semiflow exists the coloured set is
-        // not structurally token-bounded (a genuine unbounded colour leak), so fall back to
-        // the sound over-approximation. This replaces the old budget-count k and both
-        // structural discipline checks (atomic-rejoin + budget-Φ).
+        // Colour-slot bound k, computed last: the simplex is the expensive step, and every
+        // refusal above is independent of k.
         //
-        // Computed last: its semiflows are the expensive input (a worst-case exponential
-        // enumeration, seconds on a composed net) and every refusal above is independent of
-        // k, so a net outside the fragment never runs it.
-        Integer kBound = colourSlotBound(coloured, invariants.get());
-        if (kBound == null) {
+        // A colour is live iff some coloured place holds it, so #live colours ≤
+        // Σ_{coloured} M(p) ≤ y·M0 for any weighting y ≥ 0 with y_p ≥ 1 on the coloured places
+        // that no flat row increases. k is the floor of the least such y·M0, the optimum of the
+        // slot-bound program; any k ≥ #live is sound, since a mint may take any free slot behind
+        // the freshness guard. The weighting is re-checked against every flat row before k is
+        // read (SlotBoundLp.checked, Lean colourSlotBoundLP). An infeasible program means the
+        // coloured set is not structurally token-bounded (a genuine colour leak), so fall back to
+        // the sound over-approximation, as on any other answer without a re-checked weighting.
+        var bound = SlotBoundLp.checked(flat, initial, coloured, lp.apply(coloured.clone()));
+        onSlotBound.accept(bound);
+        if (!(bound instanceof SlotBoundLp.SlotBound.Bound(int k, var _, var _, var _))) {
             return null;
         }
-        int k = kBound;
         // NU-053 AC6: k = 0 is an exact plan — no coloured token can ever exist, so every
         // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
-        // (Semiflow.lean, vacuous_colour_layer). The one shape it cannot encode is a net
+        // (SlotBound.lean, vacuous_colour_layer_lp). The one shape it cannot encode is a net
         // with no uncoloured place at all (Reachable would be nullary and every rule's
         // quantifier empty); such a net holds no token at M0, so fall back to the flat
         // encoding.
@@ -431,112 +426,6 @@ public final class NameColouredEncoder {
         }
 
         return new ColouredPlan(coloured, isColoured, k, classes, mintNames, relayTransitions);
-    }
-
-    /**
-     * Sound colour-slot bound {@code k}: a colour is live iff some coloured place holds
-     * it, so {@code #live colours <= Σ_{coloured} M(p) <= y·M0} for any non-negative
-     * P-semiflow {@code y} ({@code y·C = 0}, {@code y >= 0}) that weights every coloured
-     * place {@code >= 1}. Returns the tightest such {@code y·M0} (each
-     * {@link PInvariant#constant()} is {@code y·M0}), or {@code null} when no covering
-     * non-negative semiflow exists — the coloured set is then not structurally
-     * token-bounded (a genuine unbounded colour leak) and the caller must fall back.
-     *
-     * <p>{@code 0} is a bound like any other (NU-053 AC6): with the covering law's initial
-     * sum at zero no coloured token can ever exist, every mint / join / consumer is dead on
-     * the reachable set, and the zero-slot plan is exact ({@code Semiflow.lean},
-     * {@code vacuous_colour_layer}). A validated semi-positive law's {@code y·M0} is never
-     * negative.
-     */
-    private static Integer colourSlotBound(int[] coloured, List<PInvariant> invariants) {
-        // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
-        Integer single = null;
-        for (PInvariant inv : invariants) {
-            if (!isSemiflow(inv)) {
-                continue;
-            }
-            boolean coversAll = true;
-            for (int pid : coloured) {
-                if (weightAt(inv, pid) < 1) {
-                    coversAll = false;
-                    break;
-                }
-            }
-            if (coversAll) {
-                single = (single == null) ? inv.constant() : Math.min(single, inv.constant());
-            }
-        }
-        if (single != null) {
-            return single;
-        }
-
-        // Otherwise sum non-negative semiflows that touch a coloured place — the sum is
-        // itself a valid non-negative P-semiflow, so Σ y·M0 over any covering set is a
-        // sound (looser) bound. Zero-constant semiflows cover their places for free, so
-        // they go in first; a semiflow with a positive constant is added only if it
-        // touches a coloured place the free ones left uncovered (decided against that
-        // snapshot, so the result does not depend on enumeration order). If some
-        // coloured place stays at weight 0 across all of them, no non-negative semiflow
-        // covers it, so the coloured set is not structurally token-bounded → null
-        // (sound over-approximation).
-        boolean[] covered = new boolean[coloured.length];
-        for (PInvariant inv : invariants) {
-            if (!isSemiflow(inv) || inv.constant() != 0) {
-                continue;
-            }
-            for (int i = 0; i < coloured.length; i++) {
-                if (weightAt(inv, coloured[i]) >= 1) {
-                    covered[i] = true;
-                }
-            }
-        }
-        boolean[] free = covered.clone();
-        long sumConst = 0;
-        for (PInvariant inv : invariants) {
-            if (!isSemiflow(inv) || inv.constant() == 0) {
-                continue;
-            }
-            boolean touchesUncovered = false;
-            for (int i = 0; i < coloured.length; i++) {
-                if (!free[i] && weightAt(inv, coloured[i]) >= 1) {
-                    touchesUncovered = true;
-                    break;
-                }
-            }
-            if (!touchesUncovered) {
-                continue;
-            }
-            for (int i = 0; i < coloured.length; i++) {
-                if (weightAt(inv, coloured[i]) >= 1) {
-                    covered[i] = true;
-                }
-            }
-            sumConst += inv.constant();
-        }
-        boolean allCovered = true;
-        for (boolean c : covered) {
-            if (!c) {
-                allCovered = false;
-                break;
-            }
-        }
-        return allCovered ? (int) sumConst : null;
-    }
-
-    /** Weight of place {@code pid} in {@code inv} (0 if out of range). */
-    private static int weightAt(PInvariant inv, int pid) {
-        int[] w = inv.weights();
-        return (pid >= 0 && pid < w.length) ? w[pid] : 0;
-    }
-
-    /** Whether every weight is non-negative — i.e. a genuine non-negative P-semiflow. */
-    private static boolean isSemiflow(PInvariant inv) {
-        for (int x : inv.weights()) {
-            if (x < 0) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /** Column layout: uncoloured place -> one var; coloured place -> k per-colour vars. */

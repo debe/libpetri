@@ -29,6 +29,7 @@ import { describeCandidate, runStateEquationPhase } from './z3/state-equation-ph
 import { formatRanking, runFiringBoundPhase, type DepthStep, type FiringBound } from './z3/bounded-run.js';
 import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
+import { slotBoundReportLine, solveSlotBound, type LpAnswer, type SlotBound } from './z3/slot-bound-lp.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
 import { verifyViaStateClassGraph, decideOverStateSpace, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
 import { prefixNote } from './graph-decision.js';
@@ -541,7 +542,8 @@ export class SmtVerifier {
    * {@link timeout} bounds each z3 process, and a verification can run several — the bound
    * query, the state-equation phase and its certificate check, the firing bound, the fixpoint
    * query and its certificate check — besides solver-free work: the enumeration and Route B
-   * graph builds, the siphon/trap search, the semiflow enumeration. The total budget starts at
+   * graph builds, the siphon/trap search, the semiflow enumeration, the colour-slot simplex
+   * (its own phase, `colour-slot bound`, polled before every pivot). The total budget starts at
    * the top of `verify()`; every z3 process then gets the smaller of its own budget and what
    * remains (no process starts once nothing remains), and the solver-free builds and loops poll
    * it. When it runs out the verdict is `unknown`, with the reason and report line
@@ -564,10 +566,10 @@ export class SmtVerifier {
    *
    * Cancellation is the {@link totalBudget}'s stop mechanism with a different trigger: every
    * point that polls the budget — the graph builds, the siphon/trap search, the semiflow
-   * enumeration, the start of each phase — also sees the signal, and a z3 process in flight is
-   * killed the moment it fires rather than at its watchdog. The verdict is then `unknown` with
-   * the reason and report line `verification cancelled during <phase>`, the phase named as for
-   * an exhausted budget. A verdict reached before the signal fires stands. A signal that has
+   * enumeration, the colour-slot simplex, the start of each phase — also sees the signal, and a
+   * z3 process in flight is killed the moment it fires rather than at its watchdog. The verdict
+   * is then `unknown` with the reason and report line `verification cancelled during <phase>`,
+   * the phase named as for an exhausted budget. A verdict reached before the signal fires stands. A signal that has
    * already fired cancels during `net preparation`. When a {@link totalBudget} is set too,
    * whichever stop comes first names the reason.
    *
@@ -995,19 +997,21 @@ export class SmtVerifier {
    * invoke `buildColouredPlan` and `encodeColoured` separately, so handing the encoder
    * the wrong one of the two lists changed only one of them — and the script-parity
    * goldens are generated from `encodeScripts`. Unifying the invocation closes that. It
-   * does not make the two paths identical: each still computes its own invariant and
-   * semiflow lists, so they can still drift through the arguments rather than the call.
+   * does not make the two paths identical: each still computes its own invariant list,
+   * so they can still drift through the arguments rather than the call.
    *
    * `invariants` is what the encoder conjoins into every rule body (the null-space
-   * basis, unioned with the semiflows when VER-007 is enabled); `semiflows` sets the
-   * colour-slot bound k (NU-053). They are not the same list. `semiflows` is a thunk,
-   * passed through to `buildColouredPlan`, which calls it only once every structural
-   * check has passed, because their enumeration is worst-case exponential.
+   * basis, unioned with the semiflows when VER-007 is enabled). `lp` solves the
+   * colour-slot program of NU-053 (`slot-bound-lp`) and `onSlotBound` receives the
+   * re-checked bound; both go to `buildColouredPlan` unchanged, which calls `lp` only after
+   * every structural refusal. {@link verify} runs the solve as its own step and reports the
+   * bound; {@link encodeScripts} solves bare and reports nothing.
    */
   private colouredAttempt(
     flatNet: FlatNet,
     invariants: readonly PInvariant[],
-    semiflows: () => readonly PInvariant[],
+    lp: (coloured: readonly number[]) => LpAnswer,
+    onSlotBound: (bound: SlotBound) => void = () => {},
   ): { plan: ColouredPlan | null; encoding: SmtEncoding | null } {
     const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const nuBounded = this._budgetPlaces.size > 0;
@@ -1019,7 +1023,7 @@ export class SmtVerifier {
     if (this.colouredArrivalReason() !== null) return { plan: null, encoding: null };
     const plan = buildColouredPlan(
       this.net, flatNet, this._initialMarking, this.declaredMints(),
-      this._fragmentMode, this._carrierPlaces, semiflows,
+      this._fragmentMode, this._carrierPlaces, lp, onSlotBound,
     );
     if (plan == null) return { plan: null, encoding: null };
     return {
@@ -1057,18 +1061,22 @@ export class SmtVerifier {
     // something the pipeline never emits.
     const autoUnion = this._semiflowInvariants === 'auto'
       && basisDropped.some(d => d.reason.includes('Strengthening.lean H1'));
-    // Same gate as verify(): only compute what something will read (see there). The
-    // coloured plan's slot bound asks for them through the thunk, only when it is built.
+    // Same gate as verify(): the semiflows only when the union reads them.
     const scriptsHasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const unionWanted = this._semiflowInvariants === true || autoUnion;
-    const computeSemiflows = (): readonly PInvariant[] => validateInvariantsExact(
-      matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
-    ).valid;
-    const semiflows = unionWanted ? computeSemiflows() : null;
     let invariants: readonly PInvariant[] = basis;
-    if (semiflows !== null) invariants = strengthenWithSemiflows(basis, semiflows).invariants;
+    if (unionWanted) {
+      const semiflows = validateInvariantsExact(
+        matrix, computePSemiflows(matrix, flatNet, this._initialMarking), flatNet, this._initialMarking,
+      ).valid;
+      invariants = strengthenWithSemiflows(basis, semiflows).invariants;
+    }
     invariants = canonicalInvariantOrder(invariants);
-    const attempt = this.colouredAttempt(flatNet, invariants, () => semiflows ?? computeSemiflows());
+    // The colour-slot bound is solved bare: no deadline is polled here, so the script
+    // carries the `k` verify() would use.
+    const attempt = this.colouredAttempt(
+      flatNet, invariants, coloured => solveSlotBound(flatNet, this._initialMarking, coloured),
+    );
     // The bound query (VER-015) exactly when verify() would send it: enabled, not refused
     // by VER-006, and a property with a linear demand (else null). A coloured plan does not
     // suppress it: verify() sends the bound before the name-coloured query.
@@ -1614,20 +1622,17 @@ export class SmtVerifier {
       flatNet,
       this._initialMarking,
     );
-    // P-semiflows (non-negative conservation laws) bound the simultaneously-live
-    // colour count that sets the name-coloured encoder's slot count `k` (see
-    // buildColouredPlan / colourSlotBound) — validated the same way (incl. the H1
-    // linearity guard) before they can set that bound, mirroring the Rust verifier.
+    // P-semiflows (non-negative conservation laws), validated the same way (incl. the H1
+    // linearity guard) before the union may conjoin them, mirroring the Rust verifier.
     //
-    // Computed ONLY when something will read them: the [VER-007] union here, or the
-    // coloured plan's slot bound, which asks for them on demand once the linear bound
-    // ([VER-015]) has failed to end the query without them. The enumeration is
-    // worst-case exponential — the
-    // minimal semiflows of `k` independent diamonds in series number 2^k, measured
-    // at 2 048 for eleven and 8 189 (the backstop) beyond thirteen — so running it
-    // for a caller who asked for neither is a large cost, and on a wide net an
-    // uncatchable one: the heap it exhausts aborts the process rather than
-    // returning a verdict. Skipping it is invisible to every other phase.
+    // Computed ONLY when the [VER-007] union will read them. Nothing else does: the
+    // colour-slot bound of the name-coloured encoder ([NU-053]) is a linear program over
+    // the incidence matrix (`slot-bound-lp`), not a semiflow search. The enumeration is
+    // worst-case exponential — the minimal semiflows of `k` independent diamonds in series
+    // number 2^k, measured at 2 048 for eleven and 8 189 (the backstop) beyond thirteen —
+    // so running it for a caller who did not ask for it is a large cost, and on a wide net
+    // an uncatchable one: the heap it exhausts aborts the process rather than returning a
+    // verdict. Skipping it is invisible to every other phase.
     // `'auto'` (VER-007): compute them exactly when the basis LOST a law to the H1
     // guard, which is the condition the option exists for — a consume-all / reset
     // arc on a busy place drops every basis row whose support touches it, and the
@@ -1656,8 +1661,6 @@ export class SmtVerifier {
         : '  Semiflow union: off (auto — the basis is complete, so the semiflows would add no ' +
           'constraint the encoding does not already have; they may still differ in FORM)');
     }
-    // The UNION is a separate decision from the slot bound: a coloured plan needs the
-    // semiflows without wanting the laws conjoined, and computes them itself below.
     let invariants: readonly PInvariant[] = basisInvariants;
     if (unionWanted) {
       const { invariants: strengthened, added } = strengthenWithSemiflows(basisInvariants, semiflows);
@@ -1788,35 +1791,34 @@ export class SmtVerifier {
     }
 
     // ν-net exact refinement (NU-050 #1, Route A). For a budget-bounded ν-net in
-    // the supported fragment, encode names as a finite colour set (k = the declared
-    // budget) with exact same-colour join matching, instead of the name-blind
-    // over-approximation — this rules out spurious counterexamples that would equate
-    // two distinct names. Reachability-safety AND quiescence (NU-053) properties are
-    // both routed here; a net outside the fragment keeps the flat encoding.
+    // the supported fragment, encode names as a finite colour set (k = the colour-slot
+    // bound: the floor of a linear program's optimum, re-checked exactly, which bounds the
+    // coloured tokens and so the live names) with exact same-colour join matching, instead
+    // of the name-blind over-approximation — this rules out spurious counterexamples that
+    // would equate two distinct names. Reachability-safety AND quiescence (NU-053)
+    // properties are both routed here; a net outside the fragment keeps the flat encoding.
     //
-    // Built only after the linear bound: the plan's slot bound reads the semiflows, and
-    // on a composed net their enumeration costs seconds to tens of seconds (and truncates)
-    // that a structural Proven never needed. Nothing above reads the plan.
-    const colouredAttempt = this.colouredAttempt(flatNet, invariants, () => {
-      let valid = semiflows;
-      if (!unionWanted) {
-        // The enumeration was the tail of the P-invariant phase before it moved here,
-        // so a total budget that ends it still names that phase (VER-013).
-        this.enter(run, 'P-invariant computation');
-        const validation = validateInvariantsExact(
-          matrix,
-          computePSemiflows(matrix, flatNet, this._initialMarking, run.deadline),
-          flatNet,
-          this._initialMarking,
-        );
-        for (const { invariant, reason } of validation.dropped) {
-          report.push(`  Dropped semiflow: ${formatInvariant(invariant, flatNet)} - ${reason}`);
-        }
-        valid = validation.valid;
-      }
-      report.push(`  P-semiflows for the colour-slot bound: ${valid.length}`);
-      return valid;
-    });
+    // Built only after the linear bound, which never needs it: a structural Proven skips
+    // the plan and its slot-bound simplex. Nothing above reads the plan.
+    const colouredAttempt = this.colouredAttempt(
+      flatNet,
+      invariants,
+      coloured => {
+        // The simplex is a solver-free loop under VER-013: its own step, and a poll before
+        // every pivot. A stop already due is charged to the step before; one that comes
+        // during the solve is charged to this step.
+        this.enter(run, 'colour-slot bound');
+        const poll = Deadline.poller(run.deadline, 1);
+        return solveSlotBound(flatNet, this._initialMarking, coloured, () => {
+          poll();
+          return false;
+        });
+      },
+      bound => {
+        const line = slotBoundReportLine(bound);
+        if (line !== null) report.push(line);
+      },
+    );
     const colouredPlan: ColouredPlan | null = colouredAttempt.plan;
 
     let encoding: SmtEncoding;

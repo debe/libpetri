@@ -17,8 +17,10 @@ Past (fixed):
   and checked budget *direction* only. A join that refunds two budget tokens (one to each of
   two minting budgets) lets the real net hold two live names from a budget of one; the
   one-slot encoding cannot, and proves `a ≤ 1` (`budget_k_false_proven`). The shipped bound
-  (`colour_slot_bound`) refuses the net: no non-negative weighting covers the coloured places
-  and does not increase along the rows (`inflating_net_has_no_cover`, `inflating_net_refused`).
+  refuses the net: no scaled weighting covers the coloured places without increasing along some
+  row (`inflating_net_has_no_cover`), so the slot-bound program is infeasible and the checker
+  accepts no answer of the simplex at all (`inflating_net_refused`). The semiflow bound that
+  `build_plan` read before refused it for the same reason (`inflating_net_refused_semiflows`).
 * **`f52c482` — Route A under injection.** The encoding has no injection rule, so an
   environment place stays at its seed and a transition fed by it never fires: `bad ≤ 0` is
   proven of a net that reaches `bad = 1` once a token is injected
@@ -273,15 +275,15 @@ theorem budget_k_false_proven :
       ∀ invs e, ReachE (encB invs) e → agg CB 1 e 2 ≤ 1 :=
   ⟨budget_run, rfl, budget_encoding_bounds_a⟩
 
-/-- **The fix.** No non-negative weighting covers `a` and `b` without increasing along some
-row, so `colour_slot_bound` finds no bound. -/
+/-- **The fix.** No scaled weighting covers `a` and `b` without increasing along some row, for
+any denominator and any `k`: the two mints make `2·(y_a + y_b) ≤ y_B1 + y_B2`, the join makes
+`y_B1 + y_B2 ≤ y_a + y_b`, so `y_a + y_b ≤ 0`, while both are at least `D ≥ 1`. -/
 theorem inflating_net_has_no_cover :
-    ¬ ∃ y : Weight, (∀ p, p < 4 → 0 ≤ y p) ∧ (∀ p ∈ CB, 1 ≤ y p) ∧
-      ∀ r ∈ rowsB, dotIncD y r.flat 4 ≤ 0 := by
-  rintro ⟨y, hpos, hcov, hdec⟩
-  have hA := hdec rMA (by simp [rowsB])
-  have hB := hdec rMB (by simp [rowsB])
-  have hJ := hdec rJB (by simp [rowsB])
+    ∀ k, ¬ ScaledCover 4 CB (rowsB.map CRow.flat) (alpha m0B) k := by
+  rintro k ⟨D, y, hD, hpos, hcov, hdec, -⟩
+  have hA := hdec rMA.flat (List.mem_map.mpr ⟨rMA, by simp [rowsB], rfl⟩)
+  have hB := hdec rMB.flat (List.mem_map.mpr ⟨rMB, by simp [rowsB], rfl⟩)
+  have hJ := hdec rJB.flat (List.mem_map.mpr ⟨rJB, by simp [rowsB], rfl⟩)
   simp [dotIncD, isum, Finset.sum_range_succ, CRow.flat, rMA, rMB, rJB, pre_mkT] at hA hB hJ
   have h0 := hpos 0 (by decide)
   have h1 := hpos 1 (by decide)
@@ -289,18 +291,23 @@ theorem inflating_net_has_no_cover :
   have h3 := hcov 3 (by simp [CB])
   omega
 
-/-- Hence the shipped `colour_slot_bound` returns `None` on it, whatever validated laws it is
-given — the plan is refused and the flat over-approximation answers. -/
-theorem inflating_net_refused {laws : List Law}
+/-- Hence the shipped bound is `none` on it, **whatever the simplex answers**: the checker
+accepts no weighting, the plan is refused and the flat over-approximation answers. -/
+theorem inflating_net_refused :
+    ∀ ans, colourSlotBoundLP 4 CB (rowsB.map CRow.flat) (alpha m0B) ans = none := by
+  intro ans
+  cases h : colourSlotBoundLP 4 CB (rowsB.map CRow.flat) (alpha m0B) ans with
+  | none => rfl
+  | some k => exact absurd (colourSlotBoundLP_sound h) (inflating_net_has_no_cover k)
+
+/-- The semiflow bound `build_plan` read before the LP bound refused it too, whatever validated
+laws it was given (history). -/
+theorem inflating_net_refused_semiflows {laws : List Law}
     (hv : ∀ l ∈ laws, LawValid (rowsB.map CRow.flat) 4 (alpha m0B) l) :
     colourSlotBound 4 CB laws = none := by
   cases h : colourSlotBound 4 CB laws with
   | none => rfl
-  | some k =>
-    exfalso
-    obtain ⟨y, hpos, hcov, hcol, _⟩ := colourSlotBound_sound (by decide) hv h
-    exact inflating_net_has_no_cover
-      ⟨y, hpos, hcov, fun r hr => le_of_eq (hcol r.flat (List.mem_map.mpr ⟨r, hr, rfl⟩))⟩
+  | some k => exact absurd (colourSlotBound_scaled (by decide) hv h) (inflating_net_has_no_cover k)
 
 end Budget
 
@@ -416,8 +423,10 @@ theorem forward_rows_classified_mint :
 
 /-- **The shipped `build_plan` refuses the net**: `tA` is a declared mint, but its timeout writes
 the coloured place `a`, and a timeout write is never fresh. The net falls back to the
-name-blind path, which does not claim the false bound. -/
-theorem forward_mint_refused : buildPlan 6 CF false (alpha m0F) lawsF srcF = none := by
+name-blind path, which does not claim the false bound. The refusal is in the classification,
+before the slot bound, so it holds whatever the simplex answers. -/
+theorem forward_mint_refused : ∀ ans, buildPlan 6 CF false (alpha m0F) ans srcF = none := by
+  intro ans
   rfl
 
 /-- Every state of that encoding keeps `done` empty: two mints never share a colour, so the
@@ -559,8 +568,8 @@ def yL : Weight := fun p => if p = 0 ∨ p = 3 ∨ p = 5 then 1 else 0
 def yLb : Weight := fun p => if p = 0 ∨ p = 4 ∨ p = 5 then 1 else 0
 def lawsS : List Law := [⟨yL, 1⟩, ⟨yLb, 1⟩]
 
-/-- The encoding: `k = 2` (the sum branch of `colour_slot_bound`: neither law covers both
-keys), the law `yL` conjoined. -/
+/-- The encoding: `k = 2` (the sum branch of the old `colour_slot_bound`: neither law covers both
+keys; the LP bound gives the same `k`, `selfLoop_plan_shipped`), the law `yL` conjoined. -/
 def encS : Enc := ⟨CS, 2, 6, rowsS, [yL], alpha m0S⟩
 
 /-- **`build_plan` accepted the net in EXTENDED mode** before the NU-010 fix, `spin` classified
@@ -569,10 +578,15 @@ theorem selfLoop_plan :
     buildPlanBudget 6 CS true [0] (alpha m0S) lawsS srcS = some (2, rowsS) := by
   rfl
 
-/-- The shipped `build_plan` returns the same plan (the report now says `colour-slot bound
-k=2`): the fix of this net is in the encoder, which nets the self-loop to zero
-(`RouteA/Shipped.lean`, `selfLoop_premises_shipped`). -/
-theorem selfLoop_plan_shipped : buildPlan 6 CS true (alpha m0S) lawsS srcS = some (2, rowsS) := by
+/-- The weighting the simplex returns on this net, with denominator one: `2·budget + a + b`.
+The slot-bound program's optimum is `2`. -/
+def ySL : Weight := fun p => if p = 0 then 2 else if p = 3 ∨ p = 4 then 1 else 0
+
+/-- The shipped `build_plan` returns the same plan, `k = 2` from the checked answer of the
+simplex (the report says `colour-slot bound k=2`): the fix of this net is in the encoder, which
+nets the self-loop to zero (`RouteA/Shipped.lean`, `selfLoop_premises_shipped`). -/
+theorem selfLoop_plan_shipped :
+    buildPlan 6 CS true (alpha m0S) (some (1, ySL)) srcS = some (2, rowsS) := by
   rfl
 
 theorem dot_yL (a : AMarking) : dot yL a 6 = (a 0 : Int) + a 3 + a 5 := by
@@ -773,7 +787,7 @@ theorem self_loop_consume_false_proven :
 
 /-- **Every premise of `coloured_simulates` but `ConsumeNoSelfLoop` holds of this net.** -/
 theorem selfLoop_premisesS : PremisesS encS m0S := by
-  refine buildPlanG_premisesS selfLoop_plan (by decide) (by decide) ?_ ?_ ?_
+  refine buildPlanBudget_premisesS selfLoop_plan (by decide) (by decide) ?_ ?_ ?_
   · intro l hl
     simp only [lawsS, List.mem_cons, List.not_mem_nil, or_false] at hl
     rcases hl with rfl | rfl <;>

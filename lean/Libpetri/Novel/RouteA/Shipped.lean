@@ -27,6 +27,10 @@ model encodes a row of class `join [inp] outs` (`Cls.shipped`, `Enc.shipped`), a
 * **`routeA_safety_sound_shipped`**, **`routeA_quiescence_sound_shipped`**: a `Proven` of the
   shipped encoding holds of every ν-reachable marking, with no self-loop premise. A ν-dead
   marking is ν-dead for the shipped classes (`nuDead_shipped`).
+* **`routeA_safety_sound_plan`**, **`routeA_quiescence_sound_plan`**: the same from the plan the
+  shipped `build_plan` returns (`Plan.lean`, `buildPlan`), whatever its untrusted simplex
+  answered: the checked slot bound gives the cover (`buildPlan_premisesS`), so the only
+  hypotheses left are the facts about the inputs `build_plan` receives rather than checks.
 * **`selfLoop_premises_shipped`**: on `Retrodict.lean`'s self-loop witness, where the old encoding
   proved a false bound, every premise of the shipped encoding holds, so the shipped encoding
   covers the run that reaches `done`.
@@ -137,15 +141,18 @@ theorem nuDead_shipped {rows : List CRow} {m : CMarking} (h : NuDead rows m) :
 premises hold, with no self-loop condition. -/
 theorem premises_shipped {E : Enc} {m0 : CMarking} (P : PremisesS E m0) :
     Premises E.shipped m0 := by
-  obtain ⟨y, hpos, hcov, hdec, hk⟩ := P.cover
+  have hflat : (E.rows.map CRow.shipped).map CRow.flat = E.rows.map CRow.flat := by
+    rw [List.map_map]
+    rfl
+  have hcov : ScaledCover E.n E.C ((E.rows.map CRow.shipped).map CRow.flat) E.a0 E.k :=
+    hflat ▸ P.cover
   refine ⟨P.nodup, P.below, fun r hr => ?_, fun r hr => ?_, fun r hr => ?_, P.seed, P.empty,
-    ⟨y, hpos, hcov, fun r hr => ?_, hk⟩, fun y' hy' r hr => ?_⟩
+    hcov, fun y' hy' r hr => ?_⟩
   all_goals
     obtain ⟨r0, hr0, rfl⟩ := List.mem_map.mp hr
   · exact classOK_shipped (P.classOK r0 hr0)
   · exact P.guardFree r0 hr0
   · exact noSelfLoop_shipped r0
-  · rw [CRow.shipped_flat]; exact hdec r0 hr0
   · rw [CRow.shipped_t, CRow.shipped_flat]; exact P.laws y' hy' r0 hr0
 
 /-- **Reachability safety, as shipped.** A `Proven` of the shipped name-coloured query holds of
@@ -171,6 +178,39 @@ theorem routeA_quiescence_sound_shipped {E : Enc} {m0 : CMarking} (P : PremisesS
     exact hd r0 hr0
   exact routeA_quiescence_sound (premises_shipped P) hu' hd' hproven m (reachNu_shipped.mpr h)
     ⟨nuDead_shipped hdead, hq⟩
+
+/-! ## From the shipped `build_plan` -/
+
+/-- **Reachability safety, from the shipped `build_plan`.** If `build_plan` returns a plan,
+whatever answer its untrusted simplex gave, a `Proven` of the shipped encoding of that plan
+holds of every ν-reachable marking. The checked slot bound is the cover
+(`buildPlan_premisesS`); nothing is assumed about the simplex. -/
+theorem routeA_safety_sound_plan {n : Nat} {C : List PlaceId} {ext : Bool}
+    {ans : Option (Nat × Weight)} {src : List SrcRow} {k : Nat} {rows : List CRow}
+    {m0 : CMarking} {invs : List Weight}
+    (h : buildPlan n C ext (alpha m0) ans src = some (k, rows))
+    (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n) (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
+    (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0)
+    {Bad : AMarking → Prop}
+    (hproven : ∀ e, ReachE (Enc.shipped ⟨C, k, n, rows, invs, alpha m0⟩) e →
+      ¬ Bad (agg C k e)) :
+    ∀ m, ReachNu C rows m0 m → ¬ Bad (alpha m) :=
+  routeA_safety_sound_shipped (buildPlan_premisesS h hnd hC hG hinv) hproven
+
+/-- **Quiescence, untimed, from the shipped `build_plan`.** Nothing is assumed about the
+simplex. -/
+theorem routeA_quiescence_sound_plan {n : Nat} {C : List PlaceId} {ext : Bool}
+    {ans : Option (Nat × Weight)} {src : List SrcRow} {k : Nat} {rows : List CRow}
+    {m0 : CMarking} {invs : List Weight}
+    (h : buildPlan n C ext (alpha m0) ans src = some (k, rows))
+    (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n) (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
+    (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0)
+    (hu : ∀ r ∈ rows, Unguarded r.t) (hd : ∀ r ∈ rows, InputsDistinctPlaces r.t)
+    {Q : AMarking → Prop}
+    (hproven : ∀ e, ReachE (Enc.shipped ⟨C, k, n, rows, invs, alpha m0⟩) e →
+      ¬ (DeadE (Enc.shipped ⟨C, k, n, rows, invs, alpha m0⟩) e ∧ Q (agg C k e))) :
+    ∀ m, ReachNu C rows m0 m → ¬ (NuDead rows m ∧ Q (alpha m)) :=
+  routeA_quiescence_sound_shipped (buildPlan_premisesS h hnd hC hG hinv) hu hd hproven
 
 /-! ## The self-loop witness, shipped -/
 

@@ -249,6 +249,66 @@ class SemiflowInvariantsTest {
             && l.contains("consume-all/reset place 'cycleC'")), on.report());
     }
 
+    private static final Place<String> QUEUE = Place.of("queue", String.class);
+
+    /**
+     * [VER-007] AC2 and [NU-053]: the coloured plan takes its slot bound from the linear
+     * program, so building it enumerates no semiflow. A draining loop whose semiflows fail the
+     * H1 gate sits beside the scatter-gather &nu;-net: the enumeration would report them as
+     * {@code Dropped semiflow:} lines, as the {@code ON} run shows. With the option off the plan
+     * is built and no such line appears. The semiflow slot bound that preceded the linear
+     * program enumerated them here and wrote those lines.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void theColouredPlanEnumeratesNoSemiflows() {
+        var take = Transition.builder("take")
+            .inputs(In.one(LOOP_BUDGET), In.all(QUEUE))
+            .outputs(Out.place(WORK))
+            .build();
+        var done = Transition.builder("done")
+            .inputs(In.one(WORK))
+            .outputs(Out.and(LOOP_BUDGET, SINK))
+            .build();
+        var fork = Transition.builder("fork")
+            .inputs(In.one(NU_SOURCE), In.one(NU_BUDGET))
+            .outputs(Out.and(NU_A, NU_B, NU_PENDING))
+            .build();
+        var join = Transition.builder("join")
+            .inputs(In.one(NU_A), In.one(NU_B), In.one(NU_PENDING))
+            .match(MatchSpec.builder()
+                .key(NU_A, (String s) -> NameId.of(s))
+                .key(NU_B, (String s) -> NameId.of(s))
+                .build())
+            .outputs(Out.and(NU_MERGED, NU_BUDGET))
+            .build();
+        var net = StructureOnly.bind(PetriNet.builder("drain_beside_scatter_gather")
+            .transitions(fork, join, take, done).build());
+        java.util.function.Function<SmtVerifier.SemiflowMode, SmtVerificationResult> run = mode ->
+            SmtVerifier.forNet(net)
+                .enumerationMaxClasses(0)
+                .linearBound(false)
+                .initialMarking(m -> {
+                    m.tokens(NU_SOURCE, 3);
+                    m.tokens(NU_BUDGET, 2);
+                    m.tokens(LOOP_BUDGET, 1);
+                    m.tokens(QUEUE, 2);
+                })
+                .property(SmtProperty.placeBound(NU_MERGED, 3))
+                .budgetPlaces(NU_BUDGET)
+                .semiflowInvariants(mode)
+                .timeout(Duration.ofSeconds(30))
+                .verify();
+        var off = run.apply(SmtVerifier.SemiflowMode.OFF);
+        assertTrue(off.report().contains("ν-encoding: name-coloured (colour-slot bound k=4;"), off.report());
+        assertTrue(off.report().contains(
+            "  Colour-slot bound: LP optimum 4 over 5 places and 2 transitions, so k=4"), off.report());
+        assertFalse(off.report().contains("Dropped semiflow:"), "the plan must not enumerate semiflows\n" + off.report());
+        var on = run.apply(SmtVerifier.SemiflowMode.ON);
+        assertTrue(on.report().contains("Dropped semiflow:"), "the net must have semiflows the gate drops\n" + on.report());
+        assertTrue(on.report().contains("ν-encoding: name-coloured (colour-slot bound k=4;"), on.report());
+    }
+
     // ==================== AUTO (VER-007) ====================
     //
     // `AUTO` computes the semiflows exactly when the basis LOST a law to the H1 guard,

@@ -24,13 +24,11 @@ import org.libpetri.core.Place;
 import org.libpetri.core.Transition;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
-import org.libpetri.smt.encoding.IncidenceMatrix;
 import org.libpetri.smt.encoding.NetFlattener;
-import org.libpetri.smt.invariant.PInvariantComputer;
 
 /**
  * Z3-free conformance for the name-coloured fragment gate
- * ({@link NameColouredEncoder#buildPlan}). Pins the P-semiflow colour-slot bound (a
+ * ({@link NameColouredEncoder#buildPlan}). Pins the linear-program colour-slot bound (a
  * genuine unbounded colour leak must fall back to the sound over-approximation) plus the
  * NU-053 fragment extensions: the EXTENDED coloured-consumer roles (drain / carrier
  * relay), the relay-must-not-refund rule, and XOR-expanded output branches no longer
@@ -200,19 +198,18 @@ class NameColouredEncoderTest {
         var initial = MarkingState.builder()
             .tokens(Place.of("budget1", Integer.class), budgetTokens)
             .build();
-        var matrix = IncidenceMatrix.from(flat);
-        var semiflows = PInvariantComputer.computePSemiflows(matrix, flat, initial);
+        // Same route the verifier takes: the simplex's answer, re-checked by buildPlan.
         return NameColouredEncoder.buildPlan(
             net, flat, initial,
             org.libpetri.analysis.NameFragment.declaredMints(net, Set.of("budget1", "budget2"), Set.of()),
-            mode, Set.of(carriers), semiflows);
+            mode, Set.of(carriers), c -> SlotBoundLp.solve(flat, initial, c), _ -> {});
     }
 
     @Test
     void zeroBudgetYieldsTheExactZeroSlotPlan() {
-        // NU-053 AC6: with no budget token the covering semiflow's initial sum is zero, and
-        // k = 0 is an exact plan rather than a fallback — no coloured token can ever exist
-        // (Semiflow.lean, vacuous_colour_layer).
+        // NU-053 AC6: with no budget token the slot-bound optimum is zero, and k = 0 is an
+        // exact plan rather than a fallback: no coloured token can ever exist (SlotBound.lean,
+        // vacuous_colour_layer_lp).
         var plan = planFor(mintJoinNet(false), FragmentMode.BASE, 0);
         assertNotNull(plan, "k = 0 is a plan, not a fallback");
         assertEquals(0, plan.k);
@@ -229,7 +226,7 @@ class NameColouredEncoderTest {
     void budgetRefundToNonmintingPlaceStaysBounded() {
         // [NU-053] A join that refunds an extra token to a NON-minting place keeps the
         // minting budget conserved, so at most one colour is live — the net is
-        // colour-bounded and the P-semiflow bound admits it. (The old budget-Φ heuristic
+        // colour-bounded and the slot bound admits it. (The old budget-Φ heuristic
         // wrongly rejected any refund exceeding the mint cost; genuine colour leaks — where
         // a co-minted place accumulates distinct colours — are covered by
         // extendedLeakyCarrierFanoutRejected, which still falls back.)

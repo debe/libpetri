@@ -108,6 +108,7 @@ pub mod certificate_check;
 pub mod counterexample;
 pub mod dbm;
 pub mod environment;
+pub mod exact;
 pub mod graph_decision;
 pub mod harness;
 pub mod in_flight;
@@ -129,6 +130,7 @@ pub mod rest_set;
 pub mod result;
 pub mod scc;
 pub mod scg_verifier;
+pub mod slot_bound_lp;
 #[cfg(feature = "z3")]
 pub mod smt_encoder;
 pub mod state_class;

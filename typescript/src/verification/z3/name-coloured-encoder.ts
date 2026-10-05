@@ -13,10 +13,11 @@
  *
  * This encoder removes that imprecision for the bounded fragment. The
  * decidability lever ([NU-040]) is a bounded live-name count: a budget place gates
- * minting, and a non-negative **P-semiflow** weighting every coloured place bounds
- * the simultaneously-live names to a finite `k` (`Σ_{coloured} M ≤ y·M0`; see
- * {@link buildColouredPlan} / `colourSlotBound`). So names are modelled as a
- * **finite set of `k` colours**. Each coloured
+ * minting, and a non-negative weighting of the flat places that weights every coloured
+ * place at least one and that no flat row increases bounds the simultaneously-live names
+ * to a finite `k` (`Σ_{coloured} M ≤ y·M0`; see {@link buildColouredPlan} and
+ * {@link module:slot-bound-lp}, which takes the least such bound as a linear program). So
+ * names are modelled as a **finite set of `k` colours**. Each coloured
  * place becomes `k` per-colour integer counts; a mint introduces a *globally
  * fresh* colour (one currently empty everywhere); a matched join consumes the
  * **same colour** from every correlated input, so no counterexample equates two
@@ -41,10 +42,11 @@
  *   declared relay targets (count 1, the join's shared colour), and *consumed only by*
  *   matched joins or EXTENDED coloured consumers — a relay threads one colour on, a
  *   drain drops it, each consuming exactly one coloured input at count 1;
- * - the coloured place set is structurally token-bounded: some non-negative
- *   P-semiflow weights every coloured place, so the simultaneously-live colour count
- *   is bounded by that semiflow's initial value `k` (`Σ_{coloured} M ≤ y·M0`). A net
- *   with no covering non-negative semiflow (an unbounded colour leak) falls back;
+ * - the coloured place set is structurally token-bounded: the colour-slot program of
+ *   {@link module:slot-bound-lp} has an optimum, and its re-checked weighting bounds the
+ *   simultaneously-live colour count by `k = ⌊y·M0⌋` (`Σ_{coloured} M ≤ y·M0`). A net
+ *   whose program is infeasible (an unbounded colour leak) falls back, as does one
+ *   whose weighting fails the re-check or that exceeds the program's limits;
  * - coloured places start empty; no inhibitor/read/reset/consume-all arc touches a
  *   coloured place.
  *
@@ -71,6 +73,7 @@ import type { FlatTransition } from '../encoding/flat-transition.js';
 import type { MarkingState } from '../marking-state.js';
 import type { SmtProperty } from '../smt-property.js';
 import type { PInvariant } from '../invariant/p-invariant.js';
+import { checkedSlotBound, type LpAnswer, type SlotBound } from './slot-bound-lp.js';
 import type { FragmentMode } from '../analysis/name-fragment.js';
 import { timeoutWrites } from '../analysis/branch-outcomes.js';
 import {
@@ -100,9 +103,10 @@ export interface ColouredPlan {
   /** Per flat place: whether it is coloured. */
   readonly isColoured: readonly boolean[];
   /**
-   * Colour-slot bound: `y·M0` for the tightest non-negative P-semiflow `y` that weights every
-   * coloured place, so at least the number of names live at once. Not the initial budget: it
-   * can be several times larger, and it is `0` when no coloured token can exist.
+   * Colour-slot bound: the floor of the colour-slot program's optimum, re-checked
+   * ({@link module:slot-bound-lp}), so at least the number of names live at once. It counts
+   * coloured tokens rather than names, so it can exceed the initial budget, and it is `0`
+   * when no coloured token can exist.
    */
   readonly k: number;
   /** Classification, one entry per flat transition (XOR branches included). */
@@ -111,63 +115,6 @@ export interface ColouredPlan {
   readonly mints: readonly string[];
   /** The net transitions whose rows relay a colour as coloured consumers ([NU-051]). */
   readonly relays: readonly string[];
-}
-
-/**
- * Sound colour-slot bound `k`: a colour is live iff some coloured place holds it, so
- * `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
- * (`y·C = 0`, `y ≥ 0`) that weights every coloured place `≥ 1`. Returns the tightest
- * such `y·M0` (each `PInvariant.constant` is `y·M0`), or `null` when no covering
- * non-negative semiflow exists — the coloured set is then not structurally
- * token-bounded (a genuine unbounded colour leak) and the caller must fall back.
- *
- * `0` is a bound like any other (NU-053 AC6): with the covering law's initial sum at
- * zero no coloured token can ever exist, every mint / join / consumer is dead on the
- * reachable set, and the zero-slot plan is exact (`Semiflow.lean`,
- * `vacuous_colour_layer`). A validated semi-positive law's `y·M0` is never negative.
- *
- * Mirrors the Rust reference `colour_slot_bound`.
- */
-function colourSlotBound(coloured: readonly number[], semiflows: readonly PInvariant[]): number | null {
-  const w = (inv: PInvariant, pid: number): number => inv.weights[pid] ?? 0;
-  const isSemiflow = (inv: PInvariant): boolean => inv.weights.every((x) => x >= 0);
-
-  // Tightest bound: a single non-negative P-semiflow weighting every coloured place.
-  let single: number | null = null;
-  for (const inv of semiflows) {
-    if (isSemiflow(inv) && coloured.every((pid) => w(inv, pid) >= 1)) {
-      if (single === null || inv.constant < single) single = inv.constant;
-    }
-  }
-  if (single !== null) return single;
-
-  // Otherwise sum non-negative semiflows that touch a coloured place — the sum is
-  // itself a valid non-negative P-semiflow, so `Σ y·M0` over any covering set is a
-  // sound (looser) bound. Zero-constant semiflows cover their places for free, so they
-  // go in first; a semiflow with a positive constant is added only if it touches a
-  // coloured place the free ones left uncovered (decided against that snapshot, so the
-  // result does not depend on enumeration order). If some coloured place stays at
-  // weight 0 across all of them, no non-negative semiflow covers it, so the coloured
-  // set is not structurally token-bounded → null (sound over-approximation).
-  const covered = new Array<boolean>(coloured.length).fill(false);
-  for (const inv of semiflows) {
-    if (!isSemiflow(inv) || inv.constant !== 0) continue;
-    for (let i = 0; i < coloured.length; i++) {
-      if (w(inv, coloured[i]!) >= 1) covered[i] = true;
-    }
-  }
-  const free = [...covered];
-  let sumConst = 0;
-  for (const inv of semiflows) {
-    if (!isSemiflow(inv) || inv.constant === 0) continue;
-    if (!coloured.some((pid, i) => !free[i] && w(inv, pid) >= 1)) continue;
-    for (let i = 0; i < coloured.length; i++) {
-      if (w(inv, coloured[i]!) >= 1) covered[i] = true;
-    }
-    sumConst += inv.constant;
-  }
-  if (covered.every((c) => c)) return sumConst;
-  return null;
 }
 
 /**
@@ -182,10 +129,13 @@ function colourSlotBound(coloured: readonly number[], semiflows: readonly PInvar
  * output branch (no 1:1 net↔flat assumption), so we read `matchSpec` from the
  * source while classifying by the flat row's own incidence.
  *
- * `semiflows` are the net's non-negative P-semiflows ({@link computePSemiflows}); a
- * covering one sets the colour-slot bound `k` (see {@link colourSlotBound}). They are
- * supplied on demand and read only once every structural check has passed, so a net
- * outside the fragment never pays for their enumeration.
+ * `lp` solves the colour-slot program ({@link module:slot-bound-lp}) for the coloured places
+ * it is given; the verifier passes `solveSlotBound` inside its `colour-slot bound` step. Its
+ * answer is untrusted: `buildColouredPlan` takes `k` only from {@link checkedSlotBound}, which
+ * re-checks the weighting against every flat row in exact arithmetic. `lp` is called once, and
+ * only after every structural refusal has passed, none of which reads `k`. `onSlotBound`
+ * receives the checked bound right after the check, before the `k = 0` refusal; the verifier
+ * writes its report line there.
  *
  * `mintTransitions` names the transitions declared to mint ([NU-010]; see `declaredMints`
  * in `name-fragment`). A row that writes a coloured place without consuming one is a mint
@@ -199,7 +149,8 @@ export function buildColouredPlan(
   mintTransitions: ReadonlySet<string>,
   fragmentMode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
-  semiflows: () => readonly PInvariant[],
+  lp: (coloured: readonly number[]) => LpAnswer,
+  onSlotBound: (bound: SlotBound) => void = () => {},
 ): ColouredPlan | null {
   const P = flat.places.length;
 
@@ -222,7 +173,7 @@ export function buildColouredPlan(
       const pid = flat.placeIndex.get(c);
       if (pid != null) isColoured[pid] = true;
     }
-    // NU-054: relay targets are coloured places, so the covering semiflow below must
+    // NU-054: relay targets are coloured places, so the colour-slot bound below must
     // weight them too.
     for (const t of net.transitions) {
       for (const r of t.matchSpec?.relays ?? []) {
@@ -320,24 +271,25 @@ export function buildColouredPlan(
     }
   }
 
-  // Colour-slot bound k: a colour is live iff some coloured place holds it, so
-  // `#live colours ≤ Σ_{coloured} M(p) ≤ y·M0` for any non-negative P-semiflow `y`
-  // weighting every coloured place `≥ 1`. `k` is the tightest such `y·M0`; any
-  // `k ≥ #live` is sound — a larger k only costs O(k) columns, never
-  // under-approximates, since a mint may take any free slot behind the freshness
-  // guard. If no covering non-negative semiflow exists the coloured set is not
-  // structurally token-bounded (a genuine unbounded colour leak), so fall back to the
-  // sound over-approximation. This replaces the old budget-count `k` and both
-  // structural discipline checks (atomic-rejoin + budget-Φ).
+  // Colour-slot bound k, computed last: the simplex is the expensive step, and every
+  // refusal above is independent of k.
   //
-  // Computed last: its semiflows are the expensive input (a worst-case exponential
-  // enumeration, seconds on a composed net) and every refusal above is independent of
-  // k, so a net outside the fragment never runs it.
-  const k = colourSlotBound(coloured, semiflows());
-  if (k === null) return null;
+  // A colour is live iff some coloured place holds it, so `#live colours ≤
+  // Σ_{coloured} M(p) ≤ y·M0` for any weighting `y ≥ 0` with `y_p ≥ 1` on the coloured
+  // places that no flat row increases. `k` is the floor of the least such `y·M0`, the
+  // optimum of the slot-bound program; any `k ≥ #live` is sound, since a mint may take any
+  // free slot behind the freshness guard. The weighting is re-checked against every flat row
+  // before `k` is read (`checkedSlotBound`, Lean `colourSlotBoundLP`). An infeasible program
+  // means the coloured set is not structurally token-bounded (a genuine colour leak), so fall
+  // back to the sound over-approximation, as on any other answer without a re-checked
+  // weighting.
+  const bound = checkedSlotBound(flat, initial, coloured, lp(coloured));
+  onSlotBound(bound);
+  if (bound.type !== 'bound') return null;
+  const k = bound.k;
   // NU-053 AC6: `k = 0` is an exact plan — no coloured token can ever exist, so every
   // mint / join / consumer is dead and the zero-slot encoding emits no rule for them
-  // (`Semiflow.lean`, `vacuous_colour_layer`). The one shape it cannot encode is a net
+  // (`SlotBound.lean`, `vacuous_colour_layer_lp`). The one shape it cannot encode is a net
   // with no uncoloured place at all (`Reachable` would be nullary and every rule's
   // `ForAll` binder list empty); such a net holds no token at M0, so fall back.
   if (k === 0 && coloured.length === P) return null;

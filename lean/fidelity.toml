@@ -471,8 +471,9 @@ fn = "NameId"
 lean = ["Libpetri/MatchCache.lean"]
 
 # ---- Semiflow.lean ([VER-007] union soundness, [NU-053] AC6 vacuous colour layer) ----
-# The two invariant sources the union joins, and the colour-slot bound whose
-# `k = 0` case `vacuous_colour_layer` makes exact.
+# The two invariant sources the union joins, and `build_plan`, whose classes the
+# vacuous colour layer reads. The semiflow colour-slot bound it made exact at `k = 0`
+# is history (`colourSlotBound`, `Plan.lean`); the shipped bound is pinned below.
 [[pin]]
 file = "rust/libpetri-verification/src/p_invariant.rs"
 fn = "compute_p_invariants"
@@ -490,13 +491,24 @@ lean = ["Libpetri/Semiflow.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
-fn = "colour_slot_bound"
-lean = ["Libpetri/Semiflow.lean", "Libpetri/Novel/RouteA/Plan.lean"]
-
-[[pin]]
-file = "rust/libpetri-verification/src/name_coloured_encoder.rs"
 fn = "build_plan"
 lean = ["Libpetri/Semiflow.lean", "Libpetri/Novel/RouteA/Plan.lean"]
+
+# ---- RouteA/SlotBound.lean ([NU-053] the checked colour-slot bound) ----
+# `check_cover` is `checkCover`, `checked` is `colourSlotBoundLP`; `build_plan` takes
+# `k` only through `checked`. The simplex (`solve`, `solve_counted` and their presolve
+# and pivot helpers in the same file) is deliberately NOT pinned: it is untrusted, the
+# model takes its answer as arbitrary (`buildPlan`'s `ans`), and editing it needs no
+# Lean re-verification because nothing uses its answer unchecked.
+[[pin]]
+file = "rust/libpetri-verification/src/slot_bound_lp.rs"
+fn = "check_cover"
+lean = ["Libpetri/Novel/RouteA/SlotBound.lean", "Libpetri/Novel/RouteA/Plan.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/slot_bound_lp.rs"
+fn = "checked"
+lean = ["Libpetri/Novel/RouteA/SlotBound.lean", "Libpetri/Novel/RouteA/Plan.lean"]
 
 # ---- Interning.lean (hash-consing in the nu state-class graph) ----
 # `Explorer.succ` models `name_successors` (with the prune folded in); the

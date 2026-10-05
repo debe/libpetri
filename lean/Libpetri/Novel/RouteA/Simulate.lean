@@ -1,4 +1,5 @@
 import Libpetri.Novel.RouteA.Model
+import Libpetri.Novel.RouteA.SlotBound
 
 /-!
 # Route A for `k > 0`: the slot bound and the simulation
@@ -6,12 +7,13 @@ import Libpetri.Novel.RouteA.Model
 Headline results ([NU-050] Route A, [NU-053]):
 
 * `colour_slots_suffice` — along every ν run, the number of distinct live names is at most
-  `k`, for any `k ≥ y·M₀` with `y` a non-negative weighting of the flat rows that weights
-  every coloured place at least one and does not increase along any row (`y·C ≤ 0`; a
-  validated P-semiflow has `y·C = 0`). This is the soundness of `colour_slot_bound`'s
-  argument: a live name holds a token in some coloured place, so
-  `#live ≤ Σ_{coloured} M(p) ≤ y·M ≤ y·M₀ ≤ k`. The flat side is `Novel/ForwardDeposit.lean`'s
-  Proposition 1 over deposit rows and `Novel/LinearBound.lean`'s `dot_le_initial_rows`.
+  `k` whenever the flat rows have a scaled cover at `k` (`ScaledCover`, `RouteA/SlotBound.lean`):
+  some `D > 0` and `y ≥ 0` with `y ≥ D` on every coloured place, `y·C ≤ 0` on every row and
+  `y·M₀ < D·(k + 1)`. This is the argument behind the checked slot bound: a live name holds a
+  token in some coloured place, so `#live ≤ Σ_{coloured} M(p)`, and `D·Σ_{coloured} M(p) ≤
+  y·M ≤ y·M₀ < D·(k + 1)` (`coloured_tokens_le`). The flat side is
+  `Novel/ForwardDeposit.lean`'s Proposition 1 over deposit rows and `Novel/LinearBound.lean`'s
+  `dot_le_initial_rows`.
 * `coloured_simulates` — every ν-reachable marking is represented, under a colour assignment
   **injective on its live names**, by a state the encoding reaches. The injection is chosen
   along the run: a mint takes a colour no live name holds, which exists **because of**
@@ -35,7 +37,9 @@ Premises (`Premises`), each named against the Rust:
   self-loop and needs no such premise (`Shipped.lean`, `premises_shipped`);
 * `seed`, `empty` — the encoder's seed is `α(m₀)` (the seam, gap R3) and the coloured places
   start empty (checked by `build_plan`);
-* `cover` — what `colour_slot_bound` returns (`Plan.lean`, `colourSlotBound_sound`);
+* `cover`: a scaled cover at `k`, which is what `check_cover` accepts (`RouteA/SlotBound.lean`,
+  `checkCover_sound`; `Plan.lean`, `buildPlan_premisesS`). The semiflow bound of the older
+  `build_plan` gives one with `D = 1` (`Plan.lean`, `colourSlotBound_scaled`);
 * `laws` — each conjoined invariant passed `validate_invariants_exact` (H1 and `y·C = 0`,
   `Semiflow.lean`'s `ValidLaw` over deposit rows);
 * the ν semantics itself carries P1–P4 (`Model.lean`), and `ReachNu` has no injection
@@ -197,43 +201,26 @@ theorem laws_conserved {rows : List (Transition × Deposit)} {a0 a : AMarking} {
     exact (dot_fireAD_eq y (hl tr hmem).1 (hl tr hmem).2 hen).trans ih
 
 /-- With `y ≥ 0` and `y ≥ 1` on the (duplicate-free, dense) coloured places, their token total
-is below `y·M`. -/
+is below `y·M`: `sum_le_dot_scaled` at `D = 1`. -/
 theorem sum_le_dot {C : List PlaceId} {y : Weight} {a : AMarking} {n : Nat}
     (hnd : C.Nodup) (hCn : ∀ p ∈ C, p < n) (hpos : ∀ p, p < n → 0 ≤ y p)
     (hcov : ∀ p ∈ C, 1 ≤ y p) :
     (((C.map a).sum : Nat) : Int) ≤ dot y a n := by
-  rw [← List.sum_toFinset _ hnd, dot_eq_isum, isum]
-  push_cast
-  calc ∑ p ∈ C.toFinset, (a p : Int) ≤ ∑ p ∈ C.toFinset, y p * (a p : Int) := by
-        apply Finset.sum_le_sum
-        intro p hp
-        exact le_mul_of_one_le_left (Int.natCast_nonneg _) (hcov p (List.mem_toFinset.mp hp))
-    _ ≤ ∑ p ∈ Finset.range n, y p * (a p : Int) := by
-        apply Finset.sum_le_sum_of_subset_of_nonneg
-        · intro p hp
-          exact Finset.mem_range.mpr (hCn p (List.mem_toFinset.mp hp))
-        · intro p hp _
-          exact Int.mul_nonneg (hpos p (Finset.mem_range.mp hp)) (Int.natCast_nonneg _)
+  have h := sum_le_dot_scaled (D := 1) (a := a) hnd hCn hpos
+    (fun p hp => by rw [Nat.cast_one]; exact hcov p hp)
+  rwa [Nat.cast_one, Int.one_mul] at h
 
-/-- **`colour_slots_suffice`.** Along every ν run, the distinct live names number at most `k`,
-for `k ≥ y·M₀` and `y` a non-negative, non-increasing weighting that covers every coloured
-place — the bound `colour_slot_bound` computes. -/
-theorem colour_slots_suffice {C : List PlaceId} {rows : List CRow} {m0 m : CMarking}
-    {y : Weight} {n k : Nat}
+/-- **`colour_slots_suffice`.** Along every ν run, the distinct live names number at most `k`
+whenever the flat rows have a scaled cover at `k`, the bound `check_cover` accepts
+(`RouteA/SlotBound.lean`). A live name holds a token in some coloured place, and the coloured
+places hold at most `k` tokens on every flat-reachable marking (`coloured_tokens_le`). -/
+theorem colour_slots_suffice {C : List PlaceId} {rows : List CRow} {m0 m : CMarking} {n k : Nat}
     (hG : ∀ r ∈ rows, GuardFreeConsumeAll r.t)
     (hnd : C.Nodup) (hCn : ∀ p ∈ C, p < n)
-    (hpos : ∀ p, p < n → 0 ≤ y p) (hcov : ∀ p ∈ C, 1 ≤ y p)
-    (hdec : ∀ r ∈ rows, dotIncD y r.flat n ≤ 0) (hk : dot y (alpha m0) n ≤ k)
+    (hcov : ScaledCover n C (rows.map CRow.flat) (alpha m0) k)
     (h : ReachNu C rows m0 m) :
     (live C m).toFinset.card ≤ k := by
-  have hflat := reachNu_flat hG h
-  have hle : dot y (alpha m) n ≤ dot y (alpha m0) n :=
-    dot_le_initial_rows (envs := []) hpos
-      (fun tr htr => by
-        obtain ⟨r, hr, rfl⟩ := List.mem_map.mp htr
-        exact hdec r hr)
-      (by simp) (reachAD_sub_inj hflat)
-  have hsum := sum_le_dot (a := alpha m) hnd hCn hpos hcov
+  have hsum := coloured_tokens_le hnd hCn hcov (reachNu_flat hG h)
   have hlen : (live C m).length = (C.map (alpha m)).sum := by
     unfold live
     rw [List.length_flatMap]
@@ -519,8 +506,8 @@ structure Premises (E : Enc) (m0 : CMarking) : Prop where
   noSelfLoop : ∀ r ∈ E.rows, ConsumeNoSelfLoop r.cls
   seed : E.a0 = alpha m0
   empty : ∀ p ∈ E.C, m0 p = []
-  cover : ∃ y : Weight, (∀ p, p < E.n → 0 ≤ y p) ∧ (∀ p ∈ E.C, 1 ≤ y p) ∧
-    (∀ r ∈ E.rows, dotIncD y r.flat E.n ≤ 0) ∧ dot y E.a0 E.n ≤ E.k
+  /-- The colour-slot bound: a scaled cover of the flat rows at `k` (`RouteA/SlotBound.lean`). -/
+  cover : ScaledCover E.n E.C (E.rows.map CRow.flat) E.a0 E.k
   laws : ∀ y ∈ E.invs, ∀ r ∈ E.rows, ZeroOnNonlinear y r.t E.n ∧ dotIncD y r.flat E.n = 0
 
 /-- The seed represents the initial marking. -/
@@ -544,15 +531,13 @@ uncoloured columns, name counts per colour on the coloured ones, under a colour 
 injective on its live names — by a state the name-coloured CHC system reaches. -/
 theorem coloured_simulates {E : Enc} {m0 : CMarking} (P : Premises E m0) {m : CMarking}
     (h : ReachNu E.C E.rows m0 m) : ∃ e σ, ReachE E e ∧ Sim E.C E.k m e σ := by
-  obtain ⟨y, hpos, hcov, hdec, hk⟩ := P.cover
   induction h with
   | refl => exact ⟨e0 E, fun _ => 0, Relation.ReflTransGen.refl, sim_init P⟩
   | @tail m1 m2 hr hs ih =>
     obtain ⟨e, σ, he, hsim⟩ := ih
     obtain ⟨r, hrm, hstep⟩ := hs
     have hr' : ReachNu E.C E.rows m0 m2 := Relation.ReflTransGen.tail hr ⟨r, hrm, hstep⟩
-    have hslots := colour_slots_suffice P.guardFree P.nodup P.below hpos hcov hdec
-      (P.seed ▸ hk) hr'
+    have hslots := colour_slots_suffice P.guardFree P.nodup P.below (P.seed ▸ P.cover) hr'
     have hinv : ∀ y ∈ E.invs, dot y (alpha m2) E.n = dot y E.a0 E.n := fun y hy => by
       rw [P.seed]
       exact laws_conserved

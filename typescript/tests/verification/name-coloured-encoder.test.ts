@@ -8,16 +8,15 @@ import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { MarkingState } from '../../src/verification/marking-state.js';
 import { flatten } from '../../src/verification/encoding/net-flattener.js';
-import { computePSemiflows } from '../../src/verification/invariant/p-invariant-computer.js';
-import { IncidenceMatrix } from '../../src/verification/encoding/incidence-matrix.js';
+import { solveSlotBound } from '../../src/verification/z3/slot-bound-lp.js';
 import { buildColouredPlan, encodeColoured } from '../../src/verification/z3/name-coloured-encoder.js';
 import { deadlockFree, terminatesAtSink, joinedOrDeadLettered } from '../../src/verification/smt-property.js';
 import type { FragmentMode } from '../../src/verification/analysis/name-fragment.js';
 import { declaredMints } from '../../src/verification/analysis/name-fragment.js';
 
 // Z3-free conformance for the name-coloured fragment gate (buildColouredPlan).
-// The colour-slot bound `k` comes from a non-negative P-semiflow that weights every
-// coloured place: a net whose coloured set has no covering semiflow (an unbounded
+// The colour-slot bound `k` is the floor of the colour-slot program's optimum
+// (slot-bound-lp), re-checked exactly: a net whose program is infeasible (an unbounded
 // colour leak) falls back to the sound over-approximation; a colour-bounded net is
 // admitted for the exact name-coloured path.
 describe('name-coloured fragment gate (colour-slot bound)', () => {
@@ -25,7 +24,7 @@ describe('name-coloured fragment gate (colour-slot bound)', () => {
   // 1 budget and stamps the fresh colour into both correlated inputs; the join
   // refunds 1 budget (conserving) or refunds an EXTRA token to a non-minting place
   // (budget2) — either way the MINTING budget (budget1) stays conserved, so at most
-  // one colour is ever live and the P-semiflow bound admits it.
+  // one colour is ever live and the slot bound admits it.
   function mintJoinNet(extraRefund: boolean) {
     const budget1 = place('budget1');
     const budget2 = place('budget2');
@@ -53,14 +52,14 @@ describe('name-coloured fragment gate (colour-slot bound)', () => {
     const { net, budget1 } = mintJoinNet(extraRefund);
     const flat = flatten(net);
     const initial = MarkingState.builder().tokens(budget1, budgetTokens).build();
-    const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    return buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), 'base', new Set(), () => semiflows);
+    // Same route the verifier takes: the simplex's answer, re-checked by buildColouredPlan.
+    return buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), 'base', new Set(), c => solveSlotBound(flat, initial, c));
   }
 
   it('yields the exact zero-slot plan when no budget token exists (NU-053 AC6)', () => {
-    // With no budget token the covering semiflow's initial sum is zero, and k = 0 is
-    // an exact plan rather than a fallback — no coloured token can ever exist
-    // (Semiflow.lean, vacuous_colour_layer).
+    // With no budget token the slot-bound optimum is zero, and k = 0 is an exact plan
+    // rather than a fallback: no coloured token can ever exist (SlotBound.lean,
+    // vacuous_colour_layer_lp).
     const plan = planFor(false, 0);
     expect(plan, 'k = 0 is a plan, not a fallback').not.toBeNull();
     expect(plan!.k).toBe(0);
@@ -74,7 +73,7 @@ describe('name-coloured fragment gate (colour-slot bound)', () => {
   it('admits a join that refunds an extra token to a non-minting place', () => {
     // [NU-053] The extra refund lands in budget2 (a non-minting place), so the minting
     // budget stays conserved and at most one colour is live — the net is colour-bounded
-    // and the P-semiflow bound admits it. (The old budget-Φ heuristic wrongly rejected
+    // and the slot bound admits it. (The old budget-Φ heuristic wrongly rejected
     // any refund exceeding the mint cost; genuine colour leaks — where a co-minted place
     // accumulates distinct colours — are covered by the leaky-carrier fan-out test below,
     // which still falls back.)
@@ -89,9 +88,9 @@ describe('name-coloured fragment gate (NU-053 EXTENDED + XOR)', () => {
     const flat = flatten(net);
     const budget1 = place('budget1');
     const initial = MarkingState.builder().tokens(budget1, 1).build();
-    const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
     return buildColouredPlan(
-      net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), mode, new Set(carriers), () => semiflows);
+      net, flat, initial, declaredMints(net, new Set(['budget1', 'budget2']), new Set()), mode, new Set(carriers),
+      c => solveSlotBound(flat, initial, c));
   }
 
   // mint→join plus an EXTENDED coloured drain: a non-match transition that consumes
@@ -275,8 +274,7 @@ describe('coloured quiescence arms (VER-002 / NU-040)', () => {
     const net = PetriNet.builder('colouredQuiescence').transitions(mint, join).build();
     const flat = flatten(net);
     const initial = MarkingState.builder().tokens(budget1, 1).build();
-    const semiflows = computePSemiflows(IncidenceMatrix.from(flat), flat, initial);
-    const plan = buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1']), new Set()), 'base', new Set(), () => semiflows);
+    const plan = buildColouredPlan(net, flat, initial, declaredMints(net, new Set(['budget1']), new Set()), 'base', new Set(), c => solveSlotBound(flat, initial, c));
     return { flat, initial, plan, a, b };
   }
 

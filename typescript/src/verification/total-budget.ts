@@ -6,7 +6,8 @@
  * The per-call `timeout` bounds one z3 process. A verification runs several of them — the bound
  * query, the state-equation phase and its certificate check, the firing bound, the fixpoint
  * query and its certificate check — plus solver-free work: the enumeration and Route B graph
- * builds, the siphon/trap search, the semiflow enumeration. The total budget bounds all of it:
+ * builds, the siphon/trap search, the semiflow enumeration, the colour-slot simplex of the
+ * name-coloured plan (polled before every pivot). The total budget bounds all of it:
  * a {@link Deadline} starts at the top of `verify()`, every z3 process is given at most what
  * remains, and the long solver-free loops poll it. When it passes the verdict is `unknown` with
  * {@link totalBudgetReason}; a verdict reached before that stands.

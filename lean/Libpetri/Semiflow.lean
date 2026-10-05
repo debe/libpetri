@@ -41,12 +41,18 @@ into the list the encoders receive (`strengthen_with_semiflows`,
   `netAll` (semi-positive, `y·C = 0`) and is still unsound without H1: the
   semiflow source must pass the *same* gate as the basis ([VER-007] AC1).
 
-**The colour-slot bound at zero.** The name-coloured encoder bounds the number
-of simultaneously live names by `k = y·M0` for a covering non-negative
-semiflow `y` (`colour_slot_bound`, `name_coloured_encoder.rs`; [NU-053]). At
-`k = 0` no coloured token can ever exist, so every mint, join and coloured
-consumer is dead on the reachable set and the zero-slot encoding — which emits
-no rule for them — is exact rather than a fallback ([NU-053] AC6):
+**The colour-slot bound at zero (history).** Until the LP bound replaced it,
+the name-coloured encoder bounded the number of simultaneously live names by
+`k = y·M0` for a covering non-negative semiflow `y` (`colour_slot_bound`,
+`name_coloured_encoder.rs`; [NU-053]). At `k = 0` no coloured token can ever
+exist, so every mint, join and coloured consumer is dead on the reachable set
+and the zero-slot encoding, which emits no rule for them, is exact rather than
+a fallback ([NU-053] AC6). The lemmas below prove that for the semiflow
+bound, and their statements are kept as they are. The shipped bound is the
+checked optimum of a linear program: its weighting only has to be
+non-increasing along every row, and it may weight reset and consume-all places.
+Its exactness claim at `k = 0` is `vacuous_colour_layer_lp`
+(`Novel/RouteA/SlotBound.lean`).
 
 * `covered_place_empty` — a place with positive weight under a semi-positive
   validated law of initial sum `0` is empty on every reachable marking.
@@ -282,13 +288,15 @@ theorem semiflow_gate_is_necessary :
 /-!
 ## The colour-slot bound at zero ([NU-053] AC6)
 
-`colour_slot_bound` (`name_coloured_encoder.rs`) returns `y·M0` for a
-semi-positive validated law `y` with `y p ≥ 1` on every coloured place. The
-lemmas below are what make `k = 0` an *exact* plan: with the initial weighted
-sum at zero, conservation pins every covered place to zero tokens on every
-reachable marking, so no mint (produces into a covered place), join or coloured
-consumer (consumes from one) is ever enabled — and the encoder, which emits
-one rule per colour slot for those classes, emits none for them.
+The semiflow bound (`colour_slot_bound`, `name_coloured_encoder.rs`, before the
+LP bound) returned `y·M0` for a semi-positive validated law `y` with `y p ≥ 1`
+on every coloured place. The lemmas below are what make `k = 0` an *exact* plan
+under that bound: with the initial weighted sum at zero, conservation pins every
+covered place to zero tokens on every reachable marking, so no mint (produces
+into a covered place), join or coloured consumer (consumes from one) is ever
+enabled, and the encoder, which emits one rule per colour slot for those
+classes, emits none for them. The LP bound has its own twin over deposit rows,
+`vacuous_colour_layer_lp` (`Novel/RouteA/SlotBound.lean`), which needs no H1.
 -/
 
 theorem isum_nonneg {f : PlaceId → Int} (hf : ∀ p, 0 ≤ f p) : ∀ n, 0 ≤ isum f n :=

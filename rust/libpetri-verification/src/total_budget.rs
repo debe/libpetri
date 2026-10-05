@@ -25,7 +25,8 @@
 //!   that way records itself as stopped, which is how the caller (and the
 //!   [`crate::state_space_cache`]) tells it from a truncation;
 //! * the siphon/trap search and the semiflow enumeration poll [`cut`] inside
-//!   their loops and give up without a result.
+//!   their loops and give up without a result, and the colour-slot simplex
+//!   ([`crate::slot_bound_lp`]) polls it before every pivot and answers `Stopped`.
 //!
 //! Every stop is sticky — a deadline that passed stays passed and a token that
 //! was cancelled stays cancelled — so a loop that gave up early is always

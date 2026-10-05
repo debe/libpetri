@@ -1,29 +1,41 @@
 import Libpetri.Novel.RouteA.Simulate
 
 /-!
-# Route A: `build_plan` and `colour_slot_bound`
+# Route A: `build_plan` and its colour-slot bound
 
-A model of the two functions of `name_coloured_encoder.rs` that decide whether Route A runs and
-with how many colour slots, and the proof that whatever they return discharges the plan
+A model of `build_plan` (`name_coloured_encoder.rs`), which decides whether Route A runs and
+with how many colour slots, and the proof that whatever it returns discharges the plan
 premises of `Simulate.lean`:
 
-* `colourSlotBound` — `colour_slot_bound`: the tightest `y·M₀` over the non-negative laws that
-  weight every coloured place `≥ 1`; otherwise the sum of the zero-constant laws and of every
-  positive-constant law that touches a coloured place the zero-constant ones left uncovered,
-  if that covers every coloured place; otherwise `None`. `colourSlotBound_sound`: the result
-  is `y·M₀` for a non-negative weighting `y` that covers every coloured place and annihilates
-  every flat row — the `cover` premise.
-* `classifyRow` — the classification branch of `build_plan` for one flat row, and
-  `classifyRow_ok`: an accepted row has the incidence its class promises (`ClassOK`).
-* `buildPlan`, `buildPlan_premises`: the whole function, and the `Premises` of
-  `coloured_simulates` from its `Some`, given the facts about the inputs that `build_plan`
-  receives rather than checks (the validated laws, the seed, guard-freeness) — and
-  `ConsumeNoSelfLoop`, which it **neither receives nor checks**.
+* `classifyRowG`: the classification branch of `build_plan` for one flat row, and
+  `classifyRowG_ok`: an accepted row has the incidence its class promises (`ClassOK`).
+* `buildPlanG`: the whole function, with the classification gates and the colour-slot bound
+  as parameters. `buildPlanG_premisesS`: its `Some` discharges every plan premise but
+  `ConsumeNoSelfLoop`, given that the bound comes with a scaled cover (`hslot`) and the facts
+  about the inputs that `build_plan` receives rather than checks (the conjoined laws, the
+  seed, guard-freeness).
+* **`buildPlan`, `buildPlan_premisesS`: the shipped function.** Its bound is
+  `colourSlotBoundLP` (`RouteA/SlotBound.lean`): the simplex's answer, whatever it is, run
+  through the exact checker `check_cover` (`checked`, `slot_bound_lp.rs`). `checkCover_sound`
+  turns an accepted answer into the scaled cover, so `buildPlan_premisesS` carries **no
+  hypothesis about the simplex**.
+* `buildPlanBudget`: `build_plan` before the NU-010 fix, with the semiflow bound it had then
+  (history). `colourSlotBound` models the old `colour_slot_bound`: the tightest `y·M₀` over the
+  non-negative laws that weight every coloured place `≥ 1`; otherwise the sum of the
+  zero-constant laws and of every positive-constant law that touches a coloured place the
+  zero-constant ones left uncovered, if that covers every coloured place; otherwise `None`.
+  `colourSlotBound_sound`: the result is `y·M₀` for a non-negative weighting `y` that covers
+  every coloured place and annihilates every flat row, a scaled cover with `D = 1`
+  (`colourSlotBound_scaled`).
+* `ConsumeNoSelfLoop` is the one premise `build_plan` **neither receives nor checks**; the
+  shipped encoder no longer needs it (`Shipped.lean`).
 
 What is not modelled: the coloured set's computation from names (the match keys, the declared
 carriers and relay targets are resolved through `place_index`); `C` is taken as given, sorted
 and duplicate-free as `(0..p).filter(..)` makes it. The `source` mapping of flat rows back to
-transitions is taken as given (`SrcRow.ms`), with the Rust's defensive length check.
+transitions is taken as given (`SrcRow.ms`), with the Rust's defensive length check. The
+simplex (`solve`, `slot_bound_lp.rs`) is not modelled at all: `buildPlan` takes its answer as an
+arbitrary `Option (Nat × Weight)`, and only the checker stands between that answer and `k`.
 -/
 
 namespace Libpetri.Novel.RouteA
@@ -32,7 +44,10 @@ open Libpetri
 open Libpetri.Novel.ForwardDeposit
 open Libpetri.Novel.LinearBound
 
-/-! ## `colour_slot_bound` -/
+/-! ## `colour_slot_bound` before the LP bound (history)
+
+The semiflow bound `build_plan` read until the LP bound replaced it. `buildPlanBudget` still
+uses it, and the retrodictions of `Retrodict.lean` are stated against it. -/
 
 /-- A `PInvariant` as `colour_slot_bound` reads it: its weights and its `constant`. -/
 structure Law where
@@ -91,12 +106,6 @@ theorem dotIncD_wsum (S : List Law) (tr : Transition × Deposit) (n : Nat) :
   unfold dotIncD
   exact isum_wsum S _ n
 
-theorem dot_nonneg_of {y : Weight} {a : AMarking} {n : Nat} (hy : ∀ p, p < n → 0 ≤ y p) :
-    0 ≤ dot y a n := by
-  rw [dot_eq_isum]
-  exact Finset.sum_nonneg fun p hp =>
-    Int.mul_nonneg (hy p (Finset.mem_range.mp hp)) (Int.natCast_nonneg _)
-
 theorem isSemi_spec {n : Nat} {l : Law} (h : isSemi n l = true) : ∀ p, p < n → 0 ≤ l.y p := by
   intro p hp
   unfold isSemi at h
@@ -113,8 +122,9 @@ theorem list_sum_eq_zero {S : List Law} {f : Law → Int} (h : ∀ l ∈ S, f l 
     rfl
 
 /-- **`colour_slot_bound` is sound.** Whatever it returns is `y·M₀` for a weighting that is
-non-negative, weights every coloured place at least one, and annihilates every flat row — the
-`cover` premise of `coloured_simulates` (with `y·C = 0 ≤ 0`). -/
+non-negative, weights every coloured place at least one, and annihilates every flat row. That
+is the `cover` premise of `coloured_simulates` at `D = 1`, with `y·C = 0 ≤ 0`
+(`colourSlotBound_scaled`). -/
 theorem colourSlotBound_sound {n : Nat} {C : List PlaceId} {laws : List Law}
     {rows : List (Transition × Deposit)} {a0 : AMarking} {k : Nat}
     (hC : ∀ p ∈ C, p < n) (hv : ∀ l ∈ laws, LawValid rows n a0 l) (h : colourSlotBound n C laws = some k) :
@@ -188,6 +198,14 @@ theorem colourSlotBound_sound {n : Nat} {C : List PlaceId} {laws : List Law}
         rw [List.map_append, List.sum_append, hfree, hsel]
         omega
     · exact absurd h (by simp)
+
+/-- The semiflow bound as a scaled cover with `D = 1`. -/
+theorem colourSlotBound_scaled {n : Nat} {C : List PlaceId} {laws : List Law}
+    {rows : List (Transition × Deposit)} {a0 : AMarking} {k : Nat}
+    (hC : ∀ p ∈ C, p < n) (hv : ∀ l ∈ laws, LawValid rows n a0 l)
+    (h : colourSlotBound n C laws = some k) : ScaledCover n C rows a0 k := by
+  obtain ⟨y, hpos, hcov, hcol, hdot⟩ := colourSlotBound_sound hC hv h
+  exact scaledCover_of_cover hpos hcov (fun tr htr => le_of_eq (hcol tr htr)) (le_of_eq hdot)
 
 /-! ## The classification branch of `build_plan` -/
 
@@ -426,12 +444,15 @@ theorem classifyAll_spec {C : List PlaceId} {ext : Bool} {g : Gate} :
         exact ⟨s', List.mem_cons_of_mem s hs', h1, h2, h3⟩
     · exact absurd h (by simp)
 
-/-- `build_plan` (`name_coloured_encoder.rs`), from the coloured set on, with the gates `g`.
-The colour-slot bound comes last, as in the Rust: every refusal before it is independent of
-`k`, and the semiflow enumeration it reads is the expensive step. Each branch is a pure
-`Option` refusal, so the order changes which `none` is returned first, never the result. -/
+/-- `build_plan` (`name_coloured_encoder.rs`), from the coloured set on, with the gates `g`
+and the colour-slot bound `slot`. The order is the Rust's: the coloured set is non-empty, the
+coloured places start empty, no coloured place carries a reset, consume-all, inhibitor or read
+arc, every row classifies, then the bound, then the refusal of `k = 0` when every place is
+coloured. The Rust computes the bound only once the structural refusals have passed (its `lp`
+closure runs the simplex last); here `slot` is a value, and each branch is a pure `Option`
+refusal, so the order changes the cost and which `none` comes first, never the result. -/
 def buildPlanG (n : Nat) (C : List PlaceId) (ext : Bool) (g : Gate) (a0 : AMarking)
-    (laws : List Law) (src : List SrcRow) : Option (Nat × List CRow) :=
+    (slot : Option Nat) (src : List SrcRow) : Option (Nat × List CRow) :=
   if C = [] then none
   else if C.any (fun p => a0 p != 0) then none
   else if src.any (fun s => !arcsOK C s.t) then none
@@ -439,21 +460,24 @@ def buildPlanG (n : Nat) (C : List PlaceId) (ext : Bool) (g : Gate) (a0 : AMarki
     match classifyAllG C ext g src with
     | none => none
     | some rows =>
-      match colourSlotBound n C laws with
+      match slot with
       | none => none
       | some k =>
         if k = 0 ∧ C.length = n then none
         else some (k, rows)
 
-/-- **`build_plan` as shipped**: the gates of `shippedGate` (declared mints, timeout writes). -/
-def buildPlan (n : Nat) (C : List PlaceId) (ext : Bool) (a0 : AMarking) (laws : List Law)
-    (src : List SrcRow) : Option (Nat × List CRow) :=
-  buildPlanG n C ext (shippedGate C) a0 laws src
+/-- **`build_plan` as shipped**: the gates of `shippedGate` (declared mints, timeout writes) and
+the checked LP bound. `ans` is the simplex's answer (`lp(&coloured)`), any value at all: the
+bound is `checked` of it over every flat row (`colourSlotBoundLP`). -/
+def buildPlan (n : Nat) (C : List PlaceId) (ext : Bool) (a0 : AMarking)
+    (ans : Option (Nat × Weight)) (src : List SrcRow) : Option (Nat × List CRow) :=
+  buildPlanG n C ext (shippedGate C) a0 (colourSlotBoundLP n C (src.map SrcRow.flat) a0 ans) src
 
-/-- `build_plan` before the NU-010 fix: a budget token made a mint (`budgetGate`). -/
+/-- `build_plan` before the NU-010 fix: a budget token made a mint (`budgetGate`), and the bound
+was the semiflow bound it had then (history). -/
 def buildPlanBudget (n : Nat) (C : List PlaceId) (ext : Bool) (budget : List PlaceId)
     (a0 : AMarking) (laws : List Law) (src : List SrcRow) : Option (Nat × List CRow) :=
-  buildPlanG n C ext (budgetGate budget) a0 laws src
+  buildPlanG n C ext (budgetGate budget) a0 (colourSlotBound n C laws) src
 
 /-- `Premises` without `noSelfLoop`: what a plan `build_plan` returns and the verifier's other
 checks establish. The shipped encoder needs nothing more (`RouteA/Shipped.lean`,
@@ -465,8 +489,8 @@ structure PremisesS (E : Enc) (m0 : CMarking) : Prop where
   guardFree : ∀ r ∈ E.rows, GuardFreeConsumeAll r.t
   seed : E.a0 = alpha m0
   empty : ∀ p ∈ E.C, m0 p = []
-  cover : ∃ y : Weight, (∀ p, p < E.n → 0 ≤ y p) ∧ (∀ p ∈ E.C, 1 ≤ y p) ∧
-    (∀ r ∈ E.rows, dotIncD y r.flat E.n ≤ 0) ∧ dot y E.a0 E.n ≤ E.k
+  /-- The colour-slot bound: a scaled cover of the flat rows at `k` (`RouteA/SlotBound.lean`). -/
+  cover : ScaledCover E.n E.C (E.rows.map CRow.flat) E.a0 E.k
   laws : ∀ y ∈ E.invs, ∀ r ∈ E.rows, ZeroOnNonlinear y r.t E.n ∧ dotIncD y r.flat E.n = 0
 
 theorem PremisesS.withNoSelfLoop {E : Enc} {m0 : CMarking} (P : PremisesS E m0)
@@ -474,15 +498,17 @@ theorem PremisesS.withNoSelfLoop {E : Enc} {m0 : CMarking} (P : PremisesS E m0)
   ⟨P.nodup, P.below, P.classOK, P.guardFree, h, P.seed, P.empty, P.cover, P.laws⟩
 
 /-- **A plan `build_plan` returns discharges the plan premises of `coloured_simulates`** but
-`ConsumeNoSelfLoop`, for any gates, given what the verifier hands it and does not re-check
-here: the semiflows passed the exact gate (`LawValid`), the conjoined invariants passed it with
-H1, the seed is `α(m₀)`, and no guard sits on a consume-all arc. -/
+`ConsumeNoSelfLoop`, for any gates and any bound that comes with a scaled cover of the flat rows
+(`hslot`), given what the verifier hands it and does not re-check here: the conjoined
+invariants passed the exact gate with H1, the seed is `α(m₀)`, and no guard sits on a
+consume-all arc. The cover moves to the classified rows because classification keeps every
+flat row (`classifyAll_spec`). -/
 theorem buildPlanG_premisesS {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate}
-    {laws : List Law} {src : List SrcRow} {k : Nat} {rows : List CRow} {m0 : CMarking}
+    {slot : Option Nat} {src : List SrcRow} {k : Nat} {rows : List CRow} {m0 : CMarking}
     {invs : List Weight}
-    (h : buildPlanG n C ext g (alpha m0) laws src = some (k, rows))
+    (h : buildPlanG n C ext g (alpha m0) slot src = some (k, rows))
     (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n)
-    (hv : ∀ l ∈ laws, LawValid (src.map SrcRow.flat) n (alpha m0) l)
+    (hslot : ∀ k, slot = some k → ScaledCover n C (src.map SrcRow.flat) (alpha m0) k)
     (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
     (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0) :
     PremisesS ⟨C, k, n, rows, invs, alpha m0⟩ m0 := by
@@ -498,9 +524,11 @@ theorem buildPlanG_premisesS {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate
   split at h
   · exact absurd h (by simp)
   rename_i rows' hrows'
-  split at h
-  · exact absurd h (by simp)
-  rename_i k' hk
+  obtain ⟨k', hs⟩ : ∃ k', slot = some k' := by
+    cases hs : slot with
+    | none => simp [hs] at h
+    | some k' => exact ⟨k', rfl⟩
+  simp only [hs] at h
   split at h
   · exact absurd h (by simp)
   simp only [Option.some.injEq, Prod.mk.injEq] at h
@@ -509,11 +537,9 @@ theorem buildPlanG_premisesS {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate
   simp only [List.any_eq_true, Bool.not_eq_true', not_exists, not_and, Bool.not_eq_false]
     at harcs hempty
   have hsrc : ∀ r ∈ rows', ∃ s ∈ src, r.t = s.t ∧ r.d = s.d ∧ ClassShape C r := hall
-  have hflat : ∀ r ∈ rows', r.flat ∈ src.map SrcRow.flat := fun r hr =>
-    hmap ▸ List.mem_map.mpr ⟨r, hr, rfl⟩
-  obtain ⟨y, hpos, hcov, hcol, hdot⟩ := colourSlotBound_sound hC hv hk
-  refine ⟨hnd, hC, fun r hr => ?_, fun r hr => ?_, rfl, fun p hp => ?_,
-    ⟨y, hpos, hcov, fun r hr => ?_, le_of_eq hdot⟩, fun y' hy' r hr => ?_⟩
+  have hcov : ScaledCover n C (rows'.map CRow.flat) (alpha m0) k' := hmap ▸ hslot k' hs
+  refine ⟨hnd, hC, fun r hr => ?_, fun r hr => ?_, rfl, fun p hp => ?_, hcov,
+    fun y' hy' r hr => ?_⟩
   · obtain ⟨s, hs, ht, _, hsh⟩ := hsrc r hr
     exact ⟨ht ▸ arcsOK_spec (by simpa using harcs s hs), hsh⟩
   · obtain ⟨s, hs, ht, _, _⟩ := hsrc r hr
@@ -521,38 +547,62 @@ theorem buildPlanG_premisesS {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate
   · have := hempty p hp
     simp only [bne_iff_ne, ne_eq, not_not] at this
     exact List.eq_nil_of_length_eq_zero this
-  · exact le_of_eq (hcol r.flat (hflat r hr))
   · obtain ⟨s, hs, ht, hd, _⟩ := hsrc r hr
     have hrf : r.flat = s.flat := by simp [CRow.flat, SrcRow.flat, ht, hd]
     rw [hrf, ht]
     exact hinv y' hy' s hs
 
+/-- **The shipped `build_plan` discharges the plan premises with no hypothesis about the
+simplex.** Whatever answer `ans` the untrusted simplex gives, a plan returned through the
+checker carries a scaled cover (`colourSlotBoundLP_sound`), so the only hypotheses left are the
+facts about the inputs that `build_plan` receives rather than checks. -/
+theorem buildPlan_premisesS {n : Nat} {C : List PlaceId} {ext : Bool}
+    {ans : Option (Nat × Weight)} {src : List SrcRow} {k : Nat} {rows : List CRow}
+    {m0 : CMarking} {invs : List Weight}
+    (h : buildPlan n C ext (alpha m0) ans src = some (k, rows))
+    (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n) (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
+    (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0) :
+    PremisesS ⟨C, k, n, rows, invs, alpha m0⟩ m0 :=
+  buildPlanG_premisesS h hnd hC (fun _ hk => colourSlotBoundLP_sound hk) hG hinv
+
+/-- `buildPlanG_premisesS` for the `build_plan` before the NU-010 fix, whose bound was the
+semiflow bound: given that the laws passed the exact gate (`LawValid`). -/
+theorem buildPlanBudget_premisesS {n : Nat} {C : List PlaceId} {ext : Bool}
+    {budget : List PlaceId} {laws : List Law} {src : List SrcRow} {k : Nat} {rows : List CRow}
+    {m0 : CMarking} {invs : List Weight}
+    (h : buildPlanBudget n C ext budget (alpha m0) laws src = some (k, rows))
+    (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n)
+    (hv : ∀ l ∈ laws, LawValid (src.map SrcRow.flat) n (alpha m0) l)
+    (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
+    (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0) :
+    PremisesS ⟨C, k, n, rows, invs, alpha m0⟩ m0 :=
+  buildPlanG_premisesS h hnd hC (fun _ hk => colourSlotBound_scaled hC hv hk) hG hinv
+
 /-- `buildPlanG_premisesS` with `ConsumeNoSelfLoop` as a hypothesis: the premises of
 `coloured_simulates`, whose encoder is the one before the self-loop fix. -/
 theorem buildPlanG_premises {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate}
-    {laws : List Law} {src : List SrcRow} {k : Nat} {rows : List CRow} {m0 : CMarking}
+    {slot : Option Nat} {src : List SrcRow} {k : Nat} {rows : List CRow} {m0 : CMarking}
     {invs : List Weight}
-    (h : buildPlanG n C ext g (alpha m0) laws src = some (k, rows))
+    (h : buildPlanG n C ext g (alpha m0) slot src = some (k, rows))
     (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n)
-    (hv : ∀ l ∈ laws, LawValid (src.map SrcRow.flat) n (alpha m0) l)
+    (hslot : ∀ k, slot = some k → ScaledCover n C (src.map SrcRow.flat) (alpha m0) k)
     (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
     (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0)
     (hnsl : ∀ r ∈ rows, ConsumeNoSelfLoop r.cls) :
     Premises ⟨C, k, n, rows, invs, alpha m0⟩ m0 :=
-  (buildPlanG_premisesS h hnd hC hv hG hinv).withNoSelfLoop hnsl
+  (buildPlanG_premisesS h hnd hC hslot hG hinv).withNoSelfLoop hnsl
 
-/-- `buildPlanG_premises` for the shipped `build_plan`. -/
+/-- `buildPlanG_premises` for the shipped `build_plan`: no hypothesis about the simplex. -/
 theorem buildPlan_premises {n : Nat} {C : List PlaceId} {ext : Bool}
-    {laws : List Law} {src : List SrcRow} {k : Nat} {rows : List CRow} {m0 : CMarking}
-    {invs : List Weight}
-    (h : buildPlan n C ext (alpha m0) laws src = some (k, rows))
+    {ans : Option (Nat × Weight)} {src : List SrcRow} {k : Nat} {rows : List CRow}
+    {m0 : CMarking} {invs : List Weight}
+    (h : buildPlan n C ext (alpha m0) ans src = some (k, rows))
     (hnd : C.Nodup) (hC : ∀ p ∈ C, p < n)
-    (hv : ∀ l ∈ laws, LawValid (src.map SrcRow.flat) n (alpha m0) l)
     (hG : ∀ s ∈ src, GuardFreeConsumeAll s.t)
     (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0)
     (hnsl : ∀ r ∈ rows, ConsumeNoSelfLoop r.cls) :
     Premises ⟨C, k, n, rows, invs, alpha m0⟩ m0 :=
-  buildPlanG_premises h hnd hC hv hG hinv hnsl
+  (buildPlan_premisesS h hnd hC hG hinv).withNoSelfLoop hnsl
 
 /-- `buildPlanG_premises` for the `build_plan` before the NU-010 fix. -/
 theorem buildPlanBudget_premises {n : Nat} {C : List PlaceId} {ext : Bool}
@@ -565,7 +615,7 @@ theorem buildPlanBudget_premises {n : Nat} {C : List PlaceId} {ext : Bool}
     (hinv : ∀ y ∈ invs, ∀ s ∈ src, ZeroOnNonlinear y s.t n ∧ dotIncD y s.flat n = 0)
     (hnsl : ∀ r ∈ rows, ConsumeNoSelfLoop r.cls) :
     Premises ⟨C, k, n, rows, invs, alpha m0⟩ m0 :=
-  buildPlanG_premises h hnd hC hv hG hinv hnsl
+  (buildPlanBudget_premisesS h hnd hC hv hG hinv).withNoSelfLoop hnsl
 
 /-! ## The shipped gates -/
 

@@ -128,19 +128,19 @@ fn verify_open_net_splits_with_the_carriers_its_hook_declares() {
     assert!(matches!(&result.verdict, Verdict::Unknown { reason } if reason.contains(refusal)), "{}", result.report);
 }
 
-/// `build_plan` asks for the semiflows only after every structural refusal: the
-/// colour-slot bound is the one step that reads them, and their enumeration is
-/// worst-case exponential. With `copy: extra → branchA` writing a coloured place as an
-/// undeclared mint, the classification refuses the plan, so the supplier never runs
-/// and its report line never appears. Without `copy` the plan is built and the line is
-/// there, which is what makes its absence mean something.
+/// `build_plan` solves the colour-slot program only after every structural refusal, and
+/// writes its report line right after the re-check. With `copy: extra → branchA` writing a
+/// coloured place as an undeclared mint, the classification refuses the plan, so the
+/// simplex never runs and the line never appears. Without `copy` the plan is built and the
+/// line is there, which is what makes its absence mean something. Neither run enumerates a
+/// semiflow: the slot bound is not a semiflow search.
 #[test]
-fn an_undeclared_mint_refuses_the_coloured_plan_before_the_semiflows_are_computed() {
+fn an_undeclared_mint_refuses_the_coloured_plan_before_the_slot_bound_is_solved() {
     if !z3_available() {
         eprintln!("skipping: z3 binary not on PATH");
         return;
     }
-    const SLOT_SEMIFLOWS: &str = "P-semiflows for the colour-slot bound";
+    const SLOT_BOUND: &str = "Colour-slot bound: ";
     let run = |net: &PetriNet| {
         SmtVerifier::for_net(net)
             .initial_marking(MarkingStateBuilder::new().tokens("source", 1).tokens("extra", 1).build())
@@ -152,8 +152,17 @@ fn an_undeclared_mint_refuses_the_coloured_plan_before_the_semiflows_are_compute
     };
 
     let declared = run(&fork_join());
-    assert!(declared.report.contains("ν-encoding: name-coloured"), "{}", declared.report);
-    assert!(declared.report.contains(SLOT_SEMIFLOWS), "{}", declared.report);
+    assert!(declared.report.contains("ν-encoding: name-coloured (colour-slot bound k=2;"), "{}", declared.report);
+    // `source` weighs at least both keys: optimum 2 over source, branchA and branchB, and
+    // the fork, the one row producing into them.
+    assert!(
+        declared.report.contains(
+            "  Colour-slot bound: LP optimum 2 over 3 places and 1 transitions, so k=2 (re-checked in exact arithmetic)\n"
+        ),
+        "{}",
+        declared.report
+    );
+    assert_eq!(declared.report.matches(SLOT_BOUND).count(), 1, "{}", declared.report);
 
     let (extra, a) = (Place::<()>::new("extra"), Place::<String>::new("branchA"));
     let copy = Transition::builder("copy").input(one(&extra)).output(out_place(&a)).action(fork()).build();
@@ -163,5 +172,8 @@ fn an_undeclared_mint_refuses_the_coloured_plan_before_the_semiflows_are_compute
         .build();
     let undeclared = run(&net);
     assert!(!undeclared.report.contains("ν-encoding: name-coloured"), "{}", undeclared.report);
-    assert!(!undeclared.report.contains(SLOT_SEMIFLOWS), "{}", undeclared.report);
+    assert!(!undeclared.report.contains(SLOT_BOUND), "{}", undeclared.report);
+    for report in [&declared.report, &undeclared.report] {
+        assert!(!report.contains("semiflow"), "{report}");
+    }
 }

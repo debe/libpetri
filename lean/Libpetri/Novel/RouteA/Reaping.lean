@@ -39,9 +39,10 @@ module models that and proves it sound for the executor's rest markings.
 * **`ReapW.reaping_breaks_routeA_quiescence`**: the witness, a plan `build_plan` returns. The
   net is `ReapingVsUntimed.lean`'s `p₀ —t→ p₁` with `t = window(3, 5)`, beside a ν-join
   `join : a, b → done` keyed on `a` and `b`. `buildPlan` accepts it with `C = [a, b]` and
-  `k = 1` (`planW`), and every `Premises` field holds. The strict query (the one
-  `assume_no_reaping` asks) is `Proven`, while both backends' timed runs rest at `{p₀}`, which
-  strands a token. The shipped reap-aware query is violated at the seed, so it is not `Proven`.
+  `k = 0` from the simplex's own answer (`planW`), and every `Premises` field holds. The strict
+  query (the one `assume_no_reaping` asks) is `Proven`, while both backends' timed runs rest at
+  `{p₀}`, which strands a token. The shipped reap-aware query is violated at the seed, so it is
+  not `Proven`.
 -/
 
 namespace Libpetri.Novel.RouteA
@@ -219,9 +220,12 @@ def CW : List PlaceId := [2, 3]
 /-- The rows as `build_plan` receives them: only the join has a `match_spec`. -/
 def srcW : List SrcRow := [⟨tR, [1], none, false, []⟩, ⟨tJ, [4], some ⟨[2, 3], []⟩, false, []⟩]
 
-/-- A validated semiflow covering both keys: `p₀ + p₁ + a + b + 2·done = 1`. -/
-def yW : Weight := fun p => if p = 4 then 2 else if p ≤ 3 then 1 else 0
-def lawsW : List Law := [⟨yW, 1⟩]
+/-- The weighting the simplex returns on this net: `a + b`, denominator one. Nothing produces into
+a key, so the slot-bound program's optimum is `0` (the old semiflow bound was `0` too, from the
+laws `a + done` and `b + done`). -/
+def yW : Weight := fun p => if p = 2 ∨ p = 3 then 1 else 0
+/-- The simplex's answer: denominator `1`, weighting `yW`. -/
+def ansW : Option (Nat × Weight) := some (1, yW)
 
 /-- The ν initial marking: one token (any payload) on `p₀`. -/
 def m0W : CMarking := mk [[0]]
@@ -232,12 +236,13 @@ theorem alpha_m0W : alpha m0W = a0R := by
   · rfl
   · simp [alpha, m0W, mk, a0R]
 
-/-- **`build_plan` accepts the net** with the keys coloured and `k = 1`. -/
-theorem planW : buildPlan 5 CW false (alpha m0W) lawsW srcW = some (1, rowsW) := by
+/-- **`build_plan` accepts the net** with the keys coloured and `k = 0`: the checker accepts the
+simplex's answer, and `k = 0` is refused only when every place is coloured. -/
+theorem planW : buildPlan 5 CW false (alpha m0W) ansW srcW = some (0, rowsW) := by
   rfl
 
 /-- The Route A encoding of that plan, with no conjoined invariant. -/
-def encW : Enc := ⟨CW, 1, 5, rowsW, [], alpha m0W⟩
+def encW : Enc := ⟨CW, 0, 5, rowsW, [], alpha m0W⟩
 
 theorem unguarded_mkT (name : String) (ins : List PlaceId) : Unguarded (mkT name ins) := by
   intro s hs
@@ -251,18 +256,10 @@ theorem distinct_mkT (name : String) (ins : List PlaceId) :
   simp [specAt_mkT, inp1, hq]
 
 /-- **Every premise of `routeA_quiescence_sound` holds of the witness**, through
-`buildPlan_premises` from the plan `build_plan` returns. -/
+`buildPlan_premises` from the plan `build_plan` returns. No fact about the simplex is needed:
+the checker vouched for the bound. -/
 theorem premisesW : Premises encW m0W := by
-  refine buildPlan_premises planW (by decide) (by decide) ?_ ?_ (by simp) ?_
-  · intro l hl
-    simp only [lawsW, List.mem_singleton] at hl
-    subst hl
-    refine ⟨fun tr htr => ?_, ?_⟩
-    · simp only [srcW, SrcRow.flat, List.map_cons, List.map_nil, List.mem_cons,
-        List.not_mem_nil, or_false] at htr
-      rcases htr with rfl | rfl <;>
-        simp [dotIncD, isum, Finset.sum_range_succ, tR_eq, tJ, pre_mkT, yW]
-    · simp [dot_eq_isum, isum, Finset.sum_range_succ, alpha, m0W, mk, yW]
+  refine buildPlan_premises planW (by decide) (by decide) ?_ (by simp) ?_
   · intro s hs
     simp only [srcW, List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl
@@ -286,8 +283,8 @@ theorem distinctW : ∀ r ∈ encW.rows, InputsDistinctPlaces r.t := by
   · exact distinct_mkT "t" [0]
   · exact distinct_mkT "join" [2, 3]
 
-/-- Every reachable encoding state has every colour column and `done` empty: nothing produces
-into a key, so the join's colour guard never holds. -/
+/-- Every reachable encoding state has every colour column and `done` empty: at `k = 0` the join
+has no colour to fire under, and nothing produces into a key. -/
 theorem reach_invW : ∀ e, ReachE encW e → (∀ p c, e.s p c = 0) ∧ e.u 4 = 0 := by
   intro e h
   induction h with
@@ -340,7 +337,7 @@ theorem untimed_routeA_proven :
 def RW : List String := ["t"]
 
 /-- **The shipped reap-aware query is violated at the seed**: the row of `t` is skipped, the
-join is disabled for its only colour, and `{p₀}` strands a token. -/
+join is disabled for every colour (at `k = 0` there is none), and `{p₀}` strands a token. -/
 theorem reapAware_query_violated :
     ReachE encW (e0 encW) ∧ DeadERs encW RW (e0 encW) ∧ QW (agg encW.C encW.k (e0 encW)) := by
   refine ⟨Relation.ReflTransGen.refl, fun r hr => ?_, ?_⟩
@@ -397,7 +394,7 @@ theorem restsW_PB : ReapAware.RestsAt enforcePB tmW netW a0R a0R := by
 
 /-- **Reaping breaks the strict Route A quiescence verdict, and the shipped reap-aware query
 sees it.**
-1. `build_plan` returns a plan with `C = [a, b]` and `k = 1`, and every premise of
+1. `build_plan` returns a plan with `C = [a, b]` and `k = 0`, and every premise of
    `routeA_quiescence_sound` holds.
 2. The strict `DeadlockFree` query (`DeadE`, what `assume_no_reaping` asks, `deadERs_nil`) is
    `Proven`.
@@ -408,7 +405,7 @@ sees it.**
    rows) is violated at the seed, so it is not `Proven`: `routeA_reap_aware_sound` could not
    have been applied, as it must not be. -/
 theorem reaping_breaks_routeA_quiescence :
-    buildPlan 5 CW false (alpha m0W) lawsW srcW = some (1, rowsW) ∧ Premises encW m0W ∧
+    buildPlan 5 CW false (alpha m0W) ansW srcW = some (0, rowsW) ∧ Premises encW m0W ∧
       (∀ e, ReachE encW e → ¬ (DeadERs encW [] e ∧ QW (agg encW.C encW.k e))) ∧
       ReapAware.RestsAt enforceBB tmW netW (alpha m0W) (alpha m0W) ∧
       ReapAware.RestsAt enforcePB tmW netW (alpha m0W) (alpha m0W) ∧
