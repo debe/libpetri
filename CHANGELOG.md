@@ -1,6 +1,6 @@
 # Changelog
 
-## Rust 10.1.0 / Python 7.2.0 — 2026-10-05
+## Rust 10.1.0 / Python 7.2.0 — 2026-10-06
 
 Both releases are minor: everything below is additive.
 
