@@ -11,8 +11,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Active requirements: **224**
 - Proven in Lean (≥ 1 validated theorem fragment): **34**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **40**
-- Referenced by ≥ 1 test file: java **107**, typescript **106**, rust **119**, python **61**
-- Untested anywhere (no test-file reference in any language): **98**
+- Referenced by ≥ 1 test file: java **107**, typescript **106**, rust **122**, python **62**
+- Untested anywhere (no test-file reference in any language): **96**
 
 ## 01-core-model.md — CORE
 
@@ -81,15 +81,15 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | TIME-001 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-002 | — | — | ✓ | ✓ | ✓ | ✓ |
 | TIME-003 | — | ✓ | — | — | — | — |
-| TIME-004 | — | — | — | — | — | — |
-| TIME-005 | — | ✓ | ✓ | — | — | — |
+| TIME-004 | — | — | — | — | ✓ | — |
+| TIME-005 | — | ✓ | ✓ | — | ✓ | — |
 | TIME-006 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-010 | `collect_ready_general_refines` — ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md) | ✓ | — | — | ✓ | — |
 | TIME-011 | `pb_update_reenables` — a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit) | ✓ | — | — | ✓ | — |
 | TIME-012 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-013 | `deadline_reap_dirty_diverges` — retrodiction of the pre-ruling precompiled re-arm: before the 2026-09-30 TIME-013 ruling the precompiled enforce_deadlines re-dirtied a reaped transition and fired it once its window reopened, the bitmap one never did, on a one-transition quiet-net control-cell model; the ruling took the bitmap side for both backends<br>`bb_never_fires_after_reap` — the TIME-013 ruling, 'stays disabled': with no token mutation after a reap the transition never fires again, over every schedule, in both backends since the ruling - quiet-net control-cell fragment only<br>`bb_reaped_stays_disabled` — induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the shipped cycle over any schedule<br>`reaped_rearms_on_touch` — the TIME-013 ruling, 'until an input changes': a token change marks the reaped cell dirty and the next cycle re-enables it on the fresh clock without reaping it again - one control cell, the token change abstracted to a dirty mark and a presence bit<br>`rest_sound` — holds for any reaping rule that leaves non-reapable transitions alone | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-014 | — | — | — | — | — | — |
-| TIME-015 | — | ✓ | ✓ | ✓ | ✓ | — |
+| TIME-015 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 04-execution-model.md — EXEC
 
@@ -140,7 +140,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 |----|---------------------------------|----------|------|------------|------|--------|
 | ENV-001 | — | — | — | — | — | — |
 | ENV-002 | — | — | — | — | — | — |
-| ENV-003 | — | — | — | — | — | — |
+| ENV-003 | — | — | — | — | ✓ | — |
 | ENV-004 | — | ✓ | ✓ | ✓ | — | — |
 | ENV-005 | — | — | — | ✓ | ✓ | — |
 | ENV-006 | — | — | — | — | — | — |
