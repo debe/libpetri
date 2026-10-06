@@ -51,6 +51,90 @@ Python exposes one production path backed by Rust's owned precompiled net. The e
 
 Outputs are normally published atomically when an action returns. In an async action, `ctx.flush()` publishes the current batch early so downstream transitions can run while the action continues. Published batches are not rolled back if the action later fails. The verifier does not model `ctx.flush()`: it reads the outputs of a transition it verifies in two steps (VER-004) as landing together when the action completes, and the report of such a verdict says so.
 
+### Running asyncio code on the host loop
+
+`lp.action_on_loop(coro)` schedules a coroutine on the loop captured by `run_async` / `start_async` and returns an awaitable for its result. Inside that coroutine the loop is running, so `asyncio.get_running_loop()`, `asyncio.create_task()` and libraries built on them work. Use it when an action calls asyncio code that has to run on the host's loop:
+
+```python
+async def call_tool(ctx: lp.TransitionContext) -> None:
+    request = ctx.input("request")
+    reply = await lp.action_on_loop(client.send(request))  # client bound to the host loop
+    ctx.output("reply", reply)
+```
+
+## Event stores
+
+`event_store=` on `run_sync`, `run_async` and `start_async` takes an `lp.InMemoryEventStore` or any object with an `append(event)` method (`lp.EventStoreProtocol`). A store written in Python can wrap another one, and a chain can end in an `InMemoryEventStore` through its `append`:
+
+```python
+class Logging:
+    def __init__(self, inner: lp.InMemoryEventStore) -> None:
+        self.inner = inner
+
+    def append(self, event: lp.NetEvent) -> None:
+        print(event.type, event.transition_name)
+        self.inner.append(event)
+
+memory = lp.InMemoryEventStore()
+handle, done = lp.start_async(net, initial=..., event_store=Logging(memory))
+await done                    # every event has reached append() by now
+assert handle.event_store_error is None
+```
+
+- `append` runs on a libpetri thread, never on the executor's thread, and sees the events of one run in order. Events are handed over in batches with one GIL acquisition per batch.
+- Every event has been delivered by the time `run_sync` returns or the run's awaitable resolves.
+- An exception from `append` does not stop the run. It is logged to the `libpetri` logger, later events are still delivered, and on an async run the first one is kept on `ExecutorHandle.event_store_error`. A sync run has no handle, so there it is only logged.
+- Two optional members are read once when the run starts, as an attribute or a zero-argument method. `is_enabled` set to false turns event recording off for the run. `captures_tokens` is described next.
+
+### Token capture
+
+By default events carry no token values. To get them on `TokenAdded` and `TokenRemoved`, ask for them on the outermost store: `lp.InMemoryEventStore(capture_tokens=True)`, or a list of place names to capture only those places. A Python store sets a `captures_tokens` attribute with the same meaning. The value is `event.token`, the same object that sits in the marking (not a copy), and `None` when it was not captured:
+
+```python
+store = lp.InMemoryEventStore(capture_tokens=["order"])
+lp.run_sync(net, initial={"order": [order]}, event_store=store)
+taken = [e for e in store.events() if e.type == "TokenRemoved" and e.place_name == "order"]
+assert taken[0].token is order
+```
+
+## Clocks
+
+By default a run reads wall time. `ExecutorOptions(clock=...)` gives it a virtual clock instead (TIME-015). Both clocks are implemented in Rust; a clock written in Python is not supported, because the executor reads its clock on every cycle and would take the GIL each time.
+
+- **`lp.ManualClock(epoch_origin_ms=0)`** jumps to each timing boundary by itself. A net full of `delayed`, `window` and `deadline` transitions runs to the end in negligible real time, and the same inputs give the same timestamps on every run. Use it for replays and fast tests. It can be reused across runs.
+- **`lp.SteppedClock(epoch_origin_ms=0)`** moves only when you call `advance_ms`. The executor parks until then, and `settle` waits until it has parked again, so a test can step time and then check what fired:
+
+```python
+clock = lp.SteppedClock()
+handle, done = lp.start_async(
+    net,
+    initial={"queued": [job]},
+    options=lp.ExecutorOptions(
+        clock=clock, deadline_tolerance_ms=0, environment_places=("events",)
+    ),
+    event_store=store,
+)
+await clock.asettle(5.0)                                   # the first park
+await clock.asettle_after(lambda: clock.advance_ms(1000), 5.0)
+# a delayed(1000) transition has fired by now
+await clock.asettle_after(lambda: handle.inject("events", item), 5.0)
+```
+
+Both clocks have `advance_ms(ms)`, `now_ms()` (alias `elapsed_ms()`) and `epoch_ms()`. `SteppedClock` adds `is_parked()`, `is_finished()`, `park_count()` and four ways to wait:
+
+- `settle(timeout_s=None)` blocks until the executor is parked or the run has ended. Use it for the first park.
+- `settle_after(action, timeout_s=None)` calls `action()` and then blocks until a park that started after it, or the end of the run. After an advance or an inject, use this form: the parked flag can still describe the park your action just ended.
+- `asettle(timeout_s=None)` and `asettle_after(action, timeout_s=None)` are the awaitable forms. They suspend the task instead of blocking the thread, so they can run on the loop that drives the run. `asettle_after` calls `action` right away, before it returns the awaitable.
+
+Each returns `True` when settled and `False` when `timeout_s` seconds pass first. The blocking forms release the GIL; call them from a different thread than the one inside `run_sync`. "Parked" describes the orchestrator only: an `async def` action that is still running is not waited for.
+
+Points to know:
+
+- **A `SteppedClock` serves one run.** When the run ends, however it ends, the clock is marked finished and every settle call returns `True`. Passing it to a second run raises `ValueError`.
+- **Set `deadline_tolerance_ms=0` with a `SteppedClock`.** The default 5 ms tolerance lets a hard deadline (`deadline()`, `window()`) fire up to 5 ms late. With 0, a `window(50, 120)` transition still fires when you advance to exactly 120 and is reaped when you advance to 120.001.
+- **Timestamps follow the clock.** Tokens created during the run, legacy `initial` values, and values passed to `handle.inject` / `inject_many` are stamped from `clock.epoch_ms()`. Structured `initial` tokens (`{"value": v, "created_at": ms}`, as `MarkingView.snapshot()` produces) keep their own `created_at`.
+- **Action timeouts are not virtual.** `lp.timeout(after, ...)` on an output spec still waits `after` milliseconds of real time; the clock only stamps the recovery tokens.
+
 ## Capabilities
 
 - Input, output, read, inhibitor, and reset arcs.

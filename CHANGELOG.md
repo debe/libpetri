@@ -1,5 +1,63 @@
 # Changelog
 
+## Rust 10.1.0 / Python 7.2.0 — 2026-10-05
+
+Both releases are minor: everything below is additive.
+
+### Added
+
+- **`SteppedClock`, a clock the host steps by hand (Rust and Python, [TIME-015]).** The executor parks on it until the host calls `advance_ms`. `settle_after` runs a host action (an advance or an inject) and then waits until the executor has parked again, or the run has ended, so a test can step time and check what fired. Only a park that starts after the action counts, so a settle never returns on the park the action just ended.
+
+  ```rust
+  let clock = Arc::new(SteppedClock::new());
+  // run the executor with `.clock(clock.clone())` on another thread or task
+  assert!(clock.settle(Some(Duration::from_secs(5))));            // first park
+  assert!(clock.settle_after(|| clock.advance_ms(1000.0), Some(Duration::from_secs(5))));
+  // a delayed(1000) transition has fired; call clock.mark_finished() when the run returns
+  ```
+
+  Rust also gets `settle_since(park_count, timeout)` for a host that reads `park_count()` itself, and async forms `settled`, `settled_after` and `settled_since` under the `tokio` feature. A Rust host must call `mark_finished()` when the run returns. A `SteppedClock` serves one run.
+
+- **Clocks in Python ([TIME-015]).** `ExecutorOptions(clock=...)` takes an `lp.ManualClock` or an `lp.SteppedClock`; anything else raises `TypeError`. A Python-implemented clock is still not supported. `ManualClock` jumps to each timing boundary, so a `delayed(10_000)` run finishes at once. `SteppedClock` adds `settle`, `settle_after`, `asettle` and `asettle_after`, each with `timeout_s` in seconds:
+
+  ```python
+  clock = lp.SteppedClock()
+  handle, done = lp.start_async(
+      net, initial={"queued": [job]},
+      options=lp.ExecutorOptions(clock=clock, deadline_tolerance_ms=0),
+  )
+  await clock.asettle(5.0)
+  assert await clock.asettle_after(lambda: clock.advance_ms(1000), 5.0)
+  ```
+
+  The binding marks a `SteppedClock` finished when the run ends, on every path, so settle waiters return. Reusing a `SteppedClock` for a second run raises `ValueError`. Under a clock, legacy `initial` values, `handle.inject` / `inject_many` values and tokens published by `ctx.flush()` are stamped from the clock's `epoch_ms()`. Structured `initial` tokens keep their `created_at`.
+
+- **Event stores written in Python.** `event_store=` accepts any object with an `append(event)` method (`lp.EventStoreProtocol`), so stores can wrap each other, and `InMemoryEventStore.append` lets a chain end in the Rust store. Events reach `append` in order on a libpetri thread, in batches with one GIL acquisition each, and all of them have been delivered when `run_sync` returns or the run's awaitable resolves. Optional `is_enabled` and `captures_tokens` members are read once at run start.
+
+  ```python
+  class Audit:
+      def __init__(self, inner: lp.InMemoryEventStore) -> None:
+          self.inner = inner
+      def append(self, event: lp.NetEvent) -> None:
+          audit_log.write(event.type)
+          self.inner.append(event)
+
+  handle, done = lp.start_async(net, initial=..., event_store=Audit(lp.InMemoryEventStore()))
+  await done
+  assert handle.event_store_error is None
+  ```
+
+- **`ExecutorHandle.event_store_error`.** An exception raised by a Python store's `append` does not stop the run. It is logged to the `libpetri` logger, later events are still delivered, and on an async run the first one is kept here. A sync run only logs it.
+
+- **Token values on events.** `InMemoryEventStore(capture_tokens=True)`, or a list of place names, puts the token value on `TokenAdded` and `TokenRemoved` as `event.token`. It is the same object as the token in the marking. A Python store asks for the same with a `captures_tokens` attribute; the outermost store decides.
+
+- **`lp.action_on_loop(coro)`.** Runs a coroutine on the asyncio loop captured by `run_async` / `start_async` and returns an awaitable for its result. Inside the coroutine `asyncio.get_running_loop()` and `create_task()` work, which they do not inside an `async def` action itself.
+
+  ```python
+  async def call_tool(ctx: lp.TransitionContext) -> None:
+      ctx.output("reply", await lp.action_on_loop(client.send(ctx.input("request"))))
+  ```
+
 ## Java 9.0.0 / TypeScript 8.1.0 / Rust 10.0.0 / Python 7.1.0 — 2026-10-05
 
 **Rust 10.0.0 and Java 9.0.0 are major** (the plan-builder signature below); TypeScript 8.1.0 and Python 7.1.0 are minor.

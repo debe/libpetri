@@ -15,9 +15,9 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from . import _libpetri
-from .asyncio_helpers import action_gather, action_to_thread
+from .asyncio_helpers import action_gather, action_on_loop, action_to_thread
 from .debug import DebugProtocolHandler, SessionSummary, require_debug
-from .events import InMemoryEventStore, NetEvent
+from .events import EventStoreProtocol, InMemoryEventStore, NetEvent
 from .export import DotConfig, RankDir, dot_export
 
 if _libpetri.HAS_TOKIO:
@@ -87,8 +87,10 @@ from .runtime import (
     CompiledNet,
     ExecutorHandle,
     ExecutorOptions,
+    ManualClock,
     MarkingView,
     SnapshotResult,
+    SteppedClock,
     compile,
     run_async,
     run_sync,
@@ -161,6 +163,7 @@ __all__ = [
     "HAS_DEBUG",
     "HAS_TOKIO",
     "HAS_Z3",
+    "EventStoreProtocol",
     "InMemoryEventStore",
     "InputSpec",
     "InhibitorArc",
@@ -171,8 +174,10 @@ __all__ = [
     "InterfaceBuilder",
     "BuiltInterface",
     "LibpetriError",
+    "ManualClock",
     "MarkingView",
     "SnapshotResult",
+    "SteppedClock",
     "Net",
     "NetBuilder",
     "NetEvent",
@@ -204,6 +209,7 @@ __all__ = [
     "VerificationHarness",
     "VerificationResult",
     "action_gather",
+    "action_on_loop",
     "action_to_thread",
     "all_tokens",
     "always_available",

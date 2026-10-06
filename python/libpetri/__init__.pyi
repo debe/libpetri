@@ -5,6 +5,7 @@ from __future__ import annotations
 from . import _libpetri
 from .asyncio_helpers import (
     action_gather as action_gather,
+    action_on_loop as action_on_loop,
     action_to_thread as action_to_thread,
 )
 from .debug import (
@@ -20,6 +21,7 @@ from .archive import (
     SessionArchiveWriter as SessionArchiveWriter,
 )
 from .events import (
+    EventStoreProtocol as EventStoreProtocol,
     EventStream as EventStream,
     EventSubscription as EventSubscription,
     InMemoryEventStore as InMemoryEventStore,
@@ -86,8 +88,10 @@ from .runtime import (
     CompiledNet as CompiledNet,
     ExecutorHandle as ExecutorHandle,
     ExecutorOptions as ExecutorOptions,
+    ManualClock as ManualClock,
     MarkingView as MarkingView,
     SnapshotResult as SnapshotResult,
+    SteppedClock as SteppedClock,
     compile as compile,
     run_async as run_async,
     run_sync as run_sync,

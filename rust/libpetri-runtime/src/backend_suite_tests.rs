@@ -3583,6 +3583,423 @@ mod clock_restart_async {
     }
 }
 
+// ===================== Host-stepped clock (TIME-015) =====================
+
+/// \[TIME-015\] on a [`SteppedClock`](crate::clock::SteppedClock): the host
+/// owns time, and the executor parks until the host advances it. The run
+/// happens on a second thread (or task) while the test plays host, which is
+/// the shape a replay driver has. Every settle carries a timeout, so a
+/// broken clock fails the test rather than hanging it.
+mod stepped_clock {
+    use super::*;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    use libpetri_core::timing::{delayed, window};
+
+    use crate::clock::{ClockWait, ExecutorClock, SteppedClock};
+
+    const SETTLE: Option<Duration> = Some(Duration::from_secs(5));
+
+    #[derive(Clone, Copy, Debug)]
+    enum Backend {
+        Bitmap,
+        Precompiled,
+    }
+
+    /// Delegates to a [`SteppedClock`] and counts how often the executor
+    /// enters a wait, so a spin shows up as a count rather than as patience.
+    #[derive(Debug)]
+    struct CountingClock {
+        inner: Arc<SteppedClock>,
+        waits: AtomicUsize,
+    }
+
+    impl CountingClock {
+        fn new(inner: &Arc<SteppedClock>) -> Arc<Self> {
+            Arc::new(Self {
+                inner: Arc::clone(inner),
+                waits: AtomicUsize::new(0),
+            })
+        }
+
+        fn waits(&self) -> usize {
+            self.waits.load(Ordering::SeqCst)
+        }
+    }
+
+    impl ExecutorClock for CountingClock {
+        fn now_ms(&self) -> f64 {
+            self.inner.now_ms()
+        }
+
+        fn epoch_ms(&self) -> u64 {
+            self.inner.epoch_ms()
+        }
+
+        fn await_work(&self, ready: &dyn Fn() -> bool, delay_ms: f64) {
+            self.waits.fetch_add(1, Ordering::SeqCst);
+            self.inner.await_work(ready, delay_ms)
+        }
+
+        fn await_work_async(&self, delay_ms: f64) -> ClockWait<'_> {
+            self.waits.fetch_add(1, Ordering::SeqCst);
+            self.inner.await_work_async(delay_ms)
+        }
+    }
+
+    /// Keeps advancing the clock far past every boundary until the run is
+    /// marked finished, when dropped. A host that fails an assertion stops
+    /// stepping, and the run it was driving would stay parked, so the scope
+    /// joining it would hang instead of reporting the failure. Every sync net
+    /// here ends once time passes its last boundary.
+    struct Unstick<'a>(&'a SteppedClock);
+
+    impl Drop for Unstick<'_> {
+        fn drop(&mut self) {
+            for _ in 0..1_000 {
+                if self.0.is_finished() {
+                    return;
+                }
+                self.0.advance_ms(1.0e9);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    /// Runs `net` to completion with `run_sync` on `clock`, strict deadlines,
+    /// then marks `stepped` finished, as a host must when the run returns.
+    fn run_sync_stepped(
+        backend: Backend,
+        net: &PetriNet,
+        marking: Marking,
+        clock: Arc<dyn ExecutorClock>,
+        stepped: &SteppedClock,
+    ) -> RunResult {
+        let result = match backend {
+            Backend::Bitmap => {
+                let options = ExecutorOptions::default().deadline_tolerance_ms(0.0).clock(clock);
+                let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(net, marking, options);
+                let marking = executor.run_sync().into_owned();
+                RunResult {
+                    marking,
+                    events: executor.event_store().events().to_vec(),
+                    quiescent: executor.is_quiescent(),
+                }
+            }
+            Backend::Precompiled => {
+                let prog = PrecompiledNet::from_compiled(CompiledNet::compile(net));
+                let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+                    .event_store(InMemoryEventStore::new())
+                    .deadline_tolerance_ms(0.0)
+                    .clock(clock)
+                    .build();
+                let marking = executor.run_sync().into_owned();
+                RunResult {
+                    marking,
+                    events: executor.event_store().events().to_vec(),
+                    quiescent: executor.is_quiescent(),
+                }
+            }
+        };
+        stepped.mark_finished();
+        result
+    }
+
+    /// `T` (`timing`) moves the token from `p_in` to `p_out` and records the
+    /// firing-clock instant it fired at.
+    fn timed_net(
+        timing: libpetri_core::timing::Timing,
+        clock: &Arc<SteppedClock>,
+        fired_at: &Arc<Mutex<Vec<f64>>>,
+    ) -> (PetriNet, Marking) {
+        let p_in = Place::<i32>::new("p_in");
+        let p_out = Place::<i32>::new("p_out");
+        let clock = Arc::clone(clock);
+        let fired_at = Arc::clone(fired_at);
+        let t = Transition::builder("T")
+            .input(one(&p_in))
+            .output(out_place(&p_out))
+            .timing(timing)
+            .action(sync_action(move |ctx| {
+                fired_at.lock().unwrap_or_else(|e| e.into_inner()).push(clock.elapsed_ms());
+                ctx.output("p_out", 1i32)?;
+                Ok(())
+            }))
+            .build();
+        let net = PetriNet::builder("stepped").transition(t).build();
+        let mut marking = Marking::new();
+        marking.add(&p_in, Token::at(0, 0));
+        (net, marking)
+    }
+
+    fn started(events: &[NetEvent], name: &str) -> bool {
+        events.iter().any(|e| {
+            matches!(e, NetEvent::TransitionStarted { transition_name, .. } if &**transition_name == name)
+        })
+    }
+
+    fn timed_out_at(events: &[NetEvent], name: &str) -> Option<u64> {
+        events.iter().find_map(|e| match e {
+            NetEvent::TransitionTimedOut { transition_name, timestamp } if &**transition_name == name => {
+                Some(*timestamp)
+            }
+            _ => None,
+        })
+    }
+
+    /// AC#3: `delayed(1000)` fires only once the host has advanced the clock
+    /// to 1000, at exactly 1000, with no real second spent. The first
+    /// advance stops short, and the executor parks again without firing.
+    fn delayed_waits_for_the_host(backend: Backend) {
+        let real_start = Instant::now();
+        let clock = Arc::new(SteppedClock::new());
+        let fired_at = Arc::new(Mutex::new(Vec::new()));
+        let (net, marking) = timed_net(delayed(1000), &clock, &fired_at);
+
+        let result = std::thread::scope(|s| {
+            let run = s.spawn(|| run_sync_stepped(backend, &net, marking, clock.clone(), &clock));
+            let _unstick = Unstick(&clock);
+
+            assert!(clock.settle(SETTLE), "{backend:?}: the executor parks on the boundary");
+            assert!(fired_at.lock().unwrap().is_empty(), "{backend:?}: nothing fires at 0");
+
+            assert!(clock.settle_after(|| clock.advance_ms(999.0), SETTLE));
+            assert!(fired_at.lock().unwrap().is_empty(), "{backend:?}: not before its earliest bound");
+            assert!(!clock.is_finished());
+
+            assert!(clock.settle_after(|| clock.advance_ms(1.0), SETTLE));
+            assert_eq!(*fired_at.lock().unwrap(), vec![1000.0], "{backend:?}: fires at exactly 1000");
+            run.join().unwrap()
+        });
+        assert!(result.quiescent);
+        assert_eq!(result.marking.count("p_out"), 1);
+        assert!(
+            real_start.elapsed() < Duration::from_millis(900),
+            "{backend:?}: the 1000 ms delay must not elapse in real time"
+        );
+    }
+
+    /// AC#6: under tolerance 0 a `window(50, 120)` transition is reaped at
+    /// any instant past 120 and still fires at 120 itself. The host makes a
+    /// single advance over the earliest bound, so the first cycle that sees
+    /// the transition ready is the one at the advanced instant.
+    fn deadline_reaped_exactly_at_bound(backend: Backend) {
+        for (step, reaped) in [(120.0, false), (120.001, true)] {
+            let clock = Arc::new(SteppedClock::new());
+            let fired_at = Arc::new(Mutex::new(Vec::new()));
+            let (net, marking) = timed_net(window(50, 120), &clock, &fired_at);
+
+            let result = std::thread::scope(|s| {
+                let run = s.spawn(|| run_sync_stepped(backend, &net, marking, clock.clone(), &clock));
+                let _unstick = Unstick(&clock);
+                assert!(clock.settle(SETTLE), "{backend:?}: parks before the window opens");
+                assert!(clock.settle_after(|| clock.advance_ms(step), SETTLE));
+                run.join().unwrap()
+            });
+
+            if reaped {
+                assert_eq!(
+                    timed_out_at(&result.events, "T"),
+                    Some(120),
+                    "{backend:?}: reaped at {step}, stamped from the stepped epoch clock"
+                );
+                assert!(!started(&result.events, "T"), "{backend:?}: a reaped transition never fires");
+                assert_eq!(result.marking.count("p_in"), 1, "{backend:?}: the reap keeps the token");
+            } else {
+                assert_eq!(timed_out_at(&result.events, "T"), None, "{backend:?}: 120 is within the bound");
+                assert_eq!(*fired_at.lock().unwrap(), vec![120.0], "{backend:?}: fires at its bound");
+            }
+        }
+    }
+
+    /// AC#15 on the synchronous path: a parked executor enters the wait once
+    /// and stays there, however long the host takes. Bounded by the number
+    /// of wait entries, not by a timeout.
+    fn sync_wait_parks_without_spinning(backend: Backend) {
+        let clock = Arc::new(SteppedClock::new());
+        let counting = CountingClock::new(&clock);
+        let fired_at = Arc::new(Mutex::new(Vec::new()));
+        let (net, marking) = timed_net(delayed(1000), &clock, &fired_at);
+
+        std::thread::scope(|s| {
+            let run = s.spawn(|| run_sync_stepped(backend, &net, marking, counting.clone(), &clock));
+            let _unstick = Unstick(&clock);
+            assert!(clock.settle(SETTLE));
+            std::thread::sleep(Duration::from_millis(100));
+            assert_eq!(counting.waits(), 1, "{backend:?}: one wait for the whole idle period");
+            assert!(clock.settle_after(|| clock.advance_ms(1000.0), SETTLE));
+            run.join().unwrap();
+        });
+        assert_eq!(counting.waits(), 1, "{backend:?}: the advance ends the only wait");
+        assert_eq!(*fired_at.lock().unwrap(), vec![1000.0]);
+    }
+
+    #[test]
+    fn delayed_waits_for_the_host_bitmap() {
+        delayed_waits_for_the_host(Backend::Bitmap);
+    }
+
+    #[test]
+    fn delayed_waits_for_the_host_precompiled() {
+        delayed_waits_for_the_host(Backend::Precompiled);
+    }
+
+    #[test]
+    fn deadline_reaped_exactly_at_bound_bitmap() {
+        deadline_reaped_exactly_at_bound(Backend::Bitmap);
+    }
+
+    #[test]
+    fn deadline_reaped_exactly_at_bound_precompiled() {
+        deadline_reaped_exactly_at_bound(Backend::Precompiled);
+    }
+
+    #[test]
+    fn sync_wait_parks_without_spinning_bitmap() {
+        sync_wait_parks_without_spinning(Backend::Bitmap);
+    }
+
+    #[test]
+    fn sync_wait_parks_without_spinning_precompiled() {
+        sync_wait_parks_without_spinning(Backend::Precompiled);
+    }
+
+    /// The async path on a **single-threaded** runtime, host and executor
+    /// sharing it (AC#8, AC#11, AC#15). `Admit` moves an injected token from
+    /// the environment place `in` to `mid`; `Late` (`delayed(500)`) moves it
+    /// on to `out`. The executor parks on an absent boundary until the
+    /// inject, parks again on `Late`'s boundary, and fires `Late` only when
+    /// the host advances to 500.
+    #[cfg(feature = "tokio")]
+    mod async_path {
+        use super::*;
+        use std::collections::HashSet;
+
+        use libpetri_core::token::ErasedToken;
+
+        use crate::environment::{ExecutorSignal, ExternalEvent};
+
+        fn inject_net(clock: &Arc<SteppedClock>, fired_at: &Arc<Mutex<Vec<f64>>>) -> PetriNet {
+            let input = Place::<i32>::new("in");
+            let mid = Place::<i32>::new("mid");
+            let out = Place::<i32>::new("out");
+            let admit = Transition::builder("Admit")
+                .input(one(&input))
+                .output(out_place(&mid))
+                .action(fork())
+                .build();
+            let clock = Arc::clone(clock);
+            let fired_at = Arc::clone(fired_at);
+            let late = Transition::builder("Late")
+                .input(one(&mid))
+                .output(out_place(&out))
+                .timing(delayed(500))
+                .action(sync_action(move |ctx| {
+                    fired_at.lock().unwrap_or_else(|e| e.into_inner()).push(clock.elapsed_ms());
+                    ctx.output("out", 1i32)?;
+                    Ok(())
+                }))
+                .build();
+            PetriNet::builder("stepped-inject").transitions([admit, late]).build()
+        }
+
+        async fn run_bounded<'a>(
+            run: impl std::future::Future<Output = std::borrow::Cow<'a, Marking>>,
+        ) -> Option<Marking> {
+            tokio::time::timeout(Duration::from_secs(10), run)
+                .await
+                .ok()
+                .map(|m| m.into_owned())
+        }
+
+        async fn inject_then_settle(backend: Backend) {
+            let clock = Arc::new(SteppedClock::new());
+            let counting = CountingClock::new(&clock);
+            let fired_at = Arc::new(Mutex::new(Vec::new()));
+            let net = inject_net(&clock, &fired_at);
+            let env: HashSet<Arc<str>> = [Arc::from("in")].into_iter().collect();
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+
+            let host = {
+                let clock = Arc::clone(&clock);
+                let counting = Arc::clone(&counting);
+                let fired_at = Arc::clone(&fired_at);
+                tokio::spawn(async move {
+                    assert!(clock.settled(SETTLE).await, "{backend:?}: parks with nothing to do");
+                    let idle = counting.waits();
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    assert_eq!(
+                        counting.waits(),
+                        idle,
+                        "{backend:?}: an absent boundary suspends instead of re-entering the wait"
+                    );
+
+                    let injected = clock.settled_after(
+                        || {
+                            tx.send(ExecutorSignal::Event(ExternalEvent {
+                                place_name: Arc::from("in"),
+                                token: ErasedToken::from_typed(&Token::at(7i32, 0)),
+                            }))
+                            .unwrap();
+                        },
+                        SETTLE,
+                    );
+                    assert!(injected.await, "{backend:?}: the inject wakes the executor, which reparks");
+                    assert!(fired_at.lock().unwrap().is_empty(), "{backend:?}: Late waits for 500");
+
+                    assert!(clock.settled_after(|| clock.advance_ms(500.0), SETTLE).await);
+                    assert_eq!(*fired_at.lock().unwrap(), vec![500.0], "{backend:?}: Late fires at 500");
+                    // Dropping `tx` closes the channel, and the run ends.
+                })
+            };
+
+            let marking = match backend {
+                Backend::Bitmap => {
+                    let mut executor = BitmapNetExecutor::<InMemoryEventStore>::new(
+                        &net,
+                        Marking::new(),
+                        ExecutorOptions {
+                            environment_places: env,
+                            ..Default::default()
+                        }
+                        .clock(counting.clone()),
+                    );
+                    run_bounded(executor.run_async(rx)).await
+                }
+                Backend::Precompiled => {
+                    let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+                    let mut executor =
+                        PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, Marking::new())
+                            .event_store(InMemoryEventStore::new())
+                            .environment_places(env)
+                            .clock(counting.clone())
+                            .build();
+                    run_bounded(executor.run_async(rx)).await
+                }
+            };
+            clock.mark_finished();
+            // A failed host assertion stops the stepping and the run times
+            // out; report the host's panic, which says why.
+            host.await.unwrap();
+            let marking = marking.expect("the run ends once the host closes the channel");
+            assert_eq!(marking.count("out"), 1);
+            assert!(!clock.is_parked(), "{backend:?}: the dropped wait left nothing parked");
+        }
+
+        #[tokio::test]
+        async fn inject_then_settle_bitmap() {
+            inject_then_settle(Backend::Bitmap).await;
+        }
+
+        #[tokio::test]
+        async fn inject_then_settle_precompiled() {
+            inject_then_settle(Backend::Precompiled).await;
+        }
+    }
+}
+
 /// Generates one `#[test]` per backend for each generic test fn above,
 /// so every semantic runs against both `BitmapNetExecutor` and
 /// `PrecompiledNetExecutor`.

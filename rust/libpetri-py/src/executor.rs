@@ -13,24 +13,30 @@ use std::sync::Mutex;
 
 #[cfg(feature = "tokio")]
 use libpetri::TerminationReason;
-use libpetri::{NoopEventStore, OwnedPrecompiledNet, PetriNet};
+use libpetri::{
+    EventStore, NoopEventStore, OwnedPrecompiledExecutorBuilder, OwnedPrecompiledNet, PetriNet,
+    RunOutcome,
+};
 #[cfg(feature = "tokio")]
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
+use crate::clock::HostClock;
 use crate::error::panic_to_py;
-use crate::events::PyEventStoreHandle;
+#[cfg(feature = "tokio")]
+use crate::events::StoreErrorSlot;
+use crate::events::{RunSink, prepare_run_store};
 use crate::model::PyPetriNet;
 #[cfg(feature = "tokio")]
-use crate::value::{erased_from_py, place_name_from_object};
-use crate::value::{marking_from_python, marking_snapshot_to_python};
+use crate::value::{erased_from_py_at, place_name_from_object};
+use crate::value::{marking_from_python_at, marking_snapshot_to_python};
 
 /// Run-time options for a single execution.
 ///
 /// `environment_places` keeps the executor alive while external tokens may
 /// still arrive. `skip_output_validation` disables AND/XOR output-spec checks
-/// for trusted callers.
+/// for trusted callers. `clock` installs a host clock (TIME-015).
 #[pyclass(module = "_libpetri", name = "ExecutorOptions", from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyExecutorOptions {
@@ -38,9 +44,24 @@ pub struct PyExecutorOptions {
     skip_output_validation: bool,
     deadline_tolerance_ms: Option<f64>,
     execution_scope: Option<String>,
+    clock: Option<HostClock>,
 }
 
 impl PyExecutorOptions {
+    /// \[TIME-015\] The host clock, if any.
+    pub fn clock(&self) -> Option<&HostClock> {
+        self.clock.as_ref()
+    }
+
+    /// Epoch milliseconds for a token created now: from the host clock when
+    /// one is installed, else wall time.
+    pub fn epoch_now(&self) -> u64 {
+        match &self.clock {
+            Some(clock) => clock.as_executor_clock().epoch_ms(),
+            None => libpetri::core::token::now_millis(),
+        }
+    }
+
     /// \[NU-011\] The host-pinned ν-name scope, if any.
     pub fn execution_scope(&self) -> Option<&str> {
         self.execution_scope.as_deref()
@@ -73,14 +94,23 @@ impl PyExecutorOptions {
     /// 0). Raises `ValueError` for an empty scope (whitespace is legal) or one containing `':'` or
     /// `'#'` — the same rule as every other implementation, under which a minted name parses
     /// uniquely: the last `':'` splits off the counter, then the last `'#'` before it the scope.
+    ///
+    /// \[TIME-015\] `clock` is a `ManualClock` or a `SteppedClock`; anything else raises
+    /// `TypeError`. The run reads time from it, and tokens created without a timestamp (legacy
+    /// `initial` values, `inject`) are stamped from its `epoch_ms()`.
     #[new]
-    #[pyo3(signature = (*, environment_places = None, skip_output_validation = false, deadline_tolerance_ms = None, execution_scope = None))]
+    #[pyo3(signature = (*, environment_places = None, skip_output_validation = false, deadline_tolerance_ms = None, execution_scope = None, clock = None))]
     fn new(
         environment_places: Option<Vec<String>>,
         skip_output_validation: bool,
         deadline_tolerance_ms: Option<f64>,
         execution_scope: Option<String>,
+        clock: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let clock = match clock {
+            Some(obj) if !obj.is_none() => Some(HostClock::from_python(obj)?),
+            _ => None,
+        };
         // Validated here with the core's own rule. The core *panics* on a bad
         // scope at executor construction, and a panic across the FFI at run
         // time is no way to report a typo — so it must never get that far.
@@ -101,6 +131,7 @@ impl PyExecutorOptions {
             environment_places: environment_places.unwrap_or_default(),
             skip_output_validation,
             deadline_tolerance_ms,
+            clock,
         })
     }
 
@@ -128,6 +159,14 @@ impl PyExecutorOptions {
     #[getter]
     fn deadline_tolerance_ms(&self) -> Option<f64> {
         self.deadline_tolerance_ms
+    }
+
+    /// \[TIME-015\] The host clock, or `None` for wall time. A new wrapper
+    /// around the same clock, so it compares unequal to the object passed in
+    /// but advancing it advances that clock.
+    #[getter(clock)]
+    fn clock_py(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        self.clock.as_ref().map(|c| c.to_python(py)).transpose()
     }
 }
 
@@ -187,44 +226,35 @@ impl PyCompiledNet {
         py: Python<'_>,
         initial: Option<&Bound<'_, PyAny>>,
         options: Option<&PyExecutorOptions>,
-        event_store: Option<&PyEventStoreHandle>,
+        event_store: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<(Py<PyDict>, String)> {
-        let initial_marking = marking_from_python(py, initial)?;
         let options = options.cloned().unwrap_or_default();
-        let environment_places = options.environment_place_set();
-        let skip_output_validation = options.skip_output_validation;
-        let deadline_tolerance_ms = options.deadline_tolerance_ms;
-        let execution_scope = options.execution_scope().map(Arc::<str>::from);
+        let initial_marking = marking_from_python_at(py, initial, options.epoch_now())?;
+        let clock_guard = claim_clock(&options)?;
+        let plan = match prepare_run_store(py, event_store) {
+            Ok(plan) => plan,
+            Err(err) => {
+                clock_guard.release();
+                return Err(err);
+            }
+        };
         let owned = self.inner.clone();
 
-        let outcome = py.detach(move || match event_store.map(|h| h.shared()) {
-            None => {
-                let mut builder = owned
-                    .builder::<NoopEventStore>(initial_marking)
-                    .environment_places(environment_places)
-                    .skip_output_validation(skip_output_validation);
-                if let Some(ms) = deadline_tolerance_ms {
-                    builder = builder.deadline_tolerance_ms(ms);
-                }
-                if let Some(scope) = execution_scope.clone() {
-                    builder = builder.execution_scope(scope);
-                }
-                builder.run_sync_outcome()
+        let outcome = py.detach(move || {
+            // Marks a SteppedClock finished on every exit from this closure.
+            let _clock_guard = clock_guard;
+            let outcome = match plan.sink {
+                RunSink::Noop => run_sync_with::<NoopEventStore>(&owned, initial_marking, &options, None),
+                RunSink::Plain(store) => run_sync_with(&owned, initial_marking, &options, Some(store)),
+                RunSink::Capture(store) => run_sync_with(&owned, initial_marking, &options, Some(store)),
+            };
+            // The executor dropped its store on return, which closed the
+            // drainer's channel. Joined while detached: the drainer needs the
+            // GIL to deliver what is still queued.
+            if let Some(drainer) = plan.drainer {
+                drainer.join();
             }
-            Some(shared) => {
-                let mut builder = owned
-                    .builder(initial_marking)
-                    .event_store(shared)
-                    .environment_places(environment_places)
-                    .skip_output_validation(skip_output_validation);
-                if let Some(ms) = deadline_tolerance_ms {
-                    builder = builder.deadline_tolerance_ms(ms);
-                }
-                if let Some(scope) = execution_scope.clone() {
-                    builder = builder.execution_scope(scope);
-                }
-                builder.run_sync_outcome()
-            }
+            outcome
         });
 
         Ok((
@@ -238,7 +268,9 @@ impl PyCompiledNet {
     /// The handle lets you inject tokens into environment places mid-run; the
     /// awaitable resolves to `(marking, termination_reason)` when the run ends
     /// — the same pair `run_sync` returns — and the handle's
-    /// `termination_reason` reports the reason from then on.
+    /// `termination_reason` reports the reason from then on. When
+    /// `event_store` is written in Python, every event has been passed to its
+    /// `append` before the awaitable resolves.
     #[cfg(feature = "tokio")]
     #[pyo3(signature = (initial = None, options = None, event_store = None))]
     fn run_async<'py>(
@@ -246,65 +278,77 @@ impl PyCompiledNet {
         py: Python<'py>,
         initial: Option<&Bound<'py, PyAny>>,
         options: Option<&PyExecutorOptions>,
-        event_store: Option<&PyEventStoreHandle>,
+        event_store: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<(Py<PyExecutorHandle>, Py<PyAny>)> {
-        let initial_marking = marking_from_python(py, initial)?;
         let options = options.cloned().unwrap_or_default();
-        let environment_places = options.environment_place_set();
-        let skip_output_validation = options.skip_output_validation;
-        let deadline_tolerance_ms = options.deadline_tolerance_ms;
-        let execution_scope = options.execution_scope().map(Arc::<str>::from);
+        let initial_marking = marking_from_python_at(py, initial, options.epoch_now())?;
         let owned = self.inner.clone();
-        let shared = event_store.map(|h| h.shared());
 
         // Capture the running asyncio event loop so Python async callbacks
         // spawned onto tokio worker threads can drive themselves on it.
         // The guard is moved into the spawned future so the captured
         // locals are cleared at run-completion (allowing a subsequent
-        // `run_async` on a different loop to install fresh).
+        // `run_async` on a different loop to install fresh). Installed
+        // before the clock is claimed: a call with no running loop, or with
+        // another run live on a different loop, starts no run and must not
+        // use up a SteppedClock.
         let loop_guard = crate::action::install_event_loop_locals(py)?;
+        let clock_guard = claim_clock(&options)?;
+        let plan = match prepare_run_store(py, event_store) {
+            Ok(plan) => plan,
+            Err(err) => {
+                clock_guard.release();
+                return Err(err);
+            }
+        };
+        let inject_clock = options.clock().map(HostClock::as_executor_clock);
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let reason_cell: Arc<Mutex<Option<TerminationReason>>> = Arc::new(Mutex::new(None));
         let run_reason = Arc::clone(&reason_cell);
-        let handle = Py::new(
+        let handle = match Py::new(
             py,
-            PyExecutorHandle::new(libpetri::ExecutorHandle::new(tx), reason_cell),
-        )?;
+            PyExecutorHandle::new(
+                libpetri::ExecutorHandle::new(tx),
+                reason_cell,
+                Arc::clone(&plan.error),
+                inject_clock,
+            ),
+        ) {
+            Ok(handle) => handle,
+            Err(err) => {
+                clock_guard.release();
+                return Err(err);
+            }
+        };
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let _loop_guard = loop_guard;
-            let outcome = match shared {
-                None => {
-                    let mut builder = owned
-                        .builder::<NoopEventStore>(initial_marking)
-                        .environment_places(environment_places)
-                        .skip_output_validation(skip_output_validation);
-                    if let Some(ms) = deadline_tolerance_ms {
-                        builder = builder.deadline_tolerance_ms(ms);
-                    }
-                    if let Some(scope) = execution_scope.clone() {
-                        builder = builder.execution_scope(scope);
-                    }
-                    builder.run_async_outcome(rx).await
+            // Marks a SteppedClock finished when the run ends or this future
+            // is dropped. Declared after the loop guard so it drops first.
+            let clock_guard = clock_guard;
+            let outcome = match plan.sink {
+                RunSink::Noop => {
+                    run_async_with::<NoopEventStore>(&owned, initial_marking, &options, None, rx).await
                 }
-                Some(shared) => {
-                    let mut builder = owned
-                        .builder(initial_marking)
-                        .event_store(shared)
-                        .environment_places(environment_places)
-                        .skip_output_validation(skip_output_validation);
-                    if let Some(ms) = deadline_tolerance_ms {
-                        builder = builder.deadline_tolerance_ms(ms);
-                    }
-                    if let Some(scope) = execution_scope.clone() {
-                        builder = builder.execution_scope(scope);
-                    }
-                    builder.run_async_outcome(rx).await
+                RunSink::Plain(store) => {
+                    run_async_with(&owned, initial_marking, &options, Some(store), rx).await
+                }
+                RunSink::Capture(store) => {
+                    run_async_with(&owned, initial_marking, &options, Some(store), rx).await
                 }
             };
+            // The executor and its store are gone, so the drainer's channel
+            // is closed. Wait for it to hand the last events to Python, so a
+            // caller that awaited the run sees them all in its store.
+            if let Some(drainer) = plan.drainer {
+                drainer.finished().await;
+            }
             // [EXEC-041] AC3: published before the awaitable resolves, so a
             // caller that awaited it reads the final reason off the handle.
             *run_reason.lock().unwrap() = Some(outcome.termination_reason);
+            // Released before the result is handed back, so a settle waiter
+            // is free by the time the run's awaitable resolves.
+            drop(clock_guard);
             Python::attach(|py| {
                 Ok((
                     marking_snapshot_to_python(py, &outcome.marking)?,
@@ -315,6 +359,63 @@ impl PyCompiledNet {
 
         Ok((handle, awaitable.unbind()))
     }
+}
+
+/// Applies the run options to a builder. Shared by every store type and by
+/// both run paths, so each option is wired once.
+fn configure<E: EventStore>(
+    mut builder: OwnedPrecompiledExecutorBuilder<E>,
+    options: &PyExecutorOptions,
+    store: Option<E>,
+) -> OwnedPrecompiledExecutorBuilder<E> {
+    builder = builder
+        .environment_places(options.environment_place_set())
+        .skip_output_validation(options.skip_output_validation);
+    if let Some(ms) = options.deadline_tolerance_ms {
+        builder = builder.deadline_tolerance_ms(ms);
+    }
+    if let Some(scope) = options.execution_scope() {
+        builder = builder.execution_scope(Arc::<str>::from(scope));
+    }
+    // [TIME-015] The host clock. The executor reads time from it and stamps
+    // the tokens it creates with its epoch.
+    if let Some(clock) = options.clock() {
+        builder = builder.clock(clock.as_executor_clock());
+    }
+    if let Some(store) = store {
+        builder = builder.event_store(store);
+    }
+    builder
+}
+
+/// Claims the options' clock for this run (a `SteppedClock` is single-use).
+fn claim_clock(options: &PyExecutorOptions) -> PyResult<crate::clock::RunClockGuard> {
+    match options.clock() {
+        Some(clock) => clock.claim(),
+        None => Ok(crate::clock::RunClockGuard::none()),
+    }
+}
+
+fn run_sync_with<E: EventStore>(
+    owned: &OwnedPrecompiledNet,
+    initial_marking: libpetri::Marking,
+    options: &PyExecutorOptions,
+    store: Option<E>,
+) -> RunOutcome {
+    configure(owned.builder::<E>(initial_marking), options, store).run_sync_outcome()
+}
+
+#[cfg(feature = "tokio")]
+async fn run_async_with<E: EventStore>(
+    owned: &OwnedPrecompiledNet,
+    initial_marking: libpetri::Marking,
+    options: &PyExecutorOptions,
+    store: Option<E>,
+    signal_rx: tokio::sync::mpsc::UnboundedReceiver<libpetri::ExecutorSignal>,
+) -> RunOutcome {
+    configure(owned.builder::<E>(initial_marking), options, store)
+        .run_async_outcome(signal_rx)
+        .await
 }
 
 /// Side-channel handle for an in-flight async executor.
@@ -328,6 +429,11 @@ pub struct PyExecutorHandle {
     inner: Mutex<libpetri::ExecutorHandle>,
     /// Set by the run when it ends (EXEC-041 AC3); `None` while it runs.
     termination_reason: Arc<Mutex<Option<TerminationReason>>>,
+    /// The first exception a Python event store's `append` raised.
+    event_store_error: StoreErrorSlot,
+    /// \[TIME-015\] The run's host clock; injected tokens are stamped from
+    /// its epoch.
+    clock: Option<Arc<dyn libpetri::ExecutorClock>>,
 }
 
 #[cfg(feature = "tokio")]
@@ -335,10 +441,23 @@ impl PyExecutorHandle {
     fn new(
         inner: libpetri::ExecutorHandle,
         termination_reason: Arc<Mutex<Option<TerminationReason>>>,
+        event_store_error: StoreErrorSlot,
+        clock: Option<Arc<dyn libpetri::ExecutorClock>>,
     ) -> Self {
         Self {
             inner: Mutex::new(inner),
             termination_reason,
+            event_store_error,
+            clock,
+        }
+    }
+
+    /// Epoch milliseconds for an injected token: the run's clock if it has
+    /// one, else wall time.
+    fn epoch_now(&self) -> u64 {
+        match &self.clock {
+            Some(clock) => clock.epoch_ms(),
+            None => libpetri::core::token::now_millis(),
         }
     }
 }
@@ -353,7 +472,7 @@ impl PyExecutorHandle {
             .inner
             .lock()
             .unwrap()
-            .inject(place_name, erased_from_py(value)))
+            .inject(place_name, erased_from_py_at(value, self.epoch_now())))
     }
 
     /// Pushes each item of `values` into an environment place as one
@@ -366,6 +485,7 @@ impl PyExecutorHandle {
         values: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         let place_name = place_name_from_object(place)?;
+        let created_at = self.epoch_now();
         let mut events: Vec<libpetri::runtime::environment::ExternalEvent> = Vec::new();
         if let Ok(size) = values.len() {
             events.reserve(size);
@@ -374,7 +494,7 @@ impl PyExecutorHandle {
             let value = item?.unbind();
             events.push(libpetri::runtime::environment::ExternalEvent {
                 place_name: Arc::clone(&place_name),
-                token: erased_from_py(value),
+                token: erased_from_py_at(value, created_at),
             });
         }
         Ok(self.inner.lock().unwrap().inject_many(events))
@@ -406,6 +526,19 @@ impl PyExecutorHandle {
             .unwrap()
             .unwrap_or(TerminationReason::Running)
             .as_str()
+    }
+
+    /// The first exception raised by the `append` of an event store written
+    /// in Python, or `None`. Such an exception does not stop the run: it is
+    /// logged to the `libpetri` logger and the remaining events are still
+    /// delivered. Final once the run's awaitable has resolved.
+    #[getter]
+    fn event_store_error(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.event_store_error
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|err| err.clone_ref(py))
     }
 
     /// Requests a mid-execution marking snapshot. Returns an awaitable that

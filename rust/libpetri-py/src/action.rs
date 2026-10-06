@@ -174,6 +174,10 @@ pub struct PyActionContext {
     /// without that, [IO-015] output validation would not count tokens
     /// a streaming Python action published mid-action.
     flushed_places: Vec<Arc<str>>,
+    /// \[TIME-015\] The executor's epoch clock, when a host clock is
+    /// installed. `flush()` stamps its tokens from it, as the Rust context
+    /// does for the outputs it stamps at completion.
+    epoch_fn: Option<libpetri::core::context::EpochFn>,
 }
 
 #[pymethods]
@@ -274,7 +278,10 @@ impl PyActionContext {
             return Ok(());
         }
         let outputs = std::mem::take(&mut self.outputs);
-        let created_at = libpetri::core::token::now_millis();
+        let created_at = match &self.epoch_fn {
+            Some(epoch_fn) => epoch_fn(),
+            None => libpetri::core::token::now_millis(),
+        };
         let entries: Vec<OutputEntry> = outputs
             .into_iter()
             .map(|(place_name, value)| OutputEntry {
@@ -387,6 +394,7 @@ impl PyActionContext {
             fresh_name_fn: ctx.fresh_name_fn(),
             local_name_map: ctx.local_name_map(),
             flushed_places: Vec::new(),
+            epoch_fn: ctx.epoch_fn(),
         })
     }
 

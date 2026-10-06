@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 from . import _libpetri as _ext
+from .events import EventStoreProtocol
 from .model import BuiltNet, Place, PlaceLike
 
 # `Mapping` is invariant in its key, so `Mapping[PlaceLike, ...]` alone rejects
@@ -41,12 +42,16 @@ class MarkingView(Mapping[str, tuple[Any, ...]]):
     @property
     def termination_reason(self) -> str | None: ...
 
+ManualClock = _ext.ManualClock
+SteppedClock = _ext.SteppedClock
+
 @dataclass(slots=True, frozen=True)
 class ExecutorOptions:
     environment_places: tuple[PlaceLike, ...] = ...
     skip_output_validation: bool = ...
     deadline_tolerance_ms: float | None = ...
     execution_scope: str | None = ...
+    clock: _ext.ManualClock | _ext.SteppedClock | None = ...
     def native(self) -> _ext.ExecutorOptions: ...
 
 class CompiledNet:
@@ -58,21 +63,21 @@ class CompiledNet:
         *,
         initial: _Initial | None = ...,
         options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
-        event_store: _ext.InMemoryEventStore | None = ...,
+        event_store: _ext.InMemoryEventStore | EventStoreProtocol | None = ...,
     ) -> MarkingView: ...
     def start_async(
         self,
         *,
         initial: _Initial | None = ...,
         options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
-        event_store: _ext.InMemoryEventStore | None = ...,
+        event_store: _ext.InMemoryEventStore | EventStoreProtocol | None = ...,
     ) -> tuple[ExecutorHandle, Awaitable[MarkingView]]: ...
     async def run_async(
         self,
         *,
         initial: _Initial | None = ...,
         options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
-        event_store: _ext.InMemoryEventStore | None = ...,
+        event_store: _ext.InMemoryEventStore | EventStoreProtocol | None = ...,
     ) -> MarkingView: ...
 
 @dataclass(slots=True, frozen=True)
@@ -92,6 +97,8 @@ class ExecutorHandle:
     def drained(self) -> bool: ...
     @property
     def termination_reason(self) -> str: ...
+    @property
+    def event_store_error(self) -> BaseException | None: ...
     async def snapshot(self) -> SnapshotResult: ...
 
 ExecutionTarget = BuiltNet | CompiledNet | _ext.CompiledNet
@@ -102,19 +109,19 @@ def run_sync(
     *,
     initial: _Initial | None = ...,
     options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
-    event_store: _ext.InMemoryEventStore | None = ...,
+    event_store: _ext.InMemoryEventStore | EventStoreProtocol | None = ...,
 ) -> MarkingView: ...
 def start_async(
     target: ExecutionTarget,
     *,
     initial: _Initial | None = ...,
     options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
-    event_store: _ext.InMemoryEventStore | None = ...,
+    event_store: _ext.InMemoryEventStore | EventStoreProtocol | None = ...,
 ) -> tuple[ExecutorHandle, Awaitable[MarkingView]]: ...
 async def run_async(
     target: ExecutionTarget,
     *,
     initial: _Initial | None = ...,
     options: ExecutorOptions | _ext.ExecutorOptions | None = ...,
-    event_store: _ext.InMemoryEventStore | None = ...,
+    event_store: _ext.InMemoryEventStore | EventStoreProtocol | None = ...,
 ) -> MarkingView: ...

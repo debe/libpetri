@@ -131,6 +131,17 @@ impl TransitionContext {
         self.epoch_fn = Some(epoch_fn);
     }
 
+    /// The installed epoch-clock source, if any (\[TIME-015\]). Bindings
+    /// that stamp tokens outside this context, such as a Python action's
+    /// `ctx.flush()`, read it so those tokens follow the host clock too.
+    ///
+    /// **Not part of the user-facing API**, for the same reason as
+    /// [`set_epoch_fn`](Self::set_epoch_fn).
+    #[doc(hidden)]
+    pub fn epoch_fn(&self) -> Option<EpochFn> {
+        self.epoch_fn.clone()
+    }
+
     /// Wall-clock milliseconds for a token produced right now — through the
     /// installed epoch clock if there is one (\[TIME-015\]), else the real
     /// wall clock.

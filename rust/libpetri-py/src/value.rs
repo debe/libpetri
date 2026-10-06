@@ -149,6 +149,18 @@ pub fn marking_from_python(
     py: Python<'_>,
     initial: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Marking> {
+    marking_from_python_at(py, initial, now_millis())
+}
+
+/// [`marking_from_python`] with the timestamp given to legacy-form values
+/// supplied by the caller. A run under a host clock (\[TIME-015\]) passes
+/// the clock's epoch, so its initial tokens follow the clock. Structured
+/// tokens keep their own `created_at` either way.
+pub fn marking_from_python_at(
+    py: Python<'_>,
+    initial: Option<&Bound<'_, PyAny>>,
+    fallback_created_at: u64,
+) -> PyResult<Marking> {
     let mut marking = Marking::new();
     let Some(initial) = initial else {
         return Ok(marking);
@@ -158,7 +170,6 @@ pub fn marking_from_python(
         .cast::<PyDict>()
         .map_err(|_| PyTypeError::new_err("initial must be a dict[str | Place, iterable]"))?;
 
-    let fallback_created_at = now_millis();
     let value_key = intern!(py, "value");
     let created_at_key = intern!(py, "created_at");
     for (place_obj, tokens_obj) in dict.iter() {

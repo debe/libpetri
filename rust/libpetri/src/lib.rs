@@ -97,7 +97,9 @@ pub use libpetri_event::net_event::NetEvent;
 
 pub use libpetri_export::dot_exporter::dot_export;
 
-pub use libpetri_runtime::clock::{ClockWait, ExecutorClock, ManualClock, SystemClock, seed_token};
+pub use libpetri_runtime::clock::{
+    ClockWait, ExecutorClock, ManualClock, SteppedClock, SystemClock, seed_token,
+};
 pub use libpetri_runtime::compiled_net::CompiledNet;
 pub use libpetri_runtime::executor::{
     BitmapNetExecutor, ExecutorOptions, InvalidExecutionScope, validate_execution_scope,

@@ -7,9 +7,15 @@ thin re-export, so the stubs delegate to the single source of truth in
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from ._libpetri import (
     EventStream as EventStream,
     EventSubscription as EventSubscription,
     InMemoryEventStore as InMemoryEventStore,
     NetEvent as NetEvent,
 )
+
+@runtime_checkable
+class EventStoreProtocol(Protocol):
+    def append(self, event: NetEvent) -> None: ...

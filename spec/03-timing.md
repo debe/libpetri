@@ -593,8 +593,9 @@ other.
 its names and signatures may still move. **Java** (`ExecutionEnvironment`: `nanoTime` / `now` /
 `awaitWork`, both executors), **TypeScript** (`Clock`: `now` / `epochNow` / `sleep`, plus
 `systemClock()` and `seedToken()`, both executors) and **Rust** (`ExecutorClock`: `now_ms` / `epoch_ms` /
-`await_work` / `await_work_async`, plus `SystemClock`, `ManualClock`, `seed_token()` and
-`ExecutorOptions::clock`, both backends) expose the seam; the default path in each reads the real
+`await_work` / `await_work_async`, plus `SystemClock`, `ManualClock`, the host-stepped
+`SteppedClock` with `settle` / `settle_after`, `seed_token()` and `ExecutorOptions::clock`, both
+backends) expose the seam; the default path in each reads the real
 clocks directly, with no indirection. Signatures and units differ by idiom (nanoseconds, float
 milliseconds, `Instant` versus a number); the semantics above are what is held in common. Only
 **TypeScript**'s seam carries a listener-style abort signal, so only it owes contract 4's per-wait
@@ -608,10 +609,10 @@ each holding the waker it was polled with — across repeated idle cycles and fi
 into the next. **Java**'s `awaitWork` cannot throw `InterruptedException`, so its interrupt
 contract is on the flag ([EXEC-041]): the executor calls it with the flag clear and reads the
 flag when it returns, a host that blocks interruptibly catches, re-interrupts and returns, and a
-flag set on return ends the run `INTERRUPTED`. **Python** deliberately
-exposes no seam: a Python-implemented clock would put a GIL acquisition on every orchestrator
-cycle, so a Rust-side replay clock configured from Python is the intended shape if one is ever
-wanted.
+flag set on return ends the run `INTERRUPTED`. **Python** exposes the Rust-side `ManualClock`
+and `SteppedClock` through `ExecutorOptions(clock=...)`, and stamps legacy initial values and
+injected tokens from the clock's epoch. A Python-implemented clock is still deliberately
+unsupported: it would put a GIL acquisition on every orchestrator cycle.
 
 AC#13 is the criterion most easily missed on a partial implementation: an executor may route
 `ctx.output` and raw-value injection through the epoch clock and still mint action-timeout recovery

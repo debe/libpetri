@@ -23,7 +23,7 @@ from typing import Any, TypeVar
 
 from . import _libpetri
 
-__all__ = ["action_gather", "action_to_thread"]
+__all__ = ["action_gather", "action_on_loop", "action_to_thread"]
 
 _T = TypeVar("_T")
 
@@ -46,6 +46,23 @@ def action_gather(*coros: Coroutine[Any, Any, Any]) -> Awaitable[list[Any]]:
         return await asyncio.gather(*coros)
 
     cf = asyncio.run_coroutine_threadsafe(_inner(), loop)
+    return asyncio.wrap_future(cf, loop=loop)
+
+
+def action_on_loop(coro: Coroutine[Any, Any, _T]) -> Awaitable[_T]:
+    """Runs ``coro`` as a task on the captured asyncio loop.
+
+    Inside the coroutine the loop is running, so ``asyncio.get_running_loop()``,
+    ``create_task``, ``gather`` and libraries that rely on them work as
+    usual. The returned awaitable resolves to the coroutine's result or
+    raises its exception. Use it to call asyncio code that must run on the
+    host's loop from an ``async def`` action.
+
+    Raises ``RuntimeError`` if called outside an in-flight
+    ``run_async`` / ``start_async`` (no loop has been captured yet).
+    """
+    loop = _libpetri.captured_event_loop()
+    cf = asyncio.run_coroutine_threadsafe(coro, loop)
     return asyncio.wrap_future(cf, loop=loop)
 
 

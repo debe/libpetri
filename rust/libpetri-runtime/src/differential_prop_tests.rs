@@ -1142,6 +1142,50 @@ fn time013_reap_is_not_rearmed_on_either_backend() {
     assert_reap_witness_agrees(net_for, clock);
 }
 
+/// TIME-013, on a host-stepped clock: the stall is still an advance from
+/// inside `t_block`'s action, but nothing moves time after that except a host
+/// thread. It waits for the executor to park, advances 100ms, and repeats
+/// until the executor is dropped, so `t_keep` fires only because the host
+/// stepped to 1200. The host never advances while the executor is running,
+/// so the reap at 400 sees the same marking as on the manual clock.
+#[test]
+fn time013_reap_is_not_rearmed_on_a_stepped_clock() {
+    use crate::clock::SteppedClock;
+    use std::sync::{Mutex, Weak};
+    use std::time::Duration;
+    // The action reaches the current run's clock. Weak, so the host thread
+    // can tell when the executor holding the clock is gone.
+    let current: Arc<Mutex<Weak<SteppedClock>>> = Arc::new(Mutex::new(Weak::new()));
+    let net_for = {
+        let current = Arc::clone(&current);
+        move || {
+            let current = Arc::clone(&current);
+            reap_witness_net(move || {
+                let clock = current.lock().unwrap().upgrade().expect("a stepped clock is installed");
+                clock.advance_ms(400.0);
+            })
+        }
+    };
+    let clock = {
+        let current = Arc::clone(&current);
+        move || {
+            let clock = Arc::new(SteppedClock::new());
+            *current.lock().unwrap() = Arc::downgrade(&clock);
+            let host = Arc::downgrade(&clock);
+            std::thread::spawn(move || {
+                let step = Some(Duration::from_millis(50));
+                while let Some(clock) = host.upgrade() {
+                    if clock.settle(step) {
+                        clock.settle_after(|| clock.advance_ms(100.0), step);
+                    }
+                }
+            });
+            Some(clock as Arc<dyn crate::clock::ExecutorClock>)
+        }
+    };
+    assert_reap_witness_agrees(net_for, clock);
+}
+
 /// TIME-013, on the real clock: the same witness, with a real 400ms sleep
 /// stalling the orchestrator. The executed check on the real executor path
 /// (about 1.3s per backend).

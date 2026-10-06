@@ -11,6 +11,11 @@ from typing import Any
 from . import _libpetri as _ext
 from .model import BuiltNet, PlaceLike, _coerce_net, _coerce_place_name
 
+#: [TIME-015] A virtual clock that jumps to each timing boundary by itself.
+ManualClock = _ext.ManualClock
+#: [TIME-015] A virtual clock that moves only when the host advances it.
+SteppedClock = _ext.SteppedClock
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -318,8 +323,20 @@ class ExecutorOptions:
     #: uniquely whatever the transition is called: the last ``':'`` splits off the
     #: counter, then the last ``'#'`` before it splits off the scope.
     execution_scope: str | None = None
+    #: [TIME-015] A host clock, ``ManualClock`` or ``SteppedClock``; ``None``
+    #: runs on wall time. Anything else raises ``TypeError``. Tokens created
+    #: without a timestamp (legacy ``initial`` values, ``inject``) are stamped
+    #: from the clock's ``epoch_ms()``. A ``SteppedClock`` serves one run only.
+    clock: ManualClock | SteppedClock | None = None
 
     def __post_init__(self) -> None:
+        if self.clock is not None and not isinstance(
+            self.clock, (_ext.ManualClock, _ext.SteppedClock)
+        ):
+            raise TypeError(
+                "clock must be a libpetri.ManualClock or libpetri.SteppedClock, "
+                f"got {type(self.clock).__name__}"
+            )
         # Validate here rather than only at `native()`: the scope is a
         # construction-time choice, and an error raised where the caller
         # wrote the value points at the mistake instead of at the run.
@@ -350,6 +367,7 @@ class ExecutorOptions:
             skip_output_validation=self.skip_output_validation,
             deadline_tolerance_ms=self.deadline_tolerance_ms,
             execution_scope=self.execution_scope,
+            clock=self.clock,
         )
 
 
@@ -456,6 +474,14 @@ if _ext.HAS_TOKIO:
             carries."""
             return self._inner.termination_reason
 
+        @property
+        def event_store_error(self) -> BaseException | None:
+            """The first exception raised by the ``append`` of an event store
+            written in Python, or ``None``. It did not stop the run: it was
+            logged to the ``libpetri`` logger and later events were still
+            delivered. Final once the run's awaitable has resolved."""
+            return self._inner.event_store_error
+
         async def snapshot(self) -> SnapshotResult:
             """Request a mid-execution marking snapshot.
 
@@ -541,8 +567,10 @@ __all__ = [
     "ExecutionTarget",
     "ExecutorHandle",
     "ExecutorOptions",
+    "ManualClock",
     "MarkingView",
     "SnapshotResult",
+    "SteppedClock",
     "compile",
     "run_async",
     "run_sync",

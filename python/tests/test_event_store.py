@@ -8,6 +8,8 @@ three tiers and the langgraph-style streaming pattern.
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 
 import pytest
 
@@ -403,3 +405,293 @@ def test_counters_histogram_is_ordered_independently_of_the_process() -> None:
     kinds = list(store.counters())
     assert len(kinds) >= 5, f"too few event types to order: {kinds}"
     assert kinds == sorted(kinds)
+
+
+# ---------------------------------------------------------------------------
+# Event stores written in Python, and token capture
+# ---------------------------------------------------------------------------
+
+
+class RecordingStore:
+    """A Python event store: records every event it is handed."""
+
+    def __init__(self, *, captures_tokens=None, delay_s: float = 0.0) -> None:
+        self.events: list[lp.NetEvent] = []
+        self.delay_s = delay_s
+        if captures_tokens is not None:
+            self.captures_tokens = captures_tokens
+
+    def append(self, event: lp.NetEvent) -> None:
+        if self.delay_s:
+            time.sleep(self.delay_s)
+        self.events.append(event)
+
+
+def _shape(events) -> list[tuple[str, str | None, str | None]]:
+    return [(e.type, e.transition_name, e.place_name) for e in events]
+
+
+def _async_chain() -> tuple[lp.Place, lp.Place, lp.BuiltNet]:
+    p_env = lp.Place("p_env")
+    p_done = lp.Place("p_done")
+    net = (
+        lp.Net("env-chain")
+        .transition(
+            lp.Transition("forward")
+            .input(lp.one(p_env))
+            .output(lp.out(p_done))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+    return p_env, p_done, net
+
+
+def test_python_store_receives_the_in_memory_events_in_order() -> None:
+    p_in, _p_out, net = _build_chain()
+    reference = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={p_in: ["v"]}, event_store=reference)
+    store = RecordingStore()
+    lp.run_sync(net, initial={p_in: ["v"]}, event_store=store)
+
+    assert isinstance(store, lp.EventStoreProtocol)
+    assert len(store.events) == len(reference) > 0
+    assert _shape(store.events) == _shape(reference.events())
+    assert store.events[-1].type == "ExecutionCompleted"
+
+
+@requires_tokio
+async def test_python_store_receives_the_in_memory_events_in_order_async() -> None:
+    p_in, _p_out, net = _build_chain()
+    reference = lp.InMemoryEventStore()
+    await lp.run_async(net, initial={p_in: ["v"]}, event_store=reference)
+    store = RecordingStore()
+    await lp.run_async(net, initial={p_in: ["v"]}, event_store=store)
+
+    assert len(store.events) == len(reference) > 0
+    assert _shape(store.events) == _shape(reference.events())
+
+
+def test_python_store_chain_ends_in_in_memory_store() -> None:
+    class Counting:
+        def __init__(self, inner) -> None:
+            self.inner = inner
+            self.seen = 0
+
+        def append(self, event) -> None:
+            self.seen += 1
+            self.inner.append(event)
+
+    p_in, _p_out, net = _build_chain()
+    inner = lp.InMemoryEventStore()
+    outer = Counting(inner)
+    lp.run_sync(net, initial={p_in: ["v"]}, event_store=outer)
+
+    reference = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={p_in: ["v"]}, event_store=reference)
+    assert outer.seen == len(inner) == len(reference)
+    assert _shape(inner.events()) == _shape(reference.events())
+    assert inner.counters() == reference.counters()
+
+
+def test_python_store_disabled_receives_nothing() -> None:
+    class Disabled(RecordingStore):
+        def is_enabled(self) -> bool:
+            return False
+
+    p_in, p_out, net = _build_chain()
+    store = Disabled()
+    result = lp.run_sync(net, initial={p_in: ["v"]}, event_store=store)
+    assert result.tokens(p_out) == ("v",)
+    assert store.events == []
+
+
+def test_event_store_without_append_is_a_type_error() -> None:
+    p_in, _p_out, net = _build_chain()
+    with pytest.raises(TypeError, match="append"):
+        lp.run_sync(net, initial={p_in: ["v"]}, event_store=object())
+
+    class NotCallable:
+        append = 3
+
+    with pytest.raises(TypeError, match="append"):
+        lp.run_sync(net, initial={p_in: ["v"]}, event_store=NotCallable())
+
+
+def test_capture_tokens_rejects_a_bare_string() -> None:
+    with pytest.raises(TypeError):
+        lp.InMemoryEventStore(capture_tokens="p_in")
+
+
+class Raising(RecordingStore):
+    def append(self, event) -> None:
+        if event.type == "TransitionStarted":
+            raise RuntimeError("store failed")
+        super().append(event)
+
+
+def test_raising_python_store_is_logged_and_not_fatal_sync(caplog) -> None:
+    p_in, p_out, net = _build_chain()
+    store = Raising()
+    with caplog.at_level(logging.ERROR, logger="libpetri"):
+        result = lp.run_sync(net, initial={p_in: ["v"]}, event_store=store)
+
+    assert result.tokens(p_out) == ("v",)
+    assert "TransitionStarted" not in {e.type for e in store.events}
+    assert store.events[-1].type == "ExecutionCompleted"
+    [record] = [r for r in caplog.records if r.name == "libpetri"]
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], RuntimeError)
+
+
+@requires_tokio
+async def test_raising_python_store_is_exposed_on_the_handle() -> None:
+    p_in, p_out, net = _build_chain()
+    store = Raising()
+    handle, awaitable = lp.start_async(net, initial={p_in: ["v"]}, event_store=store)
+    result = await awaitable
+
+    assert result.tokens(p_out) == ("v",)
+    err = handle.event_store_error
+    assert isinstance(err, RuntimeError)
+    assert str(err) == "store failed"
+    # Delivery went on after the failure.
+    assert store.events[-1].type == "ExecutionCompleted"
+
+
+@requires_tokio
+async def test_event_store_error_is_none_without_failures() -> None:
+    p_in, _p_out, net = _build_chain()
+    handle, awaitable = lp.start_async(
+        net, initial={p_in: ["v"]}, event_store=RecordingStore()
+    )
+    await awaitable
+    assert handle.event_store_error is None
+
+
+@requires_tokio
+async def test_every_event_is_delivered_before_the_run_resolves() -> None:
+    """A slow store must still hold every event once `await run` returns:
+    the run waits for the drainer before resolving."""
+    p_in, _p_out, net = _build_chain()
+    reference = lp.InMemoryEventStore()
+    await lp.run_async(net, initial={p_in: ["v"]}, event_store=reference)
+
+    store = RecordingStore(delay_s=0.02)
+    await lp.run_async(net, initial={p_in: ["v"]}, event_store=store)
+    assert len(store.events) == len(reference)
+    assert store.events[-1].type == "ExecutionCompleted"
+
+
+def test_in_memory_capture_tokens_true_carries_the_same_object() -> None:
+    p_in, _p_out, net = _build_chain()
+    token = object()
+    store = lp.InMemoryEventStore(capture_tokens=True)
+    lp.run_sync(net, initial={p_in: [token]}, event_store=store)
+
+    token_events = store.events(types={"TokenAdded", "TokenRemoved"})
+    assert token_events
+    for event in token_events:
+        assert event.token is token
+        assert event.payload()["token"] is token
+
+
+def test_in_memory_without_capture_has_no_token() -> None:
+    p_in, _p_out, net = _build_chain()
+    store = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={p_in: [object()]}, event_store=store)
+
+    token_events = store.events(types={"TokenAdded", "TokenRemoved"})
+    assert token_events
+    for event in token_events:
+        assert event.token is None
+        assert "token" not in event.payload()
+    [started] = store.events(types={"TransitionStarted"})
+    assert started.token is None
+
+
+def test_in_memory_capture_tokens_by_place() -> None:
+    p_in, p_out, net = _build_chain()
+    token = object()
+    store = lp.InMemoryEventStore(capture_tokens=[p_out])
+    lp.run_sync(net, initial={p_in: [token]}, event_store=store)
+
+    out_events = store.events(types={"TokenAdded"}, places={"p_out"})
+    in_events = store.events(types={"TokenAdded", "TokenRemoved"}, places={"p_in"})
+    assert out_events and in_events
+    assert all(e.token is token for e in out_events)
+    assert all(e.token is None for e in in_events)
+
+
+def test_python_store_captures_tokens() -> None:
+    p_in, p_out, net = _build_chain()
+    token = object()
+    store = RecordingStore(captures_tokens=True)
+    lp.run_sync(net, initial={p_in: [token]}, event_store=store)
+    token_events = [e for e in store.events if e.type in {"TokenAdded", "TokenRemoved"}]
+    assert token_events
+    assert all(e.token is token for e in token_events)
+
+    by_place = RecordingStore(captures_tokens=["p_out"])
+    lp.run_sync(net, initial={p_in: [token]}, event_store=by_place)
+    token_events = [e for e in by_place.events if e.type in {"TokenAdded", "TokenRemoved"}]
+    assert {e.place_name for e in token_events} == {"p_in", "p_out"}
+    for event in token_events:
+        expected = token if event.place_name == "p_out" else None
+        assert event.token is expected
+
+
+def test_outer_python_store_decides_token_capture() -> None:
+    """The InMemoryEventStore at the end of a chain stores what it is given:
+    its own `capture_tokens` does not apply to appended events."""
+
+    class Outer:
+        captures_tokens = False
+
+        def __init__(self, inner) -> None:
+            self.inner = inner
+
+        def append(self, event) -> None:
+            self.inner.append(event)
+
+    p_in, _p_out, net = _build_chain()
+    inner = lp.InMemoryEventStore(capture_tokens=True)
+    lp.run_sync(net, initial={p_in: [object()]}, event_store=Outer(inner))
+    token_events = inner.events(types={"TokenAdded", "TokenRemoved"})
+    assert token_events
+    assert all(e.token is None for e in token_events)
+
+
+@requires_tokio
+async def test_injected_token_is_captured_async() -> None:
+    p_env, _p_done, net = _async_chain()
+    token = {"id": 7}
+    store = RecordingStore(captures_tokens=True)
+    handle, awaitable = lp.start_async(
+        net,
+        options=lp.ExecutorOptions(environment_places=(p_env,)),
+        event_store=store,
+    )
+    handle.inject(p_env, token)
+    handle.drain()
+    await awaitable
+
+    added = [e for e in store.events if e.type == "TokenAdded"]
+    assert {e.place_name for e in added} == {"p_env", "p_done"}
+    assert all(e.token is token for e in added)
+
+
+@pytest.mark.skipif(not lp.HAS_ARCHIVE, reason="wheel built without `archive` feature")
+def test_archive_accepts_captured_python_tokens(tmp_path) -> None:
+    p_in, _p_out, net = _build_chain()
+    store = lp.InMemoryEventStore(capture_tokens=True)
+    lp.run_sync(net, initial={p_in: [{"k": 1}]}, event_store=store)
+
+    path = tmp_path / "captured.lpa"
+    lp.SessionArchiveWriter.write_from_store(
+        path, session_id="captured", net=net, store=store
+    )
+    archive = lp.SessionArchiveReader.read(path)
+    assert archive.event_count == len(store)
+    assert _shape(archive.events()) == _shape(store.events())

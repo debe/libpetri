@@ -5,9 +5,12 @@
 //!
 //! - The `InMemoryEventStore` is owned by Rust behind an `Arc<Mutex<...>>`.
 //!   Python sees an opaque [`PyEventStoreHandle`], never the storage.
-//! - The executor writes through [`PySharedEventStore`] (a thin
-//!   `EventStore`-impl wrapper around the same `Arc`) — no GIL traffic on
-//!   the hot path.
+//! - The executor writes through [`RunStore`] (a thin `EventStore`-impl
+//!   wrapper around the same `Arc`), so there is no GIL traffic on the hot
+//!   path.
+//! - A store written in Python (any object with `append(event)`) receives
+//!   events from one drainer thread per run, in batches: one GIL
+//!   acquisition per batch, never on the executor's thread.
 //! - Tier A: [`PyEventStoreHandle::events`] does *filtered* materialization
 //!   into a `PyList` on demand. Filters evaluate in Rust; only matching
 //!   events cross the boundary.
@@ -19,15 +22,19 @@
 //! - Tier C: counters / failures projections compute in Rust on demand.
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 #[cfg(feature = "tokio")]
 use std::time::Duration;
 
 use libpetri::{EventStore, NetEvent};
 #[cfg(feature = "tokio")]
 use pyo3::exceptions::{PyStopAsyncIteration, PyValueError};
+use pyo3::exceptions::PyTypeError;
+use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBool, PyDict, PyList, PyString};
+
+use crate::value::{PyTokenValue, place_name_from_object};
 
 // ---------------------------------------------------------------------------
 // NetEvent → Python: lazy, frozen wrapper
@@ -78,7 +85,17 @@ impl PyNetEvent {
         self.inner.place_name().map(str::to_owned)
     }
 
-    /// Full payload as a JSON-ish dict. Lazily constructed.
+    /// The token value on a `TokenAdded` / `TokenRemoved` event, when the
+    /// store asked for it (`capture_tokens` / `captures_tokens`). This is the
+    /// token object itself, not a copy. `None` otherwise, and for events read
+    /// back from an archive.
+    #[getter]
+    fn token(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        token_value(py, &self.inner)
+    }
+
+    /// Full payload as a JSON-ish dict. Lazily constructed. Token events
+    /// carry `"token"` when the value was captured.
     fn payload<'py>(&self, py: Python<'py>) -> PyResult<Py<PyDict>> {
         let d = PyDict::new(py);
         match &*self.inner {
@@ -112,6 +129,9 @@ impl PyNetEvent {
             | NetEvent::TokenRemoved { place_name, timestamp, .. } => {
                 d.set_item("place_name", place_name.as_ref())?;
                 d.set_item("timestamp", *timestamp)?;
+                if let Some(token) = token_value(py, &self.inner) {
+                    d.set_item("token", token)?;
+                }
             }
             NetEvent::LogMessage { transition_name, level, message, timestamp } => {
                 d.set_item("transition_name", transition_name.as_ref())?;
@@ -138,6 +158,18 @@ impl PyNetEvent {
             self.inner.timestamp()
         )
     }
+}
+
+/// The Python token carried by a token event, if one was captured.
+fn token_value(py: Python<'_>, event: &NetEvent) -> Option<Py<PyAny>> {
+    let token = match event {
+        NetEvent::TokenAdded { token, .. } | NetEvent::TokenRemoved { token, .. } => token.as_ref()?,
+        _ => return None,
+    };
+    token
+        .value_any()
+        .downcast_ref::<PyTokenValue>()
+        .map(|value| value.clone_ref(py))
 }
 
 /// Discriminator string for a `NetEvent` — matches the camelCase form used
@@ -229,42 +261,131 @@ struct EventStoreInner {
     subscribers: Vec<Subscriber>,
 }
 
-/// EventStore implementation handed to the executor. Cheaply cloneable
-/// (`Arc` bump) and shares storage with the user-facing
-/// [`PyEventStoreHandle`].
-#[derive(Default, Clone)]
-pub struct PySharedEventStore {
-    inner: Arc<Mutex<EventStoreInner>>,
-}
-
-impl PySharedEventStore {
-    fn from_handle(handle: &PyEventStoreHandle) -> Self {
-        Self {
-            inner: Arc::clone(&handle.inner),
-        }
-    }
-}
-
-impl EventStore for PySharedEventStore {
-    const ENABLED: bool = true;
-
-    fn append(&mut self, event: NetEvent) {
-        let event = Arc::new(event);
-        let mut inner = self.inner.lock().unwrap();
-        inner.events.push(Arc::clone(&event));
-        // Fan out to live subscribers. A subscriber is dropped if its
-        // receiver disappeared (channel closed) — `try_send` returns Err on
-        // both disconnect and full-channel. On full-channel we still drop:
-        // a stalled consumer that can't keep up loses events rather than
-        // back-pressuring the executor.
+impl EventStoreInner {
+    /// Stores `event` and fans it out to live subscribers. A subscriber is
+    /// dropped if its receiver disappeared (channel closed): `try_send`
+    /// returns Err on both disconnect and full-channel. On full-channel we
+    /// still drop: a stalled consumer that can't keep up loses events rather
+    /// than back-pressuring the executor.
+    fn push(&mut self, event: Arc<NetEvent>) {
         #[cfg(feature = "tokio")]
-        inner.subscribers.retain_mut(|sub| {
+        self.subscribers.retain_mut(|sub| {
             if sub.filter.matches(&event) {
                 sub.tx.try_send(Arc::clone(&event)).is_ok()
             } else {
                 true
             }
         });
+        self.events.push(event);
+    }
+}
+
+/// Which token payloads a store asks for on `TokenAdded` / `TokenRemoved`.
+#[derive(Clone, Default)]
+pub enum CaptureSpec {
+    /// No payloads (the default).
+    #[default]
+    Off,
+    /// Payloads for every place.
+    All,
+    /// Payloads only for the listed places. The core captures every place
+    /// and [`RunStore`] strips the rest.
+    Places(Arc<HashSet<Arc<str>>>),
+}
+
+impl CaptureSpec {
+    /// Reads `True`, `False`, `None` or an iterable of place names / `Place`s.
+    /// A bare string is rejected: it is iterable, so it would otherwise be
+    /// read as a list of one-character place names.
+    fn from_py(value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let Some(value) = value else {
+            return Ok(Self::Off);
+        };
+        if value.is_none() {
+            return Ok(Self::Off);
+        }
+        if let Ok(flag) = value.cast::<PyBool>() {
+            return Ok(if flag.is_true() { Self::All } else { Self::Off });
+        }
+        if value.is_instance_of::<PyString>() {
+            return Err(PyTypeError::new_err(
+                "capture_tokens must be a bool or a list of place names, not a str",
+            ));
+        }
+        let iter = value.try_iter().map_err(|_| {
+            PyTypeError::new_err("capture_tokens must be a bool or a list of place names")
+        })?;
+        let mut places = HashSet::new();
+        for item in iter {
+            places.insert(place_name_from_object(&item?)?);
+        }
+        if places.is_empty() {
+            return Ok(Self::Off);
+        }
+        Ok(Self::Places(Arc::new(places)))
+    }
+}
+
+/// The store one run writes through. `CAPTURE` is the core's
+/// [`EventStore::CAPTURES_TOKENS`] switch, so a run without capture pays
+/// nothing for it.
+///
+/// - `memory` is the Rust-side [`PyEventStoreHandle`] storage; events land
+///   there without touching the GIL and fan out to its subscribers.
+/// - `forward` sends each event to the run's drainer thread, which hands it
+///   to a store written in Python.
+/// - `place_filter` keeps payloads only for the listed places.
+///
+/// Not `Clone`: the executor owns the only sender, so dropping the executor
+/// at the end of the run closes the drainer's channel.
+#[derive(Default)]
+pub struct RunStore<const CAPTURE: bool> {
+    memory: Option<Arc<Mutex<EventStoreInner>>>,
+    forward: Option<mpsc::Sender<Arc<NetEvent>>>,
+    place_filter: Option<Arc<HashSet<Arc<str>>>>,
+    appended: usize,
+}
+
+impl<const CAPTURE: bool> RunStore<CAPTURE> {
+    /// Drops the payload of a token event whose place is not in the filter.
+    /// The variants are `#[non_exhaustive]`, so the stripped event is
+    /// rebuilt through the public constructors.
+    fn filter_payload(&self, event: NetEvent) -> NetEvent {
+        let Some(filter) = &self.place_filter else {
+            return event;
+        };
+        match &event {
+            NetEvent::TokenAdded { place_name, timestamp, token: Some(_), .. }
+                if !filter.contains(place_name.as_ref()) =>
+            {
+                NetEvent::token_added(Arc::clone(place_name), *timestamp)
+            }
+            NetEvent::TokenRemoved { place_name, timestamp, token: Some(_), .. }
+                if !filter.contains(place_name.as_ref()) =>
+            {
+                NetEvent::token_removed(Arc::clone(place_name), *timestamp)
+            }
+            _ => event,
+        }
+    }
+}
+
+impl<const CAPTURE: bool> EventStore for RunStore<CAPTURE> {
+    const ENABLED: bool = true;
+    const CAPTURES_TOKENS: bool = CAPTURE;
+
+    fn append(&mut self, event: NetEvent) {
+        let event = if CAPTURE { self.filter_payload(event) } else { event };
+        let event = Arc::new(event);
+        self.appended += 1;
+        if let Some(memory) = &self.memory {
+            memory.lock().unwrap().push(Arc::clone(&event));
+        }
+        if let Some(forward) = &self.forward {
+            // Unbounded, so the executor never waits on Python. A send only
+            // fails once the drainer has gone, and then nobody is listening.
+            let _ = forward.send(event);
+        }
     }
 
     fn events(&self) -> &[NetEvent] {
@@ -277,12 +398,229 @@ impl EventStore for PySharedEventStore {
     }
 
     fn size(&self) -> usize {
-        self.inner.lock().unwrap().events.len()
+        self.appended
     }
 
     fn is_empty(&self) -> bool {
-        self.size() == 0
+        self.appended == 0
     }
+}
+
+/// The store a run was given, resolved once at run start.
+pub enum RunSink {
+    /// No store, or a Python store whose `is_enabled()` returned False.
+    Noop,
+    Plain(RunStore<false>),
+    Capture(RunStore<true>),
+}
+
+impl RunSink {
+    fn new(
+        memory: Option<Arc<Mutex<EventStoreInner>>>,
+        forward: Option<mpsc::Sender<Arc<NetEvent>>>,
+        capture: CaptureSpec,
+    ) -> Self {
+        match capture {
+            CaptureSpec::Off => Self::Plain(RunStore { memory, forward, place_filter: None, appended: 0 }),
+            CaptureSpec::All => Self::Capture(RunStore { memory, forward, place_filter: None, appended: 0 }),
+            CaptureSpec::Places(places) => Self::Capture(RunStore {
+                memory,
+                forward,
+                place_filter: Some(places),
+                appended: 0,
+            }),
+        }
+    }
+}
+
+/// The first exception a Python store's `append` raised during a run.
+pub type StoreErrorSlot = Arc<Mutex<Option<Py<PyAny>>>>;
+
+/// Everything a run needs for its `event_store=` argument.
+pub struct RunPlan {
+    pub sink: RunSink,
+    /// Present when the store is written in Python.
+    pub drainer: Option<Drainer>,
+    pub error: StoreErrorSlot,
+}
+
+/// Events a drainer hands to Python per GIL acquisition, at most.
+const DRAIN_BATCH: usize = 257;
+
+/// The thread that delivers one run's events to a Python store.
+///
+/// It blocks on the channel, gathers whatever else is already queued (up to
+/// [`DRAIN_BATCH`] events), attaches once and calls `append` for each event
+/// in order. It ends when the channel closes, which happens when the
+/// executor drops its [`RunStore`] at the end of the run.
+pub struct Drainer {
+    thread: std::thread::JoinHandle<()>,
+    #[cfg(feature = "tokio")]
+    done: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl Drainer {
+    fn spawn(
+        target: Py<PyAny>,
+        rx: mpsc::Receiver<Arc<NetEvent>>,
+        error: StoreErrorSlot,
+    ) -> PyResult<Self> {
+        #[cfg(feature = "tokio")]
+        let (done_tx, done) = tokio::sync::oneshot::channel::<()>();
+        let thread = std::thread::Builder::new()
+            .name("libpetri-event-drainer".into())
+            .spawn(move || {
+                let mut batch: Vec<Arc<NetEvent>> = Vec::new();
+                while let Ok(first) = rx.recv() {
+                    batch.push(first);
+                    while batch.len() < DRAIN_BATCH {
+                        match rx.try_recv() {
+                            Ok(event) => batch.push(event),
+                            Err(_) => break,
+                        }
+                    }
+                    Python::attach(|py| deliver(py, &target, batch.drain(..), &error));
+                }
+                // Release the Python references while attached rather than
+                // leaving them to the reference pool.
+                Python::attach(|_py| {
+                    drop(target);
+                    drop(error);
+                });
+                #[cfg(feature = "tokio")]
+                let _ = done_tx.send(());
+            })
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "could not start the event-store drainer thread: {e}"
+                ))
+            })?;
+        Ok(Self {
+            thread,
+            #[cfg(feature = "tokio")]
+            done,
+        })
+    }
+
+    /// Blocks until every event has been delivered. Call it detached: the
+    /// drainer needs the GIL to deliver.
+    pub fn join(self) {
+        let _ = self.thread.join();
+    }
+
+    /// Resolves once every event has been delivered. Holds no GIL while it
+    /// waits.
+    #[cfg(feature = "tokio")]
+    pub async fn finished(self) {
+        // An Err means the thread died without signalling (a panic). It has
+        // stopped delivering either way.
+        let _ = self.done.await;
+    }
+}
+
+/// Calls `target.append(event)` for each event. An exception is logged to
+/// the `libpetri` logger, the first one is kept, and delivery goes on.
+fn deliver(
+    py: Python<'_>,
+    target: &Py<PyAny>,
+    events: impl Iterator<Item = Arc<NetEvent>>,
+    error: &StoreErrorSlot,
+) {
+    let target = target.bind(py);
+    for event in events {
+        let result = Py::new(py, PyNetEvent::new(event))
+            .and_then(|wrapped| target.call_method1(intern!(py, "append"), (wrapped,)));
+        if let Err(err) = result {
+            report_store_error(py, err, error);
+        }
+    }
+}
+
+fn report_store_error(py: Python<'_>, err: PyErr, slot: &StoreErrorSlot) {
+    let value = err.value(py).clone();
+    {
+        let mut first = slot.lock().unwrap();
+        if first.is_none() {
+            *first = Some(value.clone().into_any().unbind());
+        }
+    }
+    let logged = (|| -> PyResult<()> {
+        let logger = py
+            .import("logging")?
+            .call_method1("getLogger", ("libpetri",))?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("exc_info", &value)?;
+        logger.call_method(
+            "error",
+            ("event store append raised; delivering the remaining events",),
+            Some(&kwargs),
+        )?;
+        Ok(())
+    })();
+    if let Err(log_err) = logged {
+        log_err.write_unraisable(py, None);
+    }
+}
+
+/// Reads an optional protocol member: a zero-argument method is called, any
+/// other value is used as is. `None` when the object has no such member.
+fn optional_member<'py>(
+    store: &Bound<'py, PyAny>,
+    name: &Bound<'py, PyString>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    if !store.hasattr(name)? {
+        return Ok(None);
+    }
+    let member = store.getattr(name)?;
+    if member.is_callable() {
+        Ok(Some(member.call0()?))
+    } else {
+        Ok(Some(member))
+    }
+}
+
+/// Resolves `event_store=` for one run.
+///
+/// Accepts `None`, an [`PyEventStoreHandle`] (`InMemoryEventStore`), or any
+/// object with a callable `append`. For a Python store, `is_enabled` and
+/// `captures_tokens` are read here, once. Anything else is a `TypeError`.
+pub fn prepare_run_store(
+    py: Python<'_>,
+    event_store: Option<&Bound<'_, PyAny>>,
+) -> PyResult<RunPlan> {
+    let error: StoreErrorSlot = Arc::new(Mutex::new(None));
+    let Some(store) = event_store.filter(|s| !s.is_none()) else {
+        return Ok(RunPlan { sink: RunSink::Noop, drainer: None, error });
+    };
+    if let Ok(handle) = store.cast::<PyEventStoreHandle>() {
+        let handle = handle.borrow();
+        let sink = RunSink::new(Some(Arc::clone(&handle.inner)), None, handle.capture.clone());
+        return Ok(RunPlan { sink, drainer: None, error });
+    }
+    let has_append = store.hasattr(intern!(py, "append"))?
+        && store.getattr(intern!(py, "append"))?.is_callable();
+    if !has_append {
+        return Err(PyTypeError::new_err(format!(
+            "event_store must be an InMemoryEventStore or an object with a callable \
+             append(event), got {}",
+            store.get_type().name()?
+        )));
+    }
+    if let Some(enabled) = optional_member(store, intern!(py, "is_enabled"))?
+        && !enabled.is_truthy()?
+    {
+        return Ok(RunPlan { sink: RunSink::Noop, drainer: None, error });
+    }
+    let capture = CaptureSpec::from_py(
+        optional_member(store, intern!(py, "captures_tokens"))?.as_ref(),
+    )?;
+    let (tx, rx) = mpsc::channel();
+    let drainer = Drainer::spawn(store.clone().unbind(), rx, Arc::clone(&error))?;
+    Ok(RunPlan {
+        sink: RunSink::new(None, Some(tx), capture),
+        drainer: Some(drainer),
+        error,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -298,15 +636,30 @@ impl EventStore for PySharedEventStore {
 #[derive(Clone)]
 pub struct PyEventStoreHandle {
     inner: Arc<Mutex<EventStoreInner>>,
+    capture: CaptureSpec,
 }
 
 #[pymethods]
 impl PyEventStoreHandle {
+    /// `capture_tokens` asks the executor to attach token values to
+    /// `TokenAdded` / `TokenRemoved` events: `True` for every place, or a
+    /// list of place names (or `Place`s) for just those. Read through
+    /// `NetEvent.token`. Default `False`.
     #[new]
-    fn new() -> Self {
-        Self {
+    #[pyo3(signature = (*, capture_tokens = None))]
+    fn new(capture_tokens: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Ok(Self {
             inner: Arc::new(Mutex::new(EventStoreInner::default())),
-        }
+            capture: CaptureSpec::from_py(capture_tokens)?,
+        })
+    }
+
+    /// Appends `event` and fans it out to live subscribers, as the executor
+    /// does. This lets a store written in Python pass events on to this one.
+    /// The event is stored as given: when a Python store wraps this one, the
+    /// outer store's `captures_tokens` decides which payloads exist.
+    fn append(&self, event: PyRef<'_, PyNetEvent>) {
+        self.inner.lock().unwrap().push(Arc::clone(&event.inner));
     }
 
     /// Total event count (cheap — single lock + len).
@@ -496,10 +849,6 @@ impl PyEventStoreHandle {
 }
 
 impl PyEventStoreHandle {
-    pub fn shared(&self) -> PySharedEventStore {
-        PySharedEventStore::from_handle(self)
-    }
-
     /// Snapshot of all currently-stored events as a `Vec<Arc<NetEvent>>` —
     /// used by the archive writer (which copies them into a DebugEventStore
     /// to satisfy the `libpetri_debug` archive API).

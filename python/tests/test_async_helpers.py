@@ -317,3 +317,49 @@ def test_start_async_sequential_different_loops_works() -> None:
     finally:
         loop_a.close()
         loop_b.close()
+
+
+@pytest.mark.asyncio
+async def test_action_on_loop_runs_the_coroutine_on_the_captured_loop() -> None:
+    """Inside the coroutine ``asyncio.get_running_loop()`` works and is the
+    loop that started the run; the result and exceptions come back to the
+    action."""
+
+    incoming = lp.Place("incoming")
+    done = lp.Place("done")
+    host_loop = asyncio.get_running_loop()
+    seen: dict[str, object] = {}
+
+    async def on_loop(x: int) -> int:
+        seen["loop"] = asyncio.get_running_loop()
+        # Sync asyncio APIs are legal here.
+        task = asyncio.create_task(asyncio.sleep(0, result=x * 2))
+        return await task
+
+    async def failing() -> None:
+        raise LookupError("on the loop")
+
+    async def action(ctx: lp.TransitionContext) -> None:
+        x = ctx.input("incoming")
+        with pytest.raises(RuntimeError):
+            asyncio.get_running_loop()  # the action thread has no loop
+        doubled = await lp.action_on_loop(on_loop(x))
+        try:
+            await lp.action_on_loop(failing())
+        except LookupError as exc:
+            seen["error"] = str(exc)
+        ctx.output("done", doubled)
+
+    net = (
+        lp.Net("on-loop")
+        .transition(
+            lp.Transition("t").input(lp.one(incoming)).output(lp.out(done)).action(action).build()
+        )
+        .build()
+    )
+
+    result = await lp.run_async(net, initial={incoming: [21]})
+
+    assert result.first(done) == 42
+    assert seen["loop"] is host_loop
+    assert seen["error"] == "on the loop"

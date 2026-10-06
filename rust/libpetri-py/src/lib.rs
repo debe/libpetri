@@ -3,6 +3,7 @@
 use pyo3::prelude::*;
 
 pub mod action;
+pub mod clock;
 #[cfg(feature = "archive")]
 pub mod archive;
 #[cfg(feature = "debug")]
@@ -24,6 +25,7 @@ fn _libpetri(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     error::register(m)?;
     action::register(py, m)?;
     model::register(m)?;
+    clock::register(m)?;
     events::register(py, m)?;
     executor::register(py, m)?;
     export::register(m)?;
