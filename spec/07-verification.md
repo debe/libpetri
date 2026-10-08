@@ -189,10 +189,10 @@ The following safety properties can be verified:
   error, rather than yield a verdict. `min = 0` with `max` unbounded holds on every marking: an
   implementation MAY skip its query and SHOULD then report that it did, so a skipped clause is
   distinguishable from one that passed.
-- **NameAligned(p, q)** and **QuiescentNameAligned(p, q)**: every name resident in coloured place
-  `p` equals every name resident in `q`, in every reachable marking or in every reachable quiescent
-  one. They read token names, so only Route B decides them and no other route gives them a verdict
-  ([NU-055]).
+- **NameAligned(S)** and **QuiescentNameAligned(S)**, for a non-empty list `S` of coloured places:
+  the places of `S` together hold at most one distinct name, in every reachable marking or in every
+  reachable quiescent one. They read token names, so only Route B decides them and no other route
+  gives them a verdict ([NU-055]).
 
 The two sink-sensitive properties are not ordered by strength; they **invert on the empty
 marking**. A quiescent `{done:1, stuck:1}` with `done` a sink violates DeadlockFree (it
@@ -1066,6 +1066,10 @@ after 300 s answers `proven` in under a second.
 6. On a ν-net with an exact name-coloured plan, a reachability-safety property the bound
    separates is `Proven` (structural) without the coloured query; one it does not separate
    reaches the coloured query and gets the verdict it got before.
+7. On an untimed net the enumeration route would take, a reachability-safety property the bound
+   separates is `Proven` (structural) with no enumeration report line, whatever the class budget.
+   A property it does not separate is decided by the enumeration as before, and the run sends the
+   `bound` query once. On a net with a drained forward the enumeration still decides first.
 
 **On ν-nets the phase also runs before the name-coloured encoding ([NU-053]).** The state
 equation is written over the flat, name-blind net, whose firing rule ignores which name a token
@@ -1083,6 +1087,19 @@ counts coloured tokens rather than names, often two to four times the declared b
 many colour slots can time out on a bound the flat state equation proves in milliseconds. On six
 PNID ν-nets (`research/net-metrics/validation/pnid/`), `placeBound(X, 1000)` under a budget of 2
 went from `Unknown` after about 8 s to `Proven` in about 12 ms.
+
+**On nets the enumeration route takes, the phase runs before it.** When the enumeration route of
+[VER-017] applies to a net with no ν-join (untimed, no environment places, a positive class
+budget) and the net has no drained forward ([IO-014], [VER-001] AC5), the bound runs **before**
+the enumeration, not after it. One query costs milliseconds; a graph that does not close costs the
+whole class budget before the bound is reached. Measured on a 134-transition composed agent net
+whose graph exceeds the budget: about 17 s per `placeBound` claim at a budget of 200 000 classes,
+several minutes at 5 000 000, and under 0.1 s with the bound first. A bound that proves returns
+as in AC1, with the report line of [VER-017] AC3 for the invariants it did not compute. Anything
+else falls through to the enumeration, and the fixpoint query later does not send the `bound`
+query again. When the solver cannot be started, the early bound is skipped with a report line and
+the enumeration runs without a solver, as it did before; the `Unavailable` verdict of [VER-013]
+comes only from the later phases. On every other net the phase keeps the slot above.
 
 It is on by default and MAY be disabled (`linearBound(false)`) to force
 the fixpoint path — for its certificate, or to exercise the engine itself.
@@ -1185,7 +1202,8 @@ net that has one.
 Before the SMT pipeline ([VER-001]), an implementation SHOULD try to decide the property by
 **enumerating the state-class graph** ([VER-010]) up to a class budget. When the graph closes
 within the budget the verdict is read off it directly and no solver runs; when it does not, the
-route declines and the SMT pipeline runs unchanged.
+route declines and the SMT pipeline runs unchanged. A reachability-safety property first tries
+the linear bound of [VER-015], which runs ahead of this route.
 
 The motivation is a shape the fixpoint engine handles badly and enumeration handles trivially.
 IC3/PDR is built for state spaces that are wide and shallow; a workflow net is the opposite,
@@ -1295,8 +1313,8 @@ behaviour is exactly as above. With one:
 
 **Acceptance Criteria:**
 1. On an untimed net whose state-class graph closes within the budget, the property is decided
-   without invoking a solver: the report names the route and its class count, and carries no
-   solver phase.
+   by the graph: the report names the route and its class count, and carries no solver phase
+   other than the `bound` phase of [VER-015], which a reachability-safety property tries first.
 2. A violated verdict carries a counterexample trace whose transition sequence is a real firing
    sequence from the initial marking to the witnessing class, reported as **confirmed**: the
    graph path is a firing sequence, so it is ordered by construction and there is nothing to

@@ -9,7 +9,7 @@ firing drains, a **transfer**. No constant row holds it (`ForwardDeposit.drained
 which is why every route that reads the flat net — the P-invariants, the linear bound, the state
 equation, the firing bound, the CHC fixpoint query, Route A — refuses such a net
 (`branch_outcomes::drained_forward`, checked in `verify_net` after the graph routes and before the
-first linear one).
+first linear one; the linear bound that runs ahead of the enumeration skips such a net).
 
 The graph routes do not read constant rows. The state-class graph expands a transition by
 `branch_outcomes::outcomes`, where a drained forward is the symbolic `Deposit::Drained(src)`, and

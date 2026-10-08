@@ -61,7 +61,7 @@ class TotalBudgetTest {
     void enumerationCutByTheTotalBudget_isUnknownNamingTheBudget() {
         int k = 22; // ~4M classes: minutes of enumeration without the budget
         long t0 = System.nanoTime();
-        var r = SmtVerifier.forNet(toggles(k, false)).initialMarking(allA(k))
+        var r = SmtVerifier.forNet(toggles(k, false)).linearBound(false).initialMarking(allA(k))
             .property(SmtProperty.placeBound(p("a_0"), 1))
             .enumerationMaxClasses(10_000_000)
             .timeout(Duration.ofSeconds(60))
@@ -103,7 +103,7 @@ class TotalBudgetTest {
         int k = 12; // 4 096 classes: most of a second to build, many times the budget below
         var net = toggles(k, false);
         var cache = new StateSpaceCache();
-        var cut = SmtVerifier.forNet(net).initialMarking(allA(k))
+        var cut = SmtVerifier.forNet(net).linearBound(false).initialMarking(allA(k))
             .property(SmtProperty.placeBound(p("a_0"), 1))
             .enumerationMaxClasses(100_000)
             .stateSpaceCache(cache)
@@ -114,7 +114,7 @@ class TotalBudgetTest {
         assertEquals(0, cache.size(), "a deadline cut is not recorded as a truncation");
 
         // AC10: a later query with more time and the same class budget builds rather than declines.
-        var ok = SmtVerifier.forNet(net).initialMarking(allA(k))
+        var ok = SmtVerifier.forNet(net).linearBound(false).initialMarking(allA(k))
             .property(SmtProperty.placeBound(p("a_0"), 1))
             .enumerationMaxClasses(100_000)
             .stateSpaceCache(cache)
@@ -202,7 +202,7 @@ class TotalBudgetTest {
     @Timeout(value = 120, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     void concurrentCallsOnOneVerifier_doNotShareTheirDeadlineOrStep() throws Exception {
         int k = 22;
-        var verifier = SmtVerifier.forNet(toggles(k, false)).initialMarking(allA(k))
+        var verifier = SmtVerifier.forNet(toggles(k, false)).linearBound(false).initialMarking(allA(k))
             .property(SmtProperty.placeBound(p("a_0"), 1))
             .enumerationMaxClasses(10_000_000)
             .totalBudget(Duration.ofMillis(40));

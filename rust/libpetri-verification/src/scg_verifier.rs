@@ -724,8 +724,11 @@ mod tests {
             (SmtProperty::place_bound("p5", 1), Vec::new()),
         ];
         for (property, sinks) in cases {
+            // linear_bound(false): the bound runs ahead of the enumeration and would
+            // prove the bound.
             let build = |budget: usize| {
                 SmtVerifier::for_net(&net)
+                    .linear_bound(false)
                     .enumeration_max_classes(budget)
                     .initial_marking(m0.clone())
                     .property(property.clone())

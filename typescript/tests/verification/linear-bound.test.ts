@@ -133,6 +133,25 @@ describeZ3('linear state-equation bound (VER-015) — end to end', () => {
     expect(result.counterexampleConfirmed).toBe(true);
   });
 
+  it('runs ahead of the enumeration on an untimed net (AC7)', async () => {
+    const { net, m0, ra, rb, halt } = forkOrHalt();
+    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+      .property(unreachable(new Set([ra, rb, halt]))).timeout(30_000).verify();
+    expect(result.verdict.type, result.report).toBe('proven');
+    expect(result.route).toBe('structural');
+    expect(result.report).toContain('Linear state-equation bound (VER-015), before the state-space enumeration:');
+    expect(result.report).not.toContain('Bounded state-space enumeration');
+  });
+
+  it('leaves an unseparated property to the enumeration and sends the query once (AC7)', async () => {
+    const { net, m0, ra, rb } = forkOrHalt();
+    const result = await SmtVerifier.forNet(net).initialMarking(m0)
+      .property(mutualExclusion(ra, rb)).timeout(30_000).verify();
+    expect(result.verdict.type, result.report).toBe('violated');
+    expect(result.route).toBe('enumeration');
+    expect(result.report.split('Linear state-equation bound: none separates the violation')).toHaveLength(2);
+  });
+
   it('encodeScripts() reports the bound query for reachability-safety and null otherwise', () => {
     const { net, m0, ra, rb, halt } = forkOrHalt();
     const scripts = SmtVerifier.forNet(net)

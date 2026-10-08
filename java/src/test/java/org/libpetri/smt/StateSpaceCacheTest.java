@@ -57,7 +57,7 @@ class StateSpaceCacheTest {
     private static SmtVerificationResult verify(
             PetriNet net, MarkingState m0, SmtProperty property, StateSpaceCache cache,
             UnaryOperator<SmtVerifier> configure) {
-        var verifier = SmtVerifier.forNet(net).initialMarking(m0).property(property)
+        var verifier = SmtVerifier.forNet(net).linearBound(false).initialMarking(m0).property(property)
             .timeout(Duration.ofSeconds(30));
         if (cache != null) verifier.stateSpaceCache(cache);
         return configure.apply(verifier).verify();

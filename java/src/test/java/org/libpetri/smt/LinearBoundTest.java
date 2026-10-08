@@ -160,9 +160,9 @@ class LinearBoundTest {
     @Test
     @EnabledIf("z3Available")
     void provesAnUnreachableMarkingStructurally_whenNoEqualityLawExcludesIt() {
-        // Explicit opt-out, not an oversight: [VER-017]'s enumeration route closes this
-        // small untimed net and would answer "proven by enumeration" before the linear
-        // bound this test exists to exercise ever runs.
+        // Explicit opt-out, not an oversight: with [VER-017]'s enumeration route off the
+        // bound runs in its fixpoint-path slot, after the invariants; the slot ahead of the
+        // enumeration is covered by runsAheadOfTheEnumeration_onAnUntimedNet.
         var result = SmtVerifier.forNet(forkOrHalt()).initialMarking(m0())
             .enumerationMaxClasses(0)
             .property(target()).timeout(Duration.ofSeconds(30)).verify();
@@ -196,6 +196,30 @@ class LinearBoundTest {
         assertTrue(result.report().contains("Linear state-equation bound: none separates the violation"),
             result.report());
         assertEquals(Boolean.TRUE, result.counterexampleConfirmed(), result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void runsAheadOfTheEnumeration_onAnUntimedNet() {
+        // [VER-015] AC7: one query proves it, so no class budget is spent first.
+        var result = SmtVerifier.forNet(forkOrHalt()).initialMarking(m0())
+            .property(target()).timeout(Duration.ofSeconds(30)).verify();
+        assertTrue(result.isProven(), result.report());
+        assertEquals(SmtVerificationResult.Route.STRUCTURAL, result.route(), result.report());
+        assertTrue(result.report().contains(
+            "Linear state-equation bound (VER-015), before the state-space enumeration:"), result.report());
+        assertFalse(result.report().contains("Bounded state-space enumeration"), result.report());
+    }
+
+    @Test
+    @EnabledIf("z3Available")
+    void leavesAnUnseparatedPropertyToTheEnumeration_andSendsTheQueryOnce() {
+        var result = SmtVerifier.forNet(forkOrHalt()).initialMarking(m0())
+            .property(SmtProperty.mutualExclusion(RA, RB)).timeout(Duration.ofSeconds(30)).verify();
+        assertTrue(result.isViolated(), result.report());
+        assertEquals(SmtVerificationResult.Route.ENUMERATION, result.route(), result.report());
+        assertEquals(2, result.report().split("Linear state-equation bound: none separates the violation", -1).length,
+            result.report());
     }
 
     @Test

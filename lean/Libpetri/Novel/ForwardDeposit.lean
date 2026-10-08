@@ -30,7 +30,7 @@ from a `One` / `Exactly(n)` input depositing `required_count = n`
 constant row can express (`forward_deposit` returns `Deposit::Drained` for it,
 `drained_forward_has_no_row`); `branch_outcomes::drained_forward` refuses such a net on
 every route that reads the flat net (checked in `verify_net` after the graph routes, before the
-first linear one). The graph routes resolve the batch at the marking each firing drains;
+first linear one; the linear bound that runs ahead of the enumeration skips such a net). The graph routes resolve the batch at the marking each firing drains;
 `TransferRows.lean` proves those marking-dependent rows exact (`transfer_step_simulated`,
 `transfer_enumeration_sound`).
 

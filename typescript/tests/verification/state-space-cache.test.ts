@@ -72,14 +72,14 @@ describe('VER-017 AC7 — a state-space cache builds once and changes no answer'
     const [cached, built] = await builds(async () => {
       const out: SmtVerificationResult[] = [];
       for (const [, q] of queries) {
-        out.push(await q(SmtVerifier.forNet(net).initialMarking(m0).stateSpaceCache(cache)).verify());
+        out.push(await q(SmtVerifier.forNet(net).linearBound(false).initialMarking(m0).stateSpaceCache(cache)).verify());
       }
       return out;
     });
     expect(built).toBe(1);
 
     const uncached: SmtVerificationResult[] = [];
-    for (const [, q] of queries) uncached.push(await q(SmtVerifier.forNet(net).initialMarking(m0)).verify());
+    for (const [, q] of queries) uncached.push(await q(SmtVerifier.forNet(net).linearBound(false).initialMarking(m0)).verify());
 
     for (let i = 0; i < queries.length; i++) {
       expect(observable(cached[i]!), queries[i]![0]).toEqual(observable(uncached[i]!));
@@ -105,7 +105,7 @@ describe('VER-017 AC7 — a state-space cache builds once and changes no answer'
 
   it('without a cache every query builds', async () => {
     const [, built] = await builds(async () => {
-      for (const [, q] of queries) await q(SmtVerifier.forNet(net).initialMarking(m0)).verify();
+      for (const [, q] of queries) await q(SmtVerifier.forNet(net).linearBound(false).initialMarking(m0)).verify();
     });
     expect(built).toBe(queries.length);
   });
@@ -245,7 +245,7 @@ describe('VER-017 AC10 — concurrent queries sharing a cache build once', () =>
       [unreachable(new Set([places[0]!, places[6]!])), []],
     ];
     const [results, built] = await builds(() => Promise.all(props.map(([p, sinks]) =>
-      SmtVerifier.forNet(net).initialMarking(m0).property(p).sinkPlaces(...sinks)
+      SmtVerifier.forNet(net).linearBound(false).initialMarking(m0).property(p).sinkPlaces(...sinks)
         .stateSpaceCache(cache).verify())));
     expect(built).toBe(1);
     expect(results.map(r => r.verdict.type)).toEqual(['proven', 'violated', 'proven', 'proven']);
@@ -279,7 +279,7 @@ describe('VER-017 — a net with terminals hits the cache across queries', () =>
     const [cached, built] = await builds(async () => {
       const out: SmtVerificationResult[] = [];
       for (const q of queries) {
-        out.push(await q(SmtVerifier.forNet(net).initialMarking(m => m.tokens(START, 1)).stateSpaceCache(cache)).verify());
+        out.push(await q(SmtVerifier.forNet(net).linearBound(false).initialMarking(m => m.tokens(START, 1)).stateSpaceCache(cache)).verify());
       }
       return out;
     });
@@ -287,7 +287,7 @@ describe('VER-017 — a net with terminals hits the cache across queries', () =>
     for (const r of cached.slice(1)) expect(r.report).toContain(REUSED);
 
     for (let i = 0; i < queries.length; i++) {
-      const plain = await queries[i]!(SmtVerifier.forNet(net).initialMarking(m => m.tokens(START, 1))).verify();
+      const plain = await queries[i]!(SmtVerifier.forNet(net).linearBound(false).initialMarking(m => m.tokens(START, 1))).verify();
       expect(observable(cached[i]!)).toEqual(observable(plain));
       expect(cached[i]!.route).toBe('enumeration');
     }

@@ -128,7 +128,10 @@ fn later_queries_reuse_the_graph_and_answer_as_without_it() {
 
     let proven = query(&net, &m0, &["p6", "aside"]).state_space_cache(&cache).verify();
     let violated = query(&net, &m0, &["p6"]).state_space_cache(&cache).verify();
+    // linear_bound(false): the bound runs ahead of the enumeration ([VER-015] AC7) and
+    // would prove this one without reading the cache.
     let bound = SmtVerifier::for_net(&net)
+        .linear_bound(false)
         .initial_marking(m0.clone())
         .property(SmtProperty::place_bound("p6", 1))
         .state_space_cache(&cache)
@@ -155,6 +158,7 @@ fn later_queries_reuse_the_graph_and_answer_as_without_it() {
     assert_same_answer(
         &bound,
         &SmtVerifier::for_net(&net)
+            .linear_bound(false)
             .initial_marking(m0.clone())
             .property(SmtProperty::place_bound("p6", 1))
             .verify(),

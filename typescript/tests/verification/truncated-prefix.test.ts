@@ -107,7 +107,7 @@ describe('VER-017 enumeration decides on its explored prefix', () => {
   it('a cached truncation keeps its prefix: a later query at that budget decides without building', async () => {
     const { net, c, p, m0 } = unboundedChain();
     const cache = new StateSpaceCache();
-    const q = (property: ReturnType<typeof placeBound>) => SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m0)
+    const q = (property: ReturnType<typeof placeBound>) => SmtVerifier.forNet(net).linearBound(false).mintTransitions(...allMints(net)).initialMarking(m0)
       .property(property).stateSpaceCache(cache).enumerationMaxClasses(10);
     // Nothing in the first query's prefix violates it: it builds, records the truncation and falls
     // through to the SMT pipeline (a linear bound, or unknown without z3 — only the build matters).

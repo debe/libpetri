@@ -29,7 +29,7 @@ function toggles(k: number) {
     b.transition(Transition.builder(`t${i}`).inputs(one(a[i]!)).outputs(outPlace(place(`b${i}`))).action(produces()).build());
   }
   const net = b.build();
-  return { net, verifier: () => SmtVerifier.forNet(net).mintTransitions(...allMints(net)).initialMarking(m => { for (const p of a) m.tokens(p, 1); }).property(placeBound(a[0]!, 1)) };
+  return { net, verifier: () => SmtVerifier.forNet(net).linearBound(false).mintTransitions(...allMints(net)).initialMarking(m => { for (const p of a) m.tokens(p, 1); }).property(placeBound(a[0]!, 1)) };
 }
 
 /**

@@ -1724,16 +1724,63 @@ public final class SmtVerifier {
             }
         }
 
+        boolean enumerationRoute = !hasMatch
+                && environmentPlaces.isEmpty()
+                && enumerationMaxClasses > 0
+                && ScgVerifier.isUntimed(net);
+
+        // Linear state-equation bound ahead of the enumeration ([VER-015]): one query proves in
+        // milliseconds what a graph that does not close spends its whole class budget on before
+        // the bound below is reached. Not on a net with a drained forward, whose flat net is not
+        // the net ([VER-001] AC5): the enumeration decides those. A missing solver skips it; the
+        // enumeration needs none.
+        FlatNet earlyFlatNet = null;
+        boolean boundTried = false;
+        if (enumerationRoute
+                && linearBound
+                && isReachabilitySafety(property)
+                && org.libpetri.analysis.BranchOutcomes.drainedForward(net).isEmpty()) {
+            enter("linear bound", SmtVerificationResult.Route.SMT);
+            earlyFlatNet = flatNet();
+            Z3Solver early = null;
+            try {
+                early = solver != null ? solver : Z3Solver.resolve();
+            } catch (Z3Solver.Z3Unavailable e) {
+                report.append("Linear state-equation bound (VER-015): skipped, z3 unavailable (")
+                      .append(e.getMessage()).append(")\n");
+            }
+            if (early != null) {
+                boundTried = true;
+                report.append("Linear state-equation bound (VER-015), before the state-space enumeration:\n");
+                String proof = linearBoundProof(earlyFlatNet, early, report);
+                if (proof != null) {
+                    report.append("  P-invariants: not computed (proven before the encoding is built)\n");
+                    report.append("  Certificate check: not applicable (structural proof)\n\n");
+                    report.append("=== RESULT ===\n\n");
+                    report.append("PROVEN (structural): ").append(propDesc).append("\n");
+                    report.append("  Linear state-equation bound: y >= 0 with y.C <= 0 gives y.M <= y.M0 on every\n");
+                    report.append("  reachable marking, and the violating markings exceed it (VER-015).\n");
+                    report.append("  ").append(proof).append("\n");
+                    return buildResult(
+                        new SmtVerificationResult.Verdict.Proven("structural", null),
+                        report.toString(), List.of(), List.of(), List.of(), List.of(),
+                        Duration.between(start, Instant.now()),
+                        new SmtVerificationResult.SmtStatistics(
+                            earlyFlatNet.placeCount(), earlyFlatNet.transitionCount(), 0,
+                            "n/a (linear state-equation bound)"),
+                        SmtVerificationResult.Route.STRUCTURAL);
+                }
+                report.append("\n");
+            }
+        }
+
         // Bounded state-space enumeration ([VER-017]): when the state-class graph closes
         // within the budget it decides the property exactly, with no solver at all — the
         // answer for the narrow, deep state spaces a workflow net produces, where IC3 needs
         // a frame per pipeline stage. Skipped for ν-nets (Route B above is their exact
         // route) and for nets with environment places, whose injection the graph does not
         // model; on truncation the SMT pipeline below runs unchanged.
-        if (!hasMatch
-                && environmentPlaces.isEmpty()
-                && enumerationMaxClasses > 0
-                && ScgVerifier.isUntimed(net)) {
+        if (enumerationRoute) {
             enter("state-space enumeration", SmtVerificationResult.Route.ENUMERATION);
             ScgVerifier.Outcome enumerated;
             // Under arrivals(k) the graph is of the closed net, which depends on the environment
@@ -1815,6 +1862,7 @@ public final class SmtVerifier {
         // and Route A — so a Proven from any of them would be about a different net. Refuse
         // here, after the graph routes and before the first linear one: every exit below this
         // point is then covered ([VER-003] AC5).
+        // The linear bound ahead of the enumeration skips such a net, so none ran before.
         var drained = org.libpetri.analysis.BranchOutcomes.drainedForward(net);
         if (drained.isPresent()) {
             String reason = drained.get().reason();
@@ -1833,7 +1881,7 @@ public final class SmtVerifier {
         // Phase 1: Flatten
         enter("flattening", SmtVerificationResult.Route.SMT);
         report.append("Phase 1: Flattening net...\n");
-        FlatNet flatNet = flatNet();
+        FlatNet flatNet = earlyFlatNet != null ? earlyFlatNet : flatNet();
         report.append("  Places: ").append(flatNet.placeCount()).append("\n");
         report.append("  Transitions (expanded): ").append(flatNet.transitionCount()).append("\n");
         if (!flatNet.environmentBounds().isEmpty()) {
@@ -2028,8 +2076,10 @@ public final class SmtVerifier {
         // semantics, so its Proven is sound on a ν-net, and a trivially true bound no longer
         // waits out the coloured query's timeout. Not proven → the coloured encoding decides
         // as before. Skipped under Ignore with environment places, where VER-006 refuses
-        // every Proven.
-        if (linearBound
+        // every Proven. Sent once per run: a net that tried it ahead of the enumeration already
+        // has its answer in the report.
+        if (!boundTried
+                && linearBound
                 && isReachabilitySafety(property)
                 && !ignoresEnvironment()) {
             enter("linear bound", SmtVerificationResult.Route.SMT);

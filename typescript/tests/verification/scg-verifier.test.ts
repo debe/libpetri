@@ -160,8 +160,9 @@ describeZ3('bounded state-space enumeration (VER-017) — agrees with the solver
       [deadlockFree(), [places[5]!]],
       [placeBound(places[5]!, 1), []],
     ] as const) {
+      // linearBound(false): the bound runs ahead of the enumeration and would prove the bound.
       const enumerated = await SmtVerifier.forNet(net).initialMarking(m0)
-        .property(prop).sinkPlaces(...sinks).timeout(30_000).verify();
+        .property(prop).sinkPlaces(...sinks).linearBound(false).timeout(30_000).verify();
       const solved = await SmtVerifier.forNet(net).initialMarking(m0)
         .property(prop).sinkPlaces(...sinks).enumerationMaxClasses(0).timeout(30_000).verify();
       expect(enumerated.report).toContain('Bounded state-space enumeration');

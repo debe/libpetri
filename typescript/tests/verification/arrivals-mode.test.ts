@@ -38,7 +38,8 @@ describe('arrivals(k) (VER-006 AC9)', () => {
   it('placeBound(OUT, k) is proven: the total injected is k', async () => {
     const result = await verifier(2).property(placeBound(OUT, 2)).verify();
     expect(result.verdict.type, result.report).toBe('proven');
-    expect(result.route).toBe('enumeration');
+    // The closed net is untimed, so the linear bound runs ahead of the enumeration (VER-015 AC7).
+    expect(result.route).toBe('structural');
     expect(result.report).toContain('arrivals(2)');
     expect(result.report).toContain('env:arrive?[0]:IN from env:optional[0] (at most 2)');
   });

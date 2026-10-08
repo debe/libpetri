@@ -63,7 +63,7 @@ class SemiflowInvariantsTest {
             .verify();
         assertFalse(off.report().contains("Semiflows encoded as invariants"), off.report());
 
-        var on = SmtVerifier.forNet(loop())
+        var on = SmtVerifier.forNet(loop()).linearBound(false)
             .initialMarking(m -> m.tokens(BUDGET, 1))
             .property(SmtProperty.placeBound(WORK, 1))
             .semiflowInvariants(true)

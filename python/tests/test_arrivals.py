@@ -25,7 +25,8 @@ def _verify(mode, prop, **kw):
 def test_arrivals_bounds_the_total_injected():
     proven = _verify(lp.arrivals(2), lp.place_bound("OUT", 2))
     assert proven.verdict == "proven", proven.report
-    assert proven.route == "enumeration"
+    # The closed net is untimed, so the linear bound runs ahead of the enumeration (VER-015 AC7).
+    assert proven.route == "structural"
     assert (
         "Environment: arrivals(2) — net closed before any route: env:arrive?[0]:IN from "
         "env:optional[0] (at most 2) (VER-006)"

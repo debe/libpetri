@@ -23,6 +23,13 @@
   - Java `SmtProperty.nameAligned` / `quiescentNameAligned`, TypeScript `nameAligned` / `quiescentNameAligned`, Rust `SmtProperty::name_aligned` / `quiescent_name_aligned`, Python `name_aligned` / `quiescent_name_aligned` (also from `libpetri`).
   - Lean: `routeB_untimed_nameAligned_sound` and `routeB_untimed_quiescentNameAligned_sound` (`Novel/RouteB/Aligned.lean`) prove a `Proven` sound for the untimed, environment-free, atomic executor. The fixtures are `spec/verification-fixtures/nu-aligned-fixtures.json`.
 
+### Changed
+
+- **The linear bound runs before the state-space enumeration on untimed nets (all languages, [VER-015], [VER-017]).** A reachability-safety property (`placeBound`, `branchPlaceBound`, `mutualExclusion`, `unreachable`) now tries the one-query state-equation bound first, so a graph that does not close no longer spends the whole class budget before the bound proves the claim. On a 134-transition composed agent net each `placeBound` claim went from about 17 s (200 000 classes) to under 0.1 s.
+  - A proof is route `structural`; anything else falls through to the enumeration, and the run sends the `bound` query once.
+  - Nets with a drained forward ([IO-014]), timed nets, ν-nets and nets with environment places keep the old order. Without a usable z3 the early bound is skipped and the enumeration runs solver-free as before.
+  - `linearBound(false)` / `linear_bound=False` restores enumeration-first for these nets.
+
 ## Rust 10.1.0 / Python 7.2.0 — 2026-10-06
 
 Both releases are minor: everything below is additive.

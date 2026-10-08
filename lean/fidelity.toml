@@ -600,7 +600,7 @@ lean = ["Libpetri/Novel/Farkas.lean"]
 
 # Commoner.lean: the siphon/trap pre-check and the guard that makes its
 # `NoPotentialDeadlock` a `Proven`. The early return itself sits in `verify_net`,
-# which is deliberately not pinned (775 lines, most of them unrelated phases).
+# pinned further down to SiphonSearch.lean, Premise.lean and InFlight.lean.
 [[pin]]
 file = "rust/libpetri-verification/src/structural_check.rs"
 fn = "structural_check"

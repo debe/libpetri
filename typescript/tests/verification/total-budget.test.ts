@@ -25,7 +25,7 @@ function toggles(k: number): { net: PetriNet; verifier: () => SmtVerifier } {
   const net = bindProducers(b.build());
   return {
     net,
-    verifier: () => SmtVerifier.forNet(net)
+    verifier: () => SmtVerifier.forNet(net).linearBound(false)
       .initialMarking(m => { for (const p of a) m.tokens(p, 1); })
       .property(placeBound(a[0]!, 1)),
   };

@@ -178,7 +178,7 @@ class CancellationTest {
         var net = toggles(k);
         var cache = new StateSpaceCache();
         long start = System.nanoTime();
-        var run = runInterrupted(() -> SmtVerifier.forNet(net).initialMarking(marking)
+        var run = runInterrupted(() -> SmtVerifier.forNet(net).linearBound(false).initialMarking(marking)
                 .property(SmtProperty.placeBound(p("a_0"), 1))
                 .enumerationMaxClasses(10_000_000)
                 .stateSpaceCache(cache)

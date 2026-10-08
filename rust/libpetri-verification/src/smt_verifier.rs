@@ -1378,6 +1378,73 @@ impl<'a> SmtVerifier<'a> {
             }
         }
 
+        let enumeration_route = !has_match
+            && self.env_places.is_empty()
+            && self.enumeration_max_classes > 0
+            && scg_verifier::is_untimed(self.net);
+
+        // Linear state-equation bound ahead of the enumeration ([VER-015]): one query
+        // proves in milliseconds what a graph that does not close spends its whole
+        // class budget on before the bound below is reached. Not on a net with a
+        // drained forward, whose flat net is not the net ([VER-001] AC5): the
+        // enumeration decides those. A missing solver skips it; the enumeration needs
+        // none.
+        let mut early_flat: Option<FlatNet> = None;
+        let mut bound_tried = false;
+        if enumeration_route
+            && self.linear_bound
+            && is_reachability_safety(&self.property)
+            && branch_outcomes::drained_forward(self.net).is_none()
+        {
+            step!("linear bound", VerificationRoute::Smt, net_statistics(self.net));
+            let flat = self.flatten();
+            let property = canonical_property(&flat, &self.property);
+            if unresolved_property_place(&flat, &property).is_none() {
+                match Z3Solver::resolve() {
+                    Err(reason) => report.push_str(&format!(
+                        "Linear state-equation bound (VER-015): skipped, z3 unavailable ({reason})\n"
+                    )),
+                    Ok(solver) => {
+                        bound_tried = true;
+                        report.push_str(
+                            "Linear state-equation bound (VER-015), before the state-space enumeration:\n",
+                        );
+                        if let Some(rendered) = self.linear_bound_proof(
+                            &flat,
+                            &property,
+                            &self.env_injection(),
+                            &solver,
+                            &mut report,
+                        ) {
+                            report.push_str("  P-invariants: not computed (proven before the encoding is built)\n");
+                            report.push_str(&cert_not_applicable("structural proof"));
+                            report.push_str("Result: property proven structurally (linear state-equation bound)\n");
+                            report.push_str(
+                                "  Linear state-equation bound: y >= 0 with y.C <= 0 gives y.M <= y.M0 on every\n",
+                            );
+                            report.push_str("  reachable marking, and the violating markings exceed it (VER-015).\n");
+                            report.push_str(&format!("  {rendered}\n"));
+                            let elapsed_ms = start.elapsed().as_millis() as u64;
+                            report.push_str(&format!("\nElapsed: {}ms\n", elapsed_ms));
+                            return build_result(
+                                Verdict::Proven {
+                                    method: "structural".into(),
+                                    inductive_invariant: None,
+                                },
+                                VerificationRoute::Structural,
+                                report,
+                                elapsed_ms,
+                                flat_statistics(&flat, 0, "n/a (linear state-equation bound)"),
+                                Diagnostics::none(),
+                            );
+                        }
+                        report.push('\n');
+                    }
+                }
+            }
+            early_flat = Some(flat);
+        }
+
         // Bounded state-space enumeration ([VER-017]): when the state-class graph
         // closes within the budget it decides the property exactly, with no solver
         // at all — the answer for the narrow, deep state spaces a workflow net
@@ -1385,11 +1452,7 @@ impl<'a> SmtVerifier<'a> {
         // (Route B above is their exact route) and for nets with environment
         // places, whose injection the graph does not model; on truncation the SMT
         // pipeline below runs unchanged.
-        if !has_match
-            && self.env_places.is_empty()
-            && self.enumeration_max_classes > 0
-            && scg_verifier::is_untimed(self.net)
-        {
+        if enumeration_route {
             step!("state-space enumeration", VerificationRoute::Enumeration, net_statistics(self.net));
             let (enumerated, cache_line) = self.enumerate();
             match enumerated {
@@ -1483,6 +1546,7 @@ impl<'a> SmtVerifier<'a> {
         // the CHC fixpoint query and Route A — so a `Proven` from any of them would be
         // about a different net. Refuse here, after the graph routes and before the
         // first linear one: every exit below this point is then covered ([VER-003] AC5).
+        // The linear bound ahead of the enumeration skips such a net, so none ran before.
         if let Some(forward) = branch_outcomes::drained_forward(self.net) {
             let reason = forward.reason();
             report.push_str(&format!("Downgraded to UNKNOWN: {reason}\n"));
@@ -1505,7 +1569,7 @@ impl<'a> SmtVerifier<'a> {
         // Phase 1: Flatten
         step!("flattening", VerificationRoute::Smt, net_statistics(self.net));
         report.push_str("=== Phase 1: Net Flattening ===\n");
-        let flat = self.flatten();
+        let flat = early_flat.take().unwrap_or_else(|| self.flatten());
         report.push_str(&format!(
             "Places: {}, Transitions: {} (flat: {})\n\n",
             flat.place_count,
@@ -1812,8 +1876,10 @@ no constraint the encoding does not already have; they may still differ in FORM)
         // proven: the coloured query decides, with its verdict and notes. Skipped
         // under `Ignore` with environment places, where VER-006 refuses every
         // `Proven`. A property naming a place the net lacks never gets here: it is
-        // refused before any route ([VER-003] AC5).
-        if self.linear_bound
+        // refused before any route ([VER-003] AC5). Sent once per run: a net that
+        // tried it ahead of the enumeration already has its answer in the report.
+        if !bound_tried
+            && self.linear_bound
             && is_reachability_safety(&property)
             && !self.ignores_environment()
         {
@@ -5412,6 +5478,7 @@ mod tests {
         );
 
         let on = SmtVerifier::for_net(&net)
+            .linear_bound(false)
             .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
             .property(SmtProperty::place_bound("work", 1))
             .semiflow_invariants(true)
@@ -7933,6 +8000,59 @@ mod tests {
         assert_eq!(result.counterexample_confirmed, Some(true), "{}", result.report);
     }
 
+    /// [VER-015] AC7: on an untimed net the bound runs ahead of the enumeration, so
+    /// a property it separates spends no class budget.
+    #[test]
+    fn linear_bound_runs_ahead_of_the_enumeration() {
+        if !z3_available() {
+            eprintln!("skipping linear_bound_runs_ahead_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(fork_or_halt_marking())
+            .property(fork_or_halt_targets())
+            .timeout(30_000)
+            .verify();
+        assert!(result.is_proven(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::Structural, "{}", result.report);
+        assert!(
+            result
+                .report
+                .contains("Linear state-equation bound (VER-015), before the state-space enumeration:\n"),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains("Bounded state-space enumeration"), "{}", result.report);
+    }
+
+    /// [VER-015] AC7: a property the bound does not separate is decided by the
+    /// enumeration, and the run sends the bound query once.
+    #[test]
+    fn linear_bound_leaves_an_unseparated_property_to_the_enumeration() {
+        if !z3_available() {
+            eprintln!("skipping linear_bound_leaves_*: z3 binary not on PATH");
+            return;
+        }
+        let net = fork_or_halt_net();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(fork_or_halt_marking())
+            .property(SmtProperty::mutual_exclusion(vec!["ra".into(), "rb".into()]))
+            .timeout(30_000)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::Enumeration, "{}", result.report);
+        assert_eq!(
+            result
+                .report
+                .matches("  Linear state-equation bound: none separates the violation\n")
+                .count(),
+            1,
+            "{}",
+            result.report
+        );
+    }
+
     /// `linear_bound(false)` forces the IC3/PDR path — for its certificate.
     #[test]
     fn linear_bound_disabled_forces_the_fixpoint_path() {
@@ -9482,14 +9602,15 @@ mod tests {
     }
 
     /// AC9: `Arrivals(k)` bounds the total. The closed net is untimed with no
-    /// environment place left, so the enumeration route decides it exactly.
+    /// environment place left, so the linear bound runs ahead of the enumeration
+    /// ([VER-015] AC7) and proves it.
     #[test]
     fn arrivals_bounds_the_total_injected() {
         let k = 2;
         let arrivals = EnvironmentAnalysisMode::Arrivals { max_tokens: k };
         let proven = verify_env_source(arrivals.clone(), SmtProperty::place_bound("OUT", k));
         assert!(proven.is_proven(), "{}", proven.report);
-        assert_eq!(proven.route, VerificationRoute::Enumeration, "{}", proven.report);
+        assert_eq!(proven.route, VerificationRoute::Structural, "{}", proven.report);
         assert!(
             proven.report.contains(
                 "Environment: arrivals(2) — net closed before any route: env:arrive?[0]:IN from \

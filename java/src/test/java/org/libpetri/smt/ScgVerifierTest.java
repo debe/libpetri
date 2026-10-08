@@ -288,7 +288,8 @@ class ScgVerifierTest {
             new Case(SmtProperty.deadlockFree(), List.of(p.places().get(5))),
             new Case(SmtProperty.placeBound(p.places().get(5), 1), List.of()));
         for (var c : cases) {
-            var enumerated = SmtVerifier.forNet(p.net()).initialMarking(p.m0())
+            // linearBound(false): the bound runs ahead of the enumeration and would prove the bound.
+            var enumerated = SmtVerifier.forNet(p.net()).linearBound(false).initialMarking(p.m0())
                 .property(c.property()).sinkPlaces(c.sinks().toArray(new Place<?>[0]))
                 .timeout(Duration.ofSeconds(30)).verify();
             var solved = SmtVerifier.forNet(p.net()).initialMarking(p.m0())

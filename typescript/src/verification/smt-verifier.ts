@@ -1487,18 +1487,73 @@ export class SmtVerifier {
       }
     }
 
+    const enumerationRoute =
+      !hasMatch &&
+      this._environmentPlaces.size === 0 &&
+      this._enumerationMaxClasses > 0 &&
+      isUntimed(this.net);
+
+    // Linear state-equation bound ahead of the enumeration (VER-015): one query proves in
+    // milliseconds what a graph that does not close spends its whole class budget on before
+    // the bound below is reached. Not on a net with a drained forward, whose flat net is not
+    // the net (VER-001 AC5): the enumeration decides those. A missing solver skips it; the
+    // enumeration needs none.
+    let earlyFlatNet: FlatNet | null = null;
+    let boundTried = false;
+    if (
+      enumerationRoute &&
+      this._linearBound &&
+      isReachabilitySafety(this._property) &&
+      drainedForward(this.net) === null
+    ) {
+      this.enter(run, 'linear bound', 'smt');
+      earlyFlatNet = this.flatNet();
+      let solver: Z3Solver | null = null;
+      try {
+        solver = run.deadline === null ? resolveZ3() : { ...resolveZ3(), deadline: run.deadline };
+      } catch (e: any) {
+        rethrowIfProgrammingError(e);
+        const reason = e instanceof Z3Unavailable ? e.message : String(e?.message ?? e);
+        report.push(`Linear state-equation bound (VER-015): skipped, z3 unavailable (${reason})`);
+      }
+      if (solver !== null) {
+        boundTried = true;
+        report.push('Linear state-equation bound (VER-015), before the state-space enumeration:');
+        const proof = await this.linearBoundProof(earlyFlatNet, solver, report);
+        if (proof != null) {
+          report.push('  P-invariants: not computed (proven before the encoding is built)');
+          report.push('  Certificate check: not applicable (structural proof)');
+          report.push('');
+          report.push('=== RESULT ===\n');
+          report.push(`PROVEN (structural): ${propDesc}`);
+          report.push('  Linear state-equation bound: y >= 0 with y.C <= 0 gives y.M <= y.M0 on every');
+          report.push('  reachable marking, and the violating markings exceed it (VER-015).');
+          report.push(`  ${proof}`);
+          return buildResult(
+            { type: 'proven', method: 'structural', inductiveInvariant: null },
+            report.join('\n'), [], [], [], [],
+            performance.now() - start,
+            {
+              places: earlyFlatNet.places.length,
+              transitions: earlyFlatNet.transitions.length,
+              invariantsFound: 0,
+              structuralResult: 'n/a (linear state-equation bound)',
+            },
+            null,
+            'structural',
+          );
+        }
+        report.push('');
+      }
+    }
+
     // Bounded state-space enumeration (VER-017): when the state-class graph closes
     // within the budget it decides the property exactly, with no solver at all —
     // the answer for the narrow, deep state spaces a workflow net produces, where
     // IC3 needs a frame per pipeline stage. Skipped for ν-nets (Route B above is
     // their exact route) and for nets with environment places, whose injection the
     // graph does not model; on truncation the SMT pipeline below runs unchanged.
-    if (
-      !hasMatch &&
-      this._environmentPlaces.size === 0 &&
-      this._enumerationMaxClasses > 0 &&
-      isUntimed(this.net)
-    ) {
+    if (enumerationRoute) {
       this.enter(run, 'state-space enumeration', 'enumeration');
       const { enumerated, cacheLine } = this.enumerate(run.deadline);
       if (enumerated.kind === 'decided') {
@@ -1540,6 +1595,7 @@ export class SmtVerifier {
     // VER-019 phases, the CHC fixpoint query and Route A — so a `proven` from any of them
     // would be about a different net. Refuse here, after the graph routes and before the
     // first linear one: every exit below this point is then covered ([VER-003] AC5).
+    // The linear bound ahead of the enumeration skips such a net, so none ran before.
     const drained = drainedForward(this.net);
     if (drained !== null) {
       const reason = drainedForwardReason(drained);
@@ -1562,7 +1618,7 @@ export class SmtVerifier {
     // Phase 1: Flatten
     this.enter(run, 'flattening', 'smt');
     report.push('Phase 1: Flattening net...');
-    const flatNet = this.flatNet();
+    const flatNet = earlyFlatNet ?? this.flatNet();
     report.push(`  Places: ${flatNet.places.length}`);
     report.push(`  Transitions (expanded): ${flatNet.transitions.length}`);
     if (flatNet.environmentBounds.size > 0) {
@@ -1761,8 +1817,10 @@ export class SmtVerifier {
     // semantics, so its `proven` is sound on a ν-net, and it closes in milliseconds
     // bounds the coloured IC3 query times out on (slots = 2-4x the budget). Not proven
     // falls through to the coloured query unchanged. Skipped under `ignore` with
-    // environment places, where VER-006 refuses every `proven`.
+    // environment places, where VER-006 refuses every `proven`. Sent once per run: a net
+    // that tried it ahead of the enumeration already has its answer in the report.
     if (
+      !boundTried &&
       this._linearBound &&
       isReachabilitySafety(this._property) &&
       !this.ignoresEnvironment

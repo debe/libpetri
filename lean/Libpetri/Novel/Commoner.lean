@@ -7,7 +7,7 @@ Model of the structural deadlock pre-check: `structural_check`
 (`rust/libpetri-verification/src/structural_check.rs:36`), its siphon search
 `find_minimal_siphons` / `grow_siphon` and its trap contraction `find_maximal_trap_in`
 (`structural_check.rs:149`), and the early `Proven` that `verify_net` builds on it in
-`smt_verifier.rs`, guarded by `commoner_applies` (`smt_verifier.rs:3634`). The semantics is the
+`smt_verifier.rs`, guarded by `commoner_applies` (`smt_verifier.rs:3678`). The semantics is the
 CHC relation `ReachA` over flat transitions (`Soundness.lean`), one entry per outcome
 (`branch_outcomes::outcomes`), as `flatten` produces them. `ReachA` reads a row as a set
 (`fireA`), which is exact here: `commoner_applies` admits only `pre ≤ 1`, so a timeout forward
@@ -155,7 +155,7 @@ theorem trap_stays_marked {net : FlatNet} {T : PlaceId → Prop} (hT : Trap net 
 
 /-! ## Commoner's theorem for ordinary nets -/
 
-/-- `commoner_applies` (`smt_verifier.rs:3634`). -/
+/-- `commoner_applies` (`smt_verifier.rs:3678`). -/
 def Ordinary (net : FlatNet) : Prop :=
   ∀ ft ∈ net, ft.1.inhibitors = [] ∧ ft.1.reads = [] ∧ ft.1.resets = [] ∧
     ∀ s ∈ ft.1.inputs, s.card.consumesAll = false ∧ s.card.required ≤ 1

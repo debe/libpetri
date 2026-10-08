@@ -83,7 +83,9 @@ def test_repeated_queries_build_once_and_answer_as_without_the_cache():
     marking = {"p0": 1}
     proven = _verify(net, cache=cache)
     violated = _verify(net, cache=cache, sinks=())
-    bound = _verify(net, cache=cache, sinks=(), prop=lp.place_bound("p6", 1))
+    # linear_bound=False: the bound runs ahead of the enumeration (VER-015 AC7) and would
+    # prove this one without reading the cache.
+    bound = _verify(net, cache=cache, sinks=(), prop=lp.place_bound("p6", 1), linear_bound=False)
     assert cache.build_count == 1, "later queries must not build"
     for result in (proven, violated, bound):
         assert result.route == "enumeration", result.report
@@ -97,7 +99,7 @@ def test_repeated_queries_build_once_and_answer_as_without_the_cache():
 
     _assert_same_answer(proven, _verify(net, marking=marking))
     _assert_same_answer(violated, _verify(net, sinks=()))
-    _assert_same_answer(bound, _verify(net, sinks=(), prop=lp.place_bound("p6", 1)))
+    _assert_same_answer(bound, _verify(net, sinks=(), prop=lp.place_bound("p6", 1), linear_bound=False))
 
 
 def test_a_rebuilt_copy_of_the_net_hits():
