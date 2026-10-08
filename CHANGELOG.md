@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 10.0.0 / TypeScript 9.0.0 / Rust 11.0.0 / Python 7.3.0 — 2026-10-08
 
 **Breaking for exhaustive matches in Java, TypeScript and Rust:** `SmtProperty` gains two members (a new permitted record in Java, a new union member in TypeScript, a new enum variant in Rust). Python is additive.
 
