@@ -25,25 +25,25 @@ flowchart TD
     n77["Libpetri.InSpec.card"]
     n78["Libpetri.InSpec.guard"]
     n80["Libpetri.InSpec.place"]
-    n2400["Libpetri.PlaceId"]
-    n2631["Libpetri.Transition"]
-    n2632["Libpetri.Transition.inhibitors"]
-    n2633["Libpetri.Transition.inputs"]
-    n2634["Libpetri.Transition.mk"]
-    n2635["Libpetri.Transition.name"]
-    n2636["Libpetri.Transition.priority"]
-    n2637["Libpetri.Transition.reads"]
-    n2638["Libpetri.Transition.resets"]
-    n2659["Libpetri.alphaFireC"]
-    n2708["Libpetri.consumeAllAt"]
-    n2709["Libpetri.consumeCount"]
-    n2722["Libpetri.consumedAt"]
-    n2761["Libpetri.enabledC"]
-    n2782["Libpetri.fireA"]
-    n2848["Libpetri.matchCount"]
-    n2878["Libpetri.post"]
-    n2883["Libpetri.pre"]
-    n2938["Libpetri.specAt"]
+    n2416["Libpetri.PlaceId"]
+    n2647["Libpetri.Transition"]
+    n2648["Libpetri.Transition.inhibitors"]
+    n2649["Libpetri.Transition.inputs"]
+    n2650["Libpetri.Transition.mk"]
+    n2651["Libpetri.Transition.name"]
+    n2652["Libpetri.Transition.priority"]
+    n2653["Libpetri.Transition.reads"]
+    n2654["Libpetri.Transition.resets"]
+    n2675["Libpetri.alphaFireC"]
+    n2724["Libpetri.consumeAllAt"]
+    n2725["Libpetri.consumeCount"]
+    n2738["Libpetri.consumedAt"]
+    n2777["Libpetri.enabledC"]
+    n2798["Libpetri.fireA"]
+    n2864["Libpetri.matchCount"]
+    n2894["Libpetri.post"]
+    n2899["Libpetri.pre"]
+    n2954["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ResetArc.lean"]
     n951["Libpetri.Novel.ResetArc.OnlyReset"]
@@ -58,9 +58,9 @@ flowchart TD
     n963["Libpetri.Novel.ResetArc.fireA_reset_empty"]
     n964["Libpetri.Novel.ResetArc.reset_arc_semantics"]
   end
-  n0 --> n2400
+  n0 --> n2416
   n6 --> n21
-  n6 --> n2400
+  n6 --> n2416
   n9 --> n8
   n10 --> n8
   n11 --> n9
@@ -79,73 +79,73 @@ flowchart TD
   n78 --> n74
   n78 --> n76
   n80 --> n76
-  n80 --> n2400
+  n80 --> n2416
   n951 --> n80
-  n951 --> n2632
-  n951 --> n2633
-  n951 --> n2637
-  n953 --> n2659
+  n951 --> n2648
+  n951 --> n2649
+  n951 --> n2653
+  n953 --> n2675
   n954 --> n953
   n956 --> n6
   n959 --> n951
   n959 --> n952
-  n959 --> n2761
+  n959 --> n2777
   n960 --> n956
   n960 --> n959
-  n961 --> n2634
-  n961 --> n2635
-  n961 --> n2636
-  n961 --> n2761
-  n962 --> n2782
+  n961 --> n2650
+  n961 --> n2651
+  n961 --> n2652
+  n961 --> n2777
+  n962 --> n2798
   n963 --> n962
   n964 --> n954
   n964 --> n960
   n964 --> n961
-  n2632 --> n2400
-  n2632 --> n2631
-  n2633 --> n76
-  n2633 --> n2631
-  n2634 --> n76
-  n2634 --> n2400
-  n2634 --> n2631
-  n2635 --> n2631
-  n2636 --> n2631
-  n2637 --> n2400
-  n2637 --> n2631
-  n2638 --> n2400
-  n2638 --> n2631
-  n2659 --> n0
-  n2659 --> n2638
-  n2659 --> n2722
-  n2708 --> n11
-  n2708 --> n77
-  n2708 --> n2938
-  n2709 --> n11
-  n2709 --> n14
-  n2709 --> n77
-  n2709 --> n2848
-  n2722 --> n2709
-  n2722 --> n2938
-  n2761 --> n14
-  n2761 --> n77
-  n2761 --> n2632
-  n2761 --> n2633
-  n2761 --> n2637
-  n2761 --> n2848
-  n2782 --> n0
-  n2782 --> n2638
-  n2782 --> n2708
-  n2782 --> n2878
-  n2782 --> n2883
-  n2848 --> n6
-  n2848 --> n78
-  n2848 --> n80
-  n2878 --> n2400
-  n2883 --> n14
-  n2883 --> n77
-  n2883 --> n2938
-  n2938 --> n80
-  n2938 --> n2633
+  n2648 --> n2416
+  n2648 --> n2647
+  n2649 --> n76
+  n2649 --> n2647
+  n2650 --> n76
+  n2650 --> n2416
+  n2650 --> n2647
+  n2651 --> n2647
+  n2652 --> n2647
+  n2653 --> n2416
+  n2653 --> n2647
+  n2654 --> n2416
+  n2654 --> n2647
+  n2675 --> n0
+  n2675 --> n2654
+  n2675 --> n2738
+  n2724 --> n11
+  n2724 --> n77
+  n2724 --> n2954
+  n2725 --> n11
+  n2725 --> n14
+  n2725 --> n77
+  n2725 --> n2864
+  n2738 --> n2725
+  n2738 --> n2954
+  n2777 --> n14
+  n2777 --> n77
+  n2777 --> n2648
+  n2777 --> n2649
+  n2777 --> n2653
+  n2777 --> n2864
+  n2798 --> n0
+  n2798 --> n2654
+  n2798 --> n2724
+  n2798 --> n2894
+  n2798 --> n2899
+  n2864 --> n6
+  n2864 --> n78
+  n2864 --> n80
+  n2894 --> n2416
+  n2899 --> n14
+  n2899 --> n77
+  n2899 --> n2954
+  n2954 --> n80
+  n2954 --> n2649
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

@@ -90,6 +90,17 @@ impl NameMarking {
             .unwrap_or_default()
     }
 
+    /// The name-alignment predicate of [NU-055]: every symbol resident in `p` equals
+    /// every symbol resident in `q`, so it holds when either place is empty, and
+    /// `aligned(p, p)` when `p` holds at most one symbol. It compares symbols only for
+    /// equality, so it is invariant under any permutation of them and a function of
+    /// the canonical key (Lean `Aligned.aligned_key_inv`). Read in place, as Lean
+    /// `Aligned.aligned` states it: Route B tests it on every class it stores.
+    pub(crate) fn aligned(&self, p: &str, q: &str) -> bool {
+        let resident = |place: &str| self.per_place.get(place).into_iter().flat_map(|syms| syms.keys());
+        resident(p).all(|s| resident(q).all(|t| s == t))
+    }
+
     /// All live symbols across every coloured place.
     fn live_symbols(&self) -> BTreeSet<Sym> {
         self.per_place
@@ -190,6 +201,51 @@ mod tests {
         two.add("branchA", 1, 1);
 
         assert_ne!(twice.canonical_key(&order()), two.canonical_key(&order()));
+    }
+
+    /// [NU-055]: empty places are aligned, one shared symbol is, two symbols in one
+    /// place or different symbols across the two are not.
+    #[test]
+    fn nu055_aligned_reads_symbol_equality() {
+        let mut nm = NameMarking::new();
+        assert!(nm.aligned("box", "list"), "both empty");
+        nm.add("box", 4, 1);
+        assert!(nm.aligned("box", "list"), "list empty");
+        assert!(nm.aligned("box", "box"), "one symbol in box");
+        nm.add("list", 4, 2);
+        assert!(nm.aligned("box", "list"), "the same symbol, any count");
+        nm.add("list", 9, 1);
+        assert!(!nm.aligned("box", "list"), "a second symbol in list");
+        assert!(!nm.aligned("list", "list"), "list holds two names");
+        assert!(nm.aligned("box", "ready"), "a place without a row is empty");
+    }
+
+    /// [NU-055] AC5: the predicate is invariant under name permutation. Every
+    /// renaming of the symbols of a layer gives the same answer, and so does every
+    /// layer with the same canonical key.
+    #[test]
+    fn nu055_aligned_is_invariant_under_permutation() {
+        let coloured = vec!["box".to_string(), "list".to_string(), "reply".to_string()];
+        let layer = |rename: &dyn Fn(Sym) -> Sym| {
+            let mut nm = NameMarking::new();
+            nm.add("box", rename(0), 1);
+            nm.add("reply", rename(0), 1);
+            nm.add("reply", rename(1), 1);
+            nm.add("list", rename(1), 1);
+            nm
+        };
+        let renamings: [&dyn Fn(Sym) -> Sym; 3] = [&|s| s, &|s| 1 - s, &|s| 10 + 7 * s];
+        let base = layer(renamings[0]);
+        for rename in renamings {
+            let renamed = layer(rename);
+            assert_eq!(renamed.canonical_key(&coloured), base.canonical_key(&coloured));
+            for (p, q) in [("box", "list"), ("box", "reply"), ("reply", "reply"), ("list", "list")] {
+                assert_eq!(renamed.aligned(p, q), base.aligned(p, q), "{p}, {q}");
+            }
+        }
+        assert!(!base.aligned("box", "list"));
+        assert!(!base.aligned("box", "reply"));
+        assert!(base.aligned("list", "list"));
     }
 
     #[test]

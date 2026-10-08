@@ -47,12 +47,35 @@ public final class GraphDecision {
     }
 
     /**
+     * A {@link ClassView} of the &nu; name-partition graph ([NU-050]), whose classes carry a name
+     * layer. Only such a view decides a name-alignment property ([NU-055]): a view without names
+     * would read every class as aligned.
+     */
+    interface NamedClassView extends ClassView {
+        /** Whether every name class {@code i} holds in {@code p} equals every name it holds in {@code q}. */
+        boolean namesAligned(int i, Place<?> p, Place<?> q);
+    }
+
+    /**
+     * The class predicate of a reachability-safety property: whether class {@code i} of
+     * {@code view} violates it.
+     */
+    @FunctionalInterface
+    interface ClassPredicate {
+        boolean violates(ClassView view, int i);
+    }
+
+    /**
      * The index of the first class witnessing a violation, or {@code -1} when the property
      * holds across the whole graph.
      *
      * <p>Quiescence-based properties read {@link ClassView#isQuiescent}; reachability-safety
-     * properties read the marking alone. {@code DeadlockFree} uses the shared rest set of
-     * [VER-014], so a conditional sink excuses a token exactly as it does in the encoders.
+     * properties read the class alone. The name-alignment properties of [NU-055] read the name
+     * layer of a {@link NamedClassView}, and throw on any other view. {@code DeadlockFree} uses
+     * the shared rest set of [VER-014], so a conditional sink excuses a token exactly as it does
+     * in the encoders.
+     *
+     * @throws IllegalArgumentException for a name-alignment property on a view without names
      */
     static int decideOverClasses(
             ClassView view,
@@ -60,14 +83,19 @@ public final class GraphDecision {
             Collection<Place<?>> sinkPlaces,
             List<RestSet.ConditionalSinks> conditionalSinks
     ) {
+        // NU-055: a view without a name layer would read every class as aligned, so refuse before
+        // reading any, whether or not a class is quiescent.
+        if (NameAlignment.isNameAlignment(property)) {
+            requireNames(view, property);
+        }
         var violates = safetyViolation(property);
         if (violates != null) {
-            return firstWhere(view, i -> violates.test(view.markingOf(i)));
+            return firstWhere(view, i -> violates.violates(view, i));
         }
         return switch (property) {
             // Decided by safetyViolation above.
             case SmtProperty.PlaceBound _, SmtProperty.BranchPlaceBound _,
-                 SmtProperty.Unreachable _, SmtProperty.MutualExclusion _ -> -1;
+                 SmtProperty.Unreachable _, SmtProperty.MutualExclusion _, SmtProperty.NameAligned _ -> -1;
             // DeadlockFree ([VER-002]): a quiescent class that strands a token — some marked
             // place is not where resting is permitted, the conditional sinks of [VER-014]
             // included. The empty marking strands nothing (AC4).
@@ -88,33 +116,62 @@ public final class GraphDecision {
             case SmtProperty.QuiescentCount(var places, var min, var max, var waivedBy) ->
                 firstWhere(view, i -> view.isQuiescent(i)
                     && countViolation(view.markingOf(i), places, min, max, waivedBy) != null);
+            // QuiescentNameAligned ([NU-055]): a quiescent class whose name layer holds a name in
+            // `p` other than a name in `q`. No sink clause.
+            case SmtProperty.QuiescentNameAligned(var p, var q) -> {
+                var named = requireNames(view, property);
+                yield firstWhere(view, i -> view.isQuiescent(i) && !named.namesAligned(i, p, q));
+            }
         };
     }
 
     /**
-     * The class predicate of a reachability-safety property — whether a class with marking
-     * {@code m} violates it — or {@code null} for a quiescence property, whose predicate also
-     * needs to know whether the class has successors. It reads the marking alone, so a graph
-     * build can apply it to each class as the class is discovered and stop at the first
-     * violation ([VER-012]); {@link #decideOverClasses} decides these properties through this
-     * same function.
+     * The class predicate of a reachability-safety property (whether a class violates it), or
+     * {@code null} for a quiescence property, whose predicate also needs to know whether the
+     * class has successors. It reads the class alone, so a graph build can apply it to each class
+     * as the class is discovered and stop at the first violation ([VER-012]);
+     * {@link #decideOverClasses} decides these properties through this same function.
+     *
+     * <p>{@code NameAligned} ([NU-055]) reads the class's name layer, which only a
+     * {@link NamedClassView} has, and throws on any other view; every other property reads the
+     * marking alone.
      */
-    static Predicate<MarkingState> safetyViolation(SmtProperty property) {
+    static ClassPredicate safetyViolation(SmtProperty property) {
         return switch (property) {
-            case SmtProperty.PlaceBound(var place, var bound) -> m -> m.tokens(place) > bound;
-            case SmtProperty.BranchPlaceBound(var place, var bound) -> m -> m.tokens(place) > bound;
-            case SmtProperty.Unreachable(var places) -> m -> {
+            case SmtProperty.PlaceBound(var place, var bound) -> onMarking(m -> m.tokens(place) > bound);
+            case SmtProperty.BranchPlaceBound(var place, var bound) -> onMarking(m -> m.tokens(place) > bound);
+            case SmtProperty.Unreachable(var places) -> onMarking(m -> {
                 for (var p : places) {
                     if (!m.hasTokens(p)) {
                         return false;
                     }
                 }
                 return true;
-            };
-            case SmtProperty.MutualExclusion(var p1, var p2) -> m -> m.hasTokens(p1) && m.hasTokens(p2);
+            });
+            case SmtProperty.MutualExclusion(var p1, var p2) -> onMarking(m -> m.hasTokens(p1) && m.hasTokens(p2));
+            case SmtProperty.NameAligned(var p, var q) ->
+                (view, i) -> !requireNames(view, property).namesAligned(i, p, q);
             case SmtProperty.DeadlockFree _, SmtProperty.TerminatesAtSink _,
-                 SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _ -> null;
+                 SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _,
+                 SmtProperty.QuiescentNameAligned _ -> null;
         };
+    }
+
+    /** The class predicate that reads the class's marking alone. */
+    private static ClassPredicate onMarking(Predicate<MarkingState> violates) {
+        return (view, i) -> violates.test(view.markingOf(i));
+    }
+
+    /**
+     * {@code view} as a {@link NamedClassView}, or a throw when it has no name layer: a
+     * name-alignment property is decided only by the &nu; name-partition graph ([NU-055] AC4),
+     * and a graph without names would read every class as aligned.
+     */
+    private static NamedClassView requireNames(ClassView view, SmtProperty property) {
+        if (view instanceof NamedClassView named) {
+            return named;
+        }
+        throw new IllegalArgumentException(NameAlignment.routeBOnlyReason(property));
     }
 
     /**

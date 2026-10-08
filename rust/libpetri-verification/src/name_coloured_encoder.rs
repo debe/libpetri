@@ -796,7 +796,8 @@ fn encode_error(
 /// net (e.g. a typo'd bound/pending place). Emitting a `false` violation term
 /// there would make the Error rule unsatisfiable and yield a **vacuous**
 /// `Proven` — a mis-named place would silently certify. `None` propagates up so
-/// the verifier reports `Unknown` instead of certifying nothing.
+/// the verifier reports `Unknown` instead of certifying nothing. Also `None` for a
+/// name-alignment property ([NU-055]), which only Route B decides.
 #[allow(clippy::too_many_arguments)]
 fn encode_violation(
     plan: &ColouredPlan,
@@ -905,6 +906,9 @@ fn encode_violation(
             conds.push(bad);
             Some(join_coloured(conds))
         }
+        // [NU-055]: decided only by Route B. A colour slot is not a name, so this
+        // encoding gives name alignment no verdict.
+        SmtProperty::NameAligned { .. } | SmtProperty::QuiescentNameAligned { .. } => None,
     }
 }
 
@@ -1620,5 +1624,18 @@ mod tests {
     fn a_join_writing_an_undeclared_coloured_place_is_outside_the_plan() {
         let rows = crate::relay_nets::without_relays(&crate::relay_nets::join_chain());
         assert!(relay_plan(&rows, &[("S", 1)], &["S"], FragmentMode::Extended).1.is_none());
+    }
+
+    /// [NU-055] AC4: Route A has a plan for the mint → join net, but a colour slot is not a
+    /// name, so it encodes no name-alignment query.
+    #[test]
+    fn nu055_route_a_gives_name_alignment_no_encoding() {
+        let net = mint_join_net(false);
+        let flat = net_flattener::flatten(&net);
+        let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
+        let plan = plan_for(&net, FragmentMode::Base, &[]).expect("mint→join is in-fragment");
+        for prop in [SmtProperty::name_aligned("a", "b"), SmtProperty::quiescent_name_aligned("a", "b")] {
+            assert!(encode_coloured(&plan, &flat, &initial, &prop, &[], &[], &[], &[]).is_none());
+        }
     }
 }

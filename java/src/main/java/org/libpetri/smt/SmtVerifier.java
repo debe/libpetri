@@ -160,6 +160,15 @@ public final class SmtVerifier {
         + "a proof would be vacuous — use alwaysAvailable() or bounded(k) to model external injection";
 
     /**
+     * Why Route B declined a net under the EXTENDED fragment ([NU-051]). The report note of every
+     * property and the reason of a name-alignment one ([NU-055]), which no other route decides.
+     */
+    private static final String EXTENDED_DECLINED =
+        "ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment (a coloured place "
+        + "consumed count != 1 or by multiple inputs, carries a reset/read/inhibitor arc, or a join writes "
+        + "a coloured place it does not declare as a relay target)";
+
+    /**
      * The [VER-006] AC6 note: a quiescence verdict on a net that can never come to rest is
      * vacuously true. Shared by Route B and the solver path so the two cannot drift apart.
      */
@@ -399,7 +408,8 @@ public final class SmtVerifier {
         }
         // Every producer of a coloured place counts as declared here: the question is which
         // places are coloured, not whether the mints are declared.
-        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, everyTransition(net));
+        var fragment = NameFragment.classify(
+            net, fragmentMode, carrierPlaces, everyTransition(net), NameAlignment.isNameAlignment(property));
         if (fragment == null) {
             return null;
         }
@@ -511,14 +521,16 @@ public final class SmtVerifier {
 
     /**
      * Whether Route B will read {@link PrioritySemantics#CONFLICT} ([NU-052]): it is selected, the
-     * net has a &nu;-join and a property Route B takes (a quiescence one, or any without a declared
-     * budget place), and no transition is read as reapable, since Route B turns the pruning off
-     * itself on a net with one ({@link NuScgVerifier#verifyReaping}). No other route reads it.
+     * property is a name-alignment one ([NU-055]) or the net has a &nu;-join and a property Route B
+     * takes (a quiescence one, or any without a declared budget place), and no transition is read
+     * as reapable, since Route B turns the pruning off itself on a net with one
+     * ({@link NuScgVerifier#verifyReaping}). No other route reads it.
      */
     private boolean conflictPruningApplies(PetriNet net) {
         return prioritySemantics == PrioritySemantics.CONFLICT
-            && net.transitions().stream().anyMatch(t -> t.matchSpec() != null)
-            && (!isReachabilitySafety(property) || budgetPlaces.isEmpty())
+            && (NameAlignment.isNameAlignment(property) || (
+                net.transitions().stream().anyMatch(t -> t.matchSpec() != null)
+                && (!isReachabilitySafety(property) || budgetPlaces.isEmpty())))
             && reapableSet().isEmpty();
     }
 
@@ -928,15 +940,17 @@ public final class SmtVerifier {
      */
     private String reapingLine(boolean routeB) {
         var inNet = reapableInNet();
-        boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
+        // NU-055: a name-alignment property goes to Route B on any net.
+        boolean onRouteB = NameAlignment.isNameAlignment(property)
+            || net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
         var lateInNet = new java.util.LinkedHashSet<>(inNet);
-        if (hasMatch) {
+        if (onRouteB) {
             lateInNet.addAll(Reaping.lateTransitions(net));
         }
         if (lateInNet.isEmpty()) {
             return null;
         }
-        if (isReachabilitySafety(property) && !hasMatch) {
+        if (isReachabilitySafety(property) && !onRouteB) {
             return null;
         }
         if (assumeNoReaping && routeB) {
@@ -1587,12 +1601,16 @@ public final class SmtVerifier {
         // firing distorts. The applyNuGuard step turns those cases into Unknown.
         boolean hasMatch = net.transitions().stream().anyMatch(t -> t.matchSpec() != null);
         boolean nuBounded = !budgetPlaces.isEmpty();
+        // NU-055: a name-alignment property goes to Route B whatever the shape of the net, ahead of
+        // every other routing test (a declared budget place included), and nothing else decides it.
+        boolean nameAlignment = NameAlignment.isNameAlignment(property);
         // [NU-010]: a transition that writes a coloured place without consuming one and is not
         // declared to mint keeps the net off both ν routes. Name it where a route declines or the
         // ν guard answers Unknown.
         String undeclaredPointer = null;
-        if (hasMatch) {
-            var undeclared = NameFragment.undeclaredMints(net, fragmentMode, carrierPlaces, declaredMints());
+        if (hasMatch || nameAlignment) {
+            var undeclared = NameFragment.undeclaredMints(
+                net, fragmentMode, carrierPlaces, declaredMints(), nameAlignment);
             if (!undeclared.isEmpty()) {
                 undeclaredPointer = NameFragment.undeclaredMintsPointer(undeclared);
             }
@@ -1617,8 +1635,9 @@ public final class SmtVerifier {
         // fragment stays on Route A below (this trigger is false there). If the net
         // is outside the supported fragment, NuScgVerifier returns null and we fall
         // through to the existing pipeline (which applies the sound Unknown
-        // downgrade for these cases).
-        if (hasMatch && (!isReachabilitySafety(property) || !nuBounded)) {
+        // downgrade for these cases). A name-alignment property (NU-055) never falls through:
+        // Route B alone decides it.
+        if (nameAlignment || (hasMatch && (!isReachabilitySafety(property) || !nuBounded))) {
             enter("Route B (ν name-partition graph)", SmtVerificationResult.Route.NU_SCG);
             // [VER-006] AC8: under modelled injection the graph holds an environment place as
             // an inexhaustible input with a frozen count and no injected names, so a verdict
@@ -1626,27 +1645,19 @@ public final class SmtVerifier {
             // Route A: it declines under injection too, and the reason would be lost.
             var mints = declaredMints();
             var fragment = NuScgVerifier.supportedFragment(
-                net, initialMarking, fragmentMode, carrierPlaces, mints);
+                net, initialMarking, fragmentMode, carrierPlaces, mints, nameAlignment);
             boolean quiescenceVacuous = !isReachabilitySafety(property)
                 && SmtEncoder.quiescenceUnreachable(
                     flatNet());
             // An arrival into a coloured place declines whether or not the mints are declared.
             String colouredArrival = NuScgVerifier.supportedFragment(
-                net, initialMarking, fragmentMode, carrierPlaces, everyTransition(net)) == null
+                net, initialMarking, fragmentMode, carrierPlaces, everyTransition(net), nameAlignment) == null
                 ? null : colouredArrivalReason();
             String envObservation = colouredArrival != null ? colouredArrival : fragment == null ? null : routeBEnvObservation(
                 net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
                 effectivePriority(), quiescenceVacuous);
             if (envObservation != null) {
-                report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
-                report.append("  Declined under environment injection: ").append(envObservation).append("\n");
-                return buildResult(
-                    new SmtVerificationResult.Verdict.Unknown(envObservation), report.toString(),
-                    List.of(), List.of(), List.of(), List.of(),
-                    Duration.between(start, Instant.now()),
-                    new SmtVerificationResult.SmtStatistics(
-                        net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"),
-                    SmtVerificationResult.Route.NU_SCG);
+                return routeBDeclined(report, "Declined under environment injection", envObservation, start);
             }
             var outcome = NuScgVerifier.verifyReaping(
                 net, initialMarking, property, sinkPlaces, environmentPlaces, environmentMode, nuMaxClasses,
@@ -1654,7 +1665,8 @@ public final class SmtVerifier {
             // Route B truncating to Unknown on a bounded quiescence ν-net is not the final
             // word: defer to the scalable Route A coloured IC3/PDR encoder (NU-053) below
             // instead of returning Unknown here.
-            boolean deferToRouteA = outcome != null
+            boolean deferToRouteA = !nameAlignment
+                && outcome != null
                 && outcome.verdict() instanceof SmtVerificationResult.Verdict.Unknown
                 && !isReachabilitySafety(property)
                 && nuBounded;
@@ -1662,6 +1674,11 @@ public final class SmtVerifier {
                 report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
                 report.append("  Name-partition state classes: ").append(outcome.classCount()).append("\n");
                 report.append(outcome.note());
+                // NU-055: nothing else decides a name-alignment property, so its Unknown names why
+                // (an uncoloured place, a marked coloured place, a truncated graph).
+                if (nameAlignment && outcome.verdict() instanceof SmtVerificationResult.Verdict.Unknown(var why)) {
+                    report.append("  UNKNOWN: ").append(why).append("\n");
+                }
                 // NU-010, NU-051: the actions whose writes the verdict trusts.
                 if (fragment != null) {
                     report.append(NameFragment.contractNote(fragment.mints(), fragment.relays()));
@@ -1687,16 +1704,15 @@ public final class SmtVerifier {
                 if (quiescenceVacuous) {
                     report.append("  ").append(QUIESCENCE_VACUITY_NOTE).append("\n");
                 }
-                return buildResult(
-                    routeBVerdict, report.toString(), List.of(), List.of(),
-                    outcome.trace(), outcome.transitions(),
-                    Duration.between(start, Instant.now()),
-                    new SmtVerificationResult.SmtStatistics(
-                        net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"),
-                    SmtVerificationResult.Route.NU_SCG);
+                return routeBResult(routeBVerdict, report, outcome.trace(), outcome.transitions(), start);
             } else if (deferToRouteA) {
                 report.append("ν-net Route B inconclusive (name-partition truncated); deferring to "
                     + "Route A coloured IC3/PDR (NU-053).\n");
+            }
+            // NU-055: outside the fragment no other route decides a name-alignment property.
+            if (nameAlignment) {
+                return routeBDeclined(
+                    report, "Declined", nameAlignmentDecline(property, fragmentMode, undeclaredPointer), start);
             }
             // EXTENDED was requested but the net falls outside the coloured-consumer
             // fragment (classify returned null). Surface a short note instead of a
@@ -1704,10 +1720,7 @@ public final class SmtVerifier {
             if (undeclaredPointer != null && !deferToRouteA) {
                 report.append("ν-net Route B declined: ").append(undeclaredPointer).append(".\n\n");
             } else if (fragmentMode == FragmentMode.EXTENDED && !deferToRouteA) {
-                report.append("ν-net Route B (EXTENDED) declined: net outside coloured-consumer "
-                    + "fragment (a coloured place consumed count != 1 or by multiple inputs, carries a "
-                    + "reset/read/inhibitor arc, or a join writes a coloured place it does not declare "
-                    + "as a relay target); verified via sound over-approximation instead.\n\n");
+                report.append(EXTENDED_DECLINED).append("; verified via sound over-approximation instead.\n\n");
             }
         }
 
@@ -2891,8 +2904,17 @@ public final class SmtVerifier {
         SmtEncoder.SmtEncoding encoding
     ) {}
 
-    /** See {@link EncodedScripts}. */
+    /**
+     * See {@link EncodedScripts}.
+     *
+     * @throws IllegalStateException for a name-alignment property ([NU-055]): only Route B decides
+     *     it, and Route B sends no script, so there is none to return
+     */
     public EncodedScripts encodeScripts() {
+        // NU-055: only Route B, which sends no script, decides a name-alignment property.
+        if (NameAlignment.isNameAlignment(property)) {
+            throw new IllegalStateException(NameAlignment.routeBOnlyReason(property));
+        }
         OutputActionCheck.requireOutputProducingActions(net);
         prepare();
         FlatNet flatNet = flatNet();
@@ -2997,6 +3019,16 @@ public final class SmtVerifier {
         var observed = new HashSet<String>();
         if (isReachabilitySafety(property)) {
             propertyPlaces(property).forEach(pl -> observed.add(pl.name()));
+        } else if (property instanceof SmtProperty.QuiescentNameAligned) {
+            // NU-055: the graph never consumes an environment place, so a net reading input from
+            // one has no resting class and its graph would read as vacuously aligned, while the
+            // executor rests misaligned between inputs. The vacuity reading of VER-006 AC6 does
+            // not apply.
+            if (!envNames.isEmpty()) {
+                return routeBEnvReason(envNames.first(), "is registered and the property reads quiescence "
+                    + "(NU-055): the graph never consumes it, so a net that reads input from it has no resting "
+                    + "class; model its input with arrivals(k)");
+            }
         } else if (!quiescenceVacuous) {
             switch (property) {
                 case SmtProperty.DeadlockFree() -> {
@@ -3010,7 +3042,11 @@ public final class SmtVerifier {
                     conditionalSinks.forEach(cs -> observed.add(cs.marker().name()));
                 }
                 case SmtProperty.TerminatesAtSink() -> sinkPlaces.forEach(pl -> observed.add(pl.name()));
-                default -> propertyPlaces(property).forEach(pl -> observed.add(pl.name()));
+                case SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _ ->
+                    propertyPlaces(property).forEach(pl -> observed.add(pl.name()));
+                // Read above: the reachability-safety properties and QuiescentNameAligned.
+                case SmtProperty.PlaceBound _, SmtProperty.BranchPlaceBound _, SmtProperty.MutualExclusion _,
+                     SmtProperty.Unreachable _, SmtProperty.NameAligned _, SmtProperty.QuiescentNameAligned _ -> {}
             }
         }
         for (var p : envNames) {
@@ -3028,7 +3064,7 @@ public final class SmtVerifier {
     }
 
     /** The places a property names — the ones that must resolve for its verdict to mean anything. */
-    private static List<Place<?>> propertyPlaces(SmtProperty property) {
+    static List<Place<?>> propertyPlaces(SmtProperty property) {
         return switch (property) {
             case SmtProperty.DeadlockFree() -> List.of();
             case SmtProperty.TerminatesAtSink() -> List.of();
@@ -3044,6 +3080,8 @@ public final class SmtVerifier {
                 named.addAll(qc.waivedBy());
                 yield named;
             }
+            case SmtProperty.NameAligned na -> List.of(na.p(), na.q());
+            case SmtProperty.QuiescentNameAligned qna -> List.of(qna.p(), qna.q());
         };
     }
 
@@ -3386,10 +3424,12 @@ public final class SmtVerifier {
             case SmtProperty.BranchPlaceBound _ -> true;
             case SmtProperty.MutualExclusion _ -> true;
             case SmtProperty.Unreachable _ -> true;
+            case SmtProperty.NameAligned _ -> true;
             case SmtProperty.DeadlockFree _ -> false;
             case SmtProperty.TerminatesAtSink _ -> false;
             case SmtProperty.JoinedOrDeadLettered _ -> false;
             case SmtProperty.QuiescentCount _ -> false;
+            case SmtProperty.QuiescentNameAligned _ -> false;
         };
     }
 
@@ -3561,5 +3601,45 @@ public final class SmtVerifier {
             }
         }
         return out;
+    }
+
+    /**
+     * The {@code Unknown} of a Route B call that built no graph: a report section under the Route B
+     * heading whose {@code label} line gives {@code reason} ([VER-006] AC8, [NU-055]).
+     */
+    private SmtVerificationResult routeBDeclined(StringBuilder report, String label, String reason, Instant start) {
+        report.append("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
+        report.append("  ").append(label).append(": ").append(reason).append("\n");
+        return routeBResult(new SmtVerificationResult.Verdict.Unknown(reason), report, List.of(), List.of(), start);
+    }
+
+    /** The result of a Route B call: no invariants, no solver, the witness {@code trace} if any. */
+    private SmtVerificationResult routeBResult(
+            SmtVerificationResult.Verdict verdict, StringBuilder report, List<MarkingState> trace,
+            List<String> transitions, Instant start) {
+        return buildResult(
+            verdict, report.toString(), List.of(), List.of(), trace, transitions,
+            Duration.between(start, Instant.now()),
+            new SmtVerificationResult.SmtStatistics(
+                net.places().size(), net.transitions().size(), 0, "n/a (ν name-partition SCG)"),
+            SmtVerificationResult.Route.NU_SCG);
+    }
+
+    /**
+     * Why Route B declined the name-alignment {@code property} (NU-055): the net is outside the
+     * fragment of {@code mode}. Names the undeclared mints when declaring them is all that is
+     * missing (NU-010), and EXTENDED under BASE (AC3). Never says the property was verified
+     * another way: nothing else decides it.
+     */
+    private static String nameAlignmentDecline(SmtProperty property, FragmentMode mode, String undeclaredPointer) {
+        String why = undeclaredPointer != null
+            ? undeclaredPointer
+            : mode == FragmentMode.BASE
+                ? "net outside the BASE fragment, which colours the match keys alone (a non-match transition "
+                    + "consumes a coloured place, a join writes a coloured place, or a non-mint writes one); carrier "
+                    + "places and relay targets are coloured only under the EXTENDED fragment (fragmentMode(EXTENDED), "
+                    + "NU-051, NU-054)"
+                : EXTENDED_DECLINED;
+        return why + "; " + NameAlignment.routeBOnlyReason(property) + ", so the verdict is unknown";
     }
 }

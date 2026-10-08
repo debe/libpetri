@@ -146,12 +146,21 @@ public final class NameFragment {
      */
     public static List<String> undeclaredMints(
             PetriNet net, FragmentMode mode, Set<String> carriers, Set<String> mints) {
-        if (classify(net, mode, carriers, mints) != null) {
+        return undeclaredMints(net, mode, carriers, mints, false);
+    }
+
+    /**
+     * {@link #undeclaredMints(PetriNet, FragmentMode, Set, Set)}, with {@code admitMatchless} as
+     * for {@link #classify(PetriNet, FragmentMode, Set, Set, boolean)}.
+     */
+    public static List<String> undeclaredMints(
+            PetriNet net, FragmentMode mode, Set<String> carriers, Set<String> mints, boolean admitMatchless) {
+        if (classify(net, mode, carriers, mints, admitMatchless) != null) {
             return List.of();
         }
         var every = new HashSet<String>();
         net.transitions().forEach(t -> every.add(t.name()));
-        var fragment = classify(net, mode, carriers, every);
+        var fragment = classify(net, mode, carriers, every, admitMatchless);
         if (fragment == null) {
             return List.of();
         }
@@ -234,6 +243,19 @@ public final class NameFragment {
      */
     public static NameFragment classify(
             PetriNet net, FragmentMode mode, Set<String> carrierPlaces, Set<String> mintTransitions) {
+        return classify(net, mode, carrierPlaces, mintTransitions, false);
+    }
+
+    /**
+     * {@link #classify(PetriNet, FragmentMode, Set, Set)}, where {@code admitMatchless} (a
+     * name-alignment query, NU-055) admits a net without a matched transition, or with an empty
+     * coloured set: such a query needs only a coloured fragment, and a property place outside an
+     * empty coloured set is uncoloured, which the query refuses itself. Every other query keeps
+     * {@code false}, under which such a net is not a &nu;-net.
+     */
+    public static NameFragment classify(
+            PetriNet net, FragmentMode mode, Set<String> carrierPlaces, Set<String> mintTransitions,
+            boolean admitMatchless) {
         // Code-point order: the coloured order indexes the name layer in every implementation.
         var coloured = new TreeSet<String>(CodePointOrder.COMPARATOR);
         boolean anyMatch = false;
@@ -245,7 +267,7 @@ public final class NameFragment {
                 }
             }
         }
-        if (!anyMatch || coloured.isEmpty()) {
+        if (!admitMatchless && (!anyMatch || coloured.isEmpty())) {
             return null;
         }
         if (mode == FragmentMode.EXTENDED) {

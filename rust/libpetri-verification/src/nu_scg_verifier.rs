@@ -18,7 +18,8 @@
 //! This route is invoked by [`crate::smt_verifier`] to *fill the gaps* the
 //! SMT / Route A path cannot answer exactly: quiescence properties on a ν-net and
 //! unbudgeted reachability-safety. It returns `None` when the net is not in the
-//! supported mint→matched-join fragment, and the caller falls back.
+//! supported mint→matched-join fragment, and the caller falls back. The
+//! name-alignment properties of [NU-055] are its alone: no other route decides them.
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
@@ -28,6 +29,7 @@ use crate::environment::EnvironmentAnalysisMode;
 use crate::graph_decision::{ClassView, decide_over_classes, marking_violates};
 use crate::marking_state::MarkingState;
 use crate::name_fragment::{self, FragmentMode};
+use crate::name_marking::NameMarking;
 use crate::name_state_class_graph::NameStateClassGraph;
 use crate::priority_semantics::PrioritySemantics;
 use crate::property::SmtProperty;
@@ -44,6 +46,19 @@ pub struct NuScgOutcome {
     /// verdict).
     pub note: String,
     pub class_count: usize,
+}
+
+impl NuScgOutcome {
+    /// An `Unknown` with `reason` on the verdict, after `class_count` classes.
+    fn unknown(reason: String, class_count: usize) -> Self {
+        Self {
+            verdict: Verdict::Unknown { reason },
+            trace: Vec::new(),
+            transitions: Vec::new(),
+            note: String::new(),
+            class_count,
+        }
+    }
 }
 
 const NOTE_EXACT: &str = "Note: ν-join correlation decided exactly via the state-class-graph \
@@ -71,8 +86,11 @@ fn closed_note(net: &PetriNet) -> &'static str {
 }
 
 /// Tries to decide `property` exactly via the name-aware SCG. Returns `None` when
-/// `net` is not in the supported fragment (the caller falls back to the SMT /
-/// Route A path).
+/// `net` is not in the supported fragment or marks a coloured place initially (the
+/// caller falls back to the SMT / Route A path). A name-alignment property ([NU-055])
+/// has no fallback: an uncoloured property place or a marked coloured place is
+/// `Some` `Unknown` naming the place, and `None` means only that `net` is outside the
+/// fragment, which the caller answers `Unknown` too.
 ///
 /// `mint_transitions` names the transitions declared to mint ([NU-010]; the
 /// verifier passes [`name_fragment::declared_mints`]). A transition that writes a
@@ -209,15 +227,21 @@ pub fn verify_via_name_scg_reaping(
     Some(outcome)
 }
 
-/// Whether `property` reads the marking alone (no quiescence clause).
+/// Whether `property` reads one class alone (no quiescence clause): the marking, or
+/// for `NameAligned` the name layer ([NU-055]).
 fn is_reachability_safety(property: &SmtProperty) -> bool {
-    matches!(
-        property,
+    match property {
         SmtProperty::PlaceBound { .. }
-            | SmtProperty::BranchPlaceBound { .. }
-            | SmtProperty::Unreachable { .. }
-            | SmtProperty::MutualExclusion { .. }
-    )
+        | SmtProperty::BranchPlaceBound { .. }
+        | SmtProperty::Unreachable { .. }
+        | SmtProperty::MutualExclusion { .. }
+        | SmtProperty::NameAligned { .. } => true,
+        SmtProperty::DeadlockFree
+        | SmtProperty::TerminatesAtSink
+        | SmtProperty::JoinedOrDeadLettered { .. }
+        | SmtProperty::QuiescentCount { .. }
+        | SmtProperty::QuiescentNameAligned { .. } => false,
+    }
 }
 
 /// The note Route B adds when it lifted latest bounds.
@@ -260,20 +284,24 @@ fn verify_name_scg(
         let known: HashSet<&str> = net.places().iter().map(|p| p.name()).collect();
         for c in carrier_places {
             if !known.contains(c.as_str()) {
-                return Some(NuScgOutcome {
-                    verdict: Verdict::Unknown {
-                        reason: format!("declared carrier place '{c}' not in the net"),
-                    },
-                    trace: Vec::new(),
-                    transitions: Vec::new(),
-                    note: String::new(),
-                    class_count: 0,
-                });
+                return Some(NuScgOutcome::unknown(format!("declared carrier place '{c}' not in the net"), 0));
             }
         }
     }
 
-    let fragment = name_fragment::classify(net, fragment_mode, carrier_places, mint_transitions)?;
+    let fragment = name_fragment::classify(
+        net,
+        fragment_mode,
+        carrier_places,
+        mint_transitions,
+        property.is_name_alignment(),
+    )?;
+    // [NU-055]: nothing but this graph decides a name-alignment property, so where it
+    // cannot, the verdict is Unknown naming the place rather than a decline the caller
+    // would route elsewhere.
+    if let Some(reason) = name_alignment_refusal(property, &fragment, fragment_mode, initial) {
+        return Some(NuScgOutcome::unknown(reason, 0));
+    }
     // We model no initial colour assignment, so coloured places must start empty.
     for p in &fragment.coloured_order {
         if initial.count(p) != 0 {
@@ -285,14 +313,13 @@ fn verify_name_scg(
     // discovered, with the predicate `decide` applies, and the build stops at the
     // first violating class — the lowest-index one, so verdict and witness are
     // those of the full build. Quiescence needs expanded classes: no early stop.
-    let violates = |m: &MarkingState| marking_violates(property, m);
-    let stop_at: Option<&dyn Fn(&MarkingState) -> bool> = match property {
-        SmtProperty::PlaceBound { .. }
-        | SmtProperty::BranchPlaceBound { .. }
-        | SmtProperty::Unreachable { .. }
-        | SmtProperty::MutualExclusion { .. } => Some(&violates),
-        _ => None,
+    // `NameAligned` ([NU-055]) reads the name layer, as `NameClasses` does.
+    let violates = |m: &MarkingState, names: &NameMarking| {
+        marking_violates(property, m)
+            || matches!(property, SmtProperty::NameAligned { p, q } if !names.aligned(p, q))
     };
+    let stop_at = is_reachability_safety(property)
+        .then_some(&violates as &dyn Fn(&MarkingState, &NameMarking) -> bool);
     let scg = NameStateClassGraph::build_until(
         net,
         initial,
@@ -307,18 +334,10 @@ fn verify_name_scg(
     // [VER-013]: a build the total budget or a cancellation stopped says nothing,
     // not even about its prefix; the caller reports the stop.
     if scg.is_stopped() {
-        return Some(NuScgOutcome {
-            verdict: Verdict::Unknown {
-                reason: format!(
-                    "ν name-aware state-class graph stopped after {} classes (VER-013)",
-                    scg.class_count()
-                ),
-            },
-            trace: Vec::new(),
-            transitions: Vec::new(),
-            note: String::new(),
-            class_count: scg.class_count(),
-        });
+        return Some(NuScgOutcome::unknown(
+            format!("ν name-aware state-class graph stopped after {} classes (VER-013)", scg.class_count()),
+            scg.class_count(),
+        ));
     }
 
     // On truncation the same predicate runs over the explored prefix ([VER-012]
@@ -344,20 +363,15 @@ fn verify_name_scg(
     }
 
     if !complete {
-        return Some(NuScgOutcome {
-            verdict: Verdict::Unknown {
-                reason: format!(
-                    "ν name-aware state-class graph truncated at {max_classes} classes — the \
-                     live correlation pool is not structurally bounded; reachability over \
-                     unbounded fresh names is undecidable (NU-050, Route B). Declare a budget \
-                     place to bound the live pool, or raise nu_max_classes."
-                ),
-            },
-            trace: Vec::new(),
-            transitions: Vec::new(),
-            note: String::new(),
-            class_count: scg.class_count(),
-        });
+        return Some(NuScgOutcome::unknown(
+            format!(
+                "ν name-aware state-class graph truncated at {max_classes} classes — the \
+                 live correlation pool is not structurally bounded; reachability over \
+                 unbounded fresh names is undecidable (NU-050, Route B). Declare a budget \
+                 place to bound the live pool, or raise nu_max_classes."
+            ),
+            scg.class_count(),
+        ));
     }
 
     Some(NuScgOutcome {
@@ -367,6 +381,42 @@ fn verify_name_scg(
         note: closed_note(net).to_string(),
         class_count: scg.class_count(),
     })
+}
+
+/// Why Route B cannot decide the name-alignment `property` on `fragment` ([NU-055]), or
+/// `None` (always for any other property): a property place that is not coloured,
+/// whose predicate would hold vacuously (AC2, AC3; Lean `Aligned.aligned_uncoloured`),
+/// or a coloured place the initial marking marks (AC6), since the graph models no
+/// initial names. Checked in that order, `p` before `q`, the marked places in
+/// code-point order.
+fn name_alignment_refusal(
+    property: &SmtProperty,
+    fragment: &name_fragment::NameFragment,
+    fragment_mode: FragmentMode,
+    initial: &MarkingState,
+) -> Option<String> {
+    let (SmtProperty::NameAligned { p, q } | SmtProperty::QuiescentNameAligned { p, q }) = property else {
+        return None;
+    };
+    if let Some(place) = [p, q].into_iter().find(|place| !fragment.is_coloured(place)) {
+        let base = if fragment_mode == FragmentMode::Base {
+            "; under BASE only the match keys are coloured, carrier places and relay targets \
+             only under the EXTENDED fragment (fragment_mode(FragmentMode::Extended), NU-051, \
+             NU-054)"
+        } else {
+            ""
+        };
+        return Some(format!(
+            "place '{place}' is not a coloured place of the ν fragment (a match key, declared \
+             carrier or relay target), so it carries no name and name alignment on it would \
+             hold vacuously (NU-055){base}"
+        ));
+    }
+    let marked = fragment.coloured_order.iter().find(|c| initial.count(c) != 0)?;
+    Some(format!(
+        "coloured place '{marked}' holds a token in the initial marking; the name-partition \
+         graph models no initial names, so the coloured places must start empty (NU-055)"
+    ))
 }
 
 /// The report note of a violation found by stopping the build at its first
@@ -447,6 +497,9 @@ impl ClassView for NameClasses<'_> {
                 None => self.scg.successors(i).is_empty(),
                 Some(fires) => !fires[i],
             }
+    }
+    fn name_aligned(&self, i: usize, p: &str, q: &str) -> Option<bool> {
+        Some(self.scg.classes[i].names.aligned(p, q))
     }
 }
 
@@ -631,9 +684,9 @@ mod tests {
             ),
         ];
         for (name, net, m0, property) in cases {
-            let fragment = name_fragment::classify(net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+            let fragment = name_fragment::classify(net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
                 .expect("in the base fragment");
-            let build = |stop_at: Option<&dyn Fn(&MarkingState) -> bool>| {
+            let build = |stop_at: Option<&dyn Fn(&MarkingState, &NameMarking) -> bool>| {
                 NameStateClassGraph::build_until(
                     net,
                     m0,
@@ -646,7 +699,7 @@ mod tests {
                 )
             };
             let full = build(None);
-            let violates = |m: &MarkingState| marking_violates(&property, m);
+            let violates = |m: &MarkingState, _: &NameMarking| marking_violates(&property, m);
             let stopped = build(Some(&violates));
             let (full_verdict, full_idx) = decide(&full, &property, &[], &[], &BTreeSet::new());
             let (stop_verdict, stop_idx) = decide(&stopped, &property, &[], &[], &BTreeSet::new());
@@ -1342,5 +1395,85 @@ mod tests {
             SmtProperty::mutual_exclusion(vec!["merged".into(), "W".into()]),
         );
         assert!(out.verdict.is_proven(), "the join fires at 15 ms at the earliest: {:?}", out.verdict);
+    }
+
+    /// [NU-055], [VER-012] AC5: on the search-as-you-type net, `NameAligned(box, list)`
+    /// stops at its first misaligned class with the full build's verdict and witness, and
+    /// the quiescent form holds on the closed graph. The quiescent form on the buggy
+    /// variant, a net without a matched transition, is violated with 12 firings.
+    #[test]
+    fn nu055_route_b_decides_name_alignment_on_the_search_as_you_type_net() {
+        use crate::relay_nets::{pnid_net, search_as_you_type};
+        let m0 = MarkingStateBuilder::new()
+            .tokens("typed", 2)
+            .tokens("idle", 1)
+            .tokens("listEmpty", 1)
+            .tokens("slot", 1)
+            .build();
+        let mints: BTreeSet<String> = ["sendA", "sendB"].map(String::from).into();
+        let run = |bug: bool, carriers: &[&str], property: SmtProperty| {
+            let net = pnid_net(if bug { "searchAsYouTypeBug" } else { "searchAsYouType" }, &search_as_you_type(bug));
+            let carriers: BTreeSet<String> = carriers.iter().map(|c| c.to_string()).collect();
+            verify_via_name_scg(
+                &net,
+                &m0,
+                &property,
+                &[],
+                &[],
+                &EnvironmentAnalysisMode::Ignore,
+                MAX,
+                FragmentMode::Extended,
+                &carriers,
+                &mints,
+                PrioritySemantics::None,
+                &[],
+            )
+            .expect("in the EXTENDED fragment")
+        };
+        let fixed = ["inflightA", "inflightB", "list"];
+        let transient = run(false, &fixed, SmtProperty::name_aligned("box", "list"));
+        assert!(transient.verdict.is_violated(), "{:?}", transient.verdict);
+        assert_eq!(transient.transitions.len(), 8, "{:?}", transient.transitions);
+        assert!(transient.note.contains("stopped at the first violating class"), "{}", transient.note);
+        let at_rest = run(false, &fixed, SmtProperty::quiescent_name_aligned("box", "list"));
+        assert!(at_rest.verdict.is_proven(), "{:?}", at_rest.verdict);
+        let bug = ["box", "inflightA", "inflightB", "reply", "staged", "list"];
+        let stale = run(true, &bug, SmtProperty::quiescent_name_aligned("box", "list"));
+        assert!(stale.verdict.is_violated(), "{:?}", stale.verdict);
+        assert_eq!(stale.transitions.len(), 12, "{:?}", stale.transitions);
+        // [NU-055] AC2: an uncoloured place is refused by name, never proven.
+        let ready = run(false, &fixed, SmtProperty::quiescent_name_aligned("box", "ready"));
+        assert!(
+            matches!(&ready.verdict, Verdict::Unknown { reason } if reason.contains("place 'ready' is not a coloured place")),
+            "{:?}",
+            ready.verdict
+        );
+    }
+
+    /// [NU-055]: the refusal reads only the name-alignment properties.
+    #[test]
+    fn nu055_the_refusal_is_for_name_alignment_only() {
+        use crate::relay_nets::{pnid_net, search_as_you_type};
+        let net = pnid_net("searchAsYouType", &search_as_you_type(false));
+        let carriers: BTreeSet<String> = ["inflightA", "inflightB", "list"].map(String::from).into();
+        let fragment = name_fragment::classify(&net, FragmentMode::Extended, &carriers, &crate::name_fragment::all_mints(&net), false)
+            .expect("in the fragment");
+        let marked = MarkingStateBuilder::new().tokens("box", 1).build();
+        assert_eq!(
+            name_alignment_refusal(&SmtProperty::place_bound("ready", 0), &fragment, FragmentMode::Extended, &marked),
+            None
+        );
+        assert_eq!(
+            name_alignment_refusal(
+                &SmtProperty::name_aligned("box", "list"),
+                &fragment,
+                FragmentMode::Extended,
+                &MarkingStateBuilder::new().build()
+            ),
+            None
+        );
+        let refused =
+            name_alignment_refusal(&SmtProperty::name_aligned("box", "list"), &fragment, FragmentMode::Extended, &marked);
+        assert!(refused.is_some_and(|r| r.starts_with("coloured place 'box' holds a token in the initial marking")));
     }
 }

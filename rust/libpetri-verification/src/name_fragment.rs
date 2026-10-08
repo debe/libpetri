@@ -186,11 +186,23 @@ pub fn undeclared_mints(
     carriers: &BTreeSet<String>,
     mints: &BTreeSet<String>,
 ) -> Vec<String> {
-    if classify(net, mode, carriers, mints).is_some() {
+    undeclared_mints_for(net, mode, carriers, mints, false)
+}
+
+/// [`undeclared_mints`] with `admit_matchless` as for [`classify`]: `true` for a
+/// name-alignment query ([NU-055]), which a net without a match transition can carry.
+pub(crate) fn undeclared_mints_for(
+    net: &PetriNet,
+    mode: FragmentMode,
+    carriers: &BTreeSet<String>,
+    mints: &BTreeSet<String>,
+    admit_matchless: bool,
+) -> Vec<String> {
+    if classify(net, mode, carriers, mints, admit_matchless).is_some() {
         return Vec::new();
     }
     let every: BTreeSet<String> = net.transitions().iter().map(|t| t.name().to_string()).collect();
-    match classify(net, mode, carriers, &every) {
+    match classify(net, mode, carriers, &every, admit_matchless) {
         Some(fragment) => fragment.mints.into_iter().filter(|m| !mints.contains(m)).collect(),
         None => Vec::new(),
     }
@@ -238,11 +250,18 @@ pub fn undeclared_mints_pointer(undeclared: &[String]) -> String {
 /// target only by forwarding one of its match keys, the one write that carries the
 /// matched name. The executor checks every relay deposit ([NU-054]) and fails the
 /// firing on any other, so no timeout write relies on a contract.
+///
+/// `admit_matchless` (a name-alignment query, [NU-055]) admits a net without a match
+/// transition, or with an empty coloured set: such a query needs only a coloured
+/// fragment, and a property place outside an empty coloured set is uncoloured, which
+/// the query refuses itself. Every other query passes `false`, under which such a net
+/// is not a ν-net.
 pub(crate) fn classify(
     net: &PetriNet,
     mode: FragmentMode,
     carriers: &BTreeSet<String>,
     mints: &BTreeSet<String>,
+    admit_matchless: bool,
 ) -> Option<NameFragment> {
     // 1. Coloured places = union of every match transition's correlated inputs,
     //    plus (EXTENDED only) the declared carrier places and every join's relay
@@ -258,7 +277,7 @@ pub(crate) fn classify(
             }
         }
     }
-    if !any_match || coloured.is_empty() {
+    if !admit_matchless && (!any_match || coloured.is_empty()) {
         return None;
     }
     if mode == FragmentMode::Extended {
@@ -454,7 +473,7 @@ mod tests {
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
-    /// Empty carrier set, for the common `classify(net, mode, &no_carriers(), &crate::name_fragment::all_mints(&net))`.
+    /// Empty carrier set, for the common `classify(net, mode, &no_carriers(), &crate::name_fragment::all_mints(&net), false)`.
     fn no_carriers() -> BTreeSet<String> {
         BTreeSet::new()
     }
@@ -488,13 +507,13 @@ mod tests {
     /// must reject it so the verifier falls back to the sound over-approximation.
     #[test]
     fn at_least_correlated_input_is_rejected() {
-        assert!(classify(&join_net(true), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&join_net(true))).is_none());
+        assert!(classify(&join_net(true), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&join_net(true)), false).is_none());
     }
 
     /// The same shape with One correlated inputs IS in the fragment.
     #[test]
     fn one_correlated_inputs_are_accepted() {
-        assert!(classify(&join_net(false), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&join_net(false))).is_some());
+        assert!(classify(&join_net(false), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&join_net(false)), false).is_some());
     }
 
     // === EXTENDED coloured-consumer fragment ([NU-051]) ===
@@ -561,11 +580,11 @@ mod tests {
         let net = comint_relay_drain_net(1, 1);
         let carriers = carriers(&["preA", "preB"]);
         assert!(
-            classify(&net, FragmentMode::Extended, &carriers, &crate::name_fragment::all_mints(&net)).is_some(),
+            classify(&net, FragmentMode::Extended, &carriers, &crate::name_fragment::all_mints(&net), false).is_some(),
             "EXTENDED must admit the drain/relay coloured-consumer fragment"
         );
         assert!(
-            classify(&net, FragmentMode::Base, &carriers, &crate::name_fragment::all_mints(&net)).is_none(),
+            classify(&net, FragmentMode::Base, &carriers, &crate::name_fragment::all_mints(&net), false).is_none(),
             "BASE rejects a non-match transition consuming a coloured place"
         );
     }
@@ -575,7 +594,7 @@ mod tests {
     #[test]
     fn extended_assigns_consume_roles() {
         let net = comint_relay_drain_net(1, 1);
-        let fragment = classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net), false)
             .expect("in EXTENDED fragment");
         assert!(matches!(fragment.role("fork"), Role::Mint));
         assert!(matches!(fragment.role("join"), Role::Join { .. }));
@@ -590,7 +609,7 @@ mod tests {
     fn extended_rejects_relay_consuming_count_two() {
         let net = comint_relay_drain_net(2, 1);
         assert!(
-            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net)).is_none(),
+            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net), false).is_none(),
             "a coloured consumer at count 2 must be rejected (Blocker 1)"
         );
     }
@@ -602,7 +621,7 @@ mod tests {
     fn extended_rejects_drain_consuming_count_two() {
         let net = comint_relay_drain_net(1, 2);
         assert!(
-            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net)).is_none(),
+            classify(&net, FragmentMode::Extended, &carriers(&["preA", "preB"]), &crate::name_fragment::all_mints(&net), false).is_none(),
             "a coloured drain at count 2 must be rejected (Blocker 2)"
         );
     }
@@ -639,11 +658,11 @@ mod tests {
             .build();
 
         assert!(
-            classify(&net, FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&net)).is_none(),
+            classify(&net, FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&net), false).is_none(),
             "reset on a coloured place is rejected under BASE"
         );
         assert!(
-            classify(&net, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&net)).is_none(),
+            classify(&net, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&net), false).is_none(),
             "reset on a coloured place is rejected under EXTENDED"
         );
     }
@@ -690,28 +709,28 @@ mod tests {
     fn a_unit_token_written_on_timeout_is_not_a_mint() {
         let net = timeout_net(true, true);
         let mints = all_mints(&net);
-        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &mints).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &mints, false).is_none());
         let net = timeout_net(false, true);
-        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &mints).is_some());
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &mints, false).is_some());
     }
 
     #[test]
     fn a_consumer_timeout_relays_only_by_forwarding_its_coloured_input() {
         let net = timeout_net(false, true);
-        let f = classify(&net, FragmentMode::Extended, &carriers(&["A"]), &all_mints(&net))
+        let f = classify(&net, FragmentMode::Extended, &carriers(&["A"]), &all_mints(&net), false)
             .expect("forwarding the consumed input on timeout is a relay");
         assert!(matches!(f.role("r"), Role::Consume { input_place } if input_place == "A"));
         let net = timeout_net(false, false);
-        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &all_mints(&net)).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &all_mints(&net), false).is_none());
     }
 
     #[test]
     fn an_undeclared_producer_of_a_coloured_place_is_not_a_mint() {
         let net = timeout_net(false, true);
         let declared: BTreeSet<String> = ["m".to_string()].into_iter().collect();
-        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &declared).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&["A"]), &declared, false).is_none());
         let declared: BTreeSet<String> = ["m".to_string(), "mb".to_string()].into_iter().collect();
-        let f = classify(&net, FragmentMode::Extended, &carriers(&["A"]), &declared).expect("declared");
+        let f = classify(&net, FragmentMode::Extended, &carriers(&["A"]), &declared, false).expect("declared");
         assert_eq!(f.mints, vec!["m", "mb"]);
         assert_eq!(f.relays, vec!["r"]);
     }
@@ -726,7 +745,7 @@ mod tests {
     #[test]
     fn extended_colours_relay_targets_and_the_join_carries_them() {
         let net = pnid_net("12c", &fig_12c());
-        let f = classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS), &crate::name_fragment::all_mints(&net))
+        let f = classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS), &crate::name_fragment::all_mints(&net), false)
             .expect("Fig. 12(c) with the relay is in the EXTENDED fragment");
         assert!(f.is_coloured("P5"));
         let Role::Join { relay_to, .. } = f.role("e") else {
@@ -743,15 +762,15 @@ mod tests {
     #[test]
     fn extended_rejects_a_join_writing_a_coloured_place_it_does_not_declare() {
         let net = pnid_net("12c", &without_relays(&fig_12c()));
-        assert!(classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS), &crate::name_fragment::all_mints(&net)).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &carriers(&FIG_12C_CARRIERS), &crate::name_fragment::all_mints(&net), false).is_none());
     }
 
     #[test]
     fn base_ignores_the_declaration() {
-        assert!(classify(&pnid_net("12c", &fig_12c()), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&pnid_net("12c", &fig_12c()))).is_none());
+        assert!(classify(&pnid_net("12c", &fig_12c()), FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&pnid_net("12c", &fig_12c())), false).is_none());
         let chain = pnid_net("chain", &join_chain());
-        assert!(classify(&chain, FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&chain)).is_none());
-        let f = classify(&chain, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&chain)).expect("EXTENDED admits the chain");
+        assert!(classify(&chain, FragmentMode::Base, &no_carriers(), &crate::name_fragment::all_mints(&chain), false).is_none());
+        let f = classify(&chain, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&chain), false).expect("EXTENDED admits the chain");
         // BASE-shaped roles are unchanged: j2 drains.
         let Role::Join { relay_to, .. } = f.role("j2") else {
             panic!("j2 is a join")
@@ -808,19 +827,19 @@ mod tests {
 
     #[test]
     fn extended_accepts_the_plain_relay() {
-        assert!(classify(&relay_net("none"), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net("none"))).is_some());
+        assert!(classify(&relay_net("none"), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net("none")), false).is_some());
     }
 
     #[test]
     fn extended_rejects_a_relay_target_the_join_also_consumes_off_key() {
-        assert!(classify(&relay_net("off_key"), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net("off_key"))).is_none());
+        assert!(classify(&relay_net("off_key"), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net("off_key")), false).is_none());
     }
 
     #[test]
     fn extended_rejects_a_relay_target_with_a_read_inhibitor_or_reset_arc() {
         for arc in ["read", "inhibitor", "reset"] {
             assert!(
-                classify(&relay_net(arc), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net(arc))).is_none(),
+                classify(&relay_net(arc), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&relay_net(arc)), false).is_none(),
                 "{arc}"
             );
         }
@@ -832,7 +851,7 @@ mod tests {
             relay_nets::t("fork", &["S"], &["A", "B"]),
             relay_nets::j("j", &["A", "B"], &["C"], &["A", "B"], &["C"]),
         ];
-        let f = classify(&pnid_net("sinkRelay", &rows), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&pnid_net("sinkRelay", &rows)))
+        let f = classify(&pnid_net("sinkRelay", &rows), FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&pnid_net("sinkRelay", &rows)), false)
             .expect("a relay into a sink place is in the fragment");
         assert!(f.is_coloured("C"));
         let p = |n: &str| Place::<String>::new(n);
@@ -845,6 +864,34 @@ mod tests {
         let mut ts: Vec<Transition> = pnid_net("x", &rows).transitions().to_vec();
         ts.push(watcher);
         let net = PetriNet::builder("sinkRelayRead").transitions(ts).build();
-        assert!(classify(&net, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&net)).is_none());
+        assert!(classify(&net, FragmentMode::Extended, &no_carriers(), &crate::name_fragment::all_mints(&net), false).is_none());
+    }
+
+    /// [NU-055]: the any-match gate is lifted for a name-alignment query only. The buggy
+    /// search-as-you-type net has no matched transition, so the default classifier sees no
+    /// ν-net; admitting it colours exactly the declared carriers.
+    #[test]
+    fn nu055_admit_matchless_lifts_the_any_match_gate() {
+        use crate::relay_nets::{pnid_net, search_as_you_type};
+        let net = pnid_net("searchAsYouTypeBug", &search_as_you_type(true));
+        assert!(net.transitions().iter().all(|t| t.match_spec().is_none()));
+        let bug_carriers = carriers(&["box", "inflightA", "inflightB", "reply", "staged", "list"]);
+        let mints: BTreeSet<String> = ["sendA", "sendB"].map(String::from).into();
+        assert!(classify(&net, FragmentMode::Extended, &bug_carriers, &mints, false).is_none());
+        let f = classify(&net, FragmentMode::Extended, &bug_carriers, &mints, true).expect("admitted");
+        assert_eq!(f.coloured_order, ["box", "inflightA", "inflightB", "list", "reply", "staged"]);
+        assert_eq!(f.mints, ["sendA", "sendB"]);
+        assert_eq!(f.relays, ["fetchA", "fetchB", "apply_bug", "show"]);
+        // Under BASE the coloured set is empty, which the lift admits too: every property
+        // place is then uncoloured, and the query refuses it by name.
+        let base = classify(&net, FragmentMode::Base, &bug_carriers, &mints, true).expect("admitted");
+        assert!(base.coloured_order.is_empty());
+        // The fixed net's classification does not depend on the flag.
+        let fixed = pnid_net("searchAsYouType", &search_as_you_type(false));
+        let fixed_carriers = carriers(&["inflightA", "inflightB", "list"]);
+        let off = classify(&fixed, FragmentMode::Extended, &fixed_carriers, &mints, false).expect("in the fragment");
+        let on = classify(&fixed, FragmentMode::Extended, &fixed_carriers, &mints, true).expect("in the fragment");
+        assert_eq!(off.coloured_order, on.coloured_order);
+        assert_eq!(off.coloured_order, ["box", "inflightA", "inflightB", "list", "reply", "staged"]);
     }
 }

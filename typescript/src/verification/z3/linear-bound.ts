@@ -45,8 +45,9 @@ export interface LinearBound {
 
 /**
  * The violation's demand: flat place index → the least count a violating marking
- * holds there. `null` when the property is not a reachability-safety property, or
- * names no place the net resolves (the verifier refuses those before this runs).
+ * holds there. `null` when the property is not a reachability-safety property, is a
+ * name-alignment one (NU-055), whose violation is no count, or names no place the net
+ * resolves (the verifier refuses those before this runs).
  */
 export function violationDemand(flatNet: FlatNet, property: SmtProperty): Map<number, number> | null {
   const demand = new Map<number, number>();
@@ -74,6 +75,10 @@ export function violationDemand(flatNet: FlatNet, property: SmtProperty): Map<nu
     case 'terminates-at-sink':
     case 'joined-or-dead-lettered':
     case 'quiescent-count':
+      return null;
+    // NU-055: a name-alignment violation is a pair of names, not a count, so it has no demand.
+    case 'name-aligned':
+    case 'quiescent-name-aligned':
       return null;
   }
   return demand.size === 0 ? null : demand;

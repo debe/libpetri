@@ -47,7 +47,7 @@ what *is* sufficient:
   reachable violating state: the false-`Proven` shape, checked by
   `decide`/`omega`, not asserted.
 * `bad_rule_nonvacuity` — `encode_property_violation`'s unresolvable-place
-  fallback (`smt_encoder.rs:741-744`: unknown `pending` place ⇒ error-rule body
+  fallback (`smt_encoder.rs:744-747`: unknown `pending` place ⇒ error-rule body
   `false`) proves every net vacuously; refusing to certify is the only
   sound behaviour.
 * `quiescent_count_clause_exact` — the `QuiescentCount` arm's `Bad` is exactly
@@ -392,7 +392,7 @@ theorem consume_all_hypothesis_is_necessary :
 /-!
 ## The error-rule `false` fallback
 
-`encode_property_violation` (`smt_encoder.rs:656-773`) emits `Bad ≡ false` in
+`encode_property_violation` (`smt_encoder.rs:656-781`) emits `Bad ≡ false` in
 two kinds of case.
 
 * **Unresolved place.** `PlaceBound` and `JoinedOrDeadLettered` (`:741-744`)
@@ -410,7 +410,7 @@ two kinds of case.
 
 With `Bad ≡ false` the error rule `Error :- Reachable(M) ∧ Bad(M)` has an
 unsatisfiable body, so Spacer answers `sat`, reported as `Proven`
-(`process_z3_result`, `smt_verifier.rs:3741-3782`), for every net, marking and
+(`process_z3_result`, `smt_verifier.rs:3767-3808`), for every net, marking and
 semantics. `bad_rule_nonvacuity` quantifies over an arbitrary reachable-set
 predicate to make "regardless of semantics" literal, so it cannot tell the two
 kinds apart; only an exactness proof can. The [VER-014] conditional-sink
@@ -427,7 +427,7 @@ information — it holds for any reachable set whatsoever, so it certifies a
 net about which the encoder resolved nothing. The only sound behaviour for
 an unresolvable property place is to refuse to certify (surface an error
 instead of an error rule), which is the formal argument against
-`encode_property_violation`'s `smt_encoder.rs:741-744` fallback. -/
+`encode_property_violation`'s `smt_encoder.rs:744-747` fallback. -/
 theorem bad_rule_nonvacuity (Reach : AMarking → Prop) :
     ProvenFor Reach (fun _ => False) :=
   fun _ _ hbad => hbad
@@ -445,7 +445,7 @@ theorem bad_rule_proves_every_net (net : FlatNet) (a0 : AMarking) :
 -- Keep core's `Zero ℕ` for `List.sum` below, as elaborated before Mathlib's algebra was imported.
 attribute [local instance high] Zero.ofOfNat0
 
-/-- `count_violation_condition` (`smt_encoder.rs:775-804`) over the count
+/-- `count_violation_condition` (`smt_encoder.rs:783-812`) over the count
 `total` and whether every waiver is empty: the lower part when `min > 0`, the
 upper part when `max` is bounded, `none` when neither applies. -/
 def countClause (total : Nat) (waiversEmpty : Bool) (min : Nat) (max : Option Nat) :
@@ -457,9 +457,9 @@ def countClause (total : Nat) (waiversEmpty : Bool) (min : Nat) (max : Option Na
   | parts => some (parts.any id)
 
 /-- The `QuiescentCount` arm of `encode_property_violation`
-(`smt_encoder.rs:751-771`) at one marking. `quiescent` stands for
+(`smt_encoder.rs:754-774`) at one marking. `quiescent` stands for
 `encode_quiescent`, unmodelled (`none`: no marking is quiescent). `counted` and
-`waivers` are what `index_ordered` (`smt_encoder.rs:827-838`) returns: each
+`waivers` are what `index_ordered` (`smt_encoder.rs:835-846`) returns: each
 resolved place once, so the list sum is the count over the place set. -/
 def quiescentCountBad (quiescent : Option (AMarking → Bool))
     (counted waivers : List PlaceId) (min : Nat) (max : Option Nat) (a : AMarking) :

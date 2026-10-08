@@ -348,7 +348,14 @@ Sixteen more roots import the rest of `Libpetri/Novel/` into `Libpetri.lean`:
 - `RouteB.lean` ([NU-050], [NU-052]): the name-partition graph's `Proven` holds
   for the untimed, environment-free executor. The shipped `classify` and the
   builders' checks discharge the distinct-key and positive-count premises
-  (`classifyS_inFragment`, `builderOK_posKeys`).
+  (`classifyS_inFragment`, `builderOK_posKeys`). `RouteB/Aligned.lean`
+  ([NU-055]) extends this to the first property that reads the name layer:
+  a `Proven` of `NameAligned` or `QuiescentNameAligned` on two coloured
+  places means every token in them carries one name
+  (`routeB_untimed_nameAligned_sound`,
+  `routeB_untimed_quiescentNameAligned_sound`). The predicate reads only the
+  class key (`aligned_key_inv`) and holds vacuously on an uncoloured place
+  (`aligned_uncoloured`), which is why that query must not prove.
 - `EnvSemantics.lean` ([VER-006], [VER-022]): injection, the `Bounded(k)`
   guard, the relaxed quiescence check and `Arrivals`. `verify_net` now checks
   the two `Bounded(k)` premises (`EnvSemantics/Premise.lean`).

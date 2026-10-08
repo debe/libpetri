@@ -83,6 +83,20 @@ final class NameMarking {
         return syms == null ? List.of() : new ArrayList<>(syms.keySet());
     }
 
+    /**
+     * The name-alignment predicate of NU-055: every symbol resident in {@code p} equals every
+     * symbol resident in {@code q}, so it holds when either place is empty, and
+     * {@code aligned(p, p)} when {@code p} holds at most one symbol. It compares symbols only for
+     * equality, so it is invariant under any permutation of them and a function of the canonical
+     * key.
+     */
+    boolean aligned(String p, String q) {
+        var inP = perPlace.get(p);
+        var inQ = perPlace.get(q);
+        if (inP == null || inQ == null) return true;
+        return inP.size() == 1 && inQ.size() == 1 && inP.firstKey().equals(inQ.firstKey());
+    }
+
     private SortedSet<Integer> liveSymbols() {
         var all = new TreeSet<Integer>();
         for (var m : perPlace.values()) all.addAll(m.keySet());

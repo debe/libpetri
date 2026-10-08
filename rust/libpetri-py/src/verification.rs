@@ -468,6 +468,23 @@ fn py_joined_or_dead_lettered(pending: String) -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::joined_or_dead_lettered(pending) }
 }
 
+/// Property (NU-055): in every reachable marking, every name resident in `p` equals
+/// every name resident in `q`. Both must be coloured places of the ν fragment (a match
+/// key, a declared carrier or a relay target): on an uncoloured one the verdict is
+/// `unknown`, never `proven`. Decided only by Route B, the name-partition state-class
+/// graph (NU-050).
+#[pyfunction(name = "name_aligned")]
+fn py_name_aligned(p: String, q: String) -> PySmtProperty {
+    PySmtProperty { inner: SmtProperty::name_aligned(p, q) }
+}
+
+/// Property (NU-055): the predicate of `name_aligned`, read only in the reachable
+/// quiescent markings (the reap-aware quiescence of VER-002). No sink clause.
+#[pyfunction(name = "quiescent_name_aligned")]
+fn py_quiescent_name_aligned(p: String, q: String) -> PySmtProperty {
+    PySmtProperty { inner: SmtProperty::quiescent_name_aligned(p, q) }
+}
+
 /// Reads one bound of a count (VER-002): a whole number `>= 0`, or, where
 /// `unbounded` allows it, `math.inf`, which is how Python spells an unbounded
 /// threshold. `Some(None)` is infinity; `None` is anything else — a negative or
@@ -845,7 +862,9 @@ fn py_verify_net(
 /// them, so `linear_bound = False` and `state_equation_phase = False` null them. The
 /// `state_equation` keyword is VER-016's counters in `horn`, not that key. A declared
 /// mint (`mint_transitions`, NU-010) that is no transition of `net` raises `ValueError`
-/// with the reason `verify_net` gives for its Unknown verdict.
+/// with the reason `verify_net` gives for its Unknown verdict. A name-alignment property
+/// (NU-055) raises `StructureError` (a `ValueError`): only Route B decides it, and Route B
+/// sends no script.
 #[pyfunction(name = "encode_smt_scripts")]
 #[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, mint_transitions = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true, assume_no_reaping = false, assume_atomic_firing = false))]
 fn py_encode_smt_scripts(
@@ -1142,6 +1161,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_branch_place_bound, m)?)?;
     m.add_function(wrap_pyfunction!(py_joined_or_dead_lettered, m)?)?;
     m.add_function(wrap_pyfunction!(py_quiescent_count, m)?)?;
+    m.add_function(wrap_pyfunction!(py_name_aligned, m)?)?;
+    m.add_function(wrap_pyfunction!(py_quiescent_name_aligned, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_net, m)?)?;
     m.add_function(wrap_pyfunction!(py_verify_subnet, m)?)?;
     m.add_function(wrap_pyfunction!(py_z3_available, m)?)?;

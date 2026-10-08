@@ -2,6 +2,7 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.NameAlignment;
 import org.libpetri.smt.ProgrammingError;
 import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
@@ -228,6 +229,10 @@ public final class StateEquationPhase {
             StateEquationSolver solver,
             Options options
     ) {
+        // NU-055: the marking equation sees no names.
+        if (NameAlignment.isNameAlignment(property)) {
+            return new StateEquationOutcome.Inconclusive(NameAlignment.routeBOnlyReason(property), List.of(), 0, null);
+        }
         var run = new Run(flatNet, initialMarking, property, sinkPlaces, conditionalSinks, solver, options);
         return run.loop();
     }

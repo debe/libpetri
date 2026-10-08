@@ -2,6 +2,7 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.NameAlignment;
 import org.libpetri.smt.ProgrammingError;
 import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
@@ -644,6 +645,10 @@ public final class BoundedRun {
             FiringBoundSolver solver,
             Options options
     ) {
+        // NU-055: a run of counts carries no names.
+        if (NameAlignment.isNameAlignment(property)) {
+            return new FiringBoundOutcome.Inconclusive(NameAlignment.routeBOnlyReason(property), null, List.of());
+        }
         long budgetMs = options.budgetMs();
         int maxDepth = options.maxDepth();
         var clock = new Deadline(budgetMs);

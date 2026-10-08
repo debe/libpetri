@@ -37,6 +37,7 @@ import { classifyFirstLine, extractDefineFuns } from './smt-text.js';
 import {
   enabledA, environmentCaps, fireA, vectorize, violationPredicate, type AbstractState,
 } from './abstract-replayer.js';
+import { isNameAlignment, routeBOnlyReason } from '../name-alignment.js';
 
 /** A ranking and the firing bound it gives: `weights·C_t ≤ −1` on every transition that can fire. */
 export interface FiringBound {
@@ -361,6 +362,10 @@ export async function runFiringBoundPhase(
   const budgetMs = options.budgetMs ?? 60_000;
   const maxDepth = options.maxDepth ?? 512;
   const deadline = performance.now() + budgetMs;
+  // NU-055: a run of counts carries no names.
+  if (isNameAlignment(property)) {
+    return { kind: 'inconclusive', reason: routeBOnlyReason(property), bound: null, depths: [] };
+  }
   const initial: AbstractState = vectorize(initialMarking, flatNet);
   const isBad = violationPredicate(flatNet, property, sinkPlaces, conditionalSinks);
   const depths: DepthStep[] = [];

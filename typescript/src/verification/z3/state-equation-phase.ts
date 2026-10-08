@@ -36,6 +36,7 @@ import {
   encodeRelativeInequality,
 } from './invariant-synthesis.js';
 import { searchWithinCounts } from './parikh-search.js';
+import { isNameAlignment, routeBOnlyReason } from '../name-alignment.js';
 
 /** The solver phase a script belongs to (`LIBPETRI_SMT_DUMP` file names, VER-013). */
 export type StateEquationScriptPhase = 'state-equation' | 'invariant';
@@ -112,6 +113,8 @@ export async function runStateEquationPhase(
   let queries = 0;
   const inconclusive = (reason: string, candidate: Candidate | null = null): StateEquationOutcome =>
     ({ kind: 'inconclusive', reason, refinements, queries, candidate });
+  // NU-055: the marking equation sees no names.
+  if (isNameAlignment(property)) return inconclusive(routeBOnlyReason(property));
 
   const ask = async (script: string, phase: StateEquationScriptPhase): Promise<string | Error> => {
     const left = Math.floor(deadline - performance.now());

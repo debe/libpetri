@@ -820,14 +820,16 @@ impl<'a> SmtVerifier<'a> {
     }
 
     /// Whether Route B will read [`PrioritySemantics::Conflict`] ([NU-052]): it is
-    /// selected, the net has a ν-join and a property Route B takes (a quiescence one, or
-    /// any without a declared budget place), and no transition is read as reapable,
-    /// since Route B turns the pruning off itself on a net with one
-    /// ([`nu_scg_verifier::verify_via_name_scg_reaping`]). No other route reads it.
+    /// selected, the property is a name-alignment one ([NU-055]) or the net has a ν-join
+    /// and a property Route B takes (a quiescence one, or any without a declared budget
+    /// place), and no transition is read as reapable, since Route B turns the pruning off
+    /// itself on a net with one ([`nu_scg_verifier::verify_via_name_scg_reaping`]). No
+    /// other route reads it.
     fn conflict_pruning_applies(&self) -> bool {
         self.priority_semantics == PrioritySemantics::Conflict
-            && self.net.transitions().iter().any(|t| t.match_spec().is_some())
-            && (!is_reachability_safety(&self.property) || self.budget_places.is_empty())
+            && (self.property.is_name_alignment()
+                || (self.net.transitions().iter().any(|t| t.match_spec().is_some())
+                    && (!is_reachability_safety(&self.property) || self.budget_places.is_empty())))
             && self.reapable_set().is_empty()
     }
 
@@ -1083,6 +1085,10 @@ impl<'a> SmtVerifier<'a> {
         // distorts. The end-of-pipeline guard turns those cases into `Unknown`.
         let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
         let nu_bounded = !self.budget_places.is_empty();
+        // [NU-055]: a name-alignment property goes to Route B whatever the shape of the
+        // net, ahead of every other routing test (a declared budget place included), and
+        // nothing else decides it.
+        let name_alignment = self.property.is_name_alignment();
         // The `Property:` line carries the sink declarations ([VER-002], [VER-014])
         // in declaration order: `<description> (sinks: a, b; when h: c)`.
         let sink_desc = describe_sinks(&self.sink_places, &self.conditional_sinks);
@@ -1182,10 +1188,15 @@ impl<'a> SmtVerifier<'a> {
         // [NU-010]: a transition that writes a coloured place without consuming one and is
         // not declared to mint keeps the net off both ν routes. Name it where a route
         // declines or the ν guard answers Unknown.
-        let undeclared_pointer: Option<String> = if has_match {
+        let undeclared_pointer: Option<String> = if has_match || name_alignment {
             let carriers: BTreeSet<String> = self.carrier_places.iter().cloned().collect();
-            let undeclared =
-                name_fragment::undeclared_mints(self.net, self.fragment_mode, &carriers, &self.declared_mints());
+            let undeclared = name_fragment::undeclared_mints_for(
+                self.net,
+                self.fragment_mode,
+                &carriers,
+                &self.declared_mints(),
+                name_alignment,
+            );
             (!undeclared.is_empty()).then(|| name_fragment::undeclared_mints_pointer(&undeclared))
         } else {
             None
@@ -1199,8 +1210,9 @@ impl<'a> SmtVerifier<'a> {
         // fragment stays on Route A below (this trigger is false there). If the net
         // is outside the supported fragment, `verify_via_name_scg` returns None and
         // we fall through to the existing pipeline (which applies the sound Unknown
-        // downgrade for these cases).
-        if has_match && (!is_reachability_safety(&self.property) || !nu_bounded) {
+        // downgrade for these cases). A name-alignment property ([NU-055]) never falls
+        // through: Route B alone decides it.
+        if name_alignment || (has_match && (!is_reachability_safety(&self.property) || !nu_bounded)) {
             step!(
                 "Route B (ν name-partition graph)",
                 VerificationRoute::NuScg,
@@ -1219,7 +1231,14 @@ impl<'a> SmtVerifier<'a> {
             // left, but an injection transition feeding a coloured place would be
             // read as a mint; decline by name, as for an environment place above.
             let arrival_declined = self.coloured_arrival_reason().filter(|_| {
-                name_fragment::classify(self.net, self.fragment_mode, &carrier_set, &every_transition(self.net)).is_some_and(
+                name_fragment::classify(
+                    self.net,
+                    self.fragment_mode,
+                    &carrier_set,
+                    &every_transition(self.net),
+                    name_alignment,
+                )
+                .is_some_and(
                     |fragment| {
                         fragment.coloured_order.iter().all(|p| self.initial_marking.count(p) == 0)
                     },
@@ -1230,7 +1249,7 @@ impl<'a> SmtVerifier<'a> {
             } else if self.env_places.is_empty() || self.ignores_environment() {
                 None
             } else {
-                name_fragment::classify(self.net, self.fragment_mode, &carrier_set, &mint_set).and_then(
+                name_fragment::classify(self.net, self.fragment_mode, &carrier_set, &mint_set, name_alignment).and_then(
                     |fragment| {
                         route_b_env_observation(
                             self.net,
@@ -1246,24 +1265,8 @@ impl<'a> SmtVerifier<'a> {
                 )
             };
             if let Some(reason) = declined {
-                let elapsed_ms = start.elapsed().as_millis() as u64;
-                report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
-                report.push_str(&format!("Property: {}\n", describe(self.property.description())));
-                report.push_str(&format!("Declined under environment injection: {reason}\n"));
-                report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
-                return build_result(
-                    Verdict::Unknown { reason },
-                    VerificationRoute::NuScg,
-                    report,
-                    elapsed_ms,
-                    VerificationStatistics {
-                        places: self.net.places().len(),
-                        transitions: self.net.transitions().len(),
-                        invariants_found: 0,
-                        structural_result: "n/a (ν name-partition SCG)".into(),
-                    },
-                    Diagnostics::none(),
-                );
+                let property = describe(self.property.description());
+                return self.route_b_declined(report, &property, "Declined under environment injection", reason, start);
             }
             let scg_outcome = nu_scg_verifier::verify_via_name_scg_reaping(
                 self.net,
@@ -1284,7 +1287,7 @@ impl<'a> SmtVerifier<'a> {
             // Route B truncating to Unknown on a bounded quiescence ν-net is not the
             // final word: defer to the scalable Route A coloured IC3/PDR encoder
             // ([NU-053]) below instead of returning Unknown here.
-            let defer_to_route_a = scg_outcome.as_ref().is_some_and(|o| {
+            let defer_to_route_a = !name_alignment && scg_outcome.as_ref().is_some_and(|o| {
                 matches!(o.verdict, Verdict::Unknown { .. })
                     && !is_reachability_safety(&self.property)
                     && nu_bounded
@@ -1298,10 +1301,19 @@ impl<'a> SmtVerifier<'a> {
                     outcome.class_count
                 ));
                 report.push_str(&outcome.note);
+                // [NU-055]: Route B's own refusals (an uncoloured place, a marked
+                // coloured place) and its truncation, which nothing else answers.
+                if let (true, Verdict::Unknown { reason }) = (name_alignment, &outcome.verdict) {
+                    report.push_str(&format!("UNKNOWN: {reason}\n"));
+                }
                 // [NU-010], [NU-051]: the actions whose writes the verdict trusts.
-                if let Some(fragment) =
-                    name_fragment::classify(self.net, self.fragment_mode, &carrier_set, &mint_set)
-                {
+                if let Some(fragment) = name_fragment::classify(
+                    self.net,
+                    self.fragment_mode,
+                    &carrier_set,
+                    &mint_set,
+                    name_alignment,
+                ) {
                     report.push_str(&name_fragment::contract_note(&fragment.mints, &fragment.relays));
                 }
                 if quiescence_vacuous {
@@ -1332,12 +1344,7 @@ impl<'a> SmtVerifier<'a> {
                     VerificationRoute::NuScg,
                     report,
                     elapsed_ms,
-                    VerificationStatistics {
-                        places: self.net.places().len(),
-                        transitions: self.net.transitions().len(),
-                        invariants_found: 0,
-                        structural_result: "n/a (ν name-partition SCG)".into(),
-                    },
+                    self.route_b_statistics(),
                     Diagnostics {
                         trace: DecodedTrace {
                             trace: outcome.trace,
@@ -1352,6 +1359,14 @@ impl<'a> SmtVerifier<'a> {
                      Route A coloured IC3/PDR ([NU-053]).\n",
                 );
             }
+            // [NU-055]: outside the fragment no other route decides a name-alignment
+            // property.
+            if name_alignment {
+                let reason =
+                    name_alignment_decline(&self.property, self.fragment_mode, undeclared_pointer.as_deref());
+                let property = describe(self.property.description());
+                return self.route_b_declined(report, &property, "Declined", reason, start);
+            }
             // EXTENDED was requested but the net is outside the coloured-consumer
             // fragment (classify declined). Surface a short note instead of a
             // silent cliff, then verify via the sound over-approximation below
@@ -1359,12 +1374,7 @@ impl<'a> SmtVerifier<'a> {
             if let Some(pointer) = undeclared_pointer.as_deref().filter(|_| !defer_to_route_a) {
                 report.push_str(&format!("ν-net Route B declined: {pointer}.\n"));
             } else if self.fragment_mode == FragmentMode::Extended && !defer_to_route_a {
-                report.push_str(
-                    "ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment \
-                     (a coloured place consumed count != 1 or by multiple inputs, carries a \
-                     reset/read/inhibitor arc, or a join writes a coloured place it does not \
-                     declare as a relay target); verified via sound over-approximation instead.\n",
-                );
+                report.push_str(&format!("{EXTENDED_DECLINE}; verified via sound over-approximation instead.\n"));
             }
         }
 
@@ -2084,8 +2094,14 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// When a declared mint transition ([`mint_transition`](Self::mint_transition)) is not
     /// a transition of the net, with the reason [`verify`](Self::verify) answers `Unknown`
     /// with ([`name_fragment::unknown_mint_reason`]): scripts without the declaration
-    /// would not be the ones the caller asked about.
+    /// would not be the ones the caller asked about. And for a name-alignment property
+    /// ([NU-055]): only Route B decides it, and Route B sends no script, so there is none
+    /// to return.
     pub fn encode_scripts(mut self) -> EncodedScripts {
+        // [NU-055]: only Route B, which sends no script, decides a name-alignment property.
+        if self.property.is_name_alignment() {
+            panic!("{}", self.property.route_b_only_reason());
+        }
         if let Some(reason) = name_fragment::unknown_mint_reason(self.net, &self.mint_transitions) {
             panic!("{reason}");
         }
@@ -2460,6 +2476,7 @@ no constraint the encoding does not already have; they may still differ in FORM)
             self.fragment_mode,
             &carrier_set,
             &every_transition(self.net),
+            self.property.is_name_alignment(),
         )?;
         let place = arrivals.injected.iter().find(|p| fragment.is_coloured(p))?;
         Some(format!(
@@ -3331,16 +3348,42 @@ fn relay_declarations(net: &PetriNet) -> Vec<String> {
     out
 }
 
+/// Why Route B declined, under EXTENDED, a net outside the coloured-consumer fragment
+/// ([NU-051]).
+const EXTENDED_DECLINE: &str = "ν-net Route B (EXTENDED) declined: net outside coloured-consumer \
+     fragment (a coloured place consumed count != 1 or by multiple inputs, carries a \
+     reset/read/inhibitor arc, or a join writes a coloured place it does not declare as a relay \
+     target)";
+
+/// Why Route B declined the name-alignment `property` ([NU-055]): the net is outside the
+/// fragment of `mode`. Names the undeclared mints when declaring them is all that is
+/// missing ([NU-010]), and EXTENDED under BASE (AC3). Never says the property was
+/// verified another way: nothing else decides it.
+fn name_alignment_decline(property: &SmtProperty, mode: FragmentMode, undeclared_pointer: Option<&str>) -> String {
+    let why = match (undeclared_pointer, mode) {
+        (Some(pointer), _) => pointer.to_string(),
+        (None, FragmentMode::Base) => "net outside the BASE fragment, which colours the match keys alone \
+             (a non-match transition consumes a coloured place, a join writes a coloured place, or a \
+             non-mint writes one); carrier places and relay targets are coloured only under the \
+             EXTENDED fragment (fragment_mode(FragmentMode::Extended), NU-051, NU-054)"
+            .to_string(),
+        (None, FragmentMode::Extended) => EXTENDED_DECLINE.to_string(),
+    };
+    format!("{why}; {}, so the verdict is unknown", property.route_b_only_reason())
+}
+
 fn is_reachability_safety(property: &SmtProperty) -> bool {
     match property {
         SmtProperty::PlaceBound { .. }
         | SmtProperty::BranchPlaceBound { .. }
         | SmtProperty::MutualExclusion { .. }
-        | SmtProperty::Unreachable { .. } => true,
+        | SmtProperty::Unreachable { .. }
+        | SmtProperty::NameAligned { .. } => true,
         SmtProperty::DeadlockFree
         | SmtProperty::TerminatesAtSink
         | SmtProperty::JoinedOrDeadLettered { .. }
-        | SmtProperty::QuiescentCount { .. } => false,
+        | SmtProperty::QuiescentCount { .. }
+        | SmtProperty::QuiescentNameAligned { .. } => false,
     }
 }
 
@@ -3614,6 +3657,7 @@ fn property_place_names(property: &SmtProperty) -> Vec<&String> {
         SmtProperty::QuiescentCount {
             places, waived_by, ..
         } => places.iter().chain(waived_by.iter()).collect(),
+        SmtProperty::NameAligned { p, q } | SmtProperty::QuiescentNameAligned { p, q } => vec![p, q],
     }
 }
 
@@ -3833,6 +3877,19 @@ fn route_b_env_observation(
         }
     }
     // 4. The property reads it. A vacuous quiescence property reads nothing.
+    //
+    // [NU-055]: the graph never consumes an environment place, so a net reading input
+    // from one has no resting class and its graph would read as vacuously aligned,
+    // while the executor rests misaligned between inputs. The vacuity reading of
+    // [VER-006] AC6 does not apply.
+    if let (SmtProperty::QuiescentNameAligned { .. }, Some(p)) = (property, env.first()) {
+        return refuse(
+            p,
+            "is registered and the property reads quiescence (NU-055): the graph never consumes \
+             it, so a net that reads input from it has no resting class; model its input with \
+             arrivals(k)",
+        );
+    }
     let observed: BTreeSet<&str> = if is_reachability_safety(property) {
         property_place_names(property).into_iter().map(|s| s.as_str()).collect()
     } else if quiescence_vacuous {
@@ -3846,7 +3903,16 @@ fn route_b_env_observation(
                 .chain(conditional_sinks.iter().map(|c| c.marker.as_str()))
                 .collect(),
             SmtProperty::TerminatesAtSink => sink_places.iter().map(|s| s.as_str()).collect(),
-            _ => property_place_names(property).into_iter().map(|s| s.as_str()).collect(),
+            SmtProperty::JoinedOrDeadLettered { .. }
+            | SmtProperty::QuiescentCount { .. }
+            | SmtProperty::QuiescentNameAligned { .. }
+            | SmtProperty::PlaceBound { .. }
+            | SmtProperty::BranchPlaceBound { .. }
+            | SmtProperty::MutualExclusion { .. }
+            | SmtProperty::Unreachable { .. }
+            | SmtProperty::NameAligned { .. } => {
+                property_place_names(property).into_iter().map(|s| s.as_str()).collect()
+            }
         }
     };
     if let Some(p) = env.iter().find(|p| observed.contains(*p)) {
@@ -4057,6 +4123,41 @@ impl<'a> SmtVerifier<'a> {
 
     /// The flat net every encoder reads, its reapable transitions marked
     /// ([`net_flattener::flatten_with_reapable`]).
+    /// The statistics of a Route B result: the graph uses no invariant.
+    fn route_b_statistics(&self) -> VerificationStatistics {
+        VerificationStatistics {
+            places: self.net.places().len(),
+            transitions: self.net.transitions().len(),
+            invariants_found: 0,
+            structural_result: "n/a (ν name-partition SCG)".into(),
+        }
+    }
+
+    /// The `Unknown` result of a query Route B declined before building its graph, with
+    /// `property` on the `Property:` line and `reason` on the report line `label`.
+    fn route_b_declined(
+        &self,
+        mut report: String,
+        property: &str,
+        label: &str,
+        reason: String,
+        start: Instant,
+    ) -> VerificationResult {
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        report.push_str("=== ν-net Route B: name-aware state-class graph (NU-050) ===\n");
+        report.push_str(&format!("Property: {property}\n"));
+        report.push_str(&format!("{label}: {reason}\n"));
+        report.push_str(&format!("\nElapsed: {elapsed_ms}ms\n"));
+        build_result(
+            Verdict::Unknown { reason },
+            VerificationRoute::NuScg,
+            report,
+            elapsed_ms,
+            self.route_b_statistics(),
+            Diagnostics::none(),
+        )
+    }
+
     fn flatten(&self) -> FlatNet {
         let reapable = self.reapable_set();
         net_flattener::flatten_with_reapable(self.net, &|t| reapable.contains(t.name()))
@@ -4072,15 +4173,17 @@ impl<'a> SmtVerifier<'a> {
     /// also assumes that an action takes no time ([`reaping::no_reaping_route_b_note`]).
     fn reaping_line(&self, route_b: bool) -> Option<String> {
         let in_net = self.reapable_in_net();
-        let has_match = self.net.transitions().iter().any(|t| t.match_spec().is_some());
+        // [NU-055]: a name-alignment property goes to Route B on any net.
+        let on_route_b = self.property.is_name_alignment()
+            || self.net.transitions().iter().any(|t| t.match_spec().is_some());
         let mut late_in_net = in_net.clone();
-        if has_match {
+        if on_route_b {
             late_in_net.extend(reaping::late_transitions(self.net));
         }
         if late_in_net.is_empty() {
             return None;
         }
-        if is_reachability_safety(&self.property) && !has_match {
+        if is_reachability_safety(&self.property) && !on_route_b {
             return None;
         }
         if self.assume_no_reaping && route_b {

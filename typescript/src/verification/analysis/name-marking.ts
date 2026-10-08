@@ -67,6 +67,25 @@ export class NameMarking {
     return syms ? [...syms.keys()] : [];
   }
 
+  /**
+   * The name-alignment predicate of NU-055: every symbol resident in `p` equals every symbol
+   * resident in `q`, so it holds when either place is empty, and `aligned(p, p)` when `p` holds
+   * at most one symbol. It compares symbols only for equality, so it is invariant under any
+   * permutation of them and a function of the canonical key. It reads the resident symbols in
+   * place, as the double "all" of Lean `Aligned.aligned`.
+   */
+  aligned(p: string, q: string): boolean {
+    const inP = this.perPlace.get(p);
+    const inQ = this.perPlace.get(q);
+    if (inP === undefined || inQ === undefined) return true;
+    for (const s of inP.keys()) {
+      for (const t of inQ.keys()) {
+        if (s !== t) return false;
+      }
+    }
+    return true;
+  }
+
   private liveSymbols(): Sym[] {
     const all = new Set<Sym>();
     for (const syms of this.perPlace.values()) {

@@ -106,17 +106,18 @@ export function unknownMintReason(net: PetriNet, declared: Iterable<string>): st
  * are not in `mints`, in net order, when declaring them is all that keeps `net` out of the
  * fragment: {@link classify} admits `net` with every transition read as a mint and rejects it
  * with `mints`. Empty otherwise. These are the undeclared mints a Route B decline points at
- * (NU-010).
+ * (NU-010). `admitMatchless` as for {@link classify}.
  */
 export function undeclaredMints(
   net: PetriNet,
   mode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
   mints: ReadonlySet<string>,
+  admitMatchless = false,
 ): string[] {
-  if (classify(net, mode, carrierPlaces, mints) !== null) return [];
+  if (classify(net, mode, carrierPlaces, mints, admitMatchless) !== null) return [];
   const every = new Set([...net.transitions].map(t => t.name));
-  const fragment = classify(net, mode, carrierPlaces, every);
+  const fragment = classify(net, mode, carrierPlaces, every, admitMatchless);
   return fragment === null ? [] : fragment.mints.filter(m => !mints.has(m));
 }
 
@@ -173,12 +174,18 @@ export function contractNote(mints: readonly string[], relays: readonly string[]
  * forwarding one of its match keys, the one write that carries the matched name. The executor
  * checks every relay deposit (NU-054) and fails the firing on any other, so no timeout write
  * relies on a contract.
+ *
+ * `admitMatchless` (a name-alignment query, NU-055) admits a net without a matched transition,
+ * or with an empty coloured set: such a query needs only a coloured fragment, and a property
+ * place outside an empty coloured set is uncoloured, which the query refuses itself. Every
+ * other query keeps the default, under which such a net is not a ν-net.
  */
 export function classify(
   net: PetriNet,
   mode: FragmentMode,
   carrierPlaces: ReadonlySet<string>,
   mintTransitions: ReadonlySet<string>,
+  admitMatchless = false,
 ): NameFragment | null {
   // 1. Coloured places = union of every match transition's correlated inputs,
   //    plus (EXTENDED only) the declared carrier places and every join's relay
@@ -191,7 +198,7 @@ export function classify(
       for (const key of t.matchSpec.keys) coloured.add(key.place.name);
     }
   }
-  if (!anyMatch || coloured.size === 0) return null;
+  if (!admitMatchless && (!anyMatch || coloured.size === 0)) return null;
   if (mode === 'extended') {
     for (const c of carrierPlaces) coloured.add(c);
     for (const t of net.transitions) {

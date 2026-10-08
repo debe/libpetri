@@ -100,6 +100,10 @@ public final class LinearBound {
                  SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _ -> {
                 return null;
             }
+            // NU-055: a name-alignment violation is a pair of names, not a count, so it has no demand.
+            case SmtProperty.NameAligned _, SmtProperty.QuiescentNameAligned _ -> {
+                return null;
+            }
         }
         return demand.isEmpty() ? null : demand;
     }

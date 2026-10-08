@@ -186,8 +186,9 @@ theorem linear_bound_sound {net : FlatNet} {envs : List PlaceId} {a0 d : AMarkin
     ∀ a, ReachAInj net envs a0 a → ¬ Covers d a n :=
   linear_bound_sound_noH1 hc.pos hc.dec hc.henv (by have := hc.sep; omega)
 
-/-- The four reachability-safety properties `is_reachability_safety` admits, by their demand:
-`Unreachable` / `MutualExclusion` over resolved places, `PlaceBound` / `BranchPlaceBound`. -/
+/-- The reachability-safety properties `is_reachability_safety` admits that carry a demand:
+`Unreachable` / `MutualExclusion` over resolved places, `PlaceBound` / `BranchPlaceBound`.
+`NameAligned` is admitted too but has no count demand, so the check issues no query for it. -/
 inductive SafetyProp where
   | allMarked (places : List PlaceId)
   | placeBound (place : PlaceId) (bound : Nat)

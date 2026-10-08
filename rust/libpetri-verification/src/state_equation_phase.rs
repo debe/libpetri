@@ -142,6 +142,15 @@ pub fn run_state_equation_phase(
     solver: impl Fn(&str, &str, u64) -> Result<String, String>,
     options: StateEquationPhaseOptions,
 ) -> StateEquationOutcome {
+    // [NU-055]: the marking equation sees no names.
+    if property.is_name_alignment() {
+        return StateEquationOutcome::Inconclusive {
+            reason: property.route_b_only_reason(),
+            refinements: Vec::new(),
+            queries: 0,
+            candidate: None,
+        };
+    }
     let budget = QueryBudget::start(options.budget_ms);
     let max_refinements = options.max_refinements;
     let place_count = flat.place_count;
@@ -884,6 +893,31 @@ mod tests {
                 assert!(bad(states.last().unwrap()));
             }
             other => panic!("expected a violation, got {other:?}"),
+        }
+    }
+
+    /// [NU-055] AC4: the marking equation sees no names, so the phase steps aside before
+    /// any query.
+    #[test]
+    fn nu055_the_state_equation_phase_is_inconclusive_for_name_alignment() {
+        let (flat, m0, sinks) = queue_and_bundle(2, false);
+        for property in [SmtProperty::name_aligned("q", "s"), SmtProperty::quiescent_name_aligned("q", "s")] {
+            let outcome = run_state_equation_phase(
+                &flat,
+                &m0,
+                &property,
+                &sinks,
+                &[],
+                &[],
+                |_: &str, _: &str, _: u64| -> Result<String, String> { panic!("no solver call expected") },
+                StateEquationPhaseOptions::default(),
+            );
+            match outcome {
+                StateEquationOutcome::Inconclusive { reason, queries: 0, .. } => {
+                    assert!(reason.contains("decided only by the name-partition state-class graph (NU-055, Route B)"), "{reason}")
+                }
+                other => panic!("expected inconclusive, got {other:?}"),
+            }
         }
     }
 }

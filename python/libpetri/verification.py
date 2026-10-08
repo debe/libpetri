@@ -159,6 +159,25 @@ def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty:
     return _ext.joined_or_dead_lettered(_coerce_place_name(pending))
 
 
+def name_aligned(p: PlaceLike, q: PlaceLike) -> SmtProperty:
+    """ν-net name alignment (NU-055): in every reachable marking, every name resident
+    in ``p`` equals every name resident in ``q``. A marking in which either place is
+    empty satisfies it, and ``name_aligned(p, p)`` says ``p`` never holds two names.
+
+    Both places must be coloured places of the ν fragment (a match key, a declared
+    carrier or a relay target): on an uncoloured place the verdict is ``unknown``,
+    never ``proven``. Decided only by Route B, the name-partition state-class graph
+    (NU-050); :func:`encode_smt_scripts` raises ``ValueError`` for it."""
+    return _ext.name_aligned(_coerce_place_name(p), _coerce_place_name(q))
+
+
+def quiescent_name_aligned(p: PlaceLike, q: PlaceLike) -> SmtProperty:
+    """ν-net name alignment at rest (NU-055): the predicate of :func:`name_aligned`,
+    read only in the reachable quiescent markings (the reap-aware quiescence of
+    VER-002). Like :func:`joined_or_dead_lettered` it carries no sink clause."""
+    return _ext.quiescent_name_aligned(_coerce_place_name(p), _coerce_place_name(q))
+
+
 def _place_names(places: Iterable[PlaceLike]) -> list[str]:
     return [_coerce_place_name(p) for p in places]
 
@@ -688,7 +707,10 @@ def encode_smt_scripts(
     ``assume_atomic_firing`` (VER-004) encodes the net without the in-flight split.
     ``mint_transitions`` (NU-010) declares the mints as :func:`verify` takes them; a
     name that is no transition of ``net`` raises ``ValueError`` with the reason
-    :func:`verify` gives for its ``unknown`` verdict.
+    :func:`verify` gives for its ``unknown`` verdict. A name-alignment property
+    (:func:`name_aligned`, :func:`quiescent_name_aligned`, NU-055) raises
+    ``StructureError`` (a ``ValueError``): only Route B decides it, and Route B
+    sends no script.
     """
     return _ext.encode_smt_scripts(
         _coerce_net(net),
@@ -1004,8 +1026,10 @@ __all__ = [
     "ignore",
     "joined_or_dead_lettered",
     "mutual_exclusion",
+    "name_aligned",
     "place_bound",
     "quiescent_count",
+    "quiescent_name_aligned",
     "unreachable",
     "verify",
     "verify_open_net",

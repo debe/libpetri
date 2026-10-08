@@ -85,8 +85,8 @@ impl NameStateClassGraph {
     }
 
     /// Builds the graph up to `max_classes`, stopping at the first discovered class whose
-    /// marking satisfies `stop_at` ([VER-012]: Route B's on-the-fly check of a
-    /// reachability-safety property). Each class is tested as it is stored, so the
+    /// marking and name layer satisfy `stop_at` ([VER-012], [NU-055]: Route B's on-the-fly
+    /// check of a reachability-safety property). Each class is tested as it is stored, so the
     /// classes stored up to the stop are exactly those of the unstopped build, in
     /// the same order, and the stop class is the lowest-index class the predicate
     /// holds for — the one the full graph's prefix check would pick. The edge that
@@ -101,7 +101,7 @@ impl NameStateClassGraph {
         env_places: &[&str],
         env_mode: &EnvironmentAnalysisMode,
         priority_semantics: PrioritySemantics,
-        stop_at: Option<&dyn Fn(&MarkingState) -> bool>,
+        stop_at: Option<&dyn Fn(&MarkingState, &NameMarking) -> bool>,
     ) -> Self {
         env_mode.reject_arrivals(env_places.len(), "NameStateClassGraph::build");
         let env_set: HashSet<&str> = env_places.iter().copied().collect();
@@ -141,7 +141,7 @@ impl NameStateClassGraph {
             intern_names(&mut name_intern, NameMarking::new(), &fragment.coloured_order);
         graph.push_class(NameStateClass::new(base0, names0), (bid0, nid0), &mut index_of);
         let violates = |g: &NameStateClassGraph, idx: usize| {
-            stop_at.is_some_and(|stop| stop(&g.classes[idx].base.marking))
+            stop_at.is_some_and(|stop| stop(&g.classes[idx].base.marking, &g.classes[idx].names))
         };
         if violates(&graph, 0) {
             graph.complete = false;
@@ -748,7 +748,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let net = interning_fixture(false);
-        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
             .expect("the interning fixture is in the base fragment");
         let initial = MarkingStateBuilder::new().tokens("P", 2).build();
         let graph = NameStateClassGraph::build(
@@ -862,7 +862,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let net = same_name_layer_fixture();
-        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
             .expect("the fixture is in the base fragment");
         let initial = MarkingStateBuilder::new().tokens("P", 2).build();
         let graph = NameStateClassGraph::build(
@@ -939,7 +939,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let net = interning_fixture(true);
-        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
             .expect("the drain is an EXTENDED coloured consumer");
         let mut names = NameMarking::new();
         names.add("C1", 3, 1);
@@ -1143,7 +1143,7 @@ pub(crate) mod tests {
             .transitions([mint, join, drain])
             .build();
 
-        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
             .expect("EXTENDED must admit the delayed priority fixture");
         let initial = MarkingStateBuilder::new().tokens("SEED", 1).build();
 
@@ -1220,7 +1220,7 @@ pub(crate) mod tests {
         use std::collections::BTreeSet;
 
         let (net, m0) = fig11b();
-        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Base, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
             .expect("Fig. 11(b) is in the base fragment");
         let graph = NameStateClassGraph::build(
             &net,
@@ -1420,7 +1420,7 @@ pub(crate) mod tests {
         for (name, rows, (place, k), carriers) in cases {
             let net = pnid_net("orbit", &rows);
             let carrier_set: BTreeSet<String> = carriers.iter().map(|s| s.to_string()).collect();
-            let fragment = classify(&net, FragmentMode::Extended, &carrier_set, &crate::name_fragment::all_mints(&net)).expect(name);
+            let fragment = classify(&net, FragmentMode::Extended, &carrier_set, &crate::name_fragment::all_mints(&net), false).expect(name);
             let graph = NameStateClassGraph::build(
                 &net,
                 &crate::marking_state::MarkingStateBuilder::new().tokens(place, k).build(),
@@ -1534,7 +1534,7 @@ pub(crate) mod tests {
             .action(fork())
             .build();
         let net = PetriNet::builder("broken_binding").transitions([m0, m1, j, r]).build();
-        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net))
+        let fragment = classify(&net, FragmentMode::Extended, &BTreeSet::new(), &crate::name_fragment::all_mints(&net), false)
             .expect("R is an EXTENDED relay");
         let initial = MarkingStateBuilder::new()
             .tokens("s0", 1)

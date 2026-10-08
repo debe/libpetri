@@ -18,8 +18,12 @@ base and so cover the timed class too; what is missing is the timed executor sid
   fire only reapable transitions ([TIME-013]) is a reapable firing; with nothing reapable,
   `exec_quiescent_succ_nil` (an executor-quiescent marking's class has no successor).
 
-The property reads the base marking only (`bad S = badA S.b`), as every arm of
-`decide_over_classes` does (`marking_violates`, `strands_token`, sinks, `pending`, counts).
+The headline pair is stated for any key-invariant class predicate
+(`routeB_untimed_safety_sound_keyInv`, `routeB_untimed_quiescence_sound_keyInv`), which may read
+the name layer through the key, as `Aligned.lean` does. `routeB_untimed_safety_sound` and
+`routeB_untimed_quiescence_sound` are the instances whose property reads the base marking only
+(`bad S = badA S.b`), as every arm of `decide_over_classes` does (`marking_violates`,
+`strands_token`, sinks, `pending`, counts).
 
 Premises stated as hypotheses: `coloured_order` duplicate-free; every transition in the fragment
 for its role (`InFragment`, which `Classify.classifyT_inFragment` derives from `classify`'s
@@ -55,6 +59,50 @@ variable {co : List PlaceId} {nameOf : Colour → ℕ} {net : List NuTrans} {rol
 theorem keyOf_b {S S' : NState co AMarking} (h : keyOf S = keyOf S') : S.b = S'.b :=
   (Prod.mk.inj h).1
 
+/-- **Route B's safety `Proven` holds for the untimed, environment-free executor, for any
+key-invariant class predicate.** `bad` may read the name layer, provided it reads it only
+through the key (`keyOf`: the base and the `canonicalKey` of the name layer). Concludes for the
+view of every executor-reachable marking. -/
+theorem routeB_untimed_safety_sound_keyInv (hco : co.Nodup)
+    (hfr : ∀ T ∈ net, InFragment co T (role T)) (hG : ∀ T ∈ net, GuardFree T.base)
+    {bad : NState co AMarking → Bool} (hbad : ∀ a b, keyOf a = keyOf b → bad a = bad b)
+    {maxClasses : ℕ} {cut : ℕ → Bool} {stopBad : NState co AMarking → Bool} {stopAt : Bool}
+    {fuel : ℕ} {m0 : CMarking} (hempty : ∀ i : Fin co.length, m0 co[i.1] = [])
+    (hP : Decide.verdict (routeB untimedBase net role conflict)
+      (Decide.build (routeB untimedBase net role conflict) maxClasses cut stopBad stopAt fuel
+        (initState co (alpha m0)))
+      (.safety bad) = .proven)
+    {m : CMarking} (hR : Relation.ReflTransGen (NuStepC co nameOf net role conflict) m0 m) :
+    bad (view co nameOf m) = false := by
+  obtain ⟨S, hS, hk⟩ := exec_reach_simulated hco hfr hG (init_key hempty) hR
+  have := Decide.complete_proven_safety (routeB_equivariant (co := co)) hbad hP S hS
+  rw [hbad _ _ hk] at this
+  exact this
+
+/-- **Route B's quiescence `Proven` holds for the untimed, environment-free executor, for any
+key-invariant class predicate**, deadline reaping included ([TIME-013], [VER-002]). `bad` may
+read the name layer through the key. -/
+theorem routeB_untimed_quiescence_sound_keyInv (hco : co.Nodup)
+    (hfr : ∀ T ∈ net, InFragment co T (role T)) (hpos : ∀ T ∈ net, PosKeys (role T))
+    (hG : ∀ T ∈ net, GuardFree T.base) {bad : NState co AMarking → Bool}
+    (hbad : ∀ a b, keyOf a = keyOf b → bad a = bad b) {reap : String → Bool}
+    {maxClasses : ℕ} {cut : ℕ → Bool} {stopBad : NState co AMarking → Bool} {stopAt : Bool}
+    {fuel : ℕ} {m0 : CMarking} (hempty : ∀ i : Fin co.length, m0 co[i.1] = [])
+    (hP : Decide.verdict (routeB untimedBase net role conflict)
+      (Decide.build (routeB untimedBase net role conflict) maxClasses cut stopBad stopAt fuel
+        (initState co (alpha m0)))
+      (.quiescence bad reap) = .proven)
+    {m : CMarking} (hR : Relation.ReflTransGen (NuStepC co nameOf net role conflict) m0 m)
+    (hrest : ExecRests (co := co) (nameOf := nameOf) (net := net) reap m) :
+    bad (view co nameOf m) = false := by
+  obtain ⟨S, hS, hk⟩ := exec_reach_simulated hco hfr hG (init_key hempty) hR
+  have hr := exec_rests_succ_reap (role := role) (conflict := conflict) hfr hpos hG hk hrest
+    S.bound
+  have := Decide.complete_proven_quiescence (routeB_equivariant (co := co)) hbad hP S hS
+    ⟨S.bound, Nat.le_refl _, hr⟩
+  rw [hbad _ _ hk] at this
+  exact this
+
 /-- **Route B's safety `Proven` holds for the untimed, environment-free executor.** A complete
 build of the untimed instance from the initial class whose verdict for `bad` (reading the count
 marking) is `Proven`: no marking an untimed, injection-free executor run (`NuStepC`) reaches is
@@ -68,12 +116,9 @@ theorem routeB_untimed_safety_sound (hco : co.Nodup) (hfr : ∀ T ∈ net, InFra
         (initState co (alpha m0)))
       (.safety fun S => badA S.b) = .proven)
     {m : CMarking} (hR : Relation.ReflTransGen (NuStepC co nameOf net role conflict) m0 m) :
-    badA (alpha m) = false := by
-  obtain ⟨S, hS, hk⟩ := exec_reach_simulated hco hfr hG (init_key hempty) hR
-  have := Decide.complete_proven_safety (routeB_equivariant (co := co)) (bad := fun S => badA S.b)
-    (fun a b h => by rw [keyOf_b h]) hP S hS
-  rw [keyOf_b hk] at this
-  exact this
+    badA (alpha m) = false :=
+  routeB_untimed_safety_sound_keyInv hco hfr hG (bad := fun S => badA S.b)
+    (fun a b h => by rw [keyOf_b h]) hempty hP hR
 
 /-- **Route B's quiescence `Proven` holds for the untimed, environment-free executor**, deadline
 reaping included ([TIME-013], [VER-002]). A complete build of the untimed instance whose verdict
@@ -94,14 +139,9 @@ theorem routeB_untimed_quiescence_sound (hco : co.Nodup)
       (.quiescence (fun S => badA S.b) reap) = .proven)
     {m : CMarking} (hR : Relation.ReflTransGen (NuStepC co nameOf net role conflict) m0 m)
     (hq : ExecRests (co := co) (nameOf := nameOf) (net := net) reap m) :
-    badA (alpha m) = false := by
-  obtain ⟨S, hS, hk⟩ := exec_reach_simulated hco hfr hG (init_key hempty) hR
-  have hrest := exec_rests_succ_reap (role := role) (conflict := conflict) hfr hpos hG hk hq S.bound
-  have := Decide.complete_proven_quiescence (routeB_equivariant (co := co))
-    (bad := fun S => badA S.b) (fun a b h => by rw [keyOf_b h]) hP S hS
-    ⟨S.bound, Nat.le_refl _, hrest⟩
-  rw [keyOf_b hk] at this
-  exact this
+    badA (alpha m) = false :=
+  routeB_untimed_quiescence_sound_keyInv hco hfr hpos hG (bad := fun S => badA S.b)
+    (fun a b h => by rw [keyOf_b h]) hempty hP hR hq
 
 end Sound
 

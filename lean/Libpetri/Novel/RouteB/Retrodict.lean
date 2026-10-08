@@ -306,10 +306,12 @@ theorem env_count_frozen {co : List PlaceId} {envs : List PlaceId} {net : List N
     exact ih p hp
 
 /-- The property as rule 4 of `route_b_env_observation` reads it: a reachability-safety property
-(`is_reachability_safety`: `PlaceBound`, `BranchPlaceBound`, `MutualExclusion`, `Unreachable`)
-with its `property_place_names`; `DeadlockFree`; `TerminatesAtSink`; any other quiescence
-property (`JoinedOrDeadLettered`, `QuiescentCount`) with its `property_place_names`. The place
-lists are inputs: `property_place_names` is modelled in `Seam/Bad.lean`, not here. -/
+(`is_reachability_safety`: `PlaceBound`, `BranchPlaceBound`, `MutualExclusion`, `Unreachable`,
+`NameAligned`) with its `property_place_names`; `DeadlockFree`; `TerminatesAtSink`; any other
+quiescence property (`JoinedOrDeadLettered`, `QuiescentCount`, `QuiescentNameAligned`) with its
+`property_place_names`. The place lists are inputs: `property_place_names` is modelled in
+`Seam/Bad.lean`, not here. Rule 4 also refuses `QuiescentNameAligned` on any registered
+environment place ([NU-055] AC6); that only refuses more, so it needs no case here. -/
 inductive PropShape where
   | reach (places : List PlaceId)
   | deadlockFree

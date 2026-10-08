@@ -32,6 +32,7 @@ import type { PInvariant } from '../invariant/p-invariant.js';
 import type { Place } from '../../core/place.js';
 import { strandingExcuses, type ConditionalSinks } from '../rest-set.js';
 import { nonlinearPlaces } from '../invariant/p-invariant-computer.js';
+import { routeBOnlyReason } from '../name-alignment.js';
 
 /** An encoded SMT-LIB2 script. */
 export interface SmtEncoding {
@@ -542,6 +543,11 @@ export function encodePropertyViolation(
       conditions.push(bad);
       return joinConditions(conditions);
     }
+    // NU-055: decided only by Route B. The flat encoding has no names, and a `false` term here
+    // would prove the property vacuously, so there is no script.
+    case 'name-aligned':
+    case 'quiescent-name-aligned':
+      throw new Error(routeBOnlyReason(property));
   }
 }
 

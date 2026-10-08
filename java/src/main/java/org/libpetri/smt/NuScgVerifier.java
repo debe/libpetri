@@ -9,13 +9,16 @@ import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.EnvironmentPlace;
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.CodePointOrder;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * &nu;-net exact verification via the name-aware state-class-graph name-partition
@@ -29,6 +32,10 @@ import java.util.Set;
  * truncation, never an unsound verdict) a violation in the explored prefix is still a
  * {@code Violated}; otherwise the verdict is {@code Unknown}. A reachability-safety property
  * stops the build at its first violating class ([VER-012]).
+ *
+ * <p>A name-alignment property ([NU-055]) is classified on a net without a matched transition
+ * too, and an uncoloured property place or a coloured place the initial marking marks is an
+ * {@code Unknown} outcome naming the place, not {@code null}: no other route decides it.
  */
 final class NuScgVerifier {
 
@@ -116,8 +123,8 @@ final class NuScgVerifier {
             Set<String> reapable,
             Set<String> late
     ) {
-        var reapableInNet = new java.util.LinkedHashSet<String>();
-        var lifted = new java.util.LinkedHashSet<String>();
+        var reapableInNet = new LinkedHashSet<String>();
+        var lifted = new LinkedHashSet<String>();
         for (var t : net.transitions()) {
             if (reapable.contains(t.name())) {
                 reapableInNet.add(t.name());
@@ -139,7 +146,7 @@ final class NuScgVerifier {
         if (outcome == null || outcome.note().isEmpty() || lifted.isEmpty()) {
             return outcome;
         }
-        var names = new java.util.TreeSet<String>(org.libpetri.core.internal.CodePointOrder.COMPARATOR);
+        var names = new TreeSet<String>(CodePointOrder.COMPARATOR);
         names.addAll(lifted);
         return new Outcome(outcome.verdict(), outcome.trace(), outcome.transitions(),
             outcome.note() + "Note: the latest bound of " + String.join(", ", names) + " was lifted"
@@ -188,17 +195,31 @@ final class NuScgVerifier {
             boolean earlyStop,
             Set<String> reapable
     ) {
-        var fragment = supportedFragment(net, initial, fragmentMode, carrierPlaces, mintTransitions);
+        boolean nameAlignment = NameAlignment.isNameAlignment(property);
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, mintTransitions, nameAlignment);
         if (fragment == null) {
+            return null;
+        }
+        // NU-055: nothing but this graph decides a name-alignment property, so where it cannot, the
+        // verdict is Unknown naming the place rather than a decline the caller would route elsewhere.
+        if (nameAlignment) {
+            String refusal = nameAlignmentRefusal(property, fragment, fragmentMode, initial);
+            if (refusal != null) {
+                return new Outcome(
+                    new SmtVerificationResult.Verdict.Unknown(refusal), List.of(), List.of(), "", 0);
+            }
+        }
+        if (!startsEmpty(fragment, initial)) {
             return null;
         }
 
         // A reachability-safety property stops the build at its first violating class ([VER-012]):
         // same predicate, same witness, same shortest path as deciding over the finished graph.
         // Quiescence properties need expanded classes, so they build in full.
-        var scg = NameStateClassGraph.build(
+        var violates = earlyStop ? GraphDecision.safetyViolation(property) : null;
+        var scg = NameStateClassGraph.buildStoppingAt(
                 net, initial, fragment, maxClasses, environmentPlaces, environmentMode, prioritySemantics,
-                earlyStop ? GraphDecision.safetyViolation(property) : null);
+                violates == null ? null : (g, idx) -> violates.violates(view(g, Set.of()), idx));
 
         boolean complete = scg.isComplete();
         // On truncation the same predicate runs over the explored prefix ([VER-012] AC3,
@@ -244,22 +265,55 @@ final class NuScgVerifier {
     /**
      * The fragment {@link #verify} runs on, or {@code null} when it would decline: the net is
      * outside the mint&rarr;matched-join fragment, or a coloured place starts marked (no
-     * initial colour assignment is modelled).
+     * initial colour assignment is modelled). {@code admitMatchless} as for
+     * {@link NameFragment#classify(PetriNet, FragmentMode, Set, Set, boolean)}.
      */
     static NameFragment supportedFragment(
             PetriNet net, MarkingState initial, FragmentMode fragmentMode, Set<String> carrierPlaces,
-            Set<String> mintTransitions
+            Set<String> mintTransitions, boolean admitMatchless
     ) {
-        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, mintTransitions);
-        if (fragment == null) {
-            return null;
-        }
+        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, mintTransitions, admitMatchless);
+        return fragment != null && startsEmpty(fragment, initial) ? fragment : null;
+    }
+
+    /** Whether no coloured place of {@code fragment} holds a token in {@code initial}. */
+    private static boolean startsEmpty(NameFragment fragment, MarkingState initial) {
         for (var p : initial.placesWithTokens()) {
             if (fragment.isColoured(p.name())) {
-                return null;
+                return false;
             }
         }
-        return fragment;
+        return true;
+    }
+
+    /**
+     * Why Route B cannot decide the name-alignment {@code property} on {@code fragment} (NU-055),
+     * or {@code null}: a property place that is not coloured, whose predicate would hold vacuously
+     * (AC2, AC3), or a coloured place the initial marking marks (AC6), since the graph models no
+     * initial names. Checked in that order, {@code p} before {@code q}, the marked places in
+     * code-point order.
+     */
+    private static String nameAlignmentRefusal(
+            SmtProperty property, NameFragment fragment, FragmentMode fragmentMode, MarkingState initial
+    ) {
+        for (var place : SmtVerifier.propertyPlaces(property)) {
+            if (!fragment.isColoured(place.name())) {
+                String underBase = fragmentMode == FragmentMode.BASE
+                    ? "; under BASE only the match keys are coloured, carrier places and relay targets only "
+                        + "under the EXTENDED fragment (fragmentMode(EXTENDED), NU-051, NU-054)"
+                    : "";
+                return "place '" + place.name() + "' is not a coloured place of the ν fragment (a match key, "
+                    + "declared carrier or relay target), so it carries no name and name alignment on it would "
+                    + "hold vacuously (NU-055)" + underBase;
+            }
+        }
+        return initial.placesWithTokens().stream()
+            .map(Place::name)
+            .filter(fragment::isColoured)
+            .min(CodePointOrder.COMPARATOR)
+            .map(marked -> "coloured place '" + marked + "' holds a token in the initial marking; the "
+                + "name-partition graph models no initial names, so the coloured places must start empty (NU-055)")
+            .orElse(null);
     }
 
     /**
@@ -272,27 +326,35 @@ final class NuScgVerifier {
             NameStateClassGraph scg, SmtProperty property, Set<Place<?>> sinkPlaces,
             List<RestSet.ConditionalSinks> conditionalSinks, Set<String> reapable
     ) {
-        return GraphDecision.decideOverClasses(
-            new GraphDecision.ClassView() {
-                @Override
-                public int count() {
-                    return scg.classCount();
-                }
+        return GraphDecision.decideOverClasses(view(scg, reapable), property, sinkPlaces, conditionalSinks);
+    }
 
-                @Override
-                public MarkingState markingOf(int i) {
-                    return scg.markingOf(i);
-                }
+    /** {@code scg} as {@link GraphDecision} reads it, its name layer included ([NU-055]). */
+    private static GraphDecision.NamedClassView view(NameStateClassGraph scg, Set<String> reapable) {
+        return new GraphDecision.NamedClassView() {
+            @Override
+            public int count() {
+                return scg.classCount();
+            }
 
-                @Override
-                public boolean isQuiescent(int i) {
-                    // A frontier class of a truncated graph was never expanded: no successors
-                    // recorded, but not dead. An expanded class rests when nothing fires out of
-                    // it, or only reapable transitions do ([VER-002] reap-quiescence, [TIME-013]).
-                    return i < scg.expandedCount() && reapable.containsAll(scg.successorLabelsOf(i));
-                }
-            },
-            property, sinkPlaces, conditionalSinks);
+            @Override
+            public MarkingState markingOf(int i) {
+                return scg.markingOf(i);
+            }
+
+            @Override
+            public boolean isQuiescent(int i) {
+                // A frontier class of a truncated graph was never expanded: no successors
+                // recorded, but not dead. An expanded class rests when nothing fires out of
+                // it, or only reapable transitions do ([VER-002] reap-quiescence, [TIME-013]).
+                return i < scg.expandedCount() && reapable.containsAll(scg.successorLabelsOf(i));
+            }
+
+            @Override
+            public boolean namesAligned(int i, Place<?> p, Place<?> q) {
+                return scg.namesAligned(i, p.name(), q.name());
+            }
+        };
     }
 
     private record Path(List<MarkingState> markings, List<String> transitions) {}

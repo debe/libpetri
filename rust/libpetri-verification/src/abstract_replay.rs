@@ -126,6 +126,10 @@ pub fn within_env_bounds(state: &[i64], env_bounds: &[(usize, usize)]) -> bool {
 /// (including the unresolved-place-name conventions: an unresolved place is
 /// skipped from a conjunction, and an entirely unresolved property can never
 /// be violated).
+///
+/// # Panics
+/// On a name-alignment property ([NU-055]): a count vector carries no names, and only
+/// Route B decides it.
 pub fn violates(
     flat: &FlatNet,
     state: &[i64],
@@ -193,7 +197,13 @@ impl PropertyIndex {
                 index.counted = distinct_indices(flat, places);
                 index.waivers = distinct_indices(flat, waived_by);
             }
-            _ => {}
+            SmtProperty::MutualExclusion { .. }
+            | SmtProperty::PlaceBound { .. }
+            | SmtProperty::Unreachable { .. }
+            | SmtProperty::BranchPlaceBound { .. }
+            | SmtProperty::JoinedOrDeadLettered { .. }
+            | SmtProperty::NameAligned { .. }
+            | SmtProperty::QuiescentNameAligned { .. } => {}
         }
         index
     }
@@ -272,6 +282,11 @@ fn violates_indexed(
                 return true;
             }
             count < *min as i128 && index.waivers.iter().all(|&pid| at(state, pid) == 0)
+        }
+        // [NU-055]: a count vector carries no names, so it can neither violate nor
+        // satisfy name alignment.
+        SmtProperty::NameAligned { .. } | SmtProperty::QuiescentNameAligned { .. } => {
+            panic!("{}", property.route_b_only_reason())
         }
     }
 }
@@ -1135,5 +1150,22 @@ mod tests {
             ),
             ReplayOutcome::Exhausted { .. }
         ));
+    }
+
+    /// [NU-055] AC4: a count vector carries no names, so the replayer reads no name
+    /// alignment.
+    #[test]
+    #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
+    fn nu055_the_replayer_reads_no_name_alignment() {
+        let flat = flat_of(&["box", "list"], vec![ft("t", vec![1, 0], vec![0, 1])]);
+        violates(&flat, &[1, 1], &SmtProperty::name_aligned("box", "list"), &[], &[], &[]);
+    }
+
+    /// [NU-055] AC4: nor quiescent name alignment.
+    #[test]
+    #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
+    fn nu055_the_replayer_reads_no_quiescent_name_alignment() {
+        let flat = flat_of(&["box", "list"], vec![ft("t", vec![1, 0], vec![0, 1])]);
+        violates(&flat, &[1, 1], &SmtProperty::quiescent_name_aligned("box", "list"), &[], &[], &[]);
     }
 }

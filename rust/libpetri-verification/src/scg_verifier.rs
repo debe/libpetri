@@ -187,7 +187,8 @@ pub fn decide_over_state_space(
 /// graph decides only the runs it holds: a timed graph built on the net as written fires
 /// every transition on time, and one built on [`crate::reaping::relax_late`]'s net also
 /// holds the runs a late executor takes after a reap. An empty `reapable` is
-/// [`decide_over_state_space`].
+/// [`decide_over_state_space`]. A name-alignment property ([NU-055]) is a decided
+/// `Unknown`: the graph carries no names, and only Route B decides it.
 pub fn decide_over_state_space_reaping(
     graph: &StateClassGraph,
     initial: &MarkingState,
@@ -199,6 +200,18 @@ pub fn decide_over_state_space_reaping(
     if graph.is_stopped() {
         return ScgOutcome::Stopped {
             class_count: graph.class_count(),
+        };
+    }
+    // [NU-055]: this graph has no name layer.
+    if property.is_name_alignment() {
+        return ScgOutcome::Decided {
+            verdict: Verdict::Unknown {
+                reason: property.route_b_only_reason(),
+            },
+            trace: Vec::new(),
+            transitions: Vec::new(),
+            class_count: graph.class_count(),
+            truncated: false,
         };
     }
     let closed = graph.is_complete();
@@ -735,6 +748,24 @@ mod tests {
                 enumerated.report,
                 solved.report
             );
+        }
+    }
+
+    /// [NU-055] AC4: the bounded enumeration's graph has no name layer, so it answers name
+    /// alignment `Unknown`, never `Proven`, even on a graph that closes.
+    #[test]
+    fn nu055_the_enumeration_is_unknown_for_name_alignment() {
+        let (net, m0) = pipeline(3, false);
+        for property in [SmtProperty::name_aligned("p0", "p3"), SmtProperty::quiescent_name_aligned("p0", "p3")] {
+            match verify_via_state_class_graph(&net, &m0, &property, &[], 1000, &[]) {
+                ScgOutcome::Decided {
+                    verdict: Verdict::Unknown { reason },
+                    truncated: false,
+                    ..
+                } => assert!(reason.contains("decided only by the name-partition state-class graph (NU-055, Route B)"), "{reason}"),
+                ScgOutcome::Decided { verdict, .. } => panic!("expected Unknown, got {verdict:?}"),
+                ScgOutcome::Truncated { .. } | ScgOutcome::Stopped { .. } => panic!("graph should close"),
+            }
         }
     }
 }

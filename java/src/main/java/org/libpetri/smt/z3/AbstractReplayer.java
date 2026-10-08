@@ -2,6 +2,7 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.NameAlignment;
 import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
@@ -307,7 +308,8 @@ public final class AbstractReplayer {
                     new int[0][], List.of(),
                     SmtEncoder.indexOrdered(flatNet, qc.places()), SmtEncoder.indexOrdered(flatNet, qc.waivedBy()));
                 case SmtProperty.MutualExclusion _, SmtProperty.PlaceBound _, SmtProperty.BranchPlaceBound _,
-                     SmtProperty.Unreachable _, SmtProperty.JoinedOrDeadLettered _ ->
+                     SmtProperty.Unreachable _, SmtProperty.JoinedOrDeadLettered _,
+                     SmtProperty.NameAligned _, SmtProperty.QuiescentNameAligned _ ->
                     new PropertyIndex(new int[0][], List.of(), List.of(), List.of());
             };
         }
@@ -422,6 +424,9 @@ public final class AbstractReplayer {
                 }
                 yield true;
             }
+            // NU-055: a count vector carries no names, so it cannot violate or satisfy name alignment.
+            case SmtProperty.NameAligned _, SmtProperty.QuiescentNameAligned _ ->
+                throw new IllegalArgumentException(NameAlignment.routeBOnlyReason(property));
         };
     }
 

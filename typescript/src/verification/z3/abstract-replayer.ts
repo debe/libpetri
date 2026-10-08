@@ -36,6 +36,7 @@ import type { Place } from '../../core/place.js';
 import { strandingExcuses, type ConditionalSinks } from '../rest-set.js';
 import { MarkingState } from '../marking-state.js';
 import { flatNetIndexOf } from '../encoding/flat-net.js';
+import { routeBOnlyReason } from '../name-alignment.js';
 
 /** An abstract marking: token count per flat place index. */
 export type AbstractState = readonly number[];
@@ -387,6 +388,10 @@ function satisfiesBadIndexed(
       }
       return false;
     }
+    // NU-055: a count vector carries no names, so it cannot violate or satisfy name alignment.
+    case 'name-aligned':
+    case 'quiescent-name-aligned':
+      throw new Error(routeBOnlyReason(property));
   }
 }
 

@@ -14,8 +14,10 @@
 import type { Place } from '../core/place.js';
 import { countViolation } from './count-clause.js';
 import type { MarkingState } from './marking-state.js';
-import type { SmtProperty } from './smt-property.js';
+import type { NameAligned, QuiescentNameAligned, SmtProperty } from './smt-property.js';
+import type { NameMarking } from './analysis/name-marking.js';
 import { strandsToken, type ConditionalSinks } from './rest-set.js';
+import { isNameAlignment, routeBOnlyReason } from './name-alignment.js';
 
 /** A finite graph of classes, indexed `0 .. count - 1`, class 0 the initial one. */
 export interface ClassView {
@@ -24,6 +26,11 @@ export interface ClassView {
   markingOf(i: number): MarkingState;
   /** Whether class `i` has no successor — the graph's quiescence. */
   isQuiescent(i: number): boolean;
+  /**
+   * The name layer of class `i`, on the ν name-partition graph only ([NU-050]); absent on a
+   * graph without one, which cannot decide a name-alignment property ([NU-055]).
+   */
+  namesOf?(i: number): NameMarking;
 }
 
 /**
@@ -31,7 +38,8 @@ export interface ClassView {
  * holds across the whole graph.
  *
  * Quiescence-based properties read `isQuiescent`; reachability-safety properties
- * read the marking alone. `DeadlockFree` uses the shared rest set of [VER-014],
+ * read the class alone. The name-alignment properties of [NU-055] read `namesOf`, and throw on a
+ * view without it. `DeadlockFree` uses the shared rest set of [VER-014],
  * so a conditional sink excuses a token exactly as it does in the encoders.
  */
 export function decideOverClasses(
@@ -46,15 +54,19 @@ export function decideOverClasses(
     }
     return -1;
   };
+  // NU-055: a view without a name layer would read every class as aligned, so refuse before
+  // reading any, whether or not a class is quiescent.
+  if (isNameAlignment(property) && view.namesOf === undefined) throw new Error(routeBOnlyReason(property));
 
   const violates = safetyViolation(property);
-  if (violates !== null) return firstWhere(i => violates(view.markingOf(i)));
+  if (violates !== null) return firstWhere(i => violates(view.markingOf(i), view.namesOf?.(i)));
 
   switch (property.type) {
     case 'place-bound':
     case 'branch-place-bound':
     case 'unreachable':
     case 'mutual-exclusion':
+    case 'name-aligned':
       return -1; // unreachable: decided by `safetyViolation` above
     // DeadlockFree (VER-002): a quiescent class that strands a token — some marked
     // place is not where resting is permitted, the conditional sinks of VER-014
@@ -74,17 +86,28 @@ export function decideOverClasses(
     case 'quiescent-count':
       return firstWhere(i => view.isQuiescent(i)
         && countViolation(view.markingOf(i), property.places, property.min, property.max, property.waivedBy) !== null);
+    // QuiescentNameAligned (NU-055): a quiescent class whose name layer holds a name in `p`
+    // other than a name in `q`. No sink clause.
+    case 'quiescent-name-aligned': {
+      const { p, q } = property;
+      return firstWhere(i => view.isQuiescent(i) && !requireNames(view.namesOf?.(i), property).aligned(p.name, q.name));
+    }
   }
 }
 
 /**
  * The class predicate of a reachability-safety property — whether a class with marking `m`
  * violates it — or `null` for a quiescence property, whose predicate also needs to know
- * whether the class has successors. It reads the marking alone, so a graph build can apply
+ * whether the class has successors. It reads the class alone, so a graph build can apply
  * it to each class as the class is discovered and stop at the first violation ([VER-012]);
  * {@link decideOverClasses} decides these properties through this same function.
+ *
+ * `NameAligned` ([NU-055]) reads the class's name layer `names`, which only the ν
+ * name-partition graph has; every other property reads the marking alone.
  */
-export function safetyViolation(property: SmtProperty): ((m: MarkingState) => boolean) | null {
+export function safetyViolation(
+  property: SmtProperty,
+): ((m: MarkingState, names?: NameMarking) => boolean) | null {
   switch (property.type) {
     case 'place-bound':
     case 'branch-place-bound':
@@ -98,9 +121,30 @@ export function safetyViolation(property: SmtProperty): ((m: MarkingState) => bo
       };
     case 'mutual-exclusion':
       return m => m.hasTokens(property.p1) && m.hasTokens(property.p2);
-    default:
+    case 'name-aligned': {
+      const { p, q } = property;
+      return (_m, names) => !requireNames(names, property).aligned(p.name, q.name);
+    }
+    case 'deadlock-free':
+    case 'terminates-at-sink':
+    case 'joined-or-dead-lettered':
+    case 'quiescent-count':
+    case 'quiescent-name-aligned':
       return null;
   }
+}
+
+/**
+ * `names`, or a throw when the graph has no name layer: a name-alignment property is decided
+ * only by the ν name-partition graph ([NU-055] AC4), and a graph without names would read every
+ * class as aligned.
+ */
+function requireNames(
+  names: NameMarking | undefined,
+  property: NameAligned | QuiescentNameAligned,
+): NameMarking {
+  if (names === undefined) throw new Error(routeBOnlyReason(property));
+  return names;
 }
 
 /** Whether any declared sink place holds a token in `m` ([VER-002]). */

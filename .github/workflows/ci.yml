@@ -459,6 +459,13 @@ jobs:
           #print axioms Libpetri.Novel.RouteB.zeroKey_order_matters
           #print axioms Libpetri.Novel.RouteB.WF.willFire_guard_is_necessary_routeB
           #print axioms Libpetri.Novel.RouteB.Ignore.ver006_binds_routeB
+          #print axioms Libpetri.Novel.RouteB.routeB_untimed_safety_sound_keyInv
+          #print axioms Libpetri.Novel.RouteB.routeB_untimed_quiescence_sound_keyInv
+          #print axioms Libpetri.Novel.RouteB.aligned_key_inv
+          #print axioms Libpetri.Novel.RouteB.aligned_view_iff
+          #print axioms Libpetri.Novel.RouteB.aligned_uncoloured
+          #print axioms Libpetri.Novel.RouteB.routeB_untimed_nameAligned_sound
+          #print axioms Libpetri.Novel.RouteB.routeB_untimed_quiescentNameAligned_sound
           #print axioms Libpetri.Novel.EnvSemantics.proposition_one_inj
           #print axioms Libpetri.Novel.EnvSemantics.proposition_one_inj_bounded
           #print axioms Libpetri.Novel.EnvSemantics.bounded_demand_gate

@@ -40,6 +40,7 @@ import type { SmtProperty } from './smt-property.js';
 import type { Verdict } from './smt-verification-result.js';
 import type { ConditionalSinks } from './rest-set.js';
 import { decideOverClasses } from './graph-decision.js';
+import { isNameAlignment, routeBOnlyReason } from './name-alignment.js';
 import { StateClassGraph } from './analysis/state-class-graph.js';
 import type { StateClass } from './analysis/state-class.js';
 import type { Deadline } from './total-budget.js';
@@ -149,6 +150,8 @@ export function buildStateSpace(
  * whose enabled transitions are all reapable rests too ([VER-002] reap-quiescence). On a timed
  * graph, build it on `relaxLate`'s net to include the runs a late executor takes after a
  * reap. Empty (the default), the rule is the plain one.
+ *
+ * A name-alignment property ([NU-055]) is decided `unknown`: this graph carries no names.
  */
 export function decideOverStateSpace(
   graph: StateClassGraph,
@@ -158,6 +161,17 @@ export function decideOverStateSpace(
   asPrefix = false,
   reapable: ReadonlySet<string> = new Set(),
 ): ScgOutcome {
+  // NU-055: this graph has no name layer, so it gives name alignment no verdict.
+  if (isNameAlignment(property)) {
+    return {
+      kind: 'decided',
+      verdict: { type: 'unknown', reason: routeBOnlyReason(property) },
+      trace: [],
+      transitions: [],
+      classCount: graph.size(),
+      truncated: false,
+    };
+  }
   const closed = graph.isComplete() && !asPrefix;
   const classes = graph.stateClasses();
   const expanded = graph.expandedCount();

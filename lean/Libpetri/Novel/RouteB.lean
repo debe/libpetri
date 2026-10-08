@@ -6,6 +6,7 @@ import Libpetri.Novel.RouteB.Decide
 import Libpetri.Novel.RouteB.Sound
 import Libpetri.Novel.RouteB.Classify
 import Libpetri.Novel.RouteB.Retrodict
+import Libpetri.Novel.RouteB.Aligned
 
 /-!
 # Route B: the ν name-partition state-class graph ([NU-050], [NU-051], [NU-052], [NU-054], [VER-012])
@@ -30,7 +31,8 @@ Route B `Proven` under [VER-006] `Ignore` (`routeBFinal`; `verify_net` itself is
 | `Exec` | untimed base, executor name effect, `InFragment`, contracts, projection premise | `exec_names_step`, `keyIndex_eq_nameLayer` |
 | `Sim` | untimed, env-free executor ν step | **`name_step_simulates_exec`**, `exec_reach_simulated`, `exec_quiescent_succ_nil`, `nu_reach_reachAN` |
 | `Decide` | build loop (FIFO, early stop, truncation, stop), verdict, reap-aware `is_quiescent` | **`truncated_never_proven`**, **`prefix_safety_sound`**, **`prefix_quiescence_sound`**, `complete_proven_*`, `quiescentAt_noReap`, `rests_transfer` |
-| `Sound` | composition, untimed and env-free, reaping included | **`routeB_untimed_safety_sound`**, **`routeB_untimed_quiescence_sound`** |
+| `Sound` | composition, untimed and env-free, reaping included | `routeB_untimed_safety_sound_keyInv`, `routeB_untimed_quiescence_sound_keyInv`, **`routeB_untimed_safety_sound`**, **`routeB_untimed_quiescence_sound`** |
+| `Aligned` | name alignment (`NameAligned`, `QuiescentNameAligned`) | `aligned_key_inv`, `aligned_view_iff`, `aligned_uncoloured`, **`routeB_untimed_nameAligned_sound`**, **`routeB_untimed_quiescentNameAligned_sound`** |
 | `Classify` | `classify` (pre-fix `classifyT`, shipped `classifyS`), the bridge to `InFragment`, the off-key rule, the builders' checks, three closed issues, key order | **`classifyT_inFragment`**, **`classifyS_inFragment`**, **`offKey_rule_is_necessary`** (`4d7a9d9`), `classifyS_mint`, `classifyS_consume`, `classifyS_join`, `builderOK_posKeys`, `dupKey_breaks_simulation` / `dupKey_refused`, `copyingMint_breaks_simulation` / `copyingMint_refused`, `zeroKey_breaks_quiescence` / `zeroKey_refused`, `joinEnab_perm_of_pos`, `zeroKey_order_matters` |
 | `Retrodict` | the other past fixes | `willFire_guard_is_necessary_routeB` (`c23cd9e`), `ver006_binds_routeB` (`662ec39`), `env_count_frozen` / `env_count_witness` (`89aaeec`), `envObservation_none_*` |
 
@@ -42,7 +44,8 @@ items 3 and 7 are discharged by the transition builder (`Classify.BuilderOK`):
    base itself (`Graph.lean`). `intern_base` keys all three; `zone_key` lists the clock names in
    the canonical order `compute_successor` lays them out in. (Built into `keyOf`.)
 2. `coloured_order` is duplicate-free (a `BTreeSet`), every input arc is unguarded ([IO-006]), the
-   coloured places start empty (`verify_via_name_scg` returns `None` otherwise).
+   coloured places start empty (otherwise `verify_via_name_scg` returns `None`, or `Unknown` for
+   name alignment ([NU-055]); never `Proven`).
 3. `InFragment`, derived from `classify`'s answer by `classifyT_inFragment` given two join
    conditions `classify` does not check: distinct keys (`dupKey_breaks_simulation` shows it is
    needed) and at most one input spec per key place (`hone`). Both are discharged:

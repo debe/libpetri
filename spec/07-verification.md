@@ -189,6 +189,10 @@ The following safety properties can be verified:
   error, rather than yield a verdict. `min = 0` with `max` unbounded holds on every marking: an
   implementation MAY skip its query and SHOULD then report that it did, so a skipped clause is
   distinguishable from one that passed.
+- **NameAligned(p, q)** and **QuiescentNameAligned(p, q)**: every name resident in coloured place
+  `p` equals every name resident in `q`, in every reachable marking or in every reachable quiescent
+  one. They read token names, so only Route B decides them and no other route gives them a verdict
+  ([NU-055]).
 
 The two sink-sensitive properties are not ordered by strength; they **invert on the empty
 marking**. A quiescent `{done:1, stuck:1}` with `done` a sink violates DeadlockFree (it
@@ -570,6 +574,7 @@ reachable set, so it is a fortiori a counterexample in the injected one.
    route that returns a verdict without invoking the solver.
 6. When injection makes some transition enabled in every marking, a quiescence property is
    reported as vacuously true: the verdict stands, and the report names the reason.
+   `QuiescentNameAligned` ([NU-055]) is the exception: it is `Unknown` instead.
 7. The name-coloured encoding of [NU-050] Route A has no injection rule, so under
    `AlwaysAvailable` or `Bounded(k)` with environment places it MUST NOT answer: the query
    takes the flat encoding, which models injection, and the report says so. For a ν-net
@@ -1692,9 +1697,9 @@ name-aware terminal classes.
    run time: after a successor step the source place holds no residue, so an inhibitor
    arc on that place is satisfied in the successor class.
 5. **Early stop for safety properties.** For a reachability-safety property (`PlaceBound`,
-   `BranchPlaceBound`, `Unreachable`, `MutualExclusion` — the safety set of [VER-017]'s
-   "Verdicts from a truncated graph") the build checks each class with the same shared predicate
-   as it is discovered and stops at the first violating class. BFS discovers classes in index
+   `BranchPlaceBound`, `Unreachable` and `MutualExclusion`, the safety set of [VER-017]'s
+   "Verdicts from a truncated graph", and `NameAligned` of [NU-055]) the build checks each class
+   with the same shared predicate as it is discovered and stops at the first violating class. BFS discovers classes in index
    order, so that class is the lowest-index violating class — the one the check over a full or
    truncated graph selects — and its path is the shortest; verdict, route and witness are
    identical to a build without the early stop, and only the class count and time differ. When

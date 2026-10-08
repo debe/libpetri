@@ -43,8 +43,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, bound-port references, channel fusion, action binding per instance, place fusion | 27 |
-| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, bounded-budget decidability ledger | 14 |
-| **Total** | | | **224** |
+| [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, name alignment, bounded-budget decidability ledger | 15 |
+| **Total** | | | **225** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -268,6 +268,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-052 | Conflict-Only Priority for Route B | MAY | VER-012, NU-050, NU-020, VER-004 |
 | NU-053 | EXTENDED-Coloured Quiescence in Route A SMT | MAY | NU-050, NU-051, VER-004, VER-005, VER-006, VER-012, VER-013, VER-015 |
 | NU-054 | Join Relay | MAY | NU-020, NU-030, NU-051, NU-053, VER-012, IO-015, IO-016, CONC-026 |
+| NU-055 | Name Alignment | MAY | VER-002, VER-003, VER-006, VER-012, NU-010, NU-050, NU-051, NU-054 |
 | NU-060 | Match-Arc Composition | SHOULD | MOD-021, NU-020 |
 
 ### PERF — Performance
@@ -337,8 +338,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----------|-------|-------------|
 | MUST     | 144   | Core contract; all implementations must conform |
 | SHOULD   | 63    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 17    | Optional; implementations may include |
-| **Total** | **224** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| MAY      | 18    | Optional; implementations may include |
+| **Total** | **225** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 

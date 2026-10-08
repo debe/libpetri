@@ -78,6 +78,9 @@ pub fn violation_demand(flat: &FlatNet, property: &SmtProperty) -> Option<BTreeM
         | SmtProperty::TerminatesAtSink
         | SmtProperty::JoinedOrDeadLettered { .. }
         | SmtProperty::QuiescentCount { .. } => return None,
+        // [NU-055]: a name-alignment violation is a pair of names, not a count, so it
+        // has no demand.
+        SmtProperty::NameAligned { .. } | SmtProperty::QuiescentNameAligned { .. } => return None,
     }
     if demand.is_empty() { None } else { Some(demand) }
 }
@@ -437,5 +440,16 @@ mod tests {
             decode_linear_bound("sat\n(\n  (define-fun y0 () Int 170141183460469231731687303715884105728)\n)", 1),
             None
         );
+    }
+
+    /// [NU-055] AC4: a name-alignment violation is a pair of names, not a count, so the
+    /// linear bound has no demand and sends no query.
+    #[test]
+    fn nu055_no_demand_for_name_alignment() {
+        let (flat, m0) = fork_or_halt();
+        for prop in [SmtProperty::name_aligned("ra", "rb"), SmtProperty::quiescent_name_aligned("ra", "rb")] {
+            assert_eq!(violation_demand(&flat, &prop), None);
+            assert_eq!(encode_linear_bound(&flat, &m0, &prop, &[]), None);
+        }
     }
 }

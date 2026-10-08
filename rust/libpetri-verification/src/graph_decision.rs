@@ -22,15 +22,28 @@ pub trait ClassView {
     fn marking_of(&self, i: usize) -> &MarkingState;
     /// Whether class `i` has no successor — the graph's quiescence.
     fn is_quiescent(&self, i: usize) -> bool;
+    /// Whether the name layer of class `i` aligns `p` and `q` ([NU-055]): every name
+    /// resident in `p` equals every name resident in `q`. Only the ν name-partition
+    /// graph ([NU-050]) has a name layer; `None` (the default) on a graph without one,
+    /// which cannot decide a name-alignment property.
+    fn name_aligned(&self, _i: usize, _p: &str, _q: &str) -> Option<bool> {
+        None
+    }
 }
 
 /// The index of the first class witnessing a violation, or `None` when the
 /// property holds across the whole graph.
 ///
 /// Quiescence-based properties read [`ClassView::is_quiescent`];
-/// reachability-safety properties read the marking alone.
+/// reachability-safety properties read the class alone. The name-alignment
+/// properties of [NU-055] read [`ClassView::name_aligned`].
 /// [`SmtProperty::DeadlockFree`] uses the shared rest set of [VER-014], so a
 /// conditional sink excuses a token exactly as it does in the encoders.
+///
+/// # Panics
+/// On a name-alignment property and a view without a name layer: only the ν
+/// name-partition graph decides it ([NU-055] AC4), and a graph without names would
+/// read every class as aligned.
 pub fn decide_over_classes(
     view: &dyn ClassView,
     property: &SmtProperty,
@@ -40,6 +53,17 @@ pub fn decide_over_classes(
     let first_where = |pred: &dyn Fn(usize) -> bool| -> Option<usize> {
         (0..view.count()).find(|&i| pred(i))
     };
+    let aligned = |i: usize, p: &str, q: &str| -> bool {
+        view.name_aligned(i, p, q)
+            .unwrap_or_else(|| panic!("{}", property.route_b_only_reason()))
+    };
+    // [NU-055]: a view without a name layer would read every class as aligned, so
+    // refuse before reading any, whether or not a class is quiescent.
+    if let SmtProperty::NameAligned { p, q } | SmtProperty::QuiescentNameAligned { p, q } = property {
+        if view.count() == 0 || view.name_aligned(0, p, q).is_none() {
+            panic!("{}", property.route_b_only_reason());
+        }
+    }
 
     match property {
         SmtProperty::PlaceBound { .. }
@@ -80,6 +104,14 @@ pub fn decide_over_classes(
             view.is_quiescent(i)
                 && count_violation(view.marking_of(i), places, *min, *max, waived_by).is_some()
         }),
+        // NameAligned ([NU-055]): a class whose name layer holds a name in `p` other
+        // than a name in `q`.
+        SmtProperty::NameAligned { p, q } => first_where(&|i| !aligned(i, p, q)),
+        // QuiescentNameAligned ([NU-055]): the same, at a quiescent class. No sink
+        // clause.
+        SmtProperty::QuiescentNameAligned { p, q } => {
+            first_where(&|i| view.is_quiescent(i) && !aligned(i, p, q))
+        }
     }
 }
 
@@ -88,7 +120,8 @@ pub fn decide_over_classes(
 /// [`SmtProperty::BranchPlaceBound`], [`SmtProperty::Unreachable`] and
 /// [`SmtProperty::MutualExclusion`]. Route B ([VER-012]) runs it on each class as
 /// the class is discovered, to stop at the first violating one. `false` for the
-/// quiescence-based properties, which no marking decides alone.
+/// quiescence-based properties and the name-alignment properties of [NU-055], which
+/// no marking decides alone.
 pub(crate) fn marking_violates(property: &SmtProperty, m: &MarkingState) -> bool {
     match property {
         SmtProperty::PlaceBound { place, bound }
@@ -100,6 +133,8 @@ pub(crate) fn marking_violates(property: &SmtProperty, m: &MarkingState) -> bool
         | SmtProperty::TerminatesAtSink
         | SmtProperty::JoinedOrDeadLettered { .. }
         | SmtProperty::QuiescentCount { .. } => false,
+        // [NU-055]: these read the name layer, which a count marking does not carry.
+        SmtProperty::NameAligned { .. } | SmtProperty::QuiescentNameAligned { .. } => false,
     }
 }
 
@@ -298,5 +333,71 @@ mod tests {
             ),
             Some(1)
         );
+    }
+
+    /// A graph with a name layer: `aligned[i]` answers [`ClassView::name_aligned`] for
+    /// class `i`, whatever the places.
+    struct Named {
+        marking: MarkingState,
+        aligned: Vec<bool>,
+        quiescent: Vec<bool>,
+    }
+
+    impl ClassView for Named {
+        fn count(&self) -> usize {
+            self.aligned.len()
+        }
+        fn marking_of(&self, _i: usize) -> &MarkingState {
+            &self.marking
+        }
+        fn is_quiescent(&self, i: usize) -> bool {
+            self.quiescent[i]
+        }
+        fn name_aligned(&self, i: usize, _p: &str, _q: &str) -> Option<bool> {
+            Some(self.aligned[i])
+        }
+    }
+
+    /// [NU-055]: `NameAligned` reads the name layer of every class, its quiescent form only
+    /// that of the quiescent ones, and no sink excuses either.
+    #[test]
+    fn nu055_name_alignment_reads_the_name_layer() {
+        let view = Named {
+            marking: marking(&[]),
+            aligned: vec![true, false, true, false],
+            quiescent: vec![false, false, true, true],
+        };
+        let sinks = ["box".to_string(), "list".to_string()];
+        assert_eq!(decide_over_classes(&view, &SmtProperty::name_aligned("box", "list"), &sinks, &[]), Some(1));
+        assert_eq!(
+            decide_over_classes(&view, &SmtProperty::quiescent_name_aligned("box", "list"), &sinks, &[]),
+            Some(3)
+        );
+        // A marking alone never decides it: the early stop reads the name layer instead.
+        assert!(!marking_violates(&SmtProperty::name_aligned("box", "list"), &marking(&[("box", 2)])));
+    }
+
+    /// [NU-055] AC4: a view without a name layer refuses a name-alignment property: no
+    /// class may be read as aligned for want of names.
+    #[test]
+    #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
+    fn nu055_a_view_without_a_name_layer_refuses_name_alignment() {
+        let view = Classes {
+            markings: vec![marking(&[("box", 1), ("list", 1)])],
+            quiescent: vec![true],
+        };
+        decide_over_classes(&view, &SmtProperty::name_aligned("box", "list"), &[], &[]);
+    }
+
+    /// [NU-055] AC4: the quiescent form is refused too, on a graph with no resting class,
+    /// where it would read no class at all and prove.
+    #[test]
+    #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
+    fn nu055_a_view_without_a_name_layer_refuses_quiescent_name_alignment() {
+        let view = Classes {
+            markings: vec![marking(&[("box", 1), ("list", 1)])],
+            quiescent: vec![false],
+        };
+        decide_over_classes(&view, &SmtProperty::quiescent_name_aligned("box", "list"), &[], &[]);
     }
 }

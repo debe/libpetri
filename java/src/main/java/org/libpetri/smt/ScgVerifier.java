@@ -186,6 +186,12 @@ public final class ScgVerifier {
             boolean asPrefix,
             Set<String> reapable
     ) {
+        // NU-055: this graph has no name layer.
+        if (NameAlignment.isNameAlignment(property)) {
+            return new Outcome.Decided(
+                new SmtVerificationResult.Verdict.Unknown(NameAlignment.routeBOnlyReason(property)),
+                List.of(), List.of(), graph.size());
+        }
         boolean closed = graph.isComplete() && !asPrefix;
         var classes = List.copyOf(graph.stateClasses());
         int expanded = graph.expandedCount();

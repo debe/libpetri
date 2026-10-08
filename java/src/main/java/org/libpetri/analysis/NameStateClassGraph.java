@@ -97,6 +97,15 @@ public final class NameStateClassGraph {
         return classes.get(idx).base.marking();
     }
 
+    /**
+     * Whether the name layer of class {@code idx} holds aligned names in {@code p} and {@code q}
+     * (the name-alignment queries of NU-055): every symbol resident in {@code p} equals every
+     * symbol resident in {@code q}. Holds when either place is empty or uncoloured.
+     */
+    public boolean namesAligned(int idx, String p, String q) {
+        return classes.get(idx).names.aligned(p, q);
+    }
+
     public List<Edge> edges() {
         return edges;
     }
@@ -104,6 +113,16 @@ public final class NameStateClassGraph {
     /** The full class at {@code idx} (package-private, for the interning tests). */
     NameStateClass classAt(int idx) {
         return classes.get(idx);
+    }
+
+    /**
+     * A test of a class as the build discovers it ([VER-012]): class {@code idx} of
+     * {@code graph}, which is stored when the test runs, so its marking and its name layer
+     * ({@link #namesAligned}) can both be read. Internal API, as {@link #buildStoppingAt} is.
+     */
+    @FunctionalInterface
+    public interface ClassTest {
+        boolean test(NameStateClassGraph graph, int idx);
     }
 
     public static NameStateClassGraph build(
@@ -115,7 +134,7 @@ public final class NameStateClassGraph {
             EnvironmentAnalysisMode environmentMode,
             PrioritySemantics prioritySemantics
     ) {
-        return build(net, initialMarking, fragment, maxClasses, environmentPlaces, environmentMode,
+        return buildStoppingAt(net, initialMarking, fragment, maxClasses, environmentPlaces, environmentMode,
             prioritySemantics, null);
     }
 
@@ -136,6 +155,28 @@ public final class NameStateClassGraph {
             EnvironmentAnalysisMode environmentMode,
             PrioritySemantics prioritySemantics,
             Predicate<MarkingState> stopAt
+    ) {
+        return buildStoppingAt(net, initialMarking, fragment, maxClasses, environmentPlaces, environmentMode,
+            prioritySemantics, stopAt == null ? null : (g, idx) -> stopAt.test(g.markingOf(idx)));
+    }
+
+    /**
+     * As {@link #build(PetriNet, MarkingState, NameFragment, int, Set, EnvironmentAnalysisMode,
+     * PrioritySemantics, Predicate)}, with a stop test that may also read the class's name layer
+     * (the name-alignment queries of NU-055). Named apart from {@code build} so that a
+     * {@code null} stop test still resolves to one overload.
+     *
+     * <p>Internal API: not part of the public contract.
+     */
+    public static NameStateClassGraph buildStoppingAt(
+            PetriNet net,
+            MarkingState initialMarking,
+            NameFragment fragment,
+            int maxClasses,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            PrioritySemantics prioritySemantics,
+            ClassTest stopAt
     ) {
         var envPlaces = new HashSet<Place<?>>();
         for (var ep : environmentPlaces) {
@@ -174,7 +215,7 @@ public final class NameStateClassGraph {
         var interned0 = internBase(baseIntern, base0);
         var names0 = internNames(nameIntern, new NameMarking(), fragment.colouredOrder);
         graph.pushClass(initial, new ClassId(interned0.id(), names0.id()), indexOf);
-        if (stopAt != null && stopAt.test(initial.base.marking())) {
+        if (stopAt != null && stopAt.test(graph, 0)) {
             graph.stop(0);
             return graph;
         }
@@ -230,7 +271,7 @@ public final class NameStateClassGraph {
                                 new NameStateClass(sharedBase.base(), sharedNames.names(), sharedNames.nameKey()),
                                 id, indexOf);
                             queue.add(toIdx);
-                            if (stopAt != null && stopAt.test(sharedBase.base().marking())) {
+                            if (stopAt != null && stopAt.test(graph, toIdx)) {
                                 graph.addEdge(curIdx, toIdx, transition.name());
                                 // Partly expanded: not counted, so it is never read as quiescent.
                                 graph.expandedCount--;

@@ -10,84 +10,84 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Basic.lean"]
     n21["Libpetri.Colour"]
-    n2400["Libpetri.PlaceId"]
+    n2416["Libpetri.PlaceId"]
   end
   subgraph g1["Libpetri/RetrodictExec.lean"]
-    n2743["Libpetri.demoPool"]
-    n2884["Libpetri.preFixProduce"]
-    n2978["🔒 Libpetri.unknown_place_drop"]
+    n2759["Libpetri.demoPool"]
+    n2900["Libpetri.preFixProduce"]
+    n2994["🔒 Libpetri.unknown_place_drop"]
   end
   subgraph g2["Libpetri/Ring/Core.lean"]
-    n2407["Libpetri.Pool"]
-    n2422["Libpetri.Pool.cap"]
-    n2423["Libpetri.Pool.cnt"]
-    n2451["Libpetri.Pool.head"]
-    n2469["Libpetri.Pool.len"]
-    n2473["Libpetri.Pool.mk"]
-    n2474["Libpetri.Pool.nplaces"]
-    n2475["Libpetri.Pool.offset"]
-    n2479["Libpetri.Pool.pool"]
-    n2522["Libpetri.Pool.slot"]
-    n2527["Libpetri.Pool.tail"]
+    n2423["Libpetri.Pool"]
+    n2438["Libpetri.Pool.cap"]
+    n2439["Libpetri.Pool.cnt"]
+    n2467["Libpetri.Pool.head"]
+    n2485["Libpetri.Pool.len"]
+    n2489["Libpetri.Pool.mk"]
+    n2490["Libpetri.Pool.nplaces"]
+    n2491["Libpetri.Pool.offset"]
+    n2495["Libpetri.Pool.pool"]
+    n2538["Libpetri.Pool.slot"]
+    n2543["Libpetri.Pool.tail"]
   end
   subgraph g3["Libpetri/Ring/Grow.lean"]
-    n2418["Libpetri.Pool.addLast"]
-    n2431["Libpetri.Pool.growRing"]
-    n2488["Libpetri.Pool.pushLast"]
+    n2434["Libpetri.Pool.addLast"]
+    n2447["Libpetri.Pool.growRing"]
+    n2504["Libpetri.Pool.pushLast"]
   end
   subgraph g4["Libpetri/RingArith.lean"]
-    n2919["Libpetri.ringPos"]
-    n2920["Libpetri.ringPosInv"]
+    n2935["Libpetri.ringPos"]
+    n2936["Libpetri.ringPosInv"]
   end
-  n2418 --> n2431
-  n2418 --> n2488
-  n2422 --> n2400
-  n2422 --> n2407
-  n2423 --> n2400
-  n2423 --> n2407
-  n2431 --> n2423
-  n2431 --> n2469
-  n2431 --> n2473
-  n2431 --> n2474
-  n2431 --> n2479
-  n2431 --> n2522
-  n2431 --> n2527
-  n2431 --> n2920
-  n2451 --> n2400
-  n2451 --> n2407
-  n2469 --> n2407
-  n2473 --> n21
-  n2473 --> n2400
-  n2473 --> n2407
-  n2474 --> n2407
-  n2475 --> n2400
-  n2475 --> n2407
-  n2479 --> n21
-  n2479 --> n2407
-  n2488 --> n2422
-  n2488 --> n2423
-  n2488 --> n2451
-  n2488 --> n2469
-  n2488 --> n2473
-  n2488 --> n2474
-  n2488 --> n2475
-  n2488 --> n2479
-  n2488 --> n2527
-  n2522 --> n2422
-  n2522 --> n2451
-  n2522 --> n2475
-  n2522 --> n2919
-  n2527 --> n2400
-  n2527 --> n2407
-  n2743 --> n2473
-  n2884 --> n2418
-  n2978 --> n2743
-  n2978 --> n2884
+  n2434 --> n2447
+  n2434 --> n2504
+  n2438 --> n2416
+  n2438 --> n2423
+  n2439 --> n2416
+  n2439 --> n2423
+  n2447 --> n2439
+  n2447 --> n2485
+  n2447 --> n2489
+  n2447 --> n2490
+  n2447 --> n2495
+  n2447 --> n2538
+  n2447 --> n2543
+  n2447 --> n2936
+  n2467 --> n2416
+  n2467 --> n2423
+  n2485 --> n2423
+  n2489 --> n21
+  n2489 --> n2416
+  n2489 --> n2423
+  n2490 --> n2423
+  n2491 --> n2416
+  n2491 --> n2423
+  n2495 --> n21
+  n2495 --> n2423
+  n2504 --> n2438
+  n2504 --> n2439
+  n2504 --> n2467
+  n2504 --> n2485
+  n2504 --> n2489
+  n2504 --> n2490
+  n2504 --> n2491
+  n2504 --> n2495
+  n2504 --> n2543
+  n2538 --> n2438
+  n2538 --> n2467
+  n2538 --> n2491
+  n2538 --> n2935
+  n2543 --> n2416
+  n2543 --> n2423
+  n2759 --> n2489
+  n2900 --> n2434
+  n2994 --> n2759
+  n2994 --> n2900
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2978 root
-  class n2978 locked
+  class n2994 root
+  class n2994 locked
 ```
 
 Axioms used:

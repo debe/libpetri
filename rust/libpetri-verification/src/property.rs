@@ -60,6 +60,21 @@ pub enum SmtProperty {
         max: Option<usize>,
         waived_by: Vec<String>,
     },
+    /// Name alignment ([NU-055]): in every reachable marking, every name resident in `p`
+    /// equals every name resident in `q`. A marking in which either place is empty
+    /// satisfies it, and `NameAligned { p, q: p }` says that `p` never holds two names.
+    ///
+    /// Both places must be coloured places of the fragment Route B classifies for the
+    /// call (a match key, a declared carrier or a relay target): an uncoloured place
+    /// carries no name, so the verdict on one is `Unknown`, never `Proven`. Decided only
+    /// by Route B, the name-partition state-class graph ([NU-050]); every other route
+    /// gives it no verdict.
+    NameAligned { p: String, q: String },
+    /// Quiescent name alignment ([NU-055]): the predicate of
+    /// [`SmtProperty::NameAligned`], read only in the reachable quiescent markings (the
+    /// reap-aware quiescence of [VER-002]). Like [`SmtProperty::JoinedOrDeadLettered`]
+    /// it carries no sink clause.
+    QuiescentNameAligned { p: String, q: String },
 }
 
 impl SmtProperty {
@@ -158,6 +173,35 @@ impl SmtProperty {
         }
     }
 
+    /// Name alignment of `p` and `q` in every reachable marking ([NU-055]). See
+    /// [`SmtProperty::NameAligned`].
+    pub fn name_aligned(p: impl Into<String>, q: impl Into<String>) -> Self {
+        Self::NameAligned { p: p.into(), q: q.into() }
+    }
+
+    /// Name alignment of `p` and `q` at quiescence ([NU-055]). See
+    /// [`SmtProperty::QuiescentNameAligned`].
+    pub fn quiescent_name_aligned(p: impl Into<String>, q: impl Into<String>) -> Self {
+        Self::QuiescentNameAligned { p: p.into(), q: q.into() }
+    }
+
+    /// Whether this is [`SmtProperty::NameAligned`] or
+    /// [`SmtProperty::QuiescentNameAligned`] ([NU-055]): the two properties only Route B
+    /// decides.
+    pub(crate) fn is_name_alignment(&self) -> bool {
+        matches!(self, Self::NameAligned { .. } | Self::QuiescentNameAligned { .. })
+    }
+
+    /// Why a route other than Route B gives this name-alignment property no verdict
+    /// ([NU-055] AC4): the name-blind routes do not see names. Also the closing clause
+    /// of a Route B decline, after which nothing else decides it.
+    pub(crate) fn route_b_only_reason(&self) -> String {
+        format!(
+            "{} is decided only by the name-partition state-class graph (NU-055, Route B)",
+            self.description()
+        )
+    }
+
     pub fn description(&self) -> String {
         match self {
             Self::DeadlockFree => "Deadlock-freedom".into(),
@@ -202,6 +246,8 @@ impl SmtProperty {
                     )
                 }
             }
+            Self::NameAligned { p, q } => format!("Name alignment of {p} and {q}"),
+            Self::QuiescentNameAligned { p, q } => format!("Quiescent name alignment of {p} and {q}"),
         }
     }
 }
@@ -307,6 +353,28 @@ mod tests {
     #[should_panic(expected = "0 <= min <= max, got 2..1")]
     fn quiescent_count_rejects_max_below_min() {
         SmtProperty::quiescent_count(s(&["budget"]), 2, Some(1), Vec::new());
+    }
+
+    /// [NU-055]: the two name-alignment descriptions, byte for byte those of every
+    /// other implementation, and the reason the name-blind routes give.
+    #[test]
+    fn nu055_name_alignment_describes_itself() {
+        assert_eq!(
+            SmtProperty::name_aligned("box", "list").description(),
+            "Name alignment of box and list"
+        );
+        assert_eq!(
+            SmtProperty::quiescent_name_aligned("box", "list").description(),
+            "Quiescent name alignment of box and list"
+        );
+        assert!(SmtProperty::name_aligned("box", "box").is_name_alignment());
+        assert!(SmtProperty::quiescent_name_aligned("box", "list").is_name_alignment());
+        assert!(!SmtProperty::joined_or_dead_lettered("box").is_name_alignment());
+        assert_eq!(
+            SmtProperty::name_aligned("box", "list").route_b_only_reason(),
+            "Name alignment of box and list is decided only by the name-partition state-class \
+             graph (NU-055, Route B)"
+        );
     }
 
     /// An unbounded `max` never conflicts with `min`, however large.

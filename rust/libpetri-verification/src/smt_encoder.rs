@@ -656,6 +656,9 @@ fn encode_error_rule(
 /// Encodes the property violation condition (`Bad(M)` over `m_vars`). Also
 /// used by the certificate check's safety VC ([`crate::certificate_check`]),
 /// which must test against exactly the violation the error rule encodes.
+///
+/// # Panics
+/// On a name-alignment property ([NU-055]), which only Route B decides.
 pub(crate) fn encode_property_violation(
     flat: &FlatNet,
     property: &SmtProperty,
@@ -768,6 +771,11 @@ pub(crate) fn encode_property_violation(
             };
             conditions.push(bad);
             join_conditions(conditions)
+        }
+        // [NU-055]: decided only by Route B. The flat encoding has no names, and a
+        // `false` term here would prove the property vacuously, so there is no script.
+        SmtProperty::NameAligned { .. } | SmtProperty::QuiescentNameAligned { .. } => {
+            panic!("{}", property.route_b_only_reason())
         }
     }
 }
@@ -1513,5 +1521,23 @@ mod tests {
         assert_ne!(declared.smt2, before.smt2);
         assert_eq!(declared.smt2.lines().count(), before.smt2.lines().count());
         assert!(declared.smt2.contains("(= m3 0)"), "{}", declared.smt2);
+    }
+
+    /// [NU-055] AC4: the flat encoding has no names, so it gives name alignment no script.
+    #[test]
+    #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
+    fn nu055_the_flat_encoder_gives_name_alignment_no_script() {
+        let flat = jobs_net();
+        let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
+        encode_property_violation(&flat, &SmtProperty::name_aligned("done", "budget"), &m_vars, &[], &[], &[]);
+    }
+
+    /// [NU-055] AC4: nor quiescent name alignment.
+    #[test]
+    #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
+    fn nu055_the_flat_encoder_gives_quiescent_name_alignment_no_script() {
+        let flat = jobs_net();
+        let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
+        encode_property_violation(&flat, &SmtProperty::quiescent_name_aligned("done", "budget"), &m_vars, &[], &[], &[]);
     }
 }

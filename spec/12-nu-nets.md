@@ -1117,6 +1117,238 @@ it decides; on the proven quiescence cases it returns `Unknown` (Spacer).
 
 ---
 
+#### NU-055: Name Alignment
+
+**Priority:** MAY
+
+The ν properties of [NU-040] and [VER-002] count tokens. Some contracts are about which name the
+tokens carry. A search box that shows the results of the latest query should hold one name in the
+place that records the query and in the place that shows its results; a stale reply that lands
+after the user has typed again breaks that while every count stays in range. An implementation MAY
+offer two properties that read the name layer of Route B ([NU-050], [VER-012]):
+
+- **NameAligned(p, q)**: in every reachable marking, every name resident in `p` equals every name
+  resident in `q`. For the name-symbols `s` and `t`: `s` resident in `p` and `t` resident in `q`
+  imply `s = t`. A marking in which `p` or `q` is empty satisfies it, and `NameAligned(p, p)` says
+  that `p` never holds two names.
+- **QuiescentNameAligned(p, q)**: the same predicate, read only in the reachable quiescent markings.
+  Quiescence is the reap-aware quiescence of [VER-002]: on the graph, an expanded class every
+  firing out of which is of a reapable transition. Like `JoinedOrDeadLettered` ([NU-040]) it
+  carries no sink clause: declared sink places ([VER-002], [VER-014]) do not weaken it.
+
+`NameAligned` is a reachability-safety property and `QuiescentNameAligned` a quiescence property,
+for every rule of [VER-012] that distinguishes the two (the early stop of AC5, the prefix rule of
+AC3). The predicate compares names only for equality, so it is invariant under any permutation of
+the name-symbols. It is therefore a function of the canonical key of a class ([VER-012] AC2), and
+deciding it on the name-permutation quotient decides it on the graph.
+
+**Coloured places only.** Both `p` and `q` MUST be coloured places of the fragment Route B
+classified for the call: match keys ([NU-020]), declared carriers ([NU-051]) and relay targets
+([NU-054]). An uncoloured place carries no name in the name layer, so the predicate on it holds
+vacuously and a `Proven` would say nothing about the net. A place that is uncoloured, or absent from
+the net, MUST fail loudly: the verdict is `Unknown` with a reason naming the place, never `Proven`.
+A place that a mint or a coloured consumer writes is coloured only when it is one of these, which is
+why the worked example declares `inflightA`, `inflightB` and `list` as carriers. The coloured set is
+the one the classifier computes for the call (Rust `coloured_order`, the `co` of the Lean
+theorems), not a set the caller names.
+
+The name a carrier or relay target holds is the name the analysis threads into it. No projection
+reads a carrier, so that this name is the name the token's value is about rests on the documented,
+unchecked contract of the coloured consumers that write it ([NU-051]): a `fetchA` whose action
+answered a different query than the name it relays would still prove aligned. The property is
+exactly as faithful to what a token carries as those contracts are.
+
+The coloured places MUST start empty (the `hempty` premise of the Lean theorems). A call whose
+initial marking holds a token in a coloured place (a restored marking, [CORE-073], [NU-011]) is
+`Unknown` with a reason naming the place; since nothing else decides the property, there is no
+fallback.
+
+**EXTENDED.** Under **BASE** the coloured set is the match keys alone ([NU-051], [NU-054]), so a
+property place that is a carrier or a relay target is uncoloured there, and the reason SHOULD name
+EXTENDED. A net outside the EXTENDED fragment gets the "EXTENDED declined" note of [NU-051] and the
+verdict `Unknown`. For a name-alignment property the note MUST NOT say that the property was
+verified by another route; it says the verdict is `Unknown`.
+
+**Route B only.** Route A ([NU-050], [NU-053]), the name-blind SMT pipeline ([VER-001]), the linear
+bound ([VER-015]), the state-equation and firing-bound phases ([VER-018], [VER-019]), the bounded
+enumeration ([VER-017]) and the structural checks ([VER-020]) do not see names. None of them decides a
+name-alignment property: called directly, each returns no verdict, or `Unknown` with a reason
+saying that it is decided only by the name-partition graph, and the dispatcher MUST NOT defer a
+Route B `Unknown` to any of them (no [NU-053] fallback). The script encoders (`encodeScripts`,
+`encode_scripts`, `encode_smt_scripts`) return no script for these properties.
+
+A name-alignment query goes to Route B whatever the shape of the net: it needs no matched
+transition, only a coloured fragment. For every other property the classifier returns no fragment
+for a net without a matched transition and the dispatcher sends such a net to the flat phases; an
+implementation MUST lift both gates for the name-alignment properties, and only for them. The
+dispatcher sends a name-alignment property to Route B before its other routing tests: a declared
+budget place, which keeps a reachability-safety property on Route A ([NU-050]), does not apply.
+
+**Modelled injection.** Under `AlwaysAvailable` or `Bounded(k)` ([VER-006]) the decline rule of
+[NU-050] and [VER-006] AC8 applies to both properties. In addition, `QuiescentNameAligned` with any
+registered environment place is `Unknown`, with a reason naming the environment place and pointing
+to `Arrivals` ([VER-006]); the vacuity reading of [VER-006] AC6 does not apply to it. Route B keeps
+an environment place inexhaustible and never consumes it. A net that reads input from one (say, a
+keystroke stream into `first` and `retire`) therefore has no resting class in the graph, and the
+vacuity reading would turn any graph of it that closes into `Proven`, even on a misaligned net,
+while the executor rests misaligned between keystrokes. On the worked example the graph does not
+close at all (each keystroke mints a name that can wait in `inflightB`), so the verdict would be a
+truncation `Unknown`; the rule makes the reason name the environment place instead. Under `Arrivals` the
+net has no environment places left ([VER-006]); the decline of [VER-006] AC10 for an arrival into
+a coloured place still applies.
+
+**Truncation.** A graph that does not close within the class bound never yields `Proven` (Lean
+`Decide.truncated_never_proven`). The prefix rule of [VER-012] AC3 applies: a `NameAligned`
+violated by a stored class, or a `QuiescentNameAligned` violated by an expanded class at which the
+net rests (every firing out of it is of a reapable transition; with nothing reapable, an expanded
+class with no successor, Lean `Decide.quiescentAt`), is `Violated` with the shortest witness in
+the explored graph and a report line naming the truncation; otherwise the verdict is `Unknown`.
+
+**Violated.** A counterexample is reported as every Route B counterexample is ([VER-003],
+[VER-012]): the shortest path in the name-partition graph from the initial class to a violating
+class, attributed to Route B, with `counterexampleConfirmed` absent (the trace is a path of the
+graph, not of the flat abstract semantics) and `counterexampleTiming` set by [VER-003]. The graph
+expands every base-enabled firing and lets a coloured consumer take any resident name, where the
+executor takes the oldest token ([EXEC-010]); a run of the net follows the trace when the executor's
+order meets the graph's choice.
+
+**Soundness.** Lean `Novel/RouteB/Aligned.lean` (`routeB_untimed_nameAligned_sound`,
+`routeB_untimed_quiescentNameAligned_sound`) proves: for the **untimed, environment-free executor
+with atomic firings**, a `Proven` of either property holds in every marking that executor reaches
+(for the quiescent form, every marking at which it rests). The premises are:
+
+- the coloured places start empty;
+- the mints and coloured consumers keep their contracts ([NU-010], [NU-051], [NU-054]);
+- the projection contract of [NU-050]: every match-key and relay projection reads one name per
+  token, the name its writer gave it, agreeing across keys and relays and never returning no name
+  (Lean `Exec.ProjCoherent`, built into the model, checked by no implementation);
+- every firing writes one token to each output place its branch names ([IO-016] AC4). A mint or
+  relay that writes two tokens carrying different names into `box` is exactly the kind of firing
+  that would falsify a `Proven` alignment;
+- the conditions the classifier establishes (`InFragment`), unguarded inputs, and, for the
+  quiescent form, join keys that consume at least one token (`PosKeys`).
+
+The proof reads the predicate on the executor's name view (`aligned_view_iff`) and shows it vacuous
+on an uncoloured place (`aligned_uncoloured`), which is why that case is not allowed to prove.
+Conflict-only priority ([NU-052]) applies as it does to every Route B property.
+
+The proof does not cover what the shipped Route B computes on every net. Route B builds the timed
+name × time graph (with the latest bounds dropped as [VER-002] requires), and its agreement with a
+timed executor is not proved (gap R6 of `Novel/RouteB/Sound.lean`). This includes the all-immediate
+worked example below. The Lean model also has no in-flight state. Informally, and not proved: the
+predicate stays true when tokens are removed, and on a net without inhibitor, reset or drain arcs
+a marking with actions in flight holds a subset of the tokens of a marking that an atomic run of
+the graph's semantics reaches, where a coloured consumer may take any resident name. A FIFO atomic
+run does not always reach one: on the buggy variant below, with `fetchA` and `fetchB` both in
+flight, `staged` can hold the second name while `listEmpty` is still marked. So the in-flight
+markings are covered by the graph for `NameAligned`, not by the atomic executor.
+
+**Worked example (search as you type).** Uncoloured places `typed` (2 tokens, two keystrokes),
+`idle` (1), `armedA`, `armedB`, `clr`, `ready`, `listEmpty` (1), `slot` (1); coloured places `box`,
+`inflightA`, `inflightB`, `reply`, `staged`, `list`, all empty at the start. Under EXTENDED, with
+`sendA` and `sendB` declared mints and `inflightA`, `inflightB`, `list` declared carriers:
+
+| Transition | Firing | Role |
+|---|---|---|
+| `first` | `idle, typed → armedA` | ordinary |
+| `retire` | `box(n), typed → armedB` | coloured consumer, drain |
+| `sendA` | `armedA → box(n'), inflightA(n')` | declared mint (first query) |
+| `sendB` | `armedB → box(n'), inflightB(n')` | declared mint (follow-up query) |
+| `fetchA` | `inflightA(n) → reply(n)` | coloured consumer, relay (the action calls the API) |
+| `fetchB` | `inflightB(n) → reply(n)` | coloured consumer, relay (the action calls the API) |
+| `apply` | `match(reply, box), slot → box, staged, clr` | ν-join relaying to `box` (its own key) and `staged` |
+| `clearNone` | `listEmpty, clr → ready` | ordinary, before the first result |
+| `clear` | `list(m), clr → ready` | coloured consumer, drain |
+| `show` | `staged(n), ready → list(n), slot` | coloured consumer, relay |
+
+Each query has its own fetch transition, so with an API call that answers asynchronously the two
+requests are in flight at once on every executor, whether or not it starts a transition again while
+an earlier firing of it is in flight ([CONC-002]), and replies land in `reply` in the order the
+actions answer. A stale reply stays in `reply`: `apply` is name-disabled for it once `retire` has
+taken its name out of `box`. `box`, `staged`, `list`, `inflightA` and `inflightB` never hold more
+than one token (`slot` bounds `staged` and `list`; `idle` and the two keystrokes bound the rest),
+so the graph's free choice of a resident name coincides with the executor's FIFO order on them;
+only `reply` can hold a stale reply beside the current one. The net is closed: `typed` holds exactly two keystrokes, and the verdicts below are about that net, not
+about an unbounded keystroke stream (for one, see "Modelled injection" above). The net rests only
+after both keystrokes are consumed (`retire` stays enabled while `typed` and `box` are non-empty),
+so the quiescent verdicts speak about markings where all input has been typed and processed. The
+results:
+
+- `QuiescentNameAligned(box, list)` is `Proven`: at rest, the list shows the results of the query in
+  the box.
+- `NameAligned(box, list)` is `Violated` with a shortest witness of 8 firings: after the second
+  keystroke the box holds the new name while the list still shows the old results. Only the
+  quiescent form holds.
+- `QuiescentCount({list}, 1, 1)` ([VER-002]) is `Proven`: at rest, exactly one result is shown.
+
+The buggy variant replaces `apply` with `apply_bug: reply(n), slot → staged, clr`, a coloured
+consumer relay with no match on `box` (`box`, `inflightA`, `inflightB`, `reply`, `staged`,
+`list` declared carriers, `sendA` and `sendB` declared mints). `QuiescentNameAligned(box, list)`
+is `Violated` with a shortest witness of 12 firings in which the reply to the first keystroke is
+applied last and the list ends on the old results while `box` holds the new name. Every executor
+takes that run when both fetch actions are in flight and `fetchA`'s action answers after
+`fetchB`'s: `apply_bug` takes the oldest reply, which is then the reply to the second keystroke. The reported trace is one linearisation of that
+run; where it lists both replies resident in `reply`, the executor realises the same firings with
+`fetchB` answering first. With actions that complete synchronously the replies arrive in mint order
+and the bug does not occur, which is why the verdict is about the net and not about one schedule.
+
+**Acceptance Criteria:**
+1. (MUST, where offered) On the search-as-you-type net under EXTENDED, `QuiescentNameAligned(box,
+   list)` and `QuiescentCount({list}, 1, 1)` are `Proven` and `NameAligned(box, list)` is
+   `Violated` with an 8-firing witness; on the buggy variant `QuiescentNameAligned(box, list)` is
+   `Violated` with a 12-firing witness. Every verdict is attributed to Route B.
+2. (MUST, where offered) A property naming an uncoloured place (on the same net,
+   `QuiescentNameAligned(box, ready)`) or a place absent from the net is `Unknown` with a reason
+   naming the place, never `Proven`.
+3. (MUST, where offered) Under BASE the same net is `Unknown` for `QuiescentNameAligned(box, list)`:
+   the coloured set is the match keys `reply` and `box`, `fetchA` and `fetchB` write `reply`
+   without being mints, `retire` consumes `box` without a match, and `apply` produces its key
+   `box`, so the net is outside the BASE fragment; the reason names EXTENDED and the report names the ignored relay
+   declarations ([NU-054] AC5).
+4. (MUST, where offered) No route other than Route B, listed above, decides either property: called
+   directly, each returns no verdict or `Unknown` with the reason that only Route B decides them,
+   and the script encoders return no script; a Route B truncation stays `Unknown` unless the
+   prefix rule finds a violation.
+5. (MUST, where offered) The predicate is invariant under name permutation: evaluated on a class and
+   on that class with its name-symbols permuted, it gives the same answer, and running the
+   search-as-you-type net with names minted in another scope ([NU-010]) changes no verdict.
+6. (MUST, where offered) With `typed` registered as an environment place under `AlwaysAvailable`
+   (and not in the initial marking), `QuiescentNameAligned(box, list)` is `Unknown` with a reason
+   naming `typed`, on the fixed net and on the buggy variant; it is never `Proven`. A call whose
+   initial marking holds a token in a coloured place is `Unknown` with a reason naming the place.
+
+**Depends on:** [VER-002], [VER-003], [VER-006], [VER-012], [NU-010], [NU-050], [NU-051], [NU-054]
+**Implementation status:** Lean proof in `lean/Libpetri/Novel/RouteB/Aligned.lean`; implemented
+in Java, TypeScript and Rust, and in Python through the Rust verifier.
+**Test derivation:** the fixtures of `spec/verification-fixtures/nu-aligned-fixtures.json`, run in
+every language: the four search-as-you-type verdicts of AC1, the uncoloured place of AC2, the BASE
+run of AC3 and the environment and marked-coloured-place runs of AC6, each asserting that the report
+names Route B or, for `Unknown`, that the reason names the place or the declined fragment. AC4 by
+sending the AC1 fixed net to each other route directly, as an in-module unit test, and by the budget
+fixture, which must still reach Route B. AC5 as a unit test on the predicate and a run with a
+non-default minting scope.
+
+**Implementation notes (API):** the properties sit beside `JoinedOrDeadLettered` and
+`QuiescentCount`.
+
+- Java: `SmtProperty.nameAligned(p, q)` and `SmtProperty.quiescentNameAligned(p, q)`, records
+  `NameAligned(Place<?> p, Place<?> q)` and `QuiescentNameAligned(Place<?> p, Place<?> q)`. A new
+  permitted record of the sealed `SmtProperty` breaks exhaustive switches, so it ships in a major
+  release.
+- TypeScript: `nameAligned(p, q)` and `quiescentNameAligned(p, q)`, members of the `SmtProperty`
+  union with `type: 'name-aligned'` and `type: 'quiescent-name-aligned'` and fields `p`, `q`.
+- Rust: `SmtProperty::NameAligned { p: String, q: String }` and
+  `SmtProperty::QuiescentNameAligned { p, q }`, with constructors `SmtProperty::name_aligned(p, q)`
+  and `SmtProperty::quiescent_name_aligned(p, q)`. A new variant of the exhaustive enum is a major
+  change.
+- Python: `name_aligned(p, q)` and `quiescent_name_aligned(p, q)` in `libpetri.verification`, through
+  the Rust verifier, also re-exported from `libpetri`, as `joined_or_dead_lettered` and
+  `quiescent_count` are.
+- Every language describes them byte for byte as `Name alignment of <p> and <q>` and
+  `Quiescent name alignment of <p> and <q>` on the report's `Property:` line.
+
+---
+
 ## Implementation Notes
 
 - The selection + tie-break ([NU-020]) is a single algorithm shared by both
@@ -1135,6 +1367,8 @@ it decides; on the proven quiescence cases it returns `Unknown` (Spacer).
   which place gates minting via a **budget-place declaration**
   (`budget_place(s)` / `budgetPlaces(...)`); this is what asserts the bounded
   fragment.
+- Name alignment ([NU-055]) is the one ν property that compares names rather than
+  counting tokens; only Route B decides it, and no other route gives it a verdict.
 - The sound **over-approximation baseline** (the name-blind CHC encoding) cannot
   decide two cases soundly: a ν-net with no declared budget (unbounded fresh
   names), and any **quiescence-based** property (deadlock-freedom,

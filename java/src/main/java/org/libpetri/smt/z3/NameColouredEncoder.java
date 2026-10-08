@@ -883,6 +883,9 @@ public final class NameColouredEncoder {
                 conds.add(bad);
                 yield joinColoured(conds);
             }
+            // NU-055: decided only by Route B. A colour slot is not a name, so this encoding gives
+            // name alignment no verdict.
+            case SmtProperty.NameAligned _, SmtProperty.QuiescentNameAligned _ -> null;
         };
     }
 

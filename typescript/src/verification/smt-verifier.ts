@@ -4,7 +4,7 @@ import type { Transition } from '../core/transition.js';
 import { rethrowIfProgrammingError } from './programming-error.js';
 import type { EnvironmentPlace, Place } from '../core/place.js';
 import { MarkingState, MarkingStateBuilder } from './marking-state.js';
-import type { SmtProperty } from './smt-property.js';
+import type { NameAligned, QuiescentNameAligned, SmtProperty } from './smt-property.js';
 import { deadlockFree, propertyDescription } from './smt-property.js';
 import { describeSinks, type ConditionalSinks } from './rest-set.js';
 import type {
@@ -31,6 +31,7 @@ import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { slotBoundReportLine, solveSlotBound, type LpAnswer, type SlotBound } from './z3/slot-bound-lp.js';
 import { verifyViaNameScg } from './nu-scg-verifier.js';
+import { isNameAlignment, routeBOnlyReason } from './name-alignment.js';
 import { verifyViaStateClassGraph, decideOverStateSpace, isUntimed, NOTE_ENUMERATED } from './scg-verifier.js';
 import { prefixNote } from './graph-decision.js';
 import { closeArrivals } from './open-net/closure.js';
@@ -342,7 +343,9 @@ export class SmtVerifier {
     if (this._arrivals === null || this._arrivals.injected.length === 0) return null;
     // Every producer of a coloured place counts as declared here: the question is which
     // places are coloured, not whether the mints are declared.
-    const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net));
+    const fragment = classify(
+      this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net), isNameAlignment(this._property),
+    );
     if (fragment === null) return null;
     const place = this._arrivals.injected.find(p => fragment.isColoured(p));
     if (place === undefined) return null;
@@ -427,15 +430,16 @@ export class SmtVerifier {
   }
 
   /**
-   * Whether Route B will read conflict priority ([NU-052]): it is selected, the net has a ν-join
-   * and a property Route B takes (a quiescence one, or any without a declared budget place), and
-   * no transition is read as reapable, since Route B turns the pruning off itself on a net with
-   * one. No other route reads it.
+   * Whether Route B will read conflict priority ([NU-052]): it is selected, the property is a
+   * name-alignment one ([NU-055]) or the net has a ν-join and a property Route B takes (a
+   * quiescence one, or any without a declared budget place), and no transition is read as
+   * reapable, since Route B turns the pruning off itself on a net with one. No other route reads it.
    */
   private conflictPruningApplies(): boolean {
     return this._prioritySemantics === 'conflict'
-      && [...this.net.transitions].some(t => t.matchSpec !== null)
-      && (!isReachabilitySafety(this._property) || this._budgetPlaces.size === 0)
+      && (isNameAlignment(this._property) || (
+        [...this.net.transitions].some(t => t.matchSpec !== null)
+        && (!isReachabilitySafety(this._property) || this._budgetPlaces.size === 0)))
       && this.reapableSet.size === 0;
   }
 
@@ -694,11 +698,12 @@ export class SmtVerifier {
    */
   private reapingLine(routeB = false): string | null {
     const inNet = this._reapable ?? reapableTransitions(this.net);
-    const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
+    // NU-055: a name-alignment property goes to Route B on any net.
+    const onRouteB = isNameAlignment(this._property) || [...this.net.transitions].some(t => t.matchSpec !== null);
     const lateInNet = new Set(inNet);
-    if (hasMatch) for (const n of lateTransitions(this.net)) lateInNet.add(n);
+    if (onRouteB) for (const n of lateTransitions(this.net)) lateInNet.add(n);
     if (lateInNet.size === 0) return null;
-    if (isReachabilitySafety(this._property) && !hasMatch) return null;
+    if (isReachabilitySafety(this._property) && !onRouteB) return null;
     if (this._assumeNoReaping && routeB) return noReapingRouteBNote(lateInNet).trimEnd();
     if (this._assumeNoReaping) return noReapingAssumptionNote(lateInNet).trimEnd();
     // Route B's own note says which latest bounds it lifted.
@@ -1043,8 +1048,13 @@ export class SmtVerifier {
    * {@link placeholderCertificate}. This is what the cross-language golden tests diff
    * byte for byte. Route B, the structural pre-check and the unresolved-place
    * refusal are bypassed: it is what Route A encodes.
+   *
+   * @throws Error for a name-alignment property ([NU-055]): only Route B decides it, and Route B
+   *   sends no script, so there is none to return.
    */
   encodeScripts(): EncodedScripts {
+    // NU-055: only Route B, which sends no script, decides a name-alignment property.
+    if (isNameAlignment(this._property)) throw new Error(routeBOnlyReason(this._property));
     // NU-010: scripts without a declaration the caller made would not be the scripts it asked for.
     const unknownMint = unknownMintReason(this.callerNet, this._mintTransitions);
     if (unknownMint !== null) throw new Error(unknownMint);
@@ -1327,6 +1337,9 @@ export class SmtVerifier {
     // cases into unknown.
     const hasMatch = [...this.net.transitions].some(t => t.matchSpec !== null);
     const nuBounded = this._budgetPlaces.size > 0;
+    // NU-055: a name-alignment property goes to Route B whatever the shape of the net, ahead of
+    // every other routing test (a declared budget place included), and nothing else decides it.
+    const nameAlignment = isNameAlignment(this._property);
 
     // NU-054: BASE reads a join's coloured output as a re-mint whatever it declares, so a relay
     // declaration changes nothing there. Say so, and name the mode that uses it.
@@ -1345,8 +1358,10 @@ export class SmtVerifier {
     // declared to mint keeps the net off both ν routes. Name it where a route declines or the ν
     // guard answers unknown.
     this._undeclaredPointer = null;
-    if (hasMatch) {
-      const undeclared = undeclaredMints(this.net, this._fragmentMode, this._carrierPlaces, this.declaredMints());
+    if (hasMatch || nameAlignment) {
+      const undeclared = undeclaredMints(
+        this.net, this._fragmentMode, this._carrierPlaces, this.declaredMints(), nameAlignment,
+      );
       if (undeclared.length > 0) this._undeclaredPointer = undeclaredMintsPointer(undeclared);
     }
 
@@ -1358,8 +1373,23 @@ export class SmtVerifier {
     // fragment stays on Route A below (this trigger is false there). If the net is
     // outside the supported fragment, verifyViaNameScg returns null and we fall
     // through to the existing pipeline (which applies the sound unknown downgrade).
-    if (hasMatch && (!isReachabilitySafety(this._property) || !nuBounded)) {
+    // A name-alignment property (NU-055) never falls through: Route B alone decides it.
+    if (nameAlignment || (hasMatch && (!isReachabilitySafety(this._property) || !nuBounded))) {
       this.enter(run, 'Route B (ν name-partition graph)', 'nu-scg');
+      // Every Route B result, a verdict or a refusal, reports the same statistics.
+      const routeBResult = (
+        verdict: Verdict, trace: readonly MarkingState[] = [], transitions: readonly string[] = [],
+      ): SmtVerificationResult => buildResult(
+        verdict, report.join('\n'), [], [], trace, transitions, performance.now() - start,
+        {
+          places: placeNames(this.net.places).size,
+          transitions: [...this.net.transitions].length,
+          invariantsFound: 0,
+          structuralResult: 'n/a (ν name-partition SCG)',
+        },
+        null,
+        'nu-scg',
+      );
       let quiescenceVacuous = false;
       if (!isReachabilitySafety(this._property)) {
         const flat = this.flatNet();
@@ -1369,11 +1399,13 @@ export class SmtVerifier {
       // A verdict that reads its count or names would be vacuous, so refuse here and
       // never defer to Route A, which declines under injection too and would lose the reason.
       const mints = this.declaredMints();
-      const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces, mints);
+      const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces, mints, nameAlignment);
       const startsEmpty = (f: NameFragment): boolean =>
         !this._initialMarking.placesWithTokens().some(p => f.isColoured(p.name));
       // An arrival into a coloured place declines whether or not the mints are declared.
-      const anyFragment = classify(this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net));
+      const anyFragment = classify(
+        this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net), nameAlignment,
+      );
       const arrivalReason = anyFragment !== null && startsEmpty(anyFragment) ? this.colouredArrivalReason() : null;
       const envReason = arrivalReason ?? (
         fragment === null || !startsEmpty(fragment)
@@ -1385,18 +1417,7 @@ export class SmtVerifier {
       if (envReason !== null) {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
         report.push(`  Declined under environment injection: ${envReason}`);
-        return buildResult(
-          { type: 'unknown', reason: envReason }, report.join('\n'), [], [], [], [],
-          performance.now() - start,
-          {
-            places: placeNames(this.net.places).size,
-            transitions: [...this.net.transitions].length,
-            invariantsFound: 0,
-            structuralResult: 'n/a (ν name-partition SCG)',
-          },
-          null,
-          'nu-scg',
-        );
+        return routeBResult({ type: 'unknown', reason: envReason });
       }
       const outcome = verifyViaNameScg(
         this.net, this._initialMarking, this._property, this._sinkPlaces,
@@ -1408,6 +1429,7 @@ export class SmtVerifier {
       // final word: defer to the scalable Route A coloured IC3/PDR encoder
       // (NU-053) below instead of returning unknown here.
       const deferToRouteA =
+        !nameAlignment &&
         outcome !== null &&
         outcome.verdict.type === 'unknown' &&
         !isReachabilitySafety(this._property) &&
@@ -1416,6 +1438,9 @@ export class SmtVerifier {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
         report.push(`  Name-partition state classes: ${outcome.classCount}`);
         report.push(outcome.note);
+        // NU-055: the reason of a Route B unknown, a refusal (an uncoloured or marked coloured
+        // place) or a truncation, since no other route follows to state it.
+        if (nameAlignment && outcome.verdict.type === 'unknown') report.push(`  UNKNOWN: ${outcome.verdict.reason}`);
         // NU-010, NU-051: the actions whose writes the verdict trusts.
         const contracts = fragment === null ? '' : contractNote(fragment.mints, fragment.relays);
         if (contracts !== '') report.push(contracts.trimEnd());
@@ -1437,23 +1462,19 @@ export class SmtVerifier {
         } else if (quiescenceVacuous) {
           report.push(QUIESCENCE_VACUITY_NOTE); // VER-006 AC6, as on the solver path
         }
-        return buildResult(
-          routeBVerdict, report.join('\n'), [], [], outcome.trace, outcome.transitions,
-          performance.now() - start,
-          {
-            places: placeNames(this.net.places).size,
-            transitions: [...this.net.transitions].length,
-            invariantsFound: 0,
-            structuralResult: 'n/a (ν name-partition SCG)',
-          },
-          null,
-          'nu-scg',
-        );
+        return routeBResult(routeBVerdict, outcome.trace, outcome.transitions);
       } else if (deferToRouteA) {
         report.push(
           'ν-net Route B inconclusive (name-partition truncated); deferring to ' +
           'Route A coloured IC3/PDR (NU-053).',
         );
+      }
+      // NU-055: outside the fragment no other route decides a name-alignment property.
+      if (isNameAlignment(this._property)) {
+        const reason = nameAlignmentDecline(this._property, this._fragmentMode, this._undeclaredPointer);
+        report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
+        report.push(`  Declined: ${reason}`);
+        return routeBResult({ type: 'unknown', reason });
       }
       // EXTENDED was requested but the net is outside the coloured-consumer
       // fragment (classify declined). Surface a short note instead of a silent
@@ -1462,12 +1483,7 @@ export class SmtVerifier {
       if (this._undeclaredPointer !== null && !deferToRouteA) {
         report.push(`ν-net Route B declined: ${this._undeclaredPointer}.`);
       } else if (this._fragmentMode === 'extended' && !deferToRouteA) {
-        report.push(
-          'ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment ' +
-          '(a coloured place consumed count != 1 or by multiple inputs, carries a ' +
-          'reset/read/inhibitor arc, or a join writes a coloured place it does not declare ' +
-          'as a relay target); verified via sound over-approximation instead.',
-        );
+        report.push(`${EXTENDED_FRAGMENT_DECLINE}; verified via sound over-approximation instead.`);
       }
     }
 
@@ -2535,11 +2551,13 @@ function isReachabilitySafety(property: SmtProperty): boolean {
     case 'branch-place-bound':
     case 'mutual-exclusion':
     case 'unreachable':
+    case 'name-aligned':
       return true;
     case 'deadlock-free':
     case 'terminates-at-sink':
     case 'joined-or-dead-lettered':
     case 'quiescent-count':
+    case 'quiescent-name-aligned':
       return false;
   }
 }
@@ -2772,6 +2790,8 @@ function propertyPlaces(property: SmtProperty): Place<any>[] {
     case 'unreachable': return [...property.places];
     case 'joined-or-dead-lettered': return [property.pending];
     case 'quiescent-count': return [...property.places, ...property.waivedBy];
+    case 'name-aligned': return [property.p, property.q];
+    case 'quiescent-name-aligned': return [property.p, property.q];
   }
 }
 
@@ -2840,8 +2860,23 @@ function routeBEnvObservation(
     case 'quiescent-count':
       observed = quiescenceVacuous ? [] : propertyPlaces(property).map(p => p.name);
       break;
-    default:
+    // NU-055: the graph never consumes an environment place, so a net reading input from one has
+    // no resting class and its graph would read as vacuously aligned, while the executor rests
+    // misaligned between inputs. The vacuity reading of VER-006 AC6 does not apply.
+    case 'quiescent-name-aligned':
+      if (env.length > 0) {
+        return decline(env[0]!, 'is registered and the property reads quiescence (NU-055): the graph never ' +
+          'consumes it, so a net that reads input from it has no resting class; model its input with arrivals(k)');
+      }
+      observed = [];
+      break;
+    case 'place-bound':
+    case 'branch-place-bound':
+    case 'mutual-exclusion':
+    case 'unreachable':
+    case 'name-aligned':
       observed = propertyPlaces(property).map(p => p.name);
+      break;
   }
   const observedSet = new Set(observed);
   for (const p of env) {
@@ -2899,6 +2934,34 @@ function relayDeclarations(net: PetriNet): string[] {
     for (const r of t.matchSpec?.relays ?? []) out.push(`'${t.name}' -> '${r.place.name}'`);
   }
   return out;
+}
+
+/** Why Route B under the EXTENDED fragment declines a net that `classify` rejects (NU-051). */
+const EXTENDED_FRAGMENT_DECLINE =
+  'ν-net Route B (EXTENDED) declined: net outside coloured-consumer fragment (a coloured place ' +
+  'consumed count != 1 or by multiple inputs, carries a reset/read/inhibitor arc, or a join writes ' +
+  'a coloured place it does not declare as a relay target)';
+
+/**
+ * Why Route B declined the name-alignment `property` (NU-055): the net is outside the fragment
+ * of `mode`. Names the undeclared mints when declaring them is all that is missing (NU-010), and
+ * EXTENDED under BASE (AC3). Never says the property was verified another way: nothing else
+ * decides it.
+ */
+function nameAlignmentDecline(
+  property: NameAligned | QuiescentNameAligned,
+  mode: FragmentMode,
+  undeclaredPointer: string | null,
+): string {
+  const why = undeclaredPointer !== null
+    ? undeclaredPointer
+    : mode === 'base'
+      ? 'net outside the BASE fragment, which colours the match keys alone (a non-match transition ' +
+        'consumes a coloured place, a join writes a coloured place, or a non-mint writes one); carrier ' +
+        "places and relay targets are coloured only under the EXTENDED fragment (fragmentMode('extended'), " +
+        'NU-051, NU-054)'
+      : EXTENDED_FRAGMENT_DECLINE;
+  return `${why}; ${routeBOnlyReason(property)}, so the verdict is unknown`;
 }
 
 /** Every transition name of `net`. */

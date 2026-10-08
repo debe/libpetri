@@ -960,6 +960,56 @@
           "fragment": "with no reapable transition, reap-quiescence is the strict quiescence: nothing changes on untimed nets"
         }
       ]
+    },
+    {
+      "name": "routeB_untimed_nameAligned_sound",
+      "module": "Libpetri/Novel/RouteB/Aligned.lean",
+      "specIds": [
+        {
+          "id": "NU-055",
+          "fragment": "soundness of a Route B Proven of NameAligned(p, q) for coloured p, q: every executor-reachable marking holds one name across p and q; untimed, environment-free, atomic firings (gap R6), coloured places initially empty, contracts and the one-projection premise (Exec.ProjCoherent) built into the model"
+        }
+      ]
+    },
+    {
+      "name": "routeB_untimed_quiescentNameAligned_sound",
+      "module": "Libpetri/Novel/RouteB/Aligned.lean",
+      "specIds": [
+        {
+          "id": "NU-055",
+          "fragment": "soundness of a Route B Proven of QuiescentNameAligned(p, q) for coloured p, q: every executor-reachable marking at which the executor rests (ExecRests reap) holds one name across p and q; same scope and premises as the safety form, plus PosKeys"
+        }
+      ]
+    },
+    {
+      "name": "aligned_key_inv",
+      "module": "Libpetri/Novel/RouteB/Aligned.lean",
+      "specIds": [
+        {
+          "id": "NU-055",
+          "fragment": "AC5 on the graph: the alignment predicate reads only the class key (base marking and canonical key), so it is invariant under name permutation and decided on the canonical-key quotient"
+        }
+      ]
+    },
+    {
+      "name": "aligned_view_iff",
+      "module": "Libpetri/Novel/RouteB/Aligned.lean",
+      "specIds": [
+        {
+          "id": "NU-055",
+          "fragment": "the predicate on the executor's name view of a marking, for coloured p and q, is the concrete statement that all tokens in p and q carry one name (read through the model's single projection nameOf)"
+        }
+      ]
+    },
+    {
+      "name": "aligned_uncoloured",
+      "module": "Libpetri/Novel/RouteB/Aligned.lean",
+      "specIds": [
+        {
+          "id": "NU-055",
+          "fragment": "why AC2 refuses an uncoloured place: for p outside the coloured set the predicate is constantly true, so a Proven would say nothing about the net"
+        }
+      ]
     }
   ]
 }

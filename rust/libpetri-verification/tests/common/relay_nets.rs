@@ -150,3 +150,27 @@ pub fn self_loop(independent_q: bool) -> Vec<Row> {
     rows.push(j("D", &["q", "Y"], &["done"], &["q", "Y"], &[]));
     rows
 }
+
+/// \[NU-055\] The search-as-you-type net of the worked example, row for row the nets of
+/// `spec/verification-fixtures/nu-aligned-fixtures.json`: `apply` joins `reply` and `box` by
+/// name and relays to `box` and `staged`; the buggy variant's `apply_bug` takes any reply.
+/// Mints `sendA`, `sendB`; carriers `inflightA`, `inflightB`, `list` (and, for the buggy
+/// variant, `box`, `reply`, `staged`).
+pub fn search_as_you_type(bug: bool) -> Vec<Row> {
+    vec![
+        t("first", &["idle", "typed"], &["armedA"]),
+        t("retire", &["box", "typed"], &["armedB"]),
+        t("sendA", &["armedA"], &["box", "inflightA"]),
+        t("sendB", &["armedB"], &["box", "inflightB"]),
+        t("fetchA", &["inflightA"], &["reply"]),
+        t("fetchB", &["inflightB"], &["reply"]),
+        if bug {
+            t("apply_bug", &["reply", "slot"], &["staged", "clr"])
+        } else {
+            j("apply", &["reply", "box", "slot"], &["box", "staged", "clr"], &["reply", "box"], &["box", "staged"])
+        },
+        t("clearNone", &["listEmpty", "clr"], &["ready"]),
+        t("clear", &["list", "clr"], &["ready"]),
+        t("show", &["staged", "ready"], &["list", "slot"]),
+    ]
+}

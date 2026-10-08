@@ -16,10 +16,11 @@ import { decideOverClasses, prefixNote, safetyViolation } from './graph-decision
 import type { EnvironmentPlace } from '../core/place.js';
 import type { MarkingState } from './marking-state.js';
 import type { EnvironmentAnalysisMode } from './analysis/environment-analysis-mode.js';
-import { classify, type FragmentMode } from './analysis/name-fragment.js';
+import { classify, type FragmentMode, type NameFragment } from './analysis/name-fragment.js';
 import type { PrioritySemantics } from './analysis/priority-semantics.js';
 import { NameStateClassGraph } from './analysis/name-state-class-graph.js';
-import type { SmtProperty } from './smt-property.js';
+import type { NameAligned, QuiescentNameAligned, SmtProperty } from './smt-property.js';
+import { isNameAlignment } from './name-alignment.js';
 import type { Verdict } from './smt-verification-result.js';
 import type { Deadline } from './total-budget.js';
 import { hasLatestBound, relaxLate } from './reaping.js';
@@ -72,6 +73,10 @@ export interface NuScgOutcome {
  *   late executor, which then fires the other.
  * Both empty (the default, the on-time executor of `assumeNoReaping`, or a net timed only
  * with `immediate` and `delayed`), nothing changes.
+ *
+ * A name-alignment property ([NU-055]) is classified on a net without a matched transition too,
+ * and an uncoloured property place or a coloured place the initial marking marks is an
+ * `unknown` outcome naming the place, not `null`: no other route decides it.
  *
  * `mintTransitions` names the transitions declared to mint ([NU-010]; the verifier passes
  * `declaredMints`). A transition that writes a coloured place without consuming one and is not
@@ -146,8 +151,17 @@ function verifyNameScg(
   deadline: Deadline | null,
   reapable: ReadonlySet<string>,
 ): NuScgOutcome | null {
-  const fragment = classify(net, fragmentMode, carrierPlaces, mintTransitions);
+  const nameAlignment = isNameAlignment(property);
+  const fragment = classify(net, fragmentMode, carrierPlaces, mintTransitions, nameAlignment);
   if (fragment === null) return null;
+  // NU-055: nothing but this graph decides a name-alignment property, so where it cannot, the
+  // verdict is unknown naming the place rather than a decline the caller would route elsewhere.
+  if (nameAlignment) {
+    const refusal = nameAlignmentRefusal(property, fragment, fragmentMode, initial);
+    if (refusal !== null) {
+      return { verdict: { type: 'unknown', reason: refusal }, trace: [], transitions: [], note: '', classCount: 0 };
+    }
+  }
   // We model no initial colour assignment, so coloured places must start empty.
   for (const p of initial.placesWithTokens()) {
     if (fragment.isColoured(p.name)) return null;
@@ -204,6 +218,37 @@ function verifyNameScg(
 }
 
 /**
+ * Why Route B cannot decide the name-alignment `property` on `fragment` (NU-055), or `null`:
+ * a property place that is not coloured, whose predicate would hold vacuously (AC2, AC3), or a
+ * coloured place the initial marking marks (AC6), since the graph models no initial names.
+ * Checked in that order, `p` before `q`, the marked places in code-point order.
+ */
+function nameAlignmentRefusal(
+  property: NameAligned | QuiescentNameAligned,
+  fragment: NameFragment,
+  fragmentMode: FragmentMode,
+  initial: MarkingState,
+): string | null {
+  for (const place of [property.p.name, property.q.name]) {
+    if (fragment.isColoured(place)) continue;
+    const base = fragmentMode === 'base'
+      ? "; under BASE only the match keys are coloured, carrier places and relay targets only " +
+        "under the EXTENDED fragment (fragmentMode('extended'), NU-051, NU-054)"
+      : '';
+    return `place '${place}' is not a coloured place of the ν fragment (a match key, declared ` +
+      `carrier or relay target), so it carries no name and name alignment on it would hold ` +
+      `vacuously (NU-055)${base}`;
+  }
+  const marked = initial.placesWithTokens().map(p => p.name).filter(n => fragment.isColoured(n))
+    .sort(compareCodePoints);
+  if (marked.length > 0) {
+    return `coloured place '${marked[0]}' holds a token in the initial marking; the name-partition ` +
+      'graph models no initial names, so the coloured places must start empty (NU-055)';
+  }
+  return null;
+}
+
+/**
  * The report note of a violation found by stopping the build at the first violating class
  * ([VER-012]). The graph was never finished, so it says nothing about closure.
  */
@@ -235,6 +280,7 @@ export function decide(
       // transitions do ([VER-002] reap-quiescence, [TIME-013]).
       isQuiescent: i => i < scg.expandedCount()
         && scg.successorLabelsOf(i).every(label => reapable.has(label)),
+      namesOf: i => scg.namesOf(i),
     },
     property,
     sinkPlaces,

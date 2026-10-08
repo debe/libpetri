@@ -151,6 +151,49 @@ public sealed interface SmtProperty {
     }
 
     /**
+     * Name alignment ([NU-055]): in every reachable marking, every name resident in {@code p}
+     * equals every name resident in {@code q}. A marking in which either place is empty
+     * satisfies it, and {@code nameAligned(p, p)} says that {@code p} never holds two names.
+     * A reachability-safety property: Route B stops at the first misaligned class ([VER-012]).
+     *
+     * <p>Decided only by Route B, the name-partition state-class graph ([NU-050]), on any net,
+     * with or without a matched transition. Every other route gives it no verdict, so a Route B
+     * {@code Unknown} is final. The verdict is {@code Unknown}, with a reason naming the cause,
+     * when either place is not a coloured place of the fragment Route B classifies for the call
+     * (a match key, a declared carrier or a relay target): an uncoloured or absent place carries
+     * no name, so the predicate on it would hold vacuously. Carriers and relay targets are
+     * coloured only under {@link org.libpetri.analysis.FragmentMode#EXTENDED}. It is
+     * {@code Unknown} too when a coloured place starts marked, when the net is outside the
+     * fragment, and when the graph does not close and its explored prefix holds no misaligned
+     * class.
+     */
+    record NameAligned(Place<?> p, Place<?> q) implements SmtProperty {
+        public NameAligned {
+            Objects.requireNonNull(p, "p");
+            Objects.requireNonNull(q, "q");
+        }
+    }
+
+    /**
+     * Quiescent name alignment ([NU-055]): the predicate of {@link NameAligned}, read only in the
+     * reachable quiescent markings (the reap-aware quiescence of [VER-002]). Like
+     * {@link JoinedOrDeadLettered} it carries no sink clause. A quiescence property: the graph
+     * is built in full.
+     *
+     * <p>Decided only by Route B, with the {@code Unknown} cases of {@link NameAligned}, and one
+     * more: under modelled injection ({@code alwaysAvailable()} or {@code bounded(k)}) a net
+     * with a registered environment place is {@code Unknown}, since the graph never consumes the
+     * place and a net that reads input from it has no resting class. Model the input with
+     * {@code arrivals(k)} instead.
+     */
+    record QuiescentNameAligned(Place<?> p, Place<?> q) implements SmtProperty {
+        public QuiescentNameAligned {
+            Objects.requireNonNull(p, "p");
+            Objects.requireNonNull(q, "q");
+        }
+    }
+
+    /**
      * The property as the report names it after {@code Property: }. Text is byte-identical
      * across the implementations for {@link QuiescentCount}; see {@link #countAcross}.
      *
@@ -176,6 +219,9 @@ public sealed interface SmtProperty {
                     ? count
                     : count + "; lower bound waived while {" + names(qc.waivedBy()) + "} is marked";
             }
+            case NameAligned na -> "Name alignment of " + na.p().name() + " and " + na.q().name();
+            case QuiescentNameAligned qna ->
+                "Quiescent name alignment of " + qna.p().name() + " and " + qna.q().name();
         };
     }
 
@@ -244,6 +290,16 @@ public sealed interface SmtProperty {
      */
     static QuiescentCount quiescentCount(Collection<? extends Place<?>> places, int min, OptionalInt max) {
         return quiescentCount(places, min, max, List.of());
+    }
+
+    /** Name alignment of {@code p} and {@code q} in every reachable marking (NU-055). See {@link NameAligned}. */
+    static NameAligned nameAligned(Place<?> p, Place<?> q) {
+        return new NameAligned(p, q);
+    }
+
+    /** Name alignment of {@code p} and {@code q} at quiescence (NU-055). See {@link QuiescentNameAligned}. */
+    static QuiescentNameAligned quiescentNameAligned(Place<?> p, Place<?> q) {
+        return new QuiescentNameAligned(p, q);
     }
 
     /**

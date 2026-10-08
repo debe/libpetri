@@ -86,6 +86,11 @@ export class NameStateClassGraph {
     return this.classes[idx]!.base.marking;
   }
 
+  /** The name layer of class `idx` (for the name-alignment queries of NU-055). */
+  namesOf(idx: number): NameMarking {
+    return this.classes[idx]!.names;
+  }
+
   static build(
     net: PetriNet,
     initialMarking: MarkingState,
@@ -95,7 +100,7 @@ export class NameStateClassGraph {
     environmentMode?: EnvironmentAnalysisMode,
     prioritySemantics: PrioritySemantics = 'none',
     deadline: Deadline | null = null,
-    stopAt: ((marking: MarkingState) => boolean) | null = null,
+    stopAt: ((marking: MarkingState, names: NameMarking) => boolean) | null = null,
   ): NameStateClassGraph {
     const envMode = environmentMode ?? ignore();
     // By name, as the plain graph does: an arc may name another object of an environment place.
@@ -128,7 +133,7 @@ export class NameStateClassGraph {
     // BFS discovers classes in index order at non-decreasing depth, so the first match is the
     // lowest-index one — what a check over the finished graph would return — and every edge
     // on its shortest path is already recorded.
-    if (stopAt !== null && stopAt(graph.markingOf(0))) {
+    if (stopAt !== null && stopAt(graph.markingOf(0), graph.namesOf(0))) {
       graph._complete = false;
       graph._stoppedEarly = true;
       return graph;
@@ -197,7 +202,7 @@ export class NameStateClassGraph {
                 id,
                 indexOf,
               );
-              if (stopAt !== null && stopAt(graph.markingOf(toIdx))) {
+              if (stopAt !== null && stopAt(graph.markingOf(toIdx), graph.namesOf(toIdx))) {
                 graph.addEdge(curIdx, toIdx, transition.name);
                 graph._expanded = curIdx; // partly expanded: not counted
                 graph._complete = false;

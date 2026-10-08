@@ -2,6 +2,7 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.smt.NameAlignment;
 import org.libpetri.smt.RestSet;
 import org.libpetri.smt.SmtProperty;
 import org.libpetri.smt.encoding.FlatNet;
@@ -688,6 +689,10 @@ public final class SmtEncoder {
                 conditions.add(bad);
                 yield joinConditions(conditions);
             }
+            // NU-055: decided only by Route B. The flat encoding has no names, and a `false` term
+            // here would prove the property vacuously, so there is no script.
+            case SmtProperty.NameAligned _, SmtProperty.QuiescentNameAligned _ ->
+                throw new IllegalArgumentException(NameAlignment.routeBOnlyReason(property));
         };
     }
 

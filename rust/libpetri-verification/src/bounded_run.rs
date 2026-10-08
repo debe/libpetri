@@ -507,6 +507,14 @@ pub fn run_firing_bound_phase(
     solver: impl Fn(&str, &str, u64) -> Result<String, String>,
     options: FiringBoundOptions,
 ) -> FiringBoundOutcome {
+    // [NU-055]: a run of counts carries no names.
+    if property.is_name_alignment() {
+        return FiringBoundOutcome::Inconclusive {
+            reason: property.route_b_only_reason(),
+            bound: None,
+            depths: Vec::new(),
+        };
+    }
     let budget = QueryBudget::start(options.budget_ms);
     let max_depth = options.max_depth;
     let initial: Vec<i64> = flat
@@ -1375,5 +1383,31 @@ mod tests {
             options,
         );
         assert_eq!(outcome, FiringBoundOutcome::Unbounded { repeatable: Some(vec![0, 1, 2]) });
+    }
+
+    /// [NU-055] AC4: a run of counts carries no names, so the firing-bound phase steps
+    /// aside before any query.
+    #[test]
+    fn nu055_the_firing_bound_phase_is_inconclusive_for_name_alignment() {
+        let (flat, m0, sinks) = queue_and_bundle(2, false);
+        for property in [SmtProperty::name_aligned("q", "s"), SmtProperty::quiescent_name_aligned("q", "s")] {
+            let outcome = run_firing_bound_phase(
+                &flat,
+                &m0,
+                &property,
+                &sinks,
+                &[],
+                &[],
+                |_: &str, _: &str, _: u64| -> Result<String, String> { panic!("no solver call expected") },
+                FiringBoundOptions::default(),
+            );
+            match outcome {
+                FiringBoundOutcome::Inconclusive { reason, bound: None, depths } => {
+                    assert!(reason.contains("decided only by the name-partition state-class graph (NU-055, Route B)"), "{reason}");
+                    assert!(depths.is_empty());
+                }
+                other => panic!("expected inconclusive, got {other:?}"),
+            }
+        }
     }
 }

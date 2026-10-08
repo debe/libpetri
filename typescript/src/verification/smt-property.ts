@@ -16,7 +16,9 @@ export type SmtProperty =
   | Unreachable
   | BranchPlaceBound
   | JoinedOrDeadLettered
-  | QuiescentCount;
+  | QuiescentCount
+  | NameAligned
+  | QuiescentNameAligned;
 
 /**
  * Deadlock-freedom: no reachable quiescent marking strands a token (VER-002).
@@ -111,6 +113,41 @@ export interface QuiescentCount {
   readonly waivedBy: readonly Place<any>[];
 }
 
+/**
+ * Name alignment ([NU-055]): in every reachable marking, every name resident in `p` equals every
+ * name resident in `q`. A marking in which either place is empty satisfies it, and
+ * `nameAligned(p, p)` says that `p` never holds two names.
+ *
+ * Decided only by Route B, the name-partition state-class graph ([NU-050]), on any net, with or
+ * without a matched transition; every other route gives it no verdict, and `encodeScripts` throws.
+ * Both places must be coloured places of the fragment Route B classifies for the call: a match
+ * key, and under `fragmentMode('extended')` also a declared carrier or a relay target. The verdict
+ * is `unknown`, never `proven`, when a property place is uncoloured or absent (it carries no name,
+ * so the predicate would hold vacuously), when the initial marking marks a coloured place, when
+ * the net is outside the fragment, or when the graph does not close within `nuMaxClasses` and its
+ * explored prefix violates nothing.
+ */
+export interface NameAligned {
+  readonly type: 'name-aligned';
+  readonly p: Place<any>;
+  readonly q: Place<any>;
+}
+
+/**
+ * Quiescent name alignment ([NU-055]): the predicate of {@link NameAligned}, read only in the
+ * reachable quiescent markings (the reap-aware quiescence of [VER-002]). Like
+ * {@link JoinedOrDeadLettered} it carries no sink clause.
+ *
+ * Decided as {@link NameAligned} is, with the same `unknown` cases, and one more: under
+ * `alwaysAvailable` or `bounded(k)` a registered environment place makes it `unknown`, since the
+ * graph never consumes one and so never rests; model the input with `arrivals(k)` instead.
+ */
+export interface QuiescentNameAligned {
+  readonly type: 'quiescent-name-aligned';
+  readonly p: Place<any>;
+  readonly q: Place<any>;
+}
+
 // Factory functions
 
 export function deadlockFree(): DeadlockFree {
@@ -163,6 +200,16 @@ export function quiescentCount(
   return { type: 'quiescent-count', places: [...places], min, max, waivedBy: [...waivedBy] };
 }
 
+/** Name alignment of `p` and `q` in every reachable marking (NU-055). See {@link NameAligned}. */
+export function nameAligned(p: Place<any>, q: Place<any>): NameAligned {
+  return { type: 'name-aligned', p, q };
+}
+
+/** Name alignment of `p` and `q` at quiescence (NU-055). See {@link QuiescentNameAligned}. */
+export function quiescentNameAligned(p: Place<any>, q: Place<any>): QuiescentNameAligned {
+  return { type: 'quiescent-name-aligned', p, q };
+}
+
 /** Human-readable description of a property. */
 export function propertyDescription(prop: SmtProperty): string {
   switch (prop.type) {
@@ -186,5 +233,9 @@ export function propertyDescription(prop: SmtProperty): string {
         ? count
         : `${count}; lower bound waived while {${prop.waivedBy.map(p => p.name).join(', ')}} is marked`;
     }
+    case 'name-aligned':
+      return `Name alignment of ${prop.p.name} and ${prop.q.name}`;
+    case 'quiescent-name-aligned':
+      return `Quiescent name alignment of ${prop.p.name} and ${prop.q.name}`;
   }
 }
