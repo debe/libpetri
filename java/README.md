@@ -14,7 +14,7 @@ The [project README](../README.md) walks through one agent turn as a net: readin
 <dependency>
   <groupId>org.libpetri</groupId>
   <artifactId>libpetri</artifactId>
-  <version>9.0.0</version>
+  <version>10.0.0</version>
 </dependency>
 ```
 
