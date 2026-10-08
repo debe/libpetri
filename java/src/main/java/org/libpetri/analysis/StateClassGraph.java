@@ -509,6 +509,34 @@ public final class StateClassGraph {
             EnvironmentAnalysisMode environmentMode,
             Options options
     ) {
+        return build(net, initialMarking, maxClasses, environmentPlaces, environmentMode, options, null);
+    }
+
+    /**
+     * Builds the untimed-net graph that expands, at each class, only the enabled transitions of
+     * one stubborn set ([VER-024]). It keeps every reachable dead marking but not every reachable
+     * class, so only a quiescence property may read it: {@code deadlockFree},
+     * {@code terminatesAtSink}, {@code joinedOrDeadLettered}, {@code quiescentCount}.
+     *
+     * @param net            the net, with no environment places
+     * @param initialMarking the initial marking
+     * @param maxClasses     maximum number of state classes
+     * @return the reduced state class graph
+     */
+    public static StateClassGraph buildStubborn(PetriNet net, MarkingState initialMarking, int maxClasses) {
+        return build(net, initialMarking, maxClasses, Set.of(), EnvironmentAnalysisMode.ignore(),
+            Options.TIMED, new StubbornSets(net));
+    }
+
+    private static StateClassGraph build(
+            PetriNet net,
+            MarkingState initialMarking,
+            int maxClasses,
+            Set<EnvironmentPlace<?>> environmentPlaces,
+            EnvironmentAnalysisMode environmentMode,
+            Options options,
+            StubbornSets stubborn
+    ) {
         if (!environmentPlaces.isEmpty() && environmentMode instanceof EnvironmentAnalysisMode.Arrivals) {
             throw EnvironmentAnalysisMode.Arrivals.notModelled("StateClassGraph");
         }
@@ -549,7 +577,10 @@ public final class StateClassGraph {
             // Pure Berthomieu-Diaz with XOR branch expansion:
             // Each enabled transition is expanded into virtual transitions (one per XOR branch).
             // This maps XOR semantics to standard CPN conflict while keeping the algorithm unchanged.
-            for (var transition : current.enabledTransitions()) {
+            var expand = stubborn == null
+                ? current.enabledTransitions()
+                : stubborn.select(current.marking(), current.enabledTransitions());
+            for (var transition : expand) {
                 // Expand transition into virtual transitions (one per XOR branch)
                 var virtualTransitions = expandTransition(transition);
 

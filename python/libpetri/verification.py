@@ -265,6 +265,7 @@ def verify(
     linear_bound: bool = True,
     state_equation: bool = False,
     enumeration_max_classes: int | None = None,
+    partial_order_reduction: bool = True,
     state_equation_phase: bool = True,
     firing_bound: bool = True,
     state_space_cache: StateSpaceCache | None = None,
@@ -439,6 +440,15 @@ def verify(
     SMT pipeline runs unchanged; pass ``0`` to disable it, which is what a test
     pinning the encoders' own answer wants.
 
+    ``partial_order_reduction`` (default ``True``, VER-024) reduces that route by
+    stubborn sets for the quiescence properties (``deadlock_free``,
+    ``terminates_at_sink``, ``joined_or_dead_lettered``, ``quiescent_count``): each
+    class expands only one stubborn set, every reachable dead marking is kept, and a
+    net that forks into independent subnets closes in about the sum of their state
+    spaces instead of the product. A witness is then the shortest path in the
+    reduced graph, not necessarily the shortest run. ``False`` restores the full
+    graph.
+
     ``state_equation_phase`` (default ``True``, VER-018) runs after the linear
     bound and before the fixpoint query: can a marking the marking equation
     admits violate the property? ``unsat`` proves it (``result.method ==
@@ -555,6 +565,7 @@ def verify(
         linear_bound=linear_bound,
         state_equation=state_equation,
         enumeration_max_classes=enumeration_max_classes,
+        partial_order_reduction=partial_order_reduction,
         state_equation_phase=state_equation_phase,
         firing_bound=firing_bound,
         state_space_cache=state_space_cache,
@@ -583,6 +594,7 @@ def verify_subnet(
     sink_places: Iterable[PlaceLike] | None = None,
     sink_places_when: Mapping[PlaceLike, Iterable[PlaceLike]] | None = None,
     enumeration_max_classes: int | None = None,
+    partial_order_reduction: bool | None = None,
     state_space_cache: StateSpaceCache | None = None,
     budget_places: Iterable[PlaceLike] | None = None,
     carrier_places: Iterable[PlaceLike] | None = None,
@@ -642,6 +654,7 @@ def verify_subnet(
             None if sink_places_when is None else _coerce_sink_places_when(sink_places_when)
         ),
         enumeration_max_classes=enumeration_max_classes,
+        partial_order_reduction=partial_order_reduction,
         state_space_cache=state_space_cache,
         budget_places=places(budget_places),
         carrier_places=places(carrier_places),

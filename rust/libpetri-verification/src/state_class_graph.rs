@@ -10,6 +10,7 @@ use crate::dbm::Dbm;
 use crate::environment::EnvironmentAnalysisMode;
 use crate::marking_state::MarkingState;
 use crate::state_class::StateClass;
+use crate::stubborn_sets::StubbornSets;
 
 /// Edge in the state class graph representing a transition firing.
 #[derive(Debug, Clone)]
@@ -123,6 +124,39 @@ impl StateClassGraph {
         env_mode: &EnvironmentAnalysisMode,
         options: StateClassGraphOptions,
     ) -> Self {
+        Self::build_core(net, initial_marking, max_classes, env_places, env_mode, options, None)
+    }
+
+    /// The untimed-net graph that expands, at each class, only the enabled
+    /// transitions of one stubborn set ([VER-024]). It keeps every reachable dead
+    /// marking but not every reachable class, so only a quiescence property may read
+    /// it.
+    #[cfg_attr(not(feature = "z3"), allow(dead_code))]
+    pub(crate) fn build_stubborn(net: &PetriNet, initial_marking: &MarkingState, max_classes: usize) -> Self {
+        let stubborn = StubbornSets::new(net);
+        Self::build_core(
+            net,
+            initial_marking,
+            max_classes,
+            &[],
+            &EnvironmentAnalysisMode::Ignore,
+            StateClassGraphOptions::default(),
+            Some(&stubborn),
+        )
+    }
+
+    /// The breadth-first build behind [`StateClassGraph::build_with_options`] and
+    /// [`StateClassGraph::build_stubborn`]: with `stubborn`, a class expands only the
+    /// enabled transitions its stubborn set selects.
+    fn build_core(
+        net: &PetriNet,
+        initial_marking: &MarkingState,
+        max_classes: usize,
+        env_places: &[&str],
+        env_mode: &EnvironmentAnalysisMode,
+        options: StateClassGraphOptions,
+        stubborn: Option<&StubbornSets>,
+    ) -> Self {
         require_output_producing_actions(net);
         env_mode.reject_arrivals(env_places.len(), "StateClassGraph::build");
 
@@ -156,8 +190,12 @@ impl StateClassGraph {
             }
 
             let current = graph.classes[current_idx].clone();
+            let selected = stubborn.map(|s| s.select(&current.marking, &current.enabled_transitions));
 
             for (clock_idx, transition_name) in current.enabled_transitions.iter().enumerate() {
+                if selected.as_ref().is_some_and(|s| !s[clock_idx]) {
+                    continue;
+                }
                 let transition = net
                     .transitions()
                     .iter()

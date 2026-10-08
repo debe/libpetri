@@ -636,6 +636,23 @@ lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TimedScg/Succ.lean", 
 
 [[pin]]
 file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "build_core"
+lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Run.lean", "Libpetri/Novel/TimedScg/Retrodict.lean", "Libpetri/Novel/Stubborn.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
+fn = "build_stubborn"
+lean = ["Libpetri/Novel/Stubborn.lean"]
+
+# Stubborn.lean: the stubborn-set reduction of [VER-024]. A type pin hashes the impl
+# blocks too, so `new`, `select`, `closure` and `scapegoat` are covered.
+[[pin]]
+file = "rust/libpetri-verification/src/stubborn_sets.rs"
+fn = "StubbornSets"
+lean = ["Libpetri/Novel/Stubborn.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_class_graph.rs"
 fn = "compute_successor"
 lean = ["Libpetri/Novel/Enumeration.lean", "Libpetri/Novel/TimedScg/Succ.lean", "Libpetri/Novel/TimedScg/Grid.lean"]
 

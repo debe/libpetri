@@ -38,13 +38,13 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
-| [07-verification.md](07-verification.md) | VER | SMT/IC3, total budget, state-equation phase, firing bound, state class graph, timed counterexample check, structural analysis, open-net contracts | 21 |
+| [07-verification.md](07-verification.md) | VER | SMT/IC3, total budget, state-equation phase, firing bound, state class graph, stubborn-set reduction, timed counterexample check, structural analysis, open-net contracts | 22 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, bound-port references, channel fusion, action binding per instance, place fusion | 27 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, name alignment, bounded-budget decidability ledger | 15 |
-| **Total** | | | **225** |
+| **Total** | | | **226** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -329,6 +329,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-021 | XOR Branch Analysis | SHOULD | IO-012, 016 |
 | VER-022 | Open-Net Verification Against a Contract | MAY | VER-002, 004, 006, 010, 014, 017 |
 | VER-023 | Timed Counterexample Check | SHOULD | VER-003, 004, 006, 010, 013, 014, 017, EXEC-042 |
+| VER-024 | Stubborn-Set Reduction of the Enumeration Route | SHOULD | VER-004, 017, 021, EXEC-042, IO-014 |
 
 ---
 
@@ -337,9 +338,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 144   | Core contract; all implementations must conform |
-| SHOULD   | 63    | Recommended; implementations should include unless technically infeasible |
+| SHOULD   | 64    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 18    | Optional; implementations may include |
-| **Total** | **225** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| **Total** | **226** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 
@@ -507,6 +508,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-013 (total budget names the running step; re-entrant verifier) | `TotalBudgetTest#aStopNamesTheStepThatWasRunning_notTheOneAboutToStart`, `#concurrentCallsOnOneVerifier_doNotShareTheirDeadlineOrStep` | `verification/total-budget.test.ts` | `total_budget::tests` |
 | VER-017 AC11, VER-012 AC3 (truncated prefix) | `TruncatedPrefixTest` | `verification/truncated-prefix.test.ts` | `smt_verifier::tests` (`a_cached_truncation_answers_from_its_prefix`), `tests/state_space_cache.rs` |
 | VER-023 | `CounterexampleTimingTest`, `TruncatedPrefixTest` | `verification/counterexample-timing.test.ts`, `verification/truncated-prefix.test.ts` | `smt_verifier::tests` (`the_timed_check_*`, `a_timing_real_violation_*`, `a_class_budget_below_the_timed_graph_is_undecided`); Python `test_counterexample_timing.py` |
+| VER-024 | `StubbornSetsTest` | `verification/stubborn-sets.test.ts` | `tests/stubborn_sets.rs`; Python `test_stubborn_sets.py` |
 | EVT-001–014 | `NetEventTest` | `net-event.test.ts` | `net_event::tests` |
 | EVT-014 (AC4 order on the event; AC5 reproducible rendering) | `AbstractNetExecutorEngineTest.MarkingSnapshotTests`, `MarkingSnapshotTest#theMarkingSnapshotEventCanonicalisesOrderToo_AC12_EVT014` | `snapshot-restore.test.ts > EVT-014 AC#4 / CORE-073 AC#12 on the event path — canonical order where a snapshot is rendered` (both executors) | AC5 only — no producer, so AC1–AC4 are covered nowhere: `debug_response::tests::marking_bearing_frames_render_places_in_ascending_order`, `marking_cache::tests::computed_state_is_ordered_independently_of_the_process`, `debug_session_registry::tests::net_structure_lists_places_in_ascending_name_order`, `archive::session_archive::tests::header_tags_render_in_ascending_key_order` |
 | EVT-020–024 | `EventStoreTest` | `event-store.test.ts` | `event_store::tests` |

@@ -8,10 +8,10 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 ## Summary
 
-- Active requirements: **225**
-- Proven in Lean (≥ 1 validated theorem fragment): **35**
+- Active requirements: **226**
+- Proven in Lean (≥ 1 validated theorem fragment): **36**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **40**
-- Referenced by ≥ 1 test file: java **108**, typescript **107**, rust **123**, python **63**
+- Referenced by ≥ 1 test file: java **109**, typescript **108**, rust **124**, python **64**
 - Untested anywhere (no test-file reference in any language): **96**
 
 ## 01-core-model.md — CORE
@@ -177,6 +177,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | VER-021 | — | — | — | — | — | — |
 | VER-022 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | VER-023 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| VER-024 | `stubborn_preserves_dead` — what the verdict means: for any family of row sets that are stubborn (a key row, D1 dependents of enabled members, D2 increasers or decreasers of a blocked condition) at every marking with an enabled row, every ReachAD-reachable dead marking is reachable by reduced steps; footprints and dependency as in Footprints, over StepAD rows (drained forwards excluded, condition 3)<br>`reduced_enumeration_exact_quiescence` — what the verdict means: when the [VER-017] breadth-first build over the reduced successors closes, its classes are reachable and its quiescent classes are exactly the reachable dead markings, so a quiescence property is decided exactly; class key taken as marking equality, cache and witness length not modelled<br>`closure_enumeration_exact_quiescence` — the stubborn set at a class: the closure from an enabled seed under D1 and D2 reaches a fixpoint within rows.length + 1 rounds and is stubborn for any sound blocker choice (code-point order is one) and any enabled seed (the fewest-enabled choice is one), so the route's reduced graph decides quiescence exactly; rows, not transitions: a transition-level closure is argued, not proven, to be row-level stubborn | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 08-events-observability.md — EVT
 

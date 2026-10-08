@@ -296,6 +296,13 @@ jobs:
           #print axioms Libpetri.Novel.Enumeration.run_complete_iff_reach
           #print axioms Libpetri.Novel.Enumeration.decided_exact
           #print axioms Libpetri.Novel.Enumeration.net_enumeration_exact
+          #print axioms Libpetri.Novel.Stubborn.indep_diamond
+          #print axioms Libpetri.Novel.Stubborn.stubborn_preserves_dead
+          #print axioms Libpetri.Novel.Stubborn.reducedQuiescent_iff_dead
+          #print axioms Libpetri.Novel.Stubborn.reduced_enumeration_exact_quiescence
+          #print axioms Libpetri.Novel.Stubborn.reduced_prefix_quiescent_sound
+          #print axioms Libpetri.Novel.Stubborn.closure_family
+          #print axioms Libpetri.Novel.Stubborn.closure_enumeration_exact_quiescence
           #print axioms Libpetri.Novel.TimedScg.reachable_quiescent_iff_dead
           #print axioms Libpetri.Novel.TimedScg.reachable_quiescent_iff_dead_grid
           #print axioms Libpetri.Novel.TimedScg.faithful_quiescent_iff_dead

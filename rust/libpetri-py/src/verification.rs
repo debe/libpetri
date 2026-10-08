@@ -671,6 +671,8 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// the marking equation to the flat encoding; `enumeration_max_classes`
 /// (VER-017; `None` keeps the engine default of 50 000) is the class budget of
 /// the bounded state-space enumeration route, `0` disabling it;
+/// `partial_order_reduction` (default `True`, VER-024) reduces that route by
+/// stubborn sets for the quiescence properties;
 /// `state_equation_phase` (VER-018) and `firing_bound` (VER-019), both default
 /// `True`, are the pre-fixpoint phases, `False` forcing the fixpoint path. Unlike
 /// `state_equation`, neither changes the fixpoint encoding. `state_space_cache`
@@ -688,7 +690,7 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// drain is verified as a start and a `complete:<name>` step, since the executor
 /// fires other transitions while its action is in flight.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, mint_transitions = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, state_equation_phase = true, firing_bound = true, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None, assume_no_reaping = false, assume_atomic_firing = false))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, mint_transitions = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, partial_order_reduction = true, state_equation_phase = true, firing_bound = true, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None, assume_no_reaping = false, assume_atomic_firing = false))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -711,6 +713,7 @@ fn py_verify_net(
     linear_bound: bool,
     state_equation: bool,
     enumeration_max_classes: Option<usize>,
+    partial_order_reduction: bool,
     state_equation_phase: bool,
     firing_bound: bool,
     state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
@@ -831,6 +834,8 @@ fn py_verify_net(
             if let Some(n) = enumeration_max_classes {
                 verifier = verifier.enumeration_max_classes(n);
             }
+            // VER-024: stubborn-set reduction of the enumeration for quiescence properties.
+            verifier = verifier.partial_order_reduction(partial_order_reduction);
             if let Some(cache) = &state_space_cache {
                 verifier = verifier.state_space_cache(cache);
             }
@@ -849,7 +854,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, mint_transitions, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, state_equation_phase, firing_bound, state_space_cache, total_budget_ms, timed_counterexample_check, cancel, assume_no_reaping, assume_atomic_firing);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, mint_transitions, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, partial_order_reduction, state_equation_phase, firing_bound, state_space_cache, total_budget_ms, timed_counterexample_check, cancel, assume_no_reaping, assume_atomic_firing);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -987,7 +992,7 @@ fn py_z3_available() -> bool {
 /// (NU-010), so without the declarations the net stays off them and the verdict comes
 /// from the name-blind over-approximation.
 #[pyfunction(name = "verify_subnet")]
-#[pyo3(signature = (subnet, harness, *, environment_mode = None, timeout_ms = None, total_budget_ms = None, cancel = None, sink_places = None, sink_places_when = None, enumeration_max_classes = None, state_space_cache = None, budget_places = None, carrier_places = None, mint_transitions = None, fragment_mode = None, nu_max_classes = None, priority_semantics = None, timed_counterexample_check = None, assume_no_reaping = None, assume_atomic_firing = None))]
+#[pyo3(signature = (subnet, harness, *, environment_mode = None, timeout_ms = None, total_budget_ms = None, cancel = None, sink_places = None, sink_places_when = None, enumeration_max_classes = None, partial_order_reduction = None, state_space_cache = None, budget_places = None, carrier_places = None, mint_transitions = None, fragment_mode = None, nu_max_classes = None, priority_semantics = None, timed_counterexample_check = None, assume_no_reaping = None, assume_atomic_firing = None))]
 fn py_verify_subnet(
     py: Python<'_>,
     subnet: &PySubnetDef,
@@ -999,6 +1004,7 @@ fn py_verify_subnet(
     sink_places: Option<Vec<String>>,
     sink_places_when: Option<Bound<'_, PyDict>>,
     enumeration_max_classes: Option<usize>,
+    partial_order_reduction: Option<bool>,
     state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
     budget_places: Option<Vec<String>>,
     carrier_places: Option<Vec<String>>,
@@ -1048,6 +1054,9 @@ fn py_verify_subnet(
             if let Some(n) = enumeration_max_classes {
                 v = v.enumeration_max_classes(n);
             }
+            if let Some(on) = partial_order_reduction {
+                v = v.partial_order_reduction(on);
+            }
             if let Some(cache) = &state_space_cache {
                 v = v.state_space_cache(cache);
             }
@@ -1083,7 +1092,7 @@ fn py_verify_subnet(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (timeout_ms, total_budget_ms, cancel, sink_places, sink_places_when, enumeration_max_classes, state_space_cache, budget_places, carrier_places, mint_transitions, fragment_mode, nu_max_classes, priority_semantics, timed_counterexample_check, assume_no_reaping, assume_atomic_firing);
+        let _ = (timeout_ms, total_budget_ms, cancel, sink_places, sink_places_when, enumeration_max_classes, partial_order_reduction, state_space_cache, budget_places, carrier_places, mint_transitions, fragment_mode, nu_max_classes, priority_semantics, timed_counterexample_check, assume_no_reaping, assume_atomic_firing);
     }
     let mut rust_harness = VerificationHarness::<()>::new();
     #[cfg(feature = "z3")]

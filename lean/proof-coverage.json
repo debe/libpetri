@@ -728,6 +728,36 @@
       ]
     },
     {
+      "name": "stubborn_preserves_dead",
+      "module": "Libpetri/Novel/Stubborn.lean",
+      "specIds": [
+        {
+          "id": "VER-024",
+          "fragment": "what the verdict means: for any family of row sets that are stubborn (a key row, D1 dependents of enabled members, D2 increasers or decreasers of a blocked condition) at every marking with an enabled row, every ReachAD-reachable dead marking is reachable by reduced steps; footprints and dependency as in Footprints, over StepAD rows (drained forwards excluded, condition 3)"
+        }
+      ]
+    },
+    {
+      "name": "reduced_enumeration_exact_quiescence",
+      "module": "Libpetri/Novel/Stubborn.lean",
+      "specIds": [
+        {
+          "id": "VER-024",
+          "fragment": "what the verdict means: when the [VER-017] breadth-first build over the reduced successors closes, its classes are reachable and its quiescent classes are exactly the reachable dead markings, so a quiescence property is decided exactly; class key taken as marking equality, cache and witness length not modelled"
+        }
+      ]
+    },
+    {
+      "name": "closure_enumeration_exact_quiescence",
+      "module": "Libpetri/Novel/Stubborn.lean",
+      "specIds": [
+        {
+          "id": "VER-024",
+          "fragment": "the stubborn set at a class: the closure from an enabled seed under D1 and D2 reaches a fixpoint within rows.length + 1 rounds and is stubborn for any sound blocker choice (code-point order is one) and any enabled seed (the fewest-enabled choice is one), so the route's reduced graph decides quiescence exactly; rows, not transitions: a transition-level closure is argued, not proven, to be row-level stubborn"
+        }
+      ]
+    },
+    {
       "name": "run_complete_iff_reach",
       "module": "Libpetri/Novel/Enumeration.lean",
       "specIds": [

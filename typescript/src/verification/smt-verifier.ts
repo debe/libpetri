@@ -159,6 +159,7 @@ export class SmtVerifier {
   private _firingBound: boolean = true;
   private _nuMaxClasses: number = 100_000;
   private _enumerationMaxClasses: number = 50_000;
+  private _partialOrderReduction: boolean = true;
   private _stateSpaceCache: StateSpaceCache | null = null;
   private _fragmentMode: FragmentMode = 'base';
   private readonly _carrierPlaces = new Set<string>();
@@ -923,6 +924,36 @@ export class SmtVerifier {
   }
 
   /**
+   * Stubborn-set reduction of the enumeration route (VER-024), on by default. For a quiescence
+   * property (`deadlockFree`, `terminatesAtSink`, `joinedOrDeadLettered`, `quiescentCount`) the
+   * route expands, at each class, only the enabled transitions of one stubborn set. Every
+   * reachable dead marking is kept, so the verdict is unchanged, and a net that forks into
+   * independent subnets closes in about the sum of their state spaces instead of the product.
+   * A violation's witness is the shortest path in the reduced graph, which may be longer than
+   * the shortest run. `false` restores the full graph.
+   */
+  partialOrderReduction(enabled: boolean): this {
+    this._partialOrderReduction = enabled;
+    return this;
+  }
+
+  /**
+   * Whether the enumeration reads a stubborn-set reduced graph ([VER-024]): a quiescence
+   * property, on a net without a drained forward ([IO-014]).
+   */
+  private get stubbornEnumeration(): boolean {
+    switch (this._property.type) {
+      case 'deadlock-free':
+      case 'terminates-at-sink':
+      case 'joined-or-dead-lettered':
+      case 'quiescent-count':
+        return this._partialOrderReduction && drainedForward(this.net) === null;
+      default:
+        return false;
+    }
+  }
+
+  /**
    * Shares the bounded state-space enumeration route's state-class graph across queries
    * (VER-017). The graph depends only on the net and the initial marking, so every verifier
    * given the same `cache`, net instance and initial marking builds it once; a remembered
@@ -1560,6 +1591,7 @@ export class SmtVerifier {
         if (cacheLine !== null) report.push(cacheLine);
         report.push('=== Bounded state-space enumeration (VER-017) ===');
         report.push(`  State classes: ${enumerated.classCount}`);
+        if (this.stubbornEnumeration) report.push('  Stubborn-set reduction (VER-024): on');
         report.push('  P-invariants: not computed (no encoding is built on this route)');
         report.push(enumerated.truncated ? prefixNote('state-class graph', this._enumerationMaxClasses) : NOTE_ENUMERATED);
         if (enumerated.transitions.length > 0) {
@@ -2146,14 +2178,14 @@ export class SmtVerifier {
       return {
         enumerated: verifyViaStateClassGraph(
           this.net, this._initialMarking, this._property, this._sinkPlaces,
-          this._enumerationMaxClasses, this._conditionalSinks, deadline,
+          this._enumerationMaxClasses, this._conditionalSinks, deadline, this.stubbornEnumeration,
         ),
         cacheLine: null,
       };
     }
     const lookup = resolveStateSpace(
       cache, this.callerNet, this._inFlightSplit, this.net, this._initialMarking,
-      this._enumerationMaxClasses, deadline,
+      this._enumerationMaxClasses, deadline, this.stubbornEnumeration,
     );
     // The key includes the marking's listing and Place objects, so a reused graph's witness is
     // the one a cold build would return; only the initial MarkingState object is the first

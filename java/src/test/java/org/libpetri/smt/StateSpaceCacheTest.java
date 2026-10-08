@@ -57,7 +57,10 @@ class StateSpaceCacheTest {
     private static SmtVerificationResult verify(
             PetriNet net, MarkingState m0, SmtProperty property, StateSpaceCache cache,
             UnaryOperator<SmtVerifier> configure) {
-        var verifier = SmtVerifier.forNet(net).linearBound(false).initialMarking(m0).property(property)
+        // Quiescence and safety queries share one graph only with the stubborn-set reduction off:
+        // a reduced graph answers quiescence properties alone and is cached apart ([VER-024]).
+        var verifier = SmtVerifier.forNet(net).linearBound(false).partialOrderReduction(false)
+            .initialMarking(m0).property(property)
             .timeout(Duration.ofSeconds(30));
         if (cache != null) verifier.stateSpaceCache(cache);
         return configure.apply(verifier).verify();

@@ -15,6 +15,7 @@ import { requireOutputProducingActions } from '../../core/internal/output-action
 import { compareCodePoints } from '../../core/internal/code-point-order.js';
 import { environmentPlaceNames } from '../../core/internal/place-names.js';
 import { Deadline } from '../total-budget.js';
+import type { StubbornSets } from './stubborn-sets.js';
 import type { TotalBudgetExhausted } from '../total-budget.js';
 
 /** Edge that tracks which XOR branch was taken. */
@@ -49,6 +50,12 @@ export interface StateClassGraphOptions {
    * so nothing can mistake it for a class-budget truncation.
    */
   readonly deadline?: Deadline | null;
+  /**
+   * Expand at each class only the enabled transitions of one stubborn set ([VER-024]). The
+   * graph then keeps every reachable dead marking but not every reachable class, so only a
+   * quiescence property may read it.
+   */
+  readonly stubborn?: StubbornSets | null;
 }
 
 const IMMEDIATE: Timing = immediate();
@@ -156,8 +163,11 @@ export class StateClassGraph {
       poll();
 
       const current = stateClasses[expanded++]!;
+      const expand = options.stubborn == null
+        ? current.enabledTransitions
+        : options.stubborn.select(current.marking, current.enabledTransitions);
 
-      for (const transition of current.enabledTransitions) {
+      for (const transition of expand) {
         const virtualTransitions = expandTransition(transition);
 
         for (const vt of virtualTransitions) {

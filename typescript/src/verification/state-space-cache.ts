@@ -126,6 +126,7 @@ export function resolveStateSpace(
   initial: MarkingState,
   budget: number,
   deadline: Deadline | null = null,
+  stubborn: boolean = false,
 ): StateSpaceLookup {
   const state = stateOf(cache);
   let byMarking = state.entries.get(keyNet);
@@ -133,7 +134,9 @@ export function resolveStateSpace(
     byMarking = new Map();
     state.entries.set(keyNet, byMarking);
   }
-  const key = `${JSON.stringify(split)}|${markingKey(state, initial)}`;
+  // A reduced graph ([VER-024]) answers quiescence properties only: it never shares an entry
+  // with the full graph of the same net and marking.
+  const key = `${stubborn ? 'stubborn|' : ''}${JSON.stringify(split)}|${markingKey(state, initial)}`;
   const entry = byMarking.get(key);
   if (entry?.kind === 'closed') {
     return budget > entry.graph.size()
@@ -145,7 +148,7 @@ export function resolveStateSpace(
   }
   // A build the total budget cuts off ([VER-013]) throws out of here before the entry is
   // written: it is not a truncation at `budget`, and the cache stays as it was.
-  const graph = buildStateSpace(buildNet, initial, budget, deadline);
+  const graph = buildStateSpace(buildNet, initial, budget, deadline, stubborn);
   byMarking.set(key, graph.isComplete() ? { kind: 'closed', graph } : { kind: 'truncated', budget, graph });
   return { kind: 'built', graph };
 }

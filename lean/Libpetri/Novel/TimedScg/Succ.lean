@@ -7,8 +7,8 @@ import Mathlib.Order.Interval.Finset.Nat
 # The timed state-class successor ([VER-010], [VER-011], [TIME-011], [TIME-012])
 
 Model of `state_class_graph.rs::compute_successor` on the timed path (`untimed = false`), of
-`initial_state_class`, and of the loop of `build_with_options` that lists a class's successors
-(`state_class_graph.rs:152-209`), with no environment places (`env_places = []`, `Ignore`).
+`initial_state_class`, and of the loop of `build_core` (behind `build_with_options`) that lists a class's successors
+(`state_class_graph.rs:186-247`), with no environment places (`env_places = []`, `Ignore`).
 
 ## The model
 
@@ -21,8 +21,8 @@ Model of `state_class_graph.rs::compute_successor` on the timed path (`untimed =
   in the faithful instantiation (`Timing.lftT_ne_top`). `⊤` is allowed by the model and used by
   `Late.relax`. A transition is its index in the list.
 * A marking is an `AMarking`; enablement is `Basic.enabledA` (`is_enabled`,
-  `state_class_graph.rs:397-419`); firing a row is `ForwardDeposit.fireAD`; the intermediate
-  marking `inter` is `consume_marking` (`state_class_graph.rs:624-654`): inputs taken by
+  `state_class_graph.rs:435-457`); firing a row is `ForwardDeposit.fireAD`; the intermediate
+  marking `inter` is `consume_marking` (`state_class_graph.rs:662-692`): inputs taken by
   `consumptionCount`, reset places drained, nothing deposited. `fireAD_eq_inter_add`: the
   successor marking is the intermediate one plus the deposit, which is `produce_marking` for a
   constant row.
@@ -305,7 +305,7 @@ def succWith (surv : Nat → AMarking → AMarking → Nat → Bool) (N : TNet)
 def succ (N : TNet) := succWith (survives N) N
 
 /-- The successors of a class in the Rust order: clocks in class order, rows in `outcomes`
-order (`state_class_graph.rs:152-209`), dropped ones left out. -/
+order (`state_class_graph.rs:186-247`), dropped ones left out. -/
 def succListWith (surv : Nat → AMarking → AMarking → Nat → Bool) (N : TNet)
     (co : List Nat → Option (List Nat)) (eps : ℚ) (C : Cls) : List Cls :=
   (List.range C.cs.length).flatMap fun k =>

@@ -39,3 +39,4 @@ import Libpetri.Novel.RouteA
 import Libpetri.Novel.RouteB
 import Libpetri.Novel.EnvSemantics
 import Libpetri.Novel.InFlight
+import Libpetri.Novel.Stubborn

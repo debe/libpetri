@@ -107,6 +107,7 @@ def verify(
     linear_bound: bool = ...,
     state_equation: bool = ...,
     enumeration_max_classes: int | None = ...,
+    partial_order_reduction: bool = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
     state_space_cache: StateSpaceCache | None = ...,
@@ -125,6 +126,8 @@ def verify(
     default of 50 000) is the class
     budget of the bounded state-space enumeration route, which decides an untimed
     closed net exactly with no solver at all; ``0`` disables it (VER-017).
+    ``partial_order_reduction`` (default ``True``) reduces that route by stubborn
+    sets for the quiescence properties; every dead marking is kept (VER-024).
     ``semiflow_invariants="auto"`` unions the P-semiflows exactly when the
     null-space basis lost a law to the H1 guard (VER-007). ``state_equation_phase``
     (VER-018) and ``firing_bound`` (VER-019), both on by default, can decide the
@@ -167,6 +170,7 @@ def verify_subnet(
     sink_places: Iterable[PlaceLike] | None = ...,
     sink_places_when: _PlaceSets | None = ...,
     enumeration_max_classes: int | None = ...,
+    partial_order_reduction: bool | None = ...,
     state_space_cache: StateSpaceCache | None = ...,
     budget_places: Iterable[PlaceLike] | None = ...,
     carrier_places: Iterable[PlaceLike] | None = ...,

@@ -42,6 +42,7 @@ import type { ConditionalSinks } from './rest-set.js';
 import { decideOverClasses } from './graph-decision.js';
 import { isNameAlignment, routeBOnlyReason } from './name-alignment.js';
 import { StateClassGraph } from './analysis/state-class-graph.js';
+import { StubbornSets } from './analysis/stubborn-sets.js';
 import type { StateClass } from './analysis/state-class.js';
 import type { Deadline } from './total-budget.js';
 
@@ -105,8 +106,11 @@ export function verifyViaStateClassGraph(
   maxClasses: number,
   conditionalSinks: readonly ConditionalSinks[] = [],
   deadline: Deadline | null = null,
+  stubborn: boolean = false,
 ): ScgOutcome {
-  return decideOverStateSpace(buildStateSpace(net, initial, maxClasses, deadline), property, sinkPlaces, conditionalSinks);
+  return decideOverStateSpace(
+    buildStateSpace(net, initial, maxClasses, deadline, stubborn), property, sinkPlaces, conditionalSinks,
+  );
 }
 
 let builds = 0;
@@ -121,18 +125,22 @@ export function stateSpaceBuildCount(): number {
 
 /**
  * Builds the state-class graph the route reads, up to `maxClasses` classes. The graph depends
- * only on `net` and `initial`; the property and the sinks only read it ([VER-017]).
+ * only on `net` and `initial`; the property and the sinks only read it ([VER-017]). With
+ * `stubborn`, the graph is reduced by stubborn sets ([VER-024]) and answers quiescence
+ * properties only.
  */
 export function buildStateSpace(
   net: PetriNet,
   initial: MarkingState,
   maxClasses: number,
   deadline: Deadline | null = null,
+  stubborn: boolean = false,
 ): StateClassGraph {
   builds++;
-  return deadline === null
-    ? StateClassGraph.build(net, initial, maxClasses)
-    : StateClassGraph.build(net, initial, maxClasses, undefined, undefined, { deadline });
+  return StateClassGraph.build(net, initial, maxClasses, undefined, undefined, {
+    deadline,
+    stubborn: stubborn ? new StubbornSets(net) : null,
+  });
 }
 
 /**

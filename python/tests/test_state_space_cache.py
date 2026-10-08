@@ -40,6 +40,10 @@ def _pipeline(n, *, priority=0, terminal=False):
 
 
 def _verify(net, *, cache=None, sinks=("p6",), marking=None, prop=None, **kw):
+    # Quiescence and safety queries share one graph only with the stubborn-set
+    # reduction off: a reduced graph answers quiescence properties alone and is
+    # cached apart (VER-024).
+    kw.setdefault("partial_order_reduction", False)
     return lp.verify(
         net,
         prop if prop is not None else lp.deadlock_free(),

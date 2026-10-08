@@ -62,60 +62,61 @@ flowchart TD
   f53["Libpetri/Novel/Seam/Retrodict.lean (21)"]
   f54["Libpetri/Novel/Seam/Sound.lean (11)"]
   f55["Libpetri/Novel/SiphonSearch.lean (106)"]
-  f56["Libpetri/Novel/TerminalRewrite.lean (35)"]
-  f57["Libpetri/Novel/TimedScg/Grid.lean (26)"]
-  f58["Libpetri/Novel/TimedScg/Late.lean (52)"]
-  f59["Libpetri/Novel/TimedScg/Progress.lean (12)"]
-  f60["Libpetri/Novel/TimedScg/Retrodict.lean (71)"]
-  f61["Libpetri/Novel/TimedScg/Run.lean (12)"]
-  f62["Libpetri/Novel/TimedScg/Succ.lean (79)"]
-  f63["Libpetri/Novel/TimedScg/Timing.lean (32)"]
-  f64["Libpetri/Novel/TimedScg/Zone.lean (33)"]
-  f65["Libpetri/Novel/TransferRows.lean (15)"]
-  f66["Libpetri/Priority.lean (27)"]
-  f67["Libpetri/Refinement.lean (20)"]
-  f68["Libpetri/Refinement/Correspondence.lean (2)"]
-  f69["Libpetri/Refinement/Model.lean (39)"]
-  f70["Libpetri/Retrodict.lean (15)"]
-  f71["Libpetri/RetrodictExec.lean (11)"]
-  f72["Libpetri/Ring.lean (3)"]
-  f73["Libpetri/Ring/Core.lean (58)"]
-  f74["Libpetri/Ring/Grow.lean (40)"]
-  f75["Libpetri/Ring/Match.lean (38)"]
-  f76["Libpetri/RingArith.lean (9)"]
-  f77["Libpetri/Sched.lean (19)"]
-  f78["Libpetri/Semiflow.lean (40)"]
-  f79["Libpetri/Soundness.lean (32)"]
-  f80["Libpetri/StateEquation.lean (27)"]
-  f81["Libpetri/Strengthening.lean (30)"]
-  f82["Libpetri/Strengthening/Hypotheses.lean (4)"]
-  f83["Libpetri/TimedCycle.lean (37)"]
-  f1 --> f74
+  f56["Libpetri/Novel/Stubborn.lean (90)"]
+  f57["Libpetri/Novel/TerminalRewrite.lean (35)"]
+  f58["Libpetri/Novel/TimedScg/Grid.lean (26)"]
+  f59["Libpetri/Novel/TimedScg/Late.lean (52)"]
+  f60["Libpetri/Novel/TimedScg/Progress.lean (12)"]
+  f61["Libpetri/Novel/TimedScg/Retrodict.lean (71)"]
+  f62["Libpetri/Novel/TimedScg/Run.lean (12)"]
+  f63["Libpetri/Novel/TimedScg/Succ.lean (79)"]
+  f64["Libpetri/Novel/TimedScg/Timing.lean (32)"]
+  f65["Libpetri/Novel/TimedScg/Zone.lean (33)"]
+  f66["Libpetri/Novel/TransferRows.lean (15)"]
+  f67["Libpetri/Priority.lean (27)"]
+  f68["Libpetri/Refinement.lean (20)"]
+  f69["Libpetri/Refinement/Correspondence.lean (2)"]
+  f70["Libpetri/Refinement/Model.lean (39)"]
+  f71["Libpetri/Retrodict.lean (15)"]
+  f72["Libpetri/RetrodictExec.lean (11)"]
+  f73["Libpetri/Ring.lean (3)"]
+  f74["Libpetri/Ring/Core.lean (58)"]
+  f75["Libpetri/Ring/Grow.lean (40)"]
+  f76["Libpetri/Ring/Match.lean (38)"]
+  f77["Libpetri/RingArith.lean (9)"]
+  f78["Libpetri/Sched.lean (19)"]
+  f79["Libpetri/Semiflow.lean (40)"]
+  f80["Libpetri/Soundness.lean (32)"]
+  f81["Libpetri/StateEquation.lean (27)"]
+  f82["Libpetri/Strengthening.lean (30)"]
+  f83["Libpetri/Strengthening/Hypotheses.lean (4)"]
+  f84["Libpetri/TimedCycle.lean (37)"]
+  f1 --> f75
   f2 --> f1
   f2 --> f3
-  f3 --> f73
+  f3 --> f74
   f4 --> f2
-  f6 --> f79
+  f6 --> f80
   f7 --> f8
   f7 --> f10
   f8 --> f9
-  f9 --> f72
-  f9 --> f74
+  f9 --> f73
+  f9 --> f75
   f10 --> f1
   f10 --> f9
   f12 --> f26
-  f12 --> f80
-  f13 --> f79
+  f12 --> f81
+  f13 --> f80
   f15 --> f26
   f16 --> f20
   f17 --> f20
   f18 --> f19
   f18 --> f49
   f19 --> f26
-  f19 --> f70
+  f19 --> f71
   f20 --> f15
   f20 --> f18
-  f21 --> f80
+  f21 --> f81
   f22 --> f24
   f23 --> f15
   f23 --> f22
@@ -123,16 +124,16 @@ flowchart TD
   f24 --> f28
   f25 --> f23
   f25 --> f31
-  f26 --> f79
+  f26 --> f80
   f27 --> f26
-  f27 --> f82
+  f27 --> f83
   f28 --> f26
   f28 --> f29
-  f28 --> f81
+  f28 --> f82
   f30 --> f31
   f30 --> f49
-  f31 --> f81
-  f31 --> f83
+  f31 --> f82
+  f31 --> f84
   f32 --> f0
   f33 --> f6
   f33 --> f26
@@ -149,7 +150,7 @@ flowchart TD
   f41 --> f47
   f42 --> f5
   f43 --> f44
-  f43 --> f65
+  f43 --> f66
   f44 --> f5
   f44 --> f26
   f44 --> f45
@@ -163,7 +164,7 @@ flowchart TD
   f49 --> f29
   f49 --> f50
   f49 --> f52
-  f49 --> f81
+  f49 --> f82
   f50 --> f51
   f51 --> f0
   f52 --> f26
@@ -172,37 +173,38 @@ flowchart TD
   f54 --> f49
   f55 --> f13
   f55 --> f30
-  f56 --> f81
-  f57 --> f61
-  f57 --> f63
-  f58 --> f61
-  f58 --> f63
-  f59 --> f57
+  f56 --> f15
+  f57 --> f82
+  f58 --> f62
+  f58 --> f64
+  f59 --> f62
+  f59 --> f64
   f60 --> f58
-  f60 --> f59
-  f61 --> f15
-  f61 --> f62
-  f62 --> f26
-  f62 --> f64
-  f63 --> f62
-  f64 --> f14
-  f65 --> f15
-  f66 --> f0
-  f67 --> f68
+  f61 --> f59
+  f61 --> f60
+  f62 --> f15
+  f62 --> f63
+  f63 --> f26
+  f63 --> f65
+  f64 --> f63
+  f65 --> f14
+  f66 --> f15
+  f67 --> f0
   f68 --> f69
-  f69 --> f4
-  f70 --> f79
-  f71 --> f2
-  f71 --> f77
-  f72 --> f75
-  f73 --> f0
+  f69 --> f70
+  f70 --> f4
+  f71 --> f80
+  f72 --> f2
+  f72 --> f78
   f73 --> f76
-  f74 --> f73
-  f75 --> f73
-  f78 --> f81
-  f79 --> f0
-  f80 --> f78
-  f81 --> f70
-  f81 --> f82
-  f82 --> f6
+  f74 --> f0
+  f74 --> f77
+  f75 --> f74
+  f76 --> f74
+  f79 --> f82
+  f80 --> f0
+  f81 --> f79
+  f82 --> f71
+  f82 --> f83
+  f83 --> f6
 ```

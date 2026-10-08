@@ -4,7 +4,7 @@ import Mathlib.Logic.Relation
 /-!
 # The bounded enumeration route decides exactly ([VER-017])
 
-Model of the enumeration route: `StateClassGraph::build_with_options`
+Model of the enumeration route: `StateClassGraph::build_with_options` (its loop is `build_core`)
 (`rust/libpetri-verification/src/state_class_graph.rs:118`), which the route reaches through
 `StateClassGraph::build` with no environment places, and the verdict that
 `decide_over_state_space` (`rust/libpetri-verification/src/scg_verifier.rs:147`) reads off the
@@ -22,11 +22,11 @@ reap-aware reading belongs to the [VER-023] timed check (`ReapAware.lean`). `com
 successor exactly when the count marking enables it. Route B's name gate is `RouteB/Graph.lean`'s
 concern.
 
-The exploration is a breadth-first worklist (`state_class_graph.rs:138-212`):
+The exploration is a breadth-first worklist (`state_class_graph.rs:172-250`):
 * pop the front class, and stop with `complete = false` if the budget is reached
-  (`classes.len() >= max_classes`, `state_class_graph.rs:139-142`);
+  (`classes.len() >= max_classes`, `state_class_graph.rs:173-176`);
 * otherwise, for every successor in order, look its key up. A new successor is appended to
-  both the class list and the queue (`state_class_graph.rs:181-191`); a known one only gets an
+  both the class list and the queue (`state_class_graph.rs:219-229`); a known one only gets an
   edge.
 * The graph is complete when the queue runs dry.
 `run` is that loop with the class list and queue as lists and dedup by equality (the key).
@@ -66,7 +66,7 @@ Results:
 stored class reachable, so its prefix violation is sound. A quiescence property reads "no
 successor", which on a truncated graph the model does not decide for the frontier: the Rust
 therefore counts a class quiescent only when the build **expanded** it
-(`i < expanded_count()`, `scg_verifier.rs:118-127`; the counter is `state_class_graph.rs:211`).
+(`i < expanded_count()`, `scg_verifier.rs:118-127`; the counter is `state_class_graph.rs:249`).
 That an expanded class's recorded successors are all of its successors is the invariant's
 second half (`Inv.closed`: a class not waiting in the queue has every successor discovered),
 and that "expanded" is exactly `index < expanded_count` holds because the queue is FIFO over
@@ -75,7 +75,7 @@ graph every class is expanded, so `is_quiescent` and every result above are unch
 theorems claim nothing about a truncated graph's `Proven`, and the Rust never produces one.
 
 **Stopped builds ([VER-013]).** The total verification budget or a cancellation ends the loop
-early too (`state_class_graph.rs:145-149`), with `complete = false` and `stopped = true`.
+early too (`state_class_graph.rs:179-183`), with `complete = false` and `stopped = true`.
 `decide_over_state_space` reads nothing off such a graph (`Stopped`), and the state-space cache
 does not record it. In the model a stop is one more way to leave the loop incomplete, like
 running out of fuel; the theorems say nothing about incomplete runs beyond `build_reach`, and
@@ -92,10 +92,10 @@ proven:
   marking-dependent row the fixed rows here cannot hold; `TransferRows.lean` instantiates the
   loop with those rows (`succTransfer`, `transfer_enumeration_exact`,
   `transfer_enumeration_sound`), so this route decides such nets, which the linear routes
-  refuse. The Rust `compute_successor` (`state_class_graph.rs:448`)
+  refuse. The Rust `compute_successor` (`state_class_graph.rs:486`)
   works on state classes with (trivial) firing domains, iterates the class's enabled transitions
   in canonical clock order rather than net order, and drops a successor whose domain is empty
-  (`state_class_graph.rs:175-177`). That it yields exactly the `fireAD` successors over the
+  (`state_class_graph.rs:213-215`). That it yields exactly the `fireAD` successors over the
   `outcomes` rows (`succRows`), as a set, on an immediate-only net is the premise of VER-017
   condition 3. It is **not** true of the `fireA` successors (`succNet`) once a row deposits two
   tokens in one place, which is why `net_enumeration_exact` covers duplicate-free rows only.
@@ -106,7 +106,7 @@ proven:
 
 Also not modelled:
 * Environment injection. The Rust build threads `env_set` into `compute_successor`
-  (`state_class_graph.rs:122`, `state_class_graph.rs:170`), but the Lean successor step
+  (`state_class_graph.rs:122`, `state_class_graph.rs:208`), but the Lean successor step
   `succNet` covers only net transitions. The route itself runs only when no environment places
   are registered (VER-017 condition 2, checked in `verify_net`); a build handed environment
   places under `Arrivals(k)`, which only the verifier's net rewrite applies, is refused.

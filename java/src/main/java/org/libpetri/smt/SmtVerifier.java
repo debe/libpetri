@@ -186,6 +186,7 @@ public final class SmtVerifier {
     private boolean counterexampleReplay = true;
     private SemiflowMode semiflowInvariants = SemiflowMode.OFF;
     private int enumerationMaxClasses = 50_000;
+    private boolean partialOrderReduction = true;
     private boolean linearBound = true;
     private boolean stateEquation = false;
     private boolean stateEquationPhase = true;
@@ -1160,6 +1161,38 @@ public final class SmtVerifier {
     }
 
     /**
+     * Stubborn-set reduction of the enumeration route ([VER-024]), on by default. For a
+     * quiescence property ({@code deadlockFree}, {@code terminatesAtSink},
+     * {@code joinedOrDeadLettered}, {@code quiescentCount}) the route expands, at each class, only
+     * the enabled transitions of one stubborn set. Every reachable dead marking is kept, so the
+     * verdict is unchanged, and a net that forks into independent subnets closes in about the
+     * sum of their state spaces instead of the product. A violation's witness is the shortest
+     * path in the reduced graph, which may be longer than the shortest run. {@code false}
+     * restores the full graph.
+     *
+     * @param enabled whether to reduce
+     * @return this verifier
+     */
+    public SmtVerifier partialOrderReduction(boolean enabled) {
+        this.partialOrderReduction = enabled;
+        return this;
+    }
+
+    /**
+     * Whether the enumeration reads a stubborn-set reduced graph ([VER-024]): a quiescence
+     * property, on a net without a drained forward ([IO-014]).
+     */
+    private boolean stubbornEnumeration() {
+        boolean quiescence = switch (property) {
+            case SmtProperty.DeadlockFree _, SmtProperty.TerminatesAtSink _,
+                 SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _ -> true;
+            default -> false;
+        };
+        return quiescence && partialOrderReduction
+            && org.libpetri.analysis.BranchOutcomes.drainedForward(net).isEmpty();
+    }
+
+    /**
      * Shares a state-space cache with other verifications ([VER-017] "Reusing the state space
      * across queries"; default: none).
      *
@@ -1782,6 +1815,7 @@ public final class SmtVerifier {
         // model; on truncation the SMT pipeline below runs unchanged.
         if (enumerationRoute) {
             enter("state-space enumeration", SmtVerificationResult.Route.ENUMERATION);
+            boolean stubborn = stubbornEnumeration();
             ScgVerifier.Outcome enumerated;
             // Under arrivals(k) the graph is of the closed net, which depends on the environment
             // places as well as on the caller's net and marking: it would share a cache entry
@@ -1792,8 +1826,11 @@ public final class SmtVerifier {
                     report.append("Bounded state-space enumeration: state-space cache not used — the net was "
                         + "closed by arrivals(k) (VER-006, VER-017).\n");
                 }
-                enumerated = ScgVerifier.verify(
-                    net, initialMarking, property, sinkPlaces, enumerationMaxClasses, conditional);
+                enumerated = stubborn
+                    ? ScgVerifier.decide(StateClassGraph.buildStubborn(net, initialMarking, enumerationMaxClasses),
+                        property, sinkPlaces, conditional, false)
+                    : ScgVerifier.verify(
+                        net, initialMarking, property, sinkPlaces, enumerationMaxClasses, conditional);
             } else {
                 // Keyed by the caller's net and the in-flight split ([VER-004]): the inert-place,
                 // split and terminal rewrites are a new instance per verification, but a
@@ -1802,7 +1839,9 @@ public final class SmtVerifier {
                 // assumeAtomicFiring, answer a query that runs on the split net.
                 var encoded = net;
                 var lookup = stateSpaceCache.lookup(callerNet, inFlightSplit, initialMarking,
-                    enumerationMaxClasses, budget -> StateClassGraph.build(encoded, initialMarking, budget));
+                    enumerationMaxClasses, stubborn, budget -> stubborn
+                        ? StateClassGraph.buildStubborn(encoded, initialMarking, budget)
+                        : StateClassGraph.build(encoded, initialMarking, budget));
                 // A lookup answered as truncated still reads the graph it has — the truncated
                 // build, or a cached one at least as large — as an explored prefix: a violation
                 // in it stands, nothing is proven from it ([VER-017]).
@@ -1826,6 +1865,7 @@ public final class SmtVerifier {
             if (enumerated instanceof ScgVerifier.Outcome.Decided decided) {
                 report.append("=== Bounded state-space enumeration (VER-017) ===\n");
                 report.append("  State classes: ").append(decided.classCount()).append("\n");
+                if (stubborn) report.append("  Stubborn-set reduction (VER-024): on\n");
                 report.append("  P-invariants: not computed (no encoding is built on this route)\n");
                 report.append(decided.truncated()
                     ? GraphDecision.prefixNote("state-class graph", enumerationMaxClasses)

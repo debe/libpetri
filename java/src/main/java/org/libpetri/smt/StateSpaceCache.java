@@ -85,20 +85,22 @@ public final class StateSpaceCache {
      * {@link MarkingState#placesWithTokens()}: two equal markings listed differently must not
      * share a graph, or the second caller's witness would list places in the first's order.
      */
-    private record Key(PetriNet net, List<String> split, MarkingState initial, List<Place<?>> listing) {
-        Key(PetriNet net, List<String> split, MarkingState initial) {
-            this(net, List.copyOf(split), initial, List.copyOf(initial.placesWithTokens()));
+    private record Key(
+            PetriNet net, List<String> split, MarkingState initial, List<Place<?>> listing, boolean stubborn) {
+        Key(PetriNet net, List<String> split, MarkingState initial, boolean stubborn) {
+            this(net, List.copyOf(split), initial, List.copyOf(initial.placesWithTokens()), stubborn);
         }
 
         @Override
         public boolean equals(Object o) {
             return o instanceof Key k && k.net == net && k.split.equals(split)
-                && k.initial.equals(initial) && k.listing.equals(listing);
+                && k.initial.equals(initial) && k.listing.equals(listing) && k.stubborn == stubborn;
         }
 
         @Override
         public int hashCode() {
-            return 31 * (31 * System.identityHashCode(net) + split.hashCode()) + initial.hashCode();
+            return 31 * (31 * (31 * System.identityHashCode(net) + split.hashCode()) + initial.hashCode())
+                + Boolean.hashCode(stubborn);
         }
     }
 
@@ -183,7 +185,17 @@ public final class StateSpaceCache {
      */
     Lookup lookup(PetriNet key, List<String> split, MarkingState initial, int budget,
             IntFunction<StateClassGraph> build) {
-        var k = new Key(Objects.requireNonNull(key), split, Objects.requireNonNull(initial));
+        return lookup(key, split, initial, budget, false, build);
+    }
+
+    /**
+     * {@link #lookup(PetriNet, List, MarkingState, int, IntFunction)} for a graph reduced by
+     * stubborn sets when {@code stubborn} ([VER-024]). A reduced graph answers quiescence
+     * properties only, so it never shares an entry with the full graph of the same net and marking.
+     */
+    Lookup lookup(PetriNet key, List<String> split, MarkingState initial, int budget, boolean stubborn,
+            IntFunction<StateClassGraph> build) {
+        var k = new Key(Objects.requireNonNull(key), split, Objects.requireNonNull(initial), stubborn);
         while (true) {
             var existing = entries.get(k);
             if (existing == null) {

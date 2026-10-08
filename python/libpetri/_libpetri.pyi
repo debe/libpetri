@@ -588,6 +588,7 @@ def verify_net(
     linear_bound: bool = ...,
     state_equation: bool = ...,
     enumeration_max_classes: int | None = ...,
+    partial_order_reduction: bool = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
     state_space_cache: StateSpaceCache | None = ...,
@@ -606,6 +607,8 @@ def verify_net(
     ``enumeration_max_classes`` (``None`` keeps the engine
     default of 50 000) is the class budget of the
     bounded state-space enumeration route; ``0`` disables it (VER-017).
+    ``partial_order_reduction`` (default ``True``) reduces that route by stubborn
+    sets for the quiescence properties; every dead marking is kept (VER-024).
     ``semiflow_invariants`` also takes ``"auto"``: union the P-semiflows exactly
     when the null-space basis lost a law to the H1 guard (VER-007).
     ``state_equation_phase`` (VER-018) and ``firing_bound`` (VER-019), both on by
@@ -629,6 +632,7 @@ def verify_subnet(
     sink_places: list[str] | None = ...,
     sink_places_when: dict[str, list[str]] | None = ...,
     enumeration_max_classes: int | None = ...,
+    partial_order_reduction: bool | None = ...,
     state_space_cache: StateSpaceCache | None = ...,
     budget_places: list[str] | None = ...,
     carrier_places: list[str] | None = ...,

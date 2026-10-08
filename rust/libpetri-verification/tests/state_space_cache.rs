@@ -78,8 +78,12 @@ fn tokens_in_p0(count: usize) -> MarkingState {
     MarkingStateBuilder::new().tokens("p0", count).build()
 }
 
+/// Quiescence and safety queries share one graph only with the stubborn-set reduction
+/// off: a reduced graph answers quiescence properties alone and is cached apart
+/// ([VER-024]).
 fn query<'n>(net: &'n PetriNet, m0: &MarkingState, sinks: &[&str]) -> SmtVerifier<'n> {
     SmtVerifier::for_net(net)
+        .partial_order_reduction(false)
         .initial_marking(m0.clone())
         .property(SmtProperty::DeadlockFree)
         .sink_places(sinks.iter().map(|s| s.to_string()))

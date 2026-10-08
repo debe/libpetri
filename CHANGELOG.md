@@ -23,6 +23,11 @@
   - Java `SmtProperty.nameAligned` / `quiescentNameAligned`, TypeScript `nameAligned` / `quiescentNameAligned`, Rust `SmtProperty::name_aligned` / `quiescent_name_aligned`, Python `name_aligned` / `quiescent_name_aligned` (also from `libpetri`).
   - Lean: `routeB_untimed_nameAligned_sound` and `routeB_untimed_quiescentNameAligned_sound` (`Novel/RouteB/Aligned.lean`) prove a `Proven` sound for the untimed, environment-free, atomic executor. The fixtures are `spec/verification-fixtures/nu-aligned-fixtures.json`.
 
+- **Stubborn-set reduction of the state-space enumeration (all languages, [VER-024]).** For a quiescence property (`deadlockFree`, `terminatesAtSink`, `joinedOrDeadLettered`, `quiescentCount`) the enumeration route now expands, at each class, only the enabled transitions of one stubborn set. Every reachable dead marking is kept, so verdicts are unchanged, and a net that forks into independent subnets closes in about the sum of their state spaces instead of the product: six independent 10-cycles close in 11 classes instead of a million.
+  - On by default; `partialOrderReduction(false)` (Python `partial_order_reduction=False`) restores the full graph. A witness is the shortest path in the reduced graph, which may be longer than the shortest run.
+  - Safety properties, ν-nets, timed nets and nets with a drained forward keep the full graph. The state-space cache keeps reduced and full graphs apart.
+  - Lean: `stubborn_preserves_dead`, `reduced_enumeration_exact_quiescence` and `closure_enumeration_exact_quiescence` (`Novel/Stubborn.lean`) prove that the reduced graph's quiescent classes are exactly the reachable dead markings.
+
 ### Changed
 
 - **The linear bound runs before the state-space enumeration on untimed nets (all languages, [VER-015], [VER-017]).** A reachability-safety property (`placeBound`, `branchPlaceBound`, `mutualExclusion`, `unreachable`) now tries the one-query state-equation bound first, so a graph that does not close no longer spends the whole class budget before the bound proves the claim. On a 134-transition composed agent net each `placeBound` claim went from about 17 s (200 000 classes) to under 0.1 s.

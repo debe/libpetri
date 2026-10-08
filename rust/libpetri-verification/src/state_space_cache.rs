@@ -136,13 +136,17 @@ const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 pub(crate) struct StateSpaceKey {
     net: String,
     marking: String,
+    /// A graph reduced by stubborn sets ([VER-024]) answers quiescence properties
+    /// only, so it never shares an entry with the full graph of the same net.
+    stubborn: bool,
 }
 
 impl StateSpaceKey {
-    pub(crate) fn new(net: &PetriNet, initial: &MarkingState) -> Self {
+    pub(crate) fn new(net: &PetriNet, initial: &MarkingState, stubborn: bool) -> Self {
         Self {
             net: net_fingerprint(net),
             marking: marking_fingerprint(initial),
+            stubborn,
         }
     }
 }
@@ -413,7 +417,7 @@ mod tests {
         ];
         let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
         let keys: std::collections::HashSet<_> =
-            nets.iter().map(|n| StateSpaceKey::new(n, &m0)).collect();
+            nets.iter().map(|n| StateSpaceKey::new(n, &m0, false)).collect();
         assert_eq!(keys.len(), nets.len());
     }
 
@@ -422,12 +426,13 @@ mod tests {
         let a = Place::<()>::new("a");
         let m0 = MarkingStateBuilder::new().tokens("a", 2).build();
         assert!(
-            StateSpaceKey::new(&chain(one(&a)), &m0) != StateSpaceKey::new(&chain(exactly(2, &a)), &m0)
+            StateSpaceKey::new(&chain(one(&a)), &m0, false)
+                != StateSpaceKey::new(&chain(exactly(2, &a)), &m0, false)
         );
         let net = chain(one(&a));
         let xy = MarkingStateBuilder::new().tokens("x", 1).tokens("a", 2).build();
         let yx = MarkingStateBuilder::new().tokens("a", 2).tokens("x", 1).build();
-        assert!(StateSpaceKey::new(&net, &xy) == StateSpaceKey::new(&net, &yx));
+        assert!(StateSpaceKey::new(&net, &xy, false) == StateSpaceKey::new(&net, &yx, false));
     }
 
     /// [VER-013] AC10: a build the total budget stopped short of its class budget
@@ -439,7 +444,7 @@ mod tests {
         let a = Place::<()>::new("a");
         let net = chain(one(&a));
         let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
-        let key = StateSpaceKey::new(&net, &m0);
+        let key = StateSpaceKey::new(&net, &m0, false);
         let cut_build = || {
             let _spent = crate::total_budget::enter(Some(0), None);
             let graph = StateClassGraph::build(&net, &m0, 100);
@@ -479,7 +484,7 @@ mod tests {
         let a = Place::<()>::new("a");
         let net = chain(one(&a));
         let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
-        let key = StateSpaceKey::new(&net, &m0);
+        let key = StateSpaceKey::new(&net, &m0, false);
         let cache = StateSpaceCache::new();
         let token = CancelToken::new();
         let (started_tx, started_rx) = mpsc::channel();
@@ -539,7 +544,7 @@ mod tests {
         let net = chain(one(&a));
         let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
         let cache = StateSpaceCache::new();
-        let key = StateSpaceKey::new(&net, &m0);
+        let key = StateSpaceKey::new(&net, &m0, false);
         let truncated = StateClassGraph::build(&net, &m0, 1);
         assert!(!truncated.is_complete());
         cache.lookup(key.clone(), 1, || truncated);
@@ -580,7 +585,7 @@ mod tests {
         let net = chain(one(&a));
         let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
         let cache = StateSpaceCache::new();
-        let key = StateSpaceKey::new(&net, &m0);
+        let key = StateSpaceKey::new(&net, &m0, false);
         let failed = thread::scope(|scope| {
             scope
                 .spawn(|| cache.lookup(key.clone(), 100, || panic!("build failed")))
@@ -602,7 +607,7 @@ mod tests {
         let net = chain(one(&a));
         let m0 = MarkingStateBuilder::new().tokens("a", 1).build();
         let cache = StateSpaceCache::new();
-        let key = StateSpaceKey::new(&net, &m0);
+        let key = StateSpaceKey::new(&net, &m0, false);
         cache.lookup(key.clone(), 1, || StateClassGraph::build(&net, &m0, 1));
         let failed = thread::scope(|scope| {
             scope

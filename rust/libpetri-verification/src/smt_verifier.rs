@@ -128,6 +128,7 @@ pub struct SmtVerifier<'a> {
     /// default 50 000; `0` disables it). See
     /// [`SmtVerifier::enumeration_max_classes`].
     enumeration_max_classes: usize,
+    partial_order_reduction: bool,
     /// The caller's state-space cache for the enumeration route ([VER-017]), if
     /// any. See [`SmtVerifier::state_space_cache`].
     state_space_cache: Option<StateSpaceCache>,
@@ -242,6 +243,7 @@ impl<'a> SmtVerifier<'a> {
             counterexample_replay: true,
             semiflow_invariants: SemiflowMode::Off,
             enumeration_max_classes: 50_000,
+            partial_order_reduction: true,
             state_space_cache: None,
             state_space_key: None,
             state_equation: false,
@@ -562,6 +564,32 @@ impl<'a> SmtVerifier<'a> {
         self
     }
 
+    /// Stubborn-set reduction of the enumeration route ([VER-024]), on by default.
+    /// For a quiescence property (`DeadlockFree`, `TerminatesAtSink`,
+    /// `JoinedOrDeadLettered`, `QuiescentCount`) the route expands, at each class,
+    /// only the enabled transitions of one stubborn set. Every reachable dead marking
+    /// is kept, so the verdict is unchanged, and a net that forks into independent
+    /// subnets closes in about the sum of their state spaces instead of the product.
+    /// A violation's witness is the shortest path in the reduced graph, which may be
+    /// longer than the shortest run. `false` restores the full graph.
+    pub fn partial_order_reduction(mut self, enabled: bool) -> Self {
+        self.partial_order_reduction = enabled;
+        self
+    }
+
+    /// Whether the enumeration reads a stubborn-set reduced graph ([VER-024]): a
+    /// quiescence property, on a net without a drained forward ([IO-014]).
+    fn stubborn_enumeration(&self) -> bool {
+        matches!(
+            self.property,
+            SmtProperty::DeadlockFree
+                | SmtProperty::TerminatesAtSink
+                | SmtProperty::JoinedOrDeadLettered { .. }
+                | SmtProperty::QuiescentCount { .. }
+        ) && self.partial_order_reduction
+            && branch_outcomes::drained_forward(self.net).is_none()
+    }
+
     /// Shares a caller-owned [`StateSpaceCache`] with this verification
     /// ([VER-017]), so the enumeration route builds the state-class graph of a net
     /// and initial marking once across every query that passes the same cache.
@@ -843,7 +871,11 @@ impl<'a> SmtVerifier<'a> {
         // determines the graph built from the rewritten one. It adds inhibitors
         // only, so whether the route can apply is the same question on either net.
         if self.state_space_cache.is_some() && self.enumeration_applies() {
-            self.state_space_key = Some(StateSpaceKey::new(self.net, &self.initial_marking));
+            self.state_space_key = Some(StateSpaceKey::new(
+                self.net,
+                &self.initial_marking,
+                self.stubborn_enumeration(),
+            ));
         }
         // [EXEC-042] / [VER-014]: a net's own terminal places apply with no
         // restatement by the caller. A net without them is verified exactly as
@@ -897,21 +929,26 @@ impl<'a> SmtVerifier<'a> {
     /// Runs the enumeration route, through the state-space cache when one is set.
     /// Returns the outcome and, when the cache answered, the report line saying so.
     fn enumerate(&self) -> (ScgOutcome, Option<String>) {
+        let stubborn = self.stubborn_enumeration();
+        let build = |budget: usize| {
+            if stubborn {
+                StateClassGraph::build_stubborn(self.net, &self.initial_marking, budget)
+            } else {
+                StateClassGraph::build(self.net, &self.initial_marking, budget)
+            }
+        };
         let (Some(cache), Some(key)) = (&self.state_space_cache, &self.state_space_key) else {
-            let outcome = scg_verifier::verify_via_state_class_graph(
-                self.net,
+            let outcome = scg_verifier::decide_over_state_space(
+                &build(self.enumeration_max_classes),
                 &self.initial_marking,
                 &self.property,
                 &self.sink_places,
-                self.enumeration_max_classes,
                 &self.conditional_sinks,
             );
             return (outcome, None);
         };
         let budget = self.enumeration_max_classes;
-        let lookup = cache.lookup(key.clone(), budget, || {
-            StateClassGraph::build(self.net, &self.initial_marking, budget)
-        });
+        let lookup = cache.lookup(key.clone(), budget, || build(budget));
         let decide = |graph: &StateClassGraph, as_prefix: bool| {
             let read = if as_prefix {
                 scg_verifier::decide_over_prefix
@@ -986,6 +1023,7 @@ impl<'a> SmtVerifier<'a> {
             counterexample_replay: self.counterexample_replay,
             semiflow_invariants: self.semiflow_invariants,
             enumeration_max_classes: self.enumeration_max_classes,
+            partial_order_reduction: self.partial_order_reduction,
             state_space_cache: self.state_space_cache,
             state_space_key: self.state_space_key,
             state_equation: self.state_equation,
@@ -1470,6 +1508,9 @@ impl<'a> SmtVerifier<'a> {
                     report.push_str("=== Bounded state-space enumeration (VER-017) ===\n");
                     report.push_str(&format!("Property: {}\n", describe(self.property.description())));
                     report.push_str(&format!("State classes: {class_count}\n"));
+                    if self.stubborn_enumeration() {
+                        report.push_str("Stubborn-set reduction (VER-024): on\n");
+                    }
                     report.push_str(
                         "P-invariants: not computed (no encoding is built on this route)\n",
                     );

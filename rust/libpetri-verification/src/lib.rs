@@ -137,6 +137,9 @@ pub mod state_class;
 pub mod state_class_graph;
 pub mod state_space_cache;
 pub mod structural_check;
+// Read by the enumeration route of `smt_verifier`, which needs the `z3` feature.
+#[cfg_attr(not(feature = "z3"), allow(dead_code))]
+mod stubborn_sets;
 pub mod terminal_places;
 pub(crate) mod total_budget;
 
