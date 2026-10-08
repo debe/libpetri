@@ -114,23 +114,27 @@ export interface QuiescentCount {
 }
 
 /**
- * Name alignment ([NU-055]): in every reachable marking, every name resident in `p` equals every
- * name resident in `q`. A marking in which either place is empty satisfies it, and
- * `nameAligned(p, p)` says that `p` never holds two names.
+ * Name alignment ([NU-055]): in every reachable marking, the places of `places` together hold at
+ * most one distinct name. An empty place imposes nothing, but a place holding two names violates
+ * it whatever the others hold, so the singleton `nameAligned(p)` says that `p` never holds two
+ * names. `places` is non-empty, compares by name and holds each place once, at its first
+ * occurrence in the caller's order; the order changes no verdict, only the description and which
+ * place a reason names.
  *
  * Decided only by Route B, the name-partition state-class graph ([NU-050]), on any net, with or
  * without a matched transition; every other route gives it no verdict, and `encodeScripts` throws.
- * Both places must be coloured places of the fragment Route B classifies for the call: a match
+ * Every place must be a coloured place of the fragment Route B classifies for the call: a match
  * key, and under `fragmentMode('extended')` also a declared carrier or a relay target. The verdict
  * is `unknown`, never `proven`, when a property place is uncoloured or absent (it carries no name,
  * so the predicate would hold vacuously), when the initial marking marks a coloured place, when
- * the net is outside the fragment, or when the graph does not close within `nuMaxClasses` and its
- * explored prefix violates nothing.
+ * the net is outside the fragment, when an environment place is one Route B cannot model or, under
+ * `alwaysAvailable` or `bounded(k)`, one of `places` ([VER-006]), or when the graph does not close
+ * within `nuMaxClasses` and its explored prefix violates nothing. When several refusals apply, the
+ * reason is that of the first in the refusal order of [NU-055].
  */
 export interface NameAligned {
   readonly type: 'name-aligned';
-  readonly p: Place<any>;
-  readonly q: Place<any>;
+  readonly places: readonly Place<any>[];
 }
 
 /**
@@ -144,8 +148,7 @@ export interface NameAligned {
  */
 export interface QuiescentNameAligned {
   readonly type: 'quiescent-name-aligned';
-  readonly p: Place<any>;
-  readonly q: Place<any>;
+  readonly places: readonly Place<any>[];
 }
 
 // Factory functions
@@ -200,14 +203,53 @@ export function quiescentCount(
   return { type: 'quiescent-count', places: [...places], min, max, waivedBy: [...waivedBy] };
 }
 
-/** Name alignment of `p` and `q` in every reachable marking (NU-055). See {@link NameAligned}. */
-export function nameAligned(p: Place<any>, q: Place<any>): NameAligned {
-  return { type: 'name-aligned', p, q };
+/**
+ * Name alignment of `places` in every reachable marking (NU-055). See {@link NameAligned}.
+ *
+ * ```ts
+ * nameAligned(box, list)   // box and list never hold two different names between them
+ * nameAligned(reply)       // reply never holds two names
+ * ```
+ *
+ * @throws Error when called with no place
+ */
+export function nameAligned(...places: [Place<any>, ...Place<any>[]]): NameAligned {
+  return { type: 'name-aligned', places: alignmentPlaces('nameAligned', places) };
 }
 
-/** Name alignment of `p` and `q` at quiescence (NU-055). See {@link QuiescentNameAligned}. */
-export function quiescentNameAligned(p: Place<any>, q: Place<any>): QuiescentNameAligned {
-  return { type: 'quiescent-name-aligned', p, q };
+/**
+ * Name alignment of `places` at quiescence (NU-055). See {@link QuiescentNameAligned}.
+ *
+ * @throws Error when called with no place
+ */
+export function quiescentNameAligned(...places: [Place<any>, ...Place<any>[]]): QuiescentNameAligned {
+  return { type: 'quiescent-name-aligned', places: alignmentPlaces('quiescentNameAligned', places) };
+}
+
+/**
+ * The list `S` of a name-alignment property ([NU-055]): `places` with each name kept once, at its
+ * first occurrence. An empty list is the caller's error, not a verdict.
+ */
+function alignmentPlaces(
+  factory: 'nameAligned' | 'quiescentNameAligned',
+  places: readonly Place<any>[],
+): readonly Place<any>[] {
+  if (places.length === 0) throw new Error(`${factory} needs at least one place`);
+  const seen = new Set<string>();
+  const out: Place<any>[] = [];
+  for (const p of places) {
+    if (seen.has(p.name)) continue;
+    seen.add(p.name);
+    out.push(p);
+  }
+  return out;
+}
+
+/** `a`, `a and b`, `a, b and c`: the place list of a name-alignment description ([NU-055]). */
+function placeList(places: readonly Place<any>[]): string {
+  const names = places.map(p => p.name);
+  const last = names.pop()!;
+  return names.length === 0 ? last : `${names.join(', ')} and ${last}`;
 }
 
 /** Human-readable description of a property. */
@@ -234,8 +276,8 @@ export function propertyDescription(prop: SmtProperty): string {
         : `${count}; lower bound waived while {${prop.waivedBy.map(p => p.name).join(', ')}} is marked`;
     }
     case 'name-aligned':
-      return `Name alignment of ${prop.p.name} and ${prop.q.name}`;
+      return `Name alignment of ${placeList(prop.places)}`;
     case 'quiescent-name-aligned':
-      return `Quiescent name alignment of ${prop.p.name} and ${prop.q.name}`;
+      return `Quiescent name alignment of ${placeList(prop.places)}`;
   }
 }

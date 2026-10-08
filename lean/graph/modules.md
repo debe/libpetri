@@ -46,7 +46,7 @@ flowchart TD
   f37["Libpetri/Novel/RouteA/Shipped.lean (21)"]
   f38["Libpetri/Novel/RouteA/Simulate.lean (40)"]
   f39["Libpetri/Novel/RouteA/SlotBound.lean (20)"]
-  f40["Libpetri/Novel/RouteB/Aligned.lean (14)"]
+  f40["Libpetri/Novel/RouteB/Aligned.lean (20)"]
   f41["Libpetri/Novel/RouteB/Classify.lean (76)"]
   f42["Libpetri/Novel/RouteB/Decide.lean (48)"]
   f43["Libpetri/Novel/RouteB/Exec.lean (53)"]

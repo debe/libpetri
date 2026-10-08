@@ -68,19 +68,22 @@ export class NameMarking {
   }
 
   /**
-   * The name-alignment predicate of NU-055: every symbol resident in `p` equals every symbol
-   * resident in `q`, so it holds when either place is empty, and `aligned(p, p)` when `p` holds
-   * at most one symbol. It compares symbols only for equality, so it is invariant under any
-   * permutation of them and a function of the canonical key. It reads the resident symbols in
-   * place, as the double "all" of Lean `Aligned.aligned`.
+   * The name-alignment predicate of NU-055: the places of `places` together hold at most one
+   * distinct symbol, so an empty place imposes nothing and a singleton list says that its place
+   * holds at most one. It compares symbols only for equality, so it is invariant under any
+   * permutation of them and a function of the canonical key, and only membership in `places`
+   * counts. It walks the resident symbols in place, keeping the first one seen and stopping at
+   * the first other, which decides Lean `Aligned.alignedAll` (every pair of places, self pairs
+   * included) without building the set of names.
    */
-  aligned(p: string, q: string): boolean {
-    const inP = this.perPlace.get(p);
-    const inQ = this.perPlace.get(q);
-    if (inP === undefined || inQ === undefined) return true;
-    for (const s of inP.keys()) {
-      for (const t of inQ.keys()) {
-        if (s !== t) return false;
+  aligned(places: readonly string[]): boolean {
+    let first: Sym | undefined;
+    for (const p of places) {
+      const syms = this.perPlace.get(p);
+      if (syms === undefined) continue;
+      for (const s of syms.keys()) {
+        if (first === undefined) first = s;
+        else if (s !== first) return false;
       }
     }
     return true;

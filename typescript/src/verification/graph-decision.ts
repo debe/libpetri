@@ -86,11 +86,11 @@ export function decideOverClasses(
     case 'quiescent-count':
       return firstWhere(i => view.isQuiescent(i)
         && countViolation(view.markingOf(i), property.places, property.min, property.max, property.waivedBy) !== null);
-    // QuiescentNameAligned (NU-055): a quiescent class whose name layer holds a name in `p`
-    // other than a name in `q`. No sink clause.
+    // QuiescentNameAligned (NU-055): a quiescent class whose name layer holds two different
+    // names across the places of the property. No sink clause.
     case 'quiescent-name-aligned': {
-      const { p, q } = property;
-      return firstWhere(i => view.isQuiescent(i) && !requireNames(view.namesOf?.(i), property).aligned(p.name, q.name));
+      const places = property.places.map(p => p.name);
+      return firstWhere(i => view.isQuiescent(i) && !requireNames(view.namesOf?.(i), property).aligned(places));
     }
   }
 }
@@ -122,8 +122,8 @@ export function safetyViolation(
     case 'mutual-exclusion':
       return m => m.hasTokens(property.p1) && m.hasTokens(property.p2);
     case 'name-aligned': {
-      const { p, q } = property;
-      return (_m, names) => !requireNames(names, property).aligned(p.name, q.name);
+      const places = property.places.map(p => p.name);
+      return (_m, names) => !requireNames(names, property).aligned(places);
     }
     case 'deadlock-free':
     case 'terminates-at-sink':

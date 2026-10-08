@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn nu055_no_demand_for_name_alignment() {
         let (flat, m0) = fork_or_halt();
-        for prop in [SmtProperty::name_aligned("ra", "rb"), SmtProperty::quiescent_name_aligned("ra", "rb")] {
+        for prop in [SmtProperty::name_aligned(["ra", "rb"]), SmtProperty::quiescent_name_aligned(["ra", "rb"])] {
             assert_eq!(violation_demand(&flat, &prop), None);
             assert_eq!(encode_linear_bound(&flat, &m0, &prop, &[]), None);
         }

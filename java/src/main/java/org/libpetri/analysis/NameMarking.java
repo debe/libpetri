@@ -84,17 +84,26 @@ final class NameMarking {
     }
 
     /**
-     * The name-alignment predicate of NU-055: every symbol resident in {@code p} equals every
-     * symbol resident in {@code q}, so it holds when either place is empty, and
-     * {@code aligned(p, p)} when {@code p} holds at most one symbol. It compares symbols only for
-     * equality, so it is invariant under any permutation of them and a function of the canonical
-     * key.
+     * The name-alignment predicate of NU-055: the places of {@code places} together hold at most
+     * one distinct symbol, so an empty place imposes nothing and a singleton list says that its
+     * place holds at most one. It compares symbols only for equality, so it is invariant under
+     * any permutation of them and a function of the canonical key, and only membership in
+     * {@code places} counts. It walks the places keeping the first symbol seen and stops at the
+     * first other, which decides Lean {@code Aligned.alignedAll} (every pair of places, self pairs
+     * included) without building the set of names.
      */
-    boolean aligned(String p, String q) {
-        var inP = perPlace.get(p);
-        var inQ = perPlace.get(q);
-        if (inP == null || inQ == null) return true;
-        return inP.size() == 1 && inQ.size() == 1 && inP.firstKey().equals(inQ.firstKey());
+    boolean aligned(List<String> places) {
+        Integer first = null;
+        // Indexed, so the walk allocates no iterator.
+        for (int i = 0; i < places.size(); i++) {
+            var syms = perPlace.get(places.get(i));
+            if (syms == null) continue;
+            if (syms.size() > 1) return false;
+            var s = syms.firstKey();
+            if (first == null) first = s;
+            else if (!first.equals(s)) return false;
+        }
+        return true;
     }
 
     private SortedSet<Integer> liveSymbols() {

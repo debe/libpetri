@@ -60,21 +60,29 @@ pub enum SmtProperty {
         max: Option<usize>,
         waived_by: Vec<String>,
     },
-    /// Name alignment ([NU-055]): in every reachable marking, every name resident in `p`
-    /// equals every name resident in `q`. A marking in which either place is empty
-    /// satisfies it, and `NameAligned { p, q: p }` says that `p` never holds two names.
+    /// Name alignment ([NU-055]): in every reachable marking, the places of `places`
+    /// together hold at most one distinct name. An empty place imposes nothing, but a
+    /// place holding two names violates it whatever the others hold, so the singleton
+    /// `name_aligned(["p"])` says that `p` never holds two names. `#[non_exhaustive]`:
+    /// build it outside this crate with [`SmtProperty::name_aligned`], which keeps each
+    /// place once, at its first occurrence in the caller's order, and rejects an empty
+    /// list; the order changes no verdict, only the description and which place a reason
+    /// names.
     ///
-    /// Both places must be coloured places of the fragment Route B classifies for the
+    /// Every place must be a coloured place of the fragment Route B classifies for the
     /// call (a match key, a declared carrier or a relay target): an uncoloured place
     /// carries no name, so the verdict on one is `Unknown`, never `Proven`. Decided only
     /// by Route B, the name-partition state-class graph ([NU-050]); every other route
     /// gives it no verdict.
-    NameAligned { p: String, q: String },
+    #[non_exhaustive]
+    NameAligned { places: Vec<String> },
     /// Quiescent name alignment ([NU-055]): the predicate of
     /// [`SmtProperty::NameAligned`], read only in the reachable quiescent markings (the
     /// reap-aware quiescence of [VER-002]). Like [`SmtProperty::JoinedOrDeadLettered`]
-    /// it carries no sink clause.
-    QuiescentNameAligned { p: String, q: String },
+    /// it carries no sink clause. `#[non_exhaustive]` for the same reason: build it
+    /// outside this crate with [`SmtProperty::quiescent_name_aligned`].
+    #[non_exhaustive]
+    QuiescentNameAligned { places: Vec<String> },
 }
 
 impl SmtProperty {
@@ -173,16 +181,36 @@ impl SmtProperty {
         }
     }
 
-    /// Name alignment of `p` and `q` in every reachable marking ([NU-055]). See
+    /// Name alignment of `places` in every reachable marking ([NU-055]). See
     /// [`SmtProperty::NameAligned`].
-    pub fn name_aligned(p: impl Into<String>, q: impl Into<String>) -> Self {
-        Self::NameAligned { p: p.into(), q: q.into() }
+    ///
+    /// ```
+    /// use libpetri_verification::property::SmtProperty;
+    /// // box and list never hold two different names between them; a repeat counts once.
+    /// let aligned = SmtProperty::name_aligned(["box", "list", "box"]);
+    /// assert_eq!(aligned.description(), "Name alignment of box and list");
+    /// // reply never holds two names.
+    /// assert_eq!(SmtProperty::name_aligned(["reply"]).description(), "Name alignment of reply");
+    /// ```
+    ///
+    /// # Panics
+    /// If `places` is empty: a caller's error, reported where the property is built
+    /// rather than as a verdict ([NU-055]).
+    pub fn name_aligned(places: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self::NameAligned {
+            places: alignment_places("name_aligned", places),
+        }
     }
 
-    /// Name alignment of `p` and `q` at quiescence ([NU-055]). See
+    /// Name alignment of `places` at quiescence ([NU-055]). See
     /// [`SmtProperty::QuiescentNameAligned`].
-    pub fn quiescent_name_aligned(p: impl Into<String>, q: impl Into<String>) -> Self {
-        Self::QuiescentNameAligned { p: p.into(), q: q.into() }
+    ///
+    /// # Panics
+    /// If `places` is empty, as [`SmtProperty::name_aligned`].
+    pub fn quiescent_name_aligned(places: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self::QuiescentNameAligned {
+            places: alignment_places("quiescent_name_aligned", places),
+        }
     }
 
     /// Whether this is [`SmtProperty::NameAligned`] or
@@ -207,12 +235,7 @@ impl SmtProperty {
             Self::DeadlockFree => "Deadlock-freedom".into(),
             Self::TerminatesAtSink => "Terminates at a declared sink".into(),
             // The reference names exactly two places; more are listed the same way.
-            Self::MutualExclusion { places } => match places.split_last() {
-                Some((last, rest)) if !rest.is_empty() => {
-                    format!("Mutual exclusion of {} and {last}", rest.join(", "))
-                }
-                _ => format!("Mutual exclusion of {}", places.join(", ")),
-            },
+            Self::MutualExclusion { places } => format!("Mutual exclusion of {}", and_list(places)),
             Self::PlaceBound { place, bound } => format!("Place {place} bounded by {bound}"),
             // In the order given, each place once: the reference takes a set.
             Self::Unreachable { places } => {
@@ -246,9 +269,34 @@ impl SmtProperty {
                     )
                 }
             }
-            Self::NameAligned { p, q } => format!("Name alignment of {p} and {q}"),
-            Self::QuiescentNameAligned { p, q } => format!("Quiescent name alignment of {p} and {q}"),
+            Self::NameAligned { places } => format!("Name alignment of {}", and_list(places)),
+            Self::QuiescentNameAligned { places } => {
+                format!("Quiescent name alignment of {}", and_list(places))
+            }
         }
+    }
+}
+
+/// The list `S` of a name-alignment property ([NU-055]): `places` with each name kept
+/// once, at its first occurrence. An empty list is the caller's error, not a verdict.
+fn alignment_places(constructor: &str, places: impl IntoIterator<Item = impl Into<String>>) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for p in places {
+        let p = p.into();
+        if !kept.contains(&p) {
+            kept.push(p);
+        }
+    }
+    assert!(!kept.is_empty(), "{constructor} needs at least one place");
+    kept
+}
+
+/// `a`, `a and b`, `a, b and c`: the places of a description in the order given, `, `
+/// between them and ` and ` before the last.
+fn and_list(places: &[String]) -> String {
+    match places.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => places.join(", "),
     }
 }
 
@@ -355,26 +403,72 @@ mod tests {
         SmtProperty::quiescent_count(s(&["budget"]), 2, Some(1), Vec::new());
     }
 
-    /// [NU-055]: the two name-alignment descriptions, byte for byte those of every
-    /// other implementation, and the reason the name-blind routes give.
+    /// [NU-055]: the two name-alignment descriptions for one, two and three places, byte
+    /// for byte those of every other implementation, and the reason the name-blind routes
+    /// give.
     #[test]
     fn nu055_name_alignment_describes_itself() {
+        assert_eq!(SmtProperty::name_aligned(["box"]).description(), "Name alignment of box");
         assert_eq!(
-            SmtProperty::name_aligned("box", "list").description(),
+            SmtProperty::name_aligned(["box", "list"]).description(),
             "Name alignment of box and list"
         );
         assert_eq!(
-            SmtProperty::quiescent_name_aligned("box", "list").description(),
+            SmtProperty::name_aligned(["box", "staged", "list"]).description(),
+            "Name alignment of box, staged and list"
+        );
+        assert_eq!(
+            SmtProperty::quiescent_name_aligned(["box"]).description(),
+            "Quiescent name alignment of box"
+        );
+        assert_eq!(
+            SmtProperty::quiescent_name_aligned(["box", "list"]).description(),
             "Quiescent name alignment of box and list"
         );
-        assert!(SmtProperty::name_aligned("box", "box").is_name_alignment());
-        assert!(SmtProperty::quiescent_name_aligned("box", "list").is_name_alignment());
+        assert_eq!(
+            SmtProperty::quiescent_name_aligned(["box", "staged", "list"]).description(),
+            "Quiescent name alignment of box, staged and list"
+        );
+        assert!(SmtProperty::name_aligned(["box"]).is_name_alignment());
+        assert!(SmtProperty::quiescent_name_aligned(["box", "list"]).is_name_alignment());
         assert!(!SmtProperty::joined_or_dead_lettered("box").is_name_alignment());
         assert_eq!(
-            SmtProperty::name_aligned("box", "list").route_b_only_reason(),
+            SmtProperty::name_aligned(["box", "list"]).route_b_only_reason(),
             "Name alignment of box and list is decided only by the name-partition state-class \
              graph (NU-055, Route B)"
         );
+    }
+
+    /// [NU-055] AC7: a repeated place counts once, at its first occurrence, in both
+    /// properties, whether the names come as `&str` or `String`.
+    #[test]
+    fn nu055_a_repeated_place_counts_once_at_its_first_occurrence() {
+        let owned = s(&["box", "list", "box", "list"]);
+        for prop in [SmtProperty::name_aligned(&owned), SmtProperty::quiescent_name_aligned(owned.clone())] {
+            let (SmtProperty::NameAligned { places } | SmtProperty::QuiescentNameAligned { places }) = &prop else {
+                panic!("{prop:?}");
+            };
+            assert_eq!(places, &s(&["box", "list"]));
+        }
+        assert_eq!(
+            SmtProperty::name_aligned(["list", "box", "list"]).description(),
+            "Name alignment of list and box"
+        );
+        assert_eq!(SmtProperty::name_aligned(["box", "box"]).description(), "Name alignment of box");
+    }
+
+    /// [NU-055] AC7: an empty `S` is rejected where it is built.
+    #[test]
+    #[should_panic(expected = "name_aligned needs at least one place")]
+    fn nu055_name_aligned_rejects_an_empty_list() {
+        SmtProperty::name_aligned(Vec::<String>::new());
+    }
+
+    /// [NU-055] AC7: the quiescent form rejects an empty `S` too.
+    #[test]
+    #[should_panic(expected = "quiescent_name_aligned needs at least one place")]
+    fn nu055_quiescent_name_aligned_rejects_an_empty_list() {
+        SmtProperty::quiescent_name_aligned(std::iter::empty::<&str>());
     }
 
     /// An unbounded `max` never conflicts with `min`, however large.

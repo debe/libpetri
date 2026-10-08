@@ -98,12 +98,12 @@ public final class NameStateClassGraph {
     }
 
     /**
-     * Whether the name layer of class {@code idx} holds aligned names in {@code p} and {@code q}
-     * (the name-alignment queries of NU-055): every symbol resident in {@code p} equals every
-     * symbol resident in {@code q}. Holds when either place is empty or uncoloured.
+     * Whether the name layer of class {@code idx} holds aligned names in {@code places} (the
+     * name-alignment queries of NU-055): the places together hold at most one distinct symbol.
+     * An empty or uncoloured place adds nothing.
      */
-    public boolean namesAligned(int idx, String p, String q) {
-        return classes.get(idx).names.aligned(p, q);
+    public boolean namesAligned(int idx, List<String> places) {
+        return classes.get(idx).names.aligned(places);
     }
 
     public List<Edge> edges() {

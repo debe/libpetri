@@ -5,6 +5,7 @@ import org.libpetri.core.Place;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -151,26 +152,32 @@ public sealed interface SmtProperty {
     }
 
     /**
-     * Name alignment ([NU-055]): in every reachable marking, every name resident in {@code p}
-     * equals every name resident in {@code q}. A marking in which either place is empty
-     * satisfies it, and {@code nameAligned(p, p)} says that {@code p} never holds two names.
-     * A reachability-safety property: Route B stops at the first misaligned class ([VER-012]).
+     * Name alignment ([NU-055]): in every reachable marking, the places of {@code places}
+     * together hold at most one distinct name. An empty place imposes nothing, but a place
+     * holding two names violates it whatever the others hold, so the singleton
+     * {@code nameAligned(p)} says that {@code p} never holds two names. A reachability-safety
+     * property: Route B stops at the first misaligned class ([VER-012]).
      *
      * <p>Decided only by Route B, the name-partition state-class graph ([NU-050]), on any net,
      * with or without a matched transition. Every other route gives it no verdict, so a Route B
      * {@code Unknown} is final. The verdict is {@code Unknown}, with a reason naming the cause,
-     * when either place is not a coloured place of the fragment Route B classifies for the call
+     * when a place is not a coloured place of the fragment Route B classifies for the call
      * (a match key, a declared carrier or a relay target): an uncoloured or absent place carries
      * no name, so the predicate on it would hold vacuously. Carriers and relay targets are
      * coloured only under {@link org.libpetri.analysis.FragmentMode#EXTENDED}. It is
      * {@code Unknown} too when a coloured place starts marked, when the net is outside the
      * fragment, and when the graph does not close and its explored prefix holds no misaligned
-     * class.
+     * class. When several refusals apply, the reason is that of the first in the refusal order
+     * of [NU-055].
+     *
+     * @param places the list {@code S}: compared by name, each place kept once, at its first
+     *               occurrence in the order given. The order changes no verdict, only the
+     *               description and which place a reason names.
      */
-    record NameAligned(Place<?> p, Place<?> q) implements SmtProperty {
+    record NameAligned(List<Place<?>> places) implements SmtProperty {
+        /** @throws IllegalArgumentException when {@code places} is empty */
         public NameAligned {
-            Objects.requireNonNull(p, "p");
-            Objects.requireNonNull(q, "q");
+            places = alignmentPlaces("nameAligned", places);
         }
     }
 
@@ -185,17 +192,20 @@ public sealed interface SmtProperty {
      * with a registered environment place is {@code Unknown}, since the graph never consumes the
      * place and a net that reads input from it has no resting class. Model the input with
      * {@code arrivals(k)} instead.
+     *
+     * @param places the list {@code S}, as for {@link NameAligned}
      */
-    record QuiescentNameAligned(Place<?> p, Place<?> q) implements SmtProperty {
+    record QuiescentNameAligned(List<Place<?>> places) implements SmtProperty {
+        /** @throws IllegalArgumentException when {@code places} is empty */
         public QuiescentNameAligned {
-            Objects.requireNonNull(p, "p");
-            Objects.requireNonNull(q, "q");
+            places = alignmentPlaces("quiescentNameAligned", places);
         }
     }
 
     /**
      * The property as the report names it after {@code Property: }. Text is byte-identical
-     * across the implementations for {@link QuiescentCount}; see {@link #countAcross}.
+     * across the implementations for {@link QuiescentCount} (see {@link #countAcross}) and for
+     * the name-alignment properties ([NU-055]).
      *
      * @return the human-readable description
      */
@@ -219,9 +229,8 @@ public sealed interface SmtProperty {
                     ? count
                     : count + "; lower bound waived while {" + names(qc.waivedBy()) + "} is marked";
             }
-            case NameAligned na -> "Name alignment of " + na.p().name() + " and " + na.q().name();
-            case QuiescentNameAligned qna ->
-                "Quiescent name alignment of " + qna.p().name() + " and " + qna.q().name();
+            case NameAligned na -> "Name alignment of " + placeList(na.places());
+            case QuiescentNameAligned qna -> "Quiescent name alignment of " + placeList(qna.places());
         };
     }
 
@@ -292,14 +301,40 @@ public sealed interface SmtProperty {
         return quiescentCount(places, min, max, List.of());
     }
 
-    /** Name alignment of {@code p} and {@code q} in every reachable marking (NU-055). See {@link NameAligned}. */
-    static NameAligned nameAligned(Place<?> p, Place<?> q) {
-        return new NameAligned(p, q);
+    /**
+     * Name alignment of {@code first} and {@code rest} in every reachable marking (NU-055). See
+     * {@link NameAligned}.
+     *
+     * <pre>{@code
+     * SmtProperty.nameAligned(box, list); // box and list never hold two different names between them
+     * SmtProperty.nameAligned(reply);     // reply never holds two names
+     * }</pre>
+     */
+    static NameAligned nameAligned(Place<?> first, Place<?>... rest) {
+        return new NameAligned(prepend(first, rest));
     }
 
-    /** Name alignment of {@code p} and {@code q} at quiescence (NU-055). See {@link QuiescentNameAligned}. */
-    static QuiescentNameAligned quiescentNameAligned(Place<?> p, Place<?> q) {
-        return new QuiescentNameAligned(p, q);
+    /**
+     * {@link #nameAligned(Place, Place...)} over a collection, in its iteration order.
+     *
+     * @throws IllegalArgumentException when {@code places} is empty
+     */
+    static NameAligned nameAligned(Collection<? extends Place<?>> places) {
+        return new NameAligned(List.copyOf(places));
+    }
+
+    /** Name alignment of {@code first} and {@code rest} at quiescence (NU-055). See {@link QuiescentNameAligned}. */
+    static QuiescentNameAligned quiescentNameAligned(Place<?> first, Place<?>... rest) {
+        return new QuiescentNameAligned(prepend(first, rest));
+    }
+
+    /**
+     * {@link #quiescentNameAligned(Place, Place...)} over a collection, in its iteration order.
+     *
+     * @throws IllegalArgumentException when {@code places} is empty
+     */
+    static QuiescentNameAligned quiescentNameAligned(Collection<? extends Place<?>> places) {
+        return new QuiescentNameAligned(List.copyOf(places));
     }
 
     /**
@@ -330,6 +365,42 @@ public sealed interface SmtProperty {
      */
     static String countAcross(int min, OptionalInt max, Collection<? extends Place<?>> places) {
         return countPhrase(min, max) + " across {" + names(places) + "}";
+    }
+
+    /** {@code first} followed by {@code rest}, the arguments of a varargs factory. */
+    private static List<Place<?>> prepend(Place<?> first, Place<?>[] rest) {
+        var out = new ArrayList<Place<?>>(1 + rest.length);
+        out.add(first);
+        Collections.addAll(out, rest);
+        return out;
+    }
+
+    /**
+     * The list {@code S} of a name-alignment property ([NU-055]): {@code places} with each name
+     * kept once, at its first occurrence. An empty list is the caller's error, not a verdict.
+     */
+    private static List<Place<?>> alignmentPlaces(String factory, List<Place<?>> places) {
+        if (Objects.requireNonNull(places, "places").isEmpty()) {
+            throw new IllegalArgumentException(factory + " needs at least one place");
+        }
+        var seen = new HashSet<String>();
+        var out = new ArrayList<Place<?>>(places.size());
+        for (var place : places) {
+            if (seen.add(Objects.requireNonNull(place, "place").name())) {
+                out.add(place);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * {@code a}, {@code a and b}, {@code a, b and c}: the place list of a name-alignment
+     * description, byte-identical across the implementations ([NU-055]).
+     */
+    private static String placeList(List<Place<?>> places) {
+        int last = places.size() - 1;
+        String tail = places.get(last).name();
+        return last == 0 ? tail : names(places.subList(0, last)) + " and " + tail;
     }
 
     /** The places' names joined by {@code ", "}, in the order given. */

@@ -242,7 +242,15 @@ export class SmtVerifier {
     return this;
   }
 
+  /**
+   * The property to verify (default `deadlockFree()`). Throws on a name-alignment property with
+   * no place ([NU-055] AC7): a hand-written object skips the check of `nameAligned` and
+   * `quiescentNameAligned`, and its empty `S` would otherwise hold vacuously.
+   */
   property(property: SmtProperty): this {
+    if (isNameAlignment(property) && property.places.length === 0) {
+      throw new Error(`${property.type} needs at least one place`);
+    }
     this._property = property;
     return this;
   }
@@ -1431,20 +1439,26 @@ export class SmtVerifier {
       // never defer to Route A, which declines under injection too and would lose the reason.
       const mints = this.declaredMints();
       const fragment = classify(this.net, this._fragmentMode, this._carrierPlaces, mints, nameAlignment);
-      const startsEmpty = (f: NameFragment): boolean =>
-        !this._initialMarking.placesWithTokens().some(p => f.isColoured(p.name));
+      // The injection refusals apply only where Route B would build the graph: inside the
+      // fragment, and with the coloured places empty, since otherwise the pipeline below decides
+      // the property. A name-alignment property (NU-055) skips the second test: nothing below
+      // decides it, and its refusal order puts the arrival and environment refusals before a
+      // marked coloured place.
+      const routeBBuilds = (f: NameFragment | null): f is NameFragment =>
+        f !== null
+        && (nameAlignment || !this._initialMarking.placesWithTokens().some(p => f.isColoured(p.name)));
       // An arrival into a coloured place declines whether or not the mints are declared.
       const anyFragment = classify(
         this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net), nameAlignment,
       );
-      const arrivalReason = anyFragment !== null && startsEmpty(anyFragment) ? this.colouredArrivalReason() : null;
+      const arrivalReason = routeBBuilds(anyFragment) ? this.colouredArrivalReason() : null;
       const envReason = arrivalReason ?? (
-        fragment === null || !startsEmpty(fragment)
-          ? null // Route B declines this net itself; the pipeline below decides it.
-          : routeBEnvObservation(
+        routeBBuilds(fragment)
+          ? routeBEnvObservation(
               this.net, fragment, this._property, this._sinkPlaces, this._conditionalSinks,
               this._environmentPlaces, this._environmentMode, this._effectivePriority, quiescenceVacuous,
-            ));
+            )
+          : null);
       if (envReason !== null) {
         report.push('=== ν-net Route B: name-aware state-class graph (NU-050) ===');
         report.push(`  Declined under environment injection: ${envReason}`);
@@ -2880,8 +2894,8 @@ function propertyPlaces(property: SmtProperty): Place<any>[] {
     case 'unreachable': return [...property.places];
     case 'joined-or-dead-lettered': return [property.pending];
     case 'quiescent-count': return [...property.places, ...property.waivedBy];
-    case 'name-aligned': return [property.p, property.q];
-    case 'quiescent-name-aligned': return [property.p, property.q];
+    case 'name-aligned': return [...property.places];
+    case 'quiescent-name-aligned': return [...property.places];
   }
 }
 

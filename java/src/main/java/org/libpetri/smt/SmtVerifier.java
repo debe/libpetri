@@ -1677,18 +1677,26 @@ public final class SmtVerifier {
             // that observes either is vacuous. Decline before building it, and do not defer to
             // Route A: it declines under injection too, and the reason would be lost.
             var mints = declaredMints();
-            var fragment = NuScgVerifier.supportedFragment(
-                net, initialMarking, fragmentMode, carrierPlaces, mints, nameAlignment);
+            var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, mints, nameAlignment);
             boolean quiescenceVacuous = !isReachabilitySafety(property)
                 && SmtEncoder.quiescenceUnreachable(
                     flatNet());
+            // The injection refusals apply only where Route B would build the graph: inside the
+            // fragment, and with the coloured places empty, since otherwise the pipeline below
+            // decides the property. A name-alignment property (NU-055) skips the second test:
+            // nothing below decides it, and its refusal order puts the arrival and environment
+            // refusals before a marked coloured place.
+            Predicate<NameFragment> routeBBuilds =
+                f -> f != null && (nameAlignment || NuScgVerifier.startsEmpty(f, initialMarking));
             // An arrival into a coloured place declines whether or not the mints are declared.
-            String colouredArrival = NuScgVerifier.supportedFragment(
-                net, initialMarking, fragmentMode, carrierPlaces, everyTransition(net), nameAlignment) == null
-                ? null : colouredArrivalReason();
-            String envObservation = colouredArrival != null ? colouredArrival : fragment == null ? null : routeBEnvObservation(
-                net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
-                effectivePriority(), quiescenceVacuous);
+            String colouredArrival = routeBBuilds.test(
+                    NameFragment.classify(net, fragmentMode, carrierPlaces, everyTransition(net), nameAlignment))
+                ? colouredArrivalReason() : null;
+            String envObservation = colouredArrival != null ? colouredArrival
+                : routeBBuilds.test(fragment) ? routeBEnvObservation(
+                    net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
+                    effectivePriority(), quiescenceVacuous)
+                : null;
             if (envObservation != null) {
                 return routeBDeclined(report, "Declined under environment injection", envObservation, start);
             }
@@ -3170,8 +3178,8 @@ public final class SmtVerifier {
                 named.addAll(qc.waivedBy());
                 yield named;
             }
-            case SmtProperty.NameAligned na -> List.of(na.p(), na.q());
-            case SmtProperty.QuiescentNameAligned qna -> List.of(qna.p(), qna.q());
+            case SmtProperty.NameAligned na -> na.places();
+            case SmtProperty.QuiescentNameAligned qna -> qna.places();
         };
     }
 

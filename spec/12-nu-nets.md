@@ -1127,11 +1127,12 @@ place that records the query and in the place that shows its results; a stale re
 after the user has typed again breaks that while every count stays in range. An implementation MAY
 offer two properties that read the name layer of Route B ([NU-050], [VER-012]):
 
-- **NameAligned(p, q)**: in every reachable marking, every name resident in `p` equals every name
-  resident in `q`. For the name-symbols `s` and `t`: `s` resident in `p` and `t` resident in `q`
-  imply `s = t`. A marking in which `p` or `q` is empty satisfies it, and `NameAligned(p, p)` says
-  that `p` never holds two names.
-- **QuiescentNameAligned(p, q)**: the same predicate, read only in the reachable quiescent markings.
+- **NameAligned(S)**, for a non-empty list `S` of places: in every reachable marking, the places of
+  `S` together hold at most one distinct name. For places `p` and `q` of `S`, the same place
+  included, and the name-symbols `s` and `t`: `s` resident in `p` and `t` resident in `q` imply
+  `s = t`. An empty place imposes nothing, but a place holding two names violates it whatever the
+  others hold, so the singleton `NameAligned(p)` says that `p` never holds two names.
+- **QuiescentNameAligned(S)**: the same predicate, read only in the reachable quiescent markings.
   Quiescence is the reap-aware quiescence of [VER-002]: on the graph, an expanded class every
   firing out of which is of a reapable transition. Like `JoinedOrDeadLettered` ([NU-040]) it
   carries no sink clause: declared sink places ([VER-002], [VER-014]) do not weaken it.
@@ -1142,11 +1143,19 @@ AC3). The predicate compares names only for equality, so it is invariant under a
 the name-symbols. It is therefore a function of the canonical key of a class ([VER-012] AC2), and
 deciding it on the name-permutation quotient decides it on the graph.
 
-**Coloured places only.** Both `p` and `q` MUST be coloured places of the fragment Route B
+`S` keeps the order the caller gives. Its places compare by name, and a place listed twice counts
+once, at its first occurrence, so `NameAligned(box, list, box)` is `NameAligned(box, list)`. An
+empty `S` MUST be rejected where it is constructed, as the language reports a caller's error,
+rather than yield a verdict. The order of `S` changes no verdict; it fixes the description and
+which place a reason names.
+
+**Coloured places only.** Every place of `S` MUST be a coloured place of the fragment Route B
 classified for the call: match keys ([NU-020]), declared carriers ([NU-051]) and relay targets
 ([NU-054]). An uncoloured place carries no name in the name layer, so the predicate on it holds
 vacuously and a `Proven` would say nothing about the net. A place that is uncoloured, or absent from
-the net, MUST fail loudly: the verdict is `Unknown` with a reason naming the place, never `Proven`.
+the net, MUST fail loudly: the verdict is `Unknown` with a reason naming a place of `S`, never
+`Proven`. Which place it names follows the refusal order below: the first absent place of `S`,
+otherwise the first uncoloured one.
 A place that a mint or a coloured consumer writes is coloured only when it is one of these, which is
 why the worked example declares `inflightA`, `inflightB` and `list` as carriers. The coloured set is
 the one the classifier computes for the call (Rust `coloured_order`, the `co` of the Lean
@@ -1160,8 +1169,8 @@ exactly as faithful to what a token carries as those contracts are.
 
 The coloured places MUST start empty (the `hempty` premise of the Lean theorems). A call whose
 initial marking holds a token in a coloured place (a restored marking, [CORE-073], [NU-011]) is
-`Unknown` with a reason naming the place; since nothing else decides the property, there is no
-fallback.
+`Unknown` with a reason naming the place, the first in code-point order of place names when several
+are marked; since nothing else decides the property, there is no fallback.
 
 **EXTENDED.** Under **BASE** the coloured set is the match keys alone ([NU-051], [NU-054]), so a
 property place that is a carrier or a relay target is uncoloured there, and the reason SHOULD name
@@ -1197,6 +1206,34 @@ truncation `Unknown`; the rule makes the reason name the environment place inste
 net has no environment places left ([VER-006]); the decline of [VER-006] AC10 for an arrival into
 a coloured place still applies.
 
+**Refusal order.** A call can meet several of these refusals at once. Its verdict is `Unknown` with
+the reason of the first that applies, in this order, so every implementation names the same place:
+
+1. The refusals that precede every route for every property, in this order: a call cancelled or
+   out of total budget before it starts ([VER-013]); a place of `S` that the net does not declare
+   and the initial marking does not mark ([VER-003] AC5), naming the first such place of `S`; a
+   `Bounded(k)` environment outside its premises ([VER-006] AC3); the in-flight refusal of
+   [VER-004].
+2. The net is outside the fragment of the mode even when every transition counts as a mint: the
+   decline of **EXTENDED** above, which under BASE names EXTENDED.
+3. Under `Arrivals(k)`, an arrival into a coloured place ([VER-006] AC10), naming the place.
+4. The net is outside the fragment only because a transition writes a coloured place without
+   consuming one and is not a declared mint: the decline names those transitions ([NU-010]).
+5. Under `AlwaysAvailable` or `Bounded(k)`, an environment place Route B cannot model ([VER-006]
+   AC8). The rules run in this order, each over the environment places the net declares in
+   code-point order of names: one that is coloured; one that an inhibitor arc tests (naming the
+   first such transition in code-point order); under conflict priority, one that two or more
+   transitions consume; then, for `QuiescentNameAligned`, the first of them (**Modelled
+   injection** above), and for `NameAligned`, the first that is in `S`.
+6. The first place of `S`, in the order of `S`, that is not coloured. Under BASE the reason also
+   names EXTENDED.
+7. A coloured place the initial marking marks: the first in code-point order of place names.
+
+Steps 3 and 5 apply whether or not the coloured places start empty. A declared mint or carrier that is not in the net is the caller's
+error and is reported as [NU-010] and [NU-051] say, outside this order. The `Ignore` downgrade of a
+`Proven` ([VER-006]) and a truncation `Unknown` are not refusals: they follow a graph that was
+built.
+
 **Truncation.** A graph that does not close within the class bound never yields `Proven` (Lean
 `Decide.truncated_never_proven`). The prefix rule of [VER-012] AC3 applies: a `NameAligned`
 violated by a stored class, or a `QuiescentNameAligned` violated by an expanded class at which the
@@ -1215,7 +1252,8 @@ order meets the graph's choice.
 **Soundness.** Lean `Novel/RouteB/Aligned.lean` (`routeB_untimed_nameAligned_sound`,
 `routeB_untimed_quiescentNameAligned_sound`) proves: for the **untimed, environment-free executor
 with atomic firings**, a `Proven` of either property holds in every marking that executor reaches
-(for the quiescent form, every marking at which it rests). The premises are:
+(for the quiescent form, every marking at which it rests): the tokens in the places of `S` all
+carry the same name. The premises are:
 
 - the coloured places start empty;
 - the mints and coloured consumers keep their contracts ([NU-010], [NU-051], [NU-054]);
@@ -1225,11 +1263,13 @@ with atomic firings**, a `Proven` of either property holds in every marking that
 - every firing writes one token to each output place its branch names ([IO-016] AC4). A mint or
   relay that writes two tokens carrying different names into `box` is exactly the kind of firing
   that would falsify a `Proven` alignment;
+- every place of `S` coloured, which the refusal above enforces;
 - the conditions the classifier establishes (`InFragment`), unguarded inputs, and, for the
   quiescent form, join keys that consume at least one token (`PosKeys`).
 
-The proof reads the predicate on the executor's name view (`aligned_view_iff`) and shows it vacuous
-on an uncoloured place (`aligned_uncoloured`), which is why that case is not allowed to prove.
+The proof reads the predicate on the executor's name view (`alignedAll_view_iff`) and shows that an
+uncoloured place of `S` adds nothing to it (`alignedAll_uncoloured`), which is why that case is not
+allowed to prove. Order and repeats in `S` do not change it (`alignedAll_congr_mem`).
 Conflict-only priority ([NU-052]) applies as it does to every Route B property.
 
 The proof does not cover what the shipped Route B computes on every net. Route B builds the timed
@@ -1299,7 +1339,8 @@ and the bug does not occur, which is why the verdict is about the net and not ab
    `Violated` with a 12-firing witness. Every verdict is attributed to Route B.
 2. (MUST, where offered) A property naming an uncoloured place (on the same net,
    `QuiescentNameAligned(box, ready)`) or a place absent from the net is `Unknown` with a reason
-   naming the place, never `Proven`.
+   naming the place, never `Proven`. With two uncoloured places the reason names the first in
+   `S`: `QuiescentNameAligned(box, ready, clr)` names `ready`.
 3. (MUST, where offered) Under BASE the same net is `Unknown` for `QuiescentNameAligned(box, list)`:
    the coloured set is the match keys `reply` and `box`, `fetchA` and `fetchB` write `reply`
    without being mints, `retire` consumes `box` without a match, and `apply` produces its key
@@ -1311,41 +1352,65 @@ and the bug does not occur, which is why the verdict is about the net and not ab
    prefix rule finds a violation.
 5. (MUST, where offered) The predicate is invariant under name permutation: evaluated on a class and
    on that class with its name-symbols permuted, it gives the same answer, and running the
-   search-as-you-type net with names minted in another scope ([NU-010]) changes no verdict.
+   search-as-you-type net with names minted in another scope ([NU-010]) changes no verdict. It is
+   also invariant under reordering `S`.
 6. (MUST, where offered) With `typed` registered as an environment place under `AlwaysAvailable`
    (and not in the initial marking), `QuiescentNameAligned(box, list)` is `Unknown` with a reason
    naming `typed`, on the fixed net and on the buggy variant; it is never `Proven`. A call whose
    initial marking holds a token in a coloured place is `Unknown` with a reason naming the place.
+7. (MUST, where offered) `S` is a list. On the search-as-you-type net,
+   `QuiescentNameAligned(box, staged, list)` and the singleton `NameAligned(list)` are `Proven`;
+   `QuiescentNameAligned(box, list, reply)` is `Violated` with a 9-firing witness (a stale reply
+   rests in `reply`), and `NameAligned(reply)` with a 6-firing witness (both replies resident). With
+   `typed` marked with 3, `QuiescentNameAligned(reply, staged)` is `Violated` with a 12-firing
+   witness: the net rests with two stale replies in `reply` and `staged` empty, a marking that
+   the cross pair of `reply` and `staged`, without the self pairs, would accept. An empty `S` is rejected at construction, a
+   repeated place counts once, at its first occurrence, and the descriptions of one, two and three
+   places read as the API notes below give them.
+8. (MUST, where offered) Refusals follow the refusal order. On the search-as-you-type net under
+   EXTENDED: with `box` marked, `QuiescentNameAligned(box, ready)` names `ready` (an uncoloured
+   place before a marked one); with `list` and `inflightB` marked, `QuiescentNameAligned(list, box)`
+   names `inflightB` (the marked coloured places in code-point order, not in the order of `S` or of
+   the marking); with `typed` registered as in AC6 and `box` marked, `QuiescentNameAligned(box,
+   list)` names `typed` (an environment place before a marked coloured place).
 
 **Depends on:** [VER-002], [VER-003], [VER-006], [VER-012], [NU-010], [NU-050], [NU-051], [NU-054]
 **Implementation status:** Lean proof in `lean/Libpetri/Novel/RouteB/Aligned.lean`; implemented
 in Java, TypeScript and Rust, and in Python through the Rust verifier.
 **Test derivation:** the fixtures of `spec/verification-fixtures/nu-aligned-fixtures.json`, run in
-every language: the four search-as-you-type verdicts of AC1, the uncoloured place of AC2, the BASE
-run of AC3 and the environment and marked-coloured-place runs of AC6, each asserting that the report
-names Route B or, for `Unknown`, that the reason names the place or the declined fragment. AC4 by
-sending the AC1 fixed net to each other route directly, as an in-module unit test, and by the budget
-fixture, which must still reach Route B. AC5 as a unit test on the predicate and a run with a
-non-default minting scope.
+every language: the four search-as-you-type verdicts of AC1, the uncoloured places of AC2, the BASE
+run of AC3, the environment and marked-coloured-place runs of AC6, the list verdicts of AC7 and the
+refusal-order runs of AC8, each asserting that the report names Route B or, for `Unknown`, that the
+reason contains the fixture's `reasonContains`. AC4 by sending the AC1 fixed net to each other
+route directly, as an in-module unit test, and by the budget fixture, which must still reach
+Route B. AC5 as a unit test on the
+predicate (with `S` permuted) and a run with a non-default minting scope. The construction rules and
+descriptions of AC7 as unit tests.
 
 **Implementation notes (API):** the properties sit beside `JoinedOrDeadLettered` and
 `QuiescentCount`.
 
-- Java: `SmtProperty.nameAligned(p, q)` and `SmtProperty.quiescentNameAligned(p, q)`, records
-  `NameAligned(Place<?> p, Place<?> q)` and `QuiescentNameAligned(Place<?> p, Place<?> q)`. A new
-  permitted record of the sealed `SmtProperty` breaks exhaustive switches, so it ships in a major
-  release.
-- TypeScript: `nameAligned(p, q)` and `quiescentNameAligned(p, q)`, members of the `SmtProperty`
-  union with `type: 'name-aligned'` and `type: 'quiescent-name-aligned'` and fields `p`, `q`.
-- Rust: `SmtProperty::NameAligned { p: String, q: String }` and
-  `SmtProperty::QuiescentNameAligned { p, q }`, with constructors `SmtProperty::name_aligned(p, q)`
-  and `SmtProperty::quiescent_name_aligned(p, q)`. A new variant of the exhaustive enum is a major
+- Java: `SmtProperty.nameAligned(first, rest...)` and `SmtProperty.nameAligned(places)` for a
+  collection, likewise `quiescentNameAligned`; records `NameAligned(List<Place<?>> places)` and
+  `QuiescentNameAligned(List<Place<?>> places)`, whose constructors copy, deduplicate and reject an
+  empty list. A new permitted record of the sealed `SmtProperty` breaks exhaustive switches, so it
+  ships in a major release.
+- TypeScript: `nameAligned(...places)` and `quiescentNameAligned(...places)`, typed to take at
+  least one place, members of the `SmtProperty` union with `type: 'name-aligned'` and
+  `type: 'quiescent-name-aligned'` and the field `places`.
+- Rust: `SmtProperty::NameAligned { places: Vec<String> }` and
+  `SmtProperty::QuiescentNameAligned { places }`, with constructors
+  `SmtProperty::name_aligned(places)` and `SmtProperty::quiescent_name_aligned(places)` over any
+  iterable of names, which panic on an empty one. A new variant of the exhaustive enum is a major
   change.
-- Python: `name_aligned(p, q)` and `quiescent_name_aligned(p, q)` in `libpetri.verification`, through
-  the Rust verifier, also re-exported from `libpetri`, as `joined_or_dead_lettered` and
-  `quiescent_count` are.
-- Every language describes them byte for byte as `Name alignment of <p> and <q>` and
-  `Quiescent name alignment of <p> and <q>` on the report's `Property:` line.
+- Python: `name_aligned(places)` and `quiescent_name_aligned(places)` in `libpetri.verification`,
+  over an iterable of places, raising `ValueError` on an empty one, through the Rust verifier, also
+  re-exported from `libpetri`, as `joined_or_dead_lettered` and `quiescent_count` are.
+- Every language describes them byte for byte on the report's `Property:` line as
+  `Name alignment of ` and `Quiescent name alignment of ` followed by the names of the places of
+  `S` after deduplication, in order, separated by `, ` except that ` and ` separates the last two:
+  `Name alignment of box`, `Name alignment of box and list`, `Name alignment of a, b and c`, and
+  `Quiescent name alignment of a, b and c` likewise.
 
 ---
 

@@ -11,46 +11,46 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/RetrodictExec.lean"]
     n82["Libpetri.Ka"]
-    n3071["🔒 Libpetri.tid_order_diverges"]
+    n3077["🔒 Libpetri.tid_order_diverges"]
   end
   subgraph g1["Libpetri/Sched.lean"]
     n84["Libpetri.LevelBlocks"]
     n87["Libpetri.LevelBlocks.mk"]
-    n2703["Libpetri.SchedKey"]
-    n2704["Libpetri.SchedKey.clock"]
-    n2705["Libpetri.SchedKey.lt"]
-    n2706["🔒 Libpetri.SchedKey.lt_asymm"]
-    n2709["Libpetri.SchedKey.mk"]
-    n2710["Libpetri.SchedKey.prio"]
-    n2811["🔒 Libpetri.collect_ready_general_refines"]
-    n2872["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n2948["🔒 Libpetri.levelBlocks_sorted"]
-    n2973["🔒 Libpetri.pairwise_imp_mem"]
+    n2709["Libpetri.SchedKey"]
+    n2710["Libpetri.SchedKey.clock"]
+    n2711["Libpetri.SchedKey.lt"]
+    n2712["🔒 Libpetri.SchedKey.lt_asymm"]
+    n2715["Libpetri.SchedKey.mk"]
+    n2716["Libpetri.SchedKey.prio"]
+    n2817["🔒 Libpetri.collect_ready_general_refines"]
+    n2878["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n2954["🔒 Libpetri.levelBlocks_sorted"]
+    n2979["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n82 --> n2709
-  n84 --> n2703
+  n82 --> n2715
+  n84 --> n2709
   n87 --> n84
-  n87 --> n2704
   n87 --> n2710
-  n2704 --> n2703
-  n2705 --> n2704
-  n2705 --> n2710
-  n2706 --> n2705
-  n2709 --> n2703
-  n2710 --> n2703
-  n2811 --> n2872
-  n2811 --> n2948
-  n2872 --> n2706
-  n2948 --> n87
-  n2948 --> n2705
-  n2948 --> n2973
-  n3071 --> n82
-  n3071 --> n2705
+  n87 --> n2716
+  n2710 --> n2709
+  n2711 --> n2710
+  n2711 --> n2716
+  n2712 --> n2711
+  n2715 --> n2709
+  n2716 --> n2709
+  n2817 --> n2878
+  n2817 --> n2954
+  n2878 --> n2712
+  n2954 --> n87
+  n2954 --> n2711
+  n2954 --> n2979
+  n3077 --> n82
+  n3077 --> n2711
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2811,n3071 root
-  class n2706,n2811,n2872,n2948,n2973,n3071 locked
+  class n2817,n3077 root
+  class n2712,n2817,n2878,n2954,n2979,n3077 locked
 ```
 
 Axioms used:

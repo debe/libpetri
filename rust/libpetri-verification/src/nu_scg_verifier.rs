@@ -316,7 +316,7 @@ fn verify_name_scg(
     // `NameAligned` ([NU-055]) reads the name layer, as `NameClasses` does.
     let violates = |m: &MarkingState, names: &NameMarking| {
         marking_violates(property, m)
-            || matches!(property, SmtProperty::NameAligned { p, q } if !names.aligned(p, q))
+            || matches!(property, SmtProperty::NameAligned { places } if !names.aligned(places))
     };
     let stop_at = is_reachability_safety(property)
         .then_some(&violates as &dyn Fn(&MarkingState, &NameMarking) -> bool);
@@ -385,20 +385,21 @@ fn verify_name_scg(
 
 /// Why Route B cannot decide the name-alignment `property` on `fragment` ([NU-055]), or
 /// `None` (always for any other property): a property place that is not coloured,
-/// whose predicate would hold vacuously (AC2, AC3; Lean `Aligned.aligned_uncoloured`),
+/// whose predicate would hold vacuously (AC2, AC3; Lean `Aligned.alignedAll_uncoloured`),
 /// or a coloured place the initial marking marks (AC6), since the graph models no
-/// initial names. Checked in that order, `p` before `q`, the marked places in
-/// code-point order.
+/// initial names. Checked in that order, the last two steps of the [NU-055] refusal
+/// order: the first uncoloured place of `S` in the order of `S`, then the first marked
+/// coloured place in code-point order.
 fn name_alignment_refusal(
     property: &SmtProperty,
     fragment: &name_fragment::NameFragment,
     fragment_mode: FragmentMode,
     initial: &MarkingState,
 ) -> Option<String> {
-    let (SmtProperty::NameAligned { p, q } | SmtProperty::QuiescentNameAligned { p, q }) = property else {
+    let (SmtProperty::NameAligned { places } | SmtProperty::QuiescentNameAligned { places }) = property else {
         return None;
     };
-    if let Some(place) = [p, q].into_iter().find(|place| !fragment.is_coloured(place)) {
+    if let Some(place) = places.iter().find(|place| !fragment.is_coloured(place)) {
         let base = if fragment_mode == FragmentMode::Base {
             "; under BASE only the match keys are coloured, carrier places and relay targets \
              only under the EXTENDED fragment (fragment_mode(FragmentMode::Extended), NU-051, \
@@ -498,8 +499,8 @@ impl ClassView for NameClasses<'_> {
                 Some(fires) => !fires[i],
             }
     }
-    fn name_aligned(&self, i: usize, p: &str, q: &str) -> Option<bool> {
-        Some(self.scg.classes[i].names.aligned(p, q))
+    fn name_aligned(&self, i: usize, places: &[String]) -> Option<bool> {
+        Some(self.scg.classes[i].names.aligned(places))
     }
 }
 
@@ -1431,18 +1432,18 @@ mod tests {
             .expect("in the EXTENDED fragment")
         };
         let fixed = ["inflightA", "inflightB", "list"];
-        let transient = run(false, &fixed, SmtProperty::name_aligned("box", "list"));
+        let transient = run(false, &fixed, SmtProperty::name_aligned(["box", "list"]));
         assert!(transient.verdict.is_violated(), "{:?}", transient.verdict);
         assert_eq!(transient.transitions.len(), 8, "{:?}", transient.transitions);
         assert!(transient.note.contains("stopped at the first violating class"), "{}", transient.note);
-        let at_rest = run(false, &fixed, SmtProperty::quiescent_name_aligned("box", "list"));
+        let at_rest = run(false, &fixed, SmtProperty::quiescent_name_aligned(["box", "list"]));
         assert!(at_rest.verdict.is_proven(), "{:?}", at_rest.verdict);
         let bug = ["box", "inflightA", "inflightB", "reply", "staged", "list"];
-        let stale = run(true, &bug, SmtProperty::quiescent_name_aligned("box", "list"));
+        let stale = run(true, &bug, SmtProperty::quiescent_name_aligned(["box", "list"]));
         assert!(stale.verdict.is_violated(), "{:?}", stale.verdict);
         assert_eq!(stale.transitions.len(), 12, "{:?}", stale.transitions);
         // [NU-055] AC2: an uncoloured place is refused by name, never proven.
-        let ready = run(false, &fixed, SmtProperty::quiescent_name_aligned("box", "ready"));
+        let ready = run(false, &fixed, SmtProperty::quiescent_name_aligned(["box", "ready"]));
         assert!(
             matches!(&ready.verdict, Verdict::Unknown { reason } if reason.contains("place 'ready' is not a coloured place")),
             "{:?}",
@@ -1465,7 +1466,7 @@ mod tests {
         );
         assert_eq!(
             name_alignment_refusal(
-                &SmtProperty::name_aligned("box", "list"),
+                &SmtProperty::name_aligned(["box", "list"]),
                 &fragment,
                 FragmentMode::Extended,
                 &MarkingStateBuilder::new().build()
@@ -1473,7 +1474,7 @@ mod tests {
             None
         );
         let refused =
-            name_alignment_refusal(&SmtProperty::name_aligned("box", "list"), &fragment, FragmentMode::Extended, &marked);
+            name_alignment_refusal(&SmtProperty::name_aligned(["box", "list"]), &fragment, FragmentMode::Extended, &marked);
         assert!(refused.is_some_and(|r| r.starts_with("coloured place 'box' holds a token in the initial marking")));
     }
 }

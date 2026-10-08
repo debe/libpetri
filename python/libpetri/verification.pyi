@@ -71,11 +71,13 @@ def place_bound(place: PlaceLike, bound: int) -> SmtProperty: ...
 def unreachable(places: Iterable[PlaceLike]) -> SmtProperty: ...
 def branch_place_bound(place: PlaceLike, bound: int) -> SmtProperty: ...
 def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty: ...
-def name_aligned(p: PlaceLike, q: PlaceLike) -> SmtProperty:
-    """Every name resident in ``p`` equals every name resident in ``q``, in every
-    reachable marking (NU-055). Both must be coloured; decided only by Route B."""
-def quiescent_name_aligned(p: PlaceLike, q: PlaceLike) -> SmtProperty:
-    """:func:`name_aligned`, read only in the reachable quiescent markings (NU-055)."""
+def name_aligned(places: Iterable[PlaceLike]) -> SmtProperty:
+    """The places of ``places`` together hold at most one distinct name, in every
+    reachable marking (NU-055). Each must be coloured; decided only by Route B. An
+    empty ``places`` raises ``ValueError``, a bare name ``TypeError``."""
+def quiescent_name_aligned(places: Iterable[PlaceLike]) -> SmtProperty:
+    """:func:`name_aligned`, read only in the reachable quiescent markings (NU-055).
+    An empty ``places`` raises ``ValueError``, a bare name ``TypeError``."""
 def quiescent_count(
     places: Iterable[PlaceLike],
     min: int,

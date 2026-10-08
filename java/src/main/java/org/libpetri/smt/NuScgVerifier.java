@@ -263,21 +263,10 @@ final class NuScgVerifier {
     }
 
     /**
-     * The fragment {@link #verify} runs on, or {@code null} when it would decline: the net is
-     * outside the mint&rarr;matched-join fragment, or a coloured place starts marked (no
-     * initial colour assignment is modelled). {@code admitMatchless} as for
-     * {@link NameFragment#classify(PetriNet, FragmentMode, Set, Set, boolean)}.
+     * Whether no coloured place of {@code fragment} holds a token in {@code initial}: Route B
+     * declines a net that fails this (no initial colour assignment is modelled).
      */
-    static NameFragment supportedFragment(
-            PetriNet net, MarkingState initial, FragmentMode fragmentMode, Set<String> carrierPlaces,
-            Set<String> mintTransitions, boolean admitMatchless
-    ) {
-        var fragment = NameFragment.classify(net, fragmentMode, carrierPlaces, mintTransitions, admitMatchless);
-        return fragment != null && startsEmpty(fragment, initial) ? fragment : null;
-    }
-
-    /** Whether no coloured place of {@code fragment} holds a token in {@code initial}. */
-    private static boolean startsEmpty(NameFragment fragment, MarkingState initial) {
+    static boolean startsEmpty(NameFragment fragment, MarkingState initial) {
         for (var p : initial.placesWithTokens()) {
             if (fragment.isColoured(p.name())) {
                 return false;
@@ -290,8 +279,9 @@ final class NuScgVerifier {
      * Why Route B cannot decide the name-alignment {@code property} on {@code fragment} (NU-055),
      * or {@code null}: a property place that is not coloured, whose predicate would hold vacuously
      * (AC2, AC3), or a coloured place the initial marking marks (AC6), since the graph models no
-     * initial names. Checked in that order, {@code p} before {@code q}, the marked places in
-     * code-point order.
+     * initial names. Checked in that order, the last two steps of the NU-055 refusal order: the
+     * first uncoloured place of {@code S} in the order of {@code S}, then the first marked coloured
+     * place in code-point order.
      */
     private static String nameAlignmentRefusal(
             SmtProperty property, NameFragment fragment, FragmentMode fragmentMode, MarkingState initial
@@ -351,8 +341,8 @@ final class NuScgVerifier {
             }
 
             @Override
-            public boolean namesAligned(int i, Place<?> p, Place<?> q) {
-                return scg.namesAligned(i, p.name(), q.name());
+            public boolean namesAligned(int i, List<String> places) {
+                return scg.namesAligned(i, places);
             }
         };
     }

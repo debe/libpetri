@@ -13,19 +13,27 @@ the first property that reads the **name layer** itself:
   `List.range S.bound`, exact because `S.supp` puts every live symbol below the bound) and it
   compares names by equality only, so it is invariant under renaming and hence a function of
   the key (`aligned_key_inv`, via `canonicalKey_complete`).
-* `NameAligned(p, q)` is the safety property `bad := fun S => !aligned p q S`;
-  `QuiescentNameAligned(p, q)` the same predicate read at resting classes only (quiescence over
-  the reapable set, [VER-002] / [TIME-013] as in `routeB_untimed_quiescence_sound`).
+* `alignedAll ps S`: `aligned p q S` for every `p` and `q` in `ps`, self pairs included, so the
+  places of `ps` together hold at most one distinct name; a singleton `[p]` says `p` never holds
+  two names.
+* `NameAligned(ps)` is the safety property `bad := fun S => !alignedAll ps S` for the
+  property's places `ps`; `QuiescentNameAligned(ps)` the same predicate read at resting classes
+  only (quiescence over the reapable set, [VER-002] / [TIME-013] as in
+  `routeB_untimed_quiescence_sound`).
 
 Results:
-* `aligned_eq_true_iff`, `aligned_key_inv`.
-* `aligned_view_iff`: on the view of a concrete marking, for coloured `p` and `q`, `aligned` is
-  `∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d`. Only the membership `p ∈ co`, `q ∈ co` is needed
-  (`idx` returns the first position, and that position holds `p`), not `co.Nodup`.
-* `resident_of_not_mem`, `aligned_uncoloured`, `aligned_uncoloured_right`: for `p ∉ co` or
-  `q ∉ co` the predicate is constantly `true`.
-  The name layer has no row for an uncoloured place, so a `Proven` would say nothing about it: a
-  verifier must refuse such a query (answer `Unknown` with a reason), never answer `Proven`.
+* The pair form, the building block: `aligned_eq_true_iff`, `aligned_key_inv`,
+  `aligned_view_iff` (on the view of a concrete marking, for coloured `p` and `q`, `aligned` is
+  `∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d`; it needs only the membership `p ∈ co`, `q ∈ co`,
+  not `co.Nodup`, as `idx` returns the first position and that position holds `p`),
+  `resident_of_not_mem`, `aligned_uncoloured`, `aligned_uncoloured_right` (for `p ∉ co` or
+  `q ∉ co` the pair predicate is constantly `true`).
+* The list form: `alignedAll_eq_true_iff`; `alignedAll_congr_mem` (only membership counts, so
+  order and duplicates are free); `alignedAll_key_inv`; `alignedAll_view_iff` (all members
+  coloured, no `Nodup` needed); `alignedAll_uncoloured` (`alignedAll ps` is `alignedAll` of the
+  coloured members alone). The name layer has no row for an uncoloured place, so a `Proven`
+  would say nothing about it: a verifier must refuse such a query (answer `Unknown` with a
+  reason), never answer `Proven`.
 * **`routeB_untimed_nameAligned_sound`**, **`routeB_untimed_quiescentNameAligned_sound`**: the
   headlines, concluding the concrete statement on the executor's tokens. They instantiate
   `Sound.lean`'s `routeB_untimed_safety_sound_keyInv` and `routeB_untimed_quiescence_sound_keyInv`.
@@ -33,11 +41,11 @@ Results:
 **Scope.** Exactly that of `Sound.lean`: the untimed, environment-free, atomic instance
 `routeB untimedBase` (no timed executor simulation, gap R6). Premises stated as hypotheses:
 `coloured_order` duplicate-free, every transition `InFragment` for its role, unguarded input
-arcs, the coloured places initially empty, `p` and `q` coloured, and for the quiescence form
-`PosKeys` and `ExecRests reap`. Premises built into `NuStepC` (contracts, the [NU-052] priority
-premise, one global total name projection `nameOf`) are as in `Sound.lean`; the conclusion is
-about names read through that `nameOf`, so it describes the runtime only when every key and
-relay `KeyFn` agrees with it (`Exec.ProjCoherent`).
+arcs, the coloured places initially empty, every member of `ps` coloured, and for the
+quiescence form `PosKeys` and `ExecRests reap`. Premises built into `NuStepC` (contracts, the
+[NU-052] priority premise, one global total name projection `nameOf`) are as in `Sound.lean`;
+the conclusion is about names read through that `nameOf`, so it describes the runtime only
+when every key and relay `KeyFn` agrees with it (`Exec.ProjCoherent`).
 
 **Not covered.** `Violated` is sound for the graph only (a reachable class whose name layer is
 misaligned), not for the executor: a consumer fires on any resident symbol in the graph and on
@@ -161,8 +169,7 @@ theorem resident_of_not_mem {p : PlaceId} (hp : p ∉ co) (M : NM co) (s : ℕ) 
 
 /-- **An uncoloured place makes `aligned` vacuous.** The name layer has no row for `p ∉ co`, so
 nothing is resident there and `aligned p q S` holds of every class: a `Proven` would carry no
-information about `p`. This is why the property must be refused (`Unknown` with a reason) for
-an uncoloured place, never decided. -/
+information about `p` (lifted to lists by `alignedAll_uncoloured`). -/
 theorem aligned_uncoloured {β : Type} {p : PlaceId} (hp : p ∉ co) (q : PlaceId)
     (S : NState co β) : aligned p q S = true :=
   aligned_eq_true_iff.mpr fun s _ hs _ => by rw [resident_of_not_mem hp] at hs; cases hs
@@ -172,50 +179,107 @@ theorem aligned_uncoloured_right {β : Type} (p : PlaceId) {q : PlaceId} (hq : q
     (S : NState co β) : aligned p q S = true :=
   aligned_eq_true_iff.mpr fun _ t _ ht => by rw [resident_of_not_mem hq] at ht; cases ht
 
+/-! ## Over a list of places: one name across all -/
+
+/-- **`alignedAll ps S`**: every pair of places of `ps`, self pairs included, is `aligned`, so the
+places of `ps` together hold at most one distinct name. A singleton `[p]` says that `p` never
+holds two names. -/
+def alignedAll {β : Type} (ps : List PlaceId) (S : NState co β) : Bool :=
+  ps.all fun p => ps.all fun q => aligned p q S
+
+theorem alignedAll_eq_true_iff {β : Type} {ps : List PlaceId} {S : NState co β} :
+    alignedAll ps S = true ↔ ∀ p ∈ ps, ∀ q ∈ ps, aligned p q S = true := by
+  simp only [alignedAll, List.all_eq_true]
+
+/-- **Only membership counts**: order and duplicates of `ps` do not change `alignedAll`, so
+deduplicating the list and fixing its order (for the description) are free. -/
+theorem alignedAll_congr_mem {β : Type} {ps ps' : List PlaceId} (h : ∀ x, x ∈ ps ↔ x ∈ ps')
+    (S : NState co β) : alignedAll ps S = alignedAll ps' S := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [alignedAll_eq_true_iff, h]
+
+/-- **`alignedAll` reads only the key**: each conjunct does (`aligned_key_inv`). -/
+theorem alignedAll_key_inv {β : Type} (ps : List PlaceId) {a b : NState co β}
+    (h : keyOf a = keyOf b) : alignedAll ps a = alignedAll ps b := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [alignedAll_eq_true_iff, aligned_key_inv _ _ h]
+
+/-- **`alignedAll` on the executor's view is the concrete statement**, for a list of coloured
+places: all tokens in the places of `ps` carry one name. Neither `ps.Nodup` nor `co.Nodup` is
+needed. -/
+theorem alignedAll_view_iff {ps : List PlaceId} (hps : ∀ p ∈ ps, p ∈ co) {m : CMarking} :
+    alignedAll ps (view co nameOf m) = true ↔
+      ∀ p ∈ ps, ∀ q ∈ ps, ∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d := by
+  rw [alignedAll_eq_true_iff]
+  constructor
+  · intro h p hp q hq
+    exact (aligned_view_iff (hps p hp) (hps q hq)).mp (h p hp q hq)
+  · intro h p hp q hq
+    exact (aligned_view_iff (hps p hp) (hps q hq)).mpr (h p hp q hq)
+
+/-- **An uncoloured member contributes nothing.** Every row and column of a place outside `co`
+is vacuous (`aligned_uncoloured`, `aligned_uncoloured_right`), so `alignedAll ps` is
+`alignedAll` of the coloured members alone: a `Proven` would say nothing about an uncoloured
+member (and with no coloured member it holds of every class). This is why the property must be
+refused (`Unknown` with a reason) when any member is uncoloured, never decided. -/
+theorem alignedAll_uncoloured {β : Type} (ps : List PlaceId) (S : NState co β) :
+    alignedAll ps S = alignedAll (ps.filter fun p => co.contains p) S := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [alignedAll_eq_true_iff, List.mem_filter, List.contains_iff_mem]
+  constructor
+  · intro h p hp q hq
+    exact h p hp.1 q hq.1
+  · intro h p hp q hq
+    by_cases hpc : p ∈ co
+    · by_cases hqc : q ∈ co
+      · exact h p ⟨hp, by simpa using hpc⟩ q ⟨hq, by simpa using hqc⟩
+      · exact aligned_uncoloured_right p hqc S
+    · exact aligned_uncoloured hpc q S
+
 /-! ## Headlines -/
 
-/-- **`NameAligned(p, q)`: a Route B `Proven` holds for the untimed, environment-free
-executor.** A complete build whose safety verdict for `!aligned p q` is
-`Proven`: in every marking an untimed, injection-free executor run reaches, every token in `p`
-and every token in `q` carry one name. `p` and `q` must be coloured (`aligned_uncoloured`). -/
+/-- **`NameAligned(ps)`: a Route B `Proven` holds for the untimed, environment-free
+executor.** A complete build whose safety verdict for `!alignedAll ps` is `Proven`: in every
+marking an untimed, injection-free executor run reaches, all tokens in the places of `ps` carry
+one name. Every member of `ps` must be coloured (`alignedAll_uncoloured`). -/
 theorem routeB_untimed_nameAligned_sound (hco : co.Nodup)
     (hfr : ∀ T ∈ net, InFragment co T (role T)) (hG : ∀ T ∈ net, GuardFree T.base)
-    {p q : PlaceId} (hp : p ∈ co) (hq : q ∈ co)
+    {ps : List PlaceId} (hps : ∀ p ∈ ps, p ∈ co)
     {maxClasses : ℕ} {cut : ℕ → Bool} {stopBad : NState co AMarking → Bool} {stopAt : Bool}
     {fuel : ℕ} {m0 : CMarking} (hempty : ∀ i : Fin co.length, m0 co[i.1] = [])
     (hP : Decide.verdict (routeB untimedBase net role conflict)
       (Decide.build (routeB untimedBase net role conflict) maxClasses cut stopBad stopAt fuel
         (initState co (alpha m0)))
-      (.safety fun S => !aligned p q S) = .proven)
+      (.safety fun S => !alignedAll ps S) = .proven)
     {m : CMarking} (hR : Relation.ReflTransGen (NuStepC co nameOf net role conflict) m0 m) :
-    ∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d := by
-  have h := routeB_untimed_safety_sound_keyInv hco hfr hG (bad := fun S => !aligned p q S)
-    (fun a b hk => by rw [aligned_key_inv p q hk]) hempty hP hR
-  exact (aligned_view_iff hp hq).mp (by simpa using h)
+    ∀ p ∈ ps, ∀ q ∈ ps, ∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d := by
+  have h := routeB_untimed_safety_sound_keyInv hco hfr hG (bad := fun S => !alignedAll ps S)
+    (fun a b hk => by rw [alignedAll_key_inv ps hk]) hempty hP hR
+  exact (alignedAll_view_iff hps).mp (by simpa using h)
 
-/-- **`QuiescentNameAligned(p, q)`: a Route B `Proven` holds for the untimed, environment-free
-executor**, deadline reaping included ([TIME-013], [VER-002]). A
-complete build whose quiescence verdict for `!aligned p q` over the reapable set `reap` is
-`Proven`: in every marking an untimed, injection-free executor run reaches and rests at
-(`ExecRests reap`), every token in `p` and every token in `q` carry one name. Needs `PosKeys`
-beyond the safety premises; `p` and `q` must be coloured. -/
+/-- **`QuiescentNameAligned(ps)`: a Route B `Proven` holds for the untimed, environment-free
+executor**, deadline reaping included ([TIME-013], [VER-002]). A complete build whose
+quiescence verdict for `!alignedAll ps` over the reapable set `reap` is `Proven`: in every
+marking an untimed, injection-free executor run reaches and rests at (`ExecRests reap`), all
+tokens in the places of `ps` carry one name. Needs `PosKeys` beyond the safety premises; every
+member of `ps` must be coloured. -/
 theorem routeB_untimed_quiescentNameAligned_sound (hco : co.Nodup)
     (hfr : ∀ T ∈ net, InFragment co T (role T)) (hpos : ∀ T ∈ net, PosKeys (role T))
-    (hG : ∀ T ∈ net, GuardFree T.base) {p q : PlaceId} (hp : p ∈ co) (hq : q ∈ co)
+    (hG : ∀ T ∈ net, GuardFree T.base) {ps : List PlaceId} (hps : ∀ p ∈ ps, p ∈ co)
     {reap : String → Bool} {maxClasses : ℕ} {cut : ℕ → Bool}
     {stopBad : NState co AMarking → Bool} {stopAt : Bool} {fuel : ℕ} {m0 : CMarking}
     (hempty : ∀ i : Fin co.length, m0 co[i.1] = [])
     (hP : Decide.verdict (routeB untimedBase net role conflict)
       (Decide.build (routeB untimedBase net role conflict) maxClasses cut stopBad stopAt fuel
         (initState co (alpha m0)))
-      (.quiescence (fun S => !aligned p q S) reap) = .proven)
+      (.quiescence (fun S => !alignedAll ps S) reap) = .proven)
     {m : CMarking} (hR : Relation.ReflTransGen (NuStepC co nameOf net role conflict) m0 m)
     (hrest : ExecRests (co := co) (nameOf := nameOf) (net := net) reap m) :
-    ∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d := by
+    ∀ p ∈ ps, ∀ q ∈ ps, ∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d := by
   have h := routeB_untimed_quiescence_sound_keyInv hco hfr hpos hG
-    (bad := fun S => !aligned p q S) (fun a b hk => by rw [aligned_key_inv p q hk]) hempty hP
-    hR hrest
-  exact (aligned_view_iff hp hq).mp (by simpa using h)
+    (bad := fun S => !alignedAll ps S) (fun a b hk => by rw [alignedAll_key_inv ps hk]) hempty
+    hP hR hrest
+  exact (alignedAll_view_iff hps).mp (by simpa using h)
 
 end Aligned
 

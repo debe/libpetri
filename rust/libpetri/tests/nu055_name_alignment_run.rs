@@ -236,7 +236,7 @@ fn nu055_ac5_the_verdicts_on_the_executable_nets_match_the_fixtures() {
         }
         let r = SmtVerifier::for_net(&net)
             .initial_marking(m0.build())
-            .property(SmtProperty::quiescent_name_aligned("box", "list"))
+            .property(SmtProperty::quiescent_name_aligned(["box", "list"]))
             .mint_transitions(["sendA", "sendB"].map(String::from))
             .carrier_places(carriers.iter().map(|c| c.to_string()))
             .fragment_mode(FragmentMode::Extended)

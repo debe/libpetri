@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,7 +18,6 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,9 +60,10 @@ import org.libpetri.smt.z3.StateEquationQuery;
 
 /**
  * [NU-055] name alignment: the fixtures of {@code spec/verification-fixtures/nu-aligned-fixtures.json}
- * (AC1, AC2, AC3, AC6), the routes that must not decide it (AC4), the predicate's invariance under
- * name permutation and a run with a pinned minting scope (AC5). The fixture nets are built as
- * {@link JoinRelayTest.Net} builds the relay fixtures, from the same row schema.
+ * (AC1, AC2, AC3, AC6, AC7, AC8), the routes that must not decide it (AC4), the predicate's
+ * invariance under name permutation and reordering and a run with a pinned minting scope (AC5),
+ * and the construction rules and descriptions of the list {@code S} (AC7). The fixture nets are
+ * built as {@link JoinRelayTest.Net} builds the relay fixtures, from the same row schema.
  */
 class NuNameAlignmentTest {
 
@@ -100,12 +101,11 @@ class NuNameAlignmentTest {
 
     private static SmtProperty property(JsonNode f, JoinRelayTest.Net net) {
         var prop = f.get("property");
-        var places = names(prop.get("places"));
+        var places = names(prop.get("places")).stream().map(net::p).toList();
         return switch (prop.get("type").asText()) {
-            case "name-aligned" -> SmtProperty.nameAligned(net.p(places.get(0)), net.p(places.get(1)));
-            case "quiescent-name-aligned" ->
-                SmtProperty.quiescentNameAligned(net.p(places.get(0)), net.p(places.get(1)));
-            case "quiescent-count" -> SmtProperty.quiescentCount(places.stream().map(net::p).toList(),
+            case "name-aligned" -> SmtProperty.nameAligned(places);
+            case "quiescent-name-aligned" -> SmtProperty.quiescentNameAligned(places);
+            case "quiescent-count" -> SmtProperty.quiescentCount(places,
                 prop.get("min").asInt(), OptionalInt.of(prop.get("max").asInt()));
             default -> throw new IllegalArgumentException("unknown fixture property type: " + prop.get("type"));
         };
@@ -150,40 +150,19 @@ class NuNameAlignmentTest {
         return r.verdict() instanceof SmtVerificationResult.Verdict.Unknown(var why) ? why : "";
     }
 
-    /**
-     * What the reason of an {@code unknown} fixture must name: EXTENDED for a BASE run, else the
-     * environment place, else the coloured place the initial marking marks, else the uncoloured
-     * property place.
-     */
-    private static String namedByReason(JsonNode f) {
-        if (f.get("fragmentMode").asText().equals("base")) {
-            return "EXTENDED";
-        }
-        var env = names(f.get("environmentPlaces"));
-        if (!env.isEmpty()) {
-            return "'" + env.get(0) + "'";
-        }
-        var coloured = new HashSet<>(names(f.get("carrierPlaces")));
-        for (JsonNode row : f.get("rows")) {
-            coloured.addAll(names(row.get(3)));
-            coloured.addAll(names(row.get(4)));
-        }
-        for (var it = f.get("marking").fieldNames(); it.hasNext(); ) {
-            var n = it.next();
-            if (coloured.contains(n)) {
-                return "'" + n + "'";
-            }
-        }
-        var uncoloured = names(f.get("property").get("places")).stream().filter(n -> !coloured.contains(n))
-            .findFirst().orElseThrow(() -> new AssertionError(f.get("id") + ": nothing for the reason to name"));
-        return "'" + uncoloured + "'";
-    }
-
     /** The NU-055 fixture runner: verdict, Route B attribution and witness length of every fixture. */
     @TestFactory
     List<DynamicTest> nu055_alignedFixtures() throws IOException {
         var all = fixtures();
-        assertEquals(10, all.size(), "nu-aligned-fixtures.json lists ten fixtures");
+        // One test per fixture of the file: the ids are distinct, so none shadows another, and
+        // every unknown one says what its reason must contain.
+        assertFalse(all.isEmpty());
+        assertEquals(all.size(), all.stream().map(f -> f.get("id").asText()).distinct().count());
+        for (var f : all) {
+            if (f.get("expected").asText().equals("unknown")) {
+                assertTrue(f.hasNonNull("reasonContains"), f.get("id").asText());
+            }
+        }
         var tests = new ArrayList<DynamicTest>();
         for (var f : all) {
             tests.add(DynamicTest.dynamicTest(f.get("id").asText(), () -> {
@@ -194,7 +173,8 @@ class NuNameAlignmentTest {
                 assertTrue(result.report().contains("Route B"), result.report());
                 assertEquals(f.get("expected").asText(), verdict(result), result.report());
                 if (!result.isProven() && !result.isViolated()) {
-                    assertTrue(reason(result).contains(namedByReason(f)), reason(result));
+                    // The refusal order of NU-055 picks what the reason names when several refusals apply.
+                    assertTrue(reason(result).contains(f.get("reasonContains").asText()), reason(result));
                 }
                 if (f.has("witnessLength")) {
                     assertEquals(f.get("witnessLength").asInt(), result.counterexampleTransitions().size(),
@@ -214,12 +194,19 @@ class NuNameAlignmentTest {
     }
 
     @Test
-    void nu055_describesBothPropertiesByteForByte() throws IOException {
+    void nu055_describesBothPropertiesByteForByteForOneTwoAndThreePlaces() throws IOException {
         var box = Place.of("box", String.class);
         var list = Place.of("list", String.class);
+        var staged = Place.of("staged", String.class);
+        assertEquals("Name alignment of box", SmtProperty.nameAligned(box).description());
         assertEquals("Name alignment of box and list", SmtProperty.nameAligned(box, list).description());
+        assertEquals("Name alignment of box, staged and list",
+            SmtProperty.nameAligned(box, staged, list).description());
+        assertEquals("Quiescent name alignment of box", SmtProperty.quiescentNameAligned(box).description());
         assertEquals("Quiescent name alignment of box and list",
             SmtProperty.quiescentNameAligned(box, list).description());
+        assertEquals("Quiescent name alignment of box, staged and list",
+            SmtProperty.quiescentNameAligned(List.of(box, staged, list)).description());
         var result = verifier(fixed()).verify();
         assertTrue(result.report().contains("Property: Quiescent name alignment of box and list"), result.report());
     }
@@ -352,6 +339,90 @@ class NuNameAlignmentTest {
         assertEquals(Route.NU_SCG, result.route(), result.report());
         assertTrue(reason(result).contains("'typed'"), reason(result));
         assertTrue(reason(result).contains("arrivals(k)"), reason(result));
+    }
+
+    @Test
+    void nu055_ac8_anArrivalIntoAColouredPlaceIsRefusedBeforeAMarkedColouredPlace() {
+        // `e` is a carrier fed by arrivals(1) and `box` starts marked: step 3 of the refusal order
+        // names `e`, ahead of step 7, which would name `box`.
+        var n = new JoinRelayTest.Net("arrivalBeforeMarked").t("fwd", List.of("e"), List.of("box"));
+        var result = SmtVerifier.forNet(n.build())
+            .initialMarking(m -> m.tokens(n.p("box"), 1))
+            .environmentPlaces(EnvironmentPlace.of(n.p("e")))
+            .environmentMode(EnvironmentAnalysisMode.arrivals(1, 1))
+            .carrierPlaces(n.p("e"), n.p("box"))
+            .fragmentMode(FragmentMode.EXTENDED)
+            .property(SmtProperty.quiescentNameAligned(n.p("box")))
+            .verify();
+        assertEquals(Route.NU_SCG, result.route(), result.report());
+        assertTrue(reason(result).contains("environment place 'e'"), result.report());
+        assertTrue(reason(result).contains("arrivals(k)"), reason(result));
+    }
+
+    // ── AC7: S is a non-empty list of places ──────────────────────────────────────────────
+
+    @Test
+    void nu055_ac7_aRepeatedPlaceCountsOnceAtItsFirstOccurrenceComparedByName() {
+        var box = Place.of("box", String.class);
+        var list = Place.of("list", String.class);
+        var again = Place.of("box", Integer.class); // another place with the same name
+        for (var places : List.of(
+                SmtProperty.nameAligned(box, list, again, list).places(),
+                SmtProperty.quiescentNameAligned(box, list, again, list).places(),
+                new SmtProperty.NameAligned(List.of(box, list, again)).places())) {
+            assertEquals(List.of("box", "list"), places.stream().map(Place::name).toList());
+            assertSame(box, places.get(0), "the first occurrence is kept");
+        }
+        assertEquals("Name alignment of list and box", SmtProperty.nameAligned(list, box, list).description());
+        assertEquals("Name alignment of box", SmtProperty.nameAligned(box, box).description());
+        assertEquals(new SmtProperty.NameAligned(List.of(box, list)), SmtProperty.nameAligned(box, list, box));
+    }
+
+    @Test
+    void nu055_ac7_anEmptySIsRejectedAtConstruction() {
+        var e = assertThrows(IllegalArgumentException.class, () -> SmtProperty.nameAligned(List.of()));
+        assertEquals("nameAligned needs at least one place", e.getMessage());
+        e = assertThrows(IllegalArgumentException.class, () -> SmtProperty.quiescentNameAligned(List.of()));
+        assertEquals("quiescentNameAligned needs at least one place", e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> new SmtProperty.NameAligned(List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new SmtProperty.QuiescentNameAligned(List.of()));
+    }
+
+    @Test
+    void nu055_ac7_theCopyOfSIsUnmodifiable() {
+        var box = Place.of("box", String.class);
+        var source = new ArrayList<Place<?>>(List.of(box));
+        var prop = new SmtProperty.NameAligned(source);
+        source.add(Place.of("list", String.class));
+        assertEquals(List.of(box), prop.places());
+        assertThrows(UnsupportedOperationException.class, () -> prop.places().add(box));
+    }
+
+    @Test
+    void nu055_ac7_theFixtureThatSeparatesTheListReadingFromThePairwiseOneIsViolated() throws IOException {
+        // Three keystrokes: the net rests with two stale replies in `reply` and `staged` empty.
+        var f = fixture("nu-aligned-search-three-keystrokes-quiescent-violated");
+        var net = net(f);
+        var result = verifier(f, net).verify();
+        assertEquals(Route.NU_SCG, result.route(), result.report());
+        assertEquals("violated", verdict(result), result.report());
+        assertEquals(12, result.counterexampleTransitions().size(), result.report());
+        var rest = result.counterexampleTrace().getLast();
+        assertEquals(2, rest.tokens(net.p("reply")), result.report());
+        assertFalse(rest.hasTokens(net.p("staged")), result.report());
+    }
+
+    @Test
+    void nu055_ac7_reorderingSChangesNoVerdictAndNoWitnessLength() throws IOException {
+        var f = fixture("nu-aligned-search-three-quiescent-violated");
+        var net = net(f);
+        for (var order : List.of(List.of("box", "list", "reply"), List.of("reply", "box", "list"),
+                List.of("list", "reply", "box"))) {
+            var result = verifier(f, net)
+                .property(SmtProperty.quiescentNameAligned(order.stream().map(net::p).toList())).verify();
+            assertEquals("violated", verdict(result), order + "\n" + result.report());
+            assertEquals(f.get("witnessLength").asInt(), result.counterexampleTransitions().size(), order.toString());
+        }
     }
 
     // ── AC4: no other route decides name alignment ────────────────────────────────────────
@@ -586,7 +657,7 @@ class NuNameAlignmentTest {
             }
 
             @Override
-            public boolean namesAligned(int i, Place<?> p, Place<?> q) {
+            public boolean namesAligned(int i, List<String> places) {
                 return false;
             }
         };

@@ -90,15 +90,27 @@ impl NameMarking {
             .unwrap_or_default()
     }
 
-    /// The name-alignment predicate of [NU-055]: every symbol resident in `p` equals
-    /// every symbol resident in `q`, so it holds when either place is empty, and
-    /// `aligned(p, p)` when `p` holds at most one symbol. It compares symbols only for
-    /// equality, so it is invariant under any permutation of them and a function of
-    /// the canonical key (Lean `Aligned.aligned_key_inv`). Read in place, as Lean
-    /// `Aligned.aligned` states it: Route B tests it on every class it stores.
-    pub(crate) fn aligned(&self, p: &str, q: &str) -> bool {
-        let resident = |place: &str| self.per_place.get(place).into_iter().flat_map(|syms| syms.keys());
-        resident(p).all(|s| resident(q).all(|t| s == t))
+    /// The name-alignment predicate of [NU-055]: the places of `places` together hold at
+    /// most one distinct symbol, so an empty place imposes nothing and a singleton list
+    /// says that its place holds at most one. It compares symbols only for equality, so
+    /// it is invariant under any permutation of them and a function of the canonical key
+    /// (Lean `Aligned.alignedAll_key_inv`), and only membership in `places` counts. It
+    /// walks the resident symbols in place, keeping the first one seen and stopping at
+    /// the first other, which decides Lean `Aligned.alignedAll` (every pair of places,
+    /// self pairs included) without building the set of names. Route B tests it on
+    /// every class it stores.
+    pub(crate) fn aligned(&self, places: &[impl AsRef<str>]) -> bool {
+        let mut first: Option<Sym> = None;
+        for syms in places.iter().filter_map(|p| self.per_place.get(p.as_ref())) {
+            for &s in syms.keys() {
+                match first {
+                    None => first = Some(s),
+                    Some(f) if f != s => return false,
+                    Some(_) => {}
+                }
+            }
+        }
+        true
     }
 
     /// All live symbols across every coloured place.
@@ -204,25 +216,48 @@ mod tests {
     }
 
     /// [NU-055]: empty places are aligned, one shared symbol is, two symbols in one
-    /// place or different symbols across the two are not.
+    /// place or different symbols across the places are not.
     #[test]
     fn nu055_aligned_reads_symbol_equality() {
         let mut nm = NameMarking::new();
-        assert!(nm.aligned("box", "list"), "both empty");
+        assert!(nm.aligned(&["box", "list"]), "both empty");
         nm.add("box", 4, 1);
-        assert!(nm.aligned("box", "list"), "list empty");
-        assert!(nm.aligned("box", "box"), "one symbol in box");
+        assert!(nm.aligned(&["box", "list"]), "list empty");
+        assert!(nm.aligned(&["box"]), "one symbol in box");
         nm.add("list", 4, 2);
-        assert!(nm.aligned("box", "list"), "the same symbol, any count");
+        assert!(nm.aligned(&["box", "list"]), "the same symbol, any count");
         nm.add("list", 9, 1);
-        assert!(!nm.aligned("box", "list"), "a second symbol in list");
-        assert!(!nm.aligned("list", "list"), "list holds two names");
-        assert!(nm.aligned("box", "ready"), "a place without a row is empty");
+        assert!(!nm.aligned(&["box", "list"]), "a second symbol in list");
+        assert!(!nm.aligned(&["list"]), "list holds two names");
+        assert!(nm.aligned(&["box", "ready"]), "a place without a row is empty");
+        nm.remove("list", 9, 1);
+        assert!(nm.aligned(&["box", "list"]), "a removed symbol leaves no trace");
+    }
+
+    /// [NU-055] AC7: one name across all. A place holding two names violates `S` whatever
+    /// the others hold, which the pairwise reading of two places (every name in `p` equals
+    /// every name in `q`) accepts when the other is empty; and places each holding one
+    /// name violate it when the names differ.
+    #[test]
+    fn nu055_aligned_is_one_name_across_all_the_places() {
+        let mut nm = NameMarking::new();
+        nm.add("box", 0, 1);
+        nm.add("box", 1, 1);
+        assert!(!nm.aligned(&["box", "list"]));
+        assert!(nm.aligned(&["list"]));
+        let mut split = NameMarking::new();
+        split.add("box", 0, 1);
+        split.add("staged", 0, 1);
+        split.add("list", 1, 1);
+        assert!(split.aligned(&["box", "staged"]));
+        assert!(!split.aligned(&["box", "staged", "list"]));
+        assert!(!split.aligned(&["list", "box"]));
     }
 
     /// [NU-055] AC5: the predicate is invariant under name permutation. Every
     /// renaming of the symbols of a layer gives the same answer, and so does every
-    /// layer with the same canonical key.
+    /// layer with the same canonical key. Only membership in `S` counts: `S` reversed,
+    /// or with a place repeated, reads the same.
     #[test]
     fn nu055_aligned_is_invariant_under_permutation() {
         let coloured = vec!["box".to_string(), "list".to_string(), "reply".to_string()];
@@ -239,13 +274,23 @@ mod tests {
         for rename in renamings {
             let renamed = layer(rename);
             assert_eq!(renamed.canonical_key(&coloured), base.canonical_key(&coloured));
-            for (p, q) in [("box", "list"), ("box", "reply"), ("reply", "reply"), ("list", "list")] {
-                assert_eq!(renamed.aligned(p, q), base.aligned(p, q), "{p}, {q}");
+            let singles = coloured.iter().map(|p| vec![p.clone()]);
+            let pairs = coloured
+                .iter()
+                .flat_map(|p| coloured.iter().filter(move |q| *q != p).map(move |q| vec![p.clone(), q.clone()]));
+            for list in singles.chain(pairs).chain([coloured.clone()]) {
+                assert_eq!(renamed.aligned(&list), base.aligned(&list), "{list:?}");
+                let reversed: Vec<String> = list.iter().rev().cloned().collect();
+                assert_eq!(base.aligned(&reversed), base.aligned(&list), "{list:?} reversed");
+                let repeated: Vec<String> = list.iter().chain(&list[..1]).cloned().collect();
+                assert_eq!(base.aligned(&repeated), base.aligned(&list), "{list:?} repeated");
             }
         }
-        assert!(!base.aligned("box", "list"));
-        assert!(!base.aligned("box", "reply"));
-        assert!(base.aligned("list", "list"));
+        assert!(!base.aligned(&["box", "list"]));
+        assert!(!base.aligned(&["box", "reply"]));
+        assert!(!base.aligned(&["reply"]));
+        assert!(base.aligned(&["list"]));
+        assert!(base.aligned(&["box"]));
     }
 
     #[test]

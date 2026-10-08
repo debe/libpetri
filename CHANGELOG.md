@@ -6,7 +6,7 @@
 
 ### Added
 
-- **Name alignment, `NameAligned(p, q)` and `QuiescentNameAligned(p, q)` (all languages, [NU-055]).** The first ν properties that compare names instead of counting tokens: every name in coloured place `p` equals every name in `q`, in every reachable marking or in every reachable quiescent one. A search box whose list must show the results of the query in the box is the motivating case: a stale reply breaks it while every count stays in range.
+- **Name alignment, `NameAligned(S)` and `QuiescentNameAligned(S)` (all languages, [NU-055]).** The first ν properties that compare names instead of counting tokens: the places of a non-empty list `S` together hold at most one distinct name, in every reachable marking or in every reachable quiescent one. A singleton `S` says that its place never holds two names. A search box whose list must show the results of the query in the box is the motivating case: a stale reply breaks it while every count stays in range.
 
   ```java
   var result = SmtVerifier.forNet(net)
@@ -18,9 +18,10 @@
   ```
 
   - Only Route B, the name-partition state-class graph, decides them. Every other route, and `encodeScripts()`, gives no verdict, and a Route B `Unknown` is final. A name-alignment query goes to Route B on any net, a net without a matched transition or with a declared budget place included.
-  - `p` and `q` must be coloured (a match key, a declared carrier or a relay target). An uncoloured or absent place, a coloured place marked in the initial marking, or a net outside the fragment is `Unknown` with a reason naming the cause; under BASE the reason points to EXTENDED.
+  - An empty `S` is rejected at construction; a repeated place counts once, at its first occurrence.
+  - Every place of `S` must be coloured (a match key, a declared carrier or a relay target). An uncoloured or absent place, a coloured place marked in the initial marking, or a net outside the fragment is `Unknown` with a reason naming the cause; under BASE the reason points to EXTENDED. When several apply, the reason is the first in the refusal order of [NU-055], so every language names the same place.
   - `QuiescentNameAligned` with a registered environment place under `AlwaysAvailable` or `Bounded(k)` is `Unknown` naming the place; model the input with `Arrivals(k)`.
-  - Java `SmtProperty.nameAligned` / `quiescentNameAligned`, TypeScript `nameAligned` / `quiescentNameAligned`, Rust `SmtProperty::name_aligned` / `quiescent_name_aligned`, Python `name_aligned` / `quiescent_name_aligned` (also from `libpetri`).
+  - Java `SmtProperty.nameAligned` / `quiescentNameAligned` (varargs or a collection), TypeScript `nameAligned` / `quiescentNameAligned` (rest parameters), Rust `SmtProperty::name_aligned` / `quiescent_name_aligned` (any iterable of names), Python `name_aligned` / `quiescent_name_aligned` (an iterable, also from `libpetri`).
   - Lean: `routeB_untimed_nameAligned_sound` and `routeB_untimed_quiescentNameAligned_sound` (`Novel/RouteB/Aligned.lean`) prove a `Proven` sound for the untimed, environment-free, atomic executor. The fixtures are `spec/verification-fixtures/nu-aligned-fixtures.json`.
 
 - **Stubborn-set reduction of the state-space enumeration (all languages, [VER-024]).** For a quiescence property (`deadlockFree`, `terminatesAtSink`, `joinedOrDeadLettered`, `quiescentCount`) the enumeration route now expands, at each class, only the enabled transitions of one stubborn set. Every reachable dead marking is kept, so verdicts are unchanged, and a net that forks into independent subnets closes in about the sum of their state spaces instead of the product: six independent 10-cycles close in 11 classes instead of a million.

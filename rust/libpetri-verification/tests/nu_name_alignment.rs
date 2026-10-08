@@ -1,6 +1,7 @@
 //! \[NU-055\] name alignment: the fixtures of
-//! `spec/verification-fixtures/nu-aligned-fixtures.json` (AC1, AC2, AC3, AC6), the refusals,
-//! and the dispatcher rules of AC4 (Route B whatever the net, never a deferral). The same
+//! `spec/verification-fixtures/nu-aligned-fixtures.json` (AC1, AC2, AC3, AC6, AC7, AC8), the
+//! refusals, the list `S` (AC7) and the dispatcher rules of AC4 (Route B whatever the net, never
+//! a deferral). The same
 //! queries, and the same expected verdicts, as TypeScript's
 //! `tests/verification/nu-name-alignment.test.ts`. The other routes are sent the property
 //! directly by their own in-module tests, and the AC5 run with a pinned minting scope lives in
@@ -15,7 +16,7 @@ mod relay_fixtures;
 #[path = "common/relay_nets.rs"]
 mod relay_nets;
 
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 
 use json::Json;
 use relay_nets::{Row, j, pnid_net, t};
@@ -50,25 +51,12 @@ fn fixture_by_id(id: &str) -> Json {
         .unwrap_or_else(|| panic!("no fixture {id}"))
 }
 
-fn strings(j: &Json) -> Vec<String> {
-    match j {
-        Json::Arr(items) => items
-            .iter()
-            .map(|it| match it {
-                Json::Str(s) => s.clone(),
-                other => panic!("expected a string, got {other:?}"),
-            })
-            .collect(),
-        other => panic!("expected an array, got {other:?}"),
-    }
-}
-
 fn fixture_property(fixture: &Json) -> SmtProperty {
     let prop = fixture.get("property").unwrap();
     let places = prop.str_arr_opt("places");
     match prop.str("type") {
-        "name-aligned" => SmtProperty::name_aligned(&places[0], &places[1]),
-        "quiescent-name-aligned" => SmtProperty::quiescent_name_aligned(&places[0], &places[1]),
+        "name-aligned" => SmtProperty::name_aligned(places),
+        "quiescent-name-aligned" => SmtProperty::quiescent_name_aligned(places),
         "quiescent-count" => SmtProperty::quiescent_count(places, prop.usize("min"), Some(prop.usize("max")), Vec::new()),
         other => panic!("unmapped property '{other}'"),
     }
@@ -131,46 +119,22 @@ fn reason(r: &VerificationResult) -> &str {
     }
 }
 
-/// What the reason of an `unknown` fixture must name: EXTENDED for a BASE run, else the
-/// environment place, else the coloured place the initial marking marks, else the uncoloured
-/// property place.
-fn named_by_reason(fixture: &Json) -> String {
-    if fixture.str("fragmentMode") == "base" {
-        return "EXTENDED".into();
-    }
-    if let Some(env) = fixture.str_arr_opt("environmentPlaces").first() {
-        return format!("'{env}'");
-    }
-    let mut coloured: BTreeSet<String> = fixture.str_arr_opt("carrierPlaces").into_iter().collect();
-    for row in fixture.arr("rows") {
-        let Json::Arr(cells) = row else { panic!("malformed row {row:?}") };
-        coloured.extend(strings(&cells[3]));
-        coloured.extend(strings(&cells[4]));
-    }
-    if let Some((marked, _)) = relay_fixtures::fixture_marking(fixture).into_iter().find(|(p, _)| coloured.contains(p)) {
-        return format!("'{marked}'");
-    }
-    let places = fixture.get("property").unwrap().str_arr_opt("places");
-    let uncoloured = places
-        .iter()
-        .find(|p| !coloured.contains(*p))
-        .unwrap_or_else(|| panic!("fixture {}: nothing for the reason to name", fixture.str("id")));
-    format!("'{uncoloured}'")
-}
-
-// ── the fixtures (AC1, AC2, AC3, AC6) ─────────────────────────────────────────
+// ── the fixtures (AC1, AC2, AC3, AC6, AC7, AC8) ───────────────────────────────
 
 /// [NU-055] Every fixture of `nu-aligned-fixtures.json`: route B, its verdict and witness
 /// length, no confirmation claimed for the graph's trace ([VER-003]), and for an `unknown`
-/// a reason naming the place or the declined fragment.
+/// a reason containing the fixture's `reasonContains`, which the refusal order picks when
+/// several refusals apply. The fixture ids are distinct, so none shadows another.
 #[test]
 fn nu055_aligned_fixtures_get_their_declared_verdicts() {
     let fixtures = aligned_fixtures();
-    assert_eq!(fixtures.len(), 10, "the ten NU-055 fixtures");
-    for fixture in fixtures {
+    assert!(!fixtures.is_empty());
+    let ids: HashSet<&str> = fixtures.iter().map(|f| f.str("id")).collect();
+    assert_eq!(ids.len(), fixtures.len(), "the fixture ids are distinct");
+    for fixture in &fixtures {
         let id = fixture.str("id");
         assert_eq!(fixture.str("route"), "B", "{id}");
-        let r = verify_fixture(&fixture);
+        let r = verify_fixture(fixture);
         assert_eq!(r.route, VerificationRoute::NuScg, "{id}\n{}", r.report);
         assert!(r.report.contains("Route B"), "{id}: the report names Route B\n{}", r.report);
         assert_eq!(verdict(&r), fixture.str("expected"), "{id}\n{}", r.report);
@@ -180,7 +144,8 @@ fn nu055_aligned_fixtures_get_their_declared_verdicts() {
         assert_eq!(r.counterexample_confirmed, None, "{id}");
         if fixture.str("expected") == "unknown" {
             let why = reason(&r);
-            assert!(why.contains(&named_by_reason(&fixture)), "{id}: {why}");
+            let named = fixture.str_opt("reasonContains").unwrap_or_else(|| panic!("{id}: no reasonContains"));
+            assert!(why.contains(named), "{id}: {why}");
             assert!(!why.contains("verified via"), "{id}: {why}");
         }
     }
@@ -194,11 +159,14 @@ fn nu055_ac2_an_absent_place_is_unknown_naming_it() {
     let f = fixture_by_id("nu-aligned-search-quiescent-proven");
     let net = relay_fixtures::fixture_net(&f);
     for property in [
-        SmtProperty::quiescent_name_aligned("box", "nowhere"),
-        SmtProperty::name_aligned("nowhere", "list"),
+        SmtProperty::quiescent_name_aligned(["box", "nowhere"]),
+        SmtProperty::name_aligned(["nowhere", "list"]),
+        SmtProperty::name_aligned(["box", "nowhere", "elsewhere"]),
     ] {
         let r = verify_fixture_with(&f, &net, |v| v.property(property.clone()));
-        assert!(reason(&r).contains("'nowhere'"), "{}", r.report);
+        let why = reason(&r);
+        assert!(why.contains("'nowhere'"), "{}", r.report);
+        assert!(!why.contains("'elsewhere'"), "the first absent place of S: {why}");
     }
 }
 
@@ -207,7 +175,7 @@ fn nu055_ac2_an_absent_place_is_unknown_naming_it() {
 fn nu055_ac2_name_aligned_on_an_uncoloured_place_is_unknown_naming_it() {
     let f = fixture_by_id("nu-aligned-search-uncoloured-unknown");
     let net = relay_fixtures::fixture_net(&f);
-    let r = verify_fixture_with(&f, &net, |v| v.property(SmtProperty::name_aligned("ready", "box")));
+    let r = verify_fixture_with(&f, &net, |v| v.property(SmtProperty::name_aligned(["ready", "box"])));
     assert_eq!(r.route, VerificationRoute::NuScg);
     let why = reason(&r);
     assert!(why.contains("place 'ready' is not a coloured place"), "{why}");
@@ -225,7 +193,7 @@ fn nu055_ac3_under_base_a_relay_target_is_uncoloured_and_the_reason_names_extend
     let verify = |mode: FragmentMode| {
         SmtVerifier::for_net(&net)
             .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
-            .property(SmtProperty::name_aligned("A", "done"))
+            .property(SmtProperty::name_aligned(["A", "done"]))
             .mint_transition("fork")
             .fragment_mode(mode)
             .verify()
@@ -336,6 +304,66 @@ fn nu055_under_arrivals_the_keystrokes_are_closed_into_the_net_and_route_b_decid
     }
 }
 
+/// [NU-055] AC8: an arrival into a coloured place is refused before a marked coloured place.
+/// `e` is a carrier fed by arrivals(1) and `box` starts marked: step 3 of the refusal order
+/// names `e`, ahead of step 7, which would name `box`.
+#[test]
+fn nu055_ac8_an_arrival_into_a_coloured_place_is_refused_before_a_marked_coloured_place() {
+    let net = pnid_net("arrivalBeforeMarked", &[t("fwd", &["e"], &["box"])]);
+    let r = SmtVerifier::for_net(&net)
+        .initial_marking(MarkingStateBuilder::new().tokens("box", 1).build())
+        .environment_places(["e".to_string()])
+        .environment_mode(EnvironmentAnalysisMode::ArrivalsBetween { min_tokens: 1, max_tokens: 1 })
+        .carrier_places(["e", "box"].map(String::from))
+        .fragment_mode(FragmentMode::Extended)
+        .property(SmtProperty::quiescent_name_aligned(["box"]))
+        .verify();
+    assert_eq!(r.route, VerificationRoute::NuScg, "{}", r.report);
+    let why = reason(&r);
+    assert!(why.contains("environment place 'e'"), "{why}");
+    assert!(why.contains("arrivals(k)"), "{why}");
+}
+
+// ── the list S (AC7) ──────────────────────────────────────────────────────────
+
+/// [NU-055] AC7: three keystrokes, and the net rests with two stale replies in `reply` and
+/// `staged` empty, the marking that separates the list reading from the pairwise one.
+#[test]
+fn nu055_ac7_the_fixture_that_separates_the_list_reading_from_the_pairwise_one_is_violated() {
+    let r = verify_fixture(&fixture_by_id("nu-aligned-search-three-keystrokes-quiescent-violated"));
+    assert_eq!(r.route, VerificationRoute::NuScg);
+    assert!(r.is_violated(), "{}", r.report);
+    assert_eq!(r.counterexample_transitions.len(), 12, "{:?}", r.counterexample_transitions);
+    let rest = r.counterexample_trace.last().expect("a trace");
+    assert_eq!(rest.count("staged"), 0, "{rest:?}");
+    assert!(rest.count("reply") >= 2, "{rest:?}");
+}
+
+/// [NU-055] AC5, AC7: reordering `S` changes no verdict and no witness length.
+#[test]
+fn nu055_ac7_reordering_s_changes_no_verdict_and_no_witness_length() {
+    let f = fixture_by_id("nu-aligned-search-three-quiescent-violated");
+    let net = relay_fixtures::fixture_net(&f);
+    for order in [["box", "list", "reply"], ["reply", "box", "list"], ["list", "reply", "box"]] {
+        let r = verify_fixture_with(&f, &net, |v| v.property(SmtProperty::quiescent_name_aligned(order)));
+        assert_eq!(r.route, VerificationRoute::NuScg, "{order:?}");
+        assert!(r.is_violated(), "{order:?}\n{}", r.report);
+        assert_eq!(r.counterexample_transitions.len(), f.usize("witnessLength"), "{order:?}");
+    }
+}
+
+/// [NU-055] AC7: the report's `Property:` line names `S` after deduplication, in order.
+#[test]
+fn nu055_ac7_the_report_names_s_after_deduplication() {
+    let f = fixture_by_id("nu-aligned-search-three-quiescent-proven");
+    let net = relay_fixtures::fixture_net(&f);
+    let r = verify_fixture_with(&f, &net, |v| {
+        v.property(SmtProperty::quiescent_name_aligned(["box", "staged", "box", "list", "staged"]))
+    });
+    assert!(r.is_proven(), "{}", r.report);
+    assert!(r.report.contains("Property: Quiescent name alignment of box, staged and list\n"), "{}", r.report);
+}
+
 /// [NU-055]: `QuiescentNameAligned` carries no sink clause, so declared sinks do not weaken it.
 #[test]
 fn nu055_quiescent_name_aligned_carries_no_sink_clause() {
@@ -372,7 +400,7 @@ fn nu055_quiescent_name_aligned_reads_reap_aware_quiescence() {
             .carrier_places(["box", "list"].map(String::from))
             .fragment_mode(FragmentMode::Extended)
             .assume_no_reaping(no_reaping)
-            .property(SmtProperty::quiescent_name_aligned("box", "list"))
+            .property(SmtProperty::quiescent_name_aligned(["box", "list"]))
             .verify()
     };
     let late = verify(false);
@@ -442,7 +470,7 @@ fn nu055_ac4_prefix_rule_for_quiescent_name_aligned() {
         .carrier_places(["box", "list"].map(String::from))
         .fragment_mode(FragmentMode::Extended)
         .nu_max_classes(50)
-        .property(SmtProperty::quiescent_name_aligned("box", "list"))
+        .property(SmtProperty::quiescent_name_aligned(["box", "list"]))
         .verify();
     assert_eq!(r.route, VerificationRoute::NuScg);
     assert!(r.is_violated(), "{}", r.report);
@@ -480,7 +508,7 @@ fn nu055_ac4_encode_scripts_has_no_script_for_name_aligned() {
     let net = relay_fixtures::fixture_net(&f);
     SmtVerifier::for_net(&net)
         .initial_marking(fixture_marking(&f))
-        .property(SmtProperty::name_aligned("box", "list"))
+        .property(SmtProperty::name_aligned(["box", "list"]))
         .encode_scripts();
 }
 
@@ -492,6 +520,6 @@ fn nu055_ac4_encode_scripts_has_no_script_for_quiescent_name_aligned() {
     let net = relay_fixtures::fixture_net(&f);
     SmtVerifier::for_net(&net)
         .initial_marking(fixture_marking(&f))
-        .property(SmtProperty::quiescent_name_aligned("box", "list"))
+        .property(SmtProperty::quiescent_name_aligned(["box", "list"]))
         .encode_scripts();
 }

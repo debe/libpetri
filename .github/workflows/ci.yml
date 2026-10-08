@@ -471,6 +471,10 @@ jobs:
           #print axioms Libpetri.Novel.RouteB.aligned_key_inv
           #print axioms Libpetri.Novel.RouteB.aligned_view_iff
           #print axioms Libpetri.Novel.RouteB.aligned_uncoloured
+          #print axioms Libpetri.Novel.RouteB.alignedAll_congr_mem
+          #print axioms Libpetri.Novel.RouteB.alignedAll_key_inv
+          #print axioms Libpetri.Novel.RouteB.alignedAll_view_iff
+          #print axioms Libpetri.Novel.RouteB.alignedAll_uncoloured
           #print axioms Libpetri.Novel.RouteB.routeB_untimed_nameAligned_sound
           #print axioms Libpetri.Novel.RouteB.routeB_untimed_quiescentNameAligned_sound
           #print axioms Libpetri.Novel.EnvSemantics.proposition_one_inj

@@ -1,5 +1,5 @@
 {
-  "$comment": "NU-055 name-alignment fixtures: the search-as-you-type net and its buggy variant. Same row schema as spec/verification-fixtures/nu-relay-fixtures.json: each net is given inline as `rows`: [transition, [inputs], [outputs], [match keys], [relay targets]], every input consumed once and every output produced once, every place holding String tokens whose value is their own name, read by every match-key and relay projection: that is the one-projection premise of the Lean model (`Exec.ProjCoherent`, [NU-050]). `marking` is the initial marking (coloured places start empty); `carrierPlaces`, `fragmentMode` and `mintTransitions` configure the verifier as their names say (`mintTransitions` as in spec/verification-fixtures/fixtures.json, [NU-010]). Every fixture carries `route: \"B\"`: a runner MUST assert that the report names Route B before comparing the verdict, except for an `unknown` fixture, where it MUST assert that the reason names the place or the declined fragment. `budgetPlaces`, where present, declares budget places ([NU-040]); a name-alignment property still goes to Route B ([NU-055]). `environmentPlaces` and `environmentMode` (`always-available`), where present, register those places as environment places under that [VER-006] mode; they are absent from `marking` ([NU-055] AC6). Route B is solver-free, so there are no script goldens. Property types: `name-aligned` and `quiescent-name-aligned` take `places: [p, q]` ([NU-055]); `quiescent-count` takes `places`, `min`, `max` ([VER-002]). `expected` is `proven`, `violated` or `unknown`. `witnessLength`, where present, is the number of firings in the shortest counterexample, which Route B reports ([VER-012] AC3), counted as Route B firings, not as executor start and complete events; the firing order within it is not pinned.",
+  "$comment": "NU-055 name-alignment fixtures: the search-as-you-type net and its buggy variant. Same row schema as spec/verification-fixtures/nu-relay-fixtures.json: each net is given inline as `rows`: [transition, [inputs], [outputs], [match keys], [relay targets]], every input consumed once and every output produced once, every place holding String tokens whose value is their own name, read by every match-key and relay projection: that is the one-projection premise of the Lean model (`Exec.ProjCoherent`, [NU-050]). `marking` is the initial marking (coloured places start empty, except in the `unknown` fixtures that mark one or two to test that refusal; the three-keystrokes fixture marks `typed` with 3); `carrierPlaces`, `fragmentMode` and `mintTransitions` configure the verifier as their names say (`mintTransitions` as in spec/verification-fixtures/fixtures.json, [NU-010]). Every fixture carries `route: \"B\"`: a runner MUST assert that the report names Route B before comparing the verdict, except for an `unknown` fixture, where it MUST assert that the reason contains `reasonContains`: the quoted place, or `EXTENDED` for the declined fragment, that the refusal order of [NU-055] picks when several refusals apply. `budgetPlaces`, where present, declares budget places ([NU-040]); a name-alignment property still goes to Route B ([NU-055]). `environmentPlaces` and `environmentMode` (`always-available`), where present, register those places as environment places under that [VER-006] mode; they are absent from `marking` ([NU-055] AC6). Route B is solver-free, so there are no script goldens. Property types: `name-aligned` and `quiescent-name-aligned` take `places`, the non-empty list `S` ([NU-055]); `quiescent-count` takes `places`, `min`, `max` ([VER-002]). `expected` is `proven`, `violated` or `unknown`. `witnessLength`, where present, is the number of firings in the shortest counterexample, which Route B reports ([VER-012] AC3), counted as Route B firings, not as executor start and complete events; the firing order within it is not pinned.",
   "fixtures": [
     {
       "id": "nu-aligned-search-quiescent-proven",
@@ -141,7 +141,8 @@
       "mintTransitions": ["sendA", "sendB"],
       "carrierPlaces": ["inflightA", "inflightB", "list"],
       "fragmentMode": "extended",
-      "expected": "unknown"
+      "expected": "unknown",
+      "reasonContains": "'ready'"
     },
     {
       "id": "nu-aligned-search-base-unknown",
@@ -164,7 +165,8 @@
       "mintTransitions": ["sendA", "sendB"],
       "carrierPlaces": ["inflightA", "inflightB", "list"],
       "fragmentMode": "base",
-      "expected": "unknown"
+      "expected": "unknown",
+      "reasonContains": "EXTENDED"
     },
     {
       "id": "nu-aligned-search-env-quiescent-unknown",
@@ -189,7 +191,8 @@
       "mintTransitions": ["sendA", "sendB"],
       "carrierPlaces": ["inflightA", "inflightB", "list"],
       "fragmentMode": "extended",
-      "expected": "unknown"
+      "expected": "unknown",
+      "reasonContains": "'typed'"
     },
     {
       "id": "nu-aligned-search-bug-env-quiescent-unknown",
@@ -214,7 +217,8 @@
       "mintTransitions": ["sendA", "sendB"],
       "carrierPlaces": ["box", "inflightA", "inflightB", "reply", "staged", "list"],
       "fragmentMode": "extended",
-      "expected": "unknown"
+      "expected": "unknown",
+      "reasonContains": "'typed'"
     },
     {
       "id": "nu-aligned-search-coloured-initial-unknown",
@@ -237,7 +241,224 @@
       "mintTransitions": ["sendA", "sendB"],
       "carrierPlaces": ["inflightA", "inflightB", "list"],
       "fragmentMode": "extended",
-      "expected": "unknown"
+      "expected": "unknown",
+      "reasonContains": "'box'"
+    },
+    {
+      "id": "nu-aligned-search-three-quiescent-proven",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1},
+      "property": {"type": "quiescent-name-aligned", "places": ["box", "staged", "list"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "proven"
+    },
+    {
+      "id": "nu-aligned-search-three-quiescent-violated",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1},
+      "property": {"type": "quiescent-name-aligned", "places": ["box", "list", "reply"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "violated",
+      "witnessLength": 9
+    },
+    {
+      "id": "nu-aligned-search-single-list-proven",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1},
+      "property": {"type": "name-aligned", "places": ["list"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "proven"
+    },
+    {
+      "id": "nu-aligned-search-single-reply-violated",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1},
+      "property": {"type": "name-aligned", "places": ["reply"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "violated",
+      "witnessLength": 6
+    },
+    {
+      "id": "nu-aligned-search-three-keystrokes-quiescent-violated",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 3, "idle": 1, "listEmpty": 1, "slot": 1},
+      "property": {"type": "quiescent-name-aligned", "places": ["reply", "staged"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "violated",
+      "witnessLength": 12
+    },
+    {
+      "id": "nu-aligned-search-uncoloured-first-unknown",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1},
+      "property": {"type": "quiescent-name-aligned", "places": ["box", "ready", "clr"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "unknown",
+      "reasonContains": "'ready'"
+    },
+    {
+      "id": "nu-aligned-search-uncoloured-before-marked-unknown",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1, "box": 1},
+      "property": {"type": "quiescent-name-aligned", "places": ["box", "ready"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "unknown",
+      "reasonContains": "'ready'"
+    },
+    {
+      "id": "nu-aligned-search-two-marked-unknown",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"typed": 2, "idle": 1, "listEmpty": 1, "slot": 1, "list": 1, "inflightB": 1},
+      "property": {"type": "quiescent-name-aligned", "places": ["list", "box"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "unknown",
+      "reasonContains": "'inflightB'"
+    },
+    {
+      "id": "nu-aligned-search-env-before-marked-unknown",
+      "net": "searchAsYouType",
+      "route": "B",
+      "rows": [
+        ["first", ["idle", "typed"], ["armedA"], [], []],
+        ["retire", ["box", "typed"], ["armedB"], [], []],
+        ["sendA", ["armedA"], ["box", "inflightA"], [], []],
+        ["sendB", ["armedB"], ["box", "inflightB"], [], []],
+        ["fetchA", ["inflightA"], ["reply"], [], []],
+        ["fetchB", ["inflightB"], ["reply"], [], []],
+        ["apply", ["reply", "box", "slot"], ["box", "staged", "clr"], ["reply", "box"], ["box", "staged"]],
+        ["clearNone", ["listEmpty", "clr"], ["ready"], [], []],
+        ["clear", ["list", "clr"], ["ready"], [], []],
+        ["show", ["staged", "ready"], ["list", "slot"], [], []]
+      ],
+      "marking": {"idle": 1, "listEmpty": 1, "slot": 1, "box": 1},
+      "environmentPlaces": ["typed"],
+      "environmentMode": "always-available",
+      "property": {"type": "quiescent-name-aligned", "places": ["box", "list"]},
+      "mintTransitions": ["sendA", "sendB"],
+      "carrierPlaces": ["inflightA", "inflightB", "list"],
+      "fragmentMode": "extended",
+      "expected": "unknown",
+      "reasonContains": "'typed'"
     }
   ]
 }

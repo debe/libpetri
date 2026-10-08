@@ -40,8 +40,9 @@ import { pnidNet } from '../fixtures/pnid-nets.js';
 
 /**
  * [NU-055] name alignment: the fixtures of spec/verification-fixtures/nu-aligned-fixtures.json
- * (AC1, AC2, AC3, AC6), the routes that must not decide it (AC4), the predicate's invariance
- * under name permutation and a run with a pinned minting scope (AC5).
+ * (AC1, AC2, AC3, AC6, AC7, AC8), the routes that must not decide it (AC4), the predicate's
+ * invariance under name permutation and reordering and a run with a pinned minting scope (AC5),
+ * and the construction rules and descriptions of the list `S` (AC7).
  */
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../spec/verification-fixtures');
@@ -69,6 +70,7 @@ interface AlignedFixture {
   readonly environmentMode?: 'always-available';
   readonly expected: 'proven' | 'violated' | 'unknown';
   readonly witnessLength?: number;
+  readonly reasonContains?: string;
 }
 
 const fixtures: readonly AlignedFixture[] =
@@ -91,10 +93,11 @@ function fixtureVerifier(f: AlignedFixture): { verifier: SmtVerifier; p: (n: str
     return x;
   };
   const prop = f.property;
+  const named = prop.places.map(p) as [Place<unknown>, ...Place<unknown>[]];
   const property: SmtProperty =
-    prop.type === 'name-aligned' ? nameAligned(p(prop.places[0]!), p(prop.places[1]!))
-      : prop.type === 'quiescent-name-aligned' ? quiescentNameAligned(p(prop.places[0]!), p(prop.places[1]!))
-        : quiescentCount(prop.places.map(p), prop.min!, prop.max!);
+    prop.type === 'name-aligned' ? nameAligned(...named)
+      : prop.type === 'quiescent-name-aligned' ? quiescentNameAligned(...named)
+        : quiescentCount(named, prop.min!, prop.max!);
   const verifier = SmtVerifier.forNet(net)
     .initialMarking(m => { for (const [n, k] of Object.entries(f.marking)) m.tokens(p(n), k); })
     .property(property)
@@ -110,25 +113,14 @@ function fixtureVerifier(f: AlignedFixture): { verifier: SmtVerifier; p: (n: str
   return { verifier, p, net };
 }
 
-/**
- * What the reason of an `unknown` fixture must name: EXTENDED for a BASE run, else the
- * environment place, else the coloured place the initial marking marks, else the uncoloured
- * property place.
- */
-function namedByReason(f: AlignedFixture): string {
-  if (f.fragmentMode === 'base') return 'EXTENDED';
-  if (f.environmentPlaces?.length) return `'${f.environmentPlaces[0]}'`;
-  const coloured = new Set([...f.carrierPlaces, ...f.rows.flatMap(([, , , match, relay]) => [...match, ...relay])]);
-  const marked = Object.keys(f.marking).find(n => coloured.has(n));
-  if (marked !== undefined) return `'${marked}'`;
-  const uncoloured = f.property.places.find(n => !coloured.has(n));
-  if (uncoloured === undefined) throw new Error(`fixture ${f.id}: nothing for the reason to name`);
-  return `'${uncoloured}'`;
-}
-
 describe('NU-055 name-alignment fixtures (nu-aligned-fixtures.json)', () => {
-  it('lists the ten fixtures', () => {
-    expect(fixtures).toHaveLength(10);
+  it('runs every fixture of the file, and every unknown one names what its reason must contain', () => {
+    // One test per fixture below: the ids are distinct, so none shadows another.
+    expect(fixtures.length).toBeGreaterThan(0);
+    expect(new Set(fixtures.map(f => f.id)).size).toBe(fixtures.length);
+    for (const f of fixtures) {
+      if (f.expected === 'unknown') expect(f.reasonContains, f.id).toBeTruthy();
+    }
   });
 
   for (const f of fixtures) {
@@ -140,7 +132,8 @@ describe('NU-055 name-alignment fixtures (nu-aligned-fixtures.json)', () => {
       expect(result.report).toContain('Route B');
       expect(result.verdict.type).toBe(f.expected);
       if (result.verdict.type === 'unknown') {
-        expect(result.verdict.reason).toContain(namedByReason(f));
+        // The refusal order of NU-055 picks what the reason names when several refusals apply.
+        expect(result.verdict.reason).toContain(f.reasonContains!);
       }
       if (f.witnessLength !== undefined) {
         expect(result.counterexampleTransitions).toHaveLength(f.witnessLength);
@@ -154,11 +147,17 @@ describe('NU-055 name-alignment fixtures (nu-aligned-fixtures.json)', () => {
 describe('NU-055 description and refusals', () => {
   const fixed = fixtureById('nu-aligned-search-quiescent-proven');
 
-  it('describes both properties byte for byte', async () => {
+  it('describes both properties byte for byte, for one, two and three places', async () => {
     const box = place('box');
     const list = place('list');
+    const staged = place('staged');
+    expect(propertyDescription(nameAligned(box))).toBe('Name alignment of box');
     expect(propertyDescription(nameAligned(box, list))).toBe('Name alignment of box and list');
+    expect(propertyDescription(nameAligned(box, staged, list))).toBe('Name alignment of box, staged and list');
+    expect(propertyDescription(quiescentNameAligned(box))).toBe('Quiescent name alignment of box');
     expect(propertyDescription(quiescentNameAligned(box, list))).toBe('Quiescent name alignment of box and list');
+    expect(propertyDescription(quiescentNameAligned(box, staged, list)))
+      .toBe('Quiescent name alignment of box, staged and list');
     const result = await fixtureVerifier(fixed).verifier.verify();
     expect(result.report).toContain('Property: Quiescent name alignment of box and list');
   });
@@ -300,6 +299,104 @@ describe('NU-055 description and refusals', () => {
     const reason = result.verdict.type === 'unknown' ? result.verdict.reason : '';
     expect(reason).toContain("'typed'");
     expect(reason).toContain('arrivals(k)');
+  });
+
+  it('AC8: an arrival into a coloured place is refused before a marked coloured place', async () => {
+    // `e` is a carrier fed by arrivals(1) and `box` starts marked: step 3 of the refusal order
+    // names `e`, ahead of step 7, which would name `box`.
+    const e = place<string>('e');
+    const box = place<string>('box');
+    const fwd = Transition.builder('fwd').inputs(one(e)).outputs(outPlace(box)).action(async () => {}).build();
+    const net = PetriNet.builder('arrivalBeforeMarked').transitions(fwd).build();
+    const result = await SmtVerifier.forNet(net)
+      .initialMarking(m => m.tokens(box, 1))
+      .environmentPlaces({ place: e })
+      .environmentMode(arrivals(1, 1))
+      .carrierPlaces(e, box)
+      .fragmentMode('extended')
+      .property(quiescentNameAligned(box))
+      .verify();
+    expect(result.route).toBe('nu-scg');
+    const reason = result.verdict.type === 'unknown' ? result.verdict.reason : '';
+    expect(reason, result.report).toContain("environment place 'e'");
+    expect(reason).toContain('arrivals(k)');
+  });
+});
+
+describe('NU-055 AC7: S is a non-empty list of places', () => {
+  const box = place('box');
+  const list = place('list');
+
+  it('a repeated place counts once, at its first occurrence, compared by name', () => {
+    const again = place('box'); // another Place object with the same name
+    for (const prop of [nameAligned(box, list, again, list), quiescentNameAligned(box, list, again, list)]) {
+      expect(prop.places.map(p => p.name)).toEqual(['box', 'list']);
+      expect(prop.places[0]).toBe(box);
+    }
+    expect(propertyDescription(nameAligned(list, box, list))).toBe('Name alignment of list and box');
+    expect(propertyDescription(nameAligned(box, box))).toBe('Name alignment of box');
+  });
+
+  it('an empty S is rejected at construction', () => {
+    // The type takes at least one place; a caller that gets past it (an empty spread) still throws.
+    const none: Place<unknown>[] = [];
+    expect(() => nameAligned(...(none as [Place<unknown>]))).toThrow('nameAligned needs at least one place');
+    expect(() => quiescentNameAligned(...(none as [Place<unknown>])))
+      .toThrow('quiescentNameAligned needs at least one place');
+  });
+
+  it('an empty S written as an object, past the factories, is rejected by the verifier', () => {
+    const verifier = SmtVerifier.forNet(searchAsYouType(false).net);
+    expect(() => verifier.property({ type: 'name-aligned', places: [] }))
+      .toThrow('name-aligned needs at least one place');
+    expect(() => verifier.property({ type: 'quiescent-name-aligned', places: [] }))
+      .toThrow('quiescent-name-aligned needs at least one place');
+  });
+
+  it('the singleton says its place never holds two names', () => {
+    const nm = new NameMarking();
+    nm.add('reply', 0, 2);
+    expect(nm.aligned(['reply'])).toBe(true);
+    nm.add('reply', 1, 1);
+    expect(nm.aligned(['reply'])).toBe(false);
+  });
+
+  it('one name across all: a place holding two names violates S whatever the others hold', () => {
+    // The pairwise reading of two places (every name in p equals every name in q) accepts this
+    // marking, since `list` is empty; the list reading counts self pairs and does not.
+    const nm = new NameMarking();
+    nm.add('box', 0, 1);
+    nm.add('box', 1, 1);
+    expect(nm.aligned(['box', 'list'])).toBe(false);
+    expect(nm.aligned(['list'])).toBe(true);
+    // Each place holding one name, but not the same one.
+    const split = new NameMarking();
+    split.add('box', 0, 1);
+    split.add('staged', 0, 1);
+    split.add('list', 1, 1);
+    expect(split.aligned(['box', 'staged'])).toBe(true);
+    expect(split.aligned(['box', 'staged', 'list'])).toBe(false);
+  });
+
+  it('the fixture that separates the list reading from the pairwise one is violated', async () => {
+    // Three keystrokes: the net rests with two stale replies in `reply` and `staged` empty.
+    const f = fixtureById('nu-aligned-search-three-keystrokes-quiescent-violated');
+    const result = await fixtureVerifier(f).verifier.verify();
+    expect(result.route).toBe('nu-scg');
+    expect(result.verdict.type).toBe('violated');
+    expect(result.counterexampleTransitions).toHaveLength(12);
+    const rest = result.counterexampleTrace[result.counterexampleTrace.length - 1]!;
+    expect([...rest.placesWithTokens()].map(p => p.name)).not.toContain('staged');
+  });
+
+  it('reordering S changes no verdict and no witness length', async () => {
+    const f = fixtureById('nu-aligned-search-three-quiescent-violated');
+    const { verifier, p } = fixtureVerifier(f);
+    for (const order of [['box', 'list', 'reply'], ['reply', 'box', 'list'], ['list', 'reply', 'box']]) {
+      const result = await verifier.property(quiescentNameAligned(...(order.map(p) as [Place<unknown>]))).verify();
+      expect(result.verdict.type, order.join(',')).toBe('violated');
+      expect(result.counterexampleTransitions, order.join(',')).toHaveLength(f.witnessLength!);
+    }
   });
 });
 
@@ -462,17 +559,19 @@ describe('NU-055 AC5: invariance under name permutation', () => {
     const swapped = marking(s => [7, 3, 5][s]!);
     const order = ['box', 'list', 'reply', 'staged'];
     expect(swapped.canonicalKey(order)).toBe(identity.canonicalKey(order));
-    for (const p of order) {
-      for (const q of order) {
-        expect(swapped.aligned(p, q)).toBe(identity.aligned(p, q));
-      }
+    const lists = [...order.map(p => [p]), ...order.flatMap(p => order.filter(q => q !== p).map(q => [p, q])), order];
+    for (const s of lists) {
+      expect(swapped.aligned(s)).toBe(identity.aligned(s));
+      // Only membership counts: S reversed, or with a place repeated, reads the same.
+      expect(identity.aligned([...s].reverse())).toBe(identity.aligned(s));
+      expect(identity.aligned([...s, s[0]!])).toBe(identity.aligned(s));
     }
-    expect(identity.aligned('box', 'list')).toBe(false);
-    expect(identity.aligned('box', 'reply')).toBe(false);
-    expect(identity.aligned('reply', 'staged')).toBe(false);
-    expect(identity.aligned('staged', 'staged')).toBe(true);
-    expect(identity.aligned('reply', 'reply')).toBe(false);
-    expect(identity.aligned('box', 'inflightA')).toBe(true); // an empty place satisfies it
+    expect(identity.aligned(['box', 'list'])).toBe(false);
+    expect(identity.aligned(['box', 'reply'])).toBe(false);
+    expect(identity.aligned(['reply', 'staged'])).toBe(false);
+    expect(identity.aligned(['staged'])).toBe(true);
+    expect(identity.aligned(['reply'])).toBe(false);
+    expect(identity.aligned(['box', 'inflightA'])).toBe(true); // an empty place imposes nothing
   });
 
   it('safetyViolation reads the name layer for NameAligned only', () => {

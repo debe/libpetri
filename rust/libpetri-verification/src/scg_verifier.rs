@@ -759,7 +759,7 @@ mod tests {
     #[test]
     fn nu055_the_enumeration_is_unknown_for_name_alignment() {
         let (net, m0) = pipeline(3, false);
-        for property in [SmtProperty::name_aligned("p0", "p3"), SmtProperty::quiescent_name_aligned("p0", "p3")] {
+        for property in [SmtProperty::name_aligned(["p0", "p3"]), SmtProperty::quiescent_name_aligned(["p0", "p3"])] {
             match verify_via_state_class_graph(&net, &m0, &property, &[], 1000, &[]) {
                 ScgOutcome::Decided {
                     verdict: Verdict::Unknown { reason },

@@ -350,12 +350,13 @@ Sixteen more roots import the rest of `Libpetri/Novel/` into `Libpetri.lean`:
   builders' checks discharge the distinct-key and positive-count premises
   (`classifyS_inFragment`, `builderOK_posKeys`). `RouteB/Aligned.lean`
   ([NU-055]) extends this to the first property that reads the name layer:
-  a `Proven` of `NameAligned` or `QuiescentNameAligned` on two coloured
-  places means every token in them carries one name
+  a `Proven` of `NameAligned` or `QuiescentNameAligned` on a list of
+  coloured places means all tokens in them together carry one name
   (`routeB_untimed_nameAligned_sound`,
-  `routeB_untimed_quiescentNameAligned_sound`). The predicate reads only the
-  class key (`aligned_key_inv`) and holds vacuously on an uncoloured place
-  (`aligned_uncoloured`), which is why that query must not prove.
+  `routeB_untimed_quiescentNameAligned_sound`). The predicate depends only on
+  which places the list holds (`alignedAll_congr_mem`), reads only the class
+  key (`alignedAll_key_inv`) and ignores an uncoloured member
+  (`alignedAll_uncoloured`), which is why that query must not prove.
 - `EnvSemantics.lean` ([VER-006], [VER-022]): injection, the `Bounded(k)`
   guard, the relaxed quiescence check and `Arrivals`. `verify_net` now checks
   the two `Bounded(k)` premises (`EnvSemantics/Premise.lean`).

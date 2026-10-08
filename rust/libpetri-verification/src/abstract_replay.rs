@@ -1158,7 +1158,7 @@ mod tests {
     #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
     fn nu055_the_replayer_reads_no_name_alignment() {
         let flat = flat_of(&["box", "list"], vec![ft("t", vec![1, 0], vec![0, 1])]);
-        violates(&flat, &[1, 1], &SmtProperty::name_aligned("box", "list"), &[], &[], &[]);
+        violates(&flat, &[1, 1], &SmtProperty::name_aligned(["box", "list"]), &[], &[], &[]);
     }
 
     /// [NU-055] AC4: nor quiescent name alignment.
@@ -1166,6 +1166,6 @@ mod tests {
     #[should_panic(expected = "decided only by the name-partition state-class graph (NU-055, Route B)")]
     fn nu055_the_replayer_reads_no_quiescent_name_alignment() {
         let flat = flat_of(&["box", "list"], vec![ft("t", vec![1, 0], vec![0, 1])]);
-        violates(&flat, &[1, 1], &SmtProperty::quiescent_name_aligned("box", "list"), &[], &[], &[]);
+        violates(&flat, &[1, 1], &SmtProperty::quiescent_name_aligned(["box", "list"]), &[], &[], &[]);
     }
 }

@@ -1268,6 +1268,10 @@ impl<'a> SmtVerifier<'a> {
             // [VER-006] AC10: under `Arrivals(k)` the net has no environment places
             // left, but an injection transition feeding a coloured place would be
             // read as a mint; decline by name, as for an environment place above.
+            // A marked coloured place lifts this decline: Route B then declines the net
+            // and the pipeline below decides it. Not for a name-alignment property
+            // ([NU-055]): nothing below decides it, and its refusal order puts the
+            // arrival refusal before the marked place.
             let arrival_declined = self.coloured_arrival_reason().filter(|_| {
                 name_fragment::classify(
                     self.net,
@@ -1278,7 +1282,8 @@ impl<'a> SmtVerifier<'a> {
                 )
                 .is_some_and(
                     |fragment| {
-                        fragment.coloured_order.iter().all(|p| self.initial_marking.count(p) == 0)
+                        name_alignment
+                            || fragment.coloured_order.iter().all(|p| self.initial_marking.count(p) == 0)
                     },
                 )
             });
@@ -3752,9 +3757,10 @@ fn commoner_applies(flat: &FlatNet) -> bool {
 fn property_place_names(property: &SmtProperty) -> Vec<&String> {
     match property {
         SmtProperty::DeadlockFree | SmtProperty::TerminatesAtSink => Vec::new(),
-        SmtProperty::MutualExclusion { places } | SmtProperty::Unreachable { places } => {
-            places.iter().collect()
-        }
+        SmtProperty::MutualExclusion { places }
+        | SmtProperty::Unreachable { places }
+        | SmtProperty::NameAligned { places }
+        | SmtProperty::QuiescentNameAligned { places } => places.iter().collect(),
         SmtProperty::PlaceBound { place, .. } | SmtProperty::BranchPlaceBound { place, .. } => {
             vec![place]
         }
@@ -3764,7 +3770,6 @@ fn property_place_names(property: &SmtProperty) -> Vec<&String> {
         SmtProperty::QuiescentCount {
             places, waived_by, ..
         } => places.iter().chain(waived_by.iter()).collect(),
-        SmtProperty::NameAligned { p, q } | SmtProperty::QuiescentNameAligned { p, q } => vec![p, q],
     }
 }
 

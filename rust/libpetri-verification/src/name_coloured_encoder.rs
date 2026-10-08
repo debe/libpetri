@@ -1634,7 +1634,7 @@ mod tests {
         let flat = net_flattener::flatten(&net);
         let initial = MarkingStateBuilder::new().tokens("budget1", 1).build();
         let plan = plan_for(&net, FragmentMode::Base, &[]).expect("mint→join is in-fragment");
-        for prop in [SmtProperty::name_aligned("a", "b"), SmtProperty::quiescent_name_aligned("a", "b")] {
+        for prop in [SmtProperty::name_aligned(["a", "b"]), SmtProperty::quiescent_name_aligned(["a", "b"])] {
             assert!(encode_coloured(&plan, &flat, &initial, &prop, &[], &[], &[], &[]).is_none());
         }
     }

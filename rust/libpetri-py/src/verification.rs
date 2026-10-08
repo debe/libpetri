@@ -468,21 +468,34 @@ fn py_joined_or_dead_lettered(pending: String) -> PySmtProperty {
     PySmtProperty { inner: SmtProperty::joined_or_dead_lettered(pending) }
 }
 
-/// Property (NU-055): in every reachable marking, every name resident in `p` equals
-/// every name resident in `q`. Both must be coloured places of the ν fragment (a match
-/// key, a declared carrier or a relay target): on an uncoloured one the verdict is
-/// `unknown`, never `proven`. Decided only by Route B, the name-partition state-class
-/// graph (NU-050).
+/// Property (NU-055): in every reachable marking, the places of `places` together
+/// hold at most one distinct name; each place counts once, at its first occurrence.
+/// Every place must be a coloured place of the ν fragment (a match key, a declared
+/// carrier or a relay target): on an uncoloured one the verdict is `unknown`, never
+/// `proven`. Decided only by Route B, the name-partition state-class graph (NU-050).
+/// An empty `places` raises `ValueError`.
 #[pyfunction(name = "name_aligned")]
-fn py_name_aligned(p: String, q: String) -> PySmtProperty {
-    PySmtProperty { inner: SmtProperty::name_aligned(p, q) }
+fn py_name_aligned(places: Vec<String>) -> PyResult<PySmtProperty> {
+    reject_empty_alignment("name_aligned", &places)?;
+    Ok(PySmtProperty { inner: SmtProperty::name_aligned(places) })
 }
 
 /// Property (NU-055): the predicate of `name_aligned`, read only in the reachable
-/// quiescent markings (the reap-aware quiescence of VER-002). No sink clause.
+/// quiescent markings (the reap-aware quiescence of VER-002). No sink clause. An empty
+/// `places` raises `ValueError`.
 #[pyfunction(name = "quiescent_name_aligned")]
-fn py_quiescent_name_aligned(p: String, q: String) -> PySmtProperty {
-    PySmtProperty { inner: SmtProperty::quiescent_name_aligned(p, q) }
+fn py_quiescent_name_aligned(places: Vec<String>) -> PyResult<PySmtProperty> {
+    reject_empty_alignment("quiescent_name_aligned", &places)?;
+    Ok(PySmtProperty { inner: SmtProperty::quiescent_name_aligned(places) })
+}
+
+/// The `ValueError` for an empty list `S` (NU-055), where the Rust constructor would
+/// panic: a caller's error, reported where the property is built.
+fn reject_empty_alignment(constructor: &str, places: &[String]) -> PyResult<()> {
+    if places.is_empty() {
+        return Err(PyValueError::new_err(format!("{constructor} needs at least one place")));
+    }
+    Ok(())
 }
 
 /// Reads one bound of a count (VER-002): a whole number `>= 0`, or, where

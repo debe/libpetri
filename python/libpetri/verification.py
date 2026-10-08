@@ -159,23 +159,36 @@ def joined_or_dead_lettered(pending: PlaceLike) -> SmtProperty:
     return _ext.joined_or_dead_lettered(_coerce_place_name(pending))
 
 
-def name_aligned(p: PlaceLike, q: PlaceLike) -> SmtProperty:
-    """ν-net name alignment (NU-055): in every reachable marking, every name resident
-    in ``p`` equals every name resident in ``q``. A marking in which either place is
-    empty satisfies it, and ``name_aligned(p, p)`` says ``p`` never holds two names.
+def name_aligned(places: Iterable[PlaceLike]) -> SmtProperty:
+    """ν-net name alignment (NU-055): in every reachable marking, the places of
+    ``places`` together hold at most one distinct name. An empty place imposes
+    nothing, but a place holding two names violates it whatever the others hold, so
+    ``name_aligned([p])`` says ``p`` never holds two names. Places compare by name and
+    each counts once, at its first occurrence; the order changes no verdict, only the
+    description and which place a reason names. An empty ``places`` raises
+    ``ValueError``, a bare name instead of a list ``TypeError``.
 
-    Both places must be coloured places of the ν fragment (a match key, a declared
+    Every place must be a coloured place of the ν fragment (a match key, a declared
     carrier or a relay target): on an uncoloured place the verdict is ``unknown``,
     never ``proven``. Decided only by Route B, the name-partition state-class graph
     (NU-050); :func:`encode_smt_scripts` raises ``ValueError`` for it."""
-    return _ext.name_aligned(_coerce_place_name(p), _coerce_place_name(q))
+    return _ext.name_aligned(_alignment_names("name_aligned", places))
 
 
-def quiescent_name_aligned(p: PlaceLike, q: PlaceLike) -> SmtProperty:
+def quiescent_name_aligned(places: Iterable[PlaceLike]) -> SmtProperty:
     """ν-net name alignment at rest (NU-055): the predicate of :func:`name_aligned`,
     read only in the reachable quiescent markings (the reap-aware quiescence of
-    VER-002). Like :func:`joined_or_dead_lettered` it carries no sink clause."""
-    return _ext.quiescent_name_aligned(_coerce_place_name(p), _coerce_place_name(q))
+    VER-002). Like :func:`joined_or_dead_lettered` it carries no sink clause. An empty
+    ``places`` raises ``ValueError``, a bare name instead of a list ``TypeError``."""
+    return _ext.quiescent_name_aligned(_alignment_names("quiescent_name_aligned", places))
+
+
+def _alignment_names(factory: str, places: Iterable[PlaceLike]) -> list[str]:
+    # A str is an iterable of one-letter names; for these factories a bare name is the
+    # likely mistake for the singleton list (NU-055), so it is refused, not split.
+    if isinstance(places, str):
+        raise TypeError(f"{factory} takes a list of places: {factory}([{places!r}])")
+    return _place_names(places)
 
 
 def _place_names(places: Iterable[PlaceLike]) -> list[str]:

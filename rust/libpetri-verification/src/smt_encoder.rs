@@ -1529,7 +1529,7 @@ mod tests {
     fn nu055_the_flat_encoder_gives_name_alignment_no_script() {
         let flat = jobs_net();
         let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
-        encode_property_violation(&flat, &SmtProperty::name_aligned("done", "budget"), &m_vars, &[], &[], &[]);
+        encode_property_violation(&flat, &SmtProperty::name_aligned(["done", "budget"]), &m_vars, &[], &[], &[]);
     }
 
     /// [NU-055] AC4: nor quiescent name alignment.
@@ -1538,6 +1538,6 @@ mod tests {
     fn nu055_the_flat_encoder_gives_quiescent_name_alignment_no_script() {
         let flat = jobs_net();
         let m_vars: Vec<String> = (0..flat.place_count).map(|i| format!("m{i}")).collect();
-        encode_property_violation(&flat, &SmtProperty::quiescent_name_aligned("done", "budget"), &m_vars, &[], &[], &[]);
+        encode_property_violation(&flat, &SmtProperty::quiescent_name_aligned(["done", "budget"]), &m_vars, &[], &[], &[]);
     }
 }

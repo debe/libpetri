@@ -221,7 +221,8 @@ function verifyNameScg(
  * Why Route B cannot decide the name-alignment `property` on `fragment` (NU-055), or `null`:
  * a property place that is not coloured, whose predicate would hold vacuously (AC2, AC3), or a
  * coloured place the initial marking marks (AC6), since the graph models no initial names.
- * Checked in that order, `p` before `q`, the marked places in code-point order.
+ * Checked in that order, the last two steps of the NU-055 refusal order: the first uncoloured
+ * place of `S` in the order of `S`, then the first marked coloured place in code-point order.
  */
 function nameAlignmentRefusal(
   property: NameAligned | QuiescentNameAligned,
@@ -229,7 +230,7 @@ function nameAlignmentRefusal(
   fragmentMode: FragmentMode,
   initial: MarkingState,
 ): string | null {
-  for (const place of [property.p.name, property.q.name]) {
+  for (const { name: place } of property.places) {
     if (fragment.isColoured(place)) continue;
     const base = fragmentMode === 'base'
       ? "; under BASE only the match keys are coloured, carrier places and relay targets only " +

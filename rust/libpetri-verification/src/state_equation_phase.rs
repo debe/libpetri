@@ -901,7 +901,7 @@ mod tests {
     #[test]
     fn nu055_the_state_equation_phase_is_inconclusive_for_name_alignment() {
         let (flat, m0, sinks) = queue_and_bundle(2, false);
-        for property in [SmtProperty::name_aligned("q", "s"), SmtProperty::quiescent_name_aligned("q", "s")] {
+        for property in [SmtProperty::name_aligned(["q", "s"]), SmtProperty::quiescent_name_aligned(["q", "s"])] {
             let outcome = run_state_equation_phase(
                 &flat,
                 &m0,

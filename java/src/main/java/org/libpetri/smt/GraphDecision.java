@@ -52,8 +52,8 @@ public final class GraphDecision {
      * would read every class as aligned.
      */
     interface NamedClassView extends ClassView {
-        /** Whether every name class {@code i} holds in {@code p} equals every name it holds in {@code q}. */
-        boolean namesAligned(int i, Place<?> p, Place<?> q);
+        /** Whether the places named {@code places} together hold at most one name in class {@code i}. */
+        boolean namesAligned(int i, List<String> places);
     }
 
     /**
@@ -116,11 +116,12 @@ public final class GraphDecision {
             case SmtProperty.QuiescentCount(var places, var min, var max, var waivedBy) ->
                 firstWhere(view, i -> view.isQuiescent(i)
                     && countViolation(view.markingOf(i), places, min, max, waivedBy) != null);
-            // QuiescentNameAligned ([NU-055]): a quiescent class whose name layer holds a name in
-            // `p` other than a name in `q`. No sink clause.
-            case SmtProperty.QuiescentNameAligned(var p, var q) -> {
+            // QuiescentNameAligned ([NU-055]): a quiescent class whose name layer holds two
+            // different names across the places of the property. No sink clause.
+            case SmtProperty.QuiescentNameAligned(var places) -> {
                 var named = requireNames(view, property);
-                yield firstWhere(view, i -> view.isQuiescent(i) && !named.namesAligned(i, p, q));
+                var names = placeNames(places);
+                yield firstWhere(view, i -> view.isQuiescent(i) && !named.namesAligned(i, names));
             }
         };
     }
@@ -149,12 +150,19 @@ public final class GraphDecision {
                 return true;
             });
             case SmtProperty.MutualExclusion(var p1, var p2) -> onMarking(m -> m.hasTokens(p1) && m.hasTokens(p2));
-            case SmtProperty.NameAligned(var p, var q) ->
-                (view, i) -> !requireNames(view, property).namesAligned(i, p, q);
+            case SmtProperty.NameAligned(var places) -> {
+                var names = placeNames(places);
+                yield (view, i) -> !requireNames(view, property).namesAligned(i, names);
+            }
             case SmtProperty.DeadlockFree _, SmtProperty.TerminatesAtSink _,
                  SmtProperty.JoinedOrDeadLettered _, SmtProperty.QuiescentCount _,
                  SmtProperty.QuiescentNameAligned _ -> null;
         };
+    }
+
+    /** The names of a name-alignment property's places, mapped once per graph rather than per class. */
+    private static List<String> placeNames(List<Place<?>> places) {
+        return places.stream().map(Place::name).toList();
     }
 
     /** The class predicate that reads the class's marking alone. */
