@@ -2,7 +2,7 @@
 
 Design the net in a sandbox first: write several candidates in TypeScript, check them, measure them, show them to the developer, and iterate. Only after a candidate is chosen do you implement it in the project's language. Then prove the implementation is the same net as the design.
 
-The harness lives in `harness/` next to this skill. It depends on the libpetri TypeScript package of this repository (`"libpetri": "file:../../../../../typescript"` in `harness/package.json`), so build that package first (`cd typescript && npm install && npm run build`); `npm install` in `harness/` links it. The small-scope gate, lint and most sensors need nothing else. Per-subnet IC3 proofs and exact boundedness need the `z3` executable on `PATH` (or `LIBPETRI_Z3`); without it the harness reports what it skipped instead of failing.
+The harness lives in `harness/` next to this skill. It depends on the published `libpetri` npm package (`harness/package.json`), so `npm install` in `harness/` works wherever the skill is installed. Inside a libpetri checkout, to design against unreleased changes, build the local package (`cd typescript && npm install && npm run build`) and link it with `npm install --no-save ../../../../../typescript` in `harness/`; a later `npm install` or `npm ci` restores the published version. The small-scope gate, lint and most sensors need nothing else. Per-subnet IC3 proofs and exact boundedness need the `z3` executable on `PATH` (or `LIBPETRI_Z3`); without it the harness reports what it skipped instead of failing.
 
 ```bash
 cd <skill-dir>/harness && npm install        # once

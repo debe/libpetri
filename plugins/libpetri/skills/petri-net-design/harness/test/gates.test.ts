@@ -549,12 +549,12 @@ describe('budget', () => {
       }
       return { net: net('timedChain', ...ts), marking: new Map([['SOURCE', k]]) };
     });
-    // Quiescence properties go through z3 (≈ 70–130 ms each here); 30 of them cannot fit in 400 ms.
+    // Each query spawns z3 (≈ 12–20 ms here, 390 ms for all 30); 30 of them cannot fit in 100 ms.
     const properties = Array.from({ length: 30 }, (_, i) => i % 2 === 0
       ? prop(`deadlock-free #${i}`, { kind: 'deadlockFree' })
       : prop(`accounting #${i}`, { kind: 'accounting', outcomes: ['Q30'] }));
     const contract: Contract = { name: 'chain', intent: '', sinks: ['Q30'], sources: ['SOURCE'], properties, scales: [2] };
-    const budgetMs = 400;
+    const budgetMs = 100;
     const t0 = performance.now();
     const r = await runGates(contract, c, { budgetMs });
     const elapsed = performance.now() - t0;

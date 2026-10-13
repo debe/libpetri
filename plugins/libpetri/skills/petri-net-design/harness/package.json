@@ -10,7 +10,7 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "libpetri": "file:../../../../../typescript",
+    "libpetri": "^9.0.0",
     "tsx": "^4.22.0"
   },
   "devDependencies": {

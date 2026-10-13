@@ -167,3 +167,15 @@ else
 fi
 
 info "Released TypeScript v${VERSION} to npm and GitHub."
+
+# --- Design-harness pin ---
+# The petri-net-design harness installs libpetri from npm so it works from any
+# install location (plugin cache, vendored copies). Its range is ^MAJOR, so only
+# a major release needs a bump, and that bump is deliberate: rerun the harness
+# tests against the published major before moving the pin and its lockfile.
+HARNESS_PKG="$PROJECT_ROOT/plugins/libpetri/skills/petri-net-design/harness/package.json"
+HARNESS_RANGE=$(node -p "require('$HARNESS_PKG').dependencies.libpetri")
+if [[ "${HARNESS_RANGE#^}" != "${VERSION%%.*}."* ]]; then
+    info "Note: the design harness still depends on libpetri ${HARNESS_RANGE}. Once ${VERSION} is on npm:"
+    info "  cd plugins/libpetri/skills/petri-net-design/harness && npm install libpetri@^${VERSION} && npm test"
+fi
