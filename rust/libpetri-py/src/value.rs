@@ -60,17 +60,24 @@ pub fn erased_from_py(value: Py<PyAny>) -> ErasedToken {
     erased_from_py_at(value, now_millis())
 }
 
+/// The Python value a token carries, or `None` when it is not a Python token.
+///
+/// The executor mints a unit `()` token for an `Out::Place` in a timeout branch
+/// ([IO-014]); no action wrote it, so Python reads it as `None`.
+pub fn py_value_of(py: Python<'_>, value: &dyn Any) -> Option<Py<PyAny>> {
+    if let Some(wrapped) = value.downcast_ref::<PyTokenValue>() {
+        return Some(wrapped.clone_ref(py));
+    }
+    value.is::<()>().then(|| py.None())
+}
+
 pub fn py_from_erased(py: Python<'_>, token: &ErasedToken) -> PyResult<Py<PyAny>> {
-    let wrapped = token
-        .value
-        .downcast_ref::<PyTokenValue>()
-        .ok_or_else(|| {
-            LibpetriError::new_err(format!(
-                "Expected python.object token, found {}",
-                token.value_type_name
-            ))
-        })?;
-    Ok(wrapped.clone_ref(py))
+    py_value_of(py, token.value.as_ref()).ok_or_else(|| {
+        LibpetriError::new_err(format!(
+            "Expected python.object token, found {}",
+            token.value_type_name
+        ))
+    })
 }
 
 pub fn place_name_from_object(place_obj: &Bound<'_, PyAny>) -> PyResult<Arc<str>> {

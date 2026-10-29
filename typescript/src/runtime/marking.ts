@@ -85,6 +85,11 @@ export class Marking {
    * within the process unchanged (AC#8). Persisting a snapshot across processes is therefore
    * the host's encoding to choose.
    *
+   * A host that persists a snapshot meets one value it never wrote: a timeout branch's
+   * `Out.place` leaf deposits a token whose value is `null` whatever the place's token type
+   * ([IO-014]), so a codec keyed on that type must accept `null` there. Restore checks no
+   * types and takes it back.
+   *
    * Each sequence is an owned copy in FIFO order ([CORE-013]); token order decides which
    * token a firing consumes, so a snapshot that lost it would not be a restore (AC#6).
    * Places are emitted in code-point order of their names. The form is a mapping, so only the

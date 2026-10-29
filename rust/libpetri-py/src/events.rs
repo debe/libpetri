@@ -34,7 +34,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyString};
 
-use crate::value::{PyTokenValue, place_name_from_object};
+use crate::value::{place_name_from_object, py_value_of};
 
 // ---------------------------------------------------------------------------
 // NetEvent → Python: lazy, frozen wrapper
@@ -166,10 +166,7 @@ fn token_value(py: Python<'_>, event: &NetEvent) -> Option<Py<PyAny>> {
         NetEvent::TokenAdded { token, .. } | NetEvent::TokenRemoved { token, .. } => token.as_ref()?,
         _ => return None,
     };
-    token
-        .value_any()
-        .downcast_ref::<PyTokenValue>()
-        .map(|value| value.clone_ref(py))
+    py_value_of(py, token.value_any())
 }
 
 /// Discriminator string for a `NetEvent` — matches the camelCase form used

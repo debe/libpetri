@@ -238,6 +238,11 @@ public final class Marking {
      * present-but-empty one must restore identically — so the obligation sits on
      * {@link #fromSnapshot}, which accepts both.
      *
+     * <p>A host that persists a snapshot meets one value it never wrote: a timeout branch's
+     * {@code Out.Place} leaf deposits a token whose value is {@code null} whatever the place's
+     * token type ([IO-014]), so a codec keyed on that type must accept {@code null} there.
+     * Restore checks no types and takes it back.
+     *
      * <p>Key order is <b>ascending code-point order of the place name</b>, the same canonical
      * order the verification encoders use and for the same reason ([VER-013]). The form is a
      * mapping, so a restore must not depend on order — but a host that persists a snapshot will

@@ -30,6 +30,11 @@ use libpetri_core::token::{ErasedToken, Token};
 /// not be serializable: the value stays an `Arc<dyn Any + Send + Sync>`, so
 /// a closure, a native handle or a host object round-trips in-process
 /// untouched (\[CORE-073\] AC#8).
+///
+/// A host that persists a snapshot meets one value it never wrote: a timeout
+/// branch's `Out::Place` leaf deposits a unit `()` whatever the place's token
+/// type (\[IO-014\]), so a codec keyed on that type must accept `()` there
+/// (its `value_type_name` is `"()"`). Restore checks no types and takes it back.
 pub type MarkingSnapshot = BTreeMap<Arc<str>, Vec<ErasedToken>>;
 
 /// \[ENV-014\] AC5/AC6 — what a mid-execution snapshot returns.

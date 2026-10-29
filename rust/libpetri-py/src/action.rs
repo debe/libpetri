@@ -26,7 +26,7 @@ use pyo3_async_runtimes::TaskLocals;
 use pyo3::types::PyAny;
 
 use crate::error::action_error;
-use crate::value::PyTokenValue;
+use crate::value::{PyTokenValue, py_value_of};
 
 /// Tracks the asyncio event loop captured by an in-flight `run_async`.
 ///
@@ -357,9 +357,7 @@ impl PyActionContext {
             let values = values
                 .into_iter()
                 .map(|value| {
-                    value
-                        .downcast_ref::<PyTokenValue>()
-                        .map(|wrapped| wrapped.clone_ref(py))
+                    py_value_of(py, value.as_ref())
                         .ok_or_else(|| PyRuntimeError::new_err("input token is not python.object"))
                 })
                 .collect::<PyResult<Vec<_>>>()?;
@@ -375,9 +373,7 @@ impl PyActionContext {
             let values = values
                 .into_iter()
                 .map(|value| {
-                    value
-                        .downcast_ref::<PyTokenValue>()
-                        .map(|wrapped| wrapped.clone_ref(py))
+                    py_value_of(py, value.as_ref())
                         .ok_or_else(|| PyRuntimeError::new_err("read token is not python.object"))
                 })
                 .collect::<PyResult<Vec<_>>>()?;
