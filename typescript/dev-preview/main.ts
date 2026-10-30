@@ -26,6 +26,12 @@ sourceLabel.textContent = dotPath;
 
 let currentHandle: ViewerHandle | null = null;
 
+// Chrome toggles re-mount internally; keep the handle current so a reload
+// inherits the toggled state.
+container.addEventListener('libpetri-viewer:remount', (ev) => {
+  currentHandle = (ev as CustomEvent<{ handle: ViewerHandle }>).detail.handle;
+});
+
 async function load(): Promise<void> {
   try {
     status.textContent = `fetching ${dotPath}…`;
