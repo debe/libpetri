@@ -183,6 +183,54 @@ describe('edgePosSpline geometry (via writeBack)', () => {
     expect(anchors.some(a => Math.abs(a.x - center.x) < 0.5)).toBe(true);
   });
 
+  /**
+   * Three transitions above one place; ELK enters the place's wide layout box
+   * at the given x offsets from the circle centre. Returns each edge's tip.
+   */
+  function fanIn(offsets: number[]): { center: Pt; tips: Pt[]; anchors: Pt[][] } {
+    const p = node('p_dst', { shape: 'circle', width: '0.35', label: '' });
+    const ts = offsets.map((_, i) => node(`t_s${i}`, { shape: 'box', width: '0.8', height: '0.4', label: `S${i}` }));
+    const graph = graphOf(
+      [p, ...ts],
+      ts.map(t => ({ src: t.id, dst: 'p_dst', arc: 'normal' as const, rawAttrs: 'arrowhead="normal"' })),
+    );
+    const center = { x: 100, y: 300 };
+    const positions: Record<string, NodePosition> = { p_dst: posAt(center, { w: 110, h: 60 }) };
+    const paths: Record<string, EdgePath> = {};
+    offsets.forEach((off, i) => {
+      const x = center.x + off;
+      positions[`t_s${i}`] = posAt({ x, y: 100 }, { w: 60, h: 30 });
+      paths[`t_s${i}->p_dst`] = { start: { x, y: 115 }, end: { x, y: 270 }, bends: [{ x, y: 200 }] };
+    });
+    const dot = writeBack(graph, layoutOf(positions, paths));
+    const splines = offsets.map((_, i) => parseSpline(edgeLine(dot, `t_s${i}`, 'p_dst')));
+    return { center, tips: splines.map(s => s.tip), anchors: splines.map(s => s.anchors) };
+  }
+
+  it('fits arcs that would miss the circle onto it, apart and in ELK order', () => {
+    const { center, tips, anchors } = fanIn([-40, 20, 45]);
+    anchors.forEach(expectOrthogonal);
+    for (const tip of tips) {
+      expect(dist(tip, center)).toBeCloseTo(PLACE_R, 1);
+      expect(Math.abs(tip.x - center.x)).toBeLessThan(PLACE_R);
+    }
+    expect(tips[0]!.x).toBeLessThan(tips[1]!.x - 2);
+    expect(tips[1]!.x).toBeLessThan(tips[2]!.x - 2);
+  });
+
+  it('fits a whole side together when only some of its arcs miss the circle', () => {
+    const { tips } = fanIn([5, 40]);
+    // Kept in order and apart, rather than the inner arc staying at +5 and the
+    // outer one funnelling to the centre across it.
+    expect(tips[0]!.x).toBeLessThan(tips[1]!.x - 2);
+  });
+
+  it('leaves arcs alone when they all already hit the circle', () => {
+    const { center, tips } = fanIn([-5, 5]);
+    expect(tips[0]!.x).toBeCloseTo(center.x - 5, 1);
+    expect(tips[1]!.x).toBeCloseTo(center.x + 5, 1);
+  });
+
   it('falls back to an orthogonal L-corner when the edge has no ELK route', () => {
     const a = node('t_a', { shape: 'box', width: '0.8', height: '0.4', label: 'A' });
     const b = node('p_b', { shape: 'circle', width: '0.35', label: '' });

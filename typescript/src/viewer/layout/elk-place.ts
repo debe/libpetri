@@ -110,8 +110,9 @@ export interface LayoutResult {
 // up to each place, instead of a stack of nested right-angle brackets.
 // Trade-off (accepted, EXP-004): arcs sharing an endpoint run collinearly along
 // the shared trunk, so over that stretch their strokes over-paint — only the
-// endpoints (arrowheads/labels) stay per-type distinct. Kept intentionally for
-// legibility on dense fan-in/out; any added ELK layout cost is paid once per
+// endpoints (arrowheads/labels) stay per-type distinct. The default; callers
+// can turn it off or give each arc type its own port (ElkLayoutConfig
+// `mergeEdges` / `arcPorts`). Any added ELK layout cost is paid once per
 // unique net and amortized by the pinned-DOT cache in render.ts.
 const LAYERED_EDGE_OPTS: Record<string, string> = {
   'elk.spacing.edgeEdge': '18',
@@ -235,6 +236,19 @@ export interface ElkLayoutConfig {
    * effect when `clusterLayout` is `'layered'`.
    */
   readonly leafPacking?: boolean | LeafPackingOptions;
+  /**
+   * ELK `layered.mergeEdges` for the layered layouts. `true` (default) bundles
+   * every arc entering a node into one shared trunk and every arc leaving it
+   * into another; `false` gives each arc its own connection point.
+   */
+  readonly mergeEdges?: boolean;
+  /**
+   * Give every place and transition one connection point per arc type and
+   * direction (input, output, read, inhibitor, reset), so arcs of the same
+   * type still share a trunk but arcs of different types never do. Default
+   * `false`. Junctions keep their implicit connection points.
+   */
+  readonly arcPorts?: boolean;
 }
 
 interface ResolvedConfig {
@@ -244,6 +258,8 @@ interface ResolvedConfig {
     readonly minLeaves: number;
     readonly arcs: ReadonlySet<ArcType>;
   };
+  readonly mergeEdges: boolean;
+  readonly arcPorts: boolean;
 }
 
 const DEFAULT_MIN_LEAVES = 10;
@@ -258,6 +274,77 @@ function resolveConfig(cfg?: ElkLayoutConfig): ResolvedConfig {
       minLeaves: lpObj.minLeaves ?? DEFAULT_MIN_LEAVES,
       arcs: new Set(lpObj.arcs ?? ['reset', 'read']),
     },
+    mergeEdges: cfg?.mergeEdges ?? true,
+    arcPorts: cfg?.arcPorts ?? false,
+  };
+}
+
+/** Applies the configured `mergeEdges` to a layered option set. */
+function withMergeEdges(
+  opts: Record<string, string>,
+  config: ResolvedConfig,
+): Record<string, string> {
+  return { ...opts, 'elk.layered.mergeEdges': String(config.mergeEdges) };
+}
+
+// ======================== Per-arc-type ports ========================
+
+/** Spacing between neighbouring ports on a place, in points. */
+const PLACE_PORT_SPACING = 6;
+
+/**
+ * Port options for a place: ports packed around the centre of a side, so
+ * they land on the small drawn circle instead of spreading across the
+ * label-wide layout box.
+ */
+const PLACE_PORT_OPTIONS: Record<string, string> = {
+  'elk.portConstraints': 'FREE',
+  'elk.portAlignment.default': 'CENTER',
+  'elk.spacing.portPort': String(PLACE_PORT_SPACING),
+};
+
+const TRANSITION_PORT_OPTIONS: Record<string, string> = {
+  'elk.portConstraints': 'FREE',
+};
+
+/**
+ * Port id for one end of an edge: one port per node, arc type and direction.
+ * A place's incoming normal arcs (outputs of transitions) and its outgoing
+ * normal arcs (inputs of transitions) get different ports.
+ */
+function portId(nodeId: string, direction: 'in' | 'out', arc: ArcType): string {
+  return `${nodeId}::${direction}:${arc}`;
+}
+
+function hasArcPorts(graph: GraphModel, nodeId: string): boolean {
+  return graph.nodes.get(nodeId)?.kind !== 'junction';
+}
+
+/** Every port each node needs, in edge order. Empty when ports are off. */
+function collectPorts(graph: GraphModel, config: ResolvedConfig): Map<string, string[]> {
+  const ports = new Map<string, string[]>();
+  if (!config.arcPorts) return ports;
+  const add = (nodeId: string, id: string): void => {
+    let list = ports.get(nodeId);
+    if (!list) { list = []; ports.set(nodeId, list); }
+    if (!list.includes(id)) list.push(id);
+  };
+  for (const e of graph.edges) {
+    if (hasArcPorts(graph, e.src)) add(e.src, portId(e.src, 'out', e.arc));
+    if (hasArcPorts(graph, e.dst)) add(e.dst, portId(e.dst, 'in', e.arc));
+  }
+  return ports;
+}
+
+/** ELK child for a node, with its arc-type ports when it has any. */
+function elkNode(node: ParsedNode, ports: ReadonlyMap<string, string[]>): ElkNode {
+  const own = ports.get(node.id);
+  if (!own || own.length === 0) return { id: node.id, ...nodeDims(node) };
+  return {
+    id: node.id,
+    ...nodeDims(node),
+    layoutOptions: node.kind === 'place' ? PLACE_PORT_OPTIONS : TRANSITION_PORT_OPTIONS,
+    ports: own.map(id => ({ id, width: 0, height: 0 })),
   };
 }
 
@@ -318,6 +405,7 @@ async function layoutDominatedCluster(
   graph: GraphModel,
   flow: string[],
   leaves: string[],
+  config: ResolvedConfig,
 ): Promise<PrebuiltCluster> {
   const dimsOf = (id: string): { width: number; height: number } =>
     nodeDims(graph.nodes.get(id)!);
@@ -332,7 +420,7 @@ async function layoutDominatedCluster(
 
   const flowLayout: ElkNode = await elk.layout({
     id: '__flow',
-    layoutOptions: FLOW_SUB_OPTIONS,
+    layoutOptions: withMergeEdges(FLOW_SUB_OPTIONS, config),
     children: flow.map(id => ({ id, ...dimsOf(id) })),
     edges: flowEdges,
   });
@@ -385,7 +473,7 @@ async function layoutDominatedCluster(
  * Orphans count as living in `cluster_orchestrator` for routing purposes,
  * matching v3's `ownerOf` (line 223).
  */
-function partitionEdges(graph: GraphModel): {
+function partitionEdges(graph: GraphModel, ports: ReadonlyMap<string, string[]>): {
   byCluster: Map<string, ElkExtendedEdge[]>;
   cross: ElkExtendedEdge[];
   /** edgeId → "src->dst" so the layout walk can recover the original key. */
@@ -396,6 +484,8 @@ function partitionEdges(graph: GraphModel): {
   const edgeIdToKey = new Map<string, string>();
   const ownerOf = (id: string): string =>
     graph.nodeToCluster.get(id) ?? ORCHESTRATOR_CLUSTER_ID;
+  const endpoint = (nodeId: string, direction: 'in' | 'out', arc: ArcType): string =>
+    ports.has(nodeId) ? portId(nodeId, direction, arc) : nodeId;
 
   graph.edges.forEach((e, i) => {
     const so = ownerOf(e.src);
@@ -404,8 +494,8 @@ function partitionEdges(graph: GraphModel): {
     edgeIdToKey.set(id, `${e.src}->${e.dst}`);
     const elkEdge: ElkExtendedEdge = {
       id,
-      sources: [e.src],
-      targets: [e.dst],
+      sources: [endpoint(e.src, 'out', e.arc)],
+      targets: [endpoint(e.dst, 'in', e.arc)],
     };
     if (so === dt) {
       let list = byCluster.get(so);
@@ -436,10 +526,13 @@ export async function elkLayout(
   cfg?: ElkLayoutConfig,
 ): Promise<LayoutResult> {
   const config = resolveConfig(cfg);
-  const { byCluster, cross, edgeIdToKey } = partitionEdges(graph);
+  const ports = collectPorts(graph, config);
+  const { byCluster, cross, edgeIdToKey } = partitionEdges(graph, ports);
   const elk = new ELK();
   const clusterOptions =
-    config.clusterLayout === 'rectpacking' ? RECTPACK_CLUSTER_OPTIONS : CLUSTER_OPTIONS;
+    config.clusterLayout === 'rectpacking'
+      ? RECTPACK_CLUSTER_OPTIONS
+      : withMergeEdges(CLUSTER_OPTIONS, config);
 
   // Pre-lay-out clusters dominated by side-effect leaf places. Only in
   // 'layered' mode — 'rectpacking' already packs every cluster's nodes.
@@ -448,7 +541,7 @@ export async function elkLayout(
     for (const [clusterId, cluster] of graph.clusters) {
       const { flow, leaves } = classifyLeaves(graph, cluster, config.leafPacking.arcs);
       if (leaves.length >= config.leafPacking.minLeaves && flow.length > 0) {
-        prebuilt.set(clusterId, await layoutDominatedCluster(elk, graph, flow, leaves));
+        prebuilt.set(clusterId, await layoutDominatedCluster(elk, graph, flow, leaves, config));
       }
     }
   }
@@ -468,7 +561,7 @@ export async function elkLayout(
       children: cluster.nodes
         .map(id => graph.nodes.get(id))
         .filter((n): n is ParsedNode => n !== undefined)
-        .map(n => ({ id: n.id, ...nodeDims(n) })),
+        .map(n => elkNode(n, ports)),
       edges: byCluster.get(clusterId) ?? [],
     });
   }
@@ -478,17 +571,17 @@ export async function elkLayout(
   // packing tuned for sitting beside real subnets.
   const orchestratorOptions =
     graph.clusters.size === 0
-      ? FLAT_OPTIONS
+      ? withMergeEdges(FLAT_OPTIONS, config)
       : config.clusterLayout === 'rectpacking'
         ? RECTPACK_CLUSTER_OPTIONS
-        : ORCHESTRATOR_OPTIONS;
+        : withMergeEdges(ORCHESTRATOR_OPTIONS, config);
   elkChildren.push({
     id: ORCHESTRATOR_CLUSTER_ID,
     layoutOptions: orchestratorOptions,
     children: graph.orphans
       .map(id => graph.nodes.get(id))
       .filter((n): n is ParsedNode => n !== undefined)
-      .map(n => ({ id: n.id, ...nodeDims(n) })),
+      .map(n => elkNode(n, ports)),
     edges: byCluster.get(ORCHESTRATOR_CLUSTER_ID) ?? [],
   });
 
@@ -670,43 +763,145 @@ interface Approach {
 }
 
 /**
- * Where an edge should meet a node's *visual* boundary, given ELK's route
- * point on the node's layout box (`boxEnd`, larger than the drawn shape) and
- * the adjacent route point (`neighbor`). Keeps the approach axis-aligned.
- *
- * When the approach would land within the shape's span it clips straight onto
- * the boundary (preserving ELK's fan-out across a wide box). When it would
- * MISS the shape — e.g. fan-in to a place whose label-padded box is far wider
- * than its little circle, so ELK enters at an x beyond the circle radius — it
- * funnels to the near-side centre of the shape and returns a `jog` so the
- * connector turns at a right angle instead of leaving the arrowhead floating
- * beside the node.
+ * The side of a node an edge meets, given ELK's route point on the node's
+ * layout box (`boxEnd`) and the adjacent route point (`neighbor`). `off` is
+ * the signed offset of `boxEnd` from the drawn centre along that side.
  */
-function approachEndpoint(center: Pt, ext: Extent, boxEnd: Pt, neighbor: Pt): Approach {
+interface Side {
+  readonly key: string;
+  readonly vertical: boolean;
+  readonly sgn: number;
+  readonly off: number;
+}
+
+function sideOf(nodeId: string, center: Pt, boxEnd: Pt, neighbor: Pt): Side {
   const vertical = Math.abs(neighbor.x - boxEnd.x) <= Math.abs(neighbor.y - boxEnd.y);
-  if (vertical) {
-    const sgn = neighbor.y < center.y ? -1 : 1; // meet the top (−) or bottom (+)
-    const off = Math.abs(boxEnd.x - center.x);
-    const reach = ext.shape === 'circle' ? ext.rx - 1 : ext.rx;
-    if (off < reach) {
-      const dy = ext.shape === 'circle' ? Math.sqrt(ext.rx * ext.rx - off * off) : ext.ry;
-      return { entry: { x: boxEnd.x, y: center.y + sgn * dy } };
-    }
-    return { entry: { x: center.x, y: center.y + sgn * ext.ry }, jog: { x: center.x, y: neighbor.y } };
+  // Vertical: meet the top (−) or bottom (+). Horizontal: the left (−) or right (+).
+  const sgn = vertical
+    ? (neighbor.y < center.y ? -1 : 1)
+    : (neighbor.x < center.x ? -1 : 1);
+  const off = vertical ? boxEnd.x - center.x : boxEnd.y - center.y;
+  return { key: `${nodeId}|${vertical ? 'v' : 'h'}${sgn}`, vertical, sgn, off };
+}
+
+/** Lowest and highest {@link Side.off} of all edges meeting one node side. */
+interface Spread {
+  min: number;
+  max: number;
+}
+
+/** Share of a shape's half-extent that a fitted group of edges may use. */
+const FIT_SHARE = 0.85;
+
+/**
+ * Half-extent of a shape along a side, within which an edge still hits it.
+ * A circle keeps 1pt clear so the arrow does not land on its tangent.
+ */
+function reachOf(ext: Extent, vertical: boolean): number {
+  if (ext.shape === 'circle') return ext.rx - 1;
+  return vertical ? ext.rx : ext.ry;
+}
+
+/**
+ * Offset at which an edge meets the drawn shape. When every edge on this side
+ * already hits the shape, ELK's offset is kept. Otherwise the side's edges are
+ * scaled together onto the shape, centred and in ELK's order — so arcs that
+ * ELK spread across a label-wide layout box stay apart on a small circle
+ * instead of all funnelling into its centre. A lone edge lands on the centre.
+ */
+function fittedOffset(side: Side, spread: Spread, ext: Extent): number {
+  const reach = reachOf(ext, side.vertical);
+  if (Math.max(Math.abs(spread.min), Math.abs(spread.max)) < reach) return side.off;
+  const width = spread.max - spread.min;
+  const scale = width > 0 ? Math.min(1, (2 * FIT_SHARE * reach) / width) : 0;
+  return (side.off - (spread.min + spread.max) / 2) * scale;
+}
+
+/**
+ * Where an edge meets a node's *visual* boundary. Keeps the approach
+ * axis-aligned: when the fitted offset differs from ELK's (`side.off`), a
+ * `jog` corner at the neighbour's level turns the connector at a right angle
+ * onto the shape instead of leaving the arrowhead floating beside it.
+ */
+function approachEndpoint(center: Pt, ext: Extent, side: Side, fitted: number, neighbor: Pt): Approach {
+  const moved = Math.abs(fitted - side.off) > 0.01;
+  if (side.vertical) {
+    const x = center.x + fitted;
+    const dy = ext.shape === 'circle' ? Math.sqrt(ext.rx * ext.rx - fitted * fitted) : ext.ry;
+    const entry = { x, y: center.y + side.sgn * dy };
+    return moved ? { entry, jog: { x, y: neighbor.y } } : { entry };
   }
-  const sgn = neighbor.x < center.x ? -1 : 1; // meet the left (−) or right (+)
-  const off = Math.abs(boxEnd.y - center.y);
-  const reach = ext.shape === 'circle' ? ext.rx - 1 : ext.ry;
-  if (off < reach) {
-    const dx = ext.shape === 'circle' ? Math.sqrt(ext.rx * ext.rx - off * off) : ext.rx;
-    return { entry: { x: center.x + sgn * dx, y: boxEnd.y } };
-  }
-  return { entry: { x: center.x + sgn * ext.rx, y: center.y }, jog: { x: neighbor.x, y: center.y } };
+  const y = center.y + fitted;
+  const dx = ext.shape === 'circle' ? Math.sqrt(ext.rx * ext.rx - fitted * fitted) : ext.rx;
+  const entry = { x: center.x + side.sgn * dx, y };
+  return moved ? { entry, jog: { x: neighbor.x, y } } : { entry };
 }
 
 /** Format a point as Graphviz `x,y` with 2-decimal precision. */
 const fmtPt = (p: Pt): string => `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
 const lerp = (a: Pt, b: Pt, t: number): Pt => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+
+/** An edge's full orthogonal route plus the drawn centres of its ends. */
+interface RawRoute {
+  readonly raw: Pt[];
+  readonly sc: Pt;
+  readonly tc: Pt;
+  readonly srcNode: ParsedNode;
+  readonly dstNode: ParsedNode;
+}
+
+/**
+ * ELK's own route when available (its right-angle bends AND its box-border
+ * anchor points); otherwise an L-corner between the drawn centers
+ * (vertical-then-horizontal) so the edge still turns square. Null when either
+ * endpoint has no laid-out position.
+ */
+function rawRoute(graph: GraphModel, layout: LayoutResult, src: string, dst: string): RawRoute | null {
+  const srcPos = layout.nodePositions.get(src);
+  const dstPos = layout.nodePositions.get(dst);
+  const srcNode = graph.nodes.get(src);
+  const dstNode = graph.nodes.get(dst);
+  if (!srcPos || !dstPos || !srcNode || !dstNode) return null;
+
+  const sc = drawnCenter(srcPos);
+  const tc = drawnCenter(dstPos);
+  const route = layout.edgePaths.get(`${src}->${dst}`);
+  let raw: Pt[];
+  if (route) {
+    raw = [route.start, ...route.bends, route.end];
+  } else if (sc.x === tc.x || sc.y === tc.y) {
+    raw = [sc, tc];
+  } else {
+    raw = [sc, { x: sc.x, y: tc.y }, tc];
+  }
+  if (raw.length < 2) return null;
+  return { raw, sc, tc, srcNode, dstNode };
+}
+
+/** Both ends' sides of a route: where it leaves its source and enters its target. */
+function routeSides(r: RawRoute): { start: Side; end: Side } {
+  const { raw } = r;
+  return {
+    start: sideOf(r.srcNode.id, r.sc, raw[0]!, raw[1]!),
+    end: sideOf(r.dstNode.id, r.tc, raw[raw.length - 1]!, raw[raw.length - 2]!),
+  };
+}
+
+/** The {@link Spread} of every node side across all routes. */
+function sideSpreads(routes: Iterable<RawRoute>): Map<string, Spread> {
+  const spreads = new Map<string, Spread>();
+  const add = (side: Side): void => {
+    const s = spreads.get(side.key);
+    if (!s) spreads.set(side.key, { min: side.off, max: side.off });
+    else { s.min = Math.min(s.min, side.off); s.max = Math.max(s.max, side.off); }
+  };
+  for (const r of routes) {
+    const { start, end } = routeSides(r);
+    add(start);
+    add(end);
+  }
+  return spreads;
+}
 
 /**
  * Build a Graphviz edge `pos` spline that draws ELK's orthogonal route as
@@ -719,42 +914,16 @@ const lerp = (a: Pt, b: Pt, t: number): Pt => ({ x: a.x + (b.x - a.x) * t, y: a.
  * between node centers — which may cross intervening nodes. That is the
  * accepted price of right-angle edges at any net size.
  *
- * Returns null when either endpoint has no laid-out position.
+ * `spreads` holds every node side's edge offsets (see {@link sideSpreads}),
+ * so all edges on a side are fitted onto the drawn shape together.
  */
-function edgePosSpline(
-  graph: GraphModel,
-  layout: LayoutResult,
-  src: string,
-  dst: string,
-): string | null {
-  const srcPos = layout.nodePositions.get(src);
-  const dstPos = layout.nodePositions.get(dst);
-  const srcNode = graph.nodes.get(src);
-  const dstNode = graph.nodes.get(dst);
-  if (!srcPos || !dstPos || !srcNode || !dstNode) return null;
-
-  const sc = drawnCenter(srcPos);
-  const tc = drawnCenter(dstPos);
-  const route = layout.edgePaths.get(`${src}->${dst}`);
-  // Full orthogonal polyline. ELK's own route when available (its right-angle
-  // bends AND its box-border anchor points); otherwise an L-corner between the
-  // drawn centers (vertical-then-horizontal) so the edge still turns square.
-  let raw: Pt[];
-  if (route) {
-    raw = [route.start, ...route.bends, route.end];
-  } else if (sc.x === tc.x || sc.y === tc.y) {
-    raw = [sc, tc];
-  } else {
-    raw = [sc, { x: sc.x, y: tc.y }, tc];
-  }
-  if (raw.length < 2) return null;
-
-  const extS = visualExtent(srcNode);
-  const extT = visualExtent(dstNode);
-  // Land both ends on the visual shape boundary (with a right-angle jog when
-  // ELK's approach would otherwise miss a small shape — see approachEndpoint).
-  const startA = approachEndpoint(sc, extS, raw[0]!, raw[1]!);
-  const endA = approachEndpoint(tc, extT, raw[raw.length - 1]!, raw[raw.length - 2]!);
+function edgePosSpline(route: RawRoute, spreads: ReadonlyMap<string, Spread>): string | null {
+  const { raw, sc, tc } = route;
+  const extS = visualExtent(route.srcNode);
+  const extT = visualExtent(route.dstNode);
+  const { start, end } = routeSides(route);
+  const startA = approachEndpoint(sc, extS, start, fittedOffset(start, spreads.get(start.key)!, extS), raw[1]!);
+  const endA = approachEndpoint(tc, extT, end, fittedOffset(end, spreads.get(end.key)!, extT), raw[raw.length - 2]!);
 
   // Drawn polyline: source boundary → (jog) → ELK bends → (jog) → target
   // boundary, dropping any zero-length steps so segments stay clean.
@@ -832,17 +1001,17 @@ function nodeAttrLine(node: ParsedNode, pos: NodePosition): string {
 }
 
 function edgeAttrLine(
-  graph: GraphModel,
-  layout: LayoutResult,
   src: string,
   dst: string,
   rawAttrs: string,
+  route: RawRoute | null,
+  spreads: ReadonlyMap<string, Spread>,
 ): string {
   // Splice libpetri's original attrs verbatim so style/penwidth/label/color/
   // arrowhead match `DotExporter` 1:1, then add ELK's orthogonal route as a
   // `pos=` spline for Graphviz `nop2` to draw. See `edgePosSpline` for why we
   // route ourselves rather than use Graphviz's (wasm-crashing) ortho router.
-  const pos = edgePosSpline(graph, layout, src, dst);
+  const pos = route ? edgePosSpline(route, spreads) : null;
   const parts = [rawAttrs.trim(), pos ? `pos="${pos}"` : ''].filter(Boolean);
   const body = parts.join(', ');
   return `${src} -> ${dst}` + (body ? ` [${body}];` : ';');
@@ -916,10 +1085,13 @@ export function writeBack(graph: GraphModel, layout: LayoutResult): string {
   }
 
   // Edges — libpetri's original styling attrs plus ELK's orthogonal route as
-  // a `pos=` spline, drawn verbatim by Graphviz `nop2`.
-  for (const edge of graph.edges) {
-    lines.push('    ' + edgeAttrLine(graph, layout, edge.src, edge.dst, edge.rawAttrs));
-  }
+  // a `pos=` spline, drawn verbatim by Graphviz `nop2`. Routes are gathered
+  // first so the edges sharing a node side can be fitted onto it together.
+  const routes = graph.edges.map(edge => rawRoute(graph, layout, edge.src, edge.dst));
+  const spreads = sideSpreads(routes.filter((r): r is RawRoute => r !== null));
+  graph.edges.forEach((edge, i) => {
+    lines.push('    ' + edgeAttrLine(edge.src, edge.dst, edge.rawAttrs, routes[i] ?? null, spreads));
+  });
 
   lines.push('}');
   return lines.join('\n');

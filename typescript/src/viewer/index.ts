@@ -102,6 +102,15 @@ export interface ViewerHandle {
   setSubnets(mode: SubnetVisibility): Promise<ViewerHandle>;
   /** Flip {@link subnets} to the other mode and re-mount. See {@link setSubnets}. */
   toggleSubnets(): Promise<ViewerHandle>;
+  /** Current ELK `mergeEdges` setting. */
+  readonly mergeEdges: boolean;
+  /** Whether places and transitions get one connection point per arc type. */
+  readonly arcPorts: boolean;
+  /**
+   * Change the edge-routing options and re-mount, like {@link setSubnets}
+   * (same `libpetri-viewer:remount` event). Omitted fields keep their value.
+   */
+  setEdgeRouting(routing: { mergeEdges?: boolean; arcPorts?: boolean }): Promise<ViewerHandle>;
   /** Collapse a single cluster by prefix. No-op if unknown. */
   collapse(prefix: string): void;
   /** Expand a single cluster by prefix. No-op if unknown. */
@@ -178,6 +187,18 @@ export interface MountOptions {
    */
   readonly leafPacking?: boolean | LeafPackingOptions;
   /**
+   * ELK `layered.mergeEdges`: bundle the arcs entering (and leaving) a node
+   * into one shared trunk. Default `true`. If `previousHandle` is supplied
+   * and this is omitted, the previous handle's value is inherited.
+   */
+  readonly mergeEdges?: boolean;
+  /**
+   * One connection point per arc type and direction on every place and
+   * transition. Default `false`. Inherited from `previousHandle` like
+   * {@link mergeEdges}.
+   */
+  readonly arcPorts?: boolean;
+  /**
    * Initial subnet visibility mode. Defaults to `'show'` (clustered view).
    * Pass `'hide'` to mount with the flat view from the start. The chrome
    * button toggles between the two at runtime; see {@link ViewerHandle.setSubnets}.
@@ -208,6 +229,8 @@ export async function mount(
   // Subnet mode: explicit opt wins, else inherit from previousHandle, else default to 'show'.
   const subnetsMode: SubnetVisibility =
     opts.subnets ?? previousHandle?.subnets ?? 'show';
+  const mergeEdges = opts.mergeEdges ?? previousHandle?.mergeEdges ?? true;
+  const arcPorts = opts.arcPorts ?? previousHandle?.arcPorts ?? false;
 
   if (previousHandle) {
     previousHandle.dispose();
@@ -223,6 +246,8 @@ export async function mount(
   const elkConfig: ElkLayoutConfig = {
     clusterLayout: opts.clusterLayout,
     leafPacking: opts.leafPacking,
+    mergeEdges,
+    arcPorts,
   };
   const svg: SVGSVGElement = useElk
     ? await renderModule.renderDotToSvgWithElkLayout(renderedDot, elkConfig)
@@ -292,6 +317,38 @@ export async function mount(
       void handle.toggleSubnets();
     });
     controls.appendChild(subnetsBtn);
+    // Edge-routing toggles. Unlike the subnet button these show the current
+    // state, since both are on/off switches rather than two named views.
+    if (layoutMode === 'elk') {
+      const routingBtn = (
+        className: string,
+        label: string,
+        title: string,
+        on: boolean,
+        toggle: () => Promise<ViewerHandle>,
+      ): HTMLButtonElement => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `diagram-btn ${className}`;
+        btn.title = title;
+        btn.textContent = `${label}: ${on ? 'on' : 'off'}`;
+        btn.setAttribute('aria-pressed', String(on));
+        btn.addEventListener('click', () => {
+          void toggle();
+        });
+        return btn;
+      };
+      controls.appendChild(routingBtn(
+        'btn-merge-edges', 'Merge edges',
+        'Bundle the arcs entering or leaving a node into one shared line',
+        mergeEdges, () => handle.setEdgeRouting({ mergeEdges: !mergeEdges }),
+      ));
+      controls.appendChild(routingBtn(
+        'btn-arc-ports', 'Ports per arc type',
+        'Give each arc type (input, output, read, inhibitor, reset) its own connection point',
+        arcPorts, () => handle.setEdgeRouting({ arcPorts: !arcPorts }),
+      ));
+    }
     controls.appendChild(resetBtn);
     controls.appendChild(fsBtn);
     chromeRoot.appendChild(controls);
@@ -360,6 +417,29 @@ export async function mount(
     },
     toggleSubnets(): Promise<ViewerHandle> {
       return handle.setSubnets(subnetsMode === 'show' ? 'hide' : 'show');
+    },
+    mergeEdges,
+    arcPorts,
+    setEdgeRouting(routing: { mergeEdges?: boolean; arcPorts?: boolean }): Promise<ViewerHandle> {
+      const nextMerge = routing.mergeEdges ?? mergeEdges;
+      const nextPorts = routing.arcPorts ?? arcPorts;
+      if (nextMerge === mergeEdges && nextPorts === arcPorts) return Promise.resolve(handle);
+      return mount(dotSource, container, {
+        ...opts,
+        previousHandle: handle,
+        mergeEdges: nextMerge,
+        arcPorts: nextPorts,
+      }).then((next) => {
+        // Keep the highlight so the same node can be compared across layouts.
+        if (highlightedNodeId !== null) next.highlight(highlightedNodeId);
+        container.dispatchEvent(
+          new CustomEvent('libpetri-viewer:remount', {
+            bubbles: true,
+            detail: { handle: next, subnets: subnetsMode },
+          }),
+        );
+        return next;
+      });
     },
     collapse(prefix: string): void {
       if (disposed) return;

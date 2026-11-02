@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Edge-routing toggles in the diagram viewer (Java javadoc, Rust docgen, TypeScript doclet, dev-preview).** Two new buttons in the viewer's controls, and matching `mount()` options. The debug UI mounts without controls (`chrome: false`) and keeps the old routing.
+  - **Merge edges** (`mergeEdges`, default `true`, the old behaviour) sets ELK's `layered.mergeEdges`. On, all arcs entering a node share one connection point and all arcs leaving it share another, so arcs of different types run on one line until they branch. Off, each arc gets its own.
+  - **Ports per arc type** (`arcPorts`, default `false`) gives every place and transition one connection point per arc type and direction (input, output, read, inhibitor, reset). Arcs of one type still share a line; arcs of different types never do. On a place the points sit around the centre of a side, so they land on the drawn circle.
+  - Both are kept when the viewer re-mounts, and `ViewerHandle.setEdgeRouting({ mergeEdges, arcPorts })` changes them from code. A toggle keeps the highlighted node, so the same place can be compared across settings.
+
+### Changed
+
+- **Arcs that would miss a small shape are fitted onto it together (viewer).** All arcs meeting one side of a node are scaled onto the drawn shape as a group, centred and in ELK's order, instead of each one that misses being pulled to the shape's centre on top of the others. A lone arc still lands on the centre, and a side whose arcs all hit the shape is unchanged. With the default settings the Marvin text and voice nets draw every edge exactly as before; with merging off the arrowheads that share a tip with another drop from 103 to 37 and from 90 to 6.
+
 ## Java 10.0.0 / TypeScript 9.0.0 / Rust 11.0.0 / Python 7.3.0 — 2026-10-08
 
 **Breaking for exhaustive matches in Java, TypeScript and Rust:** `SmtProperty` gains two members (a new permitted record in Java, a new union member in TypeScript, a new enum variant in Rust). Python is additive.

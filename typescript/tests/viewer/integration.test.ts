@@ -162,3 +162,65 @@ describe('viewer integration: handle.setVisibility + handle.highlight (C0 API)',
     }
   });
 });
+
+describe('viewer integration: edge-routing toggles', () => {
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    setMockSvgFactory(makePipelineFixture);
+  });
+
+  function nextRemount(): Promise<{ handle: Awaited<ReturnType<typeof mount>> }> {
+    return new Promise((resolve) => {
+      container.addEventListener(
+        'libpetri-viewer:remount',
+        (ev) => resolve((ev as CustomEvent).detail),
+        { once: true },
+      );
+    });
+  }
+
+  it('defaults to merged edges and no arc ports', async () => {
+    const handle = await mount('digraph G {}', container, { chrome: true });
+    expect(handle.mergeEdges).toBe(true);
+    expect(handle.arcPorts).toBe(false);
+    expect(container.querySelector('.btn-merge-edges')!.textContent).toBe('Merge edges: on');
+    expect(container.querySelector('.btn-arc-ports')!.textContent).toBe('Ports per arc type: off');
+  });
+
+  it('the merge-edges button re-mounts with mergeEdges flipped and keeps the highlight', async () => {
+    const handle = await mount('digraph G {}', container, { chrome: true });
+    handle.highlight('buf1/out');
+    const remounted = nextRemount();
+    (container.querySelector('.btn-merge-edges') as HTMLButtonElement).click();
+    const { handle: next } = await remounted;
+
+    expect(next).not.toBe(handle);
+    expect(next.mergeEdges).toBe(false);
+    expect(next.arcPorts).toBe(false);
+    expect(next.highlightedNodeId).toBe('buf1/out');
+    expect(container.querySelectorAll('.btn-merge-edges')).toHaveLength(1);
+    expect(container.querySelector('.btn-merge-edges')!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('the arc-ports button re-mounts with arcPorts flipped', async () => {
+    await mount('digraph G {}', container, { chrome: true, mergeEdges: false });
+    const remounted = nextRemount();
+    (container.querySelector('.btn-arc-ports') as HTMLButtonElement).click();
+    const { handle: next } = await remounted;
+
+    expect(next.arcPorts).toBe(true);
+    expect(next.mergeEdges).toBe(false);
+    expect(container.querySelector('.btn-arc-ports')!.textContent).toBe('Ports per arc type: on');
+  });
+
+  it('a re-mount inherits the routing of the previous handle', async () => {
+    const first = await mount('digraph G {}', container, { arcPorts: true, mergeEdges: false });
+    const second = await mount('digraph G {}', container, { previousHandle: first });
+    expect(second.arcPorts).toBe(true);
+    expect(second.mergeEdges).toBe(false);
+  });
+});

@@ -298,3 +298,79 @@ describe('elkLayout — clusterLayout + leafPacking config', () => {
     expect(resetEdges.length).toBe(14);
   });
 });
+
+describe('elkLayout — mergeEdges + arcPorts', () => {
+  /**
+   * A one-token cell like Marvin's PendingListPbk: written by `t_store` and
+   * `t_replace`, consumed by `t_take` and `t_replace`, inhibiting `t_guard`.
+   */
+  const CELL_DOT = [
+    'digraph G {',
+    '  t_store [label="Store", shape="box"];',
+    '  t_take [label="Take", shape="box"];',
+    '  t_replace [label="Replace", shape="box"];',
+    '  t_guard [label="Guard", shape="box"];',
+    '  p_cell [label="", shape="circle", width=0.35, xlabel="PendingCellPlace"];',
+    '  t_store -> p_cell [color="#333333", style="solid", arrowhead="normal"];',
+    '  t_replace -> p_cell [color="#333333", style="solid", arrowhead="normal"];',
+    '  p_cell -> t_take [color="#333333", style="solid", arrowhead="normal"];',
+    '  p_cell -> t_replace [color="#333333", style="solid", arrowhead="normal"];',
+    '  p_cell -> t_guard [color="#dc3545", style="solid", arrowhead="odot"];',
+    '}',
+  ].join('\n');
+
+  const graph = replicateShared(foldOrphans(parseLibpetriDot(CELL_DOT), 0.7), { max: Infinity });
+
+  /** Where the edge `src->dst` touches `p_cell`. */
+  const atCell = (layout: Awaited<ReturnType<typeof elkLayout>>, src: string, dst: string) => {
+    const path = layout.edgePaths.get(`${src}->${dst}`);
+    expect(path, `no route for ${src}->${dst}`).toBeDefined();
+    const p = src === 'p_cell' ? path!.start : path!.end;
+    return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+  };
+
+  it('by default joins an input arc and an inhibitor arc at the same point', async () => {
+    const layout = await elkLayout(graph);
+    expect(atCell(layout, 'p_cell', 't_take')).toBe(atCell(layout, 'p_cell', 't_guard'));
+  });
+
+  it('mergeEdges: false gives every arc its own point', async () => {
+    const layout = await elkLayout(graph, { mergeEdges: false });
+    const points = new Set([
+      atCell(layout, 'p_cell', 't_take'),
+      atCell(layout, 'p_cell', 't_replace'),
+      atCell(layout, 'p_cell', 't_guard'),
+    ]);
+    expect(points.size).toBe(3);
+  });
+
+  it('arcPorts separates arc types but keeps arcs of one type together', async () => {
+    const layout = await elkLayout(graph, { arcPorts: true });
+    // Two input arcs share the input port …
+    expect(atCell(layout, 'p_cell', 't_take')).toBe(atCell(layout, 'p_cell', 't_replace'));
+    // … the inhibitor and the incoming output arcs get their own.
+    expect(atCell(layout, 'p_cell', 't_guard')).not.toBe(atCell(layout, 'p_cell', 't_take'));
+    expect(atCell(layout, 't_store', 'p_cell')).toBe(atCell(layout, 't_replace', 'p_cell'));
+    expect(atCell(layout, 't_store', 'p_cell')).not.toBe(atCell(layout, 'p_cell', 't_take'));
+  });
+
+  it('arcPorts keeps a place\'s ports within its drawn circle', async () => {
+    const layout = await elkLayout(graph, { arcPorts: true });
+    const pos = layout.nodePositions.get('p_cell')!;
+    const cx = pos.x + pos.width / 2;
+    const radius = 0.35 * 36;
+    for (const [src, dst] of [['p_cell', 't_take'], ['p_cell', 't_guard'], ['t_store', 'p_cell']] as const) {
+      const path = layout.edgePaths.get(`${src}->${dst}`)!;
+      const p = src === 'p_cell' ? path.start : path.end;
+      expect(Math.abs(p.x - cx), `${src}->${dst}`).toBeLessThan(radius);
+    }
+  });
+
+  it('arcPorts still lays out the Marvin voice fixture', async () => {
+    const voice = replicateShared(foldOrphans(parseLibpetriDot(DOT), 0.7), { max: Infinity });
+    const layout = await elkLayout(voice, { arcPorts: true, mergeEdges: false });
+    for (const id of voice.nodes.keys()) {
+      expect(layout.nodePositions.has(id), `missing position for ${id}`).toBe(true);
+    }
+  });
+});
