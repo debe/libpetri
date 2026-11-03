@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 10.0.1 / TypeScript 9.0.1 / Rust 11.0.1 / Python 7.3.1 — 2026-11-03
 
 ### Added
 
@@ -12,6 +12,10 @@
 ### Changed
 
 - **Arcs that would miss a small shape are fitted onto it together (viewer).** All arcs meeting one side of a node are scaled onto the drawn shape as a group, centred and in ELK's order, instead of each one that misses being pulled to the shape's centre on top of the others. A lone arc still lands on the centre, and a side whose arcs all hit the shape is unchanged. With the default settings the Marvin text and voice nets draw every edge exactly as before; with merging off the arrowheads that share a tip with another drop from 103 to 37 and from 90 to 6.
+
+### Fixed
+
+- **A timeout branch's unit token is read as `None` (Python, [IO-014]).** An `out` leaf under a timeout branch deposits a token the executor mints, with no value. Python raised `Expected python.object token, found ()` wherever that token crossed the boundary: the final marking, a snapshot, a downstream action's input and a token event. It now reads as `None`.
 
 ## Java 10.0.0 / TypeScript 9.0.0 / Rust 11.0.0 / Python 7.3.0 — 2026-10-08
 
