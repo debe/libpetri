@@ -68,7 +68,8 @@ class MatchSpecRelayTest {
         // One XOR branch is enough; a key is allowed (self-loop); a ForwardInput target counts.
         var t = Transition.builder("B")
             .inputs(Arc.In.one(C1), Arc.In.one(D1))
-            .outputs(Arc.Out.xor(Arc.Out.and(P5, D1), Arc.Out.forwardInput(C1, OTHER)))
+            .outputs(Arc.Out.xor(Arc.Out.and(P5, D1),
+                Arc.Out.timeout(java.time.Duration.ofSeconds(1), Arc.Out.forwardInput(C1, OTHER))))
             .match(keys()
                 .relayTo(P5, MatchSpecRelayTest::byName)
                 .relayTo(D1, MatchSpecRelayTest::byName)

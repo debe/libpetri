@@ -136,11 +136,9 @@ public final class BranchOutcomes {
         // The executor takes the first Timeout of the spec ([IO-013]), and so do we.
         var timeout = t.actionTimeout();
         if (timeout != null) {
-            for (var deposits : timeoutDeposits(timeout.child(), t)) {
-                var o = outcome(deposits);
-                if (!result.contains(o)) {
-                    result.add(o);
-                }
+            var o = outcome(timeoutDeposits(timeout.child(), t, new LinkedHashMap<>()));
+            if (!result.contains(o)) {
+                result.add(o);
             }
         }
         return List.copyOf(result);
@@ -190,56 +188,26 @@ public final class BranchOutcomes {
     }
 
     /**
-     * The deposits of a {@code Timeout} child, one map per branch of it. The executors reject a
-     * {@code Xor} under a {@code Timeout} when it fires; reading it as alternatives here keeps
-     * the enumeration total.
+     * The deposits of a {@code Timeout} child: one fixed set of places, since building rejects a
+     * {@code Xor} anywhere in the child ([IO-013]).
      */
-    private static List<LinkedHashMap<Place<?>, Deposit>> timeoutDeposits(Arc.Out out, Transition t) {
-        return switch (out) {
-            case Arc.Out.Place p -> {
-                var m = new LinkedHashMap<Place<?>, Deposit>();
-                m.put(p.place(), new Deposit.Tokens(1));
-                yield List.of(m);
-            }
+    private static LinkedHashMap<Place<?>, Deposit> timeoutDeposits(
+            Arc.Out out, Transition t, LinkedHashMap<Place<?>, Deposit> acc) {
+        switch (out) {
+            case Arc.Out.Place p -> acc.put(p.place(), new Deposit.Tokens(1));
             case Arc.Out.ForwardInput f -> {
-                var m = new LinkedHashMap<Place<?>, Deposit>();
                 var deposit = forwardDeposit(t, f.from());
                 if (!deposit.equals(new Deposit.Tokens(0))) {
-                    m.put(f.to(), deposit);
+                    acc.put(f.to(), deposit);
                 }
-                yield List.of(m);
             }
-            case Arc.Out.Timeout inner -> timeoutDeposits(inner.child(), t);
-            case Arc.Out.Xor x -> {
-                var all = new ArrayList<LinkedHashMap<Place<?>, Deposit>>();
-                for (var c : x.children()) {
-                    all.addAll(timeoutDeposits(c, t));
-                }
-                yield all;
-            }
-            case Arc.Out.And a -> {
-                List<LinkedHashMap<Place<?>, Deposit>> acc = List.of(new LinkedHashMap<>());
-                for (var child : a.children()) {
-                    var next = timeoutDeposits(child, t);
-                    var merged = new ArrayList<LinkedHashMap<Place<?>, Deposit>>();
-                    for (var left : acc) {
-                        for (var right : next) {
-                            var m = new LinkedHashMap<>(left);
-                            for (var e : right.entrySet()) {
-                                // A place twice in one branch is rejected at build ([IO-011]);
-                                // summing keeps this total regardless.
-                                m.merge(e.getKey(), e.getValue(), (x, y) ->
-                                    x instanceof Deposit.Tokens(int xa) && y instanceof Deposit.Tokens(int ya)
-                                        ? new Deposit.Tokens(xa + ya) : y);
-                            }
-                            merged.add(m);
-                        }
-                    }
-                    acc = merged;
-                }
-                yield acc;
-            }
-        };
+            case Arc.Out.Timeout inner -> timeoutDeposits(inner.child(), t, acc);
+            // A place twice in one branch is rejected at build ([IO-011]), so the children are disjoint.
+            case Arc.Out.And a -> a.children().forEach(c -> timeoutDeposits(c, t, acc));
+            case Arc.Out.Xor _ -> throw new IllegalStateException("unreachable: transition '" + t.name()
+                + "' has a Xor node in its Timeout child, which building rejects (IO-013)");
+        }
+        return acc;
     }
 
     /**

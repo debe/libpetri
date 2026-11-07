@@ -74,9 +74,12 @@ def test_a_place_twice_in_one_and_branch_is_rejected_at_build(output) -> None:
         builder.build()
 
 
-def test_a_place_in_two_xor_branches_builds() -> None:
+def test_a_place_alone_in_two_xor_branches_is_rejected_as_ambiguous() -> None:
+    # IO-012 AC5: the two alternatives of Xor(C, C) claim the same set.
     a, c = lp.Place("A"), lp.Place("C")
-    lp.Transition("t").input(lp.one(a)).output(lp.xor(c, c)).build()
+    builder = lp.Transition("t").input(lp.one(a)).output(lp.xor(c, c))
+    with pytest.raises(lp.StructureError, match=r"output branches 0 and 1 both claim \{C\}"):
+        builder.build()
 
 
 def test_two_output_ports_of_one_and_branch_bound_to_one_host_place_are_rejected() -> None:

@@ -399,10 +399,10 @@ fn cap_multiplicity<M: Mask>(buf: &mut Vec<M>, start: usize) {
 /// which owns the consumed tokens, is dropped when the action future is
 /// cancelled on timeout, so the values must be captured up front.
 ///
-/// **Unsupported under a `Timeout`** (programmer errors — the builder
-/// should reject them, so we panic):
-/// - [`Out::Xor`] — ambiguous which branch to fire on timeout.
-/// - Nested [`Out::Timeout`] — meaningless; one budget per action.
+/// **Unreachable under a `Timeout`**, because the transition build rejects
+/// both (\[IO-013\]), so the timeout outcome deposits one fixed set of places:
+/// - [`Out::Xor`] at any depth of the `Timeout` child.
+/// - A nested [`Out::Timeout`] (more than one `Timeout` node).
 ///
 /// Only reachable from the async (`tokio`) path; gated so feature-free
 /// builds don't flag it as dead code.
@@ -449,13 +449,10 @@ fn collect_timeout_outputs(
             }
         }
         Out::Xor(_) => {
-            // Spec parity with Java: panicking here is a programmer
-            // error — the net builder accepted an Xor under a Timeout
-            // which is not a meaningful semantic.
-            panic!("Out::Xor is not allowed inside Out::Timeout child");
+            unreachable!("a Xor inside the Timeout child is rejected at build (IO-013)");
         }
         Out::Timeout { .. } => {
-            panic!("Nested Out::Timeout is not allowed");
+            unreachable!("a Timeout inside a Timeout child is rejected at build (IO-013)");
         }
         Out::ForwardInput { from, to } => {
             // [EXEC-022] criterion 3: forward the consumed input
@@ -636,7 +633,8 @@ mod tests {
     }
 
     /// \[IO-015\] AC4: two branches whose claims are both exactly `{a}` are
-    /// genuinely ambiguous.
+    /// genuinely ambiguous. The validator still says so, although a transition
+    /// with this spec no longer builds (\[IO-012\] AC5).
     #[test]
     fn two_branches_claiming_the_same_set_are_ambiguous() {
         let spec = xor(vec![and(vec![out_place(&p("a"))]), out_place(&p("a"))]);

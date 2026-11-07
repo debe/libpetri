@@ -10,12 +10,12 @@ import org.libpetri.core.Arc.Out;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * [IO-011] AC4: a place named twice in one AND branch of an output spec is rejected when the
+ * [IO-011] AC4 and AC5: a place named twice in one AND branch of an output spec is rejected when the
  * transition is built; [MOD-020] AC8: two output ports bound to one host place in one AND branch
- * are rejected at compose with the port-naming message.
+ * are rejected at compose with the port-naming message, and in two XOR alternatives with the
+ * [IO-012] ambiguity message.
  */
 class OutputBranchDuplicateTest {
 
@@ -53,6 +53,16 @@ class OutputBranchDuplicateTest {
     }
 
     @Test
+    void theReportedPlaceFollowsTheBuildersWalk() {
+        // [IO-011] AC5: the second Xor meets B first among the places the first Xor named.
+        var a = p("A");
+        var b = p("B");
+        var error = assertThrows(IllegalArgumentException.class,
+            () -> t("fork").outputs(Out.and(Out.xor(a, b), Out.xor(b, a))).build());
+        assertEquals(message("fork", "B"), error.getMessage());
+    }
+
+    @Test
     void theSamePlaceInDifferentXorAlternatives_isAccepted() {
         var pp = p("P");
         assertDoesNotThrow(() -> t("choose").outputs(
@@ -66,7 +76,7 @@ class OutputBranchDuplicateTest {
         var in = p("IN");
         var error = assertThrows(IllegalArgumentException.class, () -> Transition.builder("retry")
             .inputs(In.one(in))
-            .outputs(Out.and(Out.place(p("R")), Out.forwardInput(in, p("R"))))
+            .outputs(Out.timeout(Duration.ofSeconds(1), Out.and(Out.place(p("R")), Out.forwardInput(in, p("R")))))
             .build());
         assertEquals(message("retry", "R"), error.getMessage());
     }
@@ -95,12 +105,14 @@ class OutputBranchDuplicateTest {
     }
 
     @Test
-    void twoOutputPortsBoundToOneHostPlace_inDifferentXorAlternatives_isAccepted() {
+    void twoOutputPortsBoundToOneHostPlace_inDifferentXorAlternatives_isRejectedAsAmbiguous() {
+        // IO-012: Xor(a, b) with both ports bound to X becomes Xor(X, X), whose two branches
+        // claim {X}; the rebuilt transition is rejected with the generic ambiguity message.
         var x = p("X");
         var b = PetriNet.builder("host");
-        b.compose(split(false).instantiate("s"), Map.of("in", p("GO"), "a", x, "b", x));
-        var net = assertDoesNotThrow(b::build);
-        var s = net.transitions().stream().filter(t -> t.name().equals("s/split")).findFirst().orElseThrow();
-        assertTrue(s.outputSpec().allPlaces().contains(x));
+        var error = assertThrows(IllegalArgumentException.class, () -> b.compose(
+            split(false).instantiate("s"), Map.of("in", p("GO"), "a", x, "b", x)));
+        assertEquals("output spec of transition 's/split' is ambiguous: output branches 0 and 1 both"
+            + " claim {X}; no write can tell them apart (IO-012)", error.getMessage());
     }
 }

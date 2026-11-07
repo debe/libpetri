@@ -1264,7 +1264,8 @@ fn reject_port_collision(
         }
     }
     // The output side ([MOD-020], [IO-011]): two ports in one AND branch, both
-    // bound to one host place. Different `Xor` alternatives are not a collision.
+    // bound to one host place. Two ports in different `Xor` alternatives are not a
+    // collision here; the rebuild rejects the resulting `Xor(X, X)` ([IO-012]).
     let Some(out) = t.output_spec() else {
         return;
     };
@@ -1928,7 +1929,7 @@ mod tests {
 
     /// MOD-020 AC8: two output ports in one AND branch bound to one host place
     /// are rejected with the composition message, not IO-011's; in different XOR
-    /// alternatives they compose.
+    /// alternatives the rebuild rejects them as ambiguous ([IO-012]).
     #[test]
     fn binding_two_output_ports_of_one_and_branch_to_one_place_is_rejected() {
         let x = Place::<String>::new("X");
@@ -1950,13 +1951,24 @@ mod tests {
             )
         );
 
+        // [IO-012] AC5: in different XOR alternatives the two ports give
+        // `Xor(X, X)`, whose two branches claim the same set; the rebuild rejects it.
         let instance = split_subnet(true).instantiate_unit("s");
-        let net = PetriNet::builder("Host")
-            .compose_with(&instance, |b| {
-                b.bind_port::<String>("a", &x).bind_port::<String>("b", &x);
-            })
-            .build();
-        assert_eq!(net.transitions().len(), 1);
+        let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            PetriNet::builder("Host")
+                .compose_with(&instance, |b| {
+                    b.bind_port::<String>("a", &x).bind_port::<String>("b", &x);
+                })
+                .build()
+        }))
+        .expect_err("two XOR alternatives claiming the host place alone must be rejected");
+        assert_eq!(
+            err.downcast_ref::<String>().map(String::as_str),
+            Some(
+                "output spec of transition 's/split' is ambiguous: output branches 0 and 1 both \
+                 claim {X}; no write can tell them apart (IO-012)"
+            )
+        );
     }
 
     #[test]

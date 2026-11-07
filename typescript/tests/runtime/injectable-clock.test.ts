@@ -22,7 +22,7 @@ import { Transition } from '../../src/core/transition.js';
 import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace, xor, timeout, forwardInput } from '../../src/core/out.js';
+import { and, outPlace, xor, timeout, forwardInput } from '../../src/core/out.js';
 import { delayed, window as windowTiming } from '../../src/core/timing.js';
 import { tokenOf, tokenAt } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
@@ -655,30 +655,35 @@ describe('TIME-015 — injectable clock', () => {
     for (const id of ids) expect(id).not.toBe((1000).toString(16));
   });
 
-  it('AC#13: action-timeout recovery outputs carry the injected clock too', async () => {
+  it.each([
+    ['bitmap', BitmapNetExecutor],
+    ['precompiled', PrecompiledNetExecutor],
+  ] as const)('AC#13 / IO-014 AC5 (%s): a minted recovery token takes the injected clock, a forwarded one keeps its created_at', async (_name, Executor) => {
     // The third executor-produced origin. These tokens never pass through action code at
-    // all — the executor synthesises them after severing the context — but they reach the
-    // marking through the same per-firing collector, so stamping the collector covers them.
-    // Pinned because it is the origin easiest to forget: nobody writes it.
+    // all: the executor deposits them after severing the context. A minted one (the unit
+    // token of a Place child) is the executor's and takes the injected epoch clock; a
+    // forwarded one is the consumed token itself, so it keeps the stamp it was seeded with.
     const IN = place<string>('IN');
     const OK = place<string>('OK');
     const RETRY = place<string>('RETRY');
+    const TIMED_OUT = place<string>('TIMED_OUT');
     const t = Transition.builder('Slow')
       .inputs(one(IN))
-      .outputs(xor(outPlace(OK), timeout(10, forwardInput(IN, RETRY))))
+      .outputs(xor(outPlace(OK), timeout(10, and(outPlace(TIMED_OUT), forwardInput(IN, RETRY)))))
       // Never resolves: the timeout branch is the only way out.
       .action(() => new Promise<void>(() => {}))
       .build();
     const net = PetriNet.builder('N').place(OK).transition(t).build();
 
+    const SEEDED_AT = 1_234;
     const clock = new VirtualClock();
-    const executor = new BitmapNetExecutor(net, initial([IN, [tokenOf('payload')]]), { clock });
+    const executor = new Executor(net, initial([IN, [tokenAt('payload', SEEDED_AT)]]), { clock });
     const marking = await executor.run(5000);
 
-    expect(marking.hasTokens(RETRY)).toBe(true);
     expect(marking.peekFirst(RETRY)?.value).toBe('payload');
+    expect(marking.peekTokens(RETRY)[0]!.createdAt).toBe(SEEDED_AT);
     // Stamped from the injected epoch clock, not wall time.
-    expect(marking.peekTokens(RETRY)[0]!.createdAt).toBe(EPOCH_ORIGIN);
+    expect(marking.peekTokens(TIMED_OUT)[0]!.createdAt).toBe(EPOCH_ORIGIN);
   });
 
   it('AC#2: two executors on two clocks in one process do not observe each other', async () => {

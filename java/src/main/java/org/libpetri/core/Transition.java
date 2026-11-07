@@ -115,11 +115,11 @@ public final class Transition {
     }
 
     /**
-     * Recursively searches the output spec for a Timeout node.
-     * Used at build time to cache timeout for O(1) runtime lookup.
+     * Recursively searches the output spec for its Timeout node. A spec that builds holds at
+     * most one (IO-013). Used at build time to cache timeout for O(1) runtime lookup.
      *
      * @param out the output specification to search
-     * @return the first Timeout found, or null if none exists
+     * @return the Timeout, or null if none exists
      */
     private static Arc.Out.Timeout findTimeout(Arc.Out out) {
         return switch (out) {
@@ -401,16 +401,17 @@ public final class Transition {
                 }
             }
 
-            // IO-011: outputs are sets (IO-015), so a place named twice in one AND branch is
-            // rejected rather than collapsed. Here and not in Out.and, which does not know the
-            // transition's name; every construction path (composition, channel merge, fusion)
-            // builds its transitions through this builder.
+            // The build-time output-spec checks, first failure wins: IO-011 (a place twice in one
+            // AND branch), IO-013 (at most one Timeout, no Xor in its child), IO-014 (ForwardInput only inside a
+            // Timeout child, from an input place), IO-012 (no two branches claim one set). Here
+            // and not in the Out factories, which do not know the transition's name; every
+            // construction path (composition, channel merge, fusion, bindActions) builds its
+            // transitions through this builder, and no executor option skips them.
             if (outputSpec != null) {
-                var dup = ArcDiagnostics.duplicateInBranch(outputSpec, p -> p);
-                if (dup != null) {
-                    throw new IllegalArgumentException(
-                        ArcDiagnostics.duplicateOutputMessage(name, dup.place().name()));
-                }
+                var inputPlaces = new HashSet<Place<?>>();
+                for (var in : inputSpecs) inputPlaces.add(in.place());
+                var error = ArcDiagnostics.outputSpecError(name, outputSpec, inputPlaces);
+                if (error != null) throw new IllegalArgumentException(error);
             }
 
             var transition = new Transition(name, inputSpecs, outputSpec, inhibitors, reads, resets, matchSpec, timing, action, priority, placeAlias);
@@ -462,46 +463,7 @@ public final class Transition {
                 }
             }
 
-            // Validate ForwardInput references valid input places and type compatibility
-            if (outputSpec != null) {
-                var inputPlaces = transition.inputPlaces();
-                for (var forwardInput : findForwardInputs(outputSpec)) {
-                    if (!inputPlaces.contains(forwardInput.from())) {
-                        throw new IllegalArgumentException(
-                            "Transition '%s': ForwardInput references non-input place '%s'"
-                                .formatted(name, forwardInput.from().name()));
-                    }
-                    if (!forwardInput.to().tokenType().isAssignableFrom(forwardInput.from().tokenType())) {
-                        throw new IllegalArgumentException(
-                            "Transition '%s': ForwardInput type mismatch - cannot forward %s tokens from '%s' to '%s' which expects %s"
-                                .formatted(name,
-                                    forwardInput.from().tokenType().getSimpleName(),
-                                    forwardInput.from().name(),
-                                    forwardInput.to().name(),
-                                    forwardInput.to().tokenType().getSimpleName()));
-                    }
-                }
-            }
-
             return transition;
-        }
-
-        /**
-         * Recursively finds all ForwardInput nodes in the output spec.
-         */
-        private static List<Arc.Out.ForwardInput> findForwardInputs(Arc.Out out) {
-            return switch (out) {
-                case null -> List.of();
-                case Arc.Out.ForwardInput f -> List.of(f);
-                case Arc.Out.And a -> a.children().stream()
-                    .flatMap(c -> findForwardInputs(c).stream())
-                    .toList();
-                case Arc.Out.Xor x -> x.children().stream()
-                    .flatMap(c -> findForwardInputs(c).stream())
-                    .toList();
-                case Arc.Out.Timeout t -> findForwardInputs(t.child());
-                case Arc.Out.Place _ -> List.of();
-            };
         }
     }
 }

@@ -363,24 +363,25 @@ describeZ3('NU-054 a join timeout write into a relay target', () => {
   /**
    * The AC3 join chain with j1's relay into C written two ways: by the action, or by the executor
    * on timeout (`child`). j1 also consumes the uncoloured Z, so a forward of a non-key input can be
-   * stated.
+   * stated. The action's branch also marks E, so it claims a set the timeout branch does not
+   * (IO-012: `Xor(C, Timeout(d, ... C))` does not build).
    */
   function chainWithTimeout(child: (a: any, z: any, c: any) => Out) {
-    const [s, a, b, c, d, z, done] = ['S', 'A', 'B', 'C', 'D', 'Z', 'done'].map(n => place<string>(n));
+    const [s, a, b, c, d, z, e, done] = ['S', 'A', 'B', 'C', 'D', 'Z', 'E', 'done'].map(n => place<string>(n));
     const fork = Transition.builder('fork').inputs(one(s!)).outputs(andPlaces(a!, b!, d!)).action(produces()).build();
     const j1 = Transition.builder('j1').inputs(one(a!), one(b!), one(z!))
-      .outputs(xor(outPlace(c!), timeout(10, child(a, z, c))))
+      .outputs(xor(andPlaces(c!, e!), timeout(10, child(a, z, c))))
       .match(matchSpec(key(a!), key(b!), relay(c!))).action(produces()).build();
     const j2 = Transition.builder('j2').inputs(one(c!), one(d!)).outputs(outPlace(done!))
       .match(matchSpec(key(c!), key(d!))).action(produces()).build();
     const net = PetriNet.builder('chain-timeout').transitions(fork, j1, j2).build();
-    return { net, s: s!, z: z!, done: done! };
+    return { net, s: s!, z: z!, e: e!, done: done! };
   }
 
-  function deadlock({ net, s, z, done }: ReturnType<typeof chainWithTimeout>) {
+  function deadlock({ net, s, z, e, done }: ReturnType<typeof chainWithTimeout>) {
     return SmtVerifier.forNet(net).enumerationMaxClasses(0)
       .initialMarking(m => { m.tokens(s, 1).tokens(z, 1); })
-      .property(deadlockFree()).sinkPlaces(done).budgetPlaces(s)
+      .property(deadlockFree()).sinkPlaces(done, e).budgetPlaces(s)
       .fragmentMode('extended').timeout(2_000).verify();
   }
 

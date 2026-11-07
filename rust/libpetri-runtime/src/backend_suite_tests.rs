@@ -4003,6 +4003,68 @@ mod stepped_clock {
 /// Generates one `#[test]` per backend for each generic test fn above,
 /// so every semantic runs against both `BitmapNetExecutor` and
 /// `PrecompiledNetExecutor`.
+/// \[CORE-034\] AC4: a reset arc on an output place neither adds a deposit nor
+/// removes one. `t: a -> xor(b, c)` with and without a reset arc on `b`, from
+/// `b = 2`: both deposits `{b}` and `{c}` fire in both, and under the reset `b`
+/// ends holding the deposited token alone.
+fn core_034_ac4_reset_arc_changes_no_deposit<R: BackendRunner>() {
+    for with_reset in [false, true] {
+        for write_b in [true, false] {
+            let a = Place::<i32>::new("a");
+            let b = Place::<i32>::new("b");
+            let c = Place::<i32>::new("c");
+            let mut builder = Transition::builder("t")
+                .input(one(&a))
+                .output(xor(vec![out_place(&b), out_place(&c)]))
+                .action(sync_action(move |ctx| {
+                    ctx.output(if write_b { "b" } else { "c" }, 7)
+                }));
+            if with_reset {
+                builder = builder.reset(reset(&b));
+            }
+            let net = PetriNet::builder("N").transition(builder.build()).build();
+            let mut marking = Marking::new();
+            marking.add(&a, Token::at(1, 0));
+            marking.add(&b, Token::at(1, 0));
+            marking.add(&b, Token::at(2, 0));
+            let result = R::run(&net, marking);
+            let case = format!("reset {with_reset}, write b {write_b}");
+            assert_eq!(result.marking.count("a"), 0, "{case}: the firing happened");
+            let kept = if with_reset { 0 } else { 2 };
+            let b_end = kept + usize::from(write_b);
+            assert_eq!(result.marking.count("b"), b_end, "{case}");
+            assert_eq!(result.marking.count("c"), usize::from(!write_b), "{case}");
+        }
+    }
+}
+
+/// \[CORE-036\] AC2 and AC3: `t: a -> and(b, c)` writing `b, b, c` fires and
+/// deposits all three tokens; writing `c, b, b` leaves the same marking.
+fn core_036_ac2_ac3_deposits_compare_per_place<R: BackendRunner>() {
+    for order in [["b", "b", "c"], ["c", "b", "b"]] {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let c = Place::<i32>::new("c");
+        let t = Transition::builder("t")
+            .input(one(&a))
+            .output(and(vec![out_place(&b), out_place(&c)]))
+            .action(sync_action(move |ctx| {
+                for p in order {
+                    ctx.output(p, 1)?;
+                }
+                Ok(())
+            }))
+            .build();
+        let net = PetriNet::builder("N").transition(t).build();
+        let mut marking = Marking::new();
+        marking.add(&a, Token::at(1, 0));
+        let result = R::run(&net, marking);
+        assert_eq!(result.marking.count("a"), 0, "{order:?}");
+        assert_eq!(result.marking.count("b"), 2, "{order:?}");
+        assert_eq!(result.marking.count("c"), 1, "{order:?}");
+    }
+}
+
 macro_rules! for_each_backend {
     ($($test:ident),+ $(,)?) => {
         mod bitmap {
@@ -4077,6 +4139,8 @@ for_each_backend!(
     unknown_place_initial_tokens_retained,
     unknown_place_warns_once_per_place,
     dead_arc_warned_once_at_construction,
+    core_034_ac4_reset_arc_changes_no_deposit,
+    core_036_ac2_ac3_deposits_compare_per_place,
     multiplicity_warns_once_per_transition,
     multiplicity_names_every_repeated_place,
     multiplicity_silent_for_one_token_per_place,

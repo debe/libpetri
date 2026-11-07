@@ -194,6 +194,19 @@ public final class TransitionContext {
     }
 
     /**
+     * Get all consumed input tokens for a place, with their metadata, in consumption order.
+     *
+     * @param place the input place to read from
+     * @return the consumed tokens
+     * @throws IllegalArgumentException if place not declared as input in structure
+     */
+    public <T> List<Token<T>> inputTokens(Place<T> place) {
+        var actual = resolve(place);
+        requireInput(actual);
+        return rawInput.getAll(actual);
+    }
+
+    /**
      * Returns declared input places (consumed).
      * Useful for structure-aware actions like fork().
      */
@@ -392,6 +405,25 @@ public final class TransitionContext {
         var actual = resolve(place);
         requireOutput(actual);
         rawOutput.add(actual, value);
+        return this;
+    }
+
+    /**
+     * Produces an existing token into the executor's harvest collector, keeping its
+     * {@code createdAt}. Used by the executor to forward consumed tokens on the timeout outcome
+     * (IO-014): a forwarded token is the consumed token itself, not a newly minted one.
+     *
+     * <p>Executor machinery, like {@link #outputToHarvest(Place, Object)}.
+     *
+     * @param place the output place to write to
+     * @param token the token to produce
+     * @return this context for chaining
+     * @throws IllegalArgumentException if place not declared as output in structure
+     */
+    public <T> TransitionContext forwardToHarvest(Place<T> place, Token<T> token) {
+        var actual = resolve(place);
+        requireOutput(actual);
+        rawOutput.add(actual, token);
         return this;
     }
 

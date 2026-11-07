@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::place::{Place, PlaceRef};
 
@@ -24,9 +24,11 @@ pub enum Out {
     And(Vec<Out>),
     /// XOR-split: EXACTLY ONE child receives token.
     Xor(Vec<Out>),
-    /// Timeout branch that activates if action exceeds duration.
+    /// Timeout branch that activates if action exceeds duration. A spec holds
+    /// at most one, nested or not (\[IO-013\]).
     Timeout { after_ms: u64, child: Box<Out> },
-    /// Forward consumed input to output on timeout.
+    /// Forward consumed input to output on timeout. Only inside the child of
+    /// a `Timeout` (\[IO-014\]).
     ForwardInput { from: PlaceRef, to: PlaceRef },
 }
 
@@ -83,6 +85,9 @@ pub fn timeout_place<T: 'static>(after_ms: u64, p: &Place<T>) -> Out {
 }
 
 /// Forward consumed input value to output place on timeout.
+///
+/// The transition build rejects it outside the child of a [`timeout`]
+/// (\[IO-014\]).
 pub fn forward_input<I: 'static, O: 'static>(from: &Place<I>, to: &Place<O>) -> Out {
     Out::ForwardInput {
         from: from.as_ref(),
@@ -172,10 +177,11 @@ pub struct BranchDuplicate<'o> {
     pub second: &'o PlaceRef,
 }
 
-/// The first place a single output branch of `out` names twice ([IO-011]) —
-/// one choice at every `Xor`, nested `And`s flattened, a `Timeout` read as its
-/// child, the `to` of a `ForwardInput` a leaf — or `None`. `Xor(And(P, A),
-/// And(P, B))` has no duplicate: the two `P`s are in different alternatives.
+/// The place the walk of [IO-011] ("Which place the message names") reports: a
+/// place some output branch of `out` names twice, or `None` when no branch does.
+/// A `Timeout` is read as its child and the `to` of a `ForwardInput` is a leaf.
+/// `And(Xor(A, B), Xor(B, A))` reports `B`; `Xor(And(P, A), And(P, B))` has no
+/// duplicate: the two `P`s are in different alternatives.
 pub fn duplicate_in_branch(out: &Out) -> Option<&PlaceRef> {
     duplicate_in_branch_by(out, |p| p.name()).map(|d| d.second)
 }
@@ -253,6 +259,356 @@ fn scan_branches<'o, 'n>(
         }
     }
     None
+}
+
+/// The number of `Timeout` nodes in `out`, nested and sibling ones alike.
+/// A spec with more than one is rejected when the transition is built
+/// (\[IO-013\]).
+pub(crate) fn timeout_count(out: &Out) -> usize {
+    match out {
+        Out::Place(_) | Out::ForwardInput { .. } => 0,
+        Out::And(children) | Out::Xor(children) => children.iter().map(timeout_count).sum(),
+        Out::Timeout { child, .. } => 1 + timeout_count(child),
+    }
+}
+
+/// Whether the child of a `Timeout` node of `out` holds an `Xor` node at any
+/// depth. The executor makes the timeout deposit, so nothing chooses among
+/// alternatives there: the transition build rejects such a spec (\[IO-013\]).
+/// The build runs this after the `Timeout` count check, so at most one
+/// `Timeout` node is searched.
+pub(crate) fn xor_inside_timeout(out: &Out) -> bool {
+    fn has_xor(out: &Out) -> bool {
+        match out {
+            Out::Xor(_) => true,
+            Out::And(children) => children.iter().any(has_xor),
+            Out::Timeout { child, .. } => has_xor(child),
+            Out::Place(_) | Out::ForwardInput { .. } => false,
+        }
+    }
+    match out {
+        Out::Timeout { child, .. } => has_xor(child),
+        Out::And(children) | Out::Xor(children) => children.iter().any(xor_inside_timeout),
+        Out::Place(_) | Out::ForwardInput { .. } => false,
+    }
+}
+
+/// The first `ForwardInput` of `out`, in pre-order with children left to
+/// right, that is not inside the child of a `Timeout` node, as `(from, to)`.
+/// A forward deposits only on the timeout outcome, so the transition build
+/// rejects such a node (\[IO-014\]). A `Timeout`'s subtree is not searched.
+pub(crate) fn forward_outside_timeout(out: &Out) -> Option<(&PlaceRef, &PlaceRef)> {
+    match out {
+        Out::ForwardInput { from, to } => Some((from, to)),
+        Out::And(children) | Out::Xor(children) => {
+            children.iter().find_map(forward_outside_timeout)
+        }
+        Out::Place(_) | Out::Timeout { .. } => None,
+    }
+}
+
+/// Two output branches of one spec that claim the same set of places
+/// ([`ambiguous_branches`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AmbiguousBranches<'o> {
+    /// The smaller index, in [`enumerate_branches`] order (the `<t>_b<i>`
+    /// numbering of \[VER-001\]).
+    pub first: u128,
+    /// The first index whose set equals the set of an earlier branch.
+    pub second: u128,
+    /// The places of branch `first`, in the order the spec names them
+    /// (leaves left to right).
+    pub places: Vec<&'o PlaceRef>,
+}
+
+/// The first pair of output branches of `out` that claim the same set of
+/// places (\[IO-012\]), or `None`.
+///
+/// The branches are numbered as [`enumerate_branches`] lists them, one per
+/// assignment (a choice of child at each `Xor` reached), a `ForwardInput`
+/// claiming `to` and a `Timeout` its child's claim. The reported pair is the
+/// first index `second` whose set equals an earlier branch's, and the smallest
+/// such earlier index `first`: the result every implementation reports.
+///
+/// Place identity is the name, as everywhere in Rust. The spec must hold no
+/// place twice in one branch (\[IO-011\], [`duplicate_in_branch`]), which the
+/// transition build checks first.
+///
+/// Branches are not enumerated where the structure decides: under that
+/// precondition an `And`'s children write disjoint sets of places, so two of
+/// its branches are equal exactly when they are equal child by child. An `And`
+/// of `Xor`s is therefore checked in time linear in the spec. Two alternatives
+/// of one `Xor` that can name a common place are compared branch by branch,
+/// but only over the branches that lie inside the other alternative's places,
+/// walking the side with fewer such branches. That search is exponential only
+/// when both alternatives have exponentially many branches inside each other's
+/// places without ever claiming the same set.
+///
+/// Indices are exact up to `u128::MAX`; a spec with more branches than that
+/// saturates them.
+pub(crate) fn ambiguous_branches(out: &Out) -> Option<AmbiguousBranches<'_>> {
+    let root = BranchNode::new(out);
+    let (first, second) = root.first_ambiguity()?;
+    Some(AmbiguousBranches {
+        first,
+        second,
+        places: root.entry(first),
+    })
+}
+
+/// An output spec annotated with its branch count and the names its branches
+/// can write. A `Timeout` is read as its child.
+struct BranchNode<'o> {
+    kind: BranchKind<'o>,
+    /// Number of branches, saturating.
+    count: u128,
+    /// Every place name some branch writes.
+    pool: HashSet<&'o str>,
+    /// Some branch claims no place (an `And` with no children).
+    has_empty: bool,
+}
+
+enum BranchKind<'o> {
+    Leaf(&'o PlaceRef),
+    And(Vec<BranchNode<'o>>),
+    Xor(Vec<BranchNode<'o>>),
+}
+
+impl<'o> BranchNode<'o> {
+    fn new(out: &'o Out) -> Self {
+        match out {
+            Out::Place(p) | Out::ForwardInput { to: p, .. } => BranchNode {
+                kind: BranchKind::Leaf(p),
+                count: 1,
+                pool: HashSet::from([p.name()]),
+                has_empty: false,
+            },
+            Out::Timeout { child, .. } => BranchNode::new(child),
+            Out::And(children) => {
+                let children: Vec<_> = children.iter().map(BranchNode::new).collect();
+                let count = children.iter().fold(1u128, |n, c| n.saturating_mul(c.count));
+                let pool = children.iter().flat_map(|c| c.pool.iter().copied()).collect();
+                let has_empty = children.iter().all(|c| c.has_empty);
+                BranchNode { kind: BranchKind::And(children), count, pool, has_empty }
+            }
+            Out::Xor(children) => {
+                let children: Vec<_> = children.iter().map(BranchNode::new).collect();
+                let count = children.iter().fold(0u128, |n, c| n.saturating_add(c.count));
+                let pool = children.iter().flat_map(|c| c.pool.iter().copied()).collect();
+                let has_empty = children.iter().any(|c| c.has_empty);
+                BranchNode { kind: BranchKind::Xor(children), count, pool, has_empty }
+            }
+        }
+    }
+
+    /// The places of branch `idx`, leaves left to right.
+    fn entry(&self, mut idx: u128) -> Vec<&'o PlaceRef> {
+        match &self.kind {
+            BranchKind::Leaf(p) => vec![*p],
+            BranchKind::And(children) => {
+                // The first child varies slowest: its digit is the most significant.
+                let mut digits = vec![0u128; children.len()];
+                for (c, child) in children.iter().enumerate().rev() {
+                    digits[c] = idx % child.count;
+                    idx /= child.count;
+                }
+                children.iter().zip(digits).flat_map(|(c, d)| c.entry(d)).collect()
+            }
+            BranchKind::Xor(children) => {
+                for child in children {
+                    if idx < child.count {
+                        return child.entry(idx);
+                    }
+                    idx -= child.count;
+                }
+                unreachable!("branch index out of range")
+            }
+        }
+    }
+
+    fn entry_set(&self, idx: u128) -> BTreeSet<&'o str> {
+        self.entry(idx).into_iter().map(|p| p.name()).collect()
+    }
+
+    /// The number of branches whose places all lie in `pool`, saturating.
+    fn count_within(&self, pool: &HashSet<&'o str>) -> u128 {
+        match &self.kind {
+            BranchKind::Leaf(p) => u128::from(pool.contains(p.name())),
+            BranchKind::And(children) => children
+                .iter()
+                .fold(1u128, |n, c| n.saturating_mul(c.count_within(pool))),
+            BranchKind::Xor(children) => children
+                .iter()
+                .fold(0u128, |n, c| n.saturating_add(c.count_within(pool))),
+        }
+    }
+
+    /// Calls `f` with the index and set of every branch whose places all lie in
+    /// `pool`, in index order, until `f` returns `true`. Returns whether it did.
+    fn walk_within(
+        &self,
+        pool: &HashSet<&'o str>,
+        f: &mut dyn FnMut(u128, &BTreeSet<&'o str>) -> bool,
+    ) -> bool {
+        match &self.kind {
+            BranchKind::Leaf(p) => {
+                pool.contains(p.name()) && f(0, &BTreeSet::from([p.name()]))
+            }
+            BranchKind::Xor(children) => {
+                let mut offset = 0u128;
+                for child in children {
+                    if child.walk_within(pool, &mut |i, set| f(offset.saturating_add(i), set)) {
+                        return true;
+                    }
+                    offset = offset.saturating_add(child.count);
+                }
+                false
+            }
+            BranchKind::And(children) => {
+                walk_and_within(children, pool, 0, &BTreeSet::new(), f)
+            }
+        }
+    }
+
+    /// The smallest index of a branch whose set is `set`.
+    fn first_index(&self, set: &BTreeSet<&'o str>) -> Option<u128> {
+        if !set.iter().all(|n| self.pool.contains(n)) {
+            return None;
+        }
+        match &self.kind {
+            // `set` is inside the pool, which is the leaf's one place.
+            BranchKind::Leaf(_) => (set.len() == 1).then_some(0),
+            BranchKind::And(children) => {
+                // The children's pools are disjoint (IO-011), so `set` splits by pool
+                // and the smallest index takes the smallest digit in every child.
+                let mut idx = 0u128;
+                for child in children {
+                    let part: BTreeSet<&str> =
+                        set.iter().copied().filter(|n| child.pool.contains(n)).collect();
+                    let digit = child.first_index(&part)?;
+                    idx = idx.saturating_mul(child.count).saturating_add(digit);
+                }
+                Some(idx)
+            }
+            BranchKind::Xor(children) => {
+                let mut offset = 0u128;
+                for child in children {
+                    if let Some(i) = child.first_index(set) {
+                        return Some(offset.saturating_add(i));
+                    }
+                    offset = offset.saturating_add(child.count);
+                }
+                None
+            }
+        }
+    }
+
+    /// The first `(i, j)`, `i < j`, with equal branch sets, `j` smallest and
+    /// then `i` smallest.
+    fn first_ambiguity(&self) -> Option<(u128, u128)> {
+        match &self.kind {
+            BranchKind::Leaf(_) => None,
+            BranchKind::And(children) => {
+                // Branch sets are equal exactly when they are equal child by child. A
+                // repeat in child `c` first shows with every other digit 0, at
+                // `j_c * stride_c`; the last child with a repeat has the smallest.
+                let mut stride = 1u128;
+                for child in children.iter().rev() {
+                    if let Some((i, j)) = child.first_ambiguity() {
+                        return Some((i.saturating_mul(stride), j.saturating_mul(stride)));
+                    }
+                    stride = stride.saturating_mul(child.count);
+                }
+                None
+            }
+            BranchKind::Xor(children) => {
+                let mut offset = 0u128;
+                for (k, child) in children.iter().enumerate() {
+                    let within = child.first_ambiguity();
+                    let cross = children[..k]
+                        .iter()
+                        .filter_map(|earlier| first_shared(earlier, child))
+                        .min();
+                    match (within, cross) {
+                        (Some((i, j)), c) if c.is_none_or(|c| j < c) => {
+                            return Some((offset.saturating_add(i), offset.saturating_add(j)));
+                        }
+                        (_, Some(c)) => {
+                            let set = child.entry_set(c);
+                            let mut earlier_offset = 0u128;
+                            for earlier in &children[..k] {
+                                if let Some(i) = earlier.first_index(&set) {
+                                    return Some((
+                                        earlier_offset.saturating_add(i),
+                                        offset.saturating_add(c),
+                                    ));
+                                }
+                                earlier_offset = earlier_offset.saturating_add(earlier.count);
+                            }
+                            unreachable!("a shared set has an earlier index")
+                        }
+                        _ => {}
+                    }
+                    offset = offset.saturating_add(child.count);
+                }
+                None
+            }
+        }
+    }
+}
+
+/// The `And` part of [`BranchNode::walk_within`]: the product of `children`,
+/// the first child varying slowest, with `idx` and `set` the index and places
+/// chosen so far.
+fn walk_and_within<'o>(
+    children: &[BranchNode<'o>],
+    pool: &HashSet<&'o str>,
+    idx: u128,
+    set: &BTreeSet<&'o str>,
+    f: &mut dyn FnMut(u128, &BTreeSet<&'o str>) -> bool,
+) -> bool {
+    let Some((child, rest)) = children.split_first() else {
+        return f(idx, set);
+    };
+    child.walk_within(pool, &mut |i, part| {
+        let mut joined = set.clone();
+        joined.extend(part.iter().copied());
+        walk_and_within(rest, pool, idx.saturating_mul(child.count).saturating_add(i), &joined, f)
+    })
+}
+
+/// The smallest index in `later` of a branch whose set is also a branch of
+/// `earlier`. A shared set lies inside both alternatives' places, so only the
+/// branches of each side inside the other's places are candidates; the search
+/// walks the side with fewer of them.
+fn first_shared<'o>(earlier: &BranchNode<'o>, later: &BranchNode<'o>) -> Option<u128> {
+    if earlier.pool.is_disjoint(&later.pool) && !(earlier.has_empty && later.has_empty) {
+        return None;
+    }
+    let earlier_n = earlier.count_within(&later.pool);
+    let later_n = later.count_within(&earlier.pool);
+    if earlier_n == 0 || later_n == 0 {
+        return None;
+    }
+    let mut found = None;
+    if earlier_n <= later_n {
+        earlier.walk_within(&later.pool, &mut |_, set| {
+            if let Some(j) = later.first_index(set) {
+                found = Some(found.map_or(j, |f: u128| f.min(j)));
+            }
+            false
+        });
+    } else {
+        // Index order: the first hit is the smallest.
+        later.walk_within(&earlier.pool, &mut |j, set| {
+            let hit = earlier.first_index(set).is_some();
+            if hit {
+                found = Some(j);
+            }
+            hit
+        });
+    }
+    found
 }
 
 fn cross_product(a: &[HashSet<PlaceRef>], b: &[HashSet<PlaceRef>]) -> Vec<HashSet<PlaceRef>> {
@@ -390,6 +746,64 @@ mod tests {
     fn xor_one_panics() {
         let p = Place::<i32>::new("a");
         xor(vec![out_place(&p)]);
+    }
+
+    /// [`ambiguous_branches`] reports what the naive algorithm of IO-012 reports:
+    /// enumerate in [`enumerate_branches`] order, first `j` with an earlier equal
+    /// set, smallest such `i`, places of `i` in leaf order.
+    #[test]
+    fn ambiguous_branches_agrees_with_enumeration() {
+        fn leaves(o: &Out) -> Vec<Vec<String>> {
+            match o {
+                Out::Place(p) | Out::ForwardInput { to: p, .. } => vec![vec![p.name().into()]],
+                Out::Timeout { child, .. } => leaves(child),
+                Out::Xor(cs) => cs.iter().flat_map(leaves).collect(),
+                Out::And(cs) => cs.iter().fold(vec![vec![]], |acc, c| {
+                    let lc = leaves(c);
+                    acc.iter()
+                        .flat_map(|a| lc.iter().map(move |b| [a.clone(), b.clone()].concat()))
+                        .collect()
+                }),
+            }
+        }
+        fn naive(o: &Out) -> Option<(u128, u128, Vec<String>)> {
+            let ls = leaves(o);
+            let sets: Vec<BTreeSet<&String>> = ls.iter().map(|l| l.iter().collect()).collect();
+            for j in 0..sets.len() {
+                if let Some(i) = (0..j).find(|&i| sets[i] == sets[j]) {
+                    return Some((i as u128, j as u128, ls[i].clone()));
+                }
+            }
+            None
+        }
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move |n: u64| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        fn random_spec(next: &mut impl FnMut(u64) -> u64, depth: u32) -> Out {
+            let name = |next: &mut dyn FnMut(u64) -> u64| format!("p{}", next(5));
+            match if depth == 0 { 0 } else { next(4) } {
+                // An empty `And` claims no place: two of them in one `Xor` clash.
+                0 if next(10) == 0 => Out::And(vec![]),
+                0 => Out::Place(PlaceRef::new(name(next))),
+                1 => Out::And((0..1 + next(3)).map(|_| random_spec(next, depth - 1)).collect()),
+                _ => Out::Xor((0..2 + next(2)).map(|_| random_spec(next, depth - 1)).collect()),
+            }
+        }
+        let mut checked = 0;
+        for _ in 0..4000 {
+            let o = random_spec(&mut next, 3);
+            if duplicate_in_branch(&o).is_some() {
+                continue;
+            }
+            checked += 1;
+            let got = ambiguous_branches(&o).map(|a| {
+                (a.first, a.second, a.places.iter().map(|p| p.name().to_string()).collect())
+            });
+            assert_eq!(got, naive(&o), "{o:?}");
+        }
+        assert!(checked > 500, "{checked}");
     }
 
     #[test]

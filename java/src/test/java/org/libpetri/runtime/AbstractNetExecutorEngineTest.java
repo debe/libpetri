@@ -734,6 +734,74 @@ abstract class AbstractNetExecutorEngineTest {
         }
     }
 
+    // ==================== DEPOSITS COMPARED PER PLACE (CORE-034 AC4, CORE-036 AC2/AC3) ====================
+
+    @Nested
+    class DepositComparisonTests {
+
+        /**
+         * [CORE-034] AC4: {@code t: a -> xor(b, c)} with and without a reset arc on {@code b},
+         * from {@code b = 2}: both deposits {@code {b}} and {@code {c}} fire in both, and under the
+         * reset {@code b} ends holding the deposited token alone.
+         */
+        @Test
+        void core034_ac4_resetArcChangesNoDeposit() {
+            for (boolean withReset : new boolean[] {false, true}) {
+                for (boolean writeB : new boolean[] {true, false}) {
+                    var a = Place.of("a", Integer.class);
+                    var b = Place.of("b", Integer.class);
+                    var c = Place.of("c", Integer.class);
+                    var builder = Transition.builder("t")
+                        .inputs(one(a))
+                        .outputs(xor(b, c))
+                        .action(ctx -> {
+                            ctx.output(writeB ? b : c, 7);
+                            return CompletableFuture.completedFuture(null);
+                        });
+                    if (withReset) builder.reset(b);
+                    var net = PetriNet.builder("N").transitions(builder.build()).build();
+                    var initial = Map.<Place<?>, List<Token<?>>>of(
+                        a, List.of(Token.of(1)), b, List.of(Token.of(1), Token.of(2)));
+                    try (var executor = createExecutor(net, initial)) {
+                        var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                        var label = "reset " + withReset + ", write b " + writeB;
+                        assertEquals(0, result.tokenCount(a), label);
+                        assertEquals((withReset ? 0 : 2) + (writeB ? 1 : 0), result.tokenCount(b), label);
+                        assertEquals(writeB ? 0 : 1, result.tokenCount(c), label);
+                    }
+                }
+            }
+        }
+
+        /**
+         * [CORE-036] AC2 and AC3: {@code t: a -> and(b, c)} writing {@code b, b, c} fires and
+         * deposits all three tokens; writing {@code c, b, b} leaves the same marking.
+         */
+        @Test
+        void core036_ac2_ac3_depositsComparePerPlace() {
+            for (var order : List.of(List.of("b", "b", "c"), List.of("c", "b", "b"))) {
+                var a = Place.of("a", Integer.class);
+                var b = Place.of("b", Integer.class);
+                var c = Place.of("c", Integer.class);
+                var t = Transition.builder("t")
+                    .inputs(one(a))
+                    .outputs(and(b, c))
+                    .action(ctx -> {
+                        for (var name : order) ctx.output(name.equals("b") ? b : c, 1);
+                        return CompletableFuture.completedFuture(null);
+                    })
+                    .build();
+                var net = PetriNet.builder("N").transitions(t).build();
+                try (var executor = createExecutor(net, Map.of(a, List.of(Token.of(1))))) {
+                    var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+                    assertEquals(0, result.tokenCount(a), order.toString());
+                    assertEquals(2, result.tokenCount(b), order.toString());
+                    assertEquals(1, result.tokenCount(c), order.toString());
+                }
+            }
+        }
+    }
+
     // ==================== SECTION 5: RESET ARC TESTS ====================
 
     @Nested
@@ -4712,48 +4780,22 @@ abstract class AbstractNetExecutorEngineTest {
         }
 
         @Test
-        void forwardInputMissing_emitsFailure() throws Exception {
+        void forwardInputOutsideTimeout_isRejectedAtBuild() {
+            // IO-014 AC7: a forward deposits only on the timeout outcome, so a ForwardInput
+            // outside a Timeout child never reaches a firing.
             var input = Place.of("Input", SimpleValue.class);
             var normal = Place.of("Normal", SimpleValue.class);
             var forward = Place.of("Forward", SimpleValue.class);
 
-            var eventStore = EventStore.inMemory();
-
-            var t = Transition.builder("forward-missing")
+            var ex = assertThrows(IllegalArgumentException.class, () -> Transition.builder("forward-missing")
                 .inputs(one(input))
                 .outputs(and(
                     place(normal),
                     forwardInput(input, forward)))
-                .timing(Timing.deadline(Duration.ofMillis(100)))
-                .action(ctx -> {
-                    // Only produce to normal, not to forward - ForwardInput violation
-                    ctx.output(normal, new SimpleValue("ok"));
-                    return CompletableFuture.completedFuture(null);
-                })
-                .build();
-
-            var net = PetriNet.builder("ForwardMissing").transitions(t).build();
-
-            var initial = Map.<Place<?>, List<Token<?>>>of(
-                input, List.of(Token.of(new SimpleValue("go")))
-            );
-
-            try (var executor = createExecutor(net, initial, eventStore)) {
-                executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
-                Thread.sleep(50); // wait for event processing
-
-                var failEvents = eventStore.events().stream()
-                    .filter(e -> e instanceof NetEvent.TransitionFailed)
-                    .map(e -> (NetEvent.TransitionFailed) e)
-                    .toList();
-                assertFalse(failEvents.isEmpty(), "Should record TransitionFailed for missing ForwardInput");
-                // and(Normal, forwardInput(->Forward)) is a complex spec on both backends, so both
-                // run the full [IO-015] search: {Normal} alone is claimed by no assignment.
-                assertTrue(failEvents.stream().anyMatch(e ->
-                        e.errorMessage().contains("output does not match the declared spec")
-                            && e.errorMessage().contains("produced {Normal}")),
-                    "Failure message should mention spec violation");
-            }
+                .build());
+            assertEquals("output spec of transition 'forward-missing' uses ForwardInput('Input', 'Forward')"
+                + " outside the child of a Timeout node; a forward deposits only on the timeout outcome (IO-014)",
+                ex.getMessage());
         }
 
         @Test

@@ -8,14 +8,18 @@ Not verified: this is the front end that turns a net file into `Net String`, a c
 marking and the properties. It refuses, rather than guesses:
 
 * **invalid** nets, as the builders would reject them: two input arcs on one place ([CORE-030]),
-  `exactly` / `atLeast` with `n < 1` ([IO-002], [IO-004]), a `forward` whose `from` is not an
-  input place ([IO-014] AC1), an `and` without children or a `xor` with fewer than two
-  ([IO-011], [IO-012]), a timeout with `afterMs ≤ 0` ([IO-013]), a branch naming a place twice
-  ([IO-011]), two transitions with one name;
+  `exactly` / `atLeast` with `n < 1` ([IO-002], [IO-004]), an `and` without children or a `xor`
+  with fewer than two ([IO-011], [IO-012]), a timeout with `afterMs ≤ 0` ([IO-013]), two
+  transitions with one name, and the build-time output-spec checks, in the builders' order with
+  the first failure reported ([IO-011]–[IO-014]): a branch naming a place twice ([IO-011]), more
+  than one `timeout` node, nested or not ([IO-013] AC7), an `xor` inside the child of the
+  `timeout` ([IO-013] AC8), a `forward` outside the child of a `timeout` ([IO-014] AC7), a
+  `forward` whose `from` is not an input place ([IO-014] AC3), and two output branches claiming
+  one set of places ([IO-012] AC5). All six carry the builders' messages, after `invalid: `;
 * invalid **timing** ([TIME-001]–[TIME-006]): an unknown `kind`, a missing or extra bound, a
   `deadline` of 0 ([TIME-003]), or a `window` with `earliestMs > latestMs` ([TIME-005]);
 * nets **outside v1**: any key the schema does not define (environment places, terminals,
-  ν / match specs, …), and a spec with more than one `timeout` node.
+  ν / match specs, …).
 
 Timing is read only for reapability ([TIME-013]): `deadline` and `window` are reapable,
 `immediate`, `unconstrained`, `delayed` and `exact` are not.
@@ -107,12 +111,78 @@ def timeoutCount : Out String → Nat
   | .xor l r => timeoutCount l + timeoutCount r
   | _ => 0
 
+/-- [IO-011]'s walk, on the output spec as written (n-ary `and` / `xor`), as the builders run it
+(spec/02-input-output-specs.md, IO-011 "Which place the message names"): `.inl p` reports `p`,
+`.inr ps` names the places `ps`, each once, in the order the walk met them. Run on JSON that
+`parseOut` accepted, so every key it reads is there. `Spec.firstDup` is the same walk over the
+right-nested binary `Out`. -/
+partial def dupWalk (j : Json) : String ⊕ List String :=
+  let get (k : String) : Json := (j.getObjVal? k).toOption.getD Json.null
+  let s (k : String) : String := ((get k).getStr?).toOption.getD ""
+  let kids : List Json := (((get "children").getArr?).toOption.map (·.toList)).getD []
+  match s "type" with
+  | "place" => .inr [s "place"]
+  | "forward" => .inr [s "to"]
+  | "timeout" => dupWalk (get "child")
+  | "xor" => kids.foldl (init := .inr []) fun acc c =>
+      match acc with
+      | .inl p => .inl p
+      | .inr ps =>
+        match dupWalk c with
+        | .inl p => .inl p
+        | .inr cs => .inr (ps ++ cs.filter (fun q => !ps.contains q))
+  | "and" => kids.foldl (init := .inr []) fun acc c =>
+      match acc with
+      | .inl p => .inl p
+      | .inr own =>
+        match dupWalk c with
+        | .inl p => .inl p
+        | .inr cs =>
+          match cs.find? own.contains with
+          | some p => .inl p
+          | none => .inr (own ++ cs)
+  | _ => .inr []
+
+/-- Whether an `Xor` node lies anywhere in `o`. -/
+def hasXor : Out String → Bool
+  | .xor _ _ => true
+  | .and l r => hasXor l || hasXor r
+  | .timeout c => hasXor c
+  | _ => false
+
+/-- Whether the child of a `timeout` holds an `xor` node at any depth ([IO-013] AC8). -/
+def xorInTimeout : Out String → Bool
+  | .timeout c => hasXor c
+  | .and l r => xorInTimeout l || xorInTimeout r
+  | .xor l r => xorInTimeout l || xorInTimeout r
+  | _ => false
+
 def forwardSources : Out String → List String
   | .forward s _ => [s]
   | .and l r => forwardSources l ++ forwardSources r
   | .xor l r => forwardSources l ++ forwardSources r
   | .timeout c => forwardSources c
   | .place _ => []
+
+/-- The first `forward` outside the child of a `timeout`, in pre-order ([IO-014] AC7). A
+`timeout`'s subtree is not searched: every forward there is allowed. -/
+def bareForward : Out String → Option (String × String)
+  | .forward s d => some (s, d)
+  | .and l r => (bareForward l).or (bareForward r)
+  | .xor l r => (bareForward l).or (bareForward r)
+  | .timeout _ => none
+  | .place _ => none
+
+/-- The first pair `(i, j)`, `i < j`, of output branches that claim one set of places
+([IO-012] AC5): the smallest `j` whose set equals an earlier branch's, and the smallest such `i`.
+Branches are `Out.branches`, numbered as [IO-016] / [VER-001] number them (right-nested binary
+nodes enumerate as the n-ary ones). Run after the [IO-011] check, so no branch repeats a place
+and two branches claim one set iff they have one length and one holds the other. -/
+def ambiguousPair (bs : List (List String)) : Option (Nat × Nat) :=
+  let same (x y : List String) : Bool := x.length == y.length && x.all (y.contains ·)
+  let idx := bs.zipIdx
+  idx.findSome? fun (bj, j) =>
+    (idx.take j).findSome? fun (bi, i) => if same bi bj then some (i, j) else none
 
 def parseInput (j : Json) : Err (NInSpec String) := do
   onlyKeys j ["place", "kind", "n"] "input"
@@ -205,14 +275,32 @@ def parseTrans (j : Json) : Err (Trans String) := do
   let places := inputs.map NInSpec.place
   if !places.Nodup then
     fail s!"invalid: '{name}' declares two input arcs on one place (CORE-030)"
+  -- The build-time output-spec checks, in the builders' order; the first failure wins.
   if let some o := out then
-    if timeoutCount o > 1 then fail s!"out-of-scope: '{name}' has more than one timeout"
+    if let some oj := optField j "output" then
+      if let .inl p := dupWalk oj then
+        fail s!"invalid: output spec of transition '{name}' names place '{p}' twice in one AND \
+          branch; outputs are sets (IO-015) — a weighted output is not supported, add a second \
+          place or a follow-up transition"
+    let n := timeoutCount o
+    if n > 1 then
+      fail s!"invalid: output spec of transition '{name}' has {n} Timeout nodes; an output spec \
+        has at most one, nested or not (IO-013)"
+    if xorInTimeout o then
+      fail s!"invalid: output spec of transition '{name}' has a Xor node inside the child of its \
+        Timeout node; the timeout outcome deposits one fixed set of places (IO-013)"
+    if let some (s, d) := bareForward o then
+      fail s!"invalid: output spec of transition '{name}' uses ForwardInput('{s}', '{d}') \
+        outside the child of a Timeout node; a forward deposits only on the timeout outcome \
+        (IO-014)"
     for s in forwardSources o do
       unless places.contains s do
-        fail s!"invalid: '{name}' forwards from '{s}', which is not an input place (IO-014)"
-    for b in o.branches do
-      unless b.Nodup do
-        fail s!"invalid: an output branch of '{name}' names a place twice (IO-011)"
+        fail s!"invalid: Transition '{name}': ForwardInput references non-input place '{s}'"
+    let bs := o.branches
+    if let some (i, j) := ambiguousPair bs then
+      let ps := ", ".intercalate (bs.getD i [])
+      fail s!"invalid: output spec of transition '{name}' is ambiguous: output branches {i} and \
+        {j} both claim \{{ps}}; no write can tell them apart (IO-012)"
   return { core := { name := name, inputs := inputs, inhibitors := inh, reads := rds,
                      resets := rst }, out := out, reapable := reapable }
 
@@ -294,5 +382,52 @@ def load (fallbackId : String) (j : Json) : Loaded :=
   | .ok (net, m0) => { id, net, m0, properties := props, refusal := none }
   | .error e => { id, net := { places := [], transitions := [] }, m0 := [], properties := props,
                   refusal := some e }
+
+/-! ### The build-check refusals on fixed specs
+
+No corpus net fails an output-spec check, so these pin the loader's walk and check order to
+the builders' messages. `buildError o` is the refusal of a transition `t` with one input `i` and
+output `o` (JSON), or `none` when it loads. -/
+
+private def buildError (o : String) : Option String :=
+  match Json.parse s!"\{\"name\": \"t\", \"inputs\": [\{\"kind\": \"one\", \"place\": \"i\"}], \"output\": {o}}" with
+  | .error e => some s!"json: {e}"
+  | .ok j => match parseTrans j with
+    | .error e => some e
+    | .ok _ => none
+
+private def p (n : String) : String := s!"\{\"type\": \"place\", \"place\": \"{n}\"}"
+private def and_ (cs : List String) : String := s!"\{\"type\": \"and\", \"children\": [{", ".intercalate cs}]}"
+private def xor_ (cs : List String) : String := s!"\{\"type\": \"xor\", \"children\": [{", ".intercalate cs}]}"
+private def tmo (c : String) : String := s!"\{\"type\": \"timeout\", \"afterMs\": 5, \"child\": {c}}"
+private def fwd (a b : String) : String := s!"\{\"type\": \"forward\", \"from\": \"{a}\", \"to\": \"{b}\"}"
+
+private def dupMsg (q : String) : String :=
+  s!"invalid: output spec of transition 't' names place '{q}' twice in one AND branch; outputs \
+    are sets (IO-015) — a weighted output is not supported, add a second place or a follow-up \
+    transition"
+
+private def xorMsg : String :=
+  "invalid: output spec of transition 't' has a Xor node inside the child of its Timeout node; \
+    the timeout outcome deposits one fixed set of places (IO-013)"
+
+-- IO-011: the walk names the place the builders name.
+#guard buildError (and_ [xor_ [p "A", p "B"], xor_ [p "B", p "A"]]) == some (dupMsg "B")
+#guard buildError (and_ [xor_ [p "A", p "B"], and_ [p "C", xor_ [p "B", p "A"]]]) == some (dupMsg "B")
+#guard buildError (xor_ [and_ [p "P", p "P"], and_ [p "Q", p "Q"]]) == some (dupMsg "P")
+#guard buildError (and_ [p "A", xor_ [p "B", and_ [p "C", p "A"]]]) == some (dupMsg "A")
+-- A nested And is walked before its siblings are compared, as the builders do.
+#guard buildError (and_ [p "A", and_ [p "B", p "A", p "B"]]) == some (dupMsg "B")
+#guard buildError (and_ [p "A", p "B", p "A", p "B"]) == some (dupMsg "A")
+#guard buildError (xor_ [and_ [p "P", p "A"], and_ [p "P", p "B"]]) == none
+-- IO-013: an Xor anywhere in the Timeout child, after the count check, before IO-014 and IO-012.
+#guard buildError (tmo (xor_ [p "A", p "B"])) == some xorMsg
+#guard buildError (xor_ [p "C", tmo (and_ [p "A", xor_ [p "B", p "D"]])]) == some xorMsg
+#guard buildError (tmo (xor_ [p "A", p "A"])) == some xorMsg
+#guard buildError (tmo (xor_ [fwd "x" "A", p "B"])) == some xorMsg
+#guard buildError (xor_ [tmo (p "A"), tmo (xor_ [p "B", p "C"])]) ==
+  some "invalid: output spec of transition 't' has 2 Timeout nodes; an output spec has at most one, nested or not (IO-013)"
+#guard buildError (xor_ [p "A", tmo (p "B")]) == none
+#guard buildError (tmo (and_ [p "A", fwd "i" "B"])) == none
 
 end Libpetri.Reference.Load

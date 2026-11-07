@@ -394,7 +394,7 @@ mod tests {
     fn the_fingerprint_separates_every_arc_kind_and_output_shape() {
         use libpetri_core::arc::{inhibitor, read, reset};
         use libpetri_core::input::{all, at_least};
-        use libpetri_core::output::{and_places, forward_input, timeout_place, xor_places};
+        use libpetri_core::output::{and_places, forward_input, timeout, timeout_place, xor_places};
 
         let (a, b, c) = (Place::<()>::new("a"), Place::<()>::new("b"), Place::<()>::new("c"));
         let (br, cr) = (b.as_ref(), c.as_ref());
@@ -410,7 +410,7 @@ mod tests {
             net(base().output(and_places(&[&br, &cr]))),
             net(base().output(xor_places(&[&b, &c]))),
             net(base().output(timeout_place(5, &b))),
-            net(base().output(forward_input(&a, &b))),
+            net(base().output(timeout(5, forward_input(&a, &b)))),
             net(base().output(out_place(&b)).read(read(&c))),
             net(base().output(out_place(&b)).inhibitor(inhibitor(&c))),
             net(base().output(out_place(&b)).reset(reset(&c))),

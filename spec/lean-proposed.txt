@@ -1,0 +1,1 @@
+# Requirement IDs whose Lean block may use `source proposed` (wording not yet in the markdown spec). One ID per line; checked by scripts/spec-lean-alignment.py.

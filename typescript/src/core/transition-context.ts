@@ -266,6 +266,23 @@ export class TransitionContext {
     return this;
   }
 
+  /**
+   * Deposits every token the firing consumed from `from` into `to` in the executor's harvest
+   * collector, in consumption order, as the tokens themselves: value and `createdAt` both
+   * ([IO-014] AC5). A forwarded token is the consumed token, not one the executor mints, so it
+   * does not take the injected epoch clock ([TIME-015]).
+   *
+   * @internal Executor machinery — the timeout branch's `ForwardInput`, never called by an action.
+   */
+  forwardToHarvest<T>(from: Place<T>, to: Place<T>): this {
+    const source = this.resolve(from);
+    this.requireInput(source);
+    const target = this.resolve(to);
+    this.requireOutput(target);
+    for (const token of this.rawInput.getAll(source)) this._rawOutput.addToken(target, token);
+    return this;
+  }
+
   // ==================== ν-name minting (NU-010) ====================
 
   /**

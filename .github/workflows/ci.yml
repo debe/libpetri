@@ -152,7 +152,10 @@ jobs:
   # closure are fetched (step below), so nothing from Mathlib is compiled.
   lean:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25, not 15: the leanchecker kernel replay below re-checks every Libpetri
+    # declaration, ~100 s wall pinned to 4 cores locally (likely 2-4 min on a
+    # 4-vCPU runner), on top of the build and the other gates.
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: lean
@@ -177,6 +180,32 @@ jobs:
       - name: Fetch Lean dependencies (imported Mathlib closure only)
         run: bash ../scripts/lean-ci-deps.sh
       - run: lake build
+      # Replays every declaration of every built Libpetri.* module through the
+      # kernel, starting from the environment its imports produce. Catches
+      # "environment hacking": a declaration that reached the .olean without
+      # the kernel accepting it (skipKernelTC, addDeclWithoutChecking, a
+      # tampered olean). `#print axioms` cannot: a planted
+      # `theorem : False := True.intro` added under skipKernelTC reports "does
+      # not depend on any axioms", and leanchecker rejects it with a kernel
+      # type mismatch. `leanchecker` ships with the toolchain; it exits
+      # non-zero on a rejected declaration or a name with no oleans.
+      #
+      # Not `lake env leanchecker Libpetri` in one call: that starts one task
+      # per module, each with its own imported environment, and peaked at
+      # 28 GB RSS (the runner has 16 GB). An argument is a module *prefix*, so
+      # the awk keeps only names that no earlier kept name is a prefix of
+      # (LC_ALL=C sort puts A.B right after A) and each module is replayed
+      # once; one call per prefix peaks at ~7.5 GB (Libpetri.Reference, 10
+      # modules) and took ~100 s pinned to 4 cores. The root Libpetri.lean
+      # only imports and declares nothing.
+      - name: Kernel replay of every Libpetri module (leanchecker)
+        shell: bash
+        run: |
+          find Libpetri -name '*.lean' | sed 's/\.lean$//; s#/#.#g' | LC_ALL=C sort \
+            | awk 'prev == "" || index($0, prev ".") != 1 { print; prev = $0 }' > /tmp/lc-modules
+          test -s /tmp/lc-modules
+          xargs -n 1 lake env leanchecker < /tmp/lc-modules
+          echo "leanchecker: replayed $(wc -l < /tmp/lc-modules) module prefixes"
       # A `sorry` still builds (with a warning), so the build alone is not a
       # gate. Both checks below are: grep catches the source text, and
       # `#print axioms` catches anything that reached a theorem by any route
@@ -570,6 +599,66 @@ jobs:
           bash scripts/regen-proof-graph.sh
           git diff --exit-code -- lean/graph docs/proof-graph
           test -z "$(git status --porcelain -- lean/graph docs/proof-graph)"
+      # The alignment checker's own tests run first, so a broken checker
+      # cannot pass the alignment step below by accident. unittest takes the
+      # file path relative to the repo root, hence the workspace directory.
+      - name: Spec/Lean alignment checker self-test
+        working-directory: ${{ github.workspace }}
+        run: python3 -m unittest scripts/test_spec_lean_alignment.py
+      # The sorry/admit grep above stays; this widens it to the other ways a
+      # proof can skip the kernel (sorryAx, native_decide, axiom,
+      # implemented_by, skipKernelTC, addDeclCore, ...) over Libpetri/, lean/*.lean,
+      # spec-tools/ and ProofGraph/, plus module-wide options in lakefile.toml.
+      # The scanner's own tests run first (raw strings, interpolation).
+      - name: No proof escape hatches in Lean source
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 -m unittest scripts/test_lean_escape_hatch_check.py
+          python3 scripts/lean-escape-hatch-check.py
+      # The audit below and the requirements report only see the modules they
+      # import. Every Libpetri module must be imported directly by
+      # spec-tools/Audit.lean, every Libpetri.Spec module by Spec/All.lean.
+      - name: Every Lean module is reached by the audit and the report
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/lean-module-coverage-check.py
+      # `#audit_axioms` walks every constant whose module root is Libpetri
+      # (private ones included) and fails on an axiom declared under Libpetri
+      # or on any axiom outside propext / Quot.sound / Classical.choice. A
+      # logged error makes `lean` exit non-zero, so no output parsing is
+      # needed. The hand-listed `#print axioms` step above stays until this
+      # one has been green for a while.
+      - name: Every Libpetri constant depends only on standard axioms
+        shell: bash
+        run: lake env lean spec-tools/Audit.lean
+      # lean/report/requirements.{md,json} are generated from the requirement
+      # blocks and their @[evidence] tags; regenerating them must be a no-op
+      # (same pattern as the proof graph above). ls-files fails when either
+      # file is not tracked at all (git diff is blind to untracked files); the
+      # porcelain check, --ignored included, catches a generated file that was
+      # never committed or that a .gitignore rule hides.
+      - name: Requirements report is up to date
+        shell: bash
+        run: |
+          lake env lean spec-tools/Report.lean
+          git ls-files --error-unmatch report/requirements.md report/requirements.json
+          git diff --exit-code -- report/
+          test -z "$(git status --porcelain --ignored -- report/)"
+      # Every requirement block's quote must appear verbatim (whitespace
+      # normalised) under its `#### ID:` heading in spec/*.md, and every
+      # behaviour block needs `holds` and `nonvacuous` evidence. Reads the
+      # report just checked for freshness, so it sees the committed state.
+      - name: Requirement blocks match the markdown spec
+        run: python3 ../scripts/spec-lean-alignment.py --report lean/report/requirements.json --spec spec
+      # Plants 17 faults (registry: blank reading, forbids without ¬, holds
+      # assuming its requirement, nonvacuous : True, stale sign-off hash;
+      # escape hatches: private axiom, native_decide, sorry outside Spec,
+      # addDeclCore without the kernel check; module coverage; alignment:
+      # drifted quote, quote only in an HTML comment, tombstoned citation;
+      # stale report). Each passes only if the gate meant to catch it fails
+      # with that gate's own message. Restores every planted file (md5-checked).
+      - name: Spec/Lean gates catch planted faults
+        shell: bash
+        run: bash ../scripts/test_spec_lean_gates.sh
 
   # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
   # Graphviz-WASM must instantiate + render, and the committed assets must be

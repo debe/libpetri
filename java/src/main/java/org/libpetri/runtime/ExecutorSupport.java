@@ -490,8 +490,9 @@ final class ExecutorSupport {
      * target is closed and only the harvest collector still reaches the marking.
      *
      * <p>{@code Out.ForwardInput} re-emits <em>every</em> token consumed from its {@code from}
-     * place, in consumption order — one output token per consumed token — so a batched input
-     * spec ({@code In.All}, {@code In.Exactly(n)}) conserves its tokens on timeout.
+     * place, in consumption order — the consumed token itself, with its {@code createdAt} — so
+     * a batched input spec ({@code In.All}, {@code In.Exactly(n)}) conserves its tokens on
+     * timeout ([IO-014]).
      */
     static void produceTimeoutOutput(TransitionContext context, Arc.Out timeoutChild) {
         produceTimeoutOutputRecursive(context, timeoutChild);
@@ -506,19 +507,23 @@ final class ExecutorSupport {
                 // Forward *every* token consumed from `from`, not just the first: a batched
                 // input spec (In.All, In.Exactly(n), In.AtLeast(n)) consumes N tokens, and
                 // re-emitting only one would silently destroy N-1 of them on the retry path.
-                // inputs() is the batched accessor and preserves consumption (FIFO) order;
-                // the singular input() returns only the first consumed value.
+                // The tokens themselves are forwarded, in consumption (FIFO) order, so each
+                // keeps its createdAt (IO-014 AC5); only minted recovery tokens take the clock.
                 Place<Object> to = (Place<Object>) f.to();
-                for (Object value : context.inputs((Place<Object>) f.from())) {
-                    context.outputToHarvest(to, value);
+                for (Token<Object> token : context.inputTokens((Place<Object>) f.from())) {
+                    context.forwardToHarvest(to, token);
                 }
             }
             case Arc.Out.And a ->
                 a.children().forEach(c -> produceTimeoutOutputRecursive(context, c));
             case Arc.Out.Xor _ ->
-                throw new IllegalStateException("XOR not allowed in timeout child");
+                // Unreachable: the builder rejects a Xor inside the Timeout child (IO-013).
+                throw new IllegalStateException(
+                    "unreachable: Transition.Builder.build rejects a Xor inside the Timeout child (IO-013)");
             case Arc.Out.Timeout _ ->
-                throw new IllegalStateException("Nested Timeout not allowed");
+                // Unreachable: the builder rejects a second Timeout node (IO-013).
+                throw new IllegalStateException(
+                    "unreachable: Transition.Builder.build rejects a second Timeout node (IO-013)");
         }
     }
 

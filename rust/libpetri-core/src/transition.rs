@@ -6,7 +6,10 @@ use crate::action::{BoxedAction, passthrough};
 use crate::arc::{Inhibitor, Read, Reset};
 use crate::input::In;
 use crate::match_spec::MatchSpec;
-use crate::output::{Out, all_places, duplicate_in_branch, find_forward_inputs, find_timeout};
+use crate::output::{
+    Out, all_places, ambiguous_branches, duplicate_in_branch, find_forward_inputs, find_timeout,
+    forward_outside_timeout, timeout_count, xor_inside_timeout,
+};
 use crate::place::PlaceRef;
 use crate::timing::{Timing, deadline, delayed, exact, immediate, window};
 
@@ -346,7 +349,18 @@ impl TransitionBuilder {
     /// - Panics if an input requires no token (`In::Exactly { count: 0 }`,
     ///   `In::AtLeast { minimum: 0 }`; **IO-002**, **IO-004**).
     /// - Panics if the match specification keys one place twice (**NU-020**).
-    /// - Panics if ForwardInput references a non-input place.
+    /// - Panics if the output spec holds more than one `Timeout` node, nested or
+    ///   not (**IO-013**).
+    /// - Panics if the child of the `Timeout` node holds an `Xor` node at any
+    ///   depth (**IO-013**): the timeout outcome deposits one fixed set of places.
+    /// - Panics if a `ForwardInput` is not inside the child of a `Timeout`
+    ///   (**IO-014**).
+    /// - Panics if ForwardInput references a non-input place (**IO-014** AC3).
+    /// - Panics if two output branches claim the same set of places (**IO-012**):
+    ///   no write could tell them apart.
+    ///
+    /// The output-spec checks run in that order, IO-011 first, and the first
+    /// failing one reports, with the message every implementation uses.
     pub fn build(self) -> Transition {
         // [CORE-030] AC3: duplicate input places are rejected where the
         // transition is made, so every consumer — executors, the state-class
@@ -410,8 +424,40 @@ impl TransitionBuilder {
             );
         }
 
-        // Validate ForwardInput references
         if let Some(ref out) = self.output_spec {
+            // [IO-013]: one budget per action, so at most one Timeout node, nested or not.
+            let timeouts = timeout_count(out);
+            if timeouts >= 2 {
+                panic!(
+                    "output spec of transition '{}' has {} Timeout nodes; an output spec has \
+                     at most one, nested or not (IO-013)",
+                    self.name, timeouts
+                );
+            }
+
+            // [IO-013]: the executor makes the timeout deposit, so nothing chooses
+            // among alternatives inside the Timeout child.
+            if xor_inside_timeout(out) {
+                panic!(
+                    "output spec of transition '{}' has a Xor node inside the child of its \
+                     Timeout node; the timeout outcome deposits one fixed set of places (IO-013)",
+                    self.name
+                );
+            }
+
+            // [IO-014]: a forward deposits only on the timeout outcome.
+            if let Some((from, to)) = forward_outside_timeout(out) {
+                panic!(
+                    "output spec of transition '{}' uses ForwardInput('{}', '{}') outside the \
+                     child of a Timeout node; a forward deposits only on the timeout outcome \
+                     (IO-014)",
+                    self.name,
+                    from.name(),
+                    to.name()
+                );
+            }
+
+            // [IO-014] AC3: a forward names an input place.
             let input_place_names: HashSet<_> =
                 self.input_specs.iter().map(|s| s.place_name()).collect();
             for (from, _) in find_forward_inputs(out) {
@@ -420,6 +466,20 @@ impl TransitionBuilder {
                     "Transition '{}': ForwardInput references non-input place '{}'",
                     self.name,
                     from.name()
+                );
+            }
+
+            // [IO-012]: two distinct assignments claiming one set of places leave no
+            // write that tells them apart. Runs after IO-011, which it relies on.
+            if let Some(amb) = ambiguous_branches(out) {
+                let places: Vec<&str> = amb.places.iter().map(|p| p.name()).collect();
+                panic!(
+                    "output spec of transition '{}' is ambiguous: output branches {} and {} \
+                     both claim {{{}}}; no write can tell them apart (IO-012)",
+                    self.name,
+                    amb.first,
+                    amb.second,
+                    places.join(", ")
                 );
             }
         }
@@ -683,7 +743,7 @@ mod tests {
         let to = Place::<i32>::new("to");
 
         Transition::builder("test")
-            .output(crate::output::forward_input(&from, &to))
+            .output(crate::output::timeout(10, crate::output::forward_input(&from, &to)))
             .build();
     }
 
@@ -829,6 +889,25 @@ mod tests {
         assert!(message.contains("names place 'P' twice"), "{message}");
     }
 
+    /// IO-011 AC5: `And(Xor(A, B), Xor(B, A))` names `B`, the place the walk reports
+    /// first (the second child's pooled `B` is already named by the first child), not
+    /// `A`, the repeat of the first repeating branch in enumeration order.
+    #[test]
+    fn io_011_ac5_the_walk_names_b_in_and_of_two_xors() {
+        use crate::output::{and, xor};
+        let place = |n: &str| out_place(&Place::<i32>::new(n));
+        let spec = and(vec![
+            xor(vec![place("A"), place("B")]),
+            xor(vec![place("B"), place("A")]),
+        ]);
+        let err = std::panic::catch_unwind(|| Transition::builder("t").output(spec).build())
+            .expect_err("And(Xor(A, B), Xor(B, A)) names a place twice in some branch");
+        let message = "output spec of transition 't' names place 'B' twice in one AND branch; \
+                       outputs are sets (IO-015) — a weighted output is not supported, add a \
+                       second place or a follow-up transition";
+        assert_eq!(err.downcast_ref::<String>().map(String::as_str), Some(message));
+    }
+
     /// IO-011: the duplicate check is linear in the spec. An AND of 64 two-way XORs
     /// has 2^64 branches; enumerating them would never return.
     #[test]
@@ -849,6 +928,269 @@ mod tests {
         .expect_err("b63 is named twice in some branch");
         let message = err.downcast_ref::<String>().cloned().unwrap_or_default();
         assert!(message.contains("names place 'b63' twice"), "{message}");
+    }
+
+    // ---- IO-012 / IO-013 / IO-014: output specs rejected at build ----
+
+    fn leaf(n: &str) -> Out {
+        out_place(&Place::<i32>::new(n))
+    }
+
+    fn fwd(from: &str, to: &str) -> Out {
+        crate::output::forward_input(&Place::<i32>::new(from), &Place::<i32>::new(to))
+    }
+
+    /// Builds `t` with input `a` (so a forward from `a` is legal) and `spec`, and
+    /// returns the panic message, or `None` when it builds.
+    fn build_error(spec: Out) -> Option<String> {
+        let built = std::panic::catch_unwind(|| {
+            Transition::builder("t")
+                .input(one(&Place::<i32>::new("a")))
+                .output(spec)
+                .build()
+        });
+        built.err().map(|e| {
+            e.downcast_ref::<String>()
+                .cloned()
+                .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default()
+        })
+    }
+
+    fn ambiguity(i: u32, j: u32, places: &str) -> String {
+        format!(
+            "output spec of transition 't' is ambiguous: output branches {i} and {j} both \
+             claim {{{places}}}; no write can tell them apart (IO-012)"
+        )
+    }
+
+    /// IO-012 AC5: two distinct assignments claiming one set of places are rejected
+    /// at build, naming the first pair in branch order and the places of the first.
+    #[test]
+    fn io_012_ac5_ambiguous_output_specs_are_rejected() {
+        use crate::output::{and, timeout, xor};
+        let cases = [
+            (xor(vec![leaf("P"), leaf("P")]), ambiguity(0, 1, "P")),
+            (
+                xor(vec![and(vec![leaf("A"), leaf("B")]), and(vec![leaf("B"), leaf("A")])]),
+                ambiguity(0, 1, "A, B"),
+            ),
+            (xor(vec![leaf("A"), xor(vec![leaf("A"), leaf("B")])]), ambiguity(0, 1, "A")),
+            (and(vec![leaf("Q"), xor(vec![leaf("P"), leaf("P")])]), ambiguity(0, 1, "Q, P")),
+            (
+                xor(vec![
+                    and(vec![leaf("A"), xor(vec![leaf("B"), leaf("C")])]),
+                    and(vec![leaf("A"), leaf("B")]),
+                ]),
+                ambiguity(0, 2, "A, B"),
+            ),
+            (xor(vec![leaf("P"), timeout(10, leaf("P"))]), ambiguity(0, 1, "P")),
+            (xor(vec![leaf("B"), timeout(10, fwd("a", "B"))]), ambiguity(0, 1, "B")),
+        ];
+        for (spec, message) in cases {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec), Some(message), "{shown}");
+        }
+    }
+
+    /// IO-012 AC5: overlapping but distinct alternatives build.
+    #[test]
+    fn io_012_ac5_distinct_alternatives_build() {
+        use crate::output::{and, timeout, xor};
+        for spec in [
+            xor(vec![
+                and(vec![leaf("A"), leaf("B"), leaf("C")]),
+                and(vec![leaf("A"), leaf("B")]),
+            ]),
+            xor(vec![and(vec![leaf("P"), leaf("A")]), and(vec![leaf("P"), leaf("B")])]),
+            xor(vec![leaf("A"), timeout(10, leaf("B"))]),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec), None, "{shown}");
+        }
+    }
+
+    /// IO-012: the reported pair is the first in branch order, with indices in the
+    /// global numbering of nested `And`s (first child slowest) and `Xor`s.
+    #[test]
+    fn io_012_the_first_pair_in_branch_order_is_reported() {
+        use crate::output::{and, xor};
+        // Branches: [X,A] [X,B] [X,A'] [Y,A] [Y,B] [Y,A'] with A' = A: (0, 2) first.
+        let spec = and(vec![
+            xor(vec![leaf("X"), leaf("Y")]),
+            xor(vec![leaf("A"), leaf("B"), leaf("A")]),
+        ]);
+        assert_eq!(build_error(spec), Some(ambiguity(0, 2, "X, A")));
+        // A repeat in the first child shows at stride 3: (0, 3).
+        let spec = and(vec![
+            xor(vec![leaf("X"), leaf("X")]),
+            xor(vec![leaf("A"), leaf("B"), leaf("C")]),
+        ]);
+        assert_eq!(build_error(spec), Some(ambiguity(0, 3, "X, A")));
+        // A later alternative that repeats a deep branch of an earlier one.
+        let spec = xor(vec![
+            and(vec![xor(vec![leaf("A"), leaf("B")]), xor(vec![leaf("C"), leaf("D")])]),
+            leaf("E"),
+            and(vec![leaf("D"), leaf("B")]),
+        ]);
+        assert_eq!(build_error(spec), Some(ambiguity(3, 5, "B, D")));
+    }
+
+    /// IO-012: the ambiguity check is linear on an `And` of many `Xor`s, as IO-011's is.
+    #[test]
+    fn io_012_the_ambiguity_check_does_not_enumerate_and_branches() {
+        use crate::output::{and, xor};
+        let wide = |extra: Vec<Out>| {
+            let mut children: Vec<Out> = (0..64)
+                .map(|i| xor(vec![leaf(&format!("a{i}")), leaf(&format!("b{i}"))]))
+                .collect();
+            children.extend(extra);
+            and(children)
+        };
+        assert_eq!(build_error(wide(vec![])), None);
+        // A repeat in the last child: branches 0 and 1 of 2^65.
+        let message = build_error(wide(vec![xor(vec![leaf("z"), leaf("z")])])).unwrap();
+        assert!(message.contains("output branches 0 and 1 both claim {a0, "), "{message}");
+        // Two alternatives of 2^40 branches that share one place: only the branches
+        // inside the other alternative's places are candidates, and there are none.
+        let side = |x: &str, y: &str| {
+            let mut children = vec![leaf("S")];
+            children.extend(
+                (0..40).map(|i| xor(vec![leaf(&format!("{x}{i}")), leaf(&format!("{y}{i}"))])),
+            );
+            and(children)
+        };
+        let started = std::time::Instant::now();
+        assert_eq!(build_error(xor(vec![side("x", "y"), side("u", "v")])), None);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+        // An empty And claims no place: two of them are the same set.
+        let message = build_error(xor(vec![Out::And(vec![]), Out::And(vec![])])).unwrap();
+        assert!(message.contains("output branches 0 and 1 both claim {}"), "{message}");
+    }
+
+    /// IO-013 AC7: more than one Timeout node, nested or not, is rejected at build.
+    #[test]
+    fn io_013_ac7_more_than_one_timeout_is_rejected() {
+        use crate::output::{and, timeout, xor};
+        let message = "output spec of transition 't' has 2 Timeout nodes; an output spec has at \
+                       most one, nested or not (IO-013)";
+        for spec in [
+            timeout(10, timeout(20, leaf("P"))),
+            xor(vec![timeout(10, leaf("A")), timeout(20, leaf("B"))]),
+            and(vec![timeout(10, leaf("A")), xor(vec![leaf("B"), timeout(20, leaf("C"))])]),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec).as_deref(), Some(message), "{shown}");
+        }
+        let three = xor(vec![
+            timeout(10, leaf("A")),
+            timeout(20, leaf("B")),
+            timeout(30, leaf("C")),
+        ]);
+        assert!(build_error(three).unwrap().contains("has 3 Timeout nodes"));
+        for spec in [
+            xor(vec![leaf("A"), timeout(10, leaf("B"))]),
+            timeout(10, and(vec![leaf("A"), leaf("B")])),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec), None, "{shown}");
+        }
+    }
+
+    /// IO-013 AC8: an `Xor` at any depth of the `Timeout` child is rejected at build;
+    /// an `Xor` outside the `Timeout` builds.
+    #[test]
+    fn io_013_ac8_a_xor_inside_the_timeout_child_is_rejected() {
+        use crate::output::{and, timeout, xor};
+        let message = "output spec of transition 't' has a Xor node inside the child of its \
+                       Timeout node; the timeout outcome deposits one fixed set of places \
+                       (IO-013)";
+        for spec in [
+            timeout(10, xor(vec![leaf("A"), leaf("B")])),
+            xor(vec![
+                leaf("C"),
+                timeout(10, and(vec![leaf("A"), xor(vec![leaf("B"), leaf("D")])])),
+            ]),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec).as_deref(), Some(message), "{shown}");
+        }
+        for spec in [
+            xor(vec![leaf("A"), timeout(10, leaf("B"))]),
+            timeout(10, and(vec![leaf("A"), fwd("a", "B")])),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec), None, "{shown}");
+        }
+    }
+
+    /// IO-014 AC7: a ForwardInput outside the child of a Timeout is rejected at build,
+    /// the first in pre-order named.
+    #[test]
+    fn io_014_ac7_a_forward_outside_a_timeout_child_is_rejected() {
+        use crate::output::{and, timeout, xor};
+        let message = "output spec of transition 't' uses ForwardInput('a', 'b') outside the \
+                       child of a Timeout node; a forward deposits only on the timeout outcome \
+                       (IO-014)";
+        for spec in [
+            fwd("a", "b"),
+            xor(vec![leaf("c"), fwd("a", "b")]),
+            and(vec![leaf("c"), xor(vec![leaf("e"), fwd("a", "b")])]),
+            xor(vec![timeout(10, fwd("a", "x")), fwd("a", "b"), fwd("a", "y")]),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec).as_deref(), Some(message), "{shown}");
+        }
+        for spec in [
+            timeout(10, fwd("a", "b")),
+            xor(vec![leaf("c"), timeout(10, and(vec![leaf("e"), fwd("a", "b")]))]),
+        ] {
+            let shown = format!("{spec:?}");
+            assert_eq!(build_error(spec), None, "{shown}");
+        }
+    }
+
+    /// The output-spec checks run in one order in every implementation, the first
+    /// failing one reporting: IO-011, IO-013 (Timeout count, then Xor in the Timeout
+    /// child), IO-014 placement, IO-014 AC3, IO-012.
+    #[test]
+    fn output_spec_checks_report_in_order() {
+        use crate::output::{and, timeout, xor};
+        // IO-011 before IO-014 placement.
+        let e = build_error(and(vec![leaf("R"), fwd("a", "R")])).unwrap();
+        assert!(e.contains("names place 'R' twice in one AND branch"), "{e}");
+        // IO-013 before IO-014 placement.
+        let e = build_error(and(vec![
+            fwd("a", "b"),
+            timeout(10, leaf("c")),
+            timeout(20, leaf("d")),
+        ]))
+        .unwrap();
+        assert!(e.contains("has 2 Timeout nodes"), "{e}");
+        // IO-013 Timeout count before IO-013 Xor in the Timeout child.
+        let e = build_error(and(vec![
+            timeout(10, xor(vec![leaf("c"), leaf("d")])),
+            timeout(20, leaf("e")),
+        ]))
+        .unwrap();
+        assert!(e.contains("has 2 Timeout nodes"), "{e}");
+        // IO-011 before IO-013 Xor in the Timeout child.
+        let e = build_error(timeout(10, and(vec![leaf("c"), xor(vec![leaf("c"), leaf("d")])])))
+            .unwrap();
+        assert!(e.contains("names place 'c' twice in one AND branch"), "{e}");
+        // IO-013 Xor in the Timeout child before IO-014 placement and AC3.
+        let e = build_error(and(vec![
+            fwd("not-an-input", "b"),
+            timeout(10, xor(vec![leaf("c"), leaf("d")])),
+        ]))
+        .unwrap();
+        assert!(e.contains("has a Xor node inside the child of its Timeout node"), "{e}");
+        // IO-014 placement before the non-input check.
+        let e = build_error(fwd("not-an-input", "b")).unwrap();
+        assert!(e.contains("uses ForwardInput('not-an-input', 'b') outside"), "{e}");
+        // The non-input check before IO-012.
+        let e = build_error(xor(vec![leaf("b"), timeout(10, fwd("other", "b"))])).unwrap();
+        assert_eq!(e, "Transition 't': ForwardInput references non-input place 'other'");
     }
 
     #[test]

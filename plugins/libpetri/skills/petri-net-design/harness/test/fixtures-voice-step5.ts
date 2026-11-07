@@ -57,7 +57,7 @@ function sessionDef() {
       ...sequentialRound(),
       T('ComposeAnswer', { in: ['RESULTS'], out: 'PLAN' }),
       T('Plan', { in: ['PLAN'], out: XOR('DRAFT', ['GATHER', 'obs/CALL', 'AWAIT_1']) }),
-      T('Await_1', { in: ['AWAIT_1'], out: xor(outPlace(P('GOT_1')), timeout(8000, outPlace(P('GOT_1')))) }),
+      T('Await_1', { in: ['AWAIT_1'], out: timeout(8000, outPlace(P('GOT_1'))) }),
       T('Collect_1', { in: ['GOT_1', 'obs/CALL'], out: 'S_DONE_1' }),
       T('Gather', { in: ['GATHER', 'S_DONE_1'], out: 'DRAFT' }),
       T('DiscardGather', { in: ['GATHER', 'S_DONE_1', 'ABANDON'], out: 'A_DONE' }),

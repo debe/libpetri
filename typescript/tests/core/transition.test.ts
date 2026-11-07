@@ -121,9 +121,9 @@ describe('Transition', () => {
     expect(() => {
       Transition.builder('T')
         .inputs(one(p1))
-        .outputs(forwardInput(p2, p3)) // p2 is NOT an input
+        .outputs(timeout(5000, forwardInput(p2, p3))) // p2 is NOT an input
         .build();
-    }).toThrow('non-input place');
+    }).toThrow("Transition 'T': ForwardInput references non-input place 'P2'");
   });
 
   it('ForwardInput with valid input place succeeds', () => {

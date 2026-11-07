@@ -51,6 +51,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 > traceability and are **excluded** from the active count. Counts above are active
 > requirements only.
 
+[glossary.md](glossary.md) defines the terms of the CORE and IO firing semantics. It is unnumbered, holds no requirements and is not counted above.
+
 ---
 
 ## Alphabetical Cross-Reference Index
@@ -75,7 +77,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CONC-023 | Priority-Partitioned Ready Queues | SHOULD | EXEC-002 |
 | CONC-024 | Precomputed Timing Arrays | SHOULD | — |
 | CONC-025 | Lazy Marking Synchronization | SHOULD | — |
-| CONC-026 | Optional Output Validation Skip | MAY | — |
+| CONC-026 | Optional Output Validation Skip | MAY | IO-015, EXEC-021, NU-054 |
 
 ### CORE — Core Model
 | ID | Title | Priority | Depends On |
@@ -214,9 +216,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | IO-007 | requiredCount and consumptionCount Contract | MUST | — |
 | IO-010 | Output Place (Leaf) | MUST | — |
 | IO-011 | Output And | MUST | IO-015, 016 |
-| IO-012 | Output Xor | MUST | IO-015 |
+| IO-012 | Output Xor | MUST | IO-015, 016 |
 | IO-013 | Output Timeout | MUST | EVT-009 |
-| IO-014 | Output ForwardInput | MUST | IO-007, EXEC-010, TIME-015, MOD-024 |
+| IO-014 | Output ForwardInput | MUST | IO-007, IO-013, EXEC-010, TIME-015 |
 | IO-015 | Output Validation | MUST | EVT-007, CORE-051 |
 | IO-016 | Branch Enumeration | SHOULD | — |
 | IO-017 | allPlaces Flattening | MUST | — |
@@ -365,6 +367,11 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Unknown-place token retention | Tokens produced/injected into uncompiled places retained, not dropped ([CORE-072] AC3) | ✓ (both backends) | ✓ (both backends) | ✓ (both backends) |
 | Duplicate input arcs | Rejected at transition build with a descriptive error; compile check kept as a backstop ([CORE-030] AC3) | ✓ | ✓ | ✓ |
 | Duplicate output place in one AND branch | Rejected at spec or transition build; outputs are sets ([IO-011] AC4, [IO-015]) | ✓ | ✓ | ✓ |
+| Ambiguous output spec | Two distinct assignments claiming one set of places rejected at transition build ([IO-012] AC5) | ✓ | ✓ | ✓ |
+| One `Timeout` per output spec | A second `Timeout`, nested or not, rejected at transition build ([IO-013] AC7) | ✓ | ✓ | ✓ |
+| No `Xor` in the `Timeout` child | An `Xor` at any depth of the `Timeout` child rejected at transition build; the timeout outcome deposits one fixed set of places ([IO-013] AC8) | ✓ | ✓ | ✓ |
+| `ForwardInput` only under a `Timeout` | Rejected at transition build elsewhere ([IO-014] AC7) | ✓ | ✓ | ✓ |
+| Forwarded token keeps `created_at` | Forward the consumed token, not its value ([IO-014] AC5) | ✓ | ✓ | ✓ |
 | Enablement-timestamp resolution | Sub-ms precision preserved; equal stamps tie-break by declaration order ([EXEC-002] AC3) | Monotonic long nanos | Float ms | Float ms |
 | SMT verification | IC3/PDR via Z3 Spacer, reached through the `z3` executable ([VER-013]) | ✓ | ✓ | ✓ |
 | Verification cancellation | Shares the total budget's stop; running `z3` killed; `Unknown` "verification cancelled during …" ([VER-013]) | Thread interruption (flag restored) | `AbortSignal` | `CancelToken` (Python `libpetri.CancelToken`) |

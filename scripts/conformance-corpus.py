@@ -235,7 +235,8 @@ def gen_net(seed: int) -> dict:
         if rng.chance(12):
             resets.append(rng.below(n))
         out = gen_out(rng, n, inputs)
-        if out is not None and duplicate_in_branch(out):
+        # The builders reject both ([IO-011], [IO-012] AC5); one fallback draw for either.
+        if out is not None and (duplicate_in_branch(out) or ambiguous(out)):
             out = ("place", rng.below(n))
         transitions.append(
             dict(name=f"t{ti}", inputs=inputs, reads=reads, inhibitors=inhibitors, resets=resets, out=out)
@@ -309,6 +310,13 @@ def alternatives(o) -> list[list]:
     for c in o[1]:
         acc = [a + b for a in acc for b in alternatives(c)]
     return acc
+
+
+def ambiguous(o) -> bool:
+    """[IO-012] AC5: two distinct assignments claim one set of places (`Xor(P, P)`,
+    `Xor(P, Timeout(ForwardInput(a, P)))`, ...), which the builders reject."""
+    claims = [frozenset(leaf[1] for leaf in alt) for alt in alternatives(o)]
+    return len(set(claims)) != len(claims)
 
 
 def timeout_leaves(o):

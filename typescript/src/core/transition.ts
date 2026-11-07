@@ -8,7 +8,11 @@ import type { Timing } from './timing.js';
 import type { TransitionAction } from './transition-action.js';
 import { passthrough } from './transition-action.js';
 import { deadline, delayed, exact, immediate, window } from './timing.js';
-import { allPlaces, duplicateInBranch, duplicateOutputPlaceMessage } from './out.js';
+import {
+  allPlaces, ambiguousBranches, ambiguousOutputMessage, bareForwardInput, bareForwardInputMessage,
+  countTimeouts, duplicateInBranch, duplicateOutputPlaceMessage, timeoutCountMessage,
+  hasXorInTimeoutChild, xorInTimeoutMessage,
+} from './out.js';
 
 /** @internal Symbol key restricting construction to the builder. */
 const TRANSITION_KEY = Symbol('Transition.internal');
@@ -286,23 +290,40 @@ export class TransitionBuilder {
       case 'exact': exact(tm.atMs); break;
     }
 
-    // IO-011: outputs are sets, so a place named twice in one AND branch is rejected rather
-    // than collapsed. Here, where the name is known and every construction path passes.
+    // The build-time output-spec checks, in this order in every implementation so the first
+    // failure's message is the same everywhere. Here, where the name is known and every
+    // construction path (builders, compose, channel merge, fusion, bindActions) passes.
     if (this._outputSpec !== null) {
-      const dup = duplicateInBranch(this._outputSpec);
+      const spec = this._outputSpec;
+      // IO-011: outputs are sets, so a place named twice in one AND branch is rejected rather
+      // than collapsed.
+      const dup = duplicateInBranch(spec);
       if (dup !== null) throw new Error(duplicateOutputPlaceMessage(this._name, dup.name));
-    }
 
-    // Validate ForwardInput references
-    if (this._outputSpec !== null) {
+      // IO-013: one action budget, so at most one Timeout node, nested or not.
+      const timeouts = countTimeouts(spec);
+      if (timeouts > 1) throw new Error(timeoutCountMessage(this._name, timeouts));
+
+      // IO-013: the executor makes the timeout deposit, so its child holds no Xor to choose.
+      if (hasXorInTimeoutChild(spec)) throw new Error(xorInTimeoutMessage(this._name));
+
+      // IO-014: a forward deposits only on the timeout outcome.
+      const bare = bareForwardInput(spec);
+      if (bare !== null) throw new Error(bareForwardInputMessage(this._name, bare));
+
+      // IO-014 AC3: a forward names a consumed place.
       const inputPlaceNames = new Set(this._inputSpecs.map(s => s.place.name));
-      for (const fi of findForwardInputs(this._outputSpec)) {
+      for (const fi of findForwardInputs(spec)) {
         if (!inputPlaceNames.has(fi.from.name)) {
           throw new Error(
             `Transition '${this._name}': ForwardInput references non-input place '${fi.from.name}'`
           );
         }
       }
+
+      // IO-012: two alternatives no write can tell apart.
+      const ambiguous = ambiguousBranches(spec);
+      if (ambiguous !== null) throw new Error(ambiguousOutputMessage(this._name, ambiguous));
     }
 
     // Validate MatchSpec correlates only declared input places, each once (NU-020). A literal

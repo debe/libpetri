@@ -452,8 +452,9 @@ implementation MUST therefore offer construction of a token at an explicit times
 `ctx.output(place, value)` supplies a *value*; the implementation constructs the token and
 therefore chooses its `created_at`. Such a token is **executor-produced** and MUST be stamped
 through the injected epoch clock — as MUST every token the implementation synthesises during a
-firing, including the recovery outputs it produces when an action timeout fires ([IO-013]) and
-tokens minted from a raw value on injection. Only a token the **host itself** constructs, and
+firing, including the recovery outputs it mints when an action timeout fires ([IO-013]) and
+tokens minted from a raw value on injection. A token a `ForwardInput` deposits on that path is not
+synthesised: it is the consumed token itself and keeps its `created_at` ([IO-014]). Only a token the **host itself** constructs, and
 whose timestamp the host therefore already chose, falls outside. Reading the boundary the other
 way — treating anything an action had a hand in as host-side — leaves the bulk of a run's tokens
 carrying wall-clock time under a virtual clock, which defeats the requirement while appearing to
@@ -572,8 +573,9 @@ other.
     timestamps in the initial marking; the documentation states that the default token
     constructor does not give this.
 13. **Every executor-stamped token follows the clock.** Under an injected clock, tokens produced
-    by `ctx.output`, by a raw-value injection, and by an action-timeout recovery output all carry
-    timestamps from the injected epoch clock, not from wall time.
+    by `ctx.output`, by a raw-value injection, and by a minted action-timeout recovery output all
+    carry timestamps from the injected epoch clock, not from wall time. A forwarded recovery token
+    keeps the `created_at` of the token it forwards ([IO-014]).
 14. **Run identifiers survive a coarse or repeated clock.** Two executors constructed at the same
     injected instant carry different run identifiers — that half is the MUST. Reproducibility is
     the SHOULD: where an implementation meets it, a run replayed from the same construction order

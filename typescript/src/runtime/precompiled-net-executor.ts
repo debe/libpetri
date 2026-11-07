@@ -68,7 +68,12 @@ export interface PrecompiledNetExecutorOptions {
   eventStore?: EventStore;
   environmentPlaces?: Set<EnvironmentPlace<any>>;
   executionContextProvider?: (transitionName: string, consumed: Token<any>[]) => Map<string, unknown>;
-  /** Skip output spec validation for trusted actions (CONC-026). */
+  /**
+   * Skip output spec validation for trusted actions (CONC-026). Covers the whole spec, a
+   * single `Place` / `ForwardInput` leaf included, the NU-054 relay check and the IO-016
+   * multiplicity warning. A write to an undeclared place still fails (CORE-063), the timeout
+   * outcome still deposits its child, and the build-time spec checks are not affected.
+   */
   skipOutputValidation?: boolean;
   /** Reuse a precompiled program (avoids recompilation). */
   program?: PrecompiledNet;

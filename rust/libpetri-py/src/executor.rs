@@ -35,8 +35,11 @@ use crate::value::{marking_from_python_at, marking_snapshot_to_python};
 /// Run-time options for a single execution.
 ///
 /// `environment_places` keeps the executor alive while external tokens may
-/// still arrive. `skip_output_validation` disables AND/XOR output-spec checks
-/// for trusted callers. `clock` installs a host clock (TIME-015).
+/// still arrive. `skip_output_validation` disables the per-firing output-spec
+/// check for trusted callers (CONC-026): every spec shape, single-place leaves
+/// included, the NU-054 relay check and the IO-016 multiplicity warning. A write
+/// to an undeclared place still fails, and the build-time output-spec checks
+/// still run. `clock` installs a host clock (TIME-015).
 #[pyclass(module = "_libpetri", name = "ExecutorOptions", from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyExecutorOptions {

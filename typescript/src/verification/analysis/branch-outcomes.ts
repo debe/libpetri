@@ -108,10 +108,8 @@ export function outcomes(t: Transition): Outcome[] {
   if (result.length === 0) result.push(emptyOutcome());
   // The executor takes the transition's first `Timeout` ([IO-013]), and so do we.
   if (t.actionTimeout !== null) {
-    for (const deposits of timeoutDeposits(t.actionTimeout.child, t)) {
-      const outcome = makeOutcome(deposits);
-      if (!result.some(o => sameOutcome(o, outcome))) result.push(outcome);
-    }
+    const outcome = makeOutcome(timeoutDeposits(t.actionTimeout.child, t));
+    if (!result.some(o => sameOutcome(o, outcome))) result.push(outcome);
   }
   return result;
 }
@@ -149,42 +147,30 @@ export function timeoutWrites(t: Transition): TimeoutWrite[] {
 }
 
 /**
- * The deposits of a `Timeout` child, one map per branch of it. The executors reject an `Xor`
- * under a `Timeout` when it fires; reading it as alternatives here keeps the enumeration total.
+ * The deposits of a `Timeout` child: one fixed set of places, since building rejects an `Xor`
+ * anywhere in the child ([IO-013]).
  */
-function timeoutDeposits(out: Out, t: Transition): Map<string, OutcomeDeposit>[] {
+function timeoutDeposits(out: Out, t: Transition, acc: Map<string, OutcomeDeposit> = new Map()): Map<string, OutcomeDeposit> {
   switch (out.type) {
     case 'place':
-      return [new Map([[out.place.name, { place: out.place, deposit: ONE }]])];
+      acc.set(out.place.name, { place: out.place, deposit: ONE });
+      break;
     case 'forward-input': {
       const deposit = forwardDeposit(t, out.from);
-      if (deposit.type === 'tokens' && deposit.count === 0) return [new Map()];
-      return [new Map([[out.to.name, { place: out.to, deposit }]])];
+      if (!(deposit.type === 'tokens' && deposit.count === 0)) acc.set(out.to.name, { place: out.to, deposit });
+      break;
     }
     case 'timeout':
-      return timeoutDeposits(out.child, t);
+      timeoutDeposits(out.child, t, acc);
+      break;
+    case 'and':
+      // A place twice in one branch is rejected at build ([IO-011]), so the children are disjoint.
+      for (const child of out.children) timeoutDeposits(child, t, acc);
+      break;
     case 'xor':
-      return out.children.flatMap(c => timeoutDeposits(c, t));
-    case 'and': {
-      let acc: Map<string, OutcomeDeposit>[] = [new Map()];
-      for (const child of out.children) {
-        const next = timeoutDeposits(child, t);
-        acc = acc.flatMap(left => next.map(right => {
-          const merged = new Map(left);
-          for (const [name, d] of right) {
-            // A place twice in one branch is rejected at build ([IO-011]); summing keeps
-            // this total regardless.
-            const prior = merged.get(name);
-            merged.set(name, prior !== undefined && prior.deposit.type === 'tokens' && d.deposit.type === 'tokens'
-              ? { place: d.place, deposit: { type: 'tokens', count: prior.deposit.count + d.deposit.count } }
-              : d);
-          }
-          return merged;
-        }));
-      }
-      return acc;
-    }
+      throw new Error(`unreachable: transition '${t.name}' has a Xor node in its Timeout child, which building rejects (IO-013)`);
   }
+  return acc;
 }
 
 /**

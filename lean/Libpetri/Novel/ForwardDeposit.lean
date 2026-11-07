@@ -61,9 +61,11 @@ Results:
 
 Out of scope: timing (a timeout is a nondeterministic outcome here, as in the analyses),
 colours (only counts, as in `Basic.lean`), n-ary `And` / `Xor` (modelled as binary nodes; the
-enumeration order of a right fold is the same), the executors' rejection of a `Xor` or nested
-`Timeout` under a `Timeout` (read here as alternatives, as `branch_outcomes::timeout_deposits`
-does), and the transition with no output spec (one empty outcome in Rust).
+enumeration order of a right fold is the same), the builders' rejection of a `Xor` or nested
+`Timeout` under a `Timeout` ([IO-013]; read here as alternatives, where
+`branch_outcomes::timeout_deposits` treats the shape as unreachable; a spec that builds has one
+timeout deposit in both), and the
+transition with no output spec (one empty outcome in Rust).
 -/
 
 namespace Libpetri.Novel.ForwardDeposit

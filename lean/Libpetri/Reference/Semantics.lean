@@ -20,8 +20,8 @@ inhibitors, reads, resets, by name) together with an optional output spec (`Out 
   (`deposit`, indexed by `ForwardDeposit.Choice`):
   - the action writes one branch of `Out.branches` — one token per claimed place, a `forward`
     claiming its `to` ([IO-015], [IO-016]); a transition with no output spec writes nothing;
-  - or the executor's timeout fires, and the marking receives the first `Timeout` node's child
-    and nothing else ([IO-013] AC5), where `forward(from, to)` deposits **one token in `to` per
+  - or the executor's timeout fires, and the marking receives the `Timeout` node's child and
+    nothing else ([IO-013] AC5), where `forward(from, to)` deposits **one token in `to` per
     token the firing consumed from `from`** ([IO-014] AC2/AC4). From an `All` / `AtLeast` input
     that is the whole drained batch (transfer semantics): `consumed` is the firing's actual
     consumption, so no special case is needed.
@@ -85,7 +85,13 @@ def Out.branches : Out N → List (List N)
   | .timeout c => c.branches
 
 /-- What a timeout child deposits ([IO-013] AC5, [IO-014]): a token per place, and per
-`forward from to` one token in `to` per token consumed from `from`. -/
+`forward from to` one token in `to` per token consumed from `from`.
+
+An output spec holds at most one `Timeout` node ([IO-013] AC7), and its child holds no `Xor` node
+([IO-013] AC8), so the `Timeout` and `Xor` clauses below are never reached from a net the loader
+accepts (`Load.parseTrans` refuses a second `Timeout`, nested or not, and an `Xor` inside the
+child), and the list has one entry. They stay only to keep the function total and equal, clause
+for clause, to `ForwardDeposit.timeoutDeposits` (`Link.timeoutDeposits_toOutSpec`). -/
 def Out.timeoutDeposits (consumed : N → Nat) : Out N → List (List N)
   | .place p => [[p]]
   | .forward src dst => [List.replicate (consumed src) dst]
@@ -93,7 +99,8 @@ def Out.timeoutDeposits (consumed : N → Nat) : Out N → List (List N)
   | .xor l r => l.timeoutDeposits consumed ++ r.timeoutDeposits consumed
   | .timeout c => c.timeoutDeposits consumed
 
-/-- The first `Timeout` node's child, in pre-order. -/
+/-- The `Timeout` node's child. A spec the loader accepts has at most one `Timeout` node
+([IO-013] AC7); on any other the pre-order first is taken. -/
 def Out.findTimeout : Out N → Option (Out N)
   | .timeout c => some c
   | .and l r => l.findTimeout.or r.findTimeout

@@ -26,11 +26,11 @@ flowchart TD
     n76["Libpetri.InSpec"]
     n77["Libpetri.InSpec.card"]
     n80["Libpetri.InSpec.place"]
-    n2512["Libpetri.PlaceId"]
-    n2743["Libpetri.Transition"]
-    n2745["Libpetri.Transition.inputs"]
-    n2749["Libpetri.Transition.reads"]
-    n2750["Libpetri.Transition.resets"]
+    n2514["Libpetri.PlaceId"]
+    n3949["Libpetri.Transition"]
+    n3951["Libpetri.Transition.inputs"]
+    n3955["Libpetri.Transition.reads"]
+    n3956["Libpetri.Transition.resets"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -39,8 +39,8 @@ flowchart TD
     n25["Libpetri.ConsumeOp.n"]
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
-    n2819["Libpetri.compileConsumeOps"]
-    n2974["Libpetri.opOfSpec"]
+    n4025["Libpetri.compileConsumeOps"]
+    n4180["Libpetri.opOfSpec"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -48,154 +48,154 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n2824["Libpetri.consumeForFiring"]
-    n2827["🔒 Libpetri.consumeForFiring_eq_program"]
-    n2881["Libpetri.execOp"]
-    n2884["Libpetri.execOpsFrom"]
-    n2885["🔒 Libpetri.execOpsFrom_append"]
-    n2986["Libpetri.peekReads"]
+    n4030["Libpetri.consumeForFiring"]
+    n4033["🔒 Libpetri.consumeForFiring_eq_program"]
+    n4087["Libpetri.execOp"]
+    n4090["Libpetri.execOpsFrom"]
+    n4091["🔒 Libpetri.execOpsFrom_append"]
+    n4192["Libpetri.peekReads"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n2742["Libpetri.TokenBag"]
-    n2765["Libpetri.addBag"]
-    n2871["Libpetri.emptyBag"]
-    n2988["Libpetri.popN"]
+    n3948["Libpetri.TokenBag"]
+    n3971["Libpetri.addBag"]
+    n4077["Libpetri.emptyBag"]
+    n4194["Libpetri.popN"]
   end
   subgraph g4["Libpetri/Ring/Core.lean"]
-    n2519["Libpetri.Pool"]
-    n2534["Libpetri.Pool.cap"]
-    n2535["Libpetri.Pool.cnt"]
-    n2540["Libpetri.Pool.first"]
-    n2563["Libpetri.Pool.head"]
-    n2581["Libpetri.Pool.len"]
-    n2585["Libpetri.Pool.mk"]
-    n2586["Libpetri.Pool.nplaces"]
-    n2587["Libpetri.Pool.offset"]
-    n2589["Libpetri.Pool.peekFirst"]
-    n2591["Libpetri.Pool.pool"]
-    n2615["Libpetri.Pool.removeFirst"]
-    n2634["Libpetri.Pool.slot"]
-    n2639["Libpetri.Pool.tail"]
+    n2521["Libpetri.Pool"]
+    n2536["Libpetri.Pool.cap"]
+    n2537["Libpetri.Pool.cnt"]
+    n2542["Libpetri.Pool.first"]
+    n2565["Libpetri.Pool.head"]
+    n2583["Libpetri.Pool.len"]
+    n2587["Libpetri.Pool.mk"]
+    n2588["Libpetri.Pool.nplaces"]
+    n2589["Libpetri.Pool.offset"]
+    n2591["Libpetri.Pool.peekFirst"]
+    n2593["Libpetri.Pool.pool"]
+    n2617["Libpetri.Pool.removeFirst"]
+    n2636["Libpetri.Pool.slot"]
+    n2641["Libpetri.Pool.tail"]
   end
   subgraph g5["Libpetri/RingArith.lean"]
-    n3031["Libpetri.ringPos"]
+    n4237["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
   n12 --> n8
   n13 --> n8
   n23 --> n22
-  n23 --> n2512
+  n23 --> n2514
   n24 --> n22
-  n24 --> n2512
+  n24 --> n2514
   n25 --> n22
-  n25 --> n2512
+  n25 --> n2514
   n26 --> n22
-  n26 --> n2512
+  n26 --> n2514
   n27 --> n22
-  n27 --> n2512
+  n27 --> n2514
   n29 --> n28
-  n29 --> n2742
+  n29 --> n3948
   n30 --> n28
-  n30 --> n2742
+  n30 --> n3948
   n31 --> n28
-  n31 --> n2519
-  n31 --> n2742
+  n31 --> n2521
+  n31 --> n3948
   n32 --> n28
-  n32 --> n2519
+  n32 --> n2521
   n77 --> n8
   n77 --> n76
   n80 --> n76
-  n80 --> n2512
-  n2534 --> n2512
-  n2534 --> n2519
-  n2535 --> n2512
-  n2535 --> n2519
-  n2540 --> n2591
-  n2540 --> n2634
-  n2563 --> n2512
-  n2563 --> n2519
-  n2581 --> n2519
-  n2585 --> n21
-  n2585 --> n2512
-  n2585 --> n2519
-  n2586 --> n2519
-  n2587 --> n2512
-  n2587 --> n2519
-  n2589 --> n2535
-  n2589 --> n2591
-  n2589 --> n2634
-  n2591 --> n21
-  n2591 --> n2519
-  n2615 --> n2535
-  n2615 --> n2581
-  n2615 --> n2585
-  n2615 --> n2586
-  n2615 --> n2591
-  n2615 --> n2634
-  n2615 --> n2639
-  n2634 --> n2534
-  n2634 --> n2563
-  n2634 --> n2587
-  n2634 --> n3031
-  n2639 --> n2512
-  n2639 --> n2519
-  n2742 --> n21
-  n2742 --> n2512
-  n2745 --> n76
-  n2745 --> n2743
-  n2749 --> n2512
-  n2749 --> n2743
-  n2750 --> n2512
-  n2750 --> n2743
-  n2765 --> n2742
-  n2819 --> n27
-  n2819 --> n2745
-  n2819 --> n2750
-  n2819 --> n2974
-  n2824 --> n2745
-  n2824 --> n2749
-  n2824 --> n2750
-  n2824 --> n2884
-  n2824 --> n2974
-  n2824 --> n2986
-  n2827 --> n2819
-  n2827 --> n2824
-  n2827 --> n2885
-  n2871 --> n2742
-  n2881 --> n23
-  n2881 --> n24
-  n2881 --> n25
-  n2881 --> n26
-  n2881 --> n27
-  n2881 --> n29
-  n2881 --> n30
-  n2881 --> n31
-  n2881 --> n32
-  n2881 --> n2765
-  n2881 --> n2988
-  n2884 --> n2881
-  n2885 --> n2884
-  n2974 --> n9
-  n2974 --> n10
-  n2974 --> n12
-  n2974 --> n13
-  n2974 --> n23
-  n2974 --> n24
-  n2974 --> n25
-  n2974 --> n26
-  n2974 --> n77
-  n2974 --> n80
-  n2986 --> n2589
-  n2986 --> n2765
-  n2986 --> n2871
-  n2988 --> n2540
-  n2988 --> n2615
+  n80 --> n2514
+  n2536 --> n2514
+  n2536 --> n2521
+  n2537 --> n2514
+  n2537 --> n2521
+  n2542 --> n2593
+  n2542 --> n2636
+  n2565 --> n2514
+  n2565 --> n2521
+  n2583 --> n2521
+  n2587 --> n21
+  n2587 --> n2514
+  n2587 --> n2521
+  n2588 --> n2521
+  n2589 --> n2514
+  n2589 --> n2521
+  n2591 --> n2537
+  n2591 --> n2593
+  n2591 --> n2636
+  n2593 --> n21
+  n2593 --> n2521
+  n2617 --> n2537
+  n2617 --> n2583
+  n2617 --> n2587
+  n2617 --> n2588
+  n2617 --> n2593
+  n2617 --> n2636
+  n2617 --> n2641
+  n2636 --> n2536
+  n2636 --> n2565
+  n2636 --> n2589
+  n2636 --> n4237
+  n2641 --> n2514
+  n2641 --> n2521
+  n3948 --> n21
+  n3948 --> n2514
+  n3951 --> n76
+  n3951 --> n3949
+  n3955 --> n2514
+  n3955 --> n3949
+  n3956 --> n2514
+  n3956 --> n3949
+  n3971 --> n3948
+  n4025 --> n27
+  n4025 --> n3951
+  n4025 --> n3956
+  n4025 --> n4180
+  n4030 --> n3951
+  n4030 --> n3955
+  n4030 --> n3956
+  n4030 --> n4090
+  n4030 --> n4180
+  n4030 --> n4192
+  n4033 --> n4025
+  n4033 --> n4030
+  n4033 --> n4091
+  n4077 --> n3948
+  n4087 --> n23
+  n4087 --> n24
+  n4087 --> n25
+  n4087 --> n26
+  n4087 --> n27
+  n4087 --> n29
+  n4087 --> n30
+  n4087 --> n31
+  n4087 --> n32
+  n4087 --> n3971
+  n4087 --> n4194
+  n4090 --> n4087
+  n4091 --> n4090
+  n4180 --> n9
+  n4180 --> n10
+  n4180 --> n12
+  n4180 --> n13
+  n4180 --> n23
+  n4180 --> n24
+  n4180 --> n25
+  n4180 --> n26
+  n4180 --> n77
+  n4180 --> n80
+  n4192 --> n2591
+  n4192 --> n3971
+  n4192 --> n4077
+  n4194 --> n2542
+  n4194 --> n2617
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2827 root
-  class n2827,n2885 locked
+  class n4033 root
+  class n4033,n4091 locked
 ```
 
 ### `Libpetri.read_reset_order_diverges`
@@ -216,12 +216,12 @@ flowchart TD
     n77["Libpetri.InSpec.card"]
     n79["Libpetri.InSpec.mk"]
     n80["Libpetri.InSpec.place"]
-    n2512["Libpetri.PlaceId"]
-    n2743["Libpetri.Transition"]
-    n2745["Libpetri.Transition.inputs"]
-    n2746["Libpetri.Transition.mk"]
-    n2749["Libpetri.Transition.reads"]
-    n2750["Libpetri.Transition.resets"]
+    n2514["Libpetri.PlaceId"]
+    n3949["Libpetri.Transition"]
+    n3951["Libpetri.Transition.inputs"]
+    n3952["Libpetri.Transition.mk"]
+    n3955["Libpetri.Transition.reads"]
+    n3956["Libpetri.Transition.resets"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -230,7 +230,7 @@ flowchart TD
     n25["Libpetri.ConsumeOp.n"]
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
-    n2974["Libpetri.opOfSpec"]
+    n4180["Libpetri.opOfSpec"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -238,172 +238,172 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n2824["Libpetri.consumeForFiring"]
-    n2881["Libpetri.execOp"]
-    n2884["Libpetri.execOpsFrom"]
-    n2986["Libpetri.peekReads"]
+    n4030["Libpetri.consumeForFiring"]
+    n4087["Libpetri.execOp"]
+    n4090["Libpetri.execOpsFrom"]
+    n4192["Libpetri.peekReads"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n2742["Libpetri.TokenBag"]
-    n2765["Libpetri.addBag"]
-    n2871["Libpetri.emptyBag"]
-    n2988["Libpetri.popN"]
+    n3948["Libpetri.TokenBag"]
+    n3971["Libpetri.addBag"]
+    n4077["Libpetri.emptyBag"]
+    n4194["Libpetri.popN"]
   end
   subgraph g4["Libpetri/RetrodictExec.lean"]
-    n2855["Libpetri.demoPool"]
-    n2998["Libpetri.preFixReads"]
-    n3016["🔒 Libpetri.read_reset_order_diverges"]
-    n3075["Libpetri.tReadReset"]
+    n4061["Libpetri.demoPool"]
+    n4204["Libpetri.preFixReads"]
+    n4222["🔒 Libpetri.read_reset_order_diverges"]
+    n4281["Libpetri.tReadReset"]
   end
   subgraph g5["Libpetri/Ring/Core.lean"]
-    n2519["Libpetri.Pool"]
-    n2534["Libpetri.Pool.cap"]
-    n2535["Libpetri.Pool.cnt"]
-    n2540["Libpetri.Pool.first"]
-    n2563["Libpetri.Pool.head"]
-    n2581["Libpetri.Pool.len"]
-    n2585["Libpetri.Pool.mk"]
-    n2586["Libpetri.Pool.nplaces"]
-    n2587["Libpetri.Pool.offset"]
-    n2589["Libpetri.Pool.peekFirst"]
-    n2591["Libpetri.Pool.pool"]
-    n2615["Libpetri.Pool.removeFirst"]
-    n2634["Libpetri.Pool.slot"]
-    n2639["Libpetri.Pool.tail"]
+    n2521["Libpetri.Pool"]
+    n2536["Libpetri.Pool.cap"]
+    n2537["Libpetri.Pool.cnt"]
+    n2542["Libpetri.Pool.first"]
+    n2565["Libpetri.Pool.head"]
+    n2583["Libpetri.Pool.len"]
+    n2587["Libpetri.Pool.mk"]
+    n2588["Libpetri.Pool.nplaces"]
+    n2589["Libpetri.Pool.offset"]
+    n2591["Libpetri.Pool.peekFirst"]
+    n2593["Libpetri.Pool.pool"]
+    n2617["Libpetri.Pool.removeFirst"]
+    n2636["Libpetri.Pool.slot"]
+    n2641["Libpetri.Pool.tail"]
   end
   subgraph g6["Libpetri/RingArith.lean"]
-    n3031["Libpetri.ringPos"]
+    n4237["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
   n12 --> n8
   n13 --> n8
   n23 --> n22
-  n23 --> n2512
+  n23 --> n2514
   n24 --> n22
-  n24 --> n2512
+  n24 --> n2514
   n25 --> n22
-  n25 --> n2512
+  n25 --> n2514
   n26 --> n22
-  n26 --> n2512
+  n26 --> n2514
   n27 --> n22
-  n27 --> n2512
+  n27 --> n2514
   n29 --> n28
-  n29 --> n2742
+  n29 --> n3948
   n30 --> n28
-  n30 --> n2742
+  n30 --> n3948
   n31 --> n28
-  n31 --> n2519
-  n31 --> n2742
+  n31 --> n2521
+  n31 --> n3948
   n32 --> n28
-  n32 --> n2519
+  n32 --> n2521
   n74 --> n21
   n77 --> n8
   n77 --> n76
   n79 --> n8
   n79 --> n74
   n79 --> n76
-  n79 --> n2512
+  n79 --> n2514
   n80 --> n76
-  n80 --> n2512
-  n2534 --> n2512
-  n2534 --> n2519
-  n2535 --> n2512
-  n2535 --> n2519
-  n2540 --> n2591
-  n2540 --> n2634
-  n2563 --> n2512
-  n2563 --> n2519
-  n2581 --> n2519
-  n2585 --> n21
-  n2585 --> n2512
-  n2585 --> n2519
-  n2586 --> n2519
-  n2587 --> n2512
-  n2587 --> n2519
-  n2589 --> n2535
-  n2589 --> n2591
-  n2589 --> n2634
-  n2591 --> n21
-  n2591 --> n2519
-  n2615 --> n2535
-  n2615 --> n2581
-  n2615 --> n2585
-  n2615 --> n2586
-  n2615 --> n2591
-  n2615 --> n2634
-  n2615 --> n2639
-  n2634 --> n2534
-  n2634 --> n2563
-  n2634 --> n2587
-  n2634 --> n3031
-  n2639 --> n2512
-  n2639 --> n2519
-  n2742 --> n21
-  n2742 --> n2512
-  n2745 --> n76
-  n2745 --> n2743
-  n2746 --> n76
-  n2746 --> n2512
-  n2746 --> n2743
-  n2749 --> n2512
-  n2749 --> n2743
-  n2750 --> n2512
-  n2750 --> n2743
-  n2765 --> n2742
-  n2824 --> n2745
-  n2824 --> n2749
-  n2824 --> n2750
-  n2824 --> n2884
-  n2824 --> n2974
-  n2824 --> n2986
-  n2855 --> n2585
-  n2871 --> n2742
-  n2881 --> n23
-  n2881 --> n24
-  n2881 --> n25
-  n2881 --> n26
-  n2881 --> n27
-  n2881 --> n29
-  n2881 --> n30
-  n2881 --> n31
-  n2881 --> n32
-  n2881 --> n2765
-  n2881 --> n2988
-  n2884 --> n2881
-  n2974 --> n9
-  n2974 --> n10
-  n2974 --> n12
-  n2974 --> n13
-  n2974 --> n23
-  n2974 --> n24
-  n2974 --> n25
-  n2974 --> n26
-  n2974 --> n77
-  n2974 --> n80
-  n2986 --> n2589
-  n2986 --> n2765
-  n2986 --> n2871
-  n2988 --> n2540
-  n2988 --> n2615
-  n2998 --> n2745
-  n2998 --> n2749
-  n2998 --> n2750
-  n2998 --> n2884
-  n2998 --> n2974
-  n2998 --> n2986
-  n3016 --> n2824
-  n3016 --> n2855
-  n3016 --> n2998
-  n3016 --> n3075
-  n3075 --> n13
-  n3075 --> n79
-  n3075 --> n2746
+  n80 --> n2514
+  n2536 --> n2514
+  n2536 --> n2521
+  n2537 --> n2514
+  n2537 --> n2521
+  n2542 --> n2593
+  n2542 --> n2636
+  n2565 --> n2514
+  n2565 --> n2521
+  n2583 --> n2521
+  n2587 --> n21
+  n2587 --> n2514
+  n2587 --> n2521
+  n2588 --> n2521
+  n2589 --> n2514
+  n2589 --> n2521
+  n2591 --> n2537
+  n2591 --> n2593
+  n2591 --> n2636
+  n2593 --> n21
+  n2593 --> n2521
+  n2617 --> n2537
+  n2617 --> n2583
+  n2617 --> n2587
+  n2617 --> n2588
+  n2617 --> n2593
+  n2617 --> n2636
+  n2617 --> n2641
+  n2636 --> n2536
+  n2636 --> n2565
+  n2636 --> n2589
+  n2636 --> n4237
+  n2641 --> n2514
+  n2641 --> n2521
+  n3948 --> n21
+  n3948 --> n2514
+  n3951 --> n76
+  n3951 --> n3949
+  n3952 --> n76
+  n3952 --> n2514
+  n3952 --> n3949
+  n3955 --> n2514
+  n3955 --> n3949
+  n3956 --> n2514
+  n3956 --> n3949
+  n3971 --> n3948
+  n4030 --> n3951
+  n4030 --> n3955
+  n4030 --> n3956
+  n4030 --> n4090
+  n4030 --> n4180
+  n4030 --> n4192
+  n4061 --> n2587
+  n4077 --> n3948
+  n4087 --> n23
+  n4087 --> n24
+  n4087 --> n25
+  n4087 --> n26
+  n4087 --> n27
+  n4087 --> n29
+  n4087 --> n30
+  n4087 --> n31
+  n4087 --> n32
+  n4087 --> n3971
+  n4087 --> n4194
+  n4090 --> n4087
+  n4180 --> n9
+  n4180 --> n10
+  n4180 --> n12
+  n4180 --> n13
+  n4180 --> n23
+  n4180 --> n24
+  n4180 --> n25
+  n4180 --> n26
+  n4180 --> n77
+  n4180 --> n80
+  n4192 --> n2591
+  n4192 --> n3971
+  n4192 --> n4077
+  n4194 --> n2542
+  n4194 --> n2617
+  n4204 --> n3951
+  n4204 --> n3955
+  n4204 --> n3956
+  n4204 --> n4090
+  n4204 --> n4180
+  n4204 --> n4192
+  n4222 --> n4030
+  n4222 --> n4061
+  n4222 --> n4204
+  n4222 --> n4281
+  n4281 --> n13
+  n4281 --> n79
+  n4281 --> n3952
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n3016 root
-  class n3016 locked
+  class n4222 root
+  class n4222 locked
 ```
 
 ### `Libpetri.token_conservation`
@@ -418,65 +418,65 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n2813["🔒 Libpetri.canEnable_spec"]
-    n2824["Libpetri.consumeForFiring"]
-    n2881["Libpetri.execOp"]
-    n2882["🔒 Libpetri.execOp_input_spec"]
-    n2883["🔒 Libpetri.execOp_pop_spec"]
-    n2884["Libpetri.execOpsFrom"]
-    n2886["🔒 Libpetri.execOpsFrom_cons"]
-    n2888["🔒 Libpetri.execOps_inputs"]
-    n2889["🔒 Libpetri.execOps_resets"]
-    n2986["Libpetri.peekReads"]
-    n3078["🔒 Libpetri.token_conservation"]
+    n4019["🔒 Libpetri.canEnable_spec"]
+    n4030["Libpetri.consumeForFiring"]
+    n4087["Libpetri.execOp"]
+    n4088["🔒 Libpetri.execOp_input_spec"]
+    n4089["🔒 Libpetri.execOp_pop_spec"]
+    n4090["Libpetri.execOpsFrom"]
+    n4092["🔒 Libpetri.execOpsFrom_cons"]
+    n4094["🔒 Libpetri.execOps_inputs"]
+    n4095["🔒 Libpetri.execOps_resets"]
+    n4192["Libpetri.peekReads"]
+    n4284["🔒 Libpetri.token_conservation"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
   c3["📁 Libpetri/Conservation/Pop.lean (8 declarations, collapsed)"]
-  c74["📁 Libpetri/Ring/Core.lean (52 declarations, collapsed)"]
-  c77["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
-  c1 --> c74
-  c3 --> c74
-  c74 --> c0
-  c74 --> c77
+  c75["📁 Libpetri/Ring/Core.lean (52 declarations, collapsed)"]
+  c78["📁 Libpetri/RingArith.lean (6 declarations, collapsed)"]
+  c1 --> c75
+  c3 --> c75
+  c75 --> c0
+  c75 --> c78
   n29 --> c3
   n29 --> n28
   n30 --> c3
   n30 --> n28
   n31 --> c3
   n31 --> n28
-  n32 --> c74
+  n32 --> c75
   n32 --> n28
-  n2813 --> c1
-  n2824 --> n2884
-  n2824 --> n2986
-  n2881 --> c1
-  n2881 --> n29
-  n2881 --> n30
-  n2881 --> n31
-  n2881 --> n32
-  n2882 --> n2881
-  n2882 --> n2883
-  n2883 --> n29
-  n2883 --> n30
-  n2883 --> n31
-  n2883 --> n32
-  n2884 --> n2881
-  n2886 --> n2884
-  n2888 --> n2882
-  n2888 --> n2886
-  n2889 --> n2886
-  n2986 --> c3
-  n3078 --> n2813
-  n3078 --> n2824
-  n3078 --> n2888
-  n3078 --> n2889
+  n4019 --> c1
+  n4030 --> n4090
+  n4030 --> n4192
+  n4087 --> c1
+  n4087 --> n29
+  n4087 --> n30
+  n4087 --> n31
+  n4087 --> n32
+  n4088 --> n4087
+  n4088 --> n4089
+  n4089 --> n29
+  n4089 --> n30
+  n4089 --> n31
+  n4089 --> n32
+  n4090 --> n4087
+  n4092 --> n4090
+  n4094 --> n4088
+  n4094 --> n4092
+  n4095 --> n4092
+  n4192 --> c3
+  n4284 --> n4019
+  n4284 --> n4030
+  n4284 --> n4094
+  n4284 --> n4095
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n3078 root
-  class n2813,n2882,n2883,n2886,n2888,n2889,n3078 locked
-  class c0,c1,c3,c74,c77 collapsed
+  class n4284 root
+  class n4019,n4088,n4089,n4092,n4094,n4095,n4284 locked
+  class c0,c1,c3,c75,c78 collapsed
 ```
 
 Axioms used:

@@ -267,7 +267,7 @@ The output side has the same shape. When the substitution would make one **AND b
 ports 'a' and 'b' of instance 's' are both bound to host place 'X'; transition 's/split' would produce into 'X' twice in one AND branch. Outputs are sets (IO-015); bind them to distinct places or use one port.
 ```
 
-and not with the generic [IO-011] rejection the rebuild would otherwise raise. A branch is taken after flattening nested `And`s, as in [IO-011]. Two ports that land in **different** `Xor` alternatives are not a collision: each alternative still names the place once.
+and not with the generic [IO-011] rejection the rebuild would otherwise raise. A branch is taken after flattening nested `And`s, as in [IO-011]. Two ports that land in **different** `Xor` alternatives are not a port-binding collision, because each alternative still names the place once. *If* the substitution makes two distinct alternatives claim the same set of places, such as `Xor(a, b)` becoming `Xor(X, X)`, *then* rebuilding the transition *shall* fail with the [IO-012] ambiguity message, which names the transition, the two output branches and the places.
 
 Other effects of binding two ports to one place (an input and a read arc, an input and an output, an input and an inhibitor) are unchanged: they are legal arcs with their usual semantics. The checks apply wherever [MOD-020] bindings are processed, so the auto-bound form of [MOD-024] is covered too.
 
@@ -279,10 +279,10 @@ Other effects of binding two ports to one place (an input and a read arc, an inp
 5. Re-binding the same port name twice in a single `compose(...)` call (whether to the same caller place or different ones) is rejected at compose time with an error naming the port and both target caller places.
 6. Binding the same caller-side transition to two distinct channels of one instance in a single `compose(...)` call is rejected at compose time with an error naming the caller transition and both channels.
 7. Binding ports `a` and `b` of instance `s` to one caller place `X`, where instance transition `join` has an input arc on each port, is rejected at compose time with the port-binding collision message above, naming `a`, `b`, `s`, `X` and `s/join`. Binding the same two ports to `X` when no transition consumes from both is accepted.
-8. Binding output ports `a` and `b` of instance `s` to one caller place `X`, where instance transition `split` declares `And(a, b)`, is rejected at compose time with the output collision message above, naming `a`, `b`, `s`, `X` and `s/split`, not with the generic [IO-011] message. With `Xor(a, b)` the same binding is accepted.
+8. Binding output ports `a` and `b` of instance `s` to one caller place `X`, where instance transition `split` declares `And(a, b)`, is rejected at compose time with the output collision message above, naming `a`, `b`, `s`, `X` and `s/split`, not with the generic [IO-011] message. With `Xor(a, b)` the same binding is rejected with the [IO-012] ambiguity message naming `s/split`, output branches 0 and 1, and `{X}`.
 
-**Depends on:** [MOD-010], [MOD-011], [CORE-030], [IO-011]
-**Test derivation:** Build subnet with port `out`; compose with `out -> P`; export the resulting net and a hand-written equivalent; assert structural equivalence. Compose with `out -> P, out -> Q` in one call; verify rejection. Build a subnet whose transition `join` consumes from ports `a` and `b`; compose with `a -> X, b -> X`; verify rejection with the collision message. Repeat with a transition `split` producing `And(a, b)` (rejected, output message) and `Xor(a, b)` (accepted).
+**Depends on:** [MOD-010], [MOD-011], [CORE-030], [IO-011], [IO-012]
+**Test derivation:** Build subnet with port `out`; compose with `out -> P`; export the resulting net and a hand-written equivalent; assert structural equivalence. Compose with `out -> P, out -> Q` in one call; verify rejection. Build a subnet whose transition `join` consumes from ports `a` and `b`; compose with `a -> X, b -> X`; verify rejection with the collision message. Repeat with a transition `split` producing `And(a, b)` (rejected, output message) and `Xor(a, b)` (rejected, [IO-012] message).
 
 ---
 

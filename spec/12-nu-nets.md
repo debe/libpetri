@@ -336,6 +336,9 @@ broken by name. The selection is a pure function of the current marking and MUST
 be **identical across all conforming implementations**: the firing tie-break
 (`selectMatchName` / `select_match_name`) is byte-identical, and any incremental
 acceleration of it MUST return byte-identical results to the reference function.
+A token a `ForwardInput` forwards on a timeout outcome keeps its original `created_at` in
+every implementation ([IO-014]), so a name whose oldest correlated token was forwarded
+orders the same everywhere.
 
 **Acceptance Criteria:**
 1. Given the same eligible *(name → correlated-token timestamps)* state, every
@@ -1061,8 +1064,10 @@ the declaration was ignored and name EXTENDED. The runtime check is independent 
    or that consumes its relay target through a non-key input, is rejected (no fragment), as is a
    relay target with a read, inhibitor or reset arc. So is a join whose timeout writes a relay
    target as a unit token or as a forward of a non-key input: on the AC3 chain with `j1`'s output
-   `xor(C, timeout(C))`, `deadlockFree` is not `Proven`, and neither Route B nor Route A decides
-   it. The same chain with `timeout(forwardInput(A, C))` is still `Proven` through Route B.
+   `xor(and(C, E), timeout(C))`, where `E` is a sink, `deadlockFree` is not `Proven`, and neither
+   Route B nor Route A decides it. The same chain with `timeout(forwardInput(A, C))` as the second
+   alternative is still `Proven` through Route B. (The action alternative writes `E` so that the
+   two alternatives claim different sets ([IO-012]).)
 5. (MUST) Under BASE, a net whose only change is a relay declaration gets the verdict it got
    without one, and the report names the ignored declaration.
 6. (SHOULD) Route A ([NU-053]) and Route B agree on every small relay fixture both decide.

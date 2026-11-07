@@ -37,7 +37,7 @@
 
 #![cfg(feature = "z3")]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -364,7 +364,8 @@ fn gen_normal(rng: &mut Rng, n: usize) -> OSpec {
 }
 
 /// A timeout child ([IO-013]): a forward of a consumed input, optionally with a
-/// sibling place; never an `Xor` or nested `Timeout` (the runtime rejects both).
+/// sibling place; never an `Xor` or a nested `Timeout` (the builder rejects a second
+/// `Timeout`, [IO-013] AC7).
 fn gen_timeout_child(rng: &mut Rng, n: usize, inputs: &[(usize, Card)]) -> OSpec {
     // Mostly a one / exactly input: a forward of a draining input deposits a
     // marking-dependent count, which the flat encodings refuse (Unknown on every
@@ -465,8 +466,12 @@ fn gen_net(seed: u64) -> NetSpec {
             resets.push(rng.below(n));
         }
         let mut out = gen_out(&mut rng, n, &inputs);
-        // [IO-011]: the builder rejects a branch naming a place twice.
-        if out.as_ref().is_some_and(|o| output::duplicate_in_branch(&to_out(o, &places)).is_some()) {
+        // The builder rejects a branch naming a place twice ([IO-011]) and two branches
+        // claiming one set of places ([IO-012] AC5); one fallback draw for either.
+        if out
+            .as_ref()
+            .is_some_and(|o| output::duplicate_in_branch(&to_out(o, &places)).is_some() || ambiguous(o))
+        {
             out = Some(OSpec::Place(rng.below(n)));
         }
         transitions.push(TSpec { name: format!("t{ti}"), inputs, reads, inhibitors, resets, out });
@@ -609,6 +614,23 @@ fn alternatives(o: &OSpec) -> Vec<Vec<Leaf>> {
             acc
         }
     }
+}
+
+/// [IO-012] AC5: two distinct assignments claim one set of places (`Xor(P, P)`,
+/// `Xor(P, Timeout(ForwardInput(a, P)))`, ...), which the builder rejects.
+fn ambiguous(o: &OSpec) -> bool {
+    let claims: Vec<BTreeSet<usize>> = alternatives(o)
+        .iter()
+        .map(|alt| {
+            alt.iter()
+                .map(|l| match l {
+                    Leaf::Place(p) | Leaf::Forward { to: p, .. } => *p,
+                })
+                .collect()
+        })
+        .collect();
+    let distinct: BTreeSet<&BTreeSet<usize>> = claims.iter().collect();
+    distinct.len() != claims.len()
 }
 
 struct RefNet {

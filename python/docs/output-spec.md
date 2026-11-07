@@ -7,6 +7,30 @@ enforces that shape at runtime; per-place multiplicity remains a
 declaration for documentation, visualization, and formal verification —
 one the runtime warns about when a firing exceeds it ([IO-016] AC4).
 
+## What is enforced when the transition is built
+
+`Transition(...).build()` (and every composition that rebuilds a
+transition) raises `StructureError` for an output spec no firing could
+honour. The checks run in this order and the first failing one reports:
+
+1. A place named twice in one AND branch ([IO-011]), e.g. `lp.and_(P, P)`.
+2. More than one `lp.timeout`, nested or not ([IO-013]):
+   `output spec of transition 't' has 2 Timeout nodes; an output spec has at most one, nested or not (IO-013)`.
+3. An `lp.forward_input` outside the child of an `lp.timeout` ([IO-014]):
+   a forward deposits only on the timeout outcome.
+4. An `lp.forward_input` whose source is not an input place ([IO-014]).
+5. Two branches claiming the same set of places ([IO-012]), such as
+   `lp.xor(P, P)` or `lp.xor(P, lp.timeout(ms, P))`: no write could tell
+   them apart.
+
+   ```python
+   lp.Transition("t").input(lp.one(a)).output(lp.xor(p, p)).build()
+   # StructureError: output spec of transition 't' is ambiguous: output
+   #   branches 0 and 1 both claim {P}; no write can tell them apart (IO-012)
+   ```
+
+No executor option skips these checks.
+
 ## What is enforced at runtime
 
 1. **Declared-place rule.** `ctx.output(name, ...)` and
@@ -25,10 +49,10 @@ one the runtime warns about when a firing exceeds it ([IO-016] AC4).
 
    - `lp.out(P)` requires at least one write to `P`.
    - `lp.and_(A, B)` requires *both* children satisfied.
-   - `lp.xor(A, B)` requires *exactly one* — neither zero nor both. If
-     several branches match and one subsumes all the others (as
-     `and_(A, B, C)` subsumes `and_(A, B)`), the most specific branch is
-     selected rather than rejected.
+   - `lp.xor(A, B)` requires *exactly one*, neither zero nor both. The
+     written set must equal one branch's places exactly, so with `A`, `B`
+     and `C` written, `xor(and_(A, B, C), and_(A, B))` matches the first
+     branch only.
    - `lp.timeout(ms, child)` validates `child`. The timeout branch itself
      is exempt: those outputs are synthesized by the runtime and satisfy
      the timeout child by construction.
@@ -54,10 +78,12 @@ one the runtime warns about when a firing exceeds it ([IO-016] AC4).
    observe firing failures.
 
 3. **`skip_output_validation` on `ExecutorOptions`.** Set it to `True` to
-   turn rule 2 off for the whole run; every firing's output is then
-   accepted. Rule 1 still applies. Matches Java's
-   `Builder.skipOutputValidation` and TypeScript's
-   `skipOutputValidation`.
+   turn rule 2 off for the whole run ([CONC-026]); every firing's output is
+   then accepted, a single `lp.out(P)` leaf included, and the [NU-054]
+   relay check and the [IO-016] multiplicity warning are off too. Rule 1
+   still applies, timeout outcomes deposit as usual, and the build-time
+   checks above still run. Matches Java's `Builder.skipOutputValidation`
+   and TypeScript's `skipOutputValidation`.
 
    ```python
    lp.run_sync(net, options=lp.ExecutorOptions(skip_output_validation=True))

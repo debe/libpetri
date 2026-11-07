@@ -460,7 +460,8 @@ class JoinRelayTest {
     /**
      * The AC3 join chain with {@code j1}'s relay into {@code C} written two ways: by the action, or
      * by the executor on timeout ({@code timeoutChild}). {@code j1} also consumes the uncoloured
-     * {@code Z}, so a forward of a non-key input can be stated.
+     * {@code Z}, so a forward of a non-key input can be stated. The action branch also writes the
+     * sink {@code E}, so the two branches claim different sets (IO-012).
      */
     private static PetriNet chainWithTimeout(java.util.function.Function<Net, Arc.Out> timeoutChild) {
         var n = new Net("chain-timeout").t("fork", l("S"), l("A", "B", "D"), l(), l());
@@ -470,7 +471,7 @@ class JoinRelayTest {
         ms.relayTo(n.p("C"), (String v) -> NameId.of(v));
         n.add(Transition.builder("j1")
             .inputs(Arc.In.one(n.p("A")), Arc.In.one(n.p("B")), Arc.In.one(n.p("Z")))
-            .outputs(Arc.Out.xor(Arc.Out.place(n.p("C")),
+            .outputs(Arc.Out.xor(Arc.Out.and(Arc.Out.place(n.p("C")), Arc.Out.place(n.p("E"))),
                 Arc.Out.timeout(Duration.ofMillis(10), timeoutChild.apply(n))))
             .match(ms.build())
             .build());
@@ -485,7 +486,7 @@ class JoinRelayTest {
             .enumerationMaxClasses(0)
             .initialMarking(m -> m.tokens(place.apply("S"), 1).tokens(place.apply("Z"), 1))
             .property(SmtProperty.deadlockFree())
-            .sinkPlaces(place.apply("done"))
+            .sinkPlaces(place.apply("done"), place.apply("E"))
             .budgetPlaces(place.apply("S"))
             .fragmentMode(EXT)
             .timeout(Duration.ofSeconds(2))

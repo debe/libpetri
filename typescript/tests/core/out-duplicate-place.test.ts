@@ -74,10 +74,14 @@ describe('output-port collision at compose (MOD-020 AC8)', () => {
       );
   });
 
-  it('the same binding is accepted when the ports are XOR alternatives', () => {
+  it('the same binding is rejected as ambiguous when the ports are XOR alternatives (IO-012)', () => {
+    // Both alternatives now claim {X}: no write can tell them apart.
     const x = place<string>('X');
     const s = splitDef((a, b) => xorPlaces(a, b)).instantiate('s');
-    const net = PetriNet.builder('host').compose(s, { a: x as Place<unknown>, b: x as Place<unknown> }).build();
-    expect([...net.places].map(p => p.name)).toContain('X');
+    expect(() => PetriNet.builder('host').compose(s, { a: x as Place<unknown>, b: x as Place<unknown> }))
+      .toThrowError(
+        "output spec of transition 's/split' is ambiguous: output branches 0 and 1 both claim {X}; " +
+        'no write can tell them apart (IO-012)',
+      );
   });
 });

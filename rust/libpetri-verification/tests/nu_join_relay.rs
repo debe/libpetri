@@ -551,11 +551,14 @@ fn a_bound_the_linear_bound_cannot_prove_still_reaches_the_coloured_encoding() {
 
 /// The AC3 join chain with `j1`'s relay into `C` written two ways: by the action,
 /// or by the executor on timeout (`timeout_child`). `j1` also consumes the
-/// uncoloured `Z`, so a forward of a non-key input can be stated.
+/// uncoloured `Z`, so a forward of a non-key input can be stated. The action leg
+/// also writes the sink `E`, which keeps it apart from the timeout leg: both
+/// claiming `{C}` alone is rejected at build ([IO-012]).
 fn chain_with_timeout(timeout_child: impl Fn(&Place<String>, &Place<String>, &Place<String>) -> Out) -> PetriNet {
     let p = |n: &str| Place::<String>::new(n);
     let key = |s: &String| NameId::new(s.clone());
     let (s, a, b, c, d, z, done) = (p("S"), p("A"), p("B"), p("C"), p("D"), p("Z"), p("done"));
+    let e = p("E");
     let fork_t = Transition::builder("fork")
         .input(one(&s))
         .output(and(vec![out_place(&a), out_place(&b), out_place(&d)]))
@@ -565,7 +568,7 @@ fn chain_with_timeout(timeout_child: impl Fn(&Place<String>, &Place<String>, &Pl
         .input(one(&a))
         .input(one(&b))
         .input(one(&z))
-        .output(xor(vec![out_place(&c), timeout(10, timeout_child(&a, &z, &c))]))
+        .output(xor(vec![and(vec![out_place(&c), out_place(&e)]), timeout(10, timeout_child(&a, &z, &c))]))
         .match_spec(MatchSpec::builder().key(&a, key).key(&b, key).relay_to(&c, key).build())
         .action(fork())
         .build();
@@ -584,7 +587,7 @@ fn chain_timeout_deadlock(net: &PetriNet) -> VerificationResult {
         .enumeration_max_classes(0)
         .initial_marking(MarkingStateBuilder::new().tokens("S", 1).tokens("Z", 1).build())
         .property(SmtProperty::DeadlockFree)
-        .sink_places(["done".to_string()])
+        .sink_places(["done".to_string(), "E".to_string()])
         .budget_places(["S".to_string()])
         .fragment_mode(FragmentMode::Extended)
         // Out of the fragment, the net falls back to the count abstraction, which

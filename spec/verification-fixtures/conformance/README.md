@@ -62,7 +62,14 @@ for reapability (clarification 7), as every untimed route does (VER-004). Termin
   At most one input arc per place per transition (CORE-030).
 - `output`: `place` | `and` | `xor` | `timeout` (`afterMs`, `child`) | `forward` (`from` must be an
   input place of the transition, `to` a place) — IO-011..016; `null` / absent = no output.
-  A `forward` deposits one token per consumed token of `from` (IO-014).
+  A `forward` deposits one token per consumed token of `from` (IO-014). The builders' checks
+  apply, so the reference refuses as invalid a spec with a branch naming a place twice (IO-011),
+  more than one `timeout` node, nested or not (IO-013 AC7), an `xor` at any depth of a
+  `timeout` child (IO-013 AC8), a `forward` outside the child of a
+  `timeout` (IO-014 AC7), or two output branches claiming one set of places, such as
+  `xor(p, p)` or `xor(p, timeout(forward(a, p)))` (IO-012 AC5). No replay has an invalid-net
+  path, so the corpus holds none: the generator redraws such an output as a single `place`, as
+  `route_agreement.rs` does.
 - `timing` (optional; absent = `immediate`): `{"kind": k, "earliestMs": e, "latestMs": l}` with
   the bounds the kind takes (TIME-002..006): `immediate` / `unconstrained` none, `deadline`
   `latestMs` (> 0), `delayed` `earliestMs`, `window` both (`e ≤ l`), `exact` `earliestMs`

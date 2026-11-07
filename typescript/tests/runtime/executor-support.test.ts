@@ -213,7 +213,7 @@ describe('produceTimeoutOutput', () => {
     expect(tokenOutput.entries()).toHaveLength(2);
   });
 
-  it('throws on XOR child', () => {
+  it('throws an unreachable error on an XOR child, which building rejects (IO-013)', () => {
     const pA = place('A');
     const pB = place('B');
     const tokenInput = new TokenInput();
@@ -223,7 +223,7 @@ describe('produceTimeoutOutput', () => {
       new Set(), new Set(), new Set([pA, pB]),
     );
 
-    expect(() => produceTimeoutOutput(ctx, xorPlaces(pA, pB))).toThrow('XOR not allowed');
+    expect(() => produceTimeoutOutput(ctx, xorPlaces(pA, pB))).toThrow('rejected at transition build (IO-013)');
   });
 });
 

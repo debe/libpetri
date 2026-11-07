@@ -410,8 +410,12 @@ impl PyTransitionBuilder {
     }
 
     /// Builds the transition. Raises `StructureError` when two input arcs name one
-    /// place (**CORE-030**: use one arc with `exactly(n)` / `at_least(n)`), or when a
-    /// forward-input output or a match spec names a place that is not an input.
+    /// place (**CORE-030**: use one arc with `exactly(n)` / `at_least(n)`), when a
+    /// forward-input output or a match spec names a place that is not an input, or
+    /// when the output spec names a place twice in one AND branch (**IO-011**), holds
+    /// more than one `timeout` or an `xor` inside the `timeout` child (**IO-013**),
+    /// uses `forward_input` outside a `timeout` child (**IO-014**), or has two
+    /// branches claiming the same set of places (**IO-012**).
     fn build(&self, py: Python<'_>) -> PyResult<PyTransition> {
         let action = match &self.action {
             Some(a) => py_action_to_boxed(py, a)?,

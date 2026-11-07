@@ -10,19 +10,19 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 - Active requirements: **226**
 - Proven in Lean (≥ 1 validated theorem fragment): **36**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **40**
-- Referenced by ≥ 1 test file: java **109**, typescript **108**, rust **124**, python **64**
-- Untested anywhere (no test-file reference in any language): **96**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **57**
+- Referenced by ≥ 1 test file: java **112**, typescript **110**, rust **126**, python **69**
+- Untested anywhere (no test-file reference in any language): **94**
 
 ## 01-core-model.md — CORE
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
-| CORE-001 | — | — | — | — | ✓ | — |
-| CORE-002 | — | — | — | — | — | — |
+| CORE-001 | — | ✓ | — | — | ✓ | — |
+| CORE-002 | — | ✓ | — | — | — | — |
 | CORE-003 | — | — | — | — | — | — |
 | CORE-010 | — | — | — | — | — | — |
-| CORE-011 | — | — | — | — | ✓ | — |
+| CORE-011 | — | ✓ | — | — | ✓ | — |
 | CORE-012 | — | — | — | — | — | — |
 | CORE-013 | — | — | — | — | ✓ | — |
 | CORE-020 | — | — | — | — | — | — |
@@ -31,26 +31,26 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-030 | `canEnable_insufficient_for_totality` — AC3 retrodiction of divergence (c): with duplicate input arcs on one place, cardinality_check passes each spec individually yet the second ring_remove_first finds the head empty — compile-time duplicate-input-place rejection (DistinctInputPlaces) is necessary for consumption totality | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-031 | — | ✓ | — | — | — | — |
 | CORE-032 | — | ✓ | — | — | — | — |
-| CORE-033 | — | — | — | — | — | — |
-| CORE-034 | `reset_arc_semantics` — AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled<br>`fireA_reset_empty` — AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard | ✓ | ✓ | ✓ | ✓ | — |
-| CORE-035 | — | — | — | — | ✓ | — |
-| CORE-036 | — | ✓ | — | ✓ | ✓ | — |
+| CORE-033 | — | ✓ | — | — | — | — |
+| CORE-034 | `reset_arc_semantics` — AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled<br>`fireA_reset_empty` — AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard | ✓ | ✓ | ✓ | ✓ | ✓ |
+| CORE-035 | — | ✓ | — | — | ✓ | — |
+| CORE-036 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-037 | — | — | ✓ | ✓ | ✓ | ✓ |
 | CORE-040 | — | — | — | — | ✓ | — |
 | CORE-041 | — | — | — | — | — | — |
 | CORE-042 | — | — | ✓ | ✓ | ✓ | ✓ |
-| CORE-043 | — | — | ✓ | ✓ | ✓ | ✓ |
+| CORE-043 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-050 | — | — | — | — | — | — |
 | CORE-051 | — | — | ✓ | ✓ | — | — |
 | CORE-052 | — | — | — | — | — | — |
 | CORE-053 | — | — | — | — | — | — |
 | CORE-054 | — | — | — | — | — | — |
 | CORE-060 | — | — | — | — | — | — |
-| CORE-061 | — | — | — | — | — | — |
+| CORE-061 | — | ✓ | — | — | — | — |
 | CORE-062 | — | — | — | — | — | — |
-| CORE-063 | — | — | — | — | — | — |
+| CORE-063 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-064 | — | — | — | — | — | — |
-| CORE-070 | — | — | — | — | — | — |
+| CORE-070 | — | ✓ | — | — | — | — |
 | CORE-071 | — | — | — | — | — | — |
 | CORE-072 | `unknown_place_drop` — AC3 retrodiction of divergence (d): pre-fix produce_token was the identity for places the program does not know — a token silently dropped, violating conservation; motivates the extra_marking retention fix, whose post-fix behaviour is not itself modelled | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-073 | — | — | ✓ | ✓ | ✓ | ✓ |
@@ -61,18 +61,18 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 |----|---------------------------------|----------|------|------------|------|--------|
 | IO-001 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-002 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| IO-003 | — | — | — | — | — | — |
+| IO-003 | — | ✓ | — | — | — | — |
 | IO-004 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-005 | — | ✓ | — | — | — | — |
 | IO-007 | `token_conservation` — the balance side of the contract: consumption removes exactly the consumptionCount prefix — no token beyond it leaves an input place in one firing<br>`consume_faithful` — delivered count is consumptionCount(available): required count for One/Exactly, full drain for All/AtLeast — the interpreter realises the spec's consumptionCount column | ✓ | ✓ | ✓ | ✓ | — |
 | IO-010 | — | ✓ | — | — | — | — |
 | IO-011 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| IO-012 | — | ✓ | — | — | — | — |
+| IO-012 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-013 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-014 | `forward_exactly_two_breaks_unit_output` — retrodiction of the pre-fix analyses: on exactly(2, a) -> xor(c, timeout(forward(a, b))) the executor's timeout deposit [b, b] is no row of the one-token-per-leaf expansion, and no old branch satisfies UnitOutput for it (by decide) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-015 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | IO-016 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| IO-017 | — | — | — | — | — | — |
+| IO-017 | — | ✓ | — | — | — | — |
 
 ## 03-timing.md — TIME
 
@@ -104,7 +104,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXEC-020 | `produceAll_spec` — produced tokens append at the FIFO tail of their target place in emission order via ring_add_last (grow path included); single-firing produce phase, output-spec validation out of scope | ✓ | — | — | — | — |
 | EXEC-021 | — | — | — | — | — | — |
 | EXEC-022 | — | — | ✓ | ✓ | ✓ | — |
-| EXEC-030 | — | — | — | — | — | — |
+| EXEC-030 | — | ✓ | — | — | — | — |
 | EXEC-031 | — | — | ✓ | ✓ | ✓ | ✓ |
 | EXEC-040 | — | ✓ | — | — | — | — |
 | EXEC-041 | — | — | ✓ | ✓ | ✓ | — |
@@ -132,7 +132,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CONC-023 | `collect_ready_general_refines` — the post-fix per-priority-level drain (LevelBlocks, RQ1-RQ4) produces the same list as the reference's stable (priority DESC, enabled_at ASC) sort; queue maintenance beyond the collection phase not modelled | ✓ | ✓ | ✓ | ✓ | — |
 | CONC-024 | — | — | — | — | — | — |
 | CONC-025 | — | — | — | — | — | — |
-| CONC-026 | — | — | ✓ | ✓ | ✓ | — |
+| CONC-026 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 06-environment-places.md — ENV
 
@@ -189,13 +189,13 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EVT-004 | — | — | — | — | — | — |
 | EVT-005 | — | — | — | — | — | — |
 | EVT-006 | — | — | — | — | — | — |
-| EVT-007 | — | — | — | — | — | — |
+| EVT-007 | — | ✓ | — | — | — | — |
 | EVT-008 | — | — | — | — | — | — |
 | EVT-009 | — | ✓ | ✓ | — | — | — |
 | EVT-010 | — | — | — | — | — | — |
 | EVT-011 | — | — | — | — | — | — |
 | EVT-012 | — | — | — | — | — | — |
-| EVT-013 | — | — | ✓ | ✓ | ✓ | — |
+| EVT-013 | — | ✓ | ✓ | ✓ | ✓ | — |
 | EVT-014 | — | — | ✓ | ✓ | ✓ | — |
 | EVT-020 | — | — | — | — | — | — |
 | EVT-021 | — | — | — | — | — | — |
@@ -263,11 +263,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-012 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-013 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-014 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-020 | — | — | ✓ | ✓ | ✓ | ✓ |
+| MOD-020 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | MOD-021 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-022 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-023 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-024 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-024 | — | ✓ | ✓ | ✓ | ✓ | — |
 | MOD-025 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-026 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-027 | — | — | ✓ | ✓ | ✓ | ✓ |

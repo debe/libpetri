@@ -33,8 +33,12 @@ pub type PrecompiledNetExecutor<'a, E> = Executor<PrecompiledBackend<'a>, E>;
 /// Builder for [`PrecompiledNetExecutor`].
 ///
 /// `skip_output_validation` disables the \[IO-015\] output-spec check for
-/// every firing, matching Java's `Builder.skipOutputValidation` and
-/// TypeScript's `skipOutputValidation` option.
+/// every firing (\[CONC-026\]), matching Java's `Builder.skipOutputValidation`
+/// and TypeScript's `skipOutputValidation` option. The skip covers single
+/// `Place` / `ForwardInput` leaves too, the \[NU-054\] relay check and the
+/// \[IO-016\] AC4 multiplicity warning. It does not cover a write to an
+/// undeclared place (\[CORE-063\]), timeout-outcome deposits, or the output-spec
+/// checks the transition build runs (\[IO-011\]..\[IO-014\]).
 pub struct PrecompiledExecutorBuilder<'a, E: EventStore> {
     program: &'a PrecompiledNet,
     initial_marking: Marking,
@@ -864,5 +868,85 @@ mod tests {
                 .any(|e| matches!(e, libpetri_event::net_event::NetEvent::TransitionFailed { .. })),
             "skipping validation must not emit an IO-015 failure"
         );
+    }
+
+    /// \[CONC-026\] AC4 to AC6: the skip covers a single-leaf spec, a partial
+    /// `And` write and the \[IO-016\] AC4 multiplicity warning, but not a write
+    /// to an undeclared place (\[CORE-063\]) and not the build-time \[IO-012\]
+    /// check.
+    #[test]
+    fn conc_026_skip_covers_leaf_and_warning_but_not_undeclared_write_or_build() {
+        use libpetri_core::action::sync_action;
+        use libpetri_core::output::{and, xor};
+        use libpetri_core::petri_net::PetriNet;
+        use libpetri_event::event_store::InMemoryEventStore;
+        use libpetri_event::net_event::NetEvent;
+
+        let go = |n: &str| Place::<i32>::new(n);
+        let (p, a, b, many) = (go("P"), go("A"), go("B"), go("MANY"));
+        // AC4: a single leaf whose action writes nothing.
+        let silent = Transition::builder("silent")
+            .input(one(&go("GO1")))
+            .output(out_place(&p))
+            .action(sync_action(|_| Ok(())))
+            .build();
+        // AC4: an And whose action writes only A.
+        let half = Transition::builder("half")
+            .input(one(&go("GO2")))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(sync_action(|ctx| ctx.output("A", 1)))
+            .build();
+        // AC5: two tokens into the one place the spec names.
+        let twice = Transition::builder("twice")
+            .input(one(&go("GO3")))
+            .output(out_place(&many))
+            .action(sync_action(|ctx| {
+                ctx.output("MANY", 1)?;
+                ctx.output("MANY", 2)
+            }))
+            .build();
+        // AC6: a write to a place the transition does not declare.
+        let undeclared = Transition::builder("undeclared")
+            .input(one(&go("GO4")))
+            .output(out_place(&p))
+            .action(sync_action(|ctx| ctx.output("A", 9)))
+            .build();
+        let net = PetriNet::builder("skip").transitions([silent, half, twice, undeclared]).build();
+        let mut marking = Marking::new();
+        for n in ["GO1", "GO2", "GO3", "GO4"] {
+            marking.add(&go(n), Token::at(0, 0));
+        }
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        let mut ex = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+            .event_store(InMemoryEventStore::new())
+            .skip_output_validation(true)
+            .build();
+        let result = ex.run_sync().into_owned();
+        assert_eq!(result.count("P"), 0, "the leaf is not checked: nothing written, nothing deposited");
+        assert_eq!(result.count("A"), 1, "the partial And write is deposited");
+        assert_eq!(result.count("B"), 0);
+        assert_eq!(result.count("MANY"), 2);
+        let events = ex.event_store().events();
+        assert!(
+            !events.iter().any(|e| matches!(e, NetEvent::LogMessage { .. })),
+            "no IO-016 warning under the skip: {events:?}"
+        );
+        let failed: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                NetEvent::TransitionFailed { transition_name, .. } => Some(&**transition_name),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(failed, ["undeclared"], "only the undeclared write fails (CORE-063)");
+
+        // AC6: building an IO-012-ambiguous spec fails before any executor exists.
+        let built = std::panic::catch_unwind(|| {
+            Transition::builder("t")
+                .input(one(&go("GO")))
+                .output(xor(vec![out_place(&go("P")), out_place(&go("P"))]))
+                .build()
+        });
+        assert!(built.is_err(), "xor(P, P) must not build");
     }
 }

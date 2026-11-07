@@ -303,11 +303,12 @@ function claimsWithin(spec: Out, produced: Set<string>): Set<string>[] {
  *
  * - **Place**: produces `null` (the timeout sentinel value).
  * - **ForwardInput**: forwards *all* tokens consumed from the `from` place to the
- *   output place, in consumption order — one output token per consumed token, so a
- *   batched input spec (`all()` / `exactly(n)`) conserves its tokens on timeout.
+ *   output place, in consumption order, as the consumed tokens themselves (value and
+ *   `createdAt`, [IO-014] AC5), so a batched input spec (`all()` / `exactly(n)`)
+ *   conserves its tokens on timeout.
  * - **AND**: recurses into all children (all branches get tokens).
- * - **XOR**: disallowed — timeout cannot choose a branch non-deterministically.
- * - **Timeout**: disallowed — nested timeouts would create ambiguous recovery paths.
+ * - **XOR** and **Timeout**: unreachable. Building rejects an `Xor` anywhere in the
+ *   Timeout child and a spec with more than one Timeout node ([IO-013]).
  *
  * Writes through {@link TransitionContext.outputToHarvest} rather than `output(...)`:
  * by this point the context has been detached, so the ordinary write target is closed
@@ -322,11 +323,9 @@ export function produceTimeoutOutput(context: TransitionContext, timeoutChild: O
       // Forward *every* token consumed from `from`, not just the first: a batched
       // input spec (`all()`, `exactly(n)`, `atLeast(n)`) consumes N tokens, and
       // re-emitting only one would silently destroy N-1 of them on the retry path.
-      // `inputs()` is the batched accessor and preserves consumption (FIFO) order;
-      // the singular `input()` throws outright when the place yielded != 1 token.
-      for (const value of context.inputs(timeoutChild.from)) {
-        context.outputToHarvest(timeoutChild.to, value);
-      }
+      // The tokens move as they are, in consumption (FIFO) order, so each keeps its
+      // `createdAt` ([IO-014] AC5).
+      context.forwardToHarvest(timeoutChild.from, timeoutChild.to);
       break;
     }
     case 'and':
@@ -335,9 +334,9 @@ export function produceTimeoutOutput(context: TransitionContext, timeoutChild: O
       }
       break;
     case 'xor':
-      throw new Error('XOR not allowed in timeout child');
     case 'timeout':
-      throw new Error('Nested Timeout not allowed');
+      // Unreachable for a built transition: the IO-013 build checks reject both.
+      throw new Error(`unreachable: a ${timeoutChild.type} node in a Timeout child is rejected at transition build (IO-013)`);
   }
 }
 

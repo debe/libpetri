@@ -94,6 +94,7 @@ fn relaying_join_subnet() -> SubnetDef<()> {
     let b = Place::<String>::new("b");
     let out1 = Place::<String>::new("out1");
     let out2 = Place::<String>::new("out2");
+    let side = Place::<String>::new("side");
     let key = |s: &String| NameId::new(s.clone());
     let join = Transition::builder("join")
         .input(one(&a))
@@ -106,9 +107,15 @@ fn relaying_join_subnet() -> SubnetDef<()> {
                 .relay_to(&out2, key)
                 .build(),
         )
-        .output(libpetri_core::output::xor(vec![out_place(&out1), out_place(&out2)]))
+        // `side` keeps the two alternatives apart when both targets are bound to one
+        // host place: `Xor(X, X)` would be rejected as ambiguous first ([IO-012]).
+        .output(libpetri_core::output::xor(vec![
+            out_place(&out1),
+            libpetri_core::output::and(vec![out_place(&out2), out_place(&side)]),
+        ]))
         .build();
     SubnetDef::<()>::builder("RelayingJoin")
+        .place(&side)
         .place(&a)
         .place(&b)
         .place(&out1)

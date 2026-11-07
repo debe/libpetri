@@ -669,23 +669,29 @@ mod tests {
 
     // ---- NU-010 / NU-051: what a timeout writes into a coloured place ----
 
-    /// `m: S → xor(A, timeout(20, A))` and `r: A → xor(C, timeout(20, forward(A, C)))`,
-    /// `j: C, B → done` with `B` minted by `mb: S → B`. `timeout_place` writes a unit
-    /// token into `A` on timeout; `forward_own` makes `r`'s timeout forward its own
-    /// coloured input.
+    /// `m: S → xor(A, timeout(20, and(A, M)))` and
+    /// `r: A → xor(and(C, D), timeout(20, forward(A, C)))`, `j: C, B → done` with `B`
+    /// minted by `mb: S → B`. `timeout_place` writes a unit token into `A` on timeout;
+    /// `forward_own` makes `r`'s timeout forward its own coloured input. The extra
+    /// places `M` and `D` keep each action leg apart from its timeout leg, which would
+    /// otherwise claim the same set ([IO-012]).
     fn timeout_net(timeout_place: bool, forward_own: bool) -> PetriNet {
-        use libpetri_core::output::{forward_input, timeout, xor};
+        use libpetri_core::output::{and, forward_input, timeout, xor};
         let p = |n: &str| Place::<String>::new(n);
         let key = |s: &String| NameId::new(s.clone());
         let m_out = if timeout_place {
-            xor(vec![out_place(&p("A")), timeout(20, out_place(&p("A")))])
+            xor(vec![
+                out_place(&p("A")),
+                timeout(20, and(vec![out_place(&p("A")), out_place(&p("M"))])),
+            ])
         } else {
             out_place(&p("A"))
         };
+        let r_leg = and(vec![out_place(&p("C")), out_place(&p("D"))]);
         let r_out = if forward_own {
-            xor(vec![out_place(&p("C")), timeout(20, forward_input(&p("A"), &p("C")))])
+            xor(vec![r_leg, timeout(20, forward_input(&p("A"), &p("C")))])
         } else {
-            xor(vec![out_place(&p("C")), timeout(20, forward_input(&p("R"), &p("C")))])
+            xor(vec![r_leg, timeout(20, forward_input(&p("R"), &p("C")))])
         };
         let m = Transition::builder("m").input(one(&p("S"))).output(m_out).action(fork()).build();
         let mb = Transition::builder("mb").input(one(&p("S"))).output(out_place(&p("B"))).action(fork()).build();

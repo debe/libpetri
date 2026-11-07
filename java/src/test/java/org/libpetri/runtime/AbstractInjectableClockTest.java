@@ -534,6 +534,44 @@ abstract class AbstractInjectableClockTest {
         }
     }
 
+    /**
+     * [IO-014] AC5: a forwarded token is the consumed token itself and keeps its createdAt,
+     * while a minted recovery token in the same timeout branch takes the injected clock.
+     */
+    @Test
+    void forwardedTokenKeepsItsCreatedAt_IO014_AC5() {
+        var clock = new VirtualClock();
+        var seedStamp = Instant.parse("2020-01-01T00:00:00Z");
+        var retry = Place.of("retry", String.class);
+        var recovered = Place.of("recovered", String.class);
+
+        var net = PetriNet.builder("forward-stamp")
+            .transition(Transition.builder("stalls")
+                .inputs(one(IN))
+                .outputs(Arc.Out.timeout(Duration.ofMillis(50),
+                    Arc.Out.and(Arc.Out.place(recovered), Arc.Out.forwardInput(IN, retry))))
+                .action(_ -> new CompletableFuture<>())   // never completes; the budget fires
+                .build())
+            .build();
+
+        try (var executor = create(net, Map.of(IN, List.of(new Token<>("x", seedStamp))),
+                                   clock, Duration.ZERO, Set.<EnvironmentPlace<?>>of())) {
+            // The action budget runs on a wall-clock timer, so while the firing is in flight the
+            // executor waits with no timer of its own: yield until the budget fires.
+            clock.atIdle = () -> {
+                try { Thread.sleep(1); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            };
+            var marking = executor.run();
+            var injectedEpoch = Instant.EPOCH.plusNanos(clock.nanos);
+
+            assertEquals("x", marking.peekFirst(retry).value());
+            assertEquals(seedStamp, marking.peekFirst(retry).createdAt(),
+                "a forwarded token keeps its original createdAt (IO-014 AC5). Marking: " + marking);
+            assertEquals(injectedEpoch, marking.peekFirst(recovered).createdAt(),
+                "a minted recovery token takes the injected clock (TIME-015)");
+        }
+    }
+
     // ============================================================
     //  AC#10 — a coarse clock repeats readings, and that is normal
     // ============================================================

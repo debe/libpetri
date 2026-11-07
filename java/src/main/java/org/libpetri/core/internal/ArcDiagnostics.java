@@ -25,6 +25,8 @@ import org.libpetri.core.Transition;
  *       twice in one AND branch of an output spec. The {@link Transition} builder rejects it;
  *       instance composition rejects the port-binding form of it first, with the [MOD-020]
  *       message.</li>
+ *   <li>{@link #outputSpecError} — every build-time output-spec check ([IO-011], [IO-013],
+ *       [IO-014], [IO-012]) in its fixed order, run by the {@link Transition} builder.</li>
  *   <li>{@link #deadArcs} — [CORE-037]: a read, inhibitor or reset arc on a place nothing can
  *       ever mark. Never an error: nets seeded by the initial marking use such arcs
  *       legitimately, so the rule only fires when the place also starts empty.</li>
@@ -51,6 +53,128 @@ public final class ArcDiagnostics {
     }
 
     /**
+     * The build-time output-spec checks every construction path runs, in their fixed order, or
+     * {@code null} when the spec passes: [IO-011] a place twice in one AND branch, [IO-013] more
+     * than one {@code Timeout}, [IO-013] an {@code Xor} inside the {@code Timeout} child,
+     * [IO-014] a {@code ForwardInput} outside a {@code Timeout} child,
+     * [IO-014] AC3 a forward from a non-input place, [IO-012] two branches claiming one set. The
+     * first failing check wins, so the message is the same in every implementation.
+     *
+     * @param transition  the transition's name, for the message
+     * @param out         the output spec
+     * @param inputPlaces the transition's input places
+     * @return the rejection message, or {@code null}
+     */
+    public static String outputSpecError(String transition, Arc.Out out, Set<Place<?>> inputPlaces) {
+        var dup = duplicateInBranch(out, p -> p);
+        if (dup != null) return duplicateOutputMessage(transition, dup.place().name());
+
+        int timeouts = timeoutCount(out);
+        if (timeouts >= 2) {
+            return ("output spec of transition '%s' has %d Timeout nodes; an output spec has at most "
+                + "one, nested or not (IO-013)").formatted(transition, timeouts);
+        }
+
+        if (xorInTimeoutChild(out)) {
+            return ("output spec of transition '%s' has a Xor node inside the child of its Timeout "
+                + "node; the timeout outcome deposits one fixed set of places (IO-013)").formatted(transition);
+        }
+
+        var bare = firstBareForward(out);
+        if (bare != null) {
+            return ("output spec of transition '%s' uses ForwardInput('%s', '%s') outside the child of a "
+                + "Timeout node; a forward deposits only on the timeout outcome (IO-014)")
+                .formatted(transition, bare.from().name(), bare.to().name());
+        }
+
+        for (var f : forwards(out, new ArrayList<>())) {
+            if (!inputPlaces.contains(f.from())) {
+                return "Transition '%s': ForwardInput references non-input place '%s'"
+                    .formatted(transition, f.from().name());
+            }
+            if (!f.to().tokenType().isAssignableFrom(f.from().tokenType())) {
+                return "Transition '%s': ForwardInput type mismatch - cannot forward %s tokens from '%s' to '%s' which expects %s"
+                    .formatted(transition,
+                        f.from().tokenType().getSimpleName(), f.from().name(),
+                        f.to().name(), f.to().tokenType().getSimpleName());
+            }
+        }
+
+        var ambiguity = OutputBranchAmbiguity.find(out);
+        if (ambiguity != null) {
+            return ("output spec of transition '%s' is ambiguous: output branches %s and %s both claim "
+                + "{%s}; no write can tell them apart (IO-012)").formatted(transition,
+                ambiguity.first(), ambiguity.second(), OutputBranchAmbiguity.names(ambiguity.places()));
+        }
+        return null;
+    }
+
+    /** Number of {@code Timeout} nodes in {@code out}, nested and sibling ones alike ([IO-013]). */
+    private static int timeoutCount(Arc.Out out) {
+        return switch (out) {
+            case Arc.Out.Place _, Arc.Out.ForwardInput _ -> 0;
+            case Arc.Out.Timeout t -> 1 + timeoutCount(t.child());
+            case Arc.Out.And a -> a.children().stream().mapToInt(ArcDiagnostics::timeoutCount).sum();
+            case Arc.Out.Xor x -> x.children().stream().mapToInt(ArcDiagnostics::timeoutCount).sum();
+        };
+    }
+
+    /**
+     * Whether the child of a {@code Timeout} node of {@code out} holds an {@code Xor} node at any
+     * depth ([IO-013]): the executor deposits the timeout outcome, so nothing chooses there.
+     */
+    private static boolean xorInTimeoutChild(Arc.Out out) {
+        return switch (out) {
+            case Arc.Out.Place _, Arc.Out.ForwardInput _ -> false;
+            case Arc.Out.Timeout t -> containsXor(t.child());
+            case Arc.Out.And a -> a.children().stream().anyMatch(ArcDiagnostics::xorInTimeoutChild);
+            case Arc.Out.Xor x -> x.children().stream().anyMatch(ArcDiagnostics::xorInTimeoutChild);
+        };
+    }
+
+    private static boolean containsXor(Arc.Out out) {
+        return switch (out) {
+            case Arc.Out.Place _, Arc.Out.ForwardInput _ -> false;
+            case Arc.Out.Xor _ -> true;
+            case Arc.Out.Timeout t -> containsXor(t.child());
+            case Arc.Out.And a -> a.children().stream().anyMatch(ArcDiagnostics::containsXor);
+        };
+    }
+
+    /**
+     * The first {@code ForwardInput} in pre-order with no {@code Timeout} ancestor ([IO-014]), or
+     * {@code null}. A {@code Timeout}'s subtree is not entered: everything there is allowed.
+     */
+    private static Arc.Out.ForwardInput firstBareForward(Arc.Out out) {
+        return switch (out) {
+            case Arc.Out.Place _, Arc.Out.Timeout _ -> null;
+            case Arc.Out.ForwardInput f -> f;
+            case Arc.Out.And a -> firstBareForward(a.children());
+            case Arc.Out.Xor x -> firstBareForward(x.children());
+        };
+    }
+
+    private static Arc.Out.ForwardInput firstBareForward(List<Arc.Out> children) {
+        for (var c : children) {
+            var f = firstBareForward(c);
+            if (f != null) return f;
+        }
+        return null;
+    }
+
+    /** Every {@code ForwardInput} of {@code out}, in pre-order. */
+    private static List<Arc.Out.ForwardInput> forwards(Arc.Out out, List<Arc.Out.ForwardInput> acc) {
+        switch (out) {
+            case Arc.Out.Place _ -> {}
+            case Arc.Out.ForwardInput f -> acc.add(f);
+            case Arc.Out.Timeout t -> forwards(t.child(), acc);
+            case Arc.Out.And a -> a.children().forEach(c -> forwards(c, acc));
+            case Arc.Out.Xor x -> x.children().forEach(c -> forwards(c, acc));
+        }
+        return acc;
+    }
+
+    /**
      * Two leaves of one output branch that stand for the same place ({@link #duplicateInBranch}).
      *
      * @param place  the place both stand for, after the mapping
@@ -60,8 +184,9 @@ public final class ArcDiagnostics {
     public record BranchDuplicate(Place<?> place, Place<?> first, Place<?> second) {}
 
     /**
-     * The first place a single output branch names twice — one choice at every XOR, nested ANDs
-     * flattened ([IO-011]) — or {@code null}. {@code placeOf} maps a leaf to the place it stands
+     * The place the walk of [IO-011] ("Which place the message names") reports: a place some
+     * output branch names twice, or {@code null} when no branch does. {@code And(Xor(A, B),
+     * Xor(B, A))} reports {@code B}. {@code placeOf} maps a leaf to the place it stands
      * for: the identity for a spec as written, the port-to-host binding for composition. The
      * {@code to} place of a {@code ForwardInput} is a leaf, and a {@code Timeout} is read through
      * to its child.

@@ -156,13 +156,19 @@ Each transition instance has a unique identity. Two transition instances are nev
 #### CORE-022: Transition Enablement
 
 **Priority:** MUST
+**Kind:** B
 
-A transition is **enabled** when ALL of the following conditions hold simultaneously:
-1. All input places have at least `requiredCount()` tokens (see [IO-001]–[IO-004])
-2. All read places have at least one token
-3. No inhibitor place has any tokens
+A transition is **enabled** in a marking when every input place holds at least its required count (see [IO-001]–[IO-004]), every read place is marked and no inhibitor place is marked.
 
-When any condition ceases to hold, the transition becomes disabled.
+*While* an input place of a transition holds fewer tokens than its required count, the transition *shall not* fire.
+
+*While* a read place of a transition is unmarked, the transition *shall not* fire.
+
+*While* an inhibitor place of a transition is marked, the transition *shall not* fire.
+
+*While* a transition is enabled, the transition *shall* be able to fire.
+
+This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking.
 
 **Acceptance Criteria:**
 1. Transition with satisfied inputs, reads present, inhibitors empty → enabled.
@@ -180,10 +186,15 @@ When any condition ceases to hold, the transition becomes disabled.
 #### CORE-030: Input Arc
 
 **Priority:** MUST
+**Kind:** B
 
-An input arc connects a place to a transition. When the transition fires, it **consumes** one or more tokens from the place according to the input's cardinality specification (see [IO-001]–[IO-004]).
+An input arc connects a place to a transition.
 
-A transition MUST NOT declare two input arcs on the same place. **Building the transition** rejects it with a descriptive error naming the transition and the place, and suggesting a single arc with `exactly(n)` / `atLeast(n)` instead. Duplicate input arcs have no coherent consumption semantics, and every consumer of a transition reads them differently when one slips through: before the check moved to the transition builder, the executors rejected them at compile, the state-class graph of Java and TypeScript failed with an internal "Cannot remove 1 tokens", Rust's consumed one token, and the flattener kept the last arc (Java, TypeScript) or summed them (Rust). The transition builder is the one construction path every net, subnet body and verification input passes through, so a check there reaches all of them. "The same place" is the implementation's own `Place` equality ([CORE-002]; name-and-type in Java, name-only in TypeScript and Rust).
+*When* a transition fires, it *shall* consume from each of its input places that is not also one of its reset places ([CORE-034]) as many tokens as the input arc's consumption count ([IO-001]–[IO-004], [IO-007]), oldest first.
+
+*When* a transition fires, each of its input places that is neither one of its reset places nor one of its output places *shall* end the firing holding exactly the consumption count of its input arc fewer tokens than it held before the firing.
+
+*If* a transition declares two input arcs on the same place, **building the transition** *shall* fail with a descriptive error that names the transition and the place and suggests a single arc with `exactly(n)` / `atLeast(n)` instead. Duplicate input arcs have no coherent consumption semantics: executors, state-class graphs and the flattener would each read them differently. The transition builder is the one construction path every net, subnet body and verification input passes through, so a check there reaches all of them. "The same place" is the implementation's own `Place` equality ([CORE-002]; name-and-type in Java, name-only in TypeScript and Rust).
 
 The executors' compile-time check stays as a backstop, with the same message. Both composition seams reconcile colliding arcs before they rebuild a transition, per the canonical merge table of [MOD-021] (channel composition at compose, fusion at build per [MOD-061]). The one binding that can still collapse two input arcs onto one place — two ports of one instance bound to the same host place — is rejected at compose with its own message ([MOD-020]).
 
@@ -213,13 +224,20 @@ verified or exported, never executed, used to build. It now fails at the transit
 #### CORE-031: Inhibitor Arc
 
 **Priority:** MUST
+**Kind:** B
 
-An inhibitor arc connects a place to a transition as a **negative precondition**. The transition is disabled whenever the inhibitor place contains any tokens. The inhibitor arc does not consume tokens.
+An inhibitor arc connects a place to a transition as a **negative precondition**.
+
+*While* an inhibitor place of a transition is marked, the transition *shall not* fire.
+
+*While* an inhibitor place of a transition is unmarked, the inhibitor arc *shall not* affect whether the transition can fire.
+
+The inhibitor arc does not consume tokens.
 
 **Acceptance Criteria:**
 1. Inhibitor place empty → transition enablement unaffected by inhibitor.
 2. Inhibitor place has tokens → transition disabled.
-3. Tokens in inhibitor place are not consumed when other transitions fire.
+3. Firing a transition consumes nothing through its inhibitor arcs; another transition's input arc on the same place consumes as [CORE-030] says.
 
 **Test derivation:** Create transition with inhibitor; verify disabled when inhibitor place has tokens, enabled when empty.
 
@@ -228,8 +246,17 @@ An inhibitor arc connects a place to a transition as a **negative precondition**
 #### CORE-032: Read Arc
 
 **Priority:** MUST
+**Kind:** B
 
-A read arc (test arc) connects a place to a transition, requiring the place to have at least one token for enablement. The token is **not consumed** when the transition fires; its value is available to the action via the transition context.
+A read arc (test arc) connects a place to a transition as a **positive precondition**.
+
+*While* a read place of a transition is unmarked, the transition *shall not* fire.
+
+*While* a read place of a transition is marked, the read arc *shall not* affect whether the transition can fire or the marking its firing leaves.
+
+*When* a transition fires, each of its read places on which it has neither an input arc nor a reset arc *shall* end the firing with its token count before the firing plus the tokens the firing deposits there.
+
+The read arc does not consume tokens; the value of a read token is available to the action via the transition context.
 
 **Acceptance Criteria:**
 1. Read place must have tokens for transition to be enabled.
@@ -243,8 +270,9 @@ A read arc (test arc) connects a place to a transition, requiring the place to h
 #### CORE-033: Read Arc Multi-Reader
 
 **Priority:** MUST
+**Kind:** B
 
-Multiple transitions can have read arcs to the same place. All such transitions can be enabled simultaneously (no conflict), since read arcs do not consume tokens.
+Multiple transitions can have read arcs to the same place. *While* a place is marked, a read arc to that place *shall not* stop its transition from firing, so all transitions with read arcs to the place can be enabled simultaneously. *When* a transition with a read arc to a marked place fires, and the transition has no input arc and no reset arc to that place, the read arc of any transition to that place *shall not* stop that transition from firing afterwards (no conflict), since read arcs do not consume tokens.
 
 **Acceptance Criteria:**
 1. Two transitions with read arcs to the same place are both enabled when the place has tokens.
@@ -258,27 +286,47 @@ Multiple transitions can have read arcs to the same place. All such transitions 
 #### CORE-034: Reset Arc
 
 **Priority:** MUST
+**Kind:** B
 
-A reset arc connects a place to a transition. When the transition fires, **all** tokens are removed from the place. A reset arc does **not** require the place to have any tokens for the transition to be enabled.
+A reset arc connects a place to a transition.
+
+*When* a transition fires, each of its reset places *shall* lose every token it held before the firing and end the firing holding exactly the tokens the firing deposited there.
+
+A reset arc *shall not* affect whether its transition can fire, whether the reset place is marked or not.
+
+A reset arc *shall not* change what its transition can deposit: from every marking, the transition and the same transition without its reset arcs *shall* be able to make exactly the same deposits, so a reset arc neither adds a deposit nor removes one.
+
+A reset arc *shall not* change the token count of any place other than its own.
 
 **Acceptance Criteria:**
 1. Transition with reset arc fires even if the reset place is empty.
 2. If the reset place has tokens, all are removed on firing.
 3. Reset arc does not contribute to enablement (no token requirement).
+4. From the same marking, a transition with a reset arc and the same transition without it
+   make the same deposits, compared per place ([CORE-036]): a reset arc on one of its output
+   places neither adds an outcome nor removes one.
 
-**Test derivation:** Fire transition with reset arc on place with 3 tokens; verify all tokens removed. Fire again with empty place; verify no error.
+**Test derivation:** Fire transition with reset arc on place with 3 tokens; verify all tokens removed. Fire again with empty place; verify no error. Give `t: a → xor(b, c)` a reset arc on `b`; from a marking with 2 tokens in `b`, verify the firings of `t` deposit `{b}` or `{c}`, exactly as `t` without the reset arc does, and that `b` ends holding the deposited token alone.
 
 ---
 
 #### CORE-035: Output Arc
 
 **Priority:** MUST
+**Kind:** B
 
-An output arc connects a transition to a place. When the transition's action completes, tokens are produced to output places according to the output specification (see [IO-010]–[IO-015]).
+An output arc connects a transition to a place.
+
+*When* a transition fires, it *shall* deposit tokens only in its output places, according to its output spec (see [IO-010]–[IO-015]).
+
+*When* a transition fires, the marking the firing leaves *shall* hold every token the firing deposited.
+
+*When* a transition fires, every place that is neither an input place nor a reset place of the transition *shall* change by exactly the tokens the firing deposited there.
 
 **Acceptance Criteria:**
 1. After transition fires, produced tokens appear in the output place.
-2. Output tokens are created with current timestamp.
+2. Output tokens are created with the current timestamp of the epoch clock ([TIME-015]); a
+   token a `ForwardInput` forwards keeps its original `created_at` ([IO-014]).
 
 **Test derivation:** Fire transition with output; verify token appears in output place.
 
@@ -287,6 +335,7 @@ An output arc connects a transition to a place. When the transition's action com
 #### CORE-036: Arc Semantics Summary
 
 **Priority:** MUST
+**Kind:** B
 
 The five arc types have the following semantics:
 
@@ -298,10 +347,39 @@ The five arc types have the following semantics:
 | Read      | Yes             | No        | Token remains; provides value|
 | Reset     | No              | Yes (all) | All tokens removed on fire   |
 
+In EARS form, for every transition:
+
+*While* an input place of the transition holds fewer tokens than the required count of its input arc, the transition *shall not* fire.
+
+*While* a read place of the transition is unmarked, the transition *shall not* fire.
+
+*While* an inhibitor place of the transition is marked, the transition *shall not* fire.
+
+*While* the transition is enabled, it *shall* be able to fire, whatever its output places and reset places hold.
+
+*When* the transition fires, each input place that is not a reset place *shall* lose the consumption count of its input arc, and gain what the firing deposits there.
+
+*When* the transition fires, each place that is neither an input place nor a reset place *shall* lose no tokens, and gain what the firing deposits there.
+
+*When* the transition fires, each reset place *shall* end holding exactly what the firing deposited there.
+
+*When* the transition fires and the firing ends with its action, on an executor with output validation enabled ([CONC-026], the default), the places in which it deposits *shall* be exactly the places of one output branch of its output spec, each receiving one or more tokens.
+
+*When* the transition fires and the firing ends with the timeout outcome, it *shall* deposit in every place as many tokens as the timeout outcome puts there ([IO-013], [IO-014]).
+
+Deposits are compared per place: the order in which a firing deposits its tokens is not normative, and two deposits that put the same number of tokens in every place are the same deposit.
+
+As in [CORE-022], the transitions these sentences describe are transitions that build: a definition that building rejects is not a transition of any net and never fires.
+
 **Acceptance Criteria:**
 1. Each arc type behaves exactly as described in the table.
+2. An action that writes two tokens into one place of the output branch it satisfies, and one
+   token into each other place of that branch, fires; the marking receives all of them
+   ([IO-015], [IO-016] AC4).
+3. Two firings that deposit the same number of tokens in every place, in different orders,
+   deposit the same outcome.
 
-**Test derivation:** One test per arc type verifying semantics.
+**Test derivation:** One test per arc type verifying semantics. `t: a → and(b, c)` whose action writes `b`, `b`, `c`: verify the firing succeeds and leaves 2 tokens in `b` and 1 in `c`. The same action writing `c`, `b`, `b`: verify the same marking.
 
 ---
 

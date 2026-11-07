@@ -777,7 +777,8 @@ public final class PetriNet {
                                     + " one port.");
                         }
                         // The output side ([IO-011]): both ports in one AND branch would name the
-                        // host place twice there. Different XOR alternatives are not a collision.
+                        // host place twice there. Different XOR alternatives are not a collision
+                        // here; the rebuilt transition rejects them as ambiguous ([IO-012]).
                         if (t.outputSpec() != null) {
                             var dup = ArcDiagnostics.duplicateInBranch(t.outputSpec(),
                                 p -> p.equals(placeA) || p.equals(placeB) ? host : p);

@@ -114,60 +114,41 @@ pub fn outcomes(t: &Transition) -> Vec<Outcome> {
     }
     // The executor takes the first `Timeout` of the spec ([IO-013]), and so do we.
     if let Some((_, child)) = find_timeout(out) {
-        for deposits in timeout_deposits(child, t) {
-            let outcome = Outcome::new(deposits);
-            if !result.contains(&outcome) {
-                result.push(outcome);
-            }
+        let mut deposits = BTreeMap::new();
+        timeout_deposits(child, t, &mut deposits);
+        let outcome = Outcome::new(deposits);
+        if !result.contains(&outcome) {
+            result.push(outcome);
         }
     }
     result
 }
 
-/// The deposits of a `Timeout` child, one map per branch of it. The executors reject a
-/// `Xor` under a `Timeout` when it fires; reading it as alternatives here keeps the
-/// enumeration total.
-fn timeout_deposits(out: &Out, t: &Transition) -> Vec<BTreeMap<String, Deposit>> {
+/// The deposits of a `Timeout` child: one fixed set of places, since the transition build
+/// rejects a `Xor` anywhere in the child (\[IO-013\]).
+fn timeout_deposits(out: &Out, t: &Transition, acc: &mut BTreeMap<String, Deposit>) {
     match out {
-        Out::Place(p) => vec![BTreeMap::from([(p.name().to_string(), Deposit::Tokens(1))])],
+        Out::Place(p) => {
+            acc.insert(p.name().to_string(), Deposit::Tokens(1));
+        }
         Out::ForwardInput { from, to } => {
             let deposit = forward_deposit(t, from.name());
-            if deposit == Deposit::Tokens(0) {
-                vec![BTreeMap::new()]
-            } else {
-                vec![BTreeMap::from([(to.name().to_string(), deposit)])]
+            if deposit != Deposit::Tokens(0) {
+                acc.insert(to.name().to_string(), deposit);
             }
         }
-        Out::Timeout { child, .. } => timeout_deposits(child, t),
-        Out::Xor(children) => children.iter().flat_map(|c| timeout_deposits(c, t)).collect(),
+        Out::Timeout { child, .. } => timeout_deposits(child, t, acc),
+        // A place twice in one branch is rejected at build ([IO-011]), so the children are
+        // disjoint.
         Out::And(children) => {
-            let mut acc = vec![BTreeMap::new()];
             for child in children {
-                let next = timeout_deposits(child, t);
-                acc = acc
-                    .iter()
-                    .flat_map(|left| {
-                        next.iter().map(move |right| {
-                            let mut merged: BTreeMap<String, Deposit> = left.clone();
-                            for (place, deposit) in right {
-                                // A place twice in one branch is rejected at build
-                                // ([IO-011]); summing keeps this total regardless.
-                                let sum = match (merged.remove(place), deposit) {
-                                    (None, d) => d.clone(),
-                                    (Some(Deposit::Tokens(a)), Deposit::Tokens(b)) => {
-                                        Deposit::Tokens(a + b)
-                                    }
-                                    (Some(_), d) => d.clone(),
-                                };
-                                merged.insert(place.clone(), sum);
-                            }
-                            merged
-                        })
-                    })
-                    .collect();
+                timeout_deposits(child, t, acc);
             }
-            acc
         }
+        Out::Xor(_) => unreachable!(
+            "transition '{}' has a Xor node in its Timeout child, which building rejects (IO-013)",
+            t.name()
+        ),
     }
 }
 

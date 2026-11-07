@@ -108,9 +108,11 @@ def test_accepts_a_self_loop_target() -> None:
 
 def _relaying_subnet() -> lp.BuiltSubnetDef:
     """A join relaying its matched name onto ``out1`` or ``out2`` (an XOR), both
-    exposed as output ports."""
+    exposed as output ports. ``side`` keeps the alternatives apart when both ports
+    are bound to one host place: Xor(X, X) would be rejected as ambiguous first
+    (IO-012)."""
     in_a, in_b = lp.Place("inA"), lp.Place("inB")
-    out1, out2 = lp.Place("out1"), lp.Place("out2")
+    out1, out2, side = lp.Place("out1"), lp.Place("out2"), lp.Place("side")
     join = (
         lp.Transition("j")
         .input(lp.one(in_a))
@@ -118,7 +120,7 @@ def _relaying_subnet() -> lp.BuiltSubnetDef:
         .match_spec(
             lp.match_spec([(in_a, _cid), (in_b, _cid)], relay_to=[(out1, _cid), (out2, _cid)])
         )
-        .output(lp.xor(out1, out2))
+        .output(lp.xor(out1, lp.and_(out2, side)))
         .action(lambda ctx: ctx.output("out1", {"cid": ctx.input("inA")["cid"]}))
         .build()
     )
@@ -296,8 +298,10 @@ def _join_chain(relay: bool) -> lp.BuiltNet:
 def _chain_with_timeout(child) -> lp.BuiltNet:
     """The join chain with j1's relay into C written by the action, or by the
     executor on timeout (``child``). j1 also consumes the uncoloured Z, so a
-    forward of a non-key input can be stated."""
-    s, a, b, c, d, z, done = (lp.Place(n) for n in ("S", "A", "B", "C", "D", "Z", "done"))
+    forward of a non-key input can be stated. The action leg also writes the sink
+    E, which keeps it apart from the timeout leg: both claiming {C} alone is
+    rejected at build (IO-012)."""
+    s, a, b, c, d, z, e, done = (lp.Place(n) for n in ("S", "A", "B", "C", "D", "Z", "E", "done"))
     ident = lambda v: v  # noqa: E731
     return (
         lp.Net("chain-timeout")
@@ -308,7 +312,7 @@ def _chain_with_timeout(child) -> lp.BuiltNet:
             .input(lp.one(b))
             .input(lp.one(z))
             .match_spec(lp.match_spec([(a, ident), (b, ident)], relay_to=[(c, ident)]))
-            .output(lp.xor(lp.out(c), lp.timeout(10, child(a, z, c))))
+            .output(lp.xor(lp.and_(c, e), lp.timeout(10, child(a, z, c))))
             .action(lp.fork)
             .build()
         )
@@ -330,7 +334,7 @@ def _chain_timeout_deadlock(net):
         net,
         lp.deadlock_free(),
         initial_marking={"S": 1, "Z": 1},
-        sink_places=["done"],
+        sink_places=["done", "E"],
         budget_places=["S"],
         fragment_mode="extended",
         enumeration_max_classes=0,

@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+**Breaking in all languages:** output specs that used to build and fail or misbehave at runtime are now rejected when the transition is built.
+
+### Changed
+
+- **Ambiguous output specs are rejected at build ([IO-012]).** A spec in which two different `Xor` choices claim the same set of places, at any depth (`Xor(P, P)`, `Xor(And(A, B), And(B, A))`, `Xor(P, Timeout(d, P))`), fails with `output spec of transition '<t>' is ambiguous: output branches <i> and <j> both claim {...}; no write can tell them apart (IO-012)`. Composition that binds two output ports in different alternatives to one host place ([MOD-020]), and fusion of two places a transition chooses between, are rejected the same way. Place identity is each language's `Place` equality, so Java still builds `Xor(P<Integer>, P<String>)` ([MOD-024]).
+- **At most one `Timeout` per output spec ([IO-013]).** A nested `Timeout`, or a second one anywhere in the spec, fails at build. Rust used to panic at the first timeout firing.
+- **No `Xor` inside a `Timeout` child ([IO-013]).** `Timeout(d, Xor(A, B))`, or an `Xor` at any depth of the child, fails at build with `output spec of transition '<t>' has a Xor node inside the child of its Timeout node; the timeout outcome deposits one fixed set of places (IO-013)`. Java, TypeScript and Rust used to throw only when the timeout fired.
+- **`ForwardInput` only inside a `Timeout` child ([IO-014]).** A bare forward fails at build.
+- **Forwarded tokens keep their `created_at` (Java, TypeScript, [IO-014]).** A timeout forward deposits the consumed token, not a re-minted copy, as Rust and Python already did. Forwarded tokens are therefore no longer stamped from an injected clock, a forwarded token now wins the [NU-022] tie-break over newer names, and recorded event streams that contain forwards may differ.
+- **Spec:** [CONC-026] states that the validation skip covers single-leaf specs, the [NU-054] relay check and the [IO-016] multiplicity warning, as every implementation already did; deposits are compared per place, so several tokens into one place of the chosen branch conform ([CORE-036]).
+- **Spec:** [CORE-022] concerns transitions that build; [CORE-030], [IO-002], [IO-003] and [IO-004] state how many tokens an input place that is not an output place ends with; [CORE-034] states that a reset arc neither adds nor removes a deposit; the glossary gains *Same set of places*, *Build-time checks* and *Builds*.
+- **Spec:** [IO-011] defines which place the duplicate-place error names: the place the builders' left-to-right walk reports first (`And(Xor(A, B), Xor(B, A))` names `B`). No builder changed.
+- **Spec:** [MOD-020] AC8 and [NU-054] AC4 use buildable specs; the platform matrix and [IO-014]'s implementation status list the new checks and token forwarding as done everywhere.
+- **Lean:** the glossary model gains the build-time checks (`Builds`, `WellFormedOut`) and the reference builder `refBuild`, which emits every build message byte for byte. IO-012 now constrains the builder as IO-013 and IO-014 do, and joins `spec_consistent_coreIO`. The conflicts CORE-022/IO-012, CORE-036/IO-015 and IO-011/CONC-026 and the two nested-`Timeout` readings of IO-013 are replaced by consistency theorems. `firstDup` is the builders' IO-011 walk, and a built transition has one timeout outcome (`timeoutOutcome_unique`).
+- **Conformance corpus:** the Lean reference loader rejects the four new build errors with the same messages, and its IO-011 refusal names the place as the builders do; and the corpus generators redraw an ambiguous output; 61 `gen-*` nets are regenerated.
+
+### Implementations
+
+- **All:** the build checks run in the order IO-011, IO-013 count, IO-013 `Xor` in `Timeout`, IO-014 placement, IO-014 non-input forward, IO-012, with byte-identical messages, on every construction path. The IO-012 check does not enumerate branches: an `And` of `Xor`s is checked in linear time.
+- **Java:** new `TransitionContext.inputTokens(Place)` and `forwardToHarvest(Place, Token)`. The run-time nested-`Timeout` and `Xor`-under-`Timeout` errors are unreachable.
+- **TypeScript:** the nested-`Timeout` and `Xor` throws in `produceTimeoutOutput` are unreachable from a built transition.
+- **Rust:** the run-time "Nested Out::Timeout" and "Out::Xor is not allowed inside Out::Timeout child" panics are now `unreachable!`.
+- **Python:** `Transition(...).build()` and `NetBuilder.compose` raise `StructureError` for the four new rejections. The `skip_output_validation` docstring states the [CONC-026] scope, as the Java, TypeScript and Rust docs do.
+
+
 ## Java 10.0.1 / TypeScript 9.0.1 / Rust 11.0.1 / Python 7.3.1 — 2026-11-03
 
 ### Added

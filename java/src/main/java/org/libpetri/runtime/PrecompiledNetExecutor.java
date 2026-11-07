@@ -1080,6 +1080,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
          * When enabled, the executor does not verify that transition outputs
          * match their declared output specs. This eliminates significant overhead
          * for high-throughput workloads where actions are known to be correct.
+         *
+         * <p>Per [CONC-026] the skip covers the whole spec, single {@code Place} /
+         * {@code ForwardInput} leaves included, plus the [NU-054] relay check and the [IO-016]
+         * AC4 multiplicity warning. It does not cover a write to an undeclared place
+         * ([CORE-063]), the timeout-outcome deposits, or the build-time output-spec checks
+         * ([IO-011], [IO-012], [IO-013], [IO-014]), which run when the transition is built.
          */
         public Builder skipOutputValidation(boolean skip) {
             this.skipOutputValidation = skip;

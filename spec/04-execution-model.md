@@ -187,7 +187,7 @@ After an action completes, the executor deposits produced tokens into the markin
 
 **Priority:** MUST
 
-After depositing tokens, the executor validates that the produced tokens satisfy the declared output specification (see [IO-015]).
+After depositing tokens, the executor validates that the produced tokens satisfy the declared output specification (see [IO-015]). An executor with the validation skip of [CONC-026] enabled does not validate.
 
 **Acceptance Criteria:**
 1. And: all children received tokens → valid.
@@ -211,7 +211,7 @@ When a transition's output specification includes a Timeout node, the executor r
 **Acceptance Criteria:**
 1. Action completes in 50ms with 100ms timeout → normal completion.
 2. Action takes 200ms with 100ms timeout → timeout branch activated; ActionTimedOut event.
-3. ForwardInput in timeout child → **every** token consumed from the `from` place is forwarded to the `to` place, one output token per consumed token, in consumption order ([IO-014]).
+3. ForwardInput in timeout child → **every** token consumed from the `from` place is forwarded to the `to` place, one output token per consumed token, in consumption order, each keeping its original `created_at` ([IO-014]).
 4. Output the action wrote before the budget expired is discarded, not merged with the timeout branch ([IO-013] AC5).
 
 **Depends on:** [IO-013], [IO-014], [EVT-009]

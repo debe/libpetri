@@ -140,7 +140,9 @@ export interface Clock {
    * calling `ctx.output(place, value)` supplies a value; libpetri constructs the token
    * and picks its `createdAt`, so that token is executor-produced and follows this
    * clock — as do raw-value injections and the recovery outputs synthesised when an
-   * action timeout fires. Only a token the **host itself** constructs, whose timestamp
+   * action timeout fires. A `ForwardInput` on the timeout outcome synthesises nothing: it
+   * deposits the consumed token itself, which keeps its `createdAt` ([IO-014] AC5).
+   * Only a token the **host itself** constructs, whose timestamp
    * it has therefore already chosen, falls outside: those are never re-stamped, which
    * is what keeps a [CORE-073] restore faithful. {@link seedToken} covers the initial
    * marking, the one place a host must mint before any executor exists.
