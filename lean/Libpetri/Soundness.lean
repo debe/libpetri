@@ -13,6 +13,7 @@ bureaucracy.
 -/
 import Libpetri.Basic
 import Mathlib.Logic.Relation
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -208,6 +209,7 @@ theorem ReachA.rec' {net : FlatNet} {a0 : AMarking}
 row that deposits `k ≥ 2` tokens in one place is outside it; `Novel/ForwardDeposit.lean` is
 Proposition 1 for such rows (`rows_reachability_simulated`, `forward_reachability_simulated`),
 with the integer post `fireAD`. -/
+@[evidence cites "VER-004" "abstraction soundness alpha(R(N)) subset R(N-hat) on the untimed flat fragment, under the GuardFreeConsumeAll (vacuous since the IO-006 guard removal) and UnitOutput side conditions; the CHC encoder is modelled, not extracted"]
 theorem proposition_one
     {net : FlatNet} {m0 m : CMarking}
     (hWF : WellFormed net) (h : ReachC net m0 m) :
@@ -261,6 +263,7 @@ This theorem is retained as the evidence that motivated removing input guards
 No net that can be built today reaches this state, so `GuardFreeConsumeAll` is
 now vacuous — but the obligation it names is real, and would return the moment a
 per-token predicate is reintroduced without teaching the flattener about it. -/
+@[evidence cites "VER-004" "necessity of the guard-free side condition: concrete counterexample where a guarded consume-all arc made the untimed abstraction unsound (historical evidence; discharged by the IO-006 guard removal)"]
 theorem guard_hypothesis_is_necessary :
     alphaFireC mGuarded tGuardedAll (fun _ => 0) 0 = 1
     ∧ fireA (alpha mGuarded) tGuardedAll [] 0 = 0 := by
@@ -286,6 +289,7 @@ invisible to it, so the finding stands unchanged.) The encoder fixes the gain at
 branch place an action writes (`net_flattener.rs:169-171`, in `flatten_with_reapable`). Again the concrete
 successor escapes the abstract relation. (A `ForwardInput` timeout batch is not an
 action write: the flattener deposits its full count, `Novel/ForwardDeposit.lean`.) -/
+@[evidence cites "VER-004" "necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder"]
 theorem unit_output_hypothesis_is_necessary :
     alphaFireC mSimple tSimple prodDouble 1 = 2
     ∧ fireA (alpha mSimple) tSimple [1] 1 = 1 := by

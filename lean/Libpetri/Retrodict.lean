@@ -17,6 +17,7 @@ transition. Without the injection rule nothing is ever enabled, so
 `PlaceBound(p₁, 0)` is proved; with it, `p₁` provably reaches 1.
 -/
 import Libpetri.Soundness
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -49,6 +50,7 @@ theorem envless_reach_is_trivial {a : AMarking} (h : ReachA netEnv m0A a) : a = 
 
 /-- Consequently `PlaceBound(p₁, 0)` is "proved" — vacuously. This is the
 false `Proven` of `98b9297`. -/
+@[evidence cites "VER-006" "retrodiction of 98b9297: without the environment-injection rule the abstract reachable set freezes at M0, so PlaceBound(p1, 0) is proven vacuously — the pre-fix false Proven, on the minimal one-env-place witness net"]
 theorem false_proven_without_injection :
     ∀ a, ReachA netEnv m0A a → a outPlace = 0 := by
   intro a h
@@ -110,6 +112,7 @@ def aInjected : AMarking := fun q => if q == envPlace then m0A q + 1 else m0A q
 above is violated: `p₁` reaches one token. The concrete executor can always
 do this — `inject()` is the whole point of an environment place — so the
 pre-fix `Proven` was unsound, not merely imprecise. -/
+@[evidence cites "VER-006" "with the injection rule (encode_injection_rule) encoded, the vacuous bound above is refuted (p1 reaches 1) — witnesses the fix on the minimal net, not full environment-analysis-mode soundness"]
 theorem injection_reaches_violation :
     ∃ a, ReachAInj netEnv [envPlace] m0A a ∧ a outPlace = 1 := by
   have hinj : ReachAInj netEnv [envPlace] m0A aInjected :=

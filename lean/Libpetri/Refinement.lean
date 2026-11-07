@@ -62,6 +62,7 @@ AC5 divergence between them — the same blind spot, now with a third mechanism
 behind it.
 -/
 import Libpetri.Refinement.Correspondence
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -413,6 +414,7 @@ to the reference backend's: the materialized marking (`Pool.proj` =
 `materialize_marking`) equals the reference `Marking`, and the control bits
 coincide — so the two executors fire the same transitions in the same order
 and end every cycle with the same observable marking. -/
+@[evidence cites "CONC-021" "the opcode consume program plus flat pool refine the bitmap reference: identical firing decisions and materialized markings, cycle for cycle — untimed/immediate sync fragment, actions abstracted to a pure emission function with proven-identical inputs/reads bags; u32 opcode encoding not modelled", evidence cites "EXEC-003" "both backends make identical conflict decisions on the untimed/immediate fragment (same control bits, same ready order, same winner/loser outcomes); timed competitive scheduling out of scope"]
 theorem precompiled_refines_bitmap_immediate {n : Nat} {net : Net}
     {emit : Emit} {st₀ : PBState} {bb₀ : BBState}
     (hrel : Rel n st₀ bb₀) (hok : NetOK net n) (hemit : EmitOK emit n) :

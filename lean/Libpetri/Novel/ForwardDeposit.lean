@@ -1,4 +1,5 @@
 import Libpetri.Soundness
+import Libpetri.Spec.Registry
 
 /-!
 # Timeout outcomes and `ForwardInput` deposits ([IO-013], [IO-014], [IO-016])
@@ -195,6 +196,7 @@ theorem fwd_timeout_deposit :
 /-- **Retrodiction.** The concrete timeout deposit `[b, b]` is no old row (in any order), and no
 old branch satisfies `UnitOutput` for it: the pre-fix abstraction could not simulate this
 firing, and Proposition 1 did not apply. -/
+@[evidence cites "IO-014" "retrodiction of the pre-fix analyses: on exactly(2, a) -> xor(c, timeout(forward(a, b))) the executor's timeout deposit [b, b] is no row of the one-token-per-leaf expansion, and no old branch satisfies UnitOutput for it (by decide)"]
 theorem forward_exactly_two_breaks_unit_output :
     deposit (consumedAt m0Fwd tFwd) oFwd (.timedOut 0) = some [pb, pb]
     ∧ (∀ r ∈ oldRows oFwd, r.isPerm [pb, pb] = false)
@@ -226,6 +228,7 @@ theorem old_rows_invariant {a : AMarking} (h : ReachA oldNet (alpha m0Fwd) a) :
       omega
 
 /-- The old abstraction proves `placeBound(b, 1)`, correctly for the net it was given. -/
+@[evidence cites "VER-004" "the pre-fix flat net of that transition reaches only b <= 1 from alpha(M0), so placeBound(b, 1) was Proven of the model while the concrete timed-out firing reaches b = 2 (timeout_firing_reaches_b_two)"]
 theorem old_rows_prove_bound_one {a : AMarking} (h : ReachA oldNet (alpha m0Fwd) a) :
     a pb ≤ 1 := by
   have := old_rows_invariant h
@@ -256,6 +259,7 @@ def tAll : Transition :=
 different count in `b`: the forward of an `All` input deposits the drained batch ([IO-014]),
 which no post vector can hold. This is why the linear routes refuse such a net
 (`drained_forward`); the graph routes resolve the count per marking (`TransferRows.lean`). -/
+@[evidence cites "VER-001" "AC5: a timeout forward from an All input deposits a marking-dependent count that no constant row matches, the reason the verifier refuses such nets"]
 theorem drained_forward_has_no_row (r : Deposit) :
     ∃ m : CMarking, enabledC m tAll = true ∧ ∃ d,
       deposit (consumedAt m tAll) oFwd (.timedOut 0) = some d ∧ r.count pb ≠ d.count pb := by
@@ -401,6 +405,7 @@ theorem timeoutDeposits_fixed {m : CMarking} {t : Transition} {o c : OutSpec}
 
 /-- **Every way a firing can end is a fixed row** (up to order), when every forward draws from
 a `One` / `Exactly` input. -/
+@[evidence cites "VER-001" "every way a firing can end (an action branch, or the timeout outcome of IO-013 AC5 / IO-014 AC2) is a row of the fixed expansion branch_outcomes::outcomes, up to order, when every forward draws from a One/Exactly input; binary And/Xor"]
 theorem deposit_mem_fixedRows {m : CMarking} {t : Transition} {o : OutSpec}
     (hFwd : FixedForwards t o) {ch : Choice} {d : Deposit}
     (h : deposit (consumedAt m t) o ch = some d) :
@@ -430,6 +435,7 @@ theorem deposit_mem_fixedRows {m : CMarking} {t : Transition} {o : OutSpec}
 
 /-- **Every fixed row is a way a firing can end**: the rows add no deposit the executor never
 makes, when every forward draws from a `One` / `Exactly` input. -/
+@[evidence cites "VER-001" "every row of the fixed expansion is a deposit some firing makes, when every forward draws from a One/Exactly input"]
 theorem fixedRows_mem_deposit {m : CMarking} {t : Transition} {o : OutSpec}
     (hFwd : FixedForwards t o) {r : Deposit} (hr : r ∈ fixedRows t o) :
     ∃ ch, deposit (consumedAt m t) o ch = some r := by
@@ -595,6 +601,7 @@ theorem flatRows_guardFree {net : SpecNet} (hG : ∀ to ∈ net, GuardFreeConsum
 /-- **Proposition 1 for timeout outcomes.** `α(R(N)) ⊆ R(N̂)` for the fixed rows, with every
 forward drawing from a `One` / `Exactly` input and every consume-all arc unguarded: the
 composition of `stepCD_stepCR` and `rows_reachability_simulated`. -/
+@[evidence cites "VER-004" "Proposition 1 alpha(R(N)) subset R(N-hat) with deposit rows as post vectors (timeout outcomes and multi-token forwards included), under GuardFreeConsumeAll and One/Exactly forward sources; untimed, counts only, the encoder modelled not extracted"]
 theorem forward_reachability_simulated {net : SpecNet} {m0 m : CMarking}
     (hWF : ∀ to ∈ net, GuardFreeConsumeAll to.1 ∧ FixedForwards to.1 to.2)
     (h : Relation.ReflTransGen (StepCD net) m0 m) :

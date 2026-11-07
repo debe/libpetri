@@ -29,6 +29,7 @@ duplicate inputs, no unknown-place tokens) — which is the coverage lesson.
 -/
 import Libpetri.Conservation
 import Libpetri.Sched
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -50,6 +51,7 @@ def Ka : SchedKey :=
 With `eq_of_perm_of_sorted`, the post-fix output (`LevelBlocks` shape) is
 forced to `[1, 0]`, so the pre-fix output provably differs from every
 correct one. -/
+@[evidence cites "EXEC-002" "retrodiction of divergence (a): the pre-fix ascending-tid per-level drain is provably not the canonical enablement-time order on a two-transition witness — a divergence witness for the fixed bug, not a positive property of the shipped code"]
 theorem tid_order_diverges :
     ¬ ([0, 1].Pairwise Ka.lt) ∧ ([1, 0].Pairwise Ka.lt) := by
   constructor
@@ -102,6 +104,7 @@ def preFixReads (s : Pool) (t : Transition) : TokenBag :=
 executor then failed the firing: `ctx.read()` had nothing to deliver);
 post-fix (`consumeForFiring`, the `reset_ops_start` boundary) it observes the
 pre-reset front token `7`, as the reference always did. -/
+@[evidence cites "EXEC-012" "retrodiction of divergence (b): pre-fix reads peeked after the RESET tail observed an empty place; post-fix consumeForFiring peeks at the reset_ops_start boundary and observes the pre-reset head, as the reference does — minimal read+reset overlap witness", evidence cites "EXEC-013" "retrodiction of divergence (b), the reset side: the RESET tail must drain after reads peek — witness that the opposite order is observably wrong; single minimal net"]
 theorem read_reset_order_diverges :
     preFixReads demoPool tReadReset 1 = []
       ∧ (consumeForFiring demoPool tReadReset).2 1 = [7] := by
@@ -125,6 +128,7 @@ slot is `None` — exactly the value the second op's
 panicked on. Post-fix this net is rejected at compile time: it violates
 `DistinctInputPlaces` (CORE-030 AC3), the hypothesis every consumption
 theorem in this development carries. -/
+@[evidence cites "CORE-030" "AC3 retrodiction of divergence (c): with duplicate input arcs on one place, cardinality_check passes each spec individually yet the second ring_remove_first finds the head empty — compile-time duplicate-input-place rejection (DistinctInputPlaces) is necessary for consumption totality"]
 theorem canEnable_insufficient_for_totality :
     canEnable demoPool tDup = true
       ∧ (execOpsFrom ⟨demoPool, emptyBag, emptyBag⟩ [.one 0]).pool.first 0 = none
@@ -149,6 +153,7 @@ executor's `TokenAdded` event (emitted regardless) is counted. The reference
 kept the token in its `Marking`; post-fix the precompiled backend retains it
 in the `extra_marking` side-map merged into `materialize_marking`
 (CORE-072 AC3). -/
+@[evidence cites "CORE-072" "AC3 retrodiction of divergence (d): pre-fix produce_token was the identity for places the program does not know — a token silently dropped, violating conservation; motivates the extra_marking retention fix, whose post-fix behaviour is not itself modelled"]
 theorem unknown_place_drop :
     preFixProduce demoPool 9 42 = demoPool := rfl
 

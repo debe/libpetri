@@ -1,5 +1,6 @@
 import Libpetri.Novel.Enumeration
 import Mathlib.Data.Finset.Card
+import Libpetri.Spec.Registry
 
 /-!
 # Stubborn-set reduction of the enumeration route ([VER-024])
@@ -422,6 +423,7 @@ def StepRed (stub : AMarking → List Row) (a a' : AMarking) : Prop := StepAD (s
 induction on the length of a firing sequence to the dead marking `d`: the sequence must fire a
 row of the stubborn set (its key row would otherwise stay enabled, `outside_cannot_disable`),
 and the first such row commutes to the front (`commute_to_front`), leaving a shorter sequence. -/
+@[evidence cites "VER-024" "what the verdict means: for any family of row sets that are stubborn (a key row, D1 dependents of enabled members, D2 increasers or decreasers of a blocked condition) at every marking with an enabled row, every ReachAD-reachable dead marking is reachable by reduced steps; footprints and dependency as in Footprints, over StepAD rows (drained forwards excluded, condition 3)"]
 theorem stubborn_preserves_dead {rows : List Row} {stub : AMarking → List Row}
     (hF : StubbornFamily rows stub) {a0 d : AMarking} (hreach : ReachAD rows a0 d)
     (hd : Dead rows d) : Relation.ReflTransGen (StepRed stub) a0 d := by
@@ -526,6 +528,7 @@ exploration closes: every discovered class is reachable in the full net; its qui
 are exactly the `ReachAD`-reachable dead markings; and so any predicate `bad` read off the
 quiescent classes only (`deadlockFree` is `bad := true`) is `Proven` iff no reachable dead
 marking is bad. -/
+@[evidence cites "VER-024" "what the verdict means: when the [VER-017] breadth-first build over the reduced successors closes, its classes are reachable and its quiescent classes are exactly the reachable dead markings, so a quiescence property is decided exactly; class key taken as marking equality, cache and witness length not modelled"]
 theorem reduced_enumeration_exact_quiescence {rows : List Row} {stub : AMarking → List Row}
     (hF : StubbornFamily rows stub) [DecidableEq AMarking] {maxClasses fuel : Nat}
     {a0 : AMarking} (h : (build (succReduced stub) maxClasses fuel a0).2 = true)
@@ -857,6 +860,7 @@ theorem closure_family {rows : List Row} {blk : Blocker} (hblk : BlockerSound bl
 /-- **[VER-024] end to end**: the enumeration that expands, at each class, the enabled rows of
 the closure of an enabled seed (any seed choice, `firstBlocker` or any sound blocker) decides
 every quiescence predicate exactly when it closes. -/
+@[evidence cites "VER-024" "the stubborn set at a class: the closure from an enabled seed under D1 and D2 reaches a fixpoint within rows.length + 1 rounds and is stubborn for any sound blocker choice (code-point order is one) and any enabled seed (the fewest-enabled choice is one), so the route's reduced graph decides quiescence exactly; rows, not transitions: a transition-level closure is argued, not proven, to be row-level stubborn"]
 theorem closure_enumeration_exact_quiescence {rows : List Row} {blk : Blocker}
     (hblk : BlockerSound blk) {seedOf : AMarking → Nat} {fuel : Nat}
     (hseed : ∀ a, (∃ r ∈ rows, enabledA a r.1 = true) →

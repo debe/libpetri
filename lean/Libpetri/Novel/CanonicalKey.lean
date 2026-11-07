@@ -5,6 +5,7 @@ import Mathlib.Data.Multiset.Sort
 import Mathlib.Data.Prod.Lex
 import Mathlib.Data.Set.Finite.Basic
 import Mathlib.GroupTheory.Perm.Basic
+import Libpetri.Spec.Registry
 
 /-!
 # `canonical_key` is a complete invariant of the symbol-renaming orbit
@@ -275,6 +276,7 @@ theorem live_comp (M : Sym → Fin k → ℕ) (σ : Equiv.Perm Sym) :
     simp [live, h, h']
 
 /-- **Invariance.** Renaming symbols by any permutation leaves the key unchanged. -/
+@[evidence cites "NU-050" "Route B symmetry quotient, soundness half: the modelled canonical_key (signature ranking by (signature, raw id), per-place sorted (rank, count) lists) is invariant under every permutation of the name symbols; the string rendering is not modelled (it is injective over a fixed coloured_order)"]
 theorem canonicalKey_comp (M : Sym → Fin k → ℕ) (σ : Equiv.Perm Sym) :
     canonicalKey (M ∘ σ) = canonicalKey M := by
   rw [canonicalKey_eq_iff, live_comp, Finset.map_val, Multiset.map_map]
@@ -307,6 +309,7 @@ theorem exists_perm_map_eq : ∀ {a b : List Sym}, a.Nodup → b.Nodup → a.len
 
 /-- **Completeness.** Markings with finite live support and equal keys lie in one orbit of the
 symbol-renaming action. -/
+@[evidence cites "NU-050" "Route B symmetry quotient, completeness half: on finite live supports, equal canonical keys imply the name markings differ by a symbol permutation (N = M o sigma), so the quotient merges exactly the renaming orbits; name_successors equivariance remains a stated hypothesis"]
 theorem canonicalKey_complete {M N : Sym → Fin k → ℕ} (hM : (liveSet M).Finite)
     (hN : (liveSet N).Finite) (h : canonicalKey M = canonicalKey N) :
     ∃ σ : Equiv.Perm Sym, N = M ∘ σ := by

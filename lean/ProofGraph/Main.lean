@@ -12,7 +12,8 @@ elaborated type or value; nothing is annotated by hand.
 
 Run from `lean/`. `--root` and `--prefix` default to `Libpetri`; `OUT` to
 `graph/proof-graph.json`, `--lock` to `graph/locked-theorems.txt`,
-`--coverage` to `proof-coverage.json`.
+`--coverage` to `report/proof-coverage.json` (generated from the
+`@[evidence cites]` tags by `spec-tools/Report.lean`).
 -/
 import Lean
 
@@ -113,7 +114,7 @@ def sortStrs (xs : Array String) : Array String :=
 def strArr (xs : Array String) : Json :=
   Json.arr (sortStrs xs |>.map Json.str)
 
-/-- Short theorem name + module file → spec IDs, from `proof-coverage.json`. -/
+/-- Short theorem name + module file → spec IDs, from `report/proof-coverage.json`. -/
 def readCoverage (path : System.FilePath) : IO (Std.HashMap (String × String) (Array String)) := do
   let j ← IO.ofExcept (Json.parse (← IO.FS.readFile path))
   let ths ← IO.ofExcept (j.getObjValAs? (Array Json) "theorems")
@@ -162,7 +163,7 @@ structure Args where
   /-- The namespace whose declarations become nodes (`--prefix`). -/
   nsPrefix : String := "Libpetri"
   lock : String := "graph/locked-theorems.txt"
-  coverage : String := "proof-coverage.json"
+  coverage : String := "report/proof-coverage.json"
   out : String := "graph/proof-graph.json"
   /-- Test mode (`--check`): compare the output with this file instead of
   writing it. -/

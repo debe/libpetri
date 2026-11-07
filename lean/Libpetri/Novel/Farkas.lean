@@ -1,4 +1,5 @@
 import Libpetri.StateEquation
+import Libpetri.Spec.Registry
 import Mathlib.Algebra.BigOperators.Ring.Finset
 import Mathlib.Tactic.Ring
 
@@ -295,6 +296,7 @@ theorem good_farkasRows {prune : Nat → List GenRow → List GenRow}
 
 /-- **Every vector the elimination returns is a P-semiflow of `C`**: non-negative, supported
 below `np`, nonzero, and `yᵀC = 0` on every one of the `nt` columns. -/
+@[evidence cites "VER-007" "the semiflow source is correct: every vector the modelled compute_p_semiflows elimination returns (init rows (C column, e_p), per-column zero rows plus (-rn[t]) rp + rp[t] rn combinations, gcd reduction, any sub-selecting prune standing for the overflow drop, candidate cap, keep_support_minimal and truncation) is non-negative, nonzero, supported below place_count and annihilates every incidence column; unbounded integers, env-injector columns not modelled, completeness not claimed"]
 theorem farkas_output_semiflow {prune : Nat → List GenRow → List GenRow}
     (hprune : ∀ t l, ∀ r ∈ prune t l, r ∈ l) {c : Nat → PlaceId → Int} {nt np : Nat}
     {y : Weight} (hy : y ∈ farkas prune c nt np) :
@@ -323,6 +325,7 @@ theorem dotInc_zero_of_lin {net : FlatNet} {np : Nat} {y : Weight}
 `yᵀC = 0` on every flat-transition column (`p_invariant.rs:348-366`), and the H1 guard
 (no weight on a consume-all or reset place, `p_invariant.rs:336-346`), then `y·M` is constant
 on every reachable marking. -/
+@[evidence cites "VER-005" "certificate check: a weight vector passing the column-wise y.C = 0 recheck of validate_invariants_exact over the flat incidence matrix (C[k][p] = post - pre) plus the H1 guard is constant along ReachA; injection-free fragment"]
 theorem certificate_sound {net : FlatNet} {np : Nat} {y : Weight} {a0 a : AMarking}
     (h1 : ∀ ft ∈ net, ZeroOnNonlinear y ft.1 np)
     (hC : ∀ k, k < net.length → lin (incAt net) np y k = 0)
@@ -341,6 +344,7 @@ theorem farkas_output_is_semiflow {prune : Nat → List GenRow → List GenRow}
 /-- **Farkas correctness end to end.** Every vector the enumeration returns that passes H1 is
 a conservation law of the net: `y·M = y·M0` (the emitted `constant`) on every reachable
 marking. -/
+@[evidence cites "VER-007" "Farkas correctness end to end: every enumerated semiflow that passes the H1 guard keeps y.M = y.M0 (its emitted constant) on every abstract reachable marking; injection-free fragment"]
 theorem farkas_output_sound {prune : Nat → List GenRow → List GenRow}
     (hprune : ∀ t l, ∀ r ∈ prune t l, r ∈ l) {net : FlatNet} {np : Nat} {y : Weight}
     {a0 a : AMarking}

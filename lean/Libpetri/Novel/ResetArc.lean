@@ -1,4 +1,5 @@
 import Libpetri.Basic
+import Libpetri.Spec.Registry
 
 /-!
 # Reset arcs ([CORE-034])
@@ -136,6 +137,7 @@ theorem fireA_reset (m : AMarking) (t : Transition) (br : List PlaceId) {p : Pla
   simp only [fireA, hr, if_true]
 
 /-- **AC2** in the CHC relation with the reset place off the output branch: `m'_p = 0`. -/
+@[evidence cites "CORE-034" "AC2 in the CHC fire relation (firing_conditions): a reset place off the output branch has m'_p = 0 whatever it held; enabledA_congr_off gives AC1/AC3 for the abstract guard"]
 theorem fireA_reset_empty (m : AMarking) (t : Transition) (br : List PlaceId) {p : PlaceId}
     (hr : t.resets.contains p = true) (hbr : br.contains p = false) :
     fireA m t br p = 0 := by
@@ -158,6 +160,7 @@ inhibitor or read arc touches. Then:
 2. (AC2) after the firing `p` holds exactly the produced tokens, so none of the old ones
    survive, and with no output to `p` it is empty;
 3. (AC3) enablement is the same with every reset arc removed. -/
+@[evidence cites "CORE-034" "AC1-AC3 on the concrete model: a place that is only a reset place of t imposes no token requirement (t is enabled with it empty iff with any content), enablement is unchanged with every reset arc removed, and after firing the reset place holds exactly the produced tokens (empty with no output to it); token counts only, untimed, the EXEC-003 AC5 drainable-prefix refinement (same-pass deposits survive a reset) not modelled"]
 theorem reset_arc_semantics {m : CMarking} {t : Transition} {p : PlaceId}
     (hr : t.resets.contains p = true) (hp : OnlyReset t p) :
     enabledC (emptyAt m p) t = enabledC m t

@@ -88,6 +88,7 @@ has `bound ≤ next_sym` at the time it is explored, and the theorem holds for
 whichever fresh counter that turns out to be.
 -/
 import Libpetri.Basic
+import Libpetri.Spec.Registry
 import Mathlib.Logic.Relation
 
 namespace Libpetri
@@ -235,6 +236,7 @@ theorem interned_to_reach {E : Explorer S K L} (hE : E.Equivariant) (rep : S →
 representative map, the set of keys reached by the interned exploration is the
 set of keys reached by the plain one — the state classes of the [VER-012]
 graph, hence the verdict, are unchanged by hash-consing. -/
+@[evidence cites "VER-012" "hash-consing the base class and the name layer is semantics-free: under key-equivariance of the successor step, exploring from any key-preserving representative reaches the same set of canonical keys (state classes) as exploring from the states themselves - generic worklist model; the shipped name_successors / canonical_key equivariance and the ready_earliest-inclusive base key are stated hypotheses, not proven"]
 theorem interned_keys_eq {E : Explorer S K L} (hE : E.Equivariant) (rep : S → S)
     (hrep : ∀ s, E.key (rep s) = E.key s) (a0 : S) :
     ∀ k, (∃ s, Reach E a0 s ∧ E.key s = k) ↔ (∃ s, ReachI E rep a0 s ∧ E.key s = k) := by
@@ -249,6 +251,7 @@ theorem interned_keys_eq {E : Explorer S K L} (hE : E.Equivariant) (rep : S → 
 
 /-- The `(key, label, key)` edges agree as well: the interned graph is the
 plain quotient graph, not merely the same vertex set. -/
+@[evidence cites "VER-012" "the interned graph has the same (key, label, key) edge set as the plain one, not merely the same vertex set; class indices and enumeration order are not claimed"]
 theorem interned_edges_eq {E : Explorer S K L} (hE : E.Equivariant) (rep : S → S)
     (hrep : ∀ s, E.key (rep s) = E.key s) (a0 : S) :
     ∀ k l k', Edge E a0 k l k' ↔ EdgeI E rep a0 k l k' := by
@@ -334,6 +337,7 @@ theorem toy_interned_stuck : ∀ s, Explorer.ReachI toy toyRep (0, 0) s → s = 
 but a step that reads past the key, plain exploration reaches key `1` while the
 interned exploration never leaves key `0`: a class of the quotient graph lost —
 on a verifier, a false `Proven`. -/
+@[evidence cites "VER-012" "necessity of key-equivariance: a step that reads a datum the key hides loses a reachable class under interning - the shape of the ready_earliest hole the base intern key closes"]
 theorem equivariance_is_necessary :
     (∀ s, toy.key (toyRep s) = toy.key s)
     ∧ ¬ toy.Equivariant

@@ -34,13 +34,15 @@ From anywhere in the repository:
 bash scripts/regen-proof-graph.sh
 ```
 
-The script builds `lean/` and checks the extractor against its fixture. It then extracts
+The script builds `lean/`, regenerates `lean/report/` (including `proof-coverage.json`, from the
+`@[evidence cites]` tags) with `spec-tools/Report.lean` and checks the extractor against its
+fixture. It then extracts
 `proof-graph.json` with `lake exe proofgraph` and renders the pages and
 `docs/proof-graph/index.html` with `scripts/proof-graph.py`. It deletes requirement pages that no longer apply. It fails if
-`lean/proof-coverage.json` names a theorem that is not in the graph. Output is deterministic:
+`lean/report/proof-coverage.json` names a theorem that is not in the graph. Output is deterministic:
 on an unchanged commit, `git status lean/graph docs/proof-graph` stays clean. CI enforces this in the `lean` job.
 
-Commit the regenerated files, including the page, with any change to `Libpetri/` or `proof-coverage.json`.
+Commit the regenerated files, including the page and `lean/report/`, with any change to `Libpetri/`.
 
 ## How the graph is built
 
@@ -58,11 +60,11 @@ are listed as shared leaves.
 
 ```text
 lake exe proofgraph [--root <module>] [--prefix <namespace>] [--lock <file>]
-                    [--coverage <proof-coverage.json>] [--out <file> | OUT] [--check <expected>]
+                    [--coverage <coverage.json>] [--out <file> | OUT] [--check <expected>]
 ```
 
 Run it from `lean/` after `lake build`. The defaults are root and prefix `Libpetri`, lock
-`graph/locked-theorems.txt`, coverage `proof-coverage.json`, and output
+`graph/locked-theorems.txt`, coverage `report/proof-coverage.json`, and output
 `graph/proof-graph.json`. `--check` compares the output with a file instead of writing it. It
 prints PASS or FAIL and exits 0 or 1.
 
@@ -86,7 +88,8 @@ extractor deliberately changes, and re-check its edges by hand.
   list is sorted. No timestamps, hashes or absolute paths.
 - `kind`: `theorem | def | inductive | structure | ctor | opaque | axiom | instance | other`.
 - `file` is relative to `lean/`. `line` is the declaration's start line (0 if unknown).
-- `specs`: the spec IDs that `proof-coverage.json` assigns to the theorem.
+- `specs`: the spec IDs that `report/proof-coverage.json` (the `@[evidence cites]` tags)
+  assigns to the theorem.
 - `locked`: the theorem is listed in `locked-theorems.txt`. Private names match without their
   `_private.<module>.0.` prefix.
 - `axioms`: as `#print axioms` reports them.

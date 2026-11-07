@@ -1,5 +1,6 @@
 import Libpetri.Novel.ForwardDeposit
 import Libpetri.Strengthening.Hypotheses
+import Libpetri.Spec.Registry
 
 /-!
 # In-flight actions: when an atomic firing is enough, and the split net ([VER-004], [EXEC-001], [EXEC-003], [EXEC-042])
@@ -388,6 +389,7 @@ theorem live_addAll {rows : List Row} {sp : String → Bool} {live : AMarking �
 untested outputs and keeps `live` when it deposits, for every executor state and every
 completion `ds` of its non-split actions in flight, the split net reaches the executor's marking
 with `ds` deposited and the split actions in flight as in the executor. -/
+@[evidence cites "VER-004" "AC4-AC6: the in-flight split net covers every interleaving of action starts and completions for any split set containing the transitions with a non-monotonically tested output; untimed, no priorities, no environment places, refusals and ctx.flush() not modelled", evidence cites "EXEC-042" "the strict stop gates every step of the executor and the split net; an action in flight at the stop is abandoned, which the covering state represents as in flight"]
 theorem split_covers_executor {rows : List Row} {sp : String → Bool} {live : AMarking → Prop}
     {a0 : AMarking} (hnames : NamesUnique rows)
     (hcrit : ∀ r ∈ rows, sp r.1.name = false → Untested rows r.2)
@@ -504,6 +506,7 @@ theorem split_covers_executor {rows : List Row} {sp : String → Bool} {live : A
 /-- **The commutation lemma.** With no output tested non-monotonically, every interleaving of
 starts and completions is matched by an atomic run (`ReachAD`), which reaches the executor's
 marking with the pending deposits added. -/
+@[evidence cites "VER-004" "AC4: with no output tested non-monotonically every interleaving of starts and completions is matched by an atomic run (the commutation lemma); untimed, no priorities"]
 theorem atomic_covers_executor {rows : List Row} {live : AMarking → Prop} {a0 : AMarking}
     (hnames : NamesUnique rows) (hcrit : ∀ r ∈ rows, Untested rows r.2)
     (hlive : ∀ r ∈ rows, ∀ a, live a → live (addD a r.2)) {s : XState}
@@ -543,6 +546,7 @@ theorem upClosedOff_of_upClosed {bad : AMarking → Prop} (h : UpClosed bad) :
 The property reads `Q` exactly and the rest upward-closed; no transition outside `sp` deposits
 into `Q`. The executor state may hold actions in flight that never complete: the split net
 reaches a marking that agrees with it on `Q` and holds at least as much elsewhere. -/
+@[evidence cites "VER-004" "a Proven of a property that reads a place set Q exactly and the rest upward-closed holds at every executor state when no transition outside the split deposits into Q", evidence cites "EXEC-042" "covers the executor's terminal stop, which abandons the actions in flight"]
 theorem split_stop_sound {rows : List Row} {sp : String → Bool} {live : AMarking → Prop}
     {a0 : AMarking} (hnames : NamesUnique rows)
     (hcrit : ∀ r ∈ rows, sp r.1.name = false → Untested rows r.2)
@@ -561,6 +565,7 @@ theorem split_stop_sound {rows : List Row} {sp : String → Bool} {live : AMarki
 
 /-- **A safety `Proven` of the split net holds at every executor state**, an action in flight
 or not. -/
+@[evidence cites "VER-004" "a Proven of an upward-closed marking property on the split net holds at every executor state, actions in flight or abandoned included; untimed, no priorities"]
 theorem split_safety_sound {rows : List Row} {sp : String → Bool} {live : AMarking → Prop}
     {a0 : AMarking} (hnames : NamesUnique rows)
     (hcrit : ∀ r ∈ rows, sp r.1.name = false → Untested rows r.2)
@@ -572,6 +577,7 @@ theorem split_safety_sound {rows : List Row} {sp : String → Bool} {live : AMar
     (upClosedOff_of_upClosed hup) hproven h
 
 /-- **Where nothing is in flight, the executor's state is a split-net state.** -/
+@[evidence cites "VER-004" "where nothing is in flight the executor's marking is a split-net marking with nothing pending, so a quiescence Proven covers the executor's non-terminal rests; untimed, no priorities"]
 theorem split_rest_sound {rows : List Row} {sp : String → Bool} {live : AMarking → Prop}
     {a0 : AMarking} (hnames : NamesUnique rows)
     (hcrit : ∀ r ∈ rows, sp r.1.name = false → Untested rows r.2)
@@ -620,6 +626,7 @@ theorem stop_waived {terms P W : List PlaceId} {min : Nat} (h : ∀ τ ∈ terms
 split net proves it and every transition depositing into a counted or waiver place is split
 (`quiescent_count_demand`). An action the stop abandons is in flight in the split net too, or
 deposits nowhere the count reads. -/
+@[evidence cites "VER-002" "AC8 lower bound at a terminal stop: with every depositor into a counted or waiver place split (quiescent_count_demand), a Proven of the split net holds at every stop of the executor; untimed", evidence cites "EXEC-042" "the actions a terminal stop abandons cannot leave a QuiescentCount lower bound short unseen"]
 theorem quiescent_count_stop_sound {rows : List Row} {sp : String → Bool}
     {live : AMarking → Prop} {a0 : AMarking} {terms P W : List PlaceId} {min : Nat}
     (hnames : NamesUnique rows)
@@ -699,6 +706,7 @@ theorem split_marks_bad :
 
 /-- **The criterion is needed.** On a net where another transition inhibits `t`'s output, the
 executor marks `bad`, the atomic net never does, and the split net does. -/
+@[evidence cites "VER-004" "the split criterion is needed: an inhibitor on t's output lets the executor mark bad with t in flight, which the atomic net never does and the split net does"]
 theorem inflight_witness :
     ¬ Untested rowsW [1] ∧ (∃ s, XReach rowsW liveW a0W s ∧ s.a 3 = 1) ∧
       (∀ a, ReachAD rowsW a0W a → a 3 = 0) ∧
@@ -842,6 +850,7 @@ theorem demand_stops_short : ∃ x, SReach rowsF spDemand liveF a0F x ∧ shortF
 /-- **The terminal demand is needed.** The plain split proves `QuiescentCount([a, ok], 1)` at
 every stop and misses the demand's premise; the executor stops short; the split with the demand
 reaches that stop. -/
+@[evidence cites "VER-004" "the terminal demand is needed: on t: a -> ok, f: s -> done (terminal), QuiescentCount([a, ok], 1), the plain split never falls short, the executor stops with a = ok = 0, and the split with t added reaches that stop", evidence cites "EXEC-042" "witness that a terminal stop abandons an action in flight"]
 theorem terminal_stop_witness :
     (∀ x, SReach rowsF spPlain liveF a0F x → ¬ shortF x.a) ∧
       (¬ ∀ r ∈ rowsF, spPlain r.1.name = false → ∀ p, p ∈ [0, 1] ∨ p ∈ ([] : List PlaceId) →

@@ -1,4 +1,5 @@
 import Libpetri.Soundness
+import Libpetri.Spec.Registry
 
 /-!
 # Siphons, traps and Commoner's theorem ([VER-020])
@@ -199,6 +200,7 @@ theorem dead_consumes_unmarked {net : FlatNet} {n : Nat} {a : AMarking} (hord : 
 
 /-- **Commoner's theorem** (deadlock-freedom direction, [VER-020] AC2). In an ordinary net,
 if every nonempty siphon contains an initially marked trap, then no reachable marking is dead. -/
+@[evidence cites "VER-020" "AC2: Commoner's theorem over the CHC relation ReachA for ordinary nets (commoner_applies: no read/inhibitor/reset arc, no consume-all input, arc weight <= 1) - if every nonempty siphon contains an initially marked trap, no reachable marking is dead; built on siphon_stays_empty (any arcs) and trap_stays_marked (no reset/consume-all on the trap); the Rust fixpoint loops and the minimal-siphon reduction are not modelled"]
 theorem commoner {net : FlatNet} {n : Nat} {a0 : AMarking} (hne : net ≠ [])
     (hord : Ordinary net) (hbelow : InputsBelow net n) (hcond : CommonerCond net n a0)
     {a : AMarking} (hr : ReachA net a0 a) : ¬ Dead net a := by
@@ -226,6 +228,7 @@ def a0Ex : AMarking := fun p => if p = 0 then 1 else 0
 
 /-- **Ordinarity is necessary** ([VER-020] AC3, the spec's second witness). The net satisfies
 Commoner's condition with an initially marked trap and is dead at `{a:1}`. -/
+@[evidence cites "VER-020" "AC3: the spec's witness t: exactly(2, a) -> a from {a:1} satisfies the full siphon/marked-trap condition yet is dead initially, so the arc-weight guard of commoner_applies is load-bearing"]
 theorem ordinary_is_necessary :
     CommonerCond netEx 1 a0Ex ∧ InputsBelow netEx 1 ∧ Dead netEx a0Ex := by
   refine ⟨?_, ?_, ?_⟩
@@ -275,6 +278,7 @@ theorem consumes_tBA {q : PlaceId} (h : Consumes tBA q) : q = 1 := by
 contains a nonempty trap, yet the net is dead at the empty marking. An unmarked trap therefore
 certifies nothing, which is why `structural_check` also requires the trap to hold a token
 under the initial marking. -/
+@[evidence cites "VER-020" "the ordinary cycle a -> b -> a from the empty marking has a nonempty trap in every nonempty siphon yet is dead initially - Commoner needs the trap marked, which is why structural_check requires each minimal siphon's maximal trap to hold a token under the initial marking (it answers PotentialDeadlock on this net)"]
 theorem marked_trap_is_necessary :
     Ordinary netCyc ∧
     (∀ S : PlaceId → Prop, (∃ p, S p) → Siphon netCyc S →

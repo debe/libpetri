@@ -55,6 +55,7 @@ what *is* sufficient:
 -/
 import Libpetri.Retrodict
 import Libpetri.Strengthening.Hypotheses
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -81,6 +82,7 @@ Hypotheses, exactly as the proof forces them:
 Conclusion: `y·M = y·M₀` on every reachable abstract marking — the conjunct
 of `invariant_conditions` (`smt_encoder.rs:406-429`) really is invariant
 ([VER-005] AC2). -/
+@[evidence cites "VER-005" "weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment"]
 theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
     {y : Weight} {n : Nat}
     (h1 : ∀ ft ∈ net, ZeroOnNonlinear y ft.1 n)
@@ -130,6 +132,7 @@ strengthened relation reaches exactly the same markings. The forward
 inclusion is the load-bearing one — a body conjunct can only remove states,
 and H1/H2 guarantee it removes none. The converse is the trivial weakening
 (dropping is always sound, which is why the C2 gate may *drop* freely). -/
+@[evidence cites "VER-005" "under H1+H2, conjoining y.M = y.M0 into CHC rule bodies preserves the abstract reachable set - the strengthening the encoders perform is sound"]
 theorem strengthened_reach_eq {net : FlatNet} {a0 : AMarking} {y : Weight} {n : Nat}
     (h1 : ∀ ft ∈ net, ZeroOnNonlinear y ft.1 n)
     (h2 : ∀ ft ∈ net, dotInc y ft n = 0) :
@@ -166,6 +169,7 @@ injectable place contributes an injector column `+e_p`
 (`incidence_matrix.rs:40-43`; TS `incidence-matrix.ts`), and `y·C = 0`
 on that column *is* `y p = 0`. This theorem is the sufficiency proof for
 that design. -/
+@[evidence cites "VER-006" "env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design"]
 theorem invariant_strengthening_sound_inj {net : FlatNet} {envs : List PlaceId}
     {a0 a : AMarking} {y : Weight} {n : Nat}
     (h1 : ∀ ft ∈ net, ZeroOnNonlinear y ft.1 n)
@@ -242,6 +246,7 @@ theorem ReachAInjStr.rec' {net envs y n a0}
 /-- Conjoining stays sound under injection provided H3′ — the formal warrant
 for keeping invariants in the transition rules while the injector columns
 force `y = 0` on injectable places. -/
+@[evidence cites "VER-006" "under H1+H2+H3', strengthening preserves the injected reachable set"]
 theorem strengthened_reach_eq_inj {net : FlatNet} {envs : List PlaceId}
     {a0 : AMarking} {y : Weight} {n : Nat}
     (h1 : ∀ ft ∈ net, ZeroOnNonlinear y ft.1 n)
@@ -316,6 +321,7 @@ strengthened relation freezes it at `0` (third conjunct) — a false `Proven`
 for `PlaceBound(p₁, 0)`. This is exactly the law the injector columns of
 `incidence_matrix.rs:40-43` exist to kill: `y·C = 0` on the `+e_envPlace`
 column forces `y envPlace = 0`, i.e. H3′. -/
+@[evidence cites "VER-006" "necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation"]
 theorem injection_hypothesis_is_necessary :
     dotInc yUnit (tConsume, [outPlace]) 2 = 0
     ∧ (∃ a, ReachAInj netEnv [envPlace] m0A a ∧ a outPlace = 1)
@@ -382,6 +388,7 @@ on nets with `all`/`atLeast`/reset arcs. That is what shipped the H1 guard:
 `validate_invariants_exact` and its TypeScript/Java twins now drop any
 invariant whose support intersects a consume-all or reset place, and quote
 this theorem in the drop reason. -/
+@[evidence cites "VER-005" "live-gap witness that forced the H1 guard: an exact-gate-valid invariant on an In::All net prunes a genuine successor - false Proven without the guard"]
 theorem consume_all_hypothesis_is_necessary :
     (consumeAllAt tAll 0 = true ∧ yUnit 0 ≠ 0)
     ∧ dotInc yUnit (tAll, [1]) 2 = 0
@@ -428,6 +435,7 @@ net about which the encoder resolved nothing. The only sound behaviour for
 an unresolvable property place is to refuse to certify (surface an error
 instead of an error rule), which is the formal argument against
 `encode_property_violation`'s `smt_encoder.rs:744-747` fallback. -/
+@[evidence cites "VER-004" "the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case"]
 theorem bad_rule_nonvacuity (Reach : AMarking → Prop) :
     ProvenFor Reach (fun _ => False) :=
   fun _ _ hbad => hbad
@@ -475,6 +483,7 @@ def quiescentCountBad (quiescent : Option (AMarking → Bool))
 the marking is quiescent and its count is below `min` with every waiver empty,
 or above `max`. A `Bad` weaker than this would certify a false `Proven`; the
 arm's `false` fallbacks are the cases where the condition is unsatisfiable. -/
+@[evidence cites "VER-002" "AC8: the flat encoder's QuiescentCount Bad is exactly quiescent and ((count < min and every waiver empty) or count > max), so its false fallbacks ([0, inf), no quiescent marking) hide no violation - quiescence encoding taken as a parameter; counted places assumed resolved and duplicate-free as index_ordered returns them"]
 theorem quiescent_count_clause_exact (quiescent : Option (AMarking → Bool))
     (counted waivers : List PlaceId) (min : Nat) (max : Option Nat) (a : AMarking) :
     quiescentCountBad quiescent counted waivers min max a = true ↔

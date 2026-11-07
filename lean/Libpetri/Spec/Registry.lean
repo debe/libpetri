@@ -13,8 +13,9 @@ This module is tooling, not specification. It gives the spec modules five things
 * the `@[evidence role REQ…]` attribute, which links a theorem (a witness, a violation, a
   non-vacuity proof, a conflict …) to the requirements it is evidence for, and checks that the
   theorem's statement has the shape its role promises and assumes nothing;
-* the citation form `@[evidence cites "VER-002" "fragment"]`, which links a theorem to a spec ID
-  that has no requirement block yet;
+* the citation form `@[evidence cites "VER-002" "fragment"]`, which links a theorem to the
+  fragment of a spec ID it proves, whether or not the ID has a requirement block (the citations
+  become `lean/report/proof-coverage.json`);
 * `#write_requirements_report "dir"`, which renders the registry as `requirements.md` and
   `requirements.json`, and `#audit_axioms`, which fails on any axiom outside the standard three.
 
@@ -101,8 +102,10 @@ def roles : List String :=
   ["holds", "violated", "allows", "forbids", "undecided", "mutant", "nonvacuous", "conflict",
    "ambiguity", "total", "consistent"]
 
-/-- Is the string empty after trimming? -/
-def blank (s : String) : Bool := s.trimAscii.isEmpty
+/-- Is the string blank, i.e. without a single ASCII letter or digit? Trimming is not enough: it
+keeps invisible characters such as a zero-width space or a word joiner, so a field holding only
+those would pass for text. Every field checked with this is English prose or an identifier. -/
+def blank (s : String) : Bool := !s.any Char.isAlphanum
 
 /-- Does `s` match `^[A-Z]+-[0-9]{3}$`, the shape of a spec ID such as `VER-002`? -/
 def isSpecId (s : String) : Bool :=
@@ -383,7 +386,14 @@ initialize registerBuiltinAttribute {
     unless (← getConstInfo thm).isTheorem do
       throwError "@[evidence {role}] on {thm}: {thm} is not a theorem; only a theorem can be \
         evidence"
+    -- The report records the module that declares the theorem, and only sees Libpetri modules.
+    if ((← getEnv).getModuleIdxFor? thm).isSome then
+      throwError "@[evidence {role}] on {thm}: {thm} is declared in another module; tag it where \
+        it is declared"
     let module := (← getEnv).mainModule
+    unless (`Libpetri).isPrefixOf module do
+      throwError "@[evidence {role}] on {thm}: {module} is not a Libpetri module; \
+        spec-tools/Report.lean only reads the tags of lean/Libpetri.lean and lean/Libpetri/"
     if role == "cites" then
       unless reqs.isEmpty && strs.size == 2 do
         throwError "usage: @[evidence cites \"ID-000\" \"fragment\"] (exactly one ID and one fragment)"
@@ -391,7 +401,7 @@ initialize registerBuiltinAttribute {
       let fragment := strs[1]!.getString
       unless isSpecId id do
         throwError "cites: {repr id} is not a spec ID (expected ^[A-Z]+-\\d\{3}$, e.g. VER-002)"
-      if blank fragment then throwError "cites {id}: the fragment is empty"
+      if blank fragment then throwError "cites {id}: the fragment is blank (no letter or digit)"
       modifyEnv (evExt.addEntry · { req := .anonymous, role, thm, module, id, fragment })
       return
     unless roles.contains role do
@@ -673,8 +683,9 @@ def renderMd (rs : Array Row) (cs : Array Evidence) : String := Id.run do
       out := out ++ s!"- {roleMark v.role} **{v.role}** `{v.thm}` ({v.module}): {v.doc}\n  \
         <pre>{mdCell v.stmt}</pre>\n"
   unless cs.isEmpty do
-    out := out ++ "\n---\n\n## Citations\n\nTheorems linked to spec IDs that have no requirement \
-      block yet (`@[evidence cites \"ID\" \"fragment\"]`).\n\n\
+    out := out ++ "\n---\n\n## Citations\n\nTheorems linked to the fragment of a spec ID they \
+      prove (`@[evidence cites \"ID\" \"fragment\"]`), whether or not the ID has a requirement \
+      block.\n\n\
       | ID | Fragment | Theorem | Module |\n|---|---|---|---|\n"
     for c in cs do
       out := out ++ s!"| {c.id} | {mdCell c.fragment} | `{c.thm}` | {c.module} |\n"

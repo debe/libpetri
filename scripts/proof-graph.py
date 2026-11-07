@@ -523,8 +523,8 @@ def main(argv=None) -> int:
     p.add_argument("--html", help="path of the interactive page (default <out>/index.html)")
     p.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
                    help=f"max nodes per diagram before collapsing (default {DEFAULT_THRESHOLD})")
-    p.add_argument("--coverage", help="proof-coverage.json: fail unless every listed theorem is "
-                                      "a node carrying its spec ID")
+    p.add_argument("--coverage", help="lean/report/proof-coverage.json: fail unless every listed "
+                                      "theorem is a node carrying its spec ID")
     args = p.parse_args(argv)
     try:
         data = load(args.inp)

@@ -63,6 +63,7 @@ folded into `latest` (it only translates the reap threshold, TIME-013 AC2).
   differed from the shipped one only in the dirty bit on a reap.
 -/
 import Libpetri.Sched
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -236,6 +237,7 @@ clock: the newly-enabled path of `update_enablement`
 (`precompiled_backend.rs:983-987`), the same path initialization takes. Before
 the ruling the reap itself set the dirty bit, so this step followed every reap;
 now only a token change sets it (`reaped_rearms_on_touch`). -/
+@[evidence cites "TIME-011" "a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit)"]
 theorem pb_update_reenables (now : Nat) {s : Cell} (ht : s.tokens = true)
     (he : s.enabled = false) (hd : s.dirty = true) :
     updateCell now s
@@ -255,6 +257,7 @@ theorem bb_cycle_disabled_frame (tm : Timing) (now : Nat) {s : Cell}
 mutation (the quiet net — dirty stays clear because `mark_place_dirty` needs
 a token change and `post_fire` needs a firing), `enabled` stays false
 *forever*: every future cycle observes no fire, over any schedule. -/
+@[evidence cites "TIME-013" "induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the shipped cycle over any schedule"]
 theorem bb_reaped_stays_disabled (tm : Timing) {s : Cell}
     (he : s.enabled = false) (hd : s.dirty = false) :
     ∀ nows : List Nat, run enforceBB tm s nows
@@ -278,6 +281,7 @@ input place then changes and still enables it is re-enabled by the next cycle
 on the fresh clock `now` (TIME-011), and that cycle does not reap it again,
 since no time has passed on the fresh clock. Both shipped backends run this
 path (`time013_reaped_transition_rearms_when_an_input_changes`). -/
+@[evidence cites "TIME-013" "the TIME-013 ruling, 'until an input changes': a token change marks the reaped cell dirty and the next cycle re-enables it on the fresh clock without reaping it again - one control cell, the token change abstracted to a dirty mark and a presence bit"]
 theorem reaped_rearms_on_touch (tm : Timing) (now : Nat) {s : Cell}
     (he : s.enabled = false) :
     (cycle enforceBB tm now (touch true s)).1
@@ -312,6 +316,7 @@ backend never re-examines it. The observable firing sequences differ. The
 TIME-013 ruling (2026-09-30) took the bitmap side: `obsBB` is now the run of
 both shipped backends, and the Rust test
 `time013_reap_is_not_rearmed_on_either_backend` runs this witness on both. -/
+@[evidence cites "TIME-013" "retrodiction of the pre-ruling precompiled re-arm: before the 2026-09-30 TIME-013 ruling the precompiled enforce_deadlines re-dirtied a reaped transition and fired it once its window reopened, the bitmap one never did, on a one-transition quiet-net control-cell model; the ruling took the bitmap side for both backends"]
 theorem deadline_reap_dirty_diverges :
     obsPB wTiming wInit wSched = [false, false, false, true]
       ∧ obsBB wTiming wInit wSched = [false, false, false, false]
@@ -323,6 +328,7 @@ theorem deadline_reap_dirty_diverges :
 *every* schedule: after the enable-then-reap prefix `[0, 10]`, no quiet
 continuation ever fires the transition again — `bb_reaped_stays_disabled`
 applied to the concrete post-reap cell. Both backends, since the ruling. -/
+@[evidence cites "TIME-013" "the TIME-013 ruling, 'stays disabled': with no token mutation after a reap the transition never fires again, over every schedule, in both backends since the ruling - quiet-net control-cell fragment only"]
 theorem bb_never_fires_after_reap (rest : List Nat) :
     obsBB wTiming wInit (0 :: 10 :: rest)
       = false :: false :: List.replicate rest.length false := by

@@ -4,6 +4,7 @@ import Mathlib.Data.List.FinRange
 import Mathlib.Logic.Equiv.Defs
 import Mathlib.Tactic.Linarith
 import Mathlib.Tactic.Ring
+import Libpetri.Spec.Registry
 
 /-!
 # DBM zones: canonicalisation preserves the zone, emptiness detection is exact ([VER-011])
@@ -375,6 +376,7 @@ theorem exists_nodup_le {D₀ : Matrix d} (h : NoNegCycle D₀) :
     exact add_le_add_right (le_add_of_nonneg_left (h x b)) _
 
 /-- **Floyd–Warshall closes the matrix**: without negative cycles, `canon D₀` is closed. -/
+@[evidence cites "VER-011" "canonical form: without negative cycles the in-place Floyd-Warshall pass returns a closed matrix (D i j <= D i k + D k j), and sat_canon shows canonicalisation never changes the solution set"]
 theorem closed_canon {D₀ : Matrix d} (h : NoNegCycle D₀) : Closed (canon D₀) := by
   intro i j k
   have hlo := lo_runSteps D₀ (fwSteps d) D₀ (lo_init D₀)
@@ -424,6 +426,7 @@ theorem flagged_of_neg {D₀ : Matrix d} {x : Fin d} {l : List (Fin d)}
 /-- **The Rust emptiness check is exact** ([VER-011] AC2). For a DBM whose reference row `r` is
 finite (the negated lower bounds `create` writes), the zone is empty **iff** canonicalisation
 leaves a negative diagonal entry. Soundness at any `eps ≥ 0` is `flagged_empty`. -/
+@[evidence cites "VER-011" "AC2: zone emptiness is detected exactly - for a DBM with a finite reference row, the modelled in-place Floyd-Warshall canonicalize (Rust k/i/j loop order) followed by the negative-diagonal check flags the zone empty iff it has no solution (exact rationals, eps = 0; flagged_empty gives soundness at any eps >= 0, so the 1e-9 tolerance can only miss an emptiness, never invent one); floating point, let_time_pass and fire_transition not modelled"]
 theorem empty_iff_flagged {D : Matrix d} {r : Fin d} (hrow : ∀ i, D r i ≠ ⊤) :
     (¬ ∃ θ, Sat D θ) ↔ Flagged 0 D := by
   refine ⟨fun hempty => ?_, flagged_empty le_rfl⟩
@@ -444,6 +447,7 @@ def permD (D : Matrix d) (σ : Equiv.Perm (Fin d)) : Matrix d :=
   fun a b => D (σ a) (σ b)
 
 /-- Permuting the clocks maps the zone bijectively. -/
+@[evidence cites "VER-011" "AC4: permuting the clocks (permuted) maps the zone bijectively (theta to theta o sigma) and closed_permD keeps a canonical matrix canonical, so the reordered positional key denotes the same zone; the zone_key string rendering is not modelled"]
 theorem sat_permD (D : Matrix d) (σ : Equiv.Perm (Fin d)) (θ : Fin d → ℚ) :
     Sat (permD D σ) (θ ∘ σ) ↔ Sat D θ := by
   constructor

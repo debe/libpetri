@@ -445,13 +445,35 @@ is re-verify the Lean model against the named Rust item, then
 
 ### Coverage annotations
 
-`proof-coverage.json` is the hand-maintained map from theorem name to the spec
-requirement — and the *fragment* of it — that theorem proves. It is the file to
-edit when adding a theorem that closes part of a requirement.
-`scripts/spec-coverage-matrix.py` validates it (every name must resolve to a
-`theorem`/`lemma` in its claimed module, every ID must be active in
-`spec/00-index.md`) and regenerates `spec/coverage-matrix.md` under `--update`;
+A theorem that proves part of a spec requirement says so itself, with the
+`@[evidence cites "ID" "fragment"]` attribute (`Libpetri/Spec/Registry.lean`):
+the ID is the requirement, the fragment scopes the claim to what the theorem
+actually proves. A theorem that supports several IDs carries the attribute once
+per ID, comma-separated in one `@[…]`:
+`@[evidence cites "EXEC-010" "…", evidence cites "EXEC-013" "…"]`.
+
+The attribute checks the claim where it is written: the tagged constant must be
+a theorem declared in the same module, under `Libpetri`, the ID must have the
+shape of a spec ID and the fragment must hold a letter or digit.
+
+`spec-tools/Report.lean` (`lake env lean spec-tools/Report.lean`, run from
+`lean/`) collects the tags into `report/proof-coverage.json`, one entry per
+theorem sorted by module and name, IDs in attribute order. It imports every
+Libpetri module directly, so no tag is missed;
+`scripts/lean-module-coverage-check.py` fails CI when a module is missing from
+its imports. The file is generated: never edit it; CI regenerates it with
+`report/requirements.{md,json}` and fails on a difference.
+`scripts/spec-coverage-matrix.py` reads it, checks that every ID is active in
+`spec/00-index.md` and regenerates `spec/coverage-matrix.md` under `--update`;
 without it the script verifies instead, which is what CI runs.
+
+After adding or editing a `cites` tag, run the steps in this order, since each
+reads the output of the one before: `lake build`, then
+`lake env lean spec-tools/Report.lean` from `lean/`, then
+`python3 scripts/spec-coverage-matrix.py --update` and
+`bash scripts/regen-proof-graph.sh` (which runs `lake build` and `Report.lean`
+itself). `--update` alone reads the committed `proof-coverage.json`, so the
+matrix stays on the old tags and CI fails the report freshness step.
 
 Nothing in `theory/` is edited by this development; the papers are read-only
 reference for the theorem statements.

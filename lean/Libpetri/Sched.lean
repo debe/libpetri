@@ -39,6 +39,7 @@ Both backends' `collect_ready_general` ends by calling `begin_firing_pass`
 and does not touch its order, so it is outside this module's fragment.
 -/
 import Libpetri.Basic
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -179,6 +180,7 @@ canonically sorted ordering of the same ready set (its stable
 stability supplying the ascending-tid tiebreak), then the two outputs are
 *equal*: same transitions, fired in the same order (EXEC-002 AC1–AC4,
 CONC-023 AC4). -/
+@[evidence cites "EXEC-002" "ready-collection phase only: the canonical (priority DESC, enabled_at ASC, tid ASC) order is the unique sorted permutation of the ready set and both backends' outputs equal it; abstract Nat clocks", evidence cites "CONC-023" "the post-fix per-priority-level drain (LevelBlocks, RQ1-RQ4) produces the same list as the reference's stable (priority DESC, enabled_at ASC) sort; queue maintenance beyond the collection phase not modelled", evidence cites "TIME-010" "ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md)"]
 theorem collect_ready_general_refines {K : SchedKey}
     {blocks : List (Int × List Nat)} {bbOut ready : List Nat}
     (hlb : LevelBlocks K blocks)

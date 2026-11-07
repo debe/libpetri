@@ -585,8 +585,25 @@ jobs:
         run: |
           python3 -m unittest scripts/test_lean_fidelity_check.py
           python3 scripts/lean-fidelity-check.py
+      # lean/report/requirements.{md,json} and lean/report/proof-coverage.json
+      # are generated from the requirement blocks and their @[evidence] tags
+      # (proof-coverage.json from the `cites` tags); regenerating them must be
+      # a no-op (same pattern as the proof graph below). It runs before the
+      # coverage matrix and the proof graph, which read proof-coverage.json,
+      # so they see the regenerated file. ls-files fails when a file is not
+      # tracked at all (git diff is blind to untracked files); the porcelain
+      # check, --ignored included, catches a generated file that was never
+      # committed or that a .gitignore rule hides.
+      - name: Requirements report is up to date
+        shell: bash
+        run: |
+          lake env lean spec-tools/Report.lean
+          git ls-files --error-unmatch report/requirements.md report/requirements.json \
+            report/proof-coverage.json
+          git diff --exit-code -- report/
+          test -z "$(git status --porcelain --ignored -- report/)"
       # spec/coverage-matrix.md is generated; keep it in lockstep with the
-      # spec index, lean/proof-coverage.json, and the test suites.
+      # spec index, lean/report/proof-coverage.json, and the test suites.
       - name: Spec coverage matrix is up to date
         working-directory: ${{ github.workspace }}
         run: python3 scripts/spec-coverage-matrix.py --check
@@ -616,8 +633,10 @@ jobs:
           python3 -m unittest scripts/test_lean_escape_hatch_check.py
           python3 scripts/lean-escape-hatch-check.py
       # The audit below and the requirements report only see the modules they
-      # import. Every Libpetri module must be imported directly by
-      # spec-tools/Audit.lean, every Libpetri.Spec module by Spec/All.lean.
+      # import; a cites tag in a module the report does not import would never
+      # reach proof-coverage.json. Every Libpetri module must be imported
+      # directly by spec-tools/Audit.lean and spec-tools/Report.lean, every
+      # Libpetri.Spec module by Spec/All.lean.
       - name: Every Lean module is reached by the audit and the report
         working-directory: ${{ github.workspace }}
         run: python3 scripts/lean-module-coverage-check.py
@@ -630,32 +649,22 @@ jobs:
       - name: Every Libpetri constant depends only on standard axioms
         shell: bash
         run: lake env lean spec-tools/Audit.lean
-      # lean/report/requirements.{md,json} are generated from the requirement
-      # blocks and their @[evidence] tags; regenerating them must be a no-op
-      # (same pattern as the proof graph above). ls-files fails when either
-      # file is not tracked at all (git diff is blind to untracked files); the
-      # porcelain check, --ignored included, catches a generated file that was
-      # never committed or that a .gitignore rule hides.
-      - name: Requirements report is up to date
-        shell: bash
-        run: |
-          lake env lean spec-tools/Report.lean
-          git ls-files --error-unmatch report/requirements.md report/requirements.json
-          git diff --exit-code -- report/
-          test -z "$(git status --porcelain --ignored -- report/)"
       # Every requirement block's quote must appear verbatim (whitespace
       # normalised) under its `#### ID:` heading in spec/*.md, and every
       # behaviour block needs `holds` and `nonvacuous` evidence. Reads the
-      # report just checked for freshness, so it sees the committed state.
+      # report checked for freshness above, so it sees the committed state.
       - name: Requirement blocks match the markdown spec
         run: python3 ../scripts/spec-lean-alignment.py --report lean/report/requirements.json --spec spec
-      # Plants 17 faults (registry: blank reading, forbids without ¬, holds
-      # assuming its requirement, nonvacuous : True, stale sign-off hash;
-      # escape hatches: private axiom, native_decide, sorry outside Spec,
-      # addDeclCore without the kernel check; module coverage; alignment:
-      # drifted quote, quote only in an HTML comment, tombstoned citation;
-      # stale report). Each passes only if the gate meant to catch it fails
-      # with that gate's own message. Restores every planted file (md5-checked).
+      # Runs 21 planted-fault cases (registry: blank reading, forbids without
+      # ¬, holds assuming its requirement, nonvacuous : True, stale sign-off
+      # hash, cites on another module's theorem, cites with an invisible
+      # fragment; escape hatches: private axiom, native_decide, sorry outside
+      # Spec, addDeclCore without the kernel check; module coverage of
+      # Spec/All.lean and of Report.lean; alignment: drifted quote, quote only
+      # in an HTML comment, tombstoned citation; stale report; hand-edited
+      # proof-coverage.json). Each passes only if the gate meant to catch it
+      # fails with that gate's own message. Restores every planted file
+      # (md5-checked).
       - name: Spec/Lean gates catch planted faults
         shell: bash
         run: bash ../scripts/test_spec_lean_gates.sh

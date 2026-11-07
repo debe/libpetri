@@ -1,5 +1,6 @@
 import Libpetri.Novel.ReapingVsUntimed
 import Libpetri.Novel.Seam.Bad
+import Libpetri.Spec.Registry
 
 /-!
 # Reap-aware quiescence restores [VER-004] AC3 ([VER-002], [TIME-013])
@@ -107,6 +108,7 @@ theorem reapQuiescent_of_quiescent {rp : Transition → Bool} {net : FlatNet} {a
   exact absurd hen Bool.false_ne_true
 
 /-- **No reapable transition, no change**: reap-quiescence is strict quiescence. -/
+@[evidence cites "VER-002" "with no reapable transition, reap-quiescence is the strict quiescence: nothing changes on untimed nets"]
 theorem reap_quiescent_iff_quiescent {rp : Transition → Bool} {net : FlatNet}
     (hnr : ∀ ft ∈ net, rp ft.1 = false) (a : AMarking) :
     ReapQuiescentA rp net a ↔ QuiescentA net a := by
@@ -311,6 +313,7 @@ theorem run_inv {enforce : Nat → Nat → Cell → Cell}
 
 /-- **Soundness of reap-aware quiescence.** Every marking at which a timed run of either
 backend comes to rest is untimed-reachable and reap-quiescent. -/
+@[evidence cites "VER-002" "every marking a timed run of either backend rests at is untimed-reachable and reap-quiescent; atomic firings (sync actions), no environment places", evidence cites "TIME-013" "holds for any reaping rule that leaves non-reapable transitions alone"]
 theorem rest_sound {enforce : Nat → Nat → Cell → Cell}
     {tm : Transition → TTiming} {net : FlatNet} {a0 a : AMarking}
     (h : RestsAt enforce tm net a0 a) :
@@ -333,6 +336,7 @@ theorem rest_sound_PB {tm : Transition → TTiming} {net : FlatNet} {a0 a : AMar
 `Bad` is `ReapQuiescentA ∧ Q` (`Q` the stranding / sink / count clause). A `Proven` for it over
 the untimed reachable set means no timed run of either backend ever rests at a marking with
 `Q`. -/
+@[evidence cites "VER-004" "AC3 for the quiescence properties under reap-aware quiescence: a Proven of ReapQuiescentA and Q over the untimed reachable set means no timed run rests at a marking with Q; atomic firings, no environment places, not composed with the in-flight split", evidence cites "VER-002" "reap-aware quiescence (every enabled transition reapable) is the sound reading for the four quiescence properties"]
 theorem reap_aware_ac3 {enforce : Nat → Nat → Cell → Cell}
     {tm : Transition → TTiming} {net : FlatNet} {a0 : AMarking} {Q : AMarking → Prop}
     (hp : ProvenFor (ReachA net a0) (fun a => ReapQuiescentA (reapable tm) net a ∧ Q a))
@@ -342,6 +346,7 @@ theorem reap_aware_ac3 {enforce : Nat → Nat → Cell → Cell}
 
 /-- **[VER-004] AC3 for the marking properties**: a `Proven` for any predicate of the marking
 holds at every cycle start of every run. -/
+@[evidence cites "VER-004" "AC3 for the marking properties: a Proven for a predicate of the marking holds at every cycle start of every timed run; atomic firings, no environment places"]
 theorem marking_ac3 {enforce : Nat → Nat → Cell → Cell}
     {tm : Transition → TTiming} {net : FlatNet} {a0 : AMarking} {Bad : AMarking → Prop}
     (hp : ProvenFor (ReachA net a0) Bad) {s : XState}
@@ -402,6 +407,7 @@ theorem witness_rests_PB : RestsAt enforcePB tmR netR a0R a0R := by
 reap-quiescent and strands a token off the sink `{p₁}`, so the reap-aware `DeadlockFree` `Bad`
 holds at the (reachable) initial marking and the reap-aware verdict is not `Proven` — while the
 strict `Bad` is `Proven` (`reaping_refutes_ver004_ac3`). -/
+@[evidence cites "VER-002" "the ReapingVsUntimed witness is caught: the timed run rests at a reap-quiescent marking that strands a token, so the reap-aware DeadlockFree is not Proven while the strict one is"]
 theorem witness_caught :
     RestsAt enforceBB tmR netR a0R a0R ∧ RestsAt enforcePB tmR netR a0R a0R
     ∧ reapDlfBad (reapable tmR) netR sinksR 2 a0R

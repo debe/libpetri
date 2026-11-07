@@ -25,6 +25,7 @@ Out of scope: the certificate check over `(M, n)` ([VER-016] AC3), the
 steps, so `rows_hold` still applies), and script byte-identity.
 -/
 import Libpetri.Semiflow
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -259,6 +260,7 @@ theorem row_fire {net : FlatNet} {a0 a : AMarking} {n : Counters} {k : Nat}
 
 /-- **The state equation is invariant** ([VER-016] AC2): on every reachable
 augmented state, every non-injected place satisfies its row. -/
+@[evidence cites "VER-016" "AC2: on every reachable augmented state (M, n) of the untimed abstraction with injection, every non-injected place satisfies its row - equality where no consume-all/reset arc clears it, the upper bound where one does; encoder modelled, not extracted"]
 theorem rows_hold {net : FlatNet} {envs : List PlaceId} {a0 a : AMarking}
     {n : Counters} (h : ReachCnt net envs a0 a n) :
     ∀ p, p ∉ envs → Row net a0 a n p := by
@@ -283,6 +285,7 @@ theorem rows_hold {net : FlatNet} {envs : List PlaceId} {a0 a : AMarking}
 `ys` gate-validated (H1, H2, H3′), the options-on strengthened rules reach
 exactly the augmented states the plain ones do. Pure strengthening: no
 successor is removed, so no `Violated` can turn into `Proven`. -/
+@[evidence cites "VER-016" "conjoining the rows and gate-validated P-invariants (H1, H2, H3') into the transition-rule bodies preserves the reachable augmented set - the option is pure strengthening; certificate check (AC3) and script identity (AC5) not covered"]
 theorem state_equation_reach_eq {net : FlatNet} {envs : List PlaceId}
     {ys : List Weight} {w : Nat} {a0 : AMarking}
     (hv : ∀ y ∈ ys, ValidLawInj net envs w y) :
@@ -312,6 +315,7 @@ theorem state_equation_reach_eq {net : FlatNet} {envs : List PlaceId}
 holds two tokens, with an `In::All` of `pre = 1`. After one firing the place is
 empty while the linear count says `2 − 1 = 1`. The state is reachable and
 satisfies `≤`, but an `=` row would prune it. -/
+@[evidence cites "VER-016" "AC2 necessity: on an In::All place a reachable augmented state violates the equality row while satisfying the upper bound - why a clearing place carries <= instead of ="]
 theorem equality_row_is_unsound_on_a_clearing_place :
     ReachCnt netAll [] a0All (fireA a0All tAll [1]) (bump (fun _ => 0) 0)
     ∧ cleared netAll 0 = true

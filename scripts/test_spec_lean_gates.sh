@@ -20,7 +20,8 @@ core=lean/Libpetri/Spec/Core.lean
 all=lean/Libpetri/Spec/All.lean
 spec01=spec/01-core-model.md
 other=lean/Libpetri/Novel/TimedScg.lean   # a non-Spec module no other module imports
-files=("$core" "$all" "$spec01" "$other")
+report=lean/spec-tools/Report.lean
+files=("$core" "$all" "$spec01" "$other" "$report")
 
 work="$(mktemp -d)"
 for f in "${files[@]}"; do mkdir -p "$work/$(dirname "$f")"; cp "$repo/$f" "$work/$f"; done
@@ -131,6 +132,19 @@ expect_caught "signoff with a stale hash    -> requirement command" "$BUILD_CORE
 
 # ---- escape hatches: the source scanner, the axiom audit and the kernel replay -------------
 
+# 5b. A cites tag on a theorem declared in another module: the report would record the tagging
+#     module as the theorem's module.
+expect_caught "cites on another module's thm -> evidence attribute" "$BUILD_CORE" \
+  "plant_core 'attribute [evidence cites \"VER-004\" \"planted\"] Nat.add_comm'" \
+  "Nat.add_comm is declared in another module"
+
+# 5c. A cites fragment made only of a zero-width space: trimming does not strip it.
+expect_caught "cites with invisible fragment -> evidence attribute" "$BUILD_CORE" \
+  "plant_core '/-- planted -/
+@[evidence cites \"VER-002\" \"\\u200B\"]
+theorem planted_invisible : 1 + 1 = 2 := rfl'" \
+  "cites VER-002: the fragment is blank"
+
 # 6. A private axiom in a Spec file: the escape-hatch scan and the axiom audit both catch it.
 AX="plant_core 'private axiom cheat : False
 /-- planted -/
@@ -177,6 +191,12 @@ expect_caught "Spec module not in All.lean  -> module coverage" "$MODULES" \
   'sed -i "/^import Libpetri.Spec.Core$/d" Libpetri/Spec/All.lean' \
   "MODULES missing Libpetri.Spec.Core in lean/Libpetri/Spec/All.lean"
 
+# 10b. A Libpetri module that Report.lean does not import: its cites tags would silently be
+#      missing from proof-coverage.json. Sha256 is reached by no other import.
+expect_caught "module not in Report.lean    -> module coverage" "$MODULES" \
+  'sed -i "/^import Libpetri.Reference.Sha256$/d" spec-tools/Report.lean' \
+  "MODULES missing Libpetri.Reference.Sha256 in lean/spec-tools/Report.lean"
+
 # ---- alignment with the markdown spec ----------------------------------------------------
 
 # 11. The markdown quote drifts from the Lean block.
@@ -202,6 +222,21 @@ theorem planted_cites : 1 + 1 = 2 := rfl'" \
 expect_caught "report not regenerated       -> report freshness" "$FRESH" \
   'sed -i "s/t does not fire from a marking in which p is marked;/t never fires from a marking in which p is marked;/" Libpetri/Spec/Core.lean' \
   "diff -r" "t never fires from a marking in which p is marked;"
+
+# 15. A claim added to the generated proof-coverage.json by hand instead of as an
+#     @[evidence cites] tag. CI compares the regenerated file with the committed one; here the
+#     planted file stands for the committed one, so it is kept before the regeneration.
+COV_FRESH="cp report/proof-coverage.json '$work/planted-coverage.json' && lake env lean spec-tools/Report.lean && diff '$work/planted-coverage.json' report/proof-coverage.json"
+expect_caught "proof-coverage.json hand edit -> report freshness" "$COV_FRESH" \
+  "python3 -c '
+import json
+p = \"report/proof-coverage.json\"
+d = json.load(open(p))
+d[\"theorems\"].append({\"name\": \"planted_claim\", \"module\": \"Libpetri/Soundness.lean\",
+                       \"specIds\": [{\"id\": \"VER-004\", \"fragment\": \"hand-added\"}]})
+open(p, \"w\").write(json.dumps(d, indent=2, ensure_ascii=False) + \"\\n\")
+'" \
+  "planted_claim" "hand-added"
 
 # ---- every planted file is back as it was -------------------------------------------------
 restore

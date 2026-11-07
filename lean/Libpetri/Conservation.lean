@@ -44,6 +44,7 @@ cycle-level model in this development that *does* reach the case, and records
 there why its statement survives.
 -/
 import Libpetri.Conservation.Pop
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -323,6 +324,7 @@ def consumeForFiring (s : Pool) (t : Transition) : ConsumeResult × TokenBag :=
 /-- The pool/bag half of `consumeForFiring` is exactly the compiled program
 `compileConsumeOps` run start to finish — the read peek at the
 `reset_ops_start` boundary observes but does not touch the pool. -/
+@[evidence cites "EXEC-012" "the read peek at the reset_ops_start boundary observes but does not mutate the pool (peekReads is pure by construction); peeked content is the post-input, pre-reset head token per read place", evidence cites "EXEC-013" "inputs-then-RESET-tail ordering of the compiled consume program, with reads peeked at the reset_ops_start boundary — the ordering EXEC-013 requires; single firing only"]
 theorem consumeForFiring_eq_program (s : Pool) (t : Transition) :
     (consumeForFiring s t).1
       = execOpsFrom ⟨s, emptyBag, emptyBag⟩ (compileConsumeOps t) := by
@@ -350,6 +352,7 @@ touch are equal on the nose.
 
 Stated at the split `consumeCountAt` computes, hence for a drain with no
 same-pass deposit outstanding (module header, AC5 scope). -/
+@[evidence cites "EXEC-010" "single-firing consume phase on the compiled consume program: every place's pre-fire FIFO queue is exactly delivered ++ reset-destroyed ++ survivors as an ordered list equality — nothing lost, nothing duplicated; async plumbing out of scope", evidence cites "EXEC-013" "the reset-destroyed summand of the conservation equality: after input opcodes run, each reset place's remaining queue is destroyed in full and survives nowhere; clock-restart and event obligations of the requirement not covered", evidence cites "IO-007" "the balance side of the contract: consumption removes exactly the consumptionCount prefix — no token beyond it leaves an input place in one firing"]
 theorem token_conservation {s : Pool} (hwf : Pool.WF s) {t : Transition}
     (hdist : DistinctInputPlaces t) (hb : PlacesInBounds t s.nplaces)
     (hen : canEnable s t = true) :
@@ -414,6 +417,7 @@ pass-start count, not of the live count. Equal whenever no same-pass deposit is
 outstanding at `p` — the modelled case (module header) — and the `One`/`Exactly`
 arms are equal unconditionally, since a fixed count off the FIFO head stays
 inside the pre-deposit prefix that the AC4 recheck already required. -/
+@[evidence cites "EXEC-010" "each input place delivers exactly its FIFO prefix into the action's inputs, in queue order; single firing on the compiled consume program", evidence cites "IO-007" "delivered count is consumptionCount(available): required count for One/Exactly, full drain for All/AtLeast — the interpreter realises the spec's consumptionCount column"]
 theorem consume_faithful {s : Pool} (hwf : Pool.WF s) {t : Transition}
     (hdist : DistinctInputPlaces t) (hb : PlacesInBounds t s.nplaces)
     (hen : canEnable s t = true) :
@@ -441,6 +445,7 @@ def produceAll (s : Pool) : List (PlaceId × Colour) → Pool
   | [] => s
   | (p, c) :: rest => produceAll (s.addLast p c) rest
 
+@[evidence cites "EXEC-020" "produced tokens append at the FIFO tail of their target place in emission order via ring_add_last (grow path included); single-firing produce phase, output-spec validation out of scope"]
 theorem produceAll_spec {outs : List (PlaceId × Colour)} :
     ∀ {s : Pool}, Pool.WF s → (∀ e ∈ outs, e.1 < s.nplaces) →
     Pool.WF (produceAll s outs) ∧

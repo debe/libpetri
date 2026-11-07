@@ -43,6 +43,7 @@ The bit transitions proved here are stated against whatever the consume
 leaves, so they are indifferent to how far a drain reaches.
 -/
 import Libpetri.Conservation
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -269,6 +270,7 @@ theorem consumeForFiring_cnt_le {s : Pool} (hwf : Pool.WF s) {t : Transition}
 If some transition's enablement could have flipped, it is marked dirty:
 `canEnable` reads only touched places, only consumption places changed, and
 every transition touching a consumption place got marked. -/
+@[evidence cites "CONC-005" "dirty-set soundness over one firing's consume phase: any state change that can flip another transition's enablement marks it dirty (canEnable reads only touched places, affected_transitions covers every toucher); bit granularity — u64 word packing and two-level summaries out of scope"]
 theorem fireConsume_dirty_sound {net : Net} {st : PBState} {tid : TId}
     {t : Transition} (hnet : net[tid]? = some t)
     (hwf : Pool.WF st.ring) (hdist : DistinctInputPlaces t)
@@ -299,6 +301,7 @@ theorem fireConsume_dirty_sound {net : Net} {st : PBState} {tid : TId}
 /-- `disable` changes no counts, so every transition's enablement is
 untouched — not marking dirty is sound (the EXEC-003 loser was already
 marked by the winner's consume). -/
+@[evidence cites "EXEC-003" "loser path only: disable changes no token counts, so skipping dirty-marking for the conflict loser is sound (the winner's consume already marked it); the competitive re-check itself is covered by the immediate-fragment refinement"]
 theorem disable_frame (st : PBState) (tid : TId) :
     ∀ t', canEnable (disable st tid).ring t' = canEnable st.ring t' :=
   fun _ => rfl
@@ -376,6 +379,7 @@ theorem produceOne_presence {net : Net} {st : PBState} {p : PlaceId}
 `canEnable` — clean bits were already accurate (`EnabledSync`), dirty bits
 are recomputed. This is the theorem that makes the dirty-set *optimization*
 behaviorally invisible. -/
+@[evidence cites "CONC-005" "the dirty scan restores exact enablement: after update_enablement every transition's enabled bit equals canEnable (clean bits were accurate, dirty bits recomputed) — what makes the dirty-set optimization behaviorally invisible; bit granularity", evidence cites "EXEC-003" "the loser re-evaluation EXEC-003 relies on: after the winner's consume marks competitors dirty, the scan re-derives exact enablement for them; untimed enablement predicate only"]
 theorem updateEnablement_sync {net : Net} {st : PBState}
     (hsync : EnabledSync net st) :
     ∀ tid t, net[tid]? = some t →

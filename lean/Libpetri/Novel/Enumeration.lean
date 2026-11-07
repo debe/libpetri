@@ -1,4 +1,5 @@
 import Libpetri.Novel.ForwardDeposit
+import Libpetri.Spec.Registry
 import Mathlib.Logic.Relation
 
 /-!
@@ -269,6 +270,7 @@ theorem run_reach (succ : σ → List σ) (maxClasses : Nat) (x0 : σ) :
 /-- **Every discovered class is reachable, whether or not the exploration closed.** A bad class
 found in the explored prefix of a truncated graph is a reachable bad state: the prefix rule of
 [VER-017] for safety properties. -/
+@[evidence cites "VER-017" "verdicts from a truncated graph: every class a run discovered is reachable whether or not the run closed (budget, fuel or stop), so a safety violation read off the explored prefix is a reachable bad state; the quiescence half (only expanded classes count) rests on the FIFO/expanded-count premise about the Rust, not proven here, and nothing is claimed for Proven from a prefix"]
 theorem build_reach {succ : σ → List σ} {maxClasses fuel : Nat} {x0 : σ} (y : σ)
     (hy : y ∈ (build succ maxClasses fuel x0).1) : Reach succ x0 y := by
   have hinv : Inv succ x0 [x0] [x0] :=
@@ -277,6 +279,7 @@ theorem build_reach {succ : σ → List σ} {maxClasses fuel : Nat} {x0 : σ} (y
   exact run_reach succ maxClasses x0 fuel [x0] [x0] hinv y hy
 
 /-- **A closed exploration discovers exactly the reachable set.** -/
+@[evidence cites "VER-017" "the worklist invariant for any successor function: a run that reports complete has discovered exactly the reachable set (every class reachable; every class not waiting in the queue has all successors discovered)"]
 theorem run_complete_iff_reach {succ : σ → List σ} {maxClasses fuel : Nat} {x0 : σ}
     (h : (build succ maxClasses fuel x0).2 = true) (y : σ) :
     y ∈ (build succ maxClasses fuel x0).1 ↔ Reach succ x0 y := by
@@ -358,6 +361,7 @@ theorem quiescent_iff_dead (net : FlatNet) (a : AMarking) :
 are exactly the `ReachA`-reachable markings. Reading a bad predicate off them decides it exactly
 for `ReachA`, and in particular the graph has a quiescent class iff some reachable marking is
 dead. -/
+@[evidence cites "VER-017" "what the verdict means: when the modelled breadth-first class exploration (budget check at pop, dedup by key, complete iff the queue runs dry) closes on a flat net, its classes are exactly the ReachA-reachable markings, so Proven holds iff no reachable marking is bad and a quiescent class exists iff a reachable marking is dead - sound and complete for the model, and for the shipped route under two assumed premises; no environment injection (env_set not modelled; the route requires no env places), untimed successors modelled by fireA (the condition-3 premise, assumed), class key taken as marking equality (the second premise), state-space cache reuse, counterexample path and closing-on-small-nets not modelled"]
 theorem net_enumeration_exact {net : FlatNet} {maxClasses fuel : Nat} {a0 : AMarking}
     [DecidableEq AMarking]
     (h : (build (succNet net) maxClasses fuel a0).2 = true) (bad : AMarking → Bool) :

@@ -2,14 +2,16 @@
 """Fail when a Lean module escapes the whole-library gates.
 
 The axiom audit (lean/spec-tools/Audit.lean) only sees constants of the modules
-it imports, and the requirements report only sees the requirement blocks of the
-modules lean/Libpetri/Spec/All.lean imports. A module reached by neither import
-graph is never audited, and `lake build` of the default targets does not build
-it either. Transitive closure would need a Lean-aware resolver, so the rule is
-direct imports:
+it imports. The requirements report (lean/spec-tools/Report.lean) only sees the
+@[evidence] tags of the modules it imports, the `cites` tags that become
+lean/report/proof-coverage.json included, and the requirement blocks of the
+modules lean/Libpetri/Spec/All.lean imports. A module outside an import graph
+is never audited, its tags silently never reach the report, and `lake build` of
+the default targets does not build it either. Transitive closure would need a
+Lean-aware resolver, so the rule is direct imports:
 
 * every module lean/Libpetri.lean and lean/Libpetri/**/*.lean is imported
-  directly by lean/spec-tools/Audit.lean;
+  directly by lean/spec-tools/Audit.lean and by lean/spec-tools/Report.lean;
 * every module lean/Libpetri/Spec/**/*.lean other than All itself is imported
   directly by lean/Libpetri/Spec/All.lean.
 
@@ -35,6 +37,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 AUDIT = "spec-tools/Audit.lean"
+REPORT = "spec-tools/Report.lean"
 SPEC_ALL = "Libpetri/Spec/All.lean"
 
 _IMPORT = re.compile(r"^(?:public\s+|private\s+)?(?:meta\s+)?import\s+(?:all\s+)?(.+)$")
@@ -93,7 +96,7 @@ def check(lean_dir: Path) -> tuple[int, list[str]]:
         lib.add("Libpetri")
     spec = modules_under(lean_dir, "Libpetri/Spec") - {"Libpetri.Spec.All"}
     bad: list[str] = []
-    for rel, want in ((AUDIT, lib), (SPEC_ALL, spec)):
+    for rel, want in ((AUDIT, lib), (REPORT, lib), (SPEC_ALL, spec)):
         f = lean_dir / rel
         shown = f.relative_to(root).as_posix()
         if not f.is_file():
@@ -126,7 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         for line in bad:
             print(line)
         return 1
-    print(f"lean-module-coverage-check ok: {n} Libpetri modules imported by {AUDIT}, Spec modules by {SPEC_ALL}")
+    print(f"lean-module-coverage-check ok: {n} Libpetri modules imported by {AUDIT} and {REPORT}, "
+          f"Spec modules by {SPEC_ALL}")
     return 0
 
 

@@ -62,6 +62,7 @@ Its exactness claim at `k = 0` is `vacuous_colour_layer_lp`
   the untouched rows) reaches exactly the same markings.
 -/
 import Libpetri.Strengthening
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -149,6 +150,7 @@ union `SmtVerifier.semiflowInvariants` performs) preserves the abstract
 reachable set. Pure strengthening: no successor is removed, so a `Violated`
 verdict cannot become `Proven` and a `Proven` one is re-provable by the
 certificate check against the same list. -/
+@[evidence cites "VER-007" "AC2/AC5: conjoining basis ++ semiflows into the CHC rule bodies preserves the abstract reachable set whenever every member passed the exact gate (H1+H2) - the union is pure strengthening and can never turn Violated into Proven; injection-free fragment, encoder modelled not extracted"]
 theorem semiflow_union_sound {net : FlatNet} {a0 : AMarking}
     {basis semiflows : List Weight} {n : Nat}
     (hb : ∀ y ∈ basis, ValidLaw net n y)
@@ -161,6 +163,7 @@ theorem semiflow_union_sound {net : FlatNet} {a0 : AMarking}
 
 /-- Appending one more validated law never changes what the strengthened
 relation reaches — the "adding laws is monotone-safe" reading of the union. -/
+@[evidence cites "VER-007" "appending one more validated law never changes what the strengthened relation reaches - the monotone-safety of adding laws"]
 theorem strengthening_monotone {net : FlatNet} {a0 : AMarking} {ys : List Weight}
     {n : Nat} {y : Weight}
     (hv : ∀ y' ∈ ys, ValidLaw net n y') (hy : ValidLaw net n y) :
@@ -251,6 +254,7 @@ theorem strengthened_reach_eq_list_inj {net : FlatNet} {envs : List PlaceId}
 /-- The semiflow union stays sound with injection rules present, provided every
 member also satisfies H3′ — which the env-aware incidence matrix guarantees
 for anything that passes the gate. -/
+@[evidence cites "VER-007" "the env-aware union: with injection rules present the same holds under H3' (zero weight on injectable places), which the injector columns force through the gate"]
 theorem semiflow_union_sound_inj {net : FlatNet} {envs : List PlaceId} {a0 : AMarking}
     {basis semiflows : List Weight} {n : Nat}
     (hb : ∀ y ∈ basis, ValidLawInj net envs n y)
@@ -277,6 +281,7 @@ row, so `compute_p_semiflows` returns it and a `y·C = 0`-only gate accepts it �
 yet conjoining it prunes a genuinely reachable violating state
 (`consume_all_hypothesis_is_necessary`). Hence the union of [VER-007] must run
 the semiflows through the full gate (H1 included), never a cheaper one. -/
+@[evidence cites "VER-007" "AC1: a semi-positive y.C = 0 row - exactly what the Farkas enumeration returns - that fails H1 prunes a genuinely reachable violating state, so the semiflow source must pass the same gate as the basis rows"]
 theorem semiflow_gate_is_necessary :
     (∀ p, 0 ≤ yUnit p)
     ∧ dotInc yUnit (tAll, [1]) 2 = 0
@@ -325,6 +330,7 @@ theorem dot_zero_forces_empty {y : Weight} {a : AMarking} {n : Nat}
 
 /-- A covered place (positive weight under a semi-positive validated law whose
 initial sum is `0`) holds no token on any reachable marking. -/
+@[evidence cites "NU-053" "AC6, the column side, for the semiflow bound build_plan read before the LP bound: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero (coloured_tokens_le gives the same for the LP bound)"]
 theorem covered_place_empty {net : FlatNet} {a0 a : AMarking} {y : Weight} {n : Nat}
     (hv : ValidLaw net n y) (hy : ∀ p, 0 ≤ y p) (h0 : dot y a0 n = 0)
     (hr : ReachA net a0 a) {p : PlaceId} (hp : p < n) (hpos : 0 < y p) : a p = 0 :=
@@ -378,6 +384,7 @@ rows, the only ones the zero-slot coloured encoding emits a rule for — reaches
 exactly the markings the full net reaches. Together with `covered_place_empty`
 (the dropped coloured columns are identically zero) this is the exactness of
 the `k = 0` plan; the encoder itself is modelled, not extracted. -/
+@[evidence cites "NU-053" "AC6 for the semiflow bound build_plan read before the LP bound (vacuous_colour_layer_lp covers the shipped bound): every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan was exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin)"]
 theorem vacuous_colour_layer {net net' : FlatNet} {a0 : AMarking} {y : Weight} {n : Nat}
     (hv : ValidLaw net n y) (hy : ∀ p, 0 ≤ y p) (h0 : dot y a0 n = 0)
     (hsub : ∀ ft ∈ net', ft ∈ net)

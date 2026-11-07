@@ -1,4 +1,5 @@
 import Libpetri.Novel.LinearBound
+import Libpetri.Spec.Registry
 
 /-!
 # Route A: the checked colour-slot bound ([NU-053])
@@ -123,6 +124,7 @@ theorem dot_nonneg_of {y : Weight} {a : AMarking} {n : Nat} (hy : ∀ p, p < n �
     Int.mul_nonneg (hy p (Finset.mem_range.mp hp)) (Int.natCast_nonneg _)
 
 /-- **`check_cover` is sound.** Whatever `k` it accepts comes with a scaled cover. -/
+@[evidence cites "NU-053" "the checked slot bound: any scaled weighting (Y, D) that the exact re-check check_cover accepts (D >= 1, Y >= 0, Y >= D on every coloured place, Y.C <= 0 on every flat row, k = floor(Y.M0 / D) within the int cap) is a scaled cover at k, whatever the untrusted simplex returned; the simplex is not modelled, and the Rust length check on Y is a shape guard outside the model (it only refuses more)"]
 theorem checkCover_sound {n : Nat} {C : List PlaceId} {rows : List (Transition × Deposit)}
     {a0 : AMarking} {D : Nat} {y : Weight} {k : Nat}
     (h : checkCover n C rows a0 D y = some k) : ScaledCover n C rows a0 k := by
@@ -215,6 +217,7 @@ firing it would reach a marking with a coloured token. Any sub-net that keeps th
 no coloured place, the only rows the zero-slot encoding emits a rule for, reaches exactly the
 markings the full net reaches. This is the twin of the locked `vacuous_colour_layer`
 (`Semiflow.lean`) for a non-increasing weighting with no H1. -/
+@[evidence cites "NU-053" "AC6 for the LP bound: under a scaled cover at k = 0 every coloured place is empty on every marking the flat deposit rows reach, so any sub-net keeping the rows that touch no coloured place reaches exactly the same markings - the zero-slot plan is exact; no H1, reset and consume-all places may carry weight; coloured encoder modelled, not extracted; injection-free (coloured_attempt declines under injection)"]
 theorem vacuous_colour_layer_lp {rows rows' : List (Transition × Deposit)} {C : List PlaceId}
     {a0 : AMarking} {n : Nat} (hnd : C.Nodup) (hCn : ∀ p ∈ C, p < n)
     (hcov : ScaledCover n C rows a0 0)

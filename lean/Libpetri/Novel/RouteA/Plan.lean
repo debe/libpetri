@@ -1,4 +1,5 @@
 import Libpetri.Novel.RouteA.Simulate
+import Libpetri.Spec.Registry
 
 /-!
 # Route A: `build_plan` and its colour-slot bound
@@ -556,6 +557,7 @@ theorem buildPlanG_premisesS {n : Nat} {C : List PlaceId} {ext : Bool} {g : Gate
 simplex.** Whatever answer `ans` the untrusted simplex gives, a plan returned through the
 checker carries a scaled cover (`colourSlotBoundLP_sound`), so the only hypotheses left are the
 facts about the inputs that `build_plan` receives rather than checks. -/
+@[evidence cites "NU-053" "the slot bound of the plan build_plan returns reaches k only through the checker: a returned plan discharges every plan premise of coloured_simulates but ConsumeNoSelfLoop with no hypothesis about the simplex; the coloured set is taken as given, and the NU-054 join refusal is not modelled (it only refuses more)"]
 theorem buildPlan_premisesS {n : Nat} {C : List PlaceId} {ext : Bool}
     {ans : Option (Nat × Weight)} {src : List SrcRow} {k : Nat} {rows : List CRow}
     {m0 : CMarking} {invs : List Weight}

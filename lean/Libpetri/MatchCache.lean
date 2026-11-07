@@ -90,6 +90,7 @@ fragment. The three conjuncts below are still the whole gate.
   executor trace onto pool/cache effects.
 -/
 import Libpetri.MatchCache.Eligibility
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -122,6 +123,7 @@ survivor order preserved, and every earlier survivor fails the predicate —
 so the popped queue head is the removed token, other names' queues see
 nothing. The no-match half (`removeMatching_none`) pairs an unchanged ring
 with a pop of the (necessarily empty) queue. -/
+@[evidence cites "NU-022" "the incremental consume (FIFO-within-name pop paired with ring_remove_matching) preserves content equality with the reference index's underlying queues - contents fragment only; AC2 selection equality remains the differential test's claim"]
 theorem sync_matchedRemove_step {key : KeyOf} {m : Name} {s : Pool}
     {p : PlaceId} {q : CacheQ} (hwf : Pool.WF s) (hp : p < s.nplaces)
     (hq : Sync key s p q) :
@@ -221,6 +223,7 @@ the live pool, and the pool is still well-formed. This is the theorem the
 makes `can_enable`'s O(1) `cache.best()` read equivalent to the O(n)
 `find_match_binding` rebuild it replaces (NU-020; the selection equality on
 equal contents is NU-022's differential guarantee). -/
+@[evidence cites "NU-020" "incremental match-cache lockstep: under the three-conjunct fast-path eligibility gate of init_match_caches, cache contents equal the from-scratch per-name FIFO recompute of the live ring after any sequence of modeled pool mutations - queue contents only, at one correlated input's granularity; name selection/tie-break not covered"]
 theorem match_cache_lockstep {key : KeyOf} {p : PlaceId}
     (steps : List (PlaceId × Mut)) :
     ∀ {s : Pool} {q : CacheQ}, Pool.WF s → p < s.nplaces → Sync key s p q →
@@ -349,6 +352,7 @@ they plus firings are the only pool mutations the backend has). `howner`
 records what the shipped matched path guarantees when the owner itself
 fires: `p` is one of its correlated inputs and the predicate is the
 name-equality closure for the chosen binding (`:1137-1142`). -/
+@[evidence cites "NU-020" "the eligibility gate isolates a cached place: foreign firings emit no mutation on it, the owner's consume phase is exactly one fixed-count matched consume mirrored by the matcher - consume phase modeled per place, produce/inject as mirrored adds"]
 theorem fire_muts_lockstep {ts : List Transition} {tid : Nat}
     {t : Transition} {p : PlaceId} {k : Nat}
     (he : FastPathEligible ts tid t p k) {key : KeyOf} {j : Nat}
@@ -443,6 +447,7 @@ the fixed-consume matcher"). The emitted mutation is exactly
 `matchedConsume` with `ringK = 2 ≠ 1 = cacheK` — `LockstepMut` fails — and
 applying it leaves the cache claiming a token of name `7` that the ring no
 longer holds. -/
+@[evidence cites "NU-020" "necessity of the One/Exactly conjunct: an AtLeast(1) correlated input consumes count_matching tokens while the fixed-consume matcher pops only the minimum - concrete two-token desync"]
 theorem one_exactly_is_necessary :
     requiredOf wJoinAtLeast 0 = none
       ∧ resetTarget [wJoinAtLeast] 0 = false
@@ -461,6 +466,7 @@ theorem one_exactly_is_necessary :
 place 0 leaves conjuncts 1 and 2 intact, but its firing is a plain
 `ring_remove_first` on the opcode path — a path with **no** cache call — so
 one rival firing removes the ring head while the cache still lists it. -/
+@[evidence cites "NU-020" "necessity of the sole-consumer conjunct: a rival input arc consumes via ring_remove_first, a path with no cache call - concrete one-firing desync"]
 theorem sole_consumer_is_necessary :
     requiredOf wJoinOne 0 = some 1
       ∧ resetTarget [wJoinOne, wRival] 0 = false
@@ -478,6 +484,7 @@ reset arc on place 0 leaves conjuncts 1 and 3 intact (its own input is on
 place 1), but its firing drains the whole ring through the RESET tail —
 again a path with **no** cache call — so one sweep empties the place while
 the cache still claims both tokens. -/
+@[evidence cites "NU-020" "necessity of the never-reset conjunct: a reset arc drains the ring with no cache call - concrete one-sweep desync"]
 theorem no_reset_is_necessary :
     requiredOf wJoinOne 0 = some 1
       ∧ inputConsumers [wJoinOne, wSweeper] 0 = [0]

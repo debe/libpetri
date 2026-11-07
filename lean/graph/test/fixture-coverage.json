@@ -1,5 +1,5 @@
 {
-  "$comment": "Fixture for scripts/test_proofgraph_extractor.sh: one spec entry, matched by short name and module file like lean/proof-coverage.json.",
+  "$comment": "Fixture for scripts/test_proofgraph_extractor.sh: one spec entry, matched by short name and module file like lean/report/proof-coverage.json.",
   "theorems": [
     {
       "name": "isRed_spec",

@@ -1,5 +1,6 @@
 import Libpetri.Novel.RouteB.Sound
 import Libpetri.Novel.RouteB.Classify
+import Libpetri.Spec.Registry
 
 /-!
 # Route B decides name alignment: `NameAligned` and `QuiescentNameAligned` ([NU-055], [NU-050], [VER-012])
@@ -193,12 +194,14 @@ theorem alignedAll_eq_true_iff {β : Type} {ps : List PlaceId} {S : NState co β
 
 /-- **Only membership counts**: order and duplicates of `ps` do not change `alignedAll`, so
 deduplicating the list and fixing its order (for the description) are free. -/
+@[evidence cites "NU-055" "the predicate depends only on which places S holds: order and duplicates do not change it, so deduplicating S keeping first occurrence changes no verdict"]
 theorem alignedAll_congr_mem {β : Type} {ps ps' : List PlaceId} (h : ∀ x, x ∈ ps ↔ x ∈ ps')
     (S : NState co β) : alignedAll ps S = alignedAll ps' S := by
   apply Bool.eq_iff_iff.mpr
   simp only [alignedAll_eq_true_iff, h]
 
 /-- **`alignedAll` reads only the key**: each conjunct does (`aligned_key_inv`). -/
+@[evidence cites "NU-055" "AC5 on the graph: the alignment predicate over S reads only the class key (base marking and canonical key), so it is invariant under name permutation and decided on the canonical-key quotient"]
 theorem alignedAll_key_inv {β : Type} (ps : List PlaceId) {a b : NState co β}
     (h : keyOf a = keyOf b) : alignedAll ps a = alignedAll ps b := by
   apply Bool.eq_iff_iff.mpr
@@ -207,6 +210,7 @@ theorem alignedAll_key_inv {β : Type} (ps : List PlaceId) {a b : NState co β}
 /-- **`alignedAll` on the executor's view is the concrete statement**, for a list of coloured
 places: all tokens in the places of `ps` carry one name. Neither `ps.Nodup` nor `co.Nodup` is
 needed. -/
+@[evidence cites "NU-055" "the predicate on the executor's name view of a marking, for a list S of coloured places, is the concrete statement that all tokens in the places of S carry one name (read through the model's single projection nameOf)"]
 theorem alignedAll_view_iff {ps : List PlaceId} (hps : ∀ p ∈ ps, p ∈ co) {m : CMarking} :
     alignedAll ps (view co nameOf m) = true ↔
       ∀ p ∈ ps, ∀ q ∈ ps, ∀ c ∈ m p, ∀ d ∈ m q, nameOf c = nameOf d := by
@@ -222,6 +226,7 @@ is vacuous (`aligned_uncoloured`, `aligned_uncoloured_right`), so `alignedAll ps
 `alignedAll` of the coloured members alone: a `Proven` would say nothing about an uncoloured
 member (and with no coloured member it holds of every class). This is why the property must be
 refused (`Unknown` with a reason) when any member is uncoloured, never decided. -/
+@[evidence cites "NU-055" "why AC2 refuses an uncoloured member: the predicate over S equals the predicate over the coloured members of S alone, so a Proven would say nothing about an uncoloured member"]
 theorem alignedAll_uncoloured {β : Type} (ps : List PlaceId) (S : NState co β) :
     alignedAll ps S = alignedAll (ps.filter fun p => co.contains p) S := by
   apply Bool.eq_iff_iff.mpr
@@ -242,6 +247,7 @@ theorem alignedAll_uncoloured {β : Type} (ps : List PlaceId) (S : NState co β)
 executor.** A complete build whose safety verdict for `!alignedAll ps` is `Proven`: in every
 marking an untimed, injection-free executor run reaches, all tokens in the places of `ps` carry
 one name. Every member of `ps` must be coloured (`alignedAll_uncoloured`). -/
+@[evidence cites "NU-055" "soundness of a Route B Proven of NameAligned(S) for a list S of coloured places: in every executor-reachable marking the places of S together hold at most one distinct name (self pairs included); untimed, environment-free, atomic firings (gap R6), coloured places initially empty, contracts and the one-projection premise (Exec.ProjCoherent) built into the model"]
 theorem routeB_untimed_nameAligned_sound (hco : co.Nodup)
     (hfr : ∀ T ∈ net, InFragment co T (role T)) (hG : ∀ T ∈ net, GuardFree T.base)
     {ps : List PlaceId} (hps : ∀ p ∈ ps, p ∈ co)
@@ -263,6 +269,7 @@ quiescence verdict for `!alignedAll ps` over the reapable set `reap` is `Proven`
 marking an untimed, injection-free executor run reaches and rests at (`ExecRests reap`), all
 tokens in the places of `ps` carry one name. Needs `PosKeys` beyond the safety premises; every
 member of `ps` must be coloured. -/
+@[evidence cites "NU-055" "soundness of a Route B Proven of QuiescentNameAligned(S) for a list S of coloured places: in every executor-reachable marking at which the executor rests (ExecRests reap) the places of S together hold at most one distinct name; same scope and premises as the safety form, plus PosKeys"]
 theorem routeB_untimed_quiescentNameAligned_sound (hco : co.Nodup)
     (hfr : ∀ T ∈ net, InFragment co T (role T)) (hpos : ∀ T ∈ net, PosKeys (role T))
     (hG : ∀ T ∈ net, GuardFree T.base) {ps : List PlaceId} (hps : ∀ p ∈ ps, p ∈ co)

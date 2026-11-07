@@ -5,10 +5,14 @@ Inputs (all read-only):
   (a) spec/00-index.md              — canonical active-requirement registry
       (table rows in the "Alphabetical Cross-Reference Index" section;
       struck-through ~~ID~~ tombstones are excluded).
-  (b) lean/proof-coverage.json      — hand-maintained theorem -> spec-ID
-      annotations. Every `name` must exist as `theorem NAME` or `lemma NAME`
-      in its claimed module under lean/, and every `id` must be an active
-      spec ID; validation hard-fails otherwise.
+  (b) lean/report/proof-coverage.json — theorem -> spec-ID annotations,
+      generated from the @[evidence cites "ID" "fragment"] tags on the
+      theorems by lean/spec-tools/Report.lean. The attribute already checks
+      that each name is a theorem of its module and each fragment is
+      non-blank; this script checks that every `id` is an active spec ID
+      (the attribute only checks its shape) and hard-fails otherwise. Within
+      an ID's cell the theorems are sorted by (module, name, fragment), so
+      the matrix does not depend on the order of the file's entries.
   (c) grep of lean/**/*.lean        — spec-ID comment mentions (kept separate
       from (b): a mention is not a proof).
   (d) per-language test greps:
@@ -36,7 +40,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SPEC_INDEX = REPO / "spec" / "00-index.md"
-PROOF_COVERAGE = REPO / "lean" / "proof-coverage.json"
+PROOF_COVERAGE = REPO / "lean" / "report" / "proof-coverage.json"
 OUTPUT = REPO / "spec" / "coverage-matrix.md"
 LEAN_DIR = REPO / "lean"
 
@@ -47,7 +51,6 @@ EXPECTED_ACTIVE = 226
 
 EXCLUDED_DIR_NAMES = {"target", "node_modules", ".lake", ".venv", "dist"}
 SPEC_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d{3})\b")
-DECL_RE = re.compile(r"\b(?:theorem|lemma)\s+([A-Za-z_][A-Za-z0-9_'!?]*)")
 RUST_CFG_TEST_RE = re.compile(r"#!?\[cfg\(test\)\]")
 
 CHECK_MARK = "✓"
@@ -165,32 +168,8 @@ def parse_spec_index(text: str):
 
 
 # --------------------------------------------------------------------------
-# Lean sources: declarations (for validation) and ID mentions (input (c))
+# Lean sources: ID mentions (input (c))
 # --------------------------------------------------------------------------
-
-def strip_lean_comments(src: str) -> str:
-    """Remove Lean block comments (nested, incl. /-- and /-!) and -- line
-    comments so doc prose never masquerades as a declaration."""
-    out: list[str] = []
-    i, n, depth = 0, len(src), 0
-    while i < n:
-        two = src[i : i + 2]
-        if two == "/-":
-            depth += 1
-            i += 2
-        elif depth > 0 and two == "-/":
-            depth -= 1
-            i += 2
-        elif depth > 0:
-            i += 1
-        elif two == "--":
-            while i < n and src[i] != "\n":
-                i += 1
-        else:
-            out.append(src[i])
-            i += 1
-    return "".join(out)
-
 
 def lean_sources() -> dict[Path, str]:
     files: dict[Path, str] = {}
@@ -204,12 +183,13 @@ def lean_sources() -> dict[Path, str]:
 
 
 # --------------------------------------------------------------------------
-# (b) lean/proof-coverage.json — validated annotation layer
+# (b) lean/report/proof-coverage.json — validated annotation layer
 # --------------------------------------------------------------------------
 
-def load_proof_coverage(active_ids: set[str], tombstones: set[str],
-                        decls_by_file: dict[Path, set[str]]):
-    """Return dict id -> list of (theorem_name, fragment)."""
+def load_proof_coverage(active_ids: set[str], tombstones: set[str]):
+    """Return dict id -> list of (theorem_name, fragment), sorted by
+    (module, theorem_name, fragment) so the result does not depend on entry
+    order."""
     try:
         data = json.loads(PROOF_COVERAGE.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -220,7 +200,7 @@ def load_proof_coverage(active_ids: set[str], tombstones: set[str],
     if not isinstance(theorems, list):
         fail(f'{PROOF_COVERAGE}: top-level "theorems" must be a list')
 
-    proven: dict[str, list[tuple[str, str]]] = {}
+    proven: dict[str, list[tuple[str, str, str]]] = {}
     for i, entry in enumerate(theorems):
         where = f"{PROOF_COVERAGE} theorems[{i}]"
         if not isinstance(entry, dict):
@@ -235,15 +215,6 @@ def load_proof_coverage(active_ids: set[str], tombstones: set[str],
         if not isinstance(spec_ids, list) or not spec_ids:
             fail(f'{where} ({name}): "specIds" must be a non-empty list')
 
-        module_path = LEAN_DIR / module
-        if module_path not in decls_by_file:
-            fail(f"{where} ({name}): module {module} does not exist under {LEAN_DIR}")
-        if name not in decls_by_file[module_path]:
-            fail(
-                f"{where}: dangling theorem name {name!r} — no `theorem {name}` "
-                f"or `lemma {name}` declaration found in lean/{module}"
-            )
-
         for j, sid in enumerate(spec_ids):
             swhere = f"{where} ({name}) specIds[{j}]"
             if not isinstance(sid, dict):
@@ -255,10 +226,11 @@ def load_proof_coverage(active_ids: set[str], tombstones: set[str],
             if rid not in active_ids:
                 kind = "a removed/tombstoned" if rid in tombstones else "not an active"
                 fail(f"{swhere}: {rid} is {kind} spec ID per {SPEC_INDEX}")
-            if not isinstance(fragment, str) or not fragment.strip():
-                fail(f"{swhere} ({rid}): missing or empty \"fragment\"")
-            proven.setdefault(rid, []).append((name, fragment.strip()))
-    return proven
+            if not isinstance(fragment, str):
+                fail(f'{swhere} ({rid}): "fragment" must be a string')
+            proven.setdefault(rid, []).append((module, name, fragment.strip()))
+    return {rid: [(name, fragment) for _, name, fragment in sorted(rows)]
+            for rid, rows in proven.items()}
 
 
 # --------------------------------------------------------------------------
@@ -337,8 +309,9 @@ def render(spec_files, active, proven, lean_refs, tests) -> str:
     out.append("")
     out.append(
         "Per active requirement of [`spec/00-index.md`](00-index.md): the Lean theorems "
-        "that prove a stated *fragment* of it (from the hand-maintained, validated "
-        "[`lean/proof-coverage.json`](../lean/proof-coverage.json)), whether the Lean "
+        "that prove a stated *fragment* of it (from the validated "
+        "[`lean/report/proof-coverage.json`](../lean/report/proof-coverage.json), generated "
+        "from the theorems' `@[evidence cites]` tags), whether the Lean "
         "sources merely mention the ID in comments, and per-language test references."
     )
     out.append("")
@@ -417,10 +390,7 @@ def main() -> int:
     active_ids = {rid for rows in active.values() for rid, _, _ in rows}
 
     sources = lean_sources()
-    stripped = {p: strip_lean_comments(src) for p, src in sources.items()}
-    decls_by_file = {p: set(DECL_RE.findall(s)) for p, s in stripped.items()}
-
-    proven = load_proof_coverage(active_ids, tombstones, decls_by_file)
+    proven = load_proof_coverage(active_ids, tombstones)
     lean_refs = {
         m for src in sources.values() for m in SPEC_ID_RE.findall(src)
         if m in active_ids

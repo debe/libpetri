@@ -28,6 +28,7 @@ cannot be split; that side is described in `Novel/InFlight.lean` and not
 modelled here.
 -/
 import Libpetri.Basic
+import Libpetri.Spec.Registry
 
 namespace Libpetri
 
@@ -88,6 +89,7 @@ def executorFires (places : List PlaceId) (m : AMarking)
 /-- The shipped prune never contradicts the executor: if it drops `L`, the
 executor was not going to fire `L` either. Trivial by construction — which is
 the point, the shipped condition is exactly the executor's rule. -/
+@[evidence cites "NU-052" "the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer"]
 theorem postFixPrune_agrees_with_executor
     (places : List PlaceId) (m : AMarking) (cands : List NuTransition) (L : NuTransition) :
     postFixPrune places m cands L = true → executorFires places m cands L = false := by
@@ -134,6 +136,7 @@ Pruning the drain is exactly the reported symptom: the orphan token is never
 consumed in the analysis, so the analyser reports a stall the executor cannot
 produce — and, in the other direction, a genuinely reachable post-drain state is
 dropped from the explored set. -/
+@[evidence cites "NU-052" "retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment"]
 theorem willFire_guard_is_necessary :
     preFixPrune placesOne mOne candsOne drainNu = true
     ∧ postFixPrune placesOne mOne candsOne drainNu = false
@@ -170,6 +173,7 @@ def candsSplit : List NuTransition := [hInFlight, lIdle]
 /-- **The in-flight guard is needed.** The prune before the guard drops `L`, the
 shipped prune keeps it, and an executor that does not start `H` again fires
 `L`. -/
+@[evidence cites "NU-052" "retrodiction of the 2026-09-30 in-flight guard: a pruner whose earlier firing is in flight pre-empts nothing on the Java and TypeScript executors; the prune without the guard drops a firing they perform, the shipped one keeps it - untimed fragment, boolean name layer; the split demand (conflict_demand) that makes inflight:H observable is not modelled"]
 theorem inFlight_guard_is_necessary :
     preInFlightPrune placesOne mOne candsSplit lIdle = true
     ∧ postFixPrune placesOne mOne candsSplit lIdle = false
