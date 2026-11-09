@@ -92,9 +92,34 @@ describe('Timing', () => {
     it('exact rejects it', () => {
       expect(() => exact(MAX_DURATION_MS + 1)).toThrow('at most MAX_DURATION_MS');
     });
+    it('deadline rejects a bound past it (TIME-001 AC4, TIME-003)', () => {
+      expect(() => deadline(MAX_DURATION_MS + 1)).toThrow(
+        `Deadline must be at most MAX_DURATION_MS (3153600000000): ${MAX_DURATION_MS + 1}`,
+      );
+    });
+    it('deadline accepts the open end itself (TIME-001 AC4, TIME-003)', () => {
+      expect(latest(deadline(MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
+    });
+    it('deadline checks positivity first', () => {
+      expect(() => deadline(0)).toThrow('Deadline must be positive: 0');
+    });
+    it('window rejects a latest bound past it (TIME-001 AC4, TIME-005)', () => {
+      const msg = `Latest must be at most MAX_DURATION_MS (3153600000000): ${MAX_DURATION_MS + 1}`;
+      expect(() => window(MAX_DURATION_MS, MAX_DURATION_MS + 1)).toThrow(msg);
+      expect(() => window(0, MAX_DURATION_MS + 1)).toThrow(msg);
+    });
+    it('window checks earliest before latest', () => {
+      expect(() => window(MAX_DURATION_MS + 1, MAX_DURATION_MS + 2)).toThrow(
+        `Earliest must be at most MAX_DURATION_MS (3153600000000): ${MAX_DURATION_MS + 1}`,
+      );
+    });
+    it('window accepts the open end as latest (TIME-001 AC4, TIME-005)', () => {
+      expect(latest(window(MAX_DURATION_MS, MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
+      expect(latest(window(0, MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
+    });
     it('the open end itself is accepted', () => {
       expect(earliest(delayed(MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
-      expect(earliest(window(MAX_DURATION_MS, MAX_DURATION_MS + 1))).toBe(MAX_DURATION_MS);
+      expect(earliest(window(MAX_DURATION_MS, MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
       expect(earliest(exact(MAX_DURATION_MS))).toBe(MAX_DURATION_MS);
     });
   });

@@ -15,27 +15,27 @@ export interface TimingImmediate {
 
 export interface TimingDeadline {
   readonly type: 'deadline';
-  /** Deadline in milliseconds. Must be positive. */
+  /** Deadline in milliseconds: `0 < byMs <= MAX_DURATION_MS` (TIME-001 AC4). */
   readonly byMs: number;
 }
 
 export interface TimingDelayed {
   readonly type: 'delayed';
-  /** Minimum delay in milliseconds. Must be non-negative. */
+  /** Minimum delay in milliseconds: `0 <= afterMs <= MAX_DURATION_MS` (TIME-001 AC4). */
   readonly afterMs: number;
 }
 
 export interface TimingWindow {
   readonly type: 'window';
-  /** Earliest firing time in milliseconds. Must be non-negative. */
+  /** Earliest firing time in milliseconds: `0 <= earliestMs <= MAX_DURATION_MS` (TIME-001 AC4). */
   readonly earliestMs: number;
-  /** Latest firing time in milliseconds. Must be >= earliestMs. */
+  /** Latest firing time in milliseconds: `earliestMs <= latestMs <= MAX_DURATION_MS` (TIME-001 AC4). */
   readonly latestMs: number;
 }
 
 export interface TimingExact {
   readonly type: 'exact';
-  /** Exact firing time in milliseconds. Must be non-negative. */
+  /** Exact firing time in milliseconds: `0 <= atMs <= MAX_DURATION_MS` (TIME-001 AC4). */
   readonly atMs: number;
 }
 
@@ -49,10 +49,15 @@ export function immediate(): TimingImmediate {
   return { type: 'immediate' };
 }
 
-/** Immediate with deadline: can fire immediately, must fire by deadline. [0, by] */
+/** Immediate with deadline: can fire immediately, must fire by deadline. [0, by], 0 < by <= MAX_DURATION_MS */
 export function deadline(byMs: number): TimingDeadline {
   if (byMs <= 0) {
     throw new Error(`Deadline must be positive: ${byMs}`);
+  }
+  // [TIME-001] AC4: a deadline past the stand-in for "no constraint" is one no run reaches, and
+  // accepting it would make a transition reapable whose bound means "never".
+  if (byMs > MAX_DURATION_MS) {
+    throw new Error(`Deadline must be at most MAX_DURATION_MS (${MAX_DURATION_MS}): ${byMs}`);
   }
   return { type: 'deadline', byMs };
 }
@@ -70,7 +75,10 @@ export function delayed(afterMs: number): TimingDelayed {
   return { type: 'delayed', afterMs };
 }
 
-/** Time window: can fire within [earliest, latest]. */
+/**
+ * Time window: can fire within [earliest, latest], 0 <= earliest <= latest <= MAX_DURATION_MS.
+ * For no upper bound use {@link delayed}.
+ */
 export function window(earliestMs: number, latestMs: number): TimingWindow {
   if (earliestMs < 0) {
     throw new Error(`Earliest must be non-negative: ${earliestMs}`);
@@ -81,6 +89,11 @@ export function window(earliestMs: number, latestMs: number): TimingWindow {
   }
   if (latestMs < earliestMs) {
     throw new Error(`Latest (${latestMs}) must be >= earliest (${earliestMs})`);
+  }
+  // [TIME-001] AC4: as for deadline, a latest bound past the stand-in for "no constraint" is a
+  // hidden "never" that still reports a deadline and makes the transition reapable.
+  if (latestMs > MAX_DURATION_MS) {
+    throw new Error(`Latest must be at most MAX_DURATION_MS (${MAX_DURATION_MS}): ${latestMs}`);
   }
   return { type: 'window', earliestMs, latestMs };
 }

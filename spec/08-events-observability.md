@@ -142,15 +142,17 @@ Emitted when a transition's action throws an exception or returns an error. Cont
 
 **Priority:** MUST
 
-Emitted when a transition exceeds its timing deadline (latest bound) without firing. Contains:
+Emitted when the executor reaps a transition: a reapable transition whose elapsed time is strictly greater than its latest bound plus the deadline tolerance, without firing ([TIME-013]). Contains:
 - Timestamp
 - Transition name
 - Deadline duration
 - Actual elapsed duration since enablement
 
 **Acceptance Criteria:**
-1. Emitted when elapsed time exceeds latest bound.
-2. Transition is disabled after this event.
+1. Emitted when elapsed time is strictly greater than the latest bound plus the deadline
+   tolerance.
+2. After this event the transition is reaped: it stays enabled but is not armed, and does not
+   fire until one of its arc places is written ([TIME-013]).
 
 **Depends on:** [TIME-013]
 **Test derivation:** Transition with Deadline(100ms); delay firing 200ms; verify TransitionTimedOut event.

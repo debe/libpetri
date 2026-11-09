@@ -48,6 +48,12 @@ public sealed interface Timing permits
             if (by == null || by.isNegative() || by.isZero()) {
                 throw new IllegalArgumentException("Deadline must be positive: " + by);
             }
+            // [TIME-001] AC4: a deadline past MAX_DURATION, the stand-in for "no constraint", is
+            // one no run reaches, and accepting it would make a transition reapable whose bound
+            // means "never".
+            if (by.compareTo(MAX_DURATION) > 0) {
+                throw new IllegalArgumentException("Deadline must be at most MAX_DURATION (" + MAX_DURATION + "): " + by);
+            }
         }
     }
 
@@ -90,6 +96,12 @@ public sealed interface Timing permits
                 throw new IllegalArgumentException(
                         "Latest (%s) must be >= earliest (%s)".formatted(latest, earliest)
                 );
+            }
+            // [TIME-001] AC4: as for Deadline, a latest bound past MAX_DURATION is one no run reaches,
+            // yet the window would still report hasDeadline and be reapable. Use delayed(earliest)
+            // for no upper bound.
+            if (latest.compareTo(MAX_DURATION) > 0) {
+                throw new IllegalArgumentException("Latest must be at most MAX_DURATION (" + MAX_DURATION + "): " + latest);
             }
         }
     }
@@ -139,8 +151,9 @@ public sealed interface Timing permits
     /**
      * Creates a deadline timing: must fire by the specified time.
      *
-     * @param by the deadline duration
+     * @param by the deadline duration, positive and at most {@link #MAX_DURATION}
      * @return Deadline timing spec
+     * @throws IllegalArgumentException if {@code by} is not positive or exceeds {@link #MAX_DURATION}
      */
     static Deadline deadline(Duration by) {
         return new Deadline(by);
@@ -159,9 +172,10 @@ public sealed interface Timing permits
     /**
      * Creates a window timing: can fire within [earliest, latest].
      *
-     * @param earliest minimum delay before firing
-     * @param latest maximum time before must fire
+     * @param earliest minimum delay before firing, non-negative and at most {@link #MAX_DURATION}
+     * @param latest maximum time before must fire, at least {@code earliest} and at most {@link #MAX_DURATION}
      * @return Window timing spec
+     * @throws IllegalArgumentException if a bound is out of range or {@code latest} is before {@code earliest}
      */
     static Window window(Duration earliest, Duration latest) {
         return new Window(earliest, latest);

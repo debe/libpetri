@@ -83,6 +83,7 @@ import Libpetri.Reference.Search
 import Libpetri.Reference.Semantics
 import Libpetri.Reference.Sha256
 import Libpetri.Reference.Step
+import Libpetri.Reference.Timed
 import Libpetri.Refinement
 import Libpetri.Refinement.Correspondence
 import Libpetri.Refinement.Model
@@ -99,9 +100,11 @@ import Libpetri.Soundness
 import Libpetri.Spec.All
 import Libpetri.Spec.Clashes
 import Libpetri.Spec.Consistency
+import Libpetri.Spec.ConsistencyTime
 import Libpetri.Spec.Core
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.CORE_022
 import Libpetri.Spec.Req.CORE_030
@@ -123,6 +126,7 @@ import Libpetri.Spec.Req.IO_013
 import Libpetri.Spec.Req.IO_014
 import Libpetri.Spec.Req.IO_015
 import Libpetri.Spec.Req.IO_016
+import Libpetri.Spec.Req.TIME_010
 import Libpetri.StateEquation
 import Libpetri.Strengthening
 import Libpetri.Strengthening.Hypotheses

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Core
 import Libpetri.Spec.Req.CORE_022
 import Libpetri.Spec.Req.CORE_030
@@ -22,7 +23,9 @@ import Libpetri.Spec.Req.IO_013
 import Libpetri.Spec.Req.IO_014
 import Libpetri.Spec.Req.IO_015
 import Libpetri.Spec.Req.IO_016
+import Libpetri.Spec.Req.TIME_010
 import Libpetri.Spec.Consistency
+import Libpetri.Spec.ConsistencyTime
 import Libpetri.Spec.Clashes
 
 /-!

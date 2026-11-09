@@ -9,19 +9,56 @@ This document specifies firing interval semantics based on classical Time Petri 
 #### TIME-001: Timing Specification
 
 **Priority:** MUST
+**Kind:** F
 
-Each transition has an associated timing specification that defines when it can and must fire relative to its enablement time. The timing is expressed as an interval `[earliest, latest]` where:
-- The transition CANNOT fire before `earliest` time units after enablement
-- The transition SHOULD be disabled after `latest` time units (deadline enforcement)
+Each transition has an associated timing specification that defines when it can and must fire relative to the moment it was armed. The timing is expressed as an interval `[earliest, latest]` where:
+- The transition CANNOT fire before `earliest` time units have elapsed since it was armed ([TIME-010]).
+- A reapable transition (`Deadline` or `Window`) MUST be reaped once its elapsed time exceeds `latest` plus the deadline tolerance ([TIME-013]). `Exact` has a latest bound but is enforced softly ([TIME-006]); `Immediate` and `Delayed` have no finite latest bound.
 
-A maximum duration constant (e.g., ~100 years) represents "no constraint" on the upper bound.
-An earliest bound above it is rejected at construction, the way a negative one is:
-`delayed(after)`, `window(earliest, latest)` and `exact(at)` throw (Rust panics) when `after`,
-`earliest` or `at` exceeds the maximum duration. `delayed(after)` has the interval
+`earliest()` *shall* return 0 for `Immediate` and `Deadline`, `after` for `Delayed(after)`, `earliest` for `Window(earliest, latest)` and `at` for `Exact(at)`.
+
+`latest()` *shall* return the maximum duration for `Immediate` and `Delayed`, `by` for `Deadline(by)`, `latest` for `Window(earliest, latest)` and `at` for `Exact(at)`.
+
+`hasDeadline()` *shall* return true for `Deadline`, `Window` and `Exact`, and false for `Immediate` and `Delayed`.
+
+A maximum duration constant (~100 years: `MAX_DURATION_MS` = 3153600000000 ms in Rust, TypeScript and Python, `MAX_DURATION` = `Duration.ofDays(36500)` in Java) is the finite stand-in for "no constraint" on the upper bound. `Immediate` and `Delayed` have the interval `[earliest, ∞)`; their `latest()` reports the maximum duration, and they are never reapable.
+
+A timing is **valid** exactly when its bounds satisfy these rules, which are canonical for every variant ([TIME-002]–[TIME-006] restate them):
+
+| Variant | Valid when |
+|---|---|
+| `Immediate` | always |
+| `Deadline(by)` | `0 < by <= maximum` |
+| `Delayed(after)` | `0 <= after <= maximum` |
+| `Window(earliest, latest)` | `0 <= earliest <= latest <= maximum` |
+| `Exact(at)` | `0 <= at <= maximum` |
+
+*If* a factory is called with bounds that make the timing invalid, *then* the factory *shall* fail with the message the table below gives for the first rule the bounds break (Rust panics; Python raises `ValueError` with the Rust message; Java throws `IllegalArgumentException`; TypeScript throws `Error`).
+
+| Check | Rust, TypeScript, Python | Java |
+|---|---|---|
+| `deadline`: `by` not positive | `Deadline must be positive: {by}` | `Deadline must be positive: {by}` |
+| `deadline`: `by` above maximum | `Deadline must be at most MAX_DURATION_MS (3153600000000): {by}` | `Deadline must be at most MAX_DURATION (PT876000H): {by}` |
+| `delayed`: `after` negative | `Delay must be non-negative: {after}` | `Delay must be non-negative: {after}` |
+| `delayed`: `after` above maximum | `Delay must be at most MAX_DURATION_MS (3153600000000): {after}` | `Delay must be at most MAX_DURATION (PT876000H): {after}` |
+| `window`: `earliest` negative | `Earliest must be non-negative: {earliest}` | `Earliest must be non-negative: {earliest}` |
+| `window`: `earliest` above maximum | `Earliest must be at most MAX_DURATION_MS (3153600000000): {earliest}` | `Earliest must be at most MAX_DURATION (PT876000H): {earliest}` |
+| `window`: `latest` below `earliest` | `Latest ({latest}) must be >= earliest ({earliest})` | `Latest ({latest}) must be >= earliest ({earliest})` |
+| `window`: `latest` above maximum | `Latest must be at most MAX_DURATION_MS (3153600000000): {latest}` | `Latest must be at most MAX_DURATION (PT876000H): {latest}` |
+| `exact`: `at` negative | `Exact time must be non-negative: {at}` | `Exact time must be non-negative: {at}` |
+| `exact`: `at` above maximum | `Exact time must be at most MAX_DURATION_MS (3153600000000): {at}` | `Exact time must be at most MAX_DURATION (PT876000H): {at}` |
+
+`{x}` is the rejected argument as the language prints it: decimal milliseconds in Rust, TypeScript and Python, `Duration.toString()` in Java. Rust's `u64` arguments cannot be negative, so the non-negative checks exist only in TypeScript and Java. The checks run in the order of the table.
+
+An earliest bound above the maximum is rejected for the same reason a negative one is. `delayed(after)` has the interval
 `[after, maximum]`, which would be empty, and a state-class graph would read a transition that
 can fire as one that never can: a false timed deadlock and a wrong `SPURIOUS_UNDER_TIMING`
 ([VER-023]). `window` and `exact` follow because a verifier that drops their latest bound reads
-them as `delayed(earliest)` ([VER-002]).
+them as `delayed(earliest)` ([VER-002]). `deadline(by)` with `by` above the maximum is rejected as well:
+`by` is the only bound a `Deadline` has, and a deadline beyond the stand-in for "no constraint" is
+one no run reaches. The latest bound of a `Window` is checked against the maximum for the same
+reason: a `Window` reports `hasDeadline()` and is reapable, so a latest bound above the maximum
+would be a hidden "never". A window with no upper bound is written `delayed(earliest)`.
 
 The same checks apply to a timing written out without a factory. Where the variants can be
 constructed directly (Rust's public `Timing` enum variants, a TypeScript object literal), the
@@ -32,18 +69,30 @@ builder reaches the verifier: the timed check reports a wrong `SPURIOUS_UNDER_TI
 directly written `Window` whose earliest bound is above the maximum makes the verifier panic
 when it rebuilds the window as `delayed(earliest)`.
 
+*If* a transition is built with a timing written out without a factory and that timing is invalid, *then* building the transition *shall* fail with the factory's message.
+
 **Acceptance Criteria:**
 1. Each transition has a timing specification (defaults to Immediate).
 2. `earliest()` and `latest()` are queryable.
-3. `hasDeadline()` returns true when latest < maximum duration.
-4. `delayed`, `window` and `exact` reject an earliest bound one millisecond above the maximum
-   duration and accept one equal to it.
+3. `hasDeadline()` returns true for `Deadline`, `Window` and `Exact` and false for `Immediate`
+   and `Delayed`, whatever the bounds (a `Window` whose latest bound equals the maximum still has
+   a deadline).
+4. The validity table above is canonical. In particular `delayed`, `window` and `exact` reject an
+   earliest bound one millisecond above the maximum duration and accept one equal to it, and
+   `deadline` rejects a `by` one millisecond above the maximum duration and accepts one equal to
+   it, and `window` rejects a latest bound one millisecond above the maximum duration
+   (`window(maximum, maximum + 1)`) and accepts one equal to it (`window(maximum, maximum)`,
+   `window(0, maximum)`), each with the message of the table.
 5. A timing written out without a factory is held to AC4 and to the factories' other checks
    (`deadline(0)`, `window` with latest below earliest): building a transition with one fails
    with the factory's message, and a valid one builds unchanged.
 
 **Test derivation:** Create each timing variant; verify earliest(), latest(), hasDeadline(). For
-AC4, construct each of the three with `maximum + 1` and expect the construction error. For AC5,
+AC4, construct `delayed`, `window` and `exact` with an earliest bound of `maximum + 1`, and
+`deadline` with `maximum + 1`, and `window(maximum, maximum + 1)` and `window(0, maximum + 1)`,
+and expect the construction error with the table's message; construct each with `maximum`, and
+`window(maximum, maximum)` and `window(0, maximum)`, and expect success. `window(maximum + 1,
+maximum + 2)` fails with the earliest bound's message, since the checks run in the table's order. For AC5,
 write each invalid timing out directly (a Rust enum variant, a TypeScript object literal, a Java
 record constructor) and expect the transition build (Java: the constructor) to fail.
 
@@ -52,6 +101,7 @@ record constructor) and expect the transition build (Java: the constructor) to f
 #### TIME-002: Immediate Timing
 
 **Priority:** MUST
+**Kind:** T
 
 `Immediate` — the transition can fire as soon as it is enabled, with no deadline.
 
@@ -59,6 +109,10 @@ record constructor) and expect the transition build (Java: the constructor) to f
 - `earliest()` = 0
 - `latest()` = maximum duration
 - `hasDeadline()` = false
+
+*While* a transition with `Immediate` timing is armed, its timing *shall not* stop it from being ready ([TIME-010]).
+
+The executor *shall not* reap a transition with `Immediate` timing ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Transition fires immediately when enabled.
@@ -71,20 +125,27 @@ record constructor) and expect the transition build (Java: the constructor) to f
 #### TIME-003: Deadline Timing
 
 **Priority:** MUST
+**Kind:** T
 
-`Deadline(by)` — the transition can fire immediately but must fire within `by` time units.
+`Deadline(by)` — the transition can fire immediately but must fire within `by` time units, plus the deadline tolerance ([TIME-013]).
 
 - Interval: `[0, by]`
 - `earliest()` = 0
 - `latest()` = by
 - `hasDeadline()` = true
-- Construction: `by` must be positive (> 0)
+- Construction: `0 < by <= maximum duration` ([TIME-001] AC4)
+
+*While* a transition with `Deadline(by)` timing is armed, its timing *shall not* stop it from being ready until it is expired.
+
+*If* a transition with `Deadline(by)` timing is armed and its elapsed time exceeds `by` plus the deadline tolerance, *then* the executor *shall* reap it ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Transition can fire immediately after enablement.
-2. If not fired within `by`, the transition should be disabled and a timeout event emitted.
+2. If not fired within `by` plus the deadline tolerance, the transition is reaped on the first
+   cycle whose elapsed time is strictly greater than that bound, and a `TransitionTimedOut` event
+   is emitted ([EVT-009]).
 
-**Depends on:** [EVT-008]
+**Depends on:** [EVT-009]
 **Test derivation:** Deadline(5s); enable transition; let 6s pass without firing; verify transition disabled.
 
 ---
@@ -92,6 +153,7 @@ record constructor) and expect the transition build (Java: the constructor) to f
 #### TIME-004: Delayed Timing
 
 **Priority:** MUST
+**Kind:** T
 
 `Delayed(after)` — the transition must wait at least `after` time units before firing.
 
@@ -99,6 +161,13 @@ record constructor) and expect the transition build (Java: the constructor) to f
 - `earliest()` = after
 - `latest()` = maximum duration
 - `hasDeadline()` = false
+- Construction: `0 <= after <= maximum duration` ([TIME-001] AC4)
+
+*While* a transition with `Delayed(after)` timing is armed and its elapsed time is less than `after`, the transition *shall not* fire.
+
+*While* a transition with `Delayed(after)` timing is armed and its elapsed time is at least `after`, its timing *shall not* stop it from being ready.
+
+The executor *shall not* reap a transition with `Delayed` timing ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Transition cannot fire before `after` time has elapsed since enablement.
@@ -111,18 +180,28 @@ record constructor) and expect the transition build (Java: the constructor) to f
 #### TIME-005: Window Timing
 
 **Priority:** MUST
+**Kind:** T
 
 `Window(earliest, latest)` — the transition can fire within the specified time window.
 
 - Interval: `[earliest, latest]`
-- Construction: `latest` >= `earliest`, both >= 0
+- Construction: `0 <= earliest <= latest <= maximum duration` ([TIME-001] AC4)
 - `hasDeadline()` = true
+
+*While* a transition with `Window(earliest, latest)` timing is armed and its elapsed time is less than `earliest`, the transition *shall not* fire.
+
+*While* a transition with `Window(earliest, latest)` timing is armed and its elapsed time is at least `earliest`, its timing *shall not* stop it from being ready until it is expired.
+
+*If* a transition with `Window(earliest, latest)` timing is armed and its elapsed time exceeds `latest` plus the deadline tolerance, *then* the executor *shall* reap it ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Cannot fire before `earliest`.
-2. Must fire by `latest` or be disabled.
+2. Must fire by `latest` plus the deadline tolerance, or be reaped on the first cycle whose
+   elapsed time is strictly greater than that bound ([TIME-013]).
 3. Construction with latest < earliest is rejected.
+4. Construction with earliest or latest above the maximum duration is rejected ([TIME-001] AC4).
 
+**Depends on:** [TIME-001], [TIME-003]
 **Test derivation:** Window(1s, 5s); attempt fire at 0.5s → not ready; fire at 2s → ready; at 6s → expired.
 
 ---
@@ -130,12 +209,14 @@ record constructor) and expect the transition build (Java: the constructor) to f
 #### TIME-006: Exact Timing
 
 **Priority:** MUST
+**Kind:** T
 
 `Exact(at)` — the transition targets the specified time.
 
 - Interval: `[at, at]`
 - `earliest()` = `latest()` = at
 - `hasDeadline()` = true
+- Construction: `0 <= at <= maximum duration` ([TIME-001] AC4)
 
 The interval `[at, at]` is the precise value used for **verification and simulation** (logical
 time). Under **wall-clock execution** a zero-width window cannot be hit exactly — the executor
@@ -144,6 +225,15 @@ therefore enforced **softly**: the transition fires at the first opportunity at 
 (delayed-style liveness) and is **never** force-disabled for overrunning `at`. Real-time callers
 that want a plain lower bound SHOULD use `Delayed(at)`; those wanting a hard bounded window SHOULD
 use `Window(at, at + slack)`.
+
+The requirements below describe the executor. The verification reading of `[at, at]` belongs to
+[VER-002] and [VER-012].
+
+*While* a transition with `Exact(at)` timing is armed and its elapsed time is less than `at`, the transition *shall not* fire.
+
+*While* a transition with `Exact(at)` timing is armed and its elapsed time is at least `at`, its timing *shall not* stop it from being ready.
+
+The executor *shall not* reap a transition with `Exact` timing, however late it observes it ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Cannot fire before `at`.
@@ -160,8 +250,21 @@ use `Window(at, at + slack)`.
 #### TIME-010: Clock Starts on Enablement
 
 **Priority:** MUST
+**Kind:** T
 
-The timing clock starts when the transition first becomes enabled (all preconditions met). The elapsed time for timing decisions is measured from this enablement moment.
+The timing clock of a transition runs while the transition is **armed**: enabled and holding a clock (see the glossary). A transition is newly armed when it is enabled in the initial marking, and afterwards when it is enabled after a firing or an injected token writes one of its arc places while it is not armed. The clock starts at the moment the transition was most recently newly armed, and the elapsed time for timing decisions is measured from that moment on the firing clock ([TIME-015]).
+
+*When* a transition is newly armed, the executor *shall* stamp it with the current reading of the firing clock.
+
+*While* a transition is armed, its elapsed time *shall* be the current reading of the firing clock minus its stamp.
+
+*While* a transition is armed and its elapsed time is less than its earliest bound, the transition *shall not* fire.
+
+*While* a transition is not armed, the transition *shall not* fire.
+
+Armed is not the marking-level Enabled of [CORE-022]. A transition can be enabled without being armed: a reaped transition ([TIME-013]) is enabled until one of its arc places is written, but holds no clock and does not fire.
+
+The timing requirements identify a transition by its name: a stamp, and whether a transition is reaped, are kept per name. They assume that the transitions of one net have pairwise distinct names. Two transition instances that share a name are distinct under [CORE-021], and a net holding both is outside [TIME-010]–[TIME-015].
 
 **Acceptance Criteria:**
 1. Transition enabled at T=10; earliest=3s; transition ready at T=13.
@@ -174,12 +277,18 @@ The timing clock starts when the transition first becomes enabled (all precondit
 #### TIME-011: Clock Restarts on Re-enablement
 
 **Priority:** MUST
+**Kind:** T
 
-If a transition becomes disabled and then re-enabled, the clock restarts from zero. The previous elapsed time is discarded.
+If a transition stops being armed and is later armed again, the clock restarts from zero. The previous elapsed time is discarded.
+
+*When* an armed transition stops being enabled, the executor *shall* discard its stamp.
+
+*When* a transition that lost its clock is armed again, its elapsed time *shall* be measured from the moment it was armed again, not from any earlier stamp.
 
 **Acceptance Criteria:**
 1. Transition enabled with Delayed(5s); at 3s it becomes disabled; re-enabled later; must wait another 5s.
 
+**Depends on:** [TIME-010]
 **Test derivation:** Enable, partially wait, disable, re-enable; verify full delay applies again.
 
 ---
@@ -187,11 +296,20 @@ If a transition becomes disabled and then re-enabled, the clock restarts from ze
 #### TIME-012: Clock Restart on Intermediate Disablement
 
 **Priority:** MUST
+**Kind:** T
 
-A firing of transition `t` has two halves: its inputs are consumed and its reset places drained, then its outputs are deposited. The marking between the halves is the intermediate marking `M - Pre(t)` of Berthomieu and Diaz. Any other transition that was enabled before `t` fired and is not enabled in the intermediate marking is newly enabled when it is enabled again afterwards, so its clock restarts from zero ([TIME-011]). This holds even when `t`'s own outputs refill the place, and it holds whether `t`'s action completes synchronously or asynchronously: a synchronous action MUST NOT hide the gap. The intermediate marking comes from the marking `t` fires from, so tokens an earlier firing already deposited count, while outputs of an asynchronous action still in flight do not.
+A firing of transition `t` has two halves: its inputs are consumed and its reset places drained, then its outputs are deposited. The marking between the halves is the intermediate marking `M - Pre(t)` of Berthomieu and Diaz. Any other transition that was armed before `t` fired and is not enabled in the intermediate marking loses its clock, and is newly armed when it is enabled again afterwards, so its clock restarts from zero ([TIME-011]). This holds even when `t`'s own outputs refill the place, and it holds whether `t`'s action completes synchronously or asynchronously: a synchronous action MUST NOT hide the gap. The intermediate marking comes from the live marking `t` fires from: the tokens in the places when `t` fires, minus what `t` consumes. Inside a firing pass this includes tokens a synchronous action deposited earlier in the same pass, because they are really there and a transition they keep enabled was never disabled. Outputs of an asynchronous action still in flight are not in the marking yet, so they do not count. This differs from the enablement recheck of the pass ([EXEC-003] AC3-AC5), which does not count a same-pass deposit: that rule decides which transitions may still fire in the pass, this one decides which clocks survive a firing.
+
+*When* a transition `t` fires, each armed transition other than `t` that is not enabled in the intermediate marking *shall* lose its clock.
+
+*When* a transition `t` fires, each armed transition other than `t` that is enabled in the intermediate marking and after the firing *shall* keep its stamp.
+
+*When* a transition fires, it *shall* lose its clock.
+
+*When* a transition `t` fires and a transition that lost its clock in that firing is enabled after it, that transition *shall* be newly armed ([TIME-010]).
 
 - Removing tokens disables a transition only through input arcs, read arcs, cardinality requirements and ν-join bindings, never through inhibitor arcs.
-- A reset arc is a consumption that drains its place, so every enabled transition that consumes or reads from a reset place starts a fresh clock when it is enabled again.
+- A reset arc drains its place, so every armed transition with a read arc on a reset place, or an input arc on it whose required count is positive, starts a fresh clock when it is enabled again.
 - Surplus tokens keep the clock. If `P` holds two tokens, `t` takes one and `t'` needs one, `t'` stays enabled in the intermediate marking and its clock continues.
 - The fired transition itself always starts a fresh clock when it is enabled again.
 
@@ -205,7 +323,7 @@ The state class graph applies the same rule to persistence ([VER-010]). A transi
 5. AC1 with an asynchronous action restarts T's clock as well.
 6. Each restart emits exactly one of `TransitionClockRestarted` or `TransitionEnabled`.
 
-**Depends on:** [TIME-011], [CORE-034], [EXEC-013], [EVT-004]
+**Depends on:** [TIME-010], [TIME-011], [CORE-034], [EXEC-003], [EXEC-013], [EVT-004]
 **Test derivation:** A timer place P feeds a delayed transition T. An injected activity token fires a refresh transition that takes P's token and puts one back: through an input arc, with T only reading P, through a reset arc, and with a surplus token in P. Repeat the input-arc case with an asynchronous action. Assert a lower bound on T's firing time and the fresh-clock event, or its absence in the surplus case.
 
 ---
@@ -213,21 +331,35 @@ The state class graph applies the same rule to persistence ([VER-010]). A transi
 #### TIME-013: Deadline Enforcement
 
 **Priority:** MUST
+**Kind:** T
 
-When a transition with a **hard deadline** (`Deadline` / `Window`) exceeds its latest bound, the executor disables it and emits a `TransitionTimedOut` event. Implementations MUST apply a deadline tolerance — a grace band beyond `latest` (default 5ms) that absorbs timer-resolution and scheduling jitter — and SHOULD expose it as a configurable per-executor option (e.g. `deadlineTolerance` / `deadline_tolerance_ms`); a value of `0` gives strict enforcement.
+A transition with a **hard deadline** (`Deadline` / `Window`) is **reapable**. When a reapable transition is expired, that is, armed with an elapsed time strictly greater than its latest bound plus the deadline tolerance, the executor reaps it: it disarms the transition without firing it and emits a `TransitionTimedOut` event. Implementations MUST apply a deadline tolerance — a grace band beyond `latest` (default 5ms) that absorbs timer-resolution and scheduling jitter — and SHOULD expose it as a configurable per-executor option (e.g. `deadlineTolerance` / `deadline_tolerance_ms`); a value of `0` gives strict enforcement.
 
 `Exact` timing is **not** subject to destructive enforcement: it is enforced softly per [TIME-006] (fires at the first opportunity at/after its target, never force-disabled). Only `Deadline` and `Window` transitions are reaped here.
+
+*If* a reapable transition is armed and its elapsed time is greater than its latest bound plus the deadline tolerance, *then* the executor *shall* reap it in the deadline step of that cycle ([EXEC-001] step 4) and emit `TransitionTimedOut` ([EVT-009]).
+
+*If* a reapable transition's elapsed time is greater than its latest bound plus the deadline tolerance, *then* the transition *shall not* fire.
+
+The executor *shall not* reap a transition that is not reapable.
+
+*While* a transition is reaped, the transition *shall not* fire.
+
+*When* a firing or an injected token writes one of a reaped transition's arc places (an input, read, inhibitor or reset place) and the transition is enabled afterwards, the transition *shall* be newly armed with a fresh clock ([TIME-010]).
+
+A firing writes a place when it consumes from it, deposits into it or drains it through a reset arc; draining a reset place that is already empty counts as a write. The tolerance is the `deadlineTolerance` / `deadline_tolerance_ms` option, and with tolerance `0` a reapable transition is reaped on the first cycle whose elapsed time is strictly greater than its latest bound.
 
 **Acceptance Criteria:**
 1. Transition with Deadline(5s); not fired within 5s + tolerance → disabled + `TransitionTimedOut`.
 2. The tolerance is documented and configurable; the default is 5ms across implementations.
 3. An `Exact` transition observed past its target is **not** disabled (see [TIME-006]).
-4. A reaped transition does not fire again while its input places stay unchanged, on every
-   executor backend (Bitmap and Precompiled alike). Once a token on one of its input places
-   changes, it is enabled again with a fresh clock and may fire.
+4. A reaped transition does not fire again while none of its arc places is written, on every
+   executor backend (Bitmap and Precompiled alike). Once a firing or an injected token writes one
+   of its input, read, inhibitor or reset places, it is armed again with a fresh clock if it is
+   enabled, and may fire.
 
-A reaped transition keeps its input tokens and is not enabled again until a token on one of its
-input places changes, so an executor that fell behind can come to rest at a marking that still
+A reaped transition keeps its input tokens and is not armed again until one of its arc places is
+written, so an executor that fell behind can come to rest at a marking that still
 enables it. Verification accounts for that: a `Deadline` / `Window` transition is **reapable**, and
 every quiescence property reads a marking whose enabled transitions are all reapable as quiescent
 ([VER-002], [VER-004]). The executor that reaps also fires the others late, and fires a late
@@ -236,7 +368,7 @@ latest bound of every `Deadline`, `Window` and `Exact` transition for every prop
 `assumeNoReaping` assumes an on-time executor instead; on Route B it also assumes actions that
 take no time ([VER-004] AC3).
 
-**Depends on:** [EVT-008]
+**Depends on:** [TIME-010], [EVT-009]
 **Test derivation:** Create a `Window`/`Deadline` transition; block the executor past `latest + tolerance`; verify timeout event and disablement. Separately, verify an `Exact` transition under the same conditions still fires. For AC4, run the reap on both backends, confirm neither fires the reaped transition and both end at the same marking, then add a later transition that deposits into its input place and confirm it fires only after that deposit.
 
 ---
@@ -244,11 +376,16 @@ take no time ([VER-004] AC3).
 #### TIME-014: Competitive Scheduling with Timing
 
 **Priority:** MUST
+**Kind:** T
 
 When multiple transitions compete for the same tokens, timing interacts with priority:
 - Higher priority transitions are preferred.
 - Among equal priority, Immediate transitions fire before Delayed ones (since Delayed transitions are not ready until their earliest bound).
 - A Delayed transition with low priority can serve as a fallback when the high-priority immediate transition fires first.
+
+*While* several ready transitions compete for the same tokens, the executor *shall* fire them in the order of [EXEC-002], so the transition with the highest priority takes the tokens first ([EXEC-003]).
+
+*While* a `Delayed` transition is armed and its elapsed time is less than its earliest bound, it *shall not* fire, so a ready transition competing for the same tokens takes them first whatever their priorities ([TIME-004]).
 
 **Acceptance Criteria:**
 1. Two transitions on same input: T1 (P=10, Immediate) and T2 (P=-10, Delayed(3s)); T1 fires first.
@@ -262,6 +399,7 @@ When multiple transitions compete for the same tokens, timing interacts with pri
 #### TIME-015: Injectable Clock
 
 **Priority:** SHOULD
+**Kind:** A
 
 An implementation SHOULD let a host supply the executor's time source. The seam is **per
 executor**, not per net: a net is immutable and shared across composition ([MOD-010]), so a
@@ -286,6 +424,12 @@ logical source, and SHOULD when it needs the two to agree across a replay.
 waiting is real: a `delayed(d)` still costs `d` of wall time and a timed test is no more
 deterministic than before. The seam MUST therefore also own the executor's wait for the next
 timing boundary ([EXEC-001] step 6).
+
+The core of the contract below, in the terms of the glossary:
+
+*While* an executor runs on an injected clock, successive readings of its firing clock *shall* be non-decreasing.
+
+*When* the executor's wait completes, the executor *shall* re-check its boundary conditions before it fires any transition, so an armed transition *shall not* fire before its earliest bound because a wait completed early ([TIME-010]).
 
 **Contract on an injected clock.** All five hold; none of them is an error condition today,
 and each is silent when violated:
@@ -542,8 +686,9 @@ other.
    per [ENV-013] with no escaping failure. Where the seam carries an abort signal, a wait that
    *loses* to a wake-up is aborted too: after many idle waits on a suspending clock, the number
    of registrations that clock holds on the executor's signals does not grow.
-6. Under an injected clock with deadline tolerance `0`, a `Deadline` transition is reaped at
-   exactly its bound.
+6. Under an injected clock with deadline tolerance `0`, a `Deadline` transition is reaped on the
+   first cycle whose elapsed time is strictly greater than its bound, and not on a cycle that
+   observes exactly its bound ([TIME-013]).
 7. A net with a boundary already due and nothing in flight advances on the next cycle rather
    than waiting, under an injected clock as under the default one, in every backend.
 8. **The wake-up path survives injection.** Under an injected clock, each of a completing

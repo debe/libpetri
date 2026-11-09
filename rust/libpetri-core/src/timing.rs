@@ -32,9 +32,15 @@ pub fn immediate() -> Timing {
 /// Immediate with deadline: can fire immediately, must fire by deadline.
 ///
 /// # Panics
-/// Panics if `by_ms` is 0.
+/// Panics if `by_ms` is 0, or if it exceeds [`MAX_DURATION_MS`] ([TIME-001] AC4): a deadline
+/// beyond the stand-in for "no constraint" is one no run reaches, and accepting it would make
+/// a transition reapable whose bound means "never".
 pub fn deadline(by_ms: u64) -> Timing {
     assert!(by_ms > 0, "Deadline must be positive: {by_ms}");
+    assert!(
+        by_ms <= MAX_DURATION_MS,
+        "Deadline must be at most MAX_DURATION_MS ({MAX_DURATION_MS}): {by_ms}"
+    );
     Timing::Deadline { by_ms }
 }
 
@@ -55,9 +61,12 @@ pub fn delayed(after_ms: u64) -> Timing {
 /// Time window: can fire within [earliest, latest].
 ///
 /// # Panics
-/// Panics if `latest_ms < earliest_ms`, or if `earliest_ms` exceeds [`MAX_DURATION_MS`]
+/// Panics if `latest_ms < earliest_ms`, if `earliest_ms` exceeds [`MAX_DURATION_MS`]
 /// (as for [`delayed`]: a verifier that lifts the latest bound reads the window as
-/// `delayed(earliest_ms)`).
+/// `delayed(earliest_ms)`), or if `latest_ms` exceeds [`MAX_DURATION_MS`] ([TIME-001] AC4,
+/// as for [`deadline`]): a latest bound beyond the stand-in for "no constraint" is one no
+/// run reaches, and accepting it would make a transition reapable whose bound means
+/// "never". Use [`delayed`] for no upper bound.
 pub fn window(earliest_ms: u64, latest_ms: u64) -> Timing {
     assert!(
         earliest_ms <= MAX_DURATION_MS,
@@ -66,6 +75,10 @@ pub fn window(earliest_ms: u64, latest_ms: u64) -> Timing {
     assert!(
         latest_ms >= earliest_ms,
         "Latest ({latest_ms}) must be >= earliest ({earliest_ms})"
+    );
+    assert!(
+        latest_ms <= MAX_DURATION_MS,
+        "Latest must be at most MAX_DURATION_MS ({MAX_DURATION_MS}): {latest_ms}"
     );
     Timing::Window {
         earliest_ms,
@@ -146,10 +159,53 @@ mod tests {
         exact(MAX_DURATION_MS + 1);
     }
 
+    /// [TIME-001] AC4, [TIME-003]: `deadline` rejects a `by` one millisecond above the
+    /// maximum duration, with the table's message.
+    #[test]
+    #[should_panic(expected = "Deadline must be at most MAX_DURATION_MS (3153600000000): 3153600000001")]
+    fn deadline_rejects_a_bound_past_the_open_end() {
+        deadline(MAX_DURATION_MS + 1);
+    }
+
+    /// [TIME-001] AC4, [TIME-005]: `window` rejects a `latest` one millisecond above the
+    /// maximum duration, with the table's message, whether `earliest` is at the maximum or 0.
+    #[test]
+    #[should_panic(expected = "Latest must be at most MAX_DURATION_MS (3153600000000): 3153600000001")]
+    fn window_rejects_a_latest_bound_past_the_open_end() {
+        window(MAX_DURATION_MS, MAX_DURATION_MS + 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Latest must be at most MAX_DURATION_MS (3153600000000): 3153600000001")]
+    fn window_from_zero_rejects_a_latest_bound_past_the_open_end() {
+        window(0, MAX_DURATION_MS + 1);
+    }
+
+    /// [TIME-001] AC4, [TIME-005]: `window(MAX, MAX)` and `window(0, MAX)` are the
+    /// boundary and are accepted.
+    #[test]
+    fn window_with_latest_at_the_maximum_is_accepted() {
+        let at_max = window(MAX_DURATION_MS, MAX_DURATION_MS);
+        assert_eq!(at_max.earliest(), MAX_DURATION_MS);
+        assert_eq!(at_max.latest(), MAX_DURATION_MS);
+        let from_zero = window(0, MAX_DURATION_MS);
+        assert_eq!(from_zero.earliest(), 0);
+        assert_eq!(from_zero.latest(), MAX_DURATION_MS);
+    }
+
+    /// [TIME-001] AC4: "Deadline must be positive" runs first, so `deadline(0)` keeps its
+    /// message.
+    #[test]
+    #[should_panic(expected = "Deadline must be positive: 0")]
+    fn deadline_zero_reports_positivity_first() {
+        deadline(0);
+    }
+
     #[test]
     fn the_open_end_itself_is_accepted() {
+        assert_eq!(deadline(MAX_DURATION_MS).latest(), MAX_DURATION_MS);
         assert_eq!(delayed(MAX_DURATION_MS).earliest(), MAX_DURATION_MS);
-        assert_eq!(window(MAX_DURATION_MS, MAX_DURATION_MS + 1).earliest(), MAX_DURATION_MS);
+        assert_eq!(window(MAX_DURATION_MS, MAX_DURATION_MS).earliest(), MAX_DURATION_MS);
         assert_eq!(exact(MAX_DURATION_MS).earliest(), MAX_DURATION_MS);
     }
 

@@ -817,17 +817,51 @@ mod tests {
         with_timing(Timing::Deadline { by_ms: 0 });
     }
 
+    /// [TIME-001] AC4, [TIME-003]: a deadline written out past the maximum duration is
+    /// rejected at build with the factory's message.
+    #[test]
+    #[should_panic(
+        expected = "Deadline must be at most MAX_DURATION_MS (3153600000000): 3153600000001"
+    )]
+    fn a_deadline_written_out_past_the_maximum_is_rejected_at_build() {
+        use crate::timing::{MAX_DURATION_MS, Timing};
+        with_timing(Timing::Deadline {
+            by_ms: MAX_DURATION_MS + 1,
+        });
+    }
+
+    /// [TIME-001] AC4, [TIME-005]: a window written out with its latest bound past the
+    /// maximum duration is rejected at build with the factory's message.
+    #[test]
+    #[should_panic(
+        expected = "Latest must be at most MAX_DURATION_MS (3153600000000): 3153600000001"
+    )]
+    fn a_window_latest_written_out_past_the_maximum_is_rejected_at_build() {
+        use crate::timing::{MAX_DURATION_MS, Timing};
+        with_timing(Timing::Window {
+            earliest_ms: MAX_DURATION_MS,
+            latest_ms: MAX_DURATION_MS + 1,
+        });
+    }
+
     #[test]
     fn a_valid_timing_written_out_builds() {
         use crate::timing::{MAX_DURATION_MS, Timing};
         for timing in [
             Timing::Immediate,
             Timing::Deadline { by_ms: 1 },
+            Timing::Deadline {
+                by_ms: MAX_DURATION_MS,
+            },
             Timing::Delayed {
                 after_ms: MAX_DURATION_MS,
             },
             Timing::Window {
                 earliest_ms: MAX_DURATION_MS,
+                latest_ms: MAX_DURATION_MS,
+            },
+            Timing::Window {
+                earliest_ms: 0,
                 latest_ms: MAX_DURATION_MS,
             },
             Timing::Exact {

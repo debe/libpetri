@@ -199,6 +199,25 @@ def test_an_earliest_bound_past_the_open_end_is_rejected(make):
     [
         (lambda: lp.window(5, 3), r"Latest \(3\) must be >= earliest \(5\)"),
         (lambda: lp.deadline(0), "Deadline must be positive: 0"),
+        # [TIME-001] AC4, [TIME-003]: a deadline past the maximum duration is rejected.
+        (
+            lambda: lp.deadline(_MAX_DURATION_MS + 1),
+            r"Deadline must be at most MAX_DURATION_MS \(3153600000000\): 3153600000001",
+        ),
+        # [TIME-001] AC4, [TIME-005]: a window latest bound past the maximum duration is
+        # rejected, after the earliest and ordering checks.
+        (
+            lambda: lp.window(_MAX_DURATION_MS, _MAX_DURATION_MS + 1),
+            r"Latest must be at most MAX_DURATION_MS \(3153600000000\): 3153600000001",
+        ),
+        (
+            lambda: lp.window(0, _MAX_DURATION_MS + 1),
+            r"Latest must be at most MAX_DURATION_MS \(3153600000000\): 3153600000001",
+        ),
+        (
+            lambda: lp.window(_MAX_DURATION_MS + 1, _MAX_DURATION_MS + 2),
+            r"Earliest must be at most MAX_DURATION_MS \(3153600000000\): 3153600000001",
+        ),
         (lambda: lp.timeout(0, lp.Place("late")), "Timeout must be positive: 0"),
     ],
 )
@@ -207,3 +226,20 @@ def test_an_invalid_bound_raises_value_error(make, message):
     # ValueError (it used to surface as pyo3's PanicException, a BaseException).
     with pytest.raises(ValueError, match=message):
         make()
+
+
+def test_a_deadline_at_the_maximum_duration_is_accepted():
+    # [TIME-001] AC4: deadline(MAX) is the boundary and is accepted.
+    lp.deadline(_MAX_DURATION_MS)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: lp.window(_MAX_DURATION_MS, _MAX_DURATION_MS),
+        lambda: lp.window(0, _MAX_DURATION_MS),
+    ],
+)
+def test_a_window_latest_at_the_maximum_duration_is_accepted(make):
+    # [TIME-001] AC4, [TIME-005]: a latest bound at MAX is the boundary and is accepted.
+    make()

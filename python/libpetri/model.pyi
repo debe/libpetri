@@ -83,7 +83,7 @@ def reset(p: Place) -> ResetArc: ...
 def immediate() -> Timing: ...
 def deadline(by_ms: int) -> Timing:
     """Fire within ``by_ms`` of enablement, else be reaped (TIME-013). Raises
-    ``ValueError`` if ``by_ms`` is 0."""
+    ``ValueError`` if ``by_ms`` is 0 or exceeds ``MAX_DURATION_MS`` (100 years)."""
     ...
 def delayed(after_ms: int) -> Timing:
     """Fire no earlier than ``after_ms`` after enablement. Raises ``ValueError`` if
@@ -92,7 +92,8 @@ def delayed(after_ms: int) -> Timing:
     ...
 def window(earliest_ms: int, latest_ms: int) -> Timing:
     """Fire within ``[earliest_ms, latest_ms]`` of enablement. Raises ``ValueError`` if
-    ``latest_ms < earliest_ms`` or ``earliest_ms`` exceeds ``MAX_DURATION_MS``."""
+    ``latest_ms < earliest_ms`` or either bound exceeds ``MAX_DURATION_MS`` (100 years);
+    use :func:`delayed` for no upper bound."""
     ...
 def exact(at_ms: int) -> Timing:
     """Exact timing, interval ``[at_ms, at_ms]``.

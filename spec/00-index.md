@@ -175,8 +175,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-013 | Reset Arc Execution | MUST | CORE-034, EXEC-012, CORE-032 |
 | EXEC-020 | Output Token Deposition | MUST | — |
 | EXEC-021 | Output Spec Validation | MUST | IO-011, 012, 015 |
-| EXEC-022 | Action Timeout Handling | MUST | IO-013, 014, EVT-009 |
-| EXEC-030 | Action Failure | MUST | EVT-007 |
+| EXEC-022 | Action Timeout Handling | MUST | IO-013, 014, EVT-010 |
+| EXEC-030 | Action Failure | MUST | EVT-008 |
 | EXEC-031 | No Rollback | MUST | — |
 | EXEC-040 | Standard Quiescence | MUST | — |
 | EXEC-041 | Execution Result | MUST | EXEC-040, ENV-013 |
@@ -296,14 +296,14 @@ This specification defines the **observable contract** of the Coloured Time Petr
 |----|-------|----------|------------|
 | TIME-001 | Timing Specification | MUST | — |
 | TIME-002 | Immediate Timing | MUST | — |
-| TIME-003 | Deadline Timing | MUST | EVT-008 |
+| TIME-003 | Deadline Timing | MUST | EVT-009 |
 | TIME-004 | Delayed Timing | MUST | — |
-| TIME-005 | Window Timing | MUST | — |
+| TIME-005 | Window Timing | MUST | TIME-001, TIME-003 |
 | TIME-006 | Exact Timing | MUST | — |
 | TIME-010 | Clock Starts on Enablement | MUST | — |
-| TIME-011 | Clock Restarts on Re-enablement | MUST | — |
-| TIME-012 | Clock Restart on Intermediate Disablement | MUST | TIME-011, CORE-034, EXEC-013, EVT-004 |
-| TIME-013 | Deadline Enforcement | MUST | EVT-008 |
+| TIME-011 | Clock Restarts on Re-enablement | MUST | TIME-010 |
+| TIME-012 | Clock Restart on Intermediate Disablement | MUST | TIME-010, TIME-011, CORE-034, EXEC-003, EXEC-013, EVT-004 |
+| TIME-013 | Deadline Enforcement | MUST | TIME-010, EVT-009 |
 | TIME-014 | Competitive Scheduling with Timing | MUST | EXEC-003 |
 | TIME-015 | Injectable Clock | SHOULD | TIME-010, TIME-011, TIME-013, CORE-011, CORE-072, EXEC-001, EXEC-002, CONC-010, ENV-003, ENV-004, ENV-005, ENV-013, IO-013, MOD-010, PERF-010, PERF-020, PERF-021 |
 
@@ -496,7 +496,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-015 | `LinearBoundTest` | `linear-bound.test.ts` | `linear_bound::tests`, `smt_verifier::tests` (linear bound); Python `test_smt_verification.py` |
 | VER-001 AC3, VER-003 AC5 (inert undeclared marked places) | `InertMarkedPlaceTest` | `verification/inert-undeclared-places.test.ts` | `smt_verifier::tests::an_undeclared_marked_place_is_inert_on_every_route`, `a_terminal_excuses_an_inert_marked_place` |
 | VER-001 AC4–AC5, IO-014 AC6 (timeout forwards; drained forwards decided by the graphs, refused by the linear routes) | `ForwardDepositTest` | `verification/forward-deposit.test.ts` | `branch_outcomes::tests`, `smt_verifier::tests::a_forward_of_two_consumed_tokens_violates_a_bound_of_one_on_every_route`, `a_forward_of_a_drained_input_is_decided_by_the_graph_and_refused_by_the_linear_routes`; Python `test_forward_deposit.py` |
-| TIME-001 AC4 (earliest bound above the maximum duration) | `TimingBoundsTest` | `core/timing.test.ts` | `timing::tests`; Python `test_reaping.py` (`test_an_earliest_bound_past_the_open_end_is_rejected`) |
+| TIME-001 AC4 (earliest bound, a `deadline`'s `by` and a `window`'s latest bound, above the maximum duration) | `TimingBoundsTest` | `core/timing.test.ts` | `timing::tests`; Python `test_reaping.py` (`test_an_earliest_bound_past_the_open_end_is_rejected`) |
 | TIME-001 AC5 (a timing written out without a factory) | `TimingBoundsTest.aRecordWrittenOutDirectlyIsCheckedToo` | `core/transition.test.ts > timings the factories reject, written out directly (TIME-001 AC5)` | `transition::tests` (`a_delayed_timing_written_out_past_the_maximum_is_rejected_at_build` and siblings); Python builds timings only through the factories |
 | VER-002 AC10 (pairwise MutualExclusion) | two-place API (`mutualExclusion(p1, p2)`) | two-place API (`mutualExclusion(p1, p2)`) | `smt_verifier::tests::a_three_place_mutual_exclusion_is_pairwise_on_every_route`; Python `test_forward_deposit.py::test_a_three_place_mutual_exclusion_is_pairwise` |
 | VER-003 AC8 (an initial violation is the empty trace) | `InitialViolationTraceTest` | `verification/initial-violation-trace.test.ts` | `smt_verifier::tests::an_initial_violation_on_the_fixpoint_query_is_the_empty_trace`; Python `test_forward_deposit.py::test_an_initial_violation_on_the_fixpoint_query_is_the_empty_trace` |

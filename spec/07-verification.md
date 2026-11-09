@@ -109,8 +109,8 @@ the first linear one, so no exit of the pipeline bypasses it ([VER-003] AC5).
 **Quiescence.** Every property below that speaks of a quiescent marking reads it
 **reap-aware**. A transition is *reapable* when its timing is `Deadline` or `Window`: an
 executor that is late past its latest bound plus the tolerance reaps it ([TIME-013]), leaves
-its input tokens where they are, and does not enable it again until one of its input places
-changes. A late executor can therefore come to rest at a marking that still enables a
+its input tokens where they are, and does not arm it again until a firing or an injected token
+writes one of its arc places. A late executor can therefore come to rest at a marking that still enables a
 reapable transition (Lean `ReapingVsUntimed.reaping_refutes_ver004_ac3`). A marking is
 **quiescent** when every transition it enables is reapable. On a net without a reapable
 transition this is the plain reading, no transition enabled, and every script, verdict and

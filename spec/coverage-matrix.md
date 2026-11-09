@@ -10,9 +10,9 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 - Active requirements: **226**
 - Proven in Lean (≥ 1 validated theorem fragment): **36**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **57**
-- Referenced by ≥ 1 test file: java **112**, typescript **110**, rust **126**, python **69**
-- Untested anywhere (no test-file reference in any language): **94**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **58**
+- Referenced by ≥ 1 test file: java **113**, typescript **112**, rust **127**, python **71**
+- Untested anywhere (no test-file reference in any language): **93**
 
 ## 01-core-model.md — CORE
 
@@ -80,9 +80,9 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 |----|---------------------------------|----------|------|------------|------|--------|
 | TIME-001 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-002 | — | — | ✓ | ✓ | ✓ | ✓ |
-| TIME-003 | — | ✓ | — | — | — | — |
+| TIME-003 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-004 | — | — | — | — | ✓ | — |
-| TIME-005 | — | ✓ | ✓ | — | ✓ | — |
+| TIME-005 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-006 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-010 | `collect_ready_general_refines` — ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md) | ✓ | — | — | ✓ | — |
 | TIME-011 | `pb_update_reenables` — a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit) | ✓ | — | — | ✓ | — |
@@ -140,7 +140,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 |----|---------------------------------|----------|------|------------|------|--------|
 | ENV-001 | — | — | — | — | — | — |
 | ENV-002 | — | — | — | — | — | — |
-| ENV-003 | — | — | — | — | ✓ | — |
+| ENV-003 | — | ✓ | — | — | ✓ | — |
 | ENV-004 | — | ✓ | ✓ | ✓ | — | — |
 | ENV-005 | — | — | — | ✓ | ✓ | — |
 | ENV-006 | — | — | — | — | — | — |

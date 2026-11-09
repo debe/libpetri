@@ -27,6 +27,36 @@ class TimingBoundsTest {
         assertThrows(IllegalArgumentException.class, () -> Timing.window(PAST, PAST.plusMillis(1)));
     }
 
+    /** [TIME-001] AC4, [TIME-003]: a deadline past the open end is one no run reaches. */
+    @Test
+    void deadlineRejectsABoundPastTheOpenEnd() {
+        var e = assertThrows(IllegalArgumentException.class, () -> Timing.deadline(PAST));
+        assertEquals("Deadline must be at most MAX_DURATION (PT876000H): " + PAST, e.getMessage());
+    }
+
+    /** [TIME-001] AC4: the positivity rule comes first, so a zero deadline keeps its message. */
+    @Test
+    void deadlinePositivityIsCheckedFirst() {
+        var e = assertThrows(IllegalArgumentException.class, () -> Timing.deadline(Duration.ZERO));
+        assertEquals("Deadline must be positive: PT0S", e.getMessage());
+    }
+
+    /** [TIME-001] AC4, [TIME-005]: a window whose latest bound is past the open end is one no run reaches. */
+    @Test
+    void windowRejectsALatestBoundPastTheOpenEnd() {
+        var e = assertThrows(IllegalArgumentException.class, () -> Timing.window(Timing.MAX_DURATION, PAST));
+        assertEquals("Latest must be at most MAX_DURATION (PT876000H): " + PAST, e.getMessage());
+        e = assertThrows(IllegalArgumentException.class, () -> Timing.window(Duration.ZERO, PAST));
+        assertEquals("Latest must be at most MAX_DURATION (PT876000H): " + PAST, e.getMessage());
+    }
+
+    /** [TIME-001] AC4, [TIME-005]: the earliest bound is checked first, then the ordering, then latest. */
+    @Test
+    void windowEarliestBoundIsCheckedFirst() {
+        var e = assertThrows(IllegalArgumentException.class, () -> Timing.window(PAST, PAST.plusMillis(1)));
+        assertEquals("Earliest must be at most MAX_DURATION (PT876000H): " + PAST, e.getMessage());
+    }
+
     @Test
     void exactRejectsATimePastTheOpenEnd() {
         assertThrows(IllegalArgumentException.class, () -> Timing.exact(PAST));
@@ -45,12 +75,30 @@ class TimingBoundsTest {
                 () -> new Timing.Window(Duration.ofMillis(5), Duration.ofMillis(3)));
         assertThrows(IllegalArgumentException.class, () -> new Timing.Exact(PAST));
         assertThrows(IllegalArgumentException.class, () -> new Timing.Deadline(Duration.ZERO));
+        var e = assertThrows(IllegalArgumentException.class, () -> new Timing.Deadline(PAST));
+        assertEquals("Deadline must be at most MAX_DURATION (PT876000H): " + PAST, e.getMessage());
+        // The transition builder takes the record as built, so it cannot hold an invalid deadline.
+        assertThrows(IllegalArgumentException.class,
+                () -> Transition.builder("t").timing(new Timing.Deadline(PAST)).build());
+        e = assertThrows(IllegalArgumentException.class, () -> new Timing.Window(Timing.MAX_DURATION, PAST));
+        assertEquals("Latest must be at most MAX_DURATION (PT876000H): " + PAST, e.getMessage());
+        // Likewise for a window: the builder cannot hold one whose latest bound is past the open end.
+        assertThrows(IllegalArgumentException.class,
+                () -> Transition.builder("t").timing(new Timing.Window(Duration.ZERO, PAST)).build());
     }
 
     @Test
     void theOpenEndItselfIsAccepted() {
         assertEquals(Timing.MAX_DURATION, Timing.delayed(Timing.MAX_DURATION).earliest());
-        assertEquals(Timing.MAX_DURATION, Timing.window(Timing.MAX_DURATION, PAST).earliest());
+        // [TIME-001] AC4, [TIME-005]: window(MAX_DURATION, MAX_DURATION) and window(0, MAX_DURATION) are accepted.
+        var window = Timing.window(Timing.MAX_DURATION, Timing.MAX_DURATION);
+        assertEquals(Timing.MAX_DURATION, window.earliest());
+        assertEquals(Timing.MAX_DURATION, window.latest());
+        assertEquals(Timing.MAX_DURATION, Timing.window(Duration.ZERO, Timing.MAX_DURATION).latest());
         assertEquals(Timing.MAX_DURATION, Timing.exact(Timing.MAX_DURATION).earliest());
+        // [TIME-001] AC4, [TIME-003]: deadline(MAX_DURATION) is accepted and stays reapable.
+        var deadline = Timing.deadline(Timing.MAX_DURATION);
+        assertEquals(Timing.MAX_DURATION, deadline.latest());
+        assertEquals(true, deadline.hasDeadline());
     }
 }

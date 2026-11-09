@@ -15,8 +15,8 @@ The executor runs a loop with the following steps, in order:
 1. **Process completions** — collect outputs from actions that have finished; validate against output specs; deposit produced tokens into marking; emit events.
 2. **Process external events** — dequeue and apply externally injected tokens (see [ENV-003]).
 3. **Update enablement** — re-evaluate which transitions are enabled based on current marking. Only transitions affected by token changes need re-evaluation (see [CONC-004]).
-4. **Enforce deadlines** — check enabled transitions with finite deadlines; disable those past their latest bound.
-5. **Fire ready transitions** — among enabled transitions whose elapsed time >= earliest bound, sort by priority (then FIFO), and fire in order.
+4. **Enforce deadlines** — reap every armed reapable transition (`Deadline` / `Window`) whose elapsed time is strictly greater than its latest bound plus the deadline tolerance ([TIME-013]). `Exact` transitions are never reaped ([TIME-006]).
+5. **Fire ready transitions** — among armed transitions whose elapsed time >= earliest bound, sort by priority (then FIFO), and fire in order.
 6. **Await work** — if no transitions are ready and none are in-flight, wait for a completion, external event, or timer.
 
 **Acceptance Criteria:**
@@ -214,7 +214,7 @@ When a transition's output specification includes a Timeout node, the executor r
 3. ForwardInput in timeout child → **every** token consumed from the `from` place is forwarded to the `to` place, one output token per consumed token, in consumption order, each keeping its original `created_at` ([IO-014]).
 4. Output the action wrote before the budget expired is discarded, not merged with the timeout branch ([IO-013] AC5).
 
-**Depends on:** [IO-013], [IO-014], [EVT-009]
+**Depends on:** [IO-013], [IO-014], [EVT-010]
 **Test derivation:** Slow action with timeout; verify timeout branch tokens and event.
 
 ---
@@ -236,7 +236,7 @@ If an action throws an exception or returns an error, the executor:
 2. Consumed tokens are lost (not returned to input places).
 3. Other transitions continue to fire.
 
-**Depends on:** [EVT-007]
+**Depends on:** [EVT-008]
 **Test derivation:** Action throws; verify failure event; verify consumed tokens not restored; verify net continues.
 
 ---
@@ -261,7 +261,7 @@ The engine does not provide transaction rollback. Once tokens are consumed by a 
 **Priority:** MUST
 
 When no environment places are registered, the executor terminates when ALL of the following hold:
-1. No transitions are enabled.
+1. No transition is armed ([TIME-010]). A reaped transition that is still enabled holds no clock and does not keep the executor running ([TIME-013]).
 2. No transitions are in-flight (executing actions).
 3. No external events are pending.
 

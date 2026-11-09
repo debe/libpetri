@@ -13,80 +13,80 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Refinement.lean"]
-    n4039["🔒 Libpetri.consume_marking_rel"]
-    n4064["🔒 Libpetri.disable_rel"]
-    n4106["🔒 Libpetri.fireConsume_rel"]
-    n4114["🔒 Libpetri.foldFire_rel"]
-    n4126["🔒 Libpetri.inputs_bag_rel"]
-    n4152["Libpetri.iterate"]
-    n4188["🔒 Libpetri.pcCycle_rel"]
-    n4190["🔒 Libpetri.pcFire_rel"]
-    n4198["🔒 Libpetri.postFire_rel"]
-    n4207["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
-    n4213["🔒 Libpetri.produceMany_rel"]
-    n4216["🔒 Libpetri.produceOne_rel"]
-    n4223["🔒 Libpetri.reads_bag_rel"]
-    n4228["🔒 Libpetri.recheck_rel"]
-    n4258["🔒 Libpetri.specAt_none"]
-    n4259["🔒 Libpetri.specAt_some_mem"]
-    n4300["🔒 Libpetri.updateEnablement_rel"]
+    n4178["🔒 Libpetri.consume_marking_rel"]
+    n4203["🔒 Libpetri.disable_rel"]
+    n4245["🔒 Libpetri.fireConsume_rel"]
+    n4253["🔒 Libpetri.foldFire_rel"]
+    n4265["🔒 Libpetri.inputs_bag_rel"]
+    n4291["Libpetri.iterate"]
+    n4327["🔒 Libpetri.pcCycle_rel"]
+    n4329["🔒 Libpetri.pcFire_rel"]
+    n4337["🔒 Libpetri.postFire_rel"]
+    n4346["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
+    n4352["🔒 Libpetri.produceMany_rel"]
+    n4355["🔒 Libpetri.produceOne_rel"]
+    n4362["🔒 Libpetri.reads_bag_rel"]
+    n4367["🔒 Libpetri.recheck_rel"]
+    n4397["🔒 Libpetri.specAt_none"]
+    n4398["🔒 Libpetri.specAt_some_mem"]
+    n4439["🔒 Libpetri.updateEnablement_rel"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
   c2["📁 Libpetri/Conservation.lean (15 declarations, collapsed)"]
   c3["📁 Libpetri/Conservation/Pop.lean (8 declarations, collapsed)"]
   c4["📁 Libpetri/Enablement.lean (20 declarations, collapsed)"]
-  c70["📁 Libpetri/Refinement/Correspondence.lean (2 declarations, collapsed)"]
-  c71["📁 Libpetri/Refinement/Model.lean (38 declarations, collapsed)"]
-  c75["📁 Libpetri/Ring/Core.lean (54 declarations, collapsed)"]
-  c76["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
-  c78["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
-  c1 --> c76
+  c71["📁 Libpetri/Refinement/Correspondence.lean (2 declarations, collapsed)"]
+  c72["📁 Libpetri/Refinement/Model.lean (38 declarations, collapsed)"]
+  c76["📁 Libpetri/Ring/Core.lean (54 declarations, collapsed)"]
+  c77["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
+  c79["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
+  c1 --> c77
   c2 --> c1
   c2 --> c3
-  c3 --> c75
+  c3 --> c76
   c4 --> c2
-  c70 --> c71
-  c71 --> c4
-  c75 --> c0
-  c75 --> c78
-  c76 --> c75
-  n4039 --> c71
-  n4039 --> n4258
-  n4039 --> n4259
-  n4064 --> c71
-  n4106 --> n4039
-  n4114 --> n4064
-  n4114 --> n4190
-  n4114 --> n4228
-  n4126 --> c71
-  n4126 --> n4258
-  n4126 --> n4259
-  n4188 --> n4114
-  n4188 --> n4300
-  n4190 --> n4106
-  n4190 --> n4126
-  n4190 --> n4198
-  n4190 --> n4213
-  n4190 --> n4223
-  n4198 --> c71
-  n4207 --> n4152
-  n4207 --> n4188
-  n4213 --> n4216
-  n4216 --> c71
-  n4223 --> c71
-  n4223 --> n4258
-  n4223 --> n4259
-  n4228 --> c70
-  n4258 --> c0
-  n4259 --> c0
-  n4300 --> c70
+  c71 --> c72
+  c72 --> c4
+  c76 --> c0
+  c76 --> c79
+  c77 --> c76
+  n4178 --> c72
+  n4178 --> n4397
+  n4178 --> n4398
+  n4203 --> c72
+  n4245 --> n4178
+  n4253 --> n4203
+  n4253 --> n4329
+  n4253 --> n4367
+  n4265 --> c72
+  n4265 --> n4397
+  n4265 --> n4398
+  n4327 --> n4253
+  n4327 --> n4439
+  n4329 --> n4245
+  n4329 --> n4265
+  n4329 --> n4337
+  n4329 --> n4352
+  n4329 --> n4362
+  n4337 --> c72
+  n4346 --> n4291
+  n4346 --> n4327
+  n4352 --> n4355
+  n4355 --> c72
+  n4362 --> c72
+  n4362 --> n4397
+  n4362 --> n4398
+  n4367 --> c71
+  n4397 --> c0
+  n4398 --> c0
+  n4439 --> c71
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4207 root
-  class n4039,n4064,n4106,n4114,n4126,n4188,n4190,n4198,n4207,n4213,n4216,n4223,n4228,n4258,n4259,n4300 locked
-  class c0,c1,c2,c3,c4,c70,c71,c75,c76,c78 collapsed
+  class n4346 root
+  class n4178,n4203,n4245,n4253,n4265,n4327,n4329,n4337,n4346,n4352,n4355,n4362,n4367,n4397,n4398,n4439 locked
+  class c0,c1,c2,c3,c4,c71,c72,c76,c77,c79 collapsed
 ```
 
 Axioms used:

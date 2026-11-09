@@ -1,8 +1,10 @@
 # Glossary: firing semantics
 
-This glossary fixes the terms the CORE and IO firing requirements use. It is not numbered and
-defines no requirements; each entry cites the requirements that define the term. The Lean
-counterpart is `lean/Libpetri/Spec/Glossary.lean`, whose docstrings quote these entries.
+This glossary fixes the terms the CORE and IO firing requirements and the TIME timing
+requirements use. It is not numbered and defines no requirements; each entry cites the
+requirements that define the term. The Lean counterpart is `lean/Libpetri/Spec/Glossary.lean`
+for the firing terms and `lean/Libpetri/Spec/GlossaryTime.lean` for the timing terms, whose
+docstrings quote these entries.
 
 ---
 
@@ -147,3 +149,78 @@ skips them [CONC-026].
 
 A transition builds when it passes every build-time check. A definition that fails one is not a
 transition of any net: no executor holds it, so it is never enabled and never fires [CORE-022].
+
+---
+
+## Timing
+
+### Timing
+
+The interval `[earliest, latest]` a transition's timing specification gives: `Immediate`,
+`Deadline(by)`, `Delayed(after)`, `Window(earliest, latest)` or `Exact(at)` [TIME-001]–[TIME-006].
+`Immediate` and `Delayed` have no finite latest bound; their `latest()` is the maximum duration.
+
+### Maximum duration
+
+The finite stand-in for "no latest bound", about 100 years: `MAX_DURATION_MS` = 3153600000000 ms,
+or `MAX_DURATION` in Java [TIME-001]. No valid timing has an earliest bound above it, and no valid
+`Deadline` has a `by` above it [TIME-001].
+
+### Firing clock
+
+The monotonic time source from which the executor stamps armed transitions and computes elapsed
+time [TIME-010], [TIME-015]. Its readings never decrease and may repeat [TIME-015].
+
+### Arc place
+
+A place on which a transition has an input, read, inhibitor or reset arc [CORE-030]–[CORE-034].
+A place the transition only deposits into is not one of its arc places.
+
+### Write
+
+A firing writes a place when it consumes from it, deposits into it or drains it through a reset
+arc. Draining a reset place that is already empty counts as a write. An injected token writes the
+place it lands in [ENV-003]. Reading through a read arc and testing through an inhibitor arc
+never write [TIME-013].
+
+### Armed
+
+A transition is armed when it is enabled and holds a clock: a stamp, the firing-clock reading at
+the moment it was most recently newly armed [TIME-010]. A transition is newly armed when it is
+enabled in the initial marking, when it is enabled after a firing or an injected token that wrote
+one of its arc places while it was not armed, and when its clock restarts [TIME-012]. A
+transition that is not enabled is not armed. Armed is not Enabled: a reaped transition is enabled
+but not armed [TIME-013].
+
+### Elapsed time
+
+The current reading of the firing clock minus an armed transition's stamp [TIME-010]. Only an
+armed transition has one.
+
+### Ready
+
+A transition is ready when it is armed, its elapsed time is at least its earliest bound and it is
+not expired [TIME-010], [EXEC-002].
+
+### Deadline tolerance
+
+The per-executor grace band added to a latest bound before a transition is reaped: 5 ms by
+default, and `0` for strict enforcement [TIME-013].
+
+### Reapable
+
+A transition is reapable when its timing is `Deadline` or `Window` [TIME-013]. `Exact`,
+`Immediate` and `Delayed` are not reapable, though `Exact` has a deadline in the sense of
+`hasDeadline()` [TIME-001], [TIME-006].
+
+### Expired
+
+A reapable transition is expired when it is armed and its elapsed time is strictly greater than
+its latest bound plus the deadline tolerance [TIME-013].
+
+### Reaped
+
+To reap an expired transition is to disarm it in the deadline step of a cycle without firing it,
+emitting `TransitionTimedOut` [TIME-013], [EXEC-001], [EVT-009]. A reaped transition keeps its
+tokens and stays enabled but not armed, and does not fire, until a firing or an injected token
+writes one of its arc places; it is then newly armed if it is enabled [TIME-013].

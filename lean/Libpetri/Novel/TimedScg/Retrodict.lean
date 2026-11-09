@@ -910,7 +910,7 @@ end Duration
 
 /-! ## 5. `delayed(after > MAX_DURATION_MS)`
 
-Before the R6 fix `delayed(after_ms)` checked nothing. The shipped `delayed` (`timing.rs:47-53`)
+Before the R6 fix `delayed(after_ms)` checked nothing. The shipped `delayed` (`timing.rs:53-59`)
 asserts `after_ms <= MAX_DURATION_MS`, so the net below can no longer be built
 (`netBig_rejected`); what follows is the pre-fix behaviour. `latest()` is `MAX_DURATION_MS`, so
 `delayed(MAX_DURATION_MS + 1)` has the graph interval `[MAX + 0.001, MAX]` seconds. In the Rust,

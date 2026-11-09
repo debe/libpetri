@@ -1448,7 +1448,7 @@ fn py_immediate() -> PyTiming {
 }
 
 /// Timing: must fire by `by_ms` milliseconds after enablement, else is force-disabled.
-/// Raises `ValueError` if `by_ms` is 0.
+/// Raises `ValueError` if `by_ms` is 0 or exceeds `MAX_DURATION_MS`.
 #[pyfunction(name = "deadline")]
 fn py_deadline(by_ms: u64) -> PyResult<PyTiming> {
     let inner = panic_to_value_error(|| deadline(by_ms))?;
@@ -1464,7 +1464,7 @@ fn py_delayed(after_ms: u64) -> PyResult<PyTiming> {
 }
 
 /// Timing: fire within the closed interval `[earliest_ms, latest_ms]` after enablement.
-/// Raises `ValueError` if `latest_ms < earliest_ms` or `earliest_ms` exceeds `MAX_DURATION_MS`.
+/// Raises `ValueError` if `latest_ms < earliest_ms` or either bound exceeds `MAX_DURATION_MS`.
 #[pyfunction(name = "window")]
 fn py_window(earliest_ms: u64, latest_ms: u64) -> PyResult<PyTiming> {
     let inner = panic_to_value_error(|| window(earliest_ms, latest_ms))?;

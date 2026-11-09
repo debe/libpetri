@@ -186,7 +186,7 @@ describe('arcs the helpers reject, written out directly (IO-002, IO-004, NU-020)
   });
 });
 
-describe('timings the factories reject, written out directly (TIME-001 AC5)', () => {
+describe('timings the factories reject, written out directly (TIME-001 AC4, AC5, TIME-003)', () => {
   const t = (timing: Timing) => Transition.builder('t').timing(timing).build();
 
   it('build rejects each invalid literal with the factory message', () => {
@@ -200,6 +200,18 @@ describe('timings the factories reject, written out directly (TIME-001 AC5)', ()
       [{ type: 'window', earliestMs: 5, latestMs: 3 }, 'Latest (3) must be >= earliest (5)'],
       [{ type: 'exact', atMs: MAX_DURATION_MS + 1 }, 'Exact time must be at most MAX_DURATION_MS'],
       [{ type: 'deadline', byMs: 0 }, 'Deadline must be positive: 0'],
+      [
+        { type: 'deadline', byMs: MAX_DURATION_MS + 1 },
+        `Deadline must be at most MAX_DURATION_MS (3153600000000): ${MAX_DURATION_MS + 1}`,
+      ],
+      [
+        { type: 'window', earliestMs: MAX_DURATION_MS, latestMs: MAX_DURATION_MS + 1 },
+        `Latest must be at most MAX_DURATION_MS (3153600000000): ${MAX_DURATION_MS + 1}`,
+      ],
+      [
+        { type: 'window', earliestMs: 0, latestMs: MAX_DURATION_MS + 1 },
+        `Latest must be at most MAX_DURATION_MS (3153600000000): ${MAX_DURATION_MS + 1}`,
+      ],
     ];
     for (const [timing, message] of cases) {
       expect(() => t(timing)).toThrow(message);
@@ -210,8 +222,10 @@ describe('timings the factories reject, written out directly (TIME-001 AC5)', ()
     const valid: Timing[] = [
       { type: 'immediate' },
       { type: 'deadline', byMs: 1 },
+      { type: 'deadline', byMs: MAX_DURATION_MS },
       { type: 'delayed', afterMs: MAX_DURATION_MS },
       { type: 'window', earliestMs: MAX_DURATION_MS, latestMs: MAX_DURATION_MS },
+      { type: 'window', earliestMs: 0, latestMs: MAX_DURATION_MS },
       { type: 'exact', atMs: MAX_DURATION_MS },
     ];
     for (const timing of valid) {

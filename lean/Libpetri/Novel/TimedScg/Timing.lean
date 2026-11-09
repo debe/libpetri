@@ -7,16 +7,22 @@ import Libpetri.Novel.TimedScg.Succ
 `TTrans.lft : Bound`). This file says which intervals the Rust graph actually produces, from
 `libpetri-core/src/timing.rs`:
 
-* `Timing` is the Rust enum, with `earliest` / `latest` / `has_deadline` as in `timing.rs:95-125`.
+* `Timing` is the Rust enum, with `earliest` / `latest` / `has_deadline` as in `timing.rs:108-138`.
   `latest()` returns the **finite** `MAX_DURATION_MS` (100 years of 365 days) for `Immediate` and
   `Delayed`; it never returns `f64::INFINITY`. `timing_earliest` / `timing_latest`
   (`state_class_graph.rs`) divide by `1000`, so the faithful interval of a transition is
   `[eftT tm, lftT tm]`, and `lftT tm` is never `⊤` (`lftT_ne_top`). `⊤` enters the model only
   through `Late.relax`, which is not what the shipped graph builds.
-* `Timing.Valid` is what the constructors assert: `deadline(by)` panics on `by = 0`,
-  `window(e, l)` on `l < e` or `e > MAX_DURATION_MS`, and `delayed(after)` and `exact(at)` on an
-  earliest bound above `MAX_DURATION_MS`. `Timing.ValidPre` is what they asserted before the
-  R6 fix: `delayed` and `exact` checked nothing, `window` only `l < e`.
+* `Timing.Valid` is what the constructors assert ([TIME-001] AC4, the validity table):
+  `deadline(by)` panics on `by = 0` and on `by > MAX_DURATION_MS`, `window(e, l)` on
+  `e > MAX_DURATION_MS`, `l < e` or `l > MAX_DURATION_MS` (in that order), and `delayed(after)`
+  and `exact(at)` on an earliest bound above `MAX_DURATION_MS`. A deadline or window bound
+  beyond the stand-in for "no constraint" is one no run reaches, and accepting it would make a
+  transition reapable whose bound means "never", so it is rejected too
+  (`Timing.Valid.latest_le_of_deadline`, `Timing.Valid.latest_le_of_window`); `delayed(e)` is
+  the way to write no upper bound. `Timing.ValidPre` is what the constructors asserted before
+  the R6 fix: `delayed` and `exact` checked nothing, `window` only `l < e`, `deadline` only
+  `0 < by`.
 * `timingWF_iff`: a timing valid in the old sense gives `0 ≤ eft ≤ lft` (`Succ.TimingWF`,
   premise 6) **iff** it is not a `delayed(after)` with `after > MAX_DURATION_MS`. The old
   constructor accepted `delayed(MAX_DURATION_MS + 1)`, which breaks premise 6
@@ -68,7 +74,7 @@ inductive Timing where
 
 namespace Timing
 
-/-- `Timing::earliest` (`timing.rs:97-105`). -/
+/-- `Timing::earliest` (`timing.rs:110-118`). -/
 def earliest : Timing → Nat
   | immediate => 0
   | deadline _ => 0
@@ -76,7 +82,7 @@ def earliest : Timing → Nat
   | window e _ => e
   | exact a => a
 
-/-- `Timing::latest` (`timing.rs:108-116`): finite for every variant. -/
+/-- `Timing::latest` (`timing.rs:121-129`): finite for every variant. -/
 def latest : Timing → Nat
   | immediate => maxDurationMs
   | deadline b => b
@@ -84,7 +90,7 @@ def latest : Timing → Nat
   | window _ l => l
   | exact a => a
 
-/-- `Timing::has_deadline` (`timing.rs:119-124`). -/
+/-- `Timing::has_deadline` (`timing.rs:132-137`). -/
 def hasDeadline : Timing → Bool
   | deadline _ => true
   | window _ _ => true
@@ -97,12 +103,13 @@ def reapable : Timing → Bool
   | window _ _ => true
   | _ => false
 
-/-- What the constructors assert: `deadline(by)` a positive bound, `window(e, l)` an earliest
-bound at most `MAX_DURATION_MS` and `e ≤ l`, `delayed(after)` and `exact(at)` an earliest bound
-at most `MAX_DURATION_MS` (`timing.rs`, `deadline`, `delayed`, `window`, `exact`). -/
+/-- What the constructors assert ([TIME-001] AC4): `deadline(by)` a bound with
+`0 < by ≤ MAX_DURATION_MS`, `window(e, l)` an earliest bound at most `MAX_DURATION_MS`, then
+`e ≤ l`, then `l ≤ MAX_DURATION_MS`, `delayed(after)` and `exact(at)` an earliest bound at most `MAX_DURATION_MS`
+(`timing.rs`, `deadline`, `delayed`, `window`, `exact`). -/
 def Valid : Timing → Prop
-  | deadline b => 0 < b
-  | window e l => e ≤ maxDurationMs ∧ e ≤ l
+  | deadline b => 0 < b ∧ b ≤ maxDurationMs
+  | window e l => e ≤ maxDurationMs ∧ e ≤ l ∧ l ≤ maxDurationMs
   | delayed a => a ≤ maxDurationMs
   | exact a => a ≤ maxDurationMs
   | immediate => True
@@ -122,6 +129,36 @@ theorem Valid.pre {tm : Timing} (h : tm.Valid) : tm.ValidPre := by
 `MAX_DURATION_MS`, the graph's reading of every unbounded latest bound. -/
 theorem Valid.earliest_le {tm : Timing} (h : tm.Valid) : tm.earliest ≤ maxDurationMs := by
   cases tm <;> simp_all [Valid, earliest]
+
+/-- `deadline(by)` is valid exactly when `0 < by ≤ MAX_DURATION_MS`: `deadline(MAX_DURATION_MS)`
+is accepted and `deadline(MAX_DURATION_MS + 1)` rejected ([TIME-001] AC4). -/
+theorem valid_deadline_iff (b : Nat) : (deadline b).Valid ↔ 0 < b ∧ b ≤ maxDurationMs := Iff.rfl
+
+/-- `deadline(MAX_DURATION_MS + 1)` passed the old check and fails the shipped one. -/
+theorem deadline_past_max_rejected :
+    (deadline (maxDurationMs + 1)).ValidPre ∧ ¬ (deadline (maxDurationMs + 1)).Valid := by
+  simp [Valid, ValidPre]
+
+/-- The bound of a valid `deadline(by)` is at most `MAX_DURATION_MS`, so no valid deadline is
+reapable at a bound that means "never". -/
+theorem Valid.latest_le_of_deadline {b : Nat} (h : (deadline b).Valid) : b ≤ maxDurationMs := h.2
+
+/-- `window(e, l)` is valid exactly when `e ≤ MAX_DURATION_MS`, `e ≤ l` and
+`l ≤ MAX_DURATION_MS`: `window(MAX_DURATION_MS, MAX_DURATION_MS)` and
+`window(0, MAX_DURATION_MS)` are accepted, `window(MAX_DURATION_MS, MAX_DURATION_MS + 1)`
+rejected ([TIME-001] AC4, [TIME-005]). -/
+theorem valid_window_iff (e l : Nat) :
+    (window e l).Valid ↔ e ≤ maxDurationMs ∧ e ≤ l ∧ l ≤ maxDurationMs := Iff.rfl
+
+/-- `window(0, MAX_DURATION_MS + 1)` passed the old check and fails the shipped one. -/
+theorem window_latest_past_max_rejected :
+    (window 0 (maxDurationMs + 1)).ValidPre ∧ ¬ (window 0 (maxDurationMs + 1)).Valid := by
+  simp [Valid, ValidPre]
+
+/-- The latest bound of a valid `window(e, l)` is at most `MAX_DURATION_MS`, so no valid window
+is reapable at a bound that means "never". -/
+theorem Valid.latest_le_of_window {e l : Nat} (h : (window e l).Valid) : l ≤ maxDurationMs :=
+  h.2.2
 
 theorem reapable_hasDeadline {tm : Timing} (h : tm.reapable = true) : tm.hasDeadline = true := by
   cases tm <;> simp_all [reapable, hasDeadline]

@@ -17,7 +17,9 @@ marking and the properties. It refuses, rather than guesses:
   `forward` whose `from` is not an input place ([IO-014] AC3), and two output branches claiming
   one set of places ([IO-012] AC5). All six carry the builders' messages, after `invalid: `;
 * invalid **timing** ([TIME-001]–[TIME-006]): an unknown `kind`, a missing or extra bound, a
-  `deadline` of 0 ([TIME-003]), or a `window` with `earliestMs > latestMs` ([TIME-005]);
+  `deadline` of 0 ([TIME-003]), a `window` with `earliestMs > latestMs` ([TIME-005]), or a
+  `deadline` or `window` latest bound or an earliest bound above the maximum duration
+  ([TIME-001] AC4);
 * nets **outside v1**: any key the schema does not define (environment places, terminals,
   ν / match specs, …).
 
@@ -202,10 +204,22 @@ def parseInput (j : Json) : Err (NInSpec String) := do
     | other => fail s!"invalid: input kind '{other}'"
   return { place := p, card := card }
 
+/-- The maximum duration in milliseconds ([TIME-001]): `MAX_DURATION_MS`, the value of
+`Novel.TimedScg.maxDurationMs`, written out here so the reference executable does not import the
+timed state-class graph. -/
+def maxDurationMs : Nat := 3153600000000
+
+/-- `invalid` unless the bound `v` named `what` is at most the maximum duration ([TIME-001]
+AC4). -/
+def atMostMax (name kind what : String) (v : Nat) : Err Unit :=
+  if v > maxDurationMs then
+    fail s!"invalid: {kind} timing of '{name}' has {what} above the maximum duration (TIME-001)"
+  else pure ()
+
 /-- A transition's timing ([TIME-001]–[TIME-006]), read to its reapability ([TIME-013]):
 `{"kind": k, "earliestMs": e, "latestMs": l}` with the bounds `k` takes —
 `immediate` / `unconstrained` none, `deadline` `latestMs`, `delayed` `earliestMs`,
-`window` both (`e ≤ l`), `exact` `earliestMs` (and `latestMs` equal to it, if given). The v0
+`window` both (`e ≤ l ≤ MAX_DURATION_MS`), `exact` `earliestMs` (and `latestMs` equal to it, if given). The v0
 forms `"immediate"` and `{"type": "immediate"}` are still accepted. -/
 def parseTiming (name : String) (j : Json) : Err Bool := do
   if j == Json.str "immediate" then return false
@@ -231,22 +245,27 @@ def parseTiming (name : String) (j : Json) : Err Bool := do
     onlyKeys j ["kind", "latestMs"] "timing"
     let l ← need l? "latestMs"
     if l == 0 then fail s!"invalid: deadline of '{name}' must be positive (TIME-003)"
+    atMostMax name kind "latestMs" l
     return true
   | "delayed" =>
     onlyKeys j ["kind", "earliestMs"] "timing"
-    let _ ← need e? "earliestMs"
+    let e ← need e? "earliestMs"
+    atMostMax name kind "earliestMs" e
     return false
   | "window" =>
     onlyKeys j ["kind", "earliestMs", "latestMs"] "timing"
     let e ← need e? "earliestMs"
     let l ← need l? "latestMs"
+    atMostMax name kind "earliestMs" e
     if l < e then fail s!"invalid: window of '{name}' has earliestMs > latestMs (TIME-005)"
+    atMostMax name kind "latestMs" l
     return true
   | "exact" =>
     onlyKeys j ["kind", "earliestMs", "latestMs"] "timing"
     let e ← need e? "earliestMs"
     if let some l := l? then
       if l != e then fail s!"invalid: exact timing of '{name}' needs latestMs = earliestMs"
+    atMostMax name kind "earliestMs" e
     return false
   | other => fail s!"invalid: timing kind '{other}' of '{name}'"
 
@@ -429,5 +448,36 @@ private def xorMsg : String :=
   some "invalid: output spec of transition 't' has 2 Timeout nodes; an output spec has at most one, nested or not (IO-013)"
 #guard buildError (xor_ [p "A", tmo (p "B")]) == none
 #guard buildError (tmo (and_ [p "A", fwd "i" "B"])) == none
+
+/-! ### The timing refusals at the maximum duration
+
+`timingError t` is the refusal of the timing `t` (JSON) of a transition `t`, or `none` when it
+loads. A `window` checks its earliest bound, then `earliestMs <= latestMs`, then its latest bound
+against the maximum duration, in the builders' order ([TIME-001] AC4, [TIME-005]). -/
+
+private def timingError (t : String) : Option String :=
+  match Json.parse t with
+  | .error e => some s!"json: {e}"
+  | .ok j => match parseTiming "t" j with
+    | .error e => some e
+    | .ok _ => none
+
+private def window (e l : Nat) : String :=
+  s!"\{\"kind\": \"window\", \"earliestMs\": {e}, \"latestMs\": {l}}"
+
+private def maxMsg (kind what : String) : String :=
+  s!"invalid: {kind} timing of 't' has {what} above the maximum duration (TIME-001)"
+
+#guard timingError (window 0 maxDurationMs) == none
+#guard timingError (window maxDurationMs maxDurationMs) == none
+#guard timingError (window 0 (maxDurationMs + 1)) == some (maxMsg "window" "latestMs")
+#guard timingError (window maxDurationMs (maxDurationMs + 1)) == some (maxMsg "window" "latestMs")
+#guard timingError (window (maxDurationMs + 1) (maxDurationMs + 2)) ==
+  some (maxMsg "window" "earliestMs")
+#guard timingError (window 5 3) ==
+  some "invalid: window of 't' has earliestMs > latestMs (TIME-005)"
+#guard timingError s!"\{\"kind\": \"deadline\", \"latestMs\": {maxDurationMs}}" == none
+#guard timingError s!"\{\"kind\": \"deadline\", \"latestMs\": {maxDurationMs + 1}}" ==
+  some (maxMsg "deadline" "latestMs")
 
 end Libpetri.Reference.Load
