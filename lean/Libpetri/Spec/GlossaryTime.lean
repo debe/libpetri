@@ -1,5 +1,6 @@
 import Libpetri.Reference.Timed
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Ears
 
 set_option linter.missingDocs true
 
@@ -21,6 +22,13 @@ to an untimed one, and `FramesMarking` keeps the marking fixed across every othe
 
 Transitions are identified by name ([TIME-010], ruling D10): a stamp is kept per name, and
 `InNet X u` says that `u` is the transition the net holds under `u`'s name.
+
+Two frames are shared by the timing blocks TIME-002 to TIME-006, so that "its timing shall not
+stop it from being ready" and "shall not reap" read the same in all of them: `StaysArmed` (no
+step but the transition's own reap disarms it while it stays enabled) and `ClockFrame`
+(`StaysArmed`, and no delay, no reap of another name and no firing of another name that leaves
+it enabled throughout moves its stamp). Their policy-generic lemmas are at the end
+(`staysArmed_of`, `clockFrame_of`).
 -/
 
 namespace Libpetri.Spec
@@ -42,7 +50,8 @@ abbrev TimingOf (X : TimedNet N) (t : Trans N) : Timing := X.timing t
 
 /-- **Glossary: Maximum duration.** "The finite stand-in for "no latest bound", about 100 years:
 `MAX_DURATION_MS` = 3153600000000 ms, or `MAX_DURATION` in Java [TIME-001]. No valid timing has
-an earliest bound above it, and no valid `Deadline` has a `by` above it [TIME-001]." -/
+an earliest bound above it, no valid `Deadline` has a `by` above it, and no valid `Window` has a
+latest bound above it [TIME-001]." -/
 abbrev MaxDuration : Nat := maxDurationMs
 
 /-- **Glossary: Firing clock.** "The monotonic time source from which the executor stamps armed
@@ -84,10 +93,10 @@ def Mid [DecidableEq N] (t : Trans N) (m : CountMarking N) : CountMarking N :=
 /-! ## Armed, elapsed, ready, expired, reaped -/
 
 /-- **Glossary: Armed.** "A transition is armed when it is enabled and holds a clock: a stamp,
-the firing-clock reading at the moment it was most recently newly armed [TIME-010]. A transition
-is newly armed when it is enabled in the initial marking, when it is enabled after a firing or
-an injected token that wrote one of its arc places while it was not armed, and when its clock
-restarts [TIME-012]. A transition that is not enabled is not armed. Armed is not Enabled: a
+the firing-clock reading taken by the enablement update that most recently newly armed it
+[TIME-010]. A transition is newly armed when it is enabled in the initial marking, when it is
+enabled after a firing or an injected token that wrote one of its arc places while it was not
+armed, and when its clock restarts [TIME-012]. A transition that is not enabled is not armed. Armed is not Enabled: a
 reaped transition is enabled but not armed [TIME-013]." -/
 def Armed (s : TSt N) (t : Trans N) : Prop :=
   Enabled t s.m ∧ (s.stamp t.core.name).isSome
@@ -178,6 +187,34 @@ def CoversReap (R : TRel N) : Prop :=
 /-- The firing clock can always advance, by any amount. -/
 def CoversDelay (R : TRel N) : Prop :=
   ∀ X s δ, ∃ s', R X s (.delay δ) s' ∧ ClockReading s' = ClockReading s + δ
+
+/-! ## Frames of a transition's clock -/
+
+/-- No step other than the reap of `u` disarms `u` while `u` stays enabled: a step from a state in
+which `u` is armed, to a state in which `u` is enabled, leaves it armed unless it is the reap of
+`u`. Distinct names are assumed (ruling D10), since stamps are kept per name. A firing of `u`
+itself is a step like any other: it leaves `u` armed when `u` is enabled after it. Without that,
+a firing could leave its own transition enabled and unarmed, which is a reap ([TIME-012] line 3,
+glossary: Reaped). -/
+def StaysArmed (R : TRel N) (X : TimedNet N) (u : Trans N) : Prop :=
+  ∀ l, NamesDistinct X → on (fun s s' => R X s l s'), shall (fun s s' =>
+    Armed s u → Enabled u s'.m → l ≠ .reap u → Armed s' u)
+
+/-- The clock frame of `u`: `StaysArmed`, and `u`'s stamp stays as it is across a delay, across
+the reap of a transition of another name, and across a firing of a transition of another name
+from a state in which `u` is armed, when `u` is enabled both in the intermediate marking of that
+firing and after it ([TIME-012] line 2 specialised to `u`). These steps newly arm nothing, so
+they keep the elapsed time of `u` growing with the clock. The clock itself advancing by a
+delay's length is [TIME-015] line 2. -/
+def ClockFrame [DecidableEq N] (R : TRel N) (X : TimedNet N) (u : Trans N) : Prop :=
+  StaysArmed R X u ∧
+  (∀ δ, on (fun s s' => R X s (.delay δ) s'), shall (fun s s' =>
+    s'.stamp u.core.name = s.stamp u.core.name)) ∧
+  (∀ t, t.core.name ≠ u.core.name → on (fun s s' => R X s (.reap t) s'), shall (fun s s' =>
+    s'.stamp u.core.name = s.stamp u.core.name)) ∧
+  (∀ t d, t.core.name ≠ u.core.name → on (fun s s' => R X s (.fire t d) s'), shall (fun s s' =>
+    Armed s u → Enabled u (Mid t s.m) → Enabled u s'.m →
+      s'.stamp u.core.name = s.stamp u.core.name))
 
 /-! ## Bridge lemmas: the readable forms agree with the reference definitions -/
 
@@ -286,5 +323,113 @@ theorem refTStep_coversReap [DecidableEq N] : CoversReap (RefTStep (N := N)) :=
 
 theorem refTStep_coversDelay [DecidableEq N] : CoversDelay (RefTStep (N := N)) :=
   fun X s δ => ⟨_, RefTStepW.delay X s δ, rfl⟩
+
+/-! ## The frames, for any policy -/
+
+section Frames
+
+variable [DecidableEq N]
+
+/-- Under any policy whose `rearm` is the spec's, the net's transition `u` stays armed across
+every step but its own reap while it stays enabled: a delay keeps every stamp, the reap of
+another transition keeps `u`'s (distinct names), and a firing, of `u` itself or of another
+transition, keeps `u`'s stamp or re-arms `u` because it was armed. -/
+theorem staysArmed_of {P : Policy N} (hr : P.rearm = refPolicy.rearm) {X : TimedNet N}
+    {u : Trans N} (hu : InNet X u) : StaysArmed (RefTStepW P) X u := by
+  intro l hd s s' h ha hen hl
+  cases h with
+  | delay => exact ha
+  | reap t ht _ =>
+    have htu : u.core.name ≠ t.core.name := fun e =>
+      hl (by rw [List.inj_on_of_nodup_map hd ht (inNet_mem hu) e.symm])
+    exact ⟨ha.1, by show (if u.core.name = t.core.name then (none : Option Nat) else
+                      s.stamp u.core.name).isSome = true
+                    rw [if_neg htu]; exact ha.2⟩
+  | fire t d m' _ _ _ _ _ =>
+    refine ⟨hen, ?_⟩
+    show (restampAll P X s t d m' u.core.name).isSome = true
+    rw [restampAll_inNet hu]
+    unfold restampW
+    split_ifs with h1 h2
+    · exact ha.2
+    · rfl
+    · exfalso
+      have hen' : enabledNA m' u.core = true := hen
+      have ha' : s.armed u = true := (armed_iff s u).1 ha
+      simp [hr, refPolicy, hen', ha'] at h2
+
+/-- A delay, under any policy, keeps every stamp. -/
+theorem frame_delay {P : Policy N} {X : TimedNet N} {s s' : TSt N} {δ : Nat}
+    (h : RefTStepW P X s (.delay δ) s') (n : String) : s'.stamp n = s.stamp n := by
+  cases h
+  rfl
+
+/-- A reap, under any policy, keeps the stamp of every other name. -/
+theorem frame_reapOther {P : Policy N} {X : TimedNet N} {s s' : TSt N} {t : Trans N}
+    (h : RefTStepW P X s (.reap t) s') {n : String} (hn : n ≠ t.core.name) :
+    s'.stamp n = s.stamp n := by
+  cases h with
+  | reap _ _ _ =>
+    show (if n = t.core.name then (none : Option Nat) else s.stamp n) = _
+    rw [if_neg hn]
+
+/-- Under any policy whose `keep` is the spec's, a firing of a transition of another name keeps
+the stamp of the net's transition `u` when `u` is armed before it and enabled in its
+intermediate marking and after it. -/
+theorem frame_fireOther {P : Policy N} (hk : P.keep = refPolicy.keep) {X : TimedNet N}
+    {u t : Trans N} {d : List N} (hu : InNet X u) (hne : t.core.name ≠ u.core.name) :
+    on (fun s s' => RefTStepW P X s (.fire t d) s'),
+      shall (fun s s' => Armed s u → Enabled u (Mid t s.m) → Enabled u s'.m →
+        s'.stamp u.core.name = s.stamp u.core.name) := by
+  intro s s' h ha hmid hen
+  obtain ⟨-, -, -, -, -, he⟩ := refTStepW_fire_inv h
+  have hmid' : enabledNA (mid t s.m) u.core = true := by rw [← mid_eq]; exact hmid
+  have hkt : P.keep X s t d s'.m u = true := by
+    rw [hk]
+    simp only [refPolicy, Bool.and_eq_true]
+    exact ⟨⟨⟨(armed_iff s u).1 ha, by simpa using Ne.symm hne⟩, hmid'⟩, hen⟩
+  rw [he]
+  show restampAll P X s t d s'.m u.core.name = _
+  rw [restampAll_inNet hu]
+  unfold restampW
+  rw [if_pos hkt]
+
+/-- **The clock frame for any policy** whose `keep` and `rearm` are the spec's (the expiry test
+and the gate may be anything). -/
+theorem clockFrame_of {P : Policy N} (hk : P.keep = refPolicy.keep)
+    (hr : P.rearm = refPolicy.rearm) {X : TimedNet N} {u : Trans N} (hu : InNet X u) :
+    ClockFrame (RefTStepW P) X u :=
+  ⟨staysArmed_of hr hu, fun _ _ _ h => frame_delay h _,
+    fun _ hn _ _ h => frame_reapOther h (Ne.symm hn), fun _ _ hn => frame_fireOther hk hu hn⟩
+
+/-- The timed reference step meets the clock frame of every transition of the net. -/
+theorem clockFrame_refTStep {X : TimedNet N} {u : Trans N} (hu : InNet X u) :
+    ClockFrame (RefTStep (N := N)) X u :=
+  clockFrame_of rfl rfl hu
+
+/-- The policy that drops the clock of a transition its own firing leaves enabled: as the
+spec's, except that a firing never re-arms the transition that fired. -/
+def selfDropPolicy : Policy N :=
+  { refPolicy with
+    rearm := fun X s t d m' u => refPolicy.rearm X s t d m' u && u.core.name != t.core.name }
+
+/-- ✗ The self-firing drop breaks `StaysArmed` (a reap hidden in a firing of the transition
+itself): if the net's transition `u`, armed in `s`, fires there under the self-drop policy and is
+enabled after it, it is left enabled and unarmed. -/
+theorem selfDrop_not_staysArmed {X : TimedNet N} {u : Trans N} (hu : InNet X u)
+    (hd : NamesDistinct X) {s : TSt N} {d : List N} {m' : N → Nat}
+    (ha : Armed s u) (hf : RefFire u s.m d m') (hg : (refPolicy (N := N)).gate X s u = true)
+    (hx : (refPolicy (N := N)).expired X s u = false) (hen : Enabled u m') :
+    ¬ StaysArmed (RefTStepW selfDropPolicy) X u := by
+  intro h
+  have hs := RefTStepW.fire (P := selfDropPolicy) X s u d m' (inNet_mem hu) hf
+    ((armed_iff s u).1 ha) hg hx
+  have := (h _ hd _ _ hs ha hen (by simp)).2
+  revert this
+  show ¬ (restampAll selfDropPolicy X s u d m' u.core.name).isSome = true
+  rw [restampAll_inNet hu]
+  simp [restampW, selfDropPolicy, refPolicy]
+
+end Frames
 
 end Libpetri.Spec

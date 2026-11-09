@@ -23,10 +23,22 @@ import Libpetri.Spec.Req.IO_013
 import Libpetri.Spec.Req.IO_014
 import Libpetri.Spec.Req.IO_015
 import Libpetri.Spec.Req.IO_016
+import Libpetri.Spec.Req.EXEC_002
+import Libpetri.Spec.Req.TIME_001
+import Libpetri.Spec.Req.TIME_002
+import Libpetri.Spec.Req.TIME_003
+import Libpetri.Spec.Req.TIME_004
+import Libpetri.Spec.Req.TIME_005
+import Libpetri.Spec.Req.TIME_006
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Req.TIME_011
+import Libpetri.Spec.Req.TIME_012
+import Libpetri.Spec.Req.TIME_013
+import Libpetri.Spec.Req.TIME_015
 import Libpetri.Spec.Consistency
 import Libpetri.Spec.ConsistencyTime
 import Libpetri.Spec.Clashes
+import Libpetri.Spec.ClashesTime
 
 /-!
 # All requirement modules

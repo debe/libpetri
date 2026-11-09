@@ -141,9 +141,9 @@ The executor *shall not* reap a transition with `Immediate` timing ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Transition can fire immediately after enablement.
-2. If not fired within `by` plus the deadline tolerance, the transition is reaped on the first
-   cycle whose elapsed time is strictly greater than that bound, and a `TransitionTimedOut` event
-   is emitted ([EVT-009]).
+2. A transition still armed past `by` plus the deadline tolerance does not fire after that
+   bound. If it is still armed on the first cycle whose elapsed time is strictly greater than the
+   bound, it is reaped in that cycle and a `TransitionTimedOut` event is emitted ([EVT-009]).
 
 **Depends on:** [EVT-009]
 **Test derivation:** Deadline(5s); enable transition; let 6s pass without firing; verify transition disabled.
@@ -196,8 +196,9 @@ The executor *shall not* reap a transition with `Delayed` timing ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Cannot fire before `earliest`.
-2. Must fire by `latest` plus the deadline tolerance, or be reaped on the first cycle whose
-   elapsed time is strictly greater than that bound ([TIME-013]).
+2. A transition still armed past `latest` plus the deadline tolerance does not fire after that
+   bound. If it is still armed on the first cycle whose elapsed time is strictly greater than the
+   bound, it is reaped in that cycle ([TIME-013]).
 3. Construction with latest < earliest is rejected.
 4. Construction with earliest or latest above the maximum duration is rejected ([TIME-001] AC4).
 
@@ -252,9 +253,11 @@ The executor *shall not* reap a transition with `Exact` timing, however late it 
 **Priority:** MUST
 **Kind:** T
 
-The timing clock of a transition runs while the transition is **armed**: enabled and holding a clock (see the glossary). A transition is newly armed when it is enabled in the initial marking, and afterwards when it is enabled after a firing or an injected token writes one of its arc places while it is not armed. The clock starts at the moment the transition was most recently newly armed, and the elapsed time for timing decisions is measured from that moment on the firing clock ([TIME-015]).
+The timing clock of a transition runs while the transition is **armed**: enabled and holding a clock (see the glossary). A transition is newly armed when it is enabled in the initial marking, afterwards when it is enabled after a firing or an injected token writes one of its arc places while it is not armed, and when its clock restarts in a firing ([TIME-012]). The clock starts at the moment the transition was most recently newly armed, and the elapsed time for timing decisions is measured from that moment on the firing clock ([TIME-015]).
 
-*When* a transition is newly armed, the executor *shall* stamp it with the current reading of the firing clock.
+The executor arms transitions in the enablement update of a cycle ([EXEC-001] step 3). A transition is newly armed by the first enablement update that finds it enabled while it is not armed, and its stamp is the firing-clock reading that update takes. A synchronous action's deposit is first seen by the enablement update of the next cycle, and an asynchronous completion or an injected token by the enablement update of the cycle that takes it in (steps 1 and 2). So the stamp is neither the reading of the cycle in which the arming firing started nor the moment an action completed. A clock restarted in a firing ([TIME-012]) is stamped the same way, by the next enablement update that finds the transition enabled.
+
+*When* a transition is newly armed, the executor *shall* stamp it with the firing-clock reading taken by the enablement update that newly arms it ([EXEC-001] step 3).
 
 *While* a transition is armed, its elapsed time *shall* be the current reading of the firing clock minus its stamp.
 
@@ -298,7 +301,7 @@ If a transition stops being armed and is later armed again, the clock restarts f
 **Priority:** MUST
 **Kind:** T
 
-A firing of transition `t` has two halves: its inputs are consumed and its reset places drained, then its outputs are deposited. The marking between the halves is the intermediate marking `M - Pre(t)` of Berthomieu and Diaz. Any other transition that was armed before `t` fired and is not enabled in the intermediate marking loses its clock, and is newly armed when it is enabled again afterwards, so its clock restarts from zero ([TIME-011]). This holds even when `t`'s own outputs refill the place, and it holds whether `t`'s action completes synchronously or asynchronously: a synchronous action MUST NOT hide the gap. The intermediate marking comes from the live marking `t` fires from: the tokens in the places when `t` fires, minus what `t` consumes. Inside a firing pass this includes tokens a synchronous action deposited earlier in the same pass, because they are really there and a transition they keep enabled was never disabled. Outputs of an asynchronous action still in flight are not in the marking yet, so they do not count. This differs from the enablement recheck of the pass ([EXEC-003] AC3-AC5), which does not count a same-pass deposit: that rule decides which transitions may still fire in the pass, this one decides which clocks survive a firing.
+A firing of transition `t` has two halves: its inputs are consumed and its reset places drained, then its outputs are deposited. The marking between the halves is the intermediate marking `M - Pre(t)` of Berthomieu and Diaz. Any other transition that was armed before `t` fired and is not enabled in the intermediate marking loses its clock, and is newly armed when it is enabled again afterwards, so its clock restarts from zero ([TIME-011]). This holds even when `t`'s own outputs refill the place, and it holds whether `t`'s action completes synchronously or asynchronously: a synchronous action MUST NOT hide the gap. The intermediate marking comes from the live marking `t` fires from: the tokens in the places when `t` fires, minus what `t` consumes. Inside a firing pass this includes tokens a synchronous action deposited earlier in the same pass, because they are really there and a transition they keep enabled was never disabled. Outputs of an asynchronous action still in flight are not in the marking yet, so they do not count. This differs from the enablement recheck of the pass ([EXEC-003] AC3-AC5), which does not count a same-pass deposit: that rule decides which transitions may still fire in the pass, this one decides which clocks survive a firing. A transition that the recheck finds disabled ([EXEC-003] AC3) is disarmed and loses its clock as well, even when a same-pass deposit refilled its place and keeps it enabled in the live marking. It is newly armed, with a fresh stamp, by a later enablement update that finds it enabled ([TIME-010]).
 
 *When* a transition `t` fires, each armed transition other than `t` that is not enabled in the intermediate marking *shall* lose its clock.
 
@@ -308,8 +311,10 @@ A firing of transition `t` has two halves: its inputs are consumed and its reset
 
 *When* a transition `t` fires and a transition that lost its clock in that firing is enabled after it, that transition *shall* be newly armed ([TIME-010]).
 
+*If* the enablement recheck of a firing pass finds a transition disabled ([EXEC-003] AC3), *then* the transition *shall* lose its clock, even when a same-pass deposit keeps it enabled in the live marking.
+
 - Removing tokens disables a transition only through input arcs, read arcs, cardinality requirements and ν-join bindings, never through inhibitor arcs.
-- A reset arc drains its place, so every armed transition with a read arc on a reset place, or an input arc on it whose required count is positive, starts a fresh clock when it is enabled again.
+- A reset arc drains its place, so every armed transition with a read arc on a reset place, or an input arc on it whose required count is positive, starts a fresh clock when it is enabled again, unless a same-pass deposit that the reset does not take ([EXEC-003] AC5) keeps it enabled in the intermediate marking.
 - Surplus tokens keep the clock. If `P` holds two tokens, `t` takes one and `t'` needs one, `t'` stays enabled in the intermediate marking and its clock continues.
 - The fired transition itself always starts a fresh clock when it is enabled again.
 
@@ -350,7 +355,7 @@ The executor *shall not* reap a transition that is not reapable.
 A firing writes a place when it consumes from it, deposits into it or drains it through a reset arc; draining a reset place that is already empty counts as a write. The tolerance is the `deadlineTolerance` / `deadline_tolerance_ms` option, and with tolerance `0` a reapable transition is reaped on the first cycle whose elapsed time is strictly greater than its latest bound.
 
 **Acceptance Criteria:**
-1. Transition with Deadline(5s); not fired within 5s + tolerance → disabled + `TransitionTimedOut`.
+1. A transition with Deadline(5s) still armed past 5s plus the tolerance does not fire after that bound. If it is still armed on the first cycle whose elapsed time is strictly greater than the bound, it is reaped in that cycle and `TransitionTimedOut` is emitted.
 2. The tolerance is documented and configurable; the default is 5ms across implementations.
 3. An `Exact` transition observed past its target is **not** disabled (see [TIME-006]).
 4. A reaped transition does not fire again while none of its arc places is written, on every

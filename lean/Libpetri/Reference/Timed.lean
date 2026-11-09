@@ -41,11 +41,15 @@ model. The other policies of the requirement blocks are mutants: each changes on
 The step is atomic: one firing completes in the step that starts it, there is no priority and
 no eagerness, and a delay may pass any bound (the executor may be late). It states only safety,
 and is grown into a full executor in a later phase. A firing pass of several firings
-([EXEC-003]) is outside Phase 1. For clocks a sequence of atomic steps agrees with it: each step
-computes its intermediate marking from the live marking it fires from, so a token deposited
-earlier in the same pass counts, as [TIME-012] says. It does not model the pass's enablement
-recheck, which does not count such a token ([EXEC-003] AC3-AC5), so only a pass of one firing is
-a single step of this relation, and the Phase 2 executor is tied back to it on such passes alone.
+([EXEC-003]) is outside Phase 1. Each step computes its intermediate marking from the live
+marking it fires from, so a token deposited earlier in the same pass counts, as [TIME-012] says.
+A sequence of atomic steps does not agree with a pass in general. It does not model the pass's
+enablement recheck, which does not count such a token ([EXEC-003] AC3-AC5). And a draining arc
+(reset, `all()`, `atLeast(n)`) later in a pass takes only the tokens present when the pass began
+([EXEC-003] AC5), while `mid` drains the live place, same-pass deposits included, so a
+transition that the surviving deposit keeps enabled keeps its clock in the runtime and restarts
+here. So only a pass of one firing is a single step of this relation, and the Phase 2 executor
+is tied back to it on such passes alone.
 
 `refTStep_projects`: every timed firing is a reference firing (`Fires`) with the same marking
 effect.

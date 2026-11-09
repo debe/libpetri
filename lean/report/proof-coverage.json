@@ -676,6 +676,56 @@
       ]
     },
     {
+      "name": "fired_never_persists",
+      "module": "Libpetri/Novel/TimedScg/Run.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "bullet 4 in the state class graph: the fired transition never keeps its clock"
+        }
+      ]
+    },
+    {
+      "name": "persistence_rule",
+      "module": "Libpetri/Novel/TimedScg/Run.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "state class graph persistence rule: a transition keeps its clock across a firing iff it was enabled before, is not the fired transition, and is enabled after the firing and in the intermediate marking M - Pre(f) (inputs consumed, resets drained); untimed abstract marking, VER-010 AC4"
+        }
+      ]
+    },
+    {
+      "name": "reset_restarts",
+      "module": "Libpetri/Novel/TimedScg/Run.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "bullet 2 / AC3 in the state class graph: a transition consuming with positive requirement or reading from a place the fired transition resets restarts its clock"
+        }
+      ]
+    },
+    {
+      "name": "surplus_keeps",
+      "module": "Libpetri/Novel/TimedScg/Run.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "bullet 3 / AC4 in the state class graph: surplus tokens keep the clock"
+        }
+      ]
+    },
+    {
+      "name": "timed_run_sound",
+      "module": "Libpetri/Novel/TimedScg/Run.lean",
+      "specIds": [
+        {
+          "id": "TIME-003",
+          "fragment": "must fire within `by` time units: the strong-urgency reading of Deadline is the state-class graph semantics, where every timed run stays inside the graph built with the deadline as latest firing bound"
+        }
+      ]
+    },
+    {
       "name": "inFlight_guard_is_necessary",
       "module": "Libpetri/Priority.lean",
       "specIds": [
@@ -888,6 +938,244 @@
         {
           "id": "VER-004",
           "fragment": "necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder"
+        }
+      ]
+    },
+    {
+      "name": "TIME_014_bullet2_order_conflicts_EXEC_002",
+      "module": "Libpetri/Spec/ClashesTime.lean",
+      "specIds": [
+        {
+          "id": "EXEC-002",
+          "fragment": "stamp order is not overridden by timing kind: on an input reached by the timed reference step, with two ready transitions of equal priority, a Delayed one armed at 0 and an Immediate one armed at 5, every order that satisfies the block offers the Delayed one first, so no such order also satisfies TIME-014 bullet 2 read as an ordering rule (candidate reading, ruling D9 open)"
+        }
+      ]
+    },
+    {
+      "name": "exec040_rest_reaped_enabled",
+      "module": "Libpetri/Spec/ClashesTime.lean",
+      "specIds": [
+        {
+          "id": "EXEC-040",
+          "fragment": "condition 1 reads 'no transition armed', not 'no transition enabled': on the timed reference step a Window(3, 5) transition reaped at reading 10 stays enabled but not armed in every reachable state, no transition is armed and none can fire, so the literal 'no transition enabled' never holds on a run that rests there, while 'no transition armed' does; atomic Phase 1 step, no in-flight actions or environment places"
+        }
+      ]
+    },
+    {
+      "name": "refTStepW_delay_zero",
+      "module": "Libpetri/Spec/ClashesTime.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "AC10, repeated readings only: on the timed reference step, under any policy, a delay of 0 ms (a clock that returns the same reading on consecutive cycles) leaves the marking, the reading and every stamp unchanged, so repeated readings add only identity steps; clock jumps are not covered (ruling D12 open)"
+        }
+      ]
+    },
+    {
+      "name": "time015_ac10_coarse_jump",
+      "module": "Libpetri/Spec/ClashesTime.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "AC10 depends on which strictly increasing clock it is compared against (ruling D12 open): on a Window(3, 5) transition with tolerance 0, the timed reference step fires it under a clock advancing 1 ms per reading, while under the strictly increasing readings 0 then 10, an increment wider than the window (latest - elapsed + tolerance), no reachable state marks the output place; a repeated reading is an identity step (refTStepW_delay_zero) and changes nothing"
+        }
+      ]
+    },
+    {
+      "name": "EXEC_002_unique",
+      "module": "Libpetri/Spec/Req/EXEC_002.lean",
+      "specIds": [
+        {
+          "id": "EXEC-002",
+          "fragment": "AC4, general path only: two ready orders that satisfy the block (a permutation of the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC) are equal on every input outside the all-immediate fast path; on the fast path they agree on the ready set and on ties of priority and stamp only (D14 open)"
+        }
+      ]
+    },
+    {
+      "name": "time001_fire_after_earliest",
+      "module": "Libpetri/Spec/Req/TIME_001.lean",
+      "specIds": [
+        {
+          "id": "TIME-001",
+          "fragment": "body bullet 1 (no firing before earliest() has elapsed since the transition was armed), on the timed reference step RefTStep with the reference contract's earliest(); the rule itself is the TIME-010 block"
+        },
+        {
+          "id": "TIME-010",
+          "fragment": "the earliest-bound gate of the timed reference step reads earliest() of the TIME-001 reference contract (Timing.earliest)"
+        }
+      ]
+    },
+    {
+      "name": "time001_reap_past_latest",
+      "module": "Libpetri/Spec/Req/TIME_001.lean",
+      "specIds": [
+        {
+          "id": "TIME-001",
+          "fragment": "body bullet 2 (a reapable Deadline or Window is reaped only once its elapsed time exceeds latest() plus the deadline tolerance; Exact, Immediate and Delayed are never reaped), on the timed reference step RefTStep with the reference contract's latest() and hasDeadline(); the rule itself is the TIME-013 block"
+        },
+        {
+          "id": "TIME-013",
+          "fragment": "the reap step of the timed reference step reads latest() of the TIME-001 reference contract (Timing.latest), strictly past latest plus the tolerance, and only for Deadline and Window"
+        }
+      ]
+    },
+    {
+      "name": "time001_valid_iff",
+      "module": "Libpetri/Spec/Req/TIME_001.lean",
+      "specIds": [
+        {
+          "id": "TIME-001",
+          "fragment": "the validity table (line 4 of the TIME-001 block) is Timing.Valid, the predicate the timed reference step, the state-class graph and the TIME-002 to TIME-006 restatements read"
+        }
+      ]
+    },
+    {
+      "name": "time002_interval",
+      "module": "Libpetri/Spec/Req/TIME_002.lean",
+      "specIds": [
+        {
+          "id": "TIME-002",
+          "fragment": "earliest() = 0, latest() = maximum duration, hasDeadline() = false"
+        }
+      ]
+    },
+    {
+      "name": "time003_construction",
+      "module": "Libpetri/Spec/Req/TIME_003.lean",
+      "specIds": [
+        {
+          "id": "TIME-003",
+          "fragment": "Construction: 0 < by <= maximum duration"
+        }
+      ]
+    },
+    {
+      "name": "time003_construction_examples",
+      "module": "Libpetri/Spec/Req/TIME_003.lean",
+      "specIds": [
+        {
+          "id": "TIME-003",
+          "fragment": "Construction: 0 < by <= maximum duration (boundary cases)"
+        }
+      ]
+    },
+    {
+      "name": "time003_interval",
+      "module": "Libpetri/Spec/Req/TIME_003.lean",
+      "specIds": [
+        {
+          "id": "TIME-003",
+          "fragment": "earliest() = 0, latest() = by, hasDeadline() = true"
+        }
+      ]
+    },
+    {
+      "name": "time004_interval",
+      "module": "Libpetri/Spec/Req/TIME_004.lean",
+      "specIds": [
+        {
+          "id": "TIME-004",
+          "fragment": "earliest() = after, latest() = maximum duration, hasDeadline() = false, construction 0 <= after <= maximum duration"
+        }
+      ]
+    },
+    {
+      "name": "time005_construction",
+      "module": "Libpetri/Spec/Req/TIME_005.lean",
+      "specIds": [
+        {
+          "id": "TIME-005",
+          "fragment": "AC3 and AC4: construction with latest < earliest, or earliest or latest above the maximum duration, is rejected"
+        }
+      ]
+    },
+    {
+      "name": "time005_construction_examples",
+      "module": "Libpetri/Spec/Req/TIME_005.lean",
+      "specIds": [
+        {
+          "id": "TIME-005",
+          "fragment": "AC3 and AC4 boundary cases of the window construction"
+        }
+      ]
+    },
+    {
+      "name": "time005_interval",
+      "module": "Libpetri/Spec/Req/TIME_005.lean",
+      "specIds": [
+        {
+          "id": "TIME-005",
+          "fragment": "earliest() = earliest, latest() = latest, hasDeadline() = true; Window is reapable"
+        }
+      ]
+    },
+    {
+      "name": "time006_graph_interval",
+      "module": "Libpetri/Spec/Req/TIME_006.lean",
+      "specIds": [
+        {
+          "id": "TIME-006",
+          "fragment": "the interval [at, at] is the precise value used for verification and simulation (logical time)"
+        }
+      ]
+    },
+    {
+      "name": "time006_interval",
+      "module": "Libpetri/Spec/Req/TIME_006.lean",
+      "specIds": [
+        {
+          "id": "TIME-006",
+          "fragment": "earliest() = latest() = at, hasDeadline() = true, not reapable, construction 0 <= at <= maximum duration"
+        }
+      ]
+    },
+    {
+      "name": "time010_gate",
+      "module": "Libpetri/Spec/Req/TIME_010.lean",
+      "specIds": [
+        {
+          "id": "TIME-014",
+          "fragment": "second shall sentence, first clause only ('While a Delayed transition is armed and its elapsed time is less than its earliest bound, it shall not fire'): under any policy with the spec's gate, a firing transition has elapsed time at least its earliest bound; the clause on a competing ready transition taking the tokens first whatever their priorities is not covered"
+        }
+      ]
+    },
+    {
+      "name": "time011_elapsed_from_rearm",
+      "module": "Libpetri/Spec/Req/TIME_011.lean",
+      "specIds": [
+        {
+          "id": "TIME-011",
+          "fragment": "its elapsed time shall be measured from the moment it was armed again, not from any earlier stamp: derived over two steps from TIME-011 line 2 (fresh stamp) and TIME-010 line 2 (an armed transition keeps its stamp across a delay)"
+        }
+      ]
+    },
+    {
+      "name": "time011_no_early_fire",
+      "module": "Libpetri/Spec/Req/TIME_011.lean",
+      "specIds": [
+        {
+          "id": "TIME-011",
+          "fragment": "AC1: a transition armed again must wait its full earliest bound from the moment it was armed again, for every relation satisfying TIME-010 and TIME-011 whose delay advances the clock by the delay"
+        }
+      ]
+    },
+    {
+      "name": "time015_ac4_of_time010",
+      "module": "Libpetri/Spec/Req/TIME_015.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "AC4: a wait that completes early or spuriously (a delay of any length) does not let an armed transition fire before its earliest bound; a corollary of TIME-010"
+        }
+      ]
+    },
+    {
+      "name": "time015_ac6_reap_strict",
+      "module": "Libpetri/Spec/Req/TIME_015.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "AC6: with deadline tolerance 0 a Deadline transition is reaped when its elapsed time is strictly greater than its bound, and not when it is exactly its bound (the reap test of TIME-013)"
         }
       ]
     },

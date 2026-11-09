@@ -163,8 +163,8 @@ The interval `[earliest, latest]` a transition's timing specification gives: `Im
 ### Maximum duration
 
 The finite stand-in for "no latest bound", about 100 years: `MAX_DURATION_MS` = 3153600000000 ms,
-or `MAX_DURATION` in Java [TIME-001]. No valid timing has an earliest bound above it, and no valid
-`Deadline` has a `by` above it [TIME-001].
+or `MAX_DURATION` in Java [TIME-001]. No valid timing has an earliest bound above it, no valid
+`Deadline` has a `by` above it, and no valid `Window` has a latest bound above it [TIME-001].
 
 ### Firing clock
 
@@ -185,8 +185,8 @@ never write [TIME-013].
 
 ### Armed
 
-A transition is armed when it is enabled and holds a clock: a stamp, the firing-clock reading at
-the moment it was most recently newly armed [TIME-010]. A transition is newly armed when it is
+A transition is armed when it is enabled and holds a clock: a stamp, the firing-clock reading
+taken by the enablement update that most recently newly armed it [TIME-010]. A transition is newly armed when it is
 enabled in the initial marking, when it is enabled after a firing or an injected token that wrote
 one of its arc places while it was not armed, and when its clock restarts [TIME-012]. A
 transition that is not enabled is not armed. Armed is not Enabled: a reaped transition is enabled

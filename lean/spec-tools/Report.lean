@@ -99,6 +99,7 @@ import Libpetri.Semiflow
 import Libpetri.Soundness
 import Libpetri.Spec.All
 import Libpetri.Spec.Clashes
+import Libpetri.Spec.ClashesTime
 import Libpetri.Spec.Consistency
 import Libpetri.Spec.ConsistencyTime
 import Libpetri.Spec.Core
@@ -113,6 +114,7 @@ import Libpetri.Spec.Req.CORE_033
 import Libpetri.Spec.Req.CORE_034
 import Libpetri.Spec.Req.CORE_035
 import Libpetri.Spec.Req.CORE_036
+import Libpetri.Spec.Req.EXEC_002
 import Libpetri.Spec.Req.IO_001
 import Libpetri.Spec.Req.IO_002
 import Libpetri.Spec.Req.IO_003
@@ -126,7 +128,17 @@ import Libpetri.Spec.Req.IO_013
 import Libpetri.Spec.Req.IO_014
 import Libpetri.Spec.Req.IO_015
 import Libpetri.Spec.Req.IO_016
+import Libpetri.Spec.Req.TIME_001
+import Libpetri.Spec.Req.TIME_002
+import Libpetri.Spec.Req.TIME_003
+import Libpetri.Spec.Req.TIME_004
+import Libpetri.Spec.Req.TIME_005
+import Libpetri.Spec.Req.TIME_006
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Req.TIME_011
+import Libpetri.Spec.Req.TIME_012
+import Libpetri.Spec.Req.TIME_013
+import Libpetri.Spec.Req.TIME_015
 import Libpetri.StateEquation
 import Libpetri.Strengthening
 import Libpetri.Strengthening.Hypotheses

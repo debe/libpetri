@@ -21,17 +21,17 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n4158["🔒 Libpetri.canEnable_spec"]
-    n4169["Libpetri.consumeForFiring"]
-    n4177["🔒 Libpetri.consume_faithful"]
-    n4226["Libpetri.execOp"]
-    n4227["🔒 Libpetri.execOp_input_spec"]
-    n4228["🔒 Libpetri.execOp_pop_spec"]
-    n4229["Libpetri.execOpsFrom"]
-    n4231["🔒 Libpetri.execOpsFrom_cons"]
-    n4233["🔒 Libpetri.execOps_inputs"]
-    n4234["🔒 Libpetri.execOps_resets"]
-    n4331["Libpetri.peekReads"]
+    n4750["🔒 Libpetri.canEnable_spec"]
+    n4761["Libpetri.consumeForFiring"]
+    n4769["🔒 Libpetri.consume_faithful"]
+    n4818["Libpetri.execOp"]
+    n4819["🔒 Libpetri.execOp_input_spec"]
+    n4820["🔒 Libpetri.execOp_pop_spec"]
+    n4821["Libpetri.execOpsFrom"]
+    n4823["🔒 Libpetri.execOpsFrom_cons"]
+    n4825["🔒 Libpetri.execOps_inputs"]
+    n4826["🔒 Libpetri.execOps_resets"]
+    n4923["Libpetri.peekReads"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
@@ -50,35 +50,35 @@ flowchart TD
   n31 --> n28
   n32 --> c76
   n32 --> n28
-  n4158 --> c1
-  n4169 --> n4229
-  n4169 --> n4331
-  n4177 --> n4158
-  n4177 --> n4169
-  n4177 --> n4233
-  n4177 --> n4234
-  n4226 --> c1
-  n4226 --> n29
-  n4226 --> n30
-  n4226 --> n31
-  n4226 --> n32
-  n4227 --> n4226
-  n4227 --> n4228
-  n4228 --> n29
-  n4228 --> n30
-  n4228 --> n31
-  n4228 --> n32
-  n4229 --> n4226
-  n4231 --> n4229
-  n4233 --> n4227
-  n4233 --> n4231
-  n4234 --> n4231
-  n4331 --> c3
+  n4750 --> c1
+  n4761 --> n4821
+  n4761 --> n4923
+  n4769 --> n4750
+  n4769 --> n4761
+  n4769 --> n4825
+  n4769 --> n4826
+  n4818 --> c1
+  n4818 --> n29
+  n4818 --> n30
+  n4818 --> n31
+  n4818 --> n32
+  n4819 --> n4818
+  n4819 --> n4820
+  n4820 --> n29
+  n4820 --> n30
+  n4820 --> n31
+  n4820 --> n32
+  n4821 --> n4818
+  n4823 --> n4821
+  n4825 --> n4819
+  n4825 --> n4823
+  n4826 --> n4823
+  n4923 --> c3
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4177 root
-  class n4158,n4177,n4227,n4228,n4231,n4233,n4234 locked
+  class n4769 root
+  class n4750,n4769,n4819,n4820,n4823,n4825,n4826 locked
   class c0,c1,c3,c76,c79 collapsed
 ```
 
@@ -94,17 +94,17 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n4158["🔒 Libpetri.canEnable_spec"]
-    n4169["Libpetri.consumeForFiring"]
-    n4226["Libpetri.execOp"]
-    n4227["🔒 Libpetri.execOp_input_spec"]
-    n4228["🔒 Libpetri.execOp_pop_spec"]
-    n4229["Libpetri.execOpsFrom"]
-    n4231["🔒 Libpetri.execOpsFrom_cons"]
-    n4233["🔒 Libpetri.execOps_inputs"]
-    n4234["🔒 Libpetri.execOps_resets"]
-    n4331["Libpetri.peekReads"]
-    n4423["🔒 Libpetri.token_conservation"]
+    n4750["🔒 Libpetri.canEnable_spec"]
+    n4761["Libpetri.consumeForFiring"]
+    n4818["Libpetri.execOp"]
+    n4819["🔒 Libpetri.execOp_input_spec"]
+    n4820["🔒 Libpetri.execOp_pop_spec"]
+    n4821["Libpetri.execOpsFrom"]
+    n4823["🔒 Libpetri.execOpsFrom_cons"]
+    n4825["🔒 Libpetri.execOps_inputs"]
+    n4826["🔒 Libpetri.execOps_resets"]
+    n4923["Libpetri.peekReads"]
+    n5015["🔒 Libpetri.token_conservation"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
@@ -123,35 +123,35 @@ flowchart TD
   n31 --> n28
   n32 --> c76
   n32 --> n28
-  n4158 --> c1
-  n4169 --> n4229
-  n4169 --> n4331
-  n4226 --> c1
-  n4226 --> n29
-  n4226 --> n30
-  n4226 --> n31
-  n4226 --> n32
-  n4227 --> n4226
-  n4227 --> n4228
-  n4228 --> n29
-  n4228 --> n30
-  n4228 --> n31
-  n4228 --> n32
-  n4229 --> n4226
-  n4231 --> n4229
-  n4233 --> n4227
-  n4233 --> n4231
-  n4234 --> n4231
-  n4331 --> c3
-  n4423 --> n4158
-  n4423 --> n4169
-  n4423 --> n4233
-  n4423 --> n4234
+  n4750 --> c1
+  n4761 --> n4821
+  n4761 --> n4923
+  n4818 --> c1
+  n4818 --> n29
+  n4818 --> n30
+  n4818 --> n31
+  n4818 --> n32
+  n4819 --> n4818
+  n4819 --> n4820
+  n4820 --> n29
+  n4820 --> n30
+  n4820 --> n31
+  n4820 --> n32
+  n4821 --> n4818
+  n4823 --> n4821
+  n4825 --> n4819
+  n4825 --> n4823
+  n4826 --> n4823
+  n4923 --> c3
+  n5015 --> n4750
+  n5015 --> n4761
+  n5015 --> n4825
+  n5015 --> n4826
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4423 root
-  class n4158,n4227,n4228,n4231,n4233,n4234,n4423 locked
+  class n5015 root
+  class n4750,n4819,n4820,n4823,n4825,n4826,n5015 locked
   class c0,c1,c3,c76,c79 collapsed
 ```
 

@@ -167,7 +167,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ID | Title | Priority | Depends On |
 |----|-------|----------|------------|
 | EXEC-001 | Orchestrator Loop Steps | MUST | ENV-003 |
-| EXEC-002 | Priority-Based Firing Order | MUST | — |
+| EXEC-002 | Priority-Based Firing Order | MUST | TIME-010 |
 | EXEC-003 | Competitive Conflict Resolution | MUST | — |
 | EXEC-010 | FIFO Token Consumption | MUST | CORE-013, IO-007 |
 | ~~EXEC-011~~ | ~~Guarded Token Consumption~~ (Removed) | — | — |

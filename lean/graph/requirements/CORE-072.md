@@ -13,9 +13,9 @@ flowchart TD
     n2520["Libpetri.PlaceId"]
   end
   subgraph g1["Libpetri/RetrodictExec.lean"]
-    n4200["Libpetri.demoPool"]
-    n4341["Libpetri.preFixProduce"]
-    n4435["🔒 Libpetri.unknown_place_drop"]
+    n4792["Libpetri.demoPool"]
+    n4933["Libpetri.preFixProduce"]
+    n5027["🔒 Libpetri.unknown_place_drop"]
   end
   subgraph g2["Libpetri/Ring/Core.lean"]
     n2527["Libpetri.Pool"]
@@ -36,8 +36,8 @@ flowchart TD
     n2608["Libpetri.Pool.pushLast"]
   end
   subgraph g4["Libpetri/RingArith.lean"]
-    n4376["Libpetri.ringPos"]
-    n4377["Libpetri.ringPosInv"]
+    n4968["Libpetri.ringPos"]
+    n4969["Libpetri.ringPosInv"]
   end
   n2538 --> n2551
   n2538 --> n2608
@@ -52,7 +52,7 @@ flowchart TD
   n2551 --> n2599
   n2551 --> n2642
   n2551 --> n2647
-  n2551 --> n4377
+  n2551 --> n4969
   n2571 --> n2520
   n2571 --> n2527
   n2589 --> n2527
@@ -76,18 +76,18 @@ flowchart TD
   n2642 --> n2542
   n2642 --> n2571
   n2642 --> n2595
-  n2642 --> n4376
+  n2642 --> n4968
   n2647 --> n2520
   n2647 --> n2527
-  n4200 --> n2593
-  n4341 --> n2538
-  n4435 --> n4200
-  n4435 --> n4341
+  n4792 --> n2593
+  n4933 --> n2538
+  n5027 --> n4792
+  n5027 --> n4933
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4435 root
-  class n4435 locked
+  class n5027 root
+  class n5027 locked
 ```
 
 Axioms used:

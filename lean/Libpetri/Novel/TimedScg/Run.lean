@@ -45,6 +45,7 @@ theorem urgent_s0 (hT : TimingWF N) (m0 : AMarking) : Urgent N (s0 m0) :=
 
 /-- **Timed runs stay in the graph.** Every state of a timed run lies in a well-formed class
 the graph reaches from its initial class. -/
+@[evidence cites "TIME-003" "must fire within `by` time units: the strong-urgency reading of Deadline is the state-class graph semantics, where every timed run stays inside the graph built with the deadline as latest firing bound"]
 theorem timed_run_sound (hT : TimingWF N) (hco : CoWF co) (heps : 0 ≤ eps) {m0 : AMarking}
     {C0 : Cls} (h0 : initCls N co eps m0 = some C0) {s : TState} (hs : TReach N m0 s) :
     ∃ C, Relation.ReflTransGen (Edge N co eps) C0 C ∧ InCls N s C ∧ ClsWF N C ∧ Urgent N s := by
@@ -100,6 +101,7 @@ theorem timed_safety_of_closed (hT : TimingWF N) (hco : CoWF co) (heps : 0 ≤ e
 /-- **The persistence rule.** A transition keeps its clock across the firing of `f` with row
 `d` iff it was enabled before, is not `f`, and is enabled both in the successor and in the
 intermediate marking `M - Pre(f)` (inputs consumed, resets drained, nothing deposited). -/
+@[evidence cites "TIME-012" "state class graph persistence rule: a transition keeps its clock across a firing iff it was enabled before, is not the fired transition, and is enabled after the firing and in the intermediate marking M - Pre(f) (inputs consumed, resets drained); untimed abstract marking, VER-010 AC4"]
 theorem persistence_rule (m : AMarking) (f : Nat) (d : Deposit) (i : Nat) :
     persists N m f d i = true ↔
       en N m i = true ∧ i ≠ f ∧ en N (fireAD m (trOf N f) d) i = true ∧
@@ -118,6 +120,7 @@ theorem graph_persistent_iff {C : Cls} (hC : ClsWF N C) {f : Nat} {d : Deposit} 
   exact and_congr_left' (hC.mem c)
 
 /-- The fired transition always restarts. -/
+@[evidence cites "TIME-012" "bullet 4 in the state class graph: the fired transition never keeps its clock"]
 theorem fired_never_persists (m : AMarking) (f : Nat) (d : Deposit) : persists N m f d f = false := by
   simp [persists, survives]
 
@@ -138,6 +141,7 @@ theorem inhibitor_never_restarts {m : AMarking} {t : Transition} {c : Nat}
 
 /-- A reset arc drains its place, so a transition that consumes (with a positive requirement) or
 reads from a place the fired transition resets restarts ([TIME-012] AC3). -/
+@[evidence cites "TIME-012" "bullet 2 / AC3 in the state class graph: a transition consuming with positive requirement or reading from a place the fired transition resets restarts its clock"]
 theorem reset_restarts {m : AMarking} {f : Nat} {d : Deposit} {c p : Nat}
     (hreset : (trOf N f).resets.contains p = true)
     (huse : (∃ s ∈ (trOf N c).inputs, s.place = p ∧ 1 ≤ s.card.required) ∨ p ∈ (trOf N c).reads) :
@@ -159,6 +163,7 @@ theorem reset_restarts {m : AMarking} {f : Nat} {d : Deposit} {c p : Nat}
 
 /-- Surplus tokens keep the clock ([TIME-012] AC4): enabled before, in the intermediate
 marking and after, and not the fired transition. -/
+@[evidence cites "TIME-012" "bullet 3 / AC4 in the state class graph: surplus tokens keep the clock"]
 theorem surplus_keeps {m : AMarking} {f : Nat} {d : Deposit} {c : Nat} (hen : en N m c = true)
     (hne : c ≠ f) (hmid : en N (inter m (trOf N f)) c = true)
     (hafter : en N (fireAD m (trOf N f) d) c = true) : persists N m f d c = true :=
