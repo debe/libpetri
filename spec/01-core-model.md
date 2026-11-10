@@ -168,7 +168,7 @@ A transition is **enabled** in a marking when every input place holds at least i
 
 *While* a transition is enabled, the transition *shall* be able to fire.
 
-This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking.
+This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-002], [IO-004], [EXEC-012], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking.
 
 **Acceptance Criteria:**
 1. Transition with satisfied inputs, reads present, inhibitors empty → enabled.
@@ -257,6 +257,8 @@ A read arc (test arc) connects a place to a transition as a **positive precondit
 *When* a transition fires, each of its read places on which it has neither an input arc nor a reset arc *shall* end the firing with its token count before the firing plus the tokens the firing deposits there.
 
 The read arc does not consume tokens; the value of a read token is available to the action via the transition context.
+
+A transition has no read arc on a place it has an input arc on: building such a transition fails ([EXEC-012]).
 
 **Acceptance Criteria:**
 1. Read place must have tokens for transition to be enabled.

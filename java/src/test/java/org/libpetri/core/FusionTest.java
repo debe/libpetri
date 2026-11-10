@@ -146,6 +146,24 @@ class FusionTest {
             "exception must name both colliding arcs. Got: " + ex.getMessage());
     }
 
+    @Test
+    void fuse_inputAndReadOnOnePlace_rejectedWithTheExec012Message() {
+        // EXEC-012 (D15): fusing an input place with a read place of one transition puts an
+        // input arc and a read arc on the canonical place; the rebuild rejects it.
+        Place<String> a = Place.of("A", String.class);  // canonical
+        Place<String> b = Place.of("B", String.class);  // non-canonical
+
+        Transition t = Transition.builder("t").inputs(Arc.In.one(a)).read(b).build();
+
+        var builder = PetriNet.builder("Fused")
+            .transitions(t)
+            .fuse(FusionSet.of("ab", a, b));
+
+        var ex = assertThrows(IllegalArgumentException.class, builder::build);
+        assertEquals(org.libpetri.core.internal.ArcDiagnostics.inputAndReadMessage("t", "A"),
+            ex.getMessage());
+    }
+
     // ============================================================
     //  Unrelated places are untouched
     // ============================================================

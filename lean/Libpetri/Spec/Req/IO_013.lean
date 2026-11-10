@@ -76,7 +76,7 @@ requirement IO_013
   assumes "The model is the triple (Build, F, T). Build is the transition builder, read as the message building a transition fails with, none when it builds; the reference builder refBuild runs the checks the model can see in the order of the output composition preamble of spec/02-input-output-specs.md. F is the firing relation and T the firings that end with the timeout outcome (glossary: Timeout outcome), each read as one step from a marking to a marking that deposits the tokens of one outcome (glossary: Fire, Deposit); timing and priority play no part. A plain FireRel cannot carry T: on Xor(Place 0, Timeout(Place 1)) the timeout deposit [1] is also the action branch {1}, so a timed-out firing that deposits the sibling branch [0] would look like an action firing. The witness triple is refBuild, RefFire and refTimeoutOutcomeFire."
           "The build error is msgTimeouts, byte for byte: output spec of transition '<t>' has <n> Timeout nodes; an output spec has at most one, nested or not (IO-013), with <n> the number of Timeout nodes in the spec, nested and sibling ones alike (timeoutCount). The preamble's order puts the IO-011 check (a place twice in one output branch) first, so on such a spec the message is IO-011's and the second line only requires that building fails. The preamble does not place the CORE-030 input-arc check, so on a transition with two input arcs on one place the second line likewise only requires that building fails."
           "'On every construction path' is read as: Build is the one builder every construction path goes through (builders, composition, channel merge, fusion), so a transition that a path yields builds exactly when Build accepts it. Which paths exist is not in the model."
-          "The third line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing every build check of the output composition preamble and CORE-030 builds. The checks are the glossary terms Builds and WellFormedOut, the build-time checks of IO-011, IO-012, IO-013 and IO-014; checks the model cannot see (AC1's positive duration, a spec that names no place) are outside it."
+          "The third line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing the checks before the output spec (CORE-030, the IO-002/IO-004 input counts and EXEC-012's input-and-read check, PreOutputChecks) and every build check of the output composition preamble builds. The checks are the glossary terms Builds and WellFormedOut, the build-time checks of IO-011, IO-012, IO-013 and IO-014; checks the model cannot see (AC1's positive duration, a spec that names no place) are outside it."
           "A transition that builds has at most one Timeout node, so its timeout outcome is the one Timeout node's child (Out.findTimeout finds it), and that child holds no Timeout node. The firing lines are stated for transitions that build only: a transition building rejects is not a transition of any net (CORE-022) and never fires."
           "The duration is not in the model, so whether the budget expires is nondeterministic: from every marking at which t is enabled, the action may overrun it. The sixth line therefore reads 'if the action does not complete within duration, the firing shall end with the timeout outcome' as 'the timeout outcome is always one of the ways a firing of t can end'. That overrunning forces the timeout, and that completing in time rules it out, are statements about time that a model of untimed steps cannot express."
           "'It is abandoned' is the action's output being excluded, which the fifth line states for the deposit. Whether the action is stopped is the side-effect paragraph that follows the first paragraph, not encoded."
@@ -94,11 +94,12 @@ requirement IO_013
           "AC7 is the second and third lines: its three rejected specs (Timeout(d, Timeout(e, P)), Xor(Timeout(d, A), Timeout(e, B)), And(Timeout(d, A), Xor(B, Timeout(e, C)))) fail with the message for n = 2 and its two accepted specs (Xor(A, Timeout(d, B)), Timeout(d, And(A, B))) build, under the reference builder (IO_013_ac7_rejected, IO_013_ac7_builds)."
           "AC8 is the eighth and third lines: its two rejected specs (Timeout(d, Xor(A, B)), Xor(C, Timeout(d, And(A, Xor(B, D))))) fail with the Xor message, and its two accepted specs (Xor(A, Timeout(d, B)) and, with i an input place, Timeout(d, And(A, ForwardInput(i, B)))) build, under the reference builder (IO_013_ac8_rejected, IO_013_ac8_builds)."
           "The test derivation's build cases are AC7's and AC8's; its timing case (an action sleeping past its budget, the event) is outside the model: the duration and the event store are not in it."
+          "Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling."
   signoff "pending"
   statement : ∀ {N : Type} [DecidableEq N], (Trans N → Option String) → FireRel N → FireRel N → Prop :=
     fun Build F T =>
       (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-        Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+        Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
           Build t = some (msgTimeouts t (timeoutCount o)))) ∧
       (∀ t, Builds t → Build t = none) ∧
       (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m m' => F t m d m')) ∧
@@ -109,7 +110,7 @@ requirement IO_013
       (∀ t, Build t = none → HasTimeout t → ∀ d, on (fun m m' => F t m d m'), shall (fun m m' =>
         T t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)) ∧
       (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-        Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+        Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
           Build t = some (msgXorInTimeout t)))
 
 /- The pinned readable form of IO-013: a change to the formula shows up as a diff here. -/
@@ -120,7 +121,7 @@ fun {N} [DecidableEq N] Build F T =>
   (∀ (t : Reference.Trans N) (o : Out N),
       OutputSpec t = some o →
         2 ≤ timeoutCount o →
-          Build t ≠ none ∧ (InputsDistinct t → ¬DupBranch o → Build t = some (msgTimeouts t (timeoutCount o)))) ∧
+          Build t ≠ none ∧ (PreOutputChecks t → ¬DupBranch o → Build t = some (msgTimeouts t (timeoutCount o)))) ∧
     (∀ (t : Reference.Trans N), Builds t → Build t = none) ∧
       (∀ (t : Reference.Trans N),
           Build t = none → ∀ (d : List N), on fun m m' => T t m d m', shall fun m m' => F t m d m') ∧
@@ -143,7 +144,7 @@ fun {N} [DecidableEq N] Build F T =>
                 OutputSpec t = some o →
                   timeoutCount o ≤ 1 →
                     xorInTimeout o = true →
-                      Build t ≠ none ∧ (InputsDistinct t → ¬DupBranch o → Build t = some (msgXorInTimeout t))
+                      Build t ≠ none ∧ (PreOutputChecks t → ¬DupBranch o → Build t = some (msgXorInTimeout t))
 -/
 #guard_msgs in #print IO_013
 
@@ -153,20 +154,21 @@ fun {N} [DecidableEq N] Build F T =>
 IO-013's message once the input-arc and IO-011 checks pass. -/
 theorem IO_013_refBuild_rejects {N : Type} [DecidableEq N] [ToString N] (t : Trans N)
     (o : Out N) (ho : OutputSpec t = some o) (h2 : 2 ≤ timeoutCount o) :
-    refBuild t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    refBuild t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       refBuild t = some (msgTimeouts t (timeoutCount o))) := by
   simp only [OutputSpec] at ho
   refine ⟨fun h => ?_, fun hin hd => ?_⟩
   · have := (((refBuild_eq_none_iff t).1 h).2 o ho).2.1
     omega
-  · simp [refBuild, hin, ho, checkOut, (firstDup_eq_none_iff o).2 hd, h2]
+  · rw [refBuild_of_pre hin]
+    simp [ho, checkOut, (firstDup_eq_none_iff o).2 hd, h2]
 
 /-- The reference builder rejects every output spec with at most one `Timeout` node and an `Xor`
 node inside its child, with IO-013's `Xor` message once the input-arc and IO-011 checks pass. -/
 theorem IO_013_refBuild_rejectsXor {N : Type} [DecidableEq N] [ToString N] (t : Trans N)
     (o : Out N) (ho : OutputSpec t = some o) (h1 : timeoutCount o ≤ 1)
     (hx : xorInTimeout o = true) :
-    refBuild t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    refBuild t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       refBuild t = some (msgXorInTimeout t)) := by
   simp only [OutputSpec] at ho
   refine ⟨fun h => ?_, fun hin hd => ?_⟩
@@ -174,7 +176,8 @@ theorem IO_013_refBuild_rejectsXor {N : Type} [DecidableEq N] [ToString N] (t : 
     rw [hx] at this
     exact absurd this (by decide)
   · have h2 : ¬ 2 ≤ timeoutCount o := by omega
-    simp [refBuild, hin, ho, checkOut, (firstDup_eq_none_iff o).2 hd, h2, hx]
+    rw [refBuild_of_pre hin]
+    simp [ho, checkOut, (firstDup_eq_none_iff o).2 hd, h2, hx]
 
 /-- The reference builder accepts every transition that passes every build check. -/
 theorem IO_013_refBuild_wf {N : Type} [DecidableEq N] [ToString N] (t : Trans N)
@@ -551,7 +554,7 @@ def IO_013_mutant_dropRejects {N : Type} [DecidableEq N] (Build : Trans N → Op
   (∀ t, Build t = none → HasTimeout t → ∀ d, on (fun m m' => F t m d m'), shall (fun m m' =>
     T t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)) ∧
   (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
 
 /-- The count-blind builder kills the first mutant: with the reference firings every other line
 holds, but `Timeout(d, Timeout(e, P))` builds. -/
@@ -581,7 +584,7 @@ theorem IO_013_mutant_dropRejects_killed :
 def IO_013_mutant_dropBuilds {N : Type} [DecidableEq N] (Build : Trans N → Option String)
     (F T : FireRel N) : Prop :=
   (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       Build t = some (msgTimeouts t (timeoutCount o)))) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m m' => F t m d m')) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m _ =>
@@ -591,7 +594,7 @@ def IO_013_mutant_dropBuilds {N : Type} [DecidableEq N] (Build : Trans N → Opt
   (∀ t, Build t = none → HasTimeout t → ∀ d, on (fun m m' => F t m d m'), shall (fun m m' =>
     T t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)) ∧
   (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
 
 /-- The reject-everything builder kills the second mutant: it rejects every spec, with the
 reference builder's message wherever that builder rejects, so the build lines hold and the firing
@@ -617,7 +620,7 @@ theorem IO_013_mutant_dropBuilds_killed :
 def IO_013_mutant_dropIsFiring {N : Type} [DecidableEq N] (Build : Trans N → Option String)
     (F T : FireRel N) : Prop :=
   (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       Build t = some (msgTimeouts t (timeoutCount o)))) ∧
   (∀ t, Builds t → Build t = none) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m _ =>
@@ -627,7 +630,7 @@ def IO_013_mutant_dropIsFiring {N : Type} [DecidableEq N] (Build : Trans N → O
   (∀ t, Build t = none → HasTimeout t → ∀ d, on (fun m m' => F t m d m'), shall (fun m m' =>
     T t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)) ∧
   (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
 
 /-- The no-effect timed-out firings kill the fourth-line mutant: builder, deposits,
 availability and the action firings are the reference's, but a timed-out firing may leave the
@@ -651,7 +654,7 @@ theorem IO_013_mutant_dropIsFiring_killed :
 def IO_013_mutant_dropOnlyChild {N : Type} [DecidableEq N] (Build : Trans N → Option String)
     (F T : FireRel N) : Prop :=
   (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       Build t = some (msgTimeouts t (timeoutCount o)))) ∧
   (∀ t, Builds t → Build t = none) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m m' => F t m d m')) ∧
@@ -660,7 +663,7 @@ def IO_013_mutant_dropOnlyChild {N : Type} [DecidableEq N] (Build : Trans N → 
   (∀ t, Build t = none → HasTimeout t → ∀ d, on (fun m m' => F t m d m'), shall (fun m m' =>
     T t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)) ∧
   (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
 
 /-- The reference timed-out firings together with M1's. -/
 def io013_refOrWrongBranch : FireRel Nat :=
@@ -691,7 +694,7 @@ theorem IO_013_mutant_dropOnlyChild_killed :
 def IO_013_mutant_dropAvailable {N : Type} [DecidableEq N] (Build : Trans N → Option String)
     (F T : FireRel N) : Prop :=
   (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       Build t = some (msgTimeouts t (timeoutCount o)))) ∧
   (∀ t, Builds t → Build t = none) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m m' => F t m d m')) ∧
@@ -700,7 +703,7 @@ def IO_013_mutant_dropAvailable {N : Type} [DecidableEq N] (Build : Trans N → 
   (∀ t, Build t = none → HasTimeout t → ∀ d, on (fun m m' => F t m d m'), shall (fun m m' =>
     T t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)) ∧
   (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
 
 /-- The never-timing-out executor kills the sixth-line mutant: no firing ends with the timeout
 outcome and every firing deposits an output branch, so the mutant holds; but the timeout outcome
@@ -719,7 +722,7 @@ timeout outcome may deposit anything. -/
 def IO_013_mutant_dropActionBranch {N : Type} [DecidableEq N] (Build : Trans N → Option String)
     (F T : FireRel N) : Prop :=
   (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       Build t = some (msgTimeouts t (timeoutCount o)))) ∧
   (∀ t, Builds t → Build t = none) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m m' => F t m d m')) ∧
@@ -728,7 +731,7 @@ def IO_013_mutant_dropActionBranch {N : Type} [DecidableEq N] (Build : Trans N �
   (∀ t, Build t = none → ∀ m, Enabled t m → ∀ d, TimeoutOutcome t (Consumes t m) d →
     ∃ m', T t m d m') ∧
   (∀ t o, OutputSpec t = some o → timeoutCount o ≤ 1 → xorInTimeout o = true →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o → Build t = some (msgXorInTimeout t)))
 
 /-- The merging executor kills the seventh-line mutant: its timed-out firings are the
 reference's, so the mutant holds; but it also fires `io013_xor` with `[1, 0]` and reports an
@@ -832,7 +835,7 @@ child. -/
 def IO_013_mutant_dropXorRejects {N : Type} [DecidableEq N] (Build : Trans N → Option String)
     (F T : FireRel N) : Prop :=
   (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
-    Build t ≠ none ∧ (InputsDistinct t → ¬ DupBranch o →
+    Build t ≠ none ∧ (PreOutputChecks t → ¬ DupBranch o →
       Build t = some (msgTimeouts t (timeoutCount o)))) ∧
   (∀ t, Builds t → Build t = none) ∧
   (∀ t, Build t = none → ∀ d, on (fun m m' => T t m d m'), shall (fun m m' => F t m d m')) ∧
@@ -875,7 +878,7 @@ firing that consumed one token from `i` is the one deposit `[0, 1]`. -/
 theorem IO_013_nonvacuous_xor :
     timeoutCount (Out.timeout (.xor (.place 0) (.place 1)) : Out Nat) ≤ 1 ∧
       xorInTimeout (Out.timeout (.xor (.place 0) (.place 1)) : Out Nat) = true ∧
-      InputsDistinct io013_xorChild ∧
+      PreOutputChecks io013_xorChild ∧
       ¬ DupBranch (Out.timeout (.xor (.place 0) (.place 1)) : Out Nat) ∧
       refBuild io013_xorChild = some (msgXorInTimeout io013_xorChild) ∧
       refBuild io013_fwdAnd = none ∧

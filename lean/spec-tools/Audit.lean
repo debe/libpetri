@@ -79,6 +79,7 @@ import Libpetri.Reference.Link
 import Libpetri.Reference.Load
 import Libpetri.Reference.Main
 import Libpetri.Reference.Marking
+import Libpetri.Reference.Queue
 import Libpetri.Reference.Search
 import Libpetri.Reference.Semantics
 import Libpetri.Reference.Sha256
@@ -101,10 +102,12 @@ import Libpetri.Spec.All
 import Libpetri.Spec.Clashes
 import Libpetri.Spec.ClashesTime
 import Libpetri.Spec.Consistency
+import Libpetri.Spec.ConsistencyQueue
 import Libpetri.Spec.ConsistencyTime
 import Libpetri.Spec.Core
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.GlossaryQueue
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.CORE_022
@@ -115,6 +118,10 @@ import Libpetri.Spec.Req.CORE_034
 import Libpetri.Spec.Req.CORE_035
 import Libpetri.Spec.Req.CORE_036
 import Libpetri.Spec.Req.EXEC_002
+import Libpetri.Spec.Req.EXEC_010
+import Libpetri.Spec.Req.EXEC_012
+import Libpetri.Spec.Req.EXEC_013
+import Libpetri.Spec.Req.EXEC_020
 import Libpetri.Spec.Req.IO_001
 import Libpetri.Spec.Req.IO_002
 import Libpetri.Spec.Req.IO_003

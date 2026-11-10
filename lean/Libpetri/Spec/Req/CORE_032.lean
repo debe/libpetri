@@ -181,36 +181,10 @@ theorem CORE_032_forbids_readAlwaysBlocks : ¬ CORE_032 core032_readAlwaysBlocks
     (by decide)).2 hfire
   exact absurd hne (by decide)
 
-/-- The transition with an input arc `One` and a read arc on place `0`, nothing else. -/
-def core032_tIn : Trans Nat :=
-  { core := { name := "t", inputs := [{ place := 0, card := .one }], inhibitors := [],
-               reads := [0], resets := [] },
-    out := none }
-
-/-- A firing relation that peeks the read places after input consumption: a reference firing
-that also needs each read place to keep a token once the inputs are consumed. -/
-def core032_readAfterInputFire : FireRel Nat :=
-  fun t m d m' => RefFire t m d m' ∧ ∀ p ∈ t.core.reads, Consumes t m p < m p
-
-/-- ✗ Peeking after consumption violates CORE-032 (second clause): with one token in place `0`,
-`core032_tIn` without its read arc fires and empties place `0`, but `core032_tIn` cannot. -/
-@[evidence forbids CORE_032]
-theorem CORE_032_forbids_readAfterInput : ¬ CORE_032 core032_readAfterInputFire := by
-  intro h
-  have hfire : Fire core032_readAfterInputFire (withoutRead core032_tIn 0) core032_marked
-      (fun n => if n = 0 then 0 else 1) :=
-    ⟨[], ⟨by decide, ⟨.action 0, rfl⟩, by
-      funext n
-      by_cases e : n = 0
-      · subst e; simp [fireNC, depProd, nconsumed, nspecAt, withoutRead, core032_tIn,
-          core032_marked, Card.consumesAll, Card.required]
-      · simp [fireNC, depProd, nconsumed, nspecAt, withoutRead, core032_tIn, core032_marked, e,
-          Ne.symm e]⟩, by simp [withoutRead, core032_tIn]⟩
-  obtain ⟨d, -, hlt⟩ := ((h core032_tIn 0 (by decide)).2.1 core032_marked _ (by decide)).2 hfire
-  have := hlt 0 (by decide)
-  rw [consumes_eq] at this
-  simp [nspecAt, core032_tIn, core032_marked, consumptionCount, Card.consumesAll,
-    Card.required] at this
+/-! A firing relation that peeks the read places after input consumption is not a mutant here:
+ruling D15 rejects an input arc and a read arc on one place when the transition is built
+([EXEC-012]), so on every transition that builds no read place loses a token to consumption and
+that relation agrees with the reference. -/
 
 /-- The transition with a read arc and a reset arc on place `0`, nothing else. -/
 def core032_tRes : Trans Nat :=

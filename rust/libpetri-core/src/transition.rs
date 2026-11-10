@@ -230,6 +230,18 @@ pub fn duplicate_input_message(transition: &str, place: &str) -> String {
     )
 }
 
+/// The [EXEC-012] input-and-read rejection: a read of a place the same firing
+/// consumes from has no coherent semantics. The spec fixes the text, byte for
+/// byte, for every implementation.
+pub fn input_and_read_message(transition: &str, place: &str) -> String {
+    format!(
+        "Transition '{transition}' declares an input arc and a read arc on place '{place}'. A \
+         read of a place the same firing consumes from has no coherent semantics and is \
+         rejected (EXEC-012). Remove the read arc: the input arc already hands the consumed \
+         tokens to the action."
+    )
+}
+
 impl TransitionBuilder {
     pub fn new(name: impl Into<Arc<str>>) -> Self {
         Self {
@@ -344,6 +356,11 @@ impl TransitionBuilder {
     ///   `exactly(n)` / `at_least(n)`. The runtime's compile-time check stays
     ///   as a backstop, but after this one no analysis ever sees such a
     ///   transition.
+    /// - Panics if a read arc names an input place (**EXEC-012**): the read would
+    ///   peek the place after the firing's own consumption. Remove the read arc;
+    ///   the input arc already hands the consumed tokens to the action. Checked
+    ///   after the input checks and before the timing and output-spec checks; the
+    ///   first such read arc in declaration order is named.
     /// - Panics if one output branch names a place twice (**IO-011**): outputs are
     ///   sets of places, so `and(P, P)` is not two tokens into `P`.
     /// - Panics if an input requires no token (`In::Exactly { count: 0 }`,
@@ -384,6 +401,15 @@ impl TransitionBuilder {
                     self.name
                 );
             }
+        }
+
+        // [EXEC-012]: a read arc on an input place would peek the place after this
+        // firing's own consumption, which can leave it empty although the transition
+        // was enabled. Runs after every input check (CORE-030 first, so two inputs
+        // plus a read on one place report CORE-030) and names the place of the first
+        // read arc, in declaration order, that is also an input place.
+        if let Some(r) = self.reads.iter().find(|r| seen_inputs.contains(r.place.name())) {
+            panic!("{}", input_and_read_message(&self.name, r.place.name()));
         }
 
         // [TIME-001] AC5: the `Timing` variants are public, so a timing written out
@@ -757,6 +783,78 @@ mod tests {
             .input(one(&p))
             .input(crate::input::exactly(2, &p))
             .build();
+    }
+
+    fn build_panic_message(build: impl FnOnce() -> Transition + std::panic::UnwindSafe) -> String {
+        let err = std::panic::catch_unwind(build).expect_err("the transition must be rejected");
+        err.downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+            .expect("a string panic payload")
+    }
+
+    /// EXEC-012 AC2 (D15): an input arc and a read arc on one place are rejected
+    /// at build with the spec's message, byte for byte, whatever the input
+    /// cardinality.
+    #[test]
+    fn exec012_input_and_read_on_one_place_rejected_at_build() {
+        use crate::arc::read;
+        use crate::input::{all, at_least, exactly};
+        let expected = "Transition 't' declares an input arc and a read arc on place 'p'. A read \
+                        of a place the same firing consumes from has no coherent semantics and \
+                        is rejected (EXEC-012). Remove the read arc: the input arc already hands \
+                        the consumed tokens to the action.";
+        let p = Place::<i32>::new("p");
+        for input in [one(&p), all(&p), exactly(2, &p), at_least(1, &p)] {
+            let msg = build_panic_message(|| {
+                Transition::builder("t").input(input).read(read(&p)).build()
+            });
+            assert_eq!(msg, expected);
+            assert_eq!(msg, input_and_read_message("t", "p"));
+        }
+    }
+
+    /// EXEC-012 AC3 (D15): the first read arc in declaration order whose place is
+    /// an input place is named; two inputs plus a read on one place report
+    /// CORE-030, which runs first.
+    #[test]
+    fn exec012_names_first_offending_read_and_core030_reports_first() {
+        use crate::arc::read;
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let msg = build_panic_message(|| {
+            Transition::builder("t")
+                .input(one(&a))
+                .input(one(&b))
+                .read(read(&b))
+                .read(read(&a))
+                .build()
+        });
+        assert_eq!(msg, input_and_read_message("t", "b"));
+
+        let p = Place::<i32>::new("p");
+        let msg = build_panic_message(|| {
+            Transition::builder("t")
+                .input(one(&p))
+                .input(crate::input::exactly(2, &p))
+                .read(read(&p))
+                .build()
+        });
+        assert_eq!(msg, duplicate_input_message("t", "p"));
+    }
+
+    /// EXEC-012 AC4 (D15): an input and a read on different places, and a read
+    /// plus a reset on one place, still build.
+    #[test]
+    fn exec012_input_and_read_on_different_places_and_read_with_reset_build() {
+        use crate::arc::{read, reset};
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let t = Transition::builder("t").input(one(&a)).read(read(&b)).build();
+        assert_eq!(t.reads().len(), 1);
+        let t = Transition::builder("t").read(read(&a)).reset(reset(&a)).build();
+        assert_eq!(t.reads().len(), 1);
+        assert_eq!(t.resets().len(), 1);
     }
 
     /// TIME-001 AC5: the `Timing` variants are public, so a timing written out

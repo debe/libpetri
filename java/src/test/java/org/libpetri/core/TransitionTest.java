@@ -57,6 +57,82 @@ class TransitionTest {
         assertTrue(error.getMessage().contains("CORE-030"), error.getMessage());
     }
 
+    private static String inputAndReadMessage(String t, String p) {
+        return "Transition '" + t + "' declares an input arc and a read arc on place '" + p + "'. "
+            + "A read of a place the same firing consumes from has no coherent semantics and is "
+            + "rejected (EXEC-012). Remove the read arc: the input arc already hands the consumed "
+            + "tokens to the action.";
+    }
+
+    @Test
+    void builder_rejectsInputAndReadOnOnePlace() {
+        // EXEC-012 AC2: every input cardinality is rejected with the exact message.
+        var p = Place.of("p", TestValue.class);
+        for (var in : java.util.List.<Arc.In>of(
+                Arc.In.one(p), Arc.In.all(p), Arc.In.exactly(2, p), Arc.In.atLeast(1, p))) {
+            var builder = Transition.builder("t").inputs(in).read(p);
+            var error = assertThrows(IllegalArgumentException.class, builder::build);
+            assertEquals(inputAndReadMessage("t", "p"), error.getMessage());
+        }
+    }
+
+    @Test
+    void builder_inputAndRead_namesFirstReadOnAnInputPlace() {
+        // EXEC-012 AC3: read arcs walked in declaration order; the first on an input place is named.
+        var a = Place.of("a", TestValue.class);
+        var b = Place.of("b", TestValue.class);
+        var builder = Transition.builder("t")
+            .inputs(Arc.In.one(a), Arc.In.one(b))
+            .read(b)
+            .read(a);
+        var error = assertThrows(IllegalArgumentException.class, builder::build);
+        assertEquals(inputAndReadMessage("t", "b"), error.getMessage());
+    }
+
+    @Test
+    void builder_twoInputsAndRead_reportsCore030First() {
+        // EXEC-012 AC3: the CORE-030 duplicate-input check runs first.
+        var p = Place.of("p", TestValue.class);
+        var builder = Transition.builder("t")
+            .inputs(Arc.In.one(p), Arc.In.one(p))
+            .read(p);
+        var error = assertThrows(IllegalArgumentException.class, builder::build);
+        assertTrue(error.getMessage().contains("CORE-030"), error.getMessage());
+    }
+
+    @Test
+    void builder_inputAndRead_beforeOutputSpecChecks() {
+        // EXEC-012: runs before the IO-011 output-spec check.
+        var p = Place.of("p", TestValue.class);
+        var o = Place.of("o", TestValue.class);
+        var builder = Transition.builder("t")
+            .inputs(Arc.In.one(p))
+            .read(p)
+            .outputs(Arc.Out.and(o, o));
+        var error = assertThrows(IllegalArgumentException.class, builder::build);
+        assertEquals(inputAndReadMessage("t", "p"), error.getMessage());
+    }
+
+    @Test
+    void builder_inputAndReadOnDifferentPlaces_builds() {
+        // EXEC-012 AC4: input on a with read on b, and read plus reset on one place, both build.
+        var a = Place.of("a", TestValue.class);
+        var b = Place.of("b", TestValue.class);
+        var t1 = Transition.builder("t1").inputs(Arc.In.one(a)).read(b).build();
+        assertEquals(1, t1.reads().size());
+        var t2 = Transition.builder("t2").inputs(Arc.In.one(a)).read(b).reset(b).build();
+        assertEquals(1, t2.resets().size());
+    }
+
+    @Test
+    void builder_inputAndReadOnSameNameDifferentType_builds() {
+        // EXEC-012: "same place" is Java Place equality (name and type), as for CORE-030.
+        var p1 = Place.of("p", TestValue.class);
+        var p2 = Place.of("p", String.class);
+        var t = Transition.builder("t").inputs(Arc.In.one(p1)).read(p2).build();
+        assertEquals(1, t.reads().size());
+    }
+
     @Test
     void builder_withOutput_addsOutputSpec() {
         var place = Place.of("Output", TestValue.class);
@@ -172,11 +248,13 @@ class TransitionTest {
     @Test
     void lists_areImmutable() {
         var place = Place.of("P", TestValue.class);
+        // The read sits on its own place: an input and a read on one place is rejected (EXEC-012).
+        var readPlace = Place.of("R", TestValue.class);
         var t = Transition.builder("t")
             .inputs(Arc.In.one(place))
             .outputs(Arc.Out.and(place))
             .inhibitor(place)
-            .read(place)
+            .read(readPlace)
             .reset(place)
             .build();
 

@@ -169,12 +169,12 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-001 | Orchestrator Loop Steps | MUST | ENV-003 |
 | EXEC-002 | Priority-Based Firing Order | MUST | TIME-010 |
 | EXEC-003 | Competitive Conflict Resolution | MUST | — |
-| EXEC-010 | FIFO Token Consumption | MUST | CORE-013, IO-007 |
+| EXEC-010 | FIFO Token Consumption | MUST | CORE-013, IO-007, NU-020 |
 | ~~EXEC-011~~ | ~~Guarded Token Consumption~~ (Removed) | — | — |
-| EXEC-012 | Read Arc Peek | MUST | CORE-032 |
-| EXEC-013 | Reset Arc Execution | MUST | CORE-034, EXEC-012, CORE-032 |
-| EXEC-020 | Output Token Deposition | MUST | — |
-| EXEC-021 | Output Spec Validation | MUST | IO-011, 012, 015 |
+| EXEC-012 | Read Arc Peek | MUST | CORE-032, CORE-030 |
+| EXEC-013 | Reset Arc Execution | MUST | CORE-034, EXEC-012, CORE-032, EXEC-003 |
+| EXEC-020 | Output Token Deposition | MUST | EXEC-021, 022, 042, IO-015 |
+| EXEC-021 | Output Spec Validation | MUST | IO-011, 012, 015, EVT-008, EXEC-030 |
 | EXEC-022 | Action Timeout Handling | MUST | IO-013, 014, EVT-010 |
 | EXEC-030 | Action Failure | MUST | EVT-008 |
 | EXEC-031 | No Rollback | MUST | — |

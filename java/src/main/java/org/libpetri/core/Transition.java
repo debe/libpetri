@@ -401,6 +401,17 @@ public final class Transition {
                 }
             }
 
+            // EXEC-012: a read of a place the same firing consumes from would peek the place
+            // after the firing's own consumption, so the pair is rejected. After every input-arc
+            // check and before the output-spec checks; the first read arc on an input place, in
+            // declaration order, is named. Place equality (name and type) as for CORE-030.
+            for (var read : reads) {
+                if (seenInputs.contains(read.place())) {
+                    throw new IllegalArgumentException(
+                        ArcDiagnostics.inputAndReadMessage(name, read.place().name()));
+                }
+            }
+
             // The build-time output-spec checks, first failure wins: IO-011 (a place twice in one
             // AND branch), IO-013 (at most one Timeout, no Xor in its child), IO-014 (ForwardInput only inside a
             // Timeout child, from an input place), IO-012 (no two branches claim one set). Here

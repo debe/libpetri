@@ -72,10 +72,9 @@
  * firing time. Folding reads in makes the oracle sensitive to the
  * EXEC-012/EXEC-013 read-peek boundary (post-input, pre-reset) — the
  * historically divergent spot in Rust — while staying total: a read place
- * drained by this very firing's input consumption contributes nothing. (When
- * a read place is also an input place of the same transition, TS `ctx.reads`
- * sees the consumed tokens first — deterministic and identical across
- * backends, which is all the oracle needs.)
+ * drained by an earlier firing contributes nothing. A read is never drawn on
+ * an input place of the same transition, since EXEC-012 rejects that pair
+ * when the transition is built.
  *
  * FAILURE POLICY: a divergence is a FINDING, not a flake. Let fast-check
  * shrink it, verify the minimal counterexample by hand, pin `seed` + `path`
@@ -250,7 +249,10 @@ function genTransition(placeCount: number, timingArb: fc.Arbitrary<GenTiming>): 
           out = outKind <= 5 ? { kind: 'and', a: first, b: second } : { kind: 'xor', a: first, b: second };
         }
       }
-      return { inputs, out, reads, inhibitor, reset, priority, timing };
+      // EXEC-012: an input and a read on one place is rejected at build, so a read drawn on
+      // an input place is dropped. Filtering after the draw keeps the RNG stream unchanged.
+      const readsOff = reads.filter(r => !ins.includes(r));
+      return { inputs, out, reads: readsOff, inhibitor, reset, priority, timing };
     });
 }
 
@@ -372,7 +374,9 @@ function genBoundaryTransition(
         }
         // Drop a self-inhibition: it would make the transition permanently dead.
         const inh = inhibitor !== undefined && !ins.includes(inhibitor) ? inhibitor : undefined;
-        return { inputs, out, reads, inhibitor: inh, reset, priority, timing };
+        // EXEC-012: drop a read drawn on an input place, after the draw (see genTransition).
+        const readsOff = reads.filter(r => !ins.includes(r));
+        return { inputs, out, reads: readsOff, inhibitor: inh, reset, priority, timing };
       });
   });
 }

@@ -10,8 +10,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 
 - Active requirements: **226**
 - Proven in Lean (≥ 1 validated theorem fragment): **46**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **52**
-- Referenced by ≥ 1 test file: java **113**, typescript **112**, rust **127**, python **71**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **59**
+- Referenced by ≥ 1 test file: java **114**, typescript **112**, rust **127**, python **72**
 - Untested anywhere (no test-file reference in any language): **93**
 
 ## 01-core-model.md — CORE
@@ -99,11 +99,11 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXEC-002 | `tid_order_diverges` — retrodiction of divergence (a): the pre-fix ascending-tid per-level drain is provably not the canonical enablement-time order on a two-transition witness — a divergence witness for the fixed bug, not a positive property of the shipped code<br>`collect_ready_general_refines` — ready-collection phase only: the canonical (priority DESC, enabled_at ASC, tid ASC) order is the unique sorted permutation of the ready set and both backends' outputs equal it; abstract Nat clocks<br>`TIME_014_bullet2_order_conflicts_EXEC_002` — stamp order is not overridden by timing kind: on an input reached by the timed reference step, with two ready transitions of equal priority, a Delayed one armed at 0 and an Immediate one armed at 5, every order that satisfies the block offers the Delayed one first, so no such order also satisfies TIME-014 bullet 2 read as an ordering rule (candidate reading, ruling D9 open)<br>`EXEC_002_unique` — AC4, general path only: two ready orders that satisfy the block (a permutation of the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC) are equal on every input outside the all-immediate fast path; on the fast path they agree on the ready set and on ties of priority and stamp only (D14 open) | ✓ | ✓ | ✓ | ✓ | — |
 | EXEC-003 | `disable_frame` — loser path only: disable changes no token counts, so skipping dirty-marking for the conflict loser is sound (the winner's consume already marked it); the competitive re-check itself is covered by the immediate-fragment refinement<br>`updateEnablement_sync` — the loser re-evaluation EXEC-003 relies on: after the winner's consume marks competitors dirty, the scan re-derives exact enablement for them; untimed enablement predicate only<br>`precompiled_refines_bitmap_immediate` — both backends make identical conflict decisions on the untimed/immediate fragment (same control bits, same ready order, same winner/loser outcomes); timed competitive scheduling out of scope | ✓ | ✓ | ✓ | ✓ | ✓ |
 | EXEC-010 | `consume_faithful` — each input place delivers exactly its FIFO prefix into the action's inputs, in queue order; single firing on the compiled consume program<br>`token_conservation` — single-firing consume phase on the compiled consume program: every place's pre-fire FIFO queue is exactly delivered ++ reset-destroyed ++ survivors as an ordered list equality — nothing lost, nothing duplicated; async plumbing out of scope | ✓ | ✓ | — | ✓ | — |
-| EXEC-012 | `consumeForFiring_eq_program` — the read peek at the reset_ops_start boundary observes but does not mutate the pool (peekReads is pure by construction); peeked content is the post-input, pre-reset head token per read place<br>`read_reset_order_diverges` — retrodiction of divergence (b): pre-fix reads peeked after the RESET tail observed an empty place; post-fix consumeForFiring peeks at the reset_ops_start boundary and observes the pre-reset head, as the reference does — minimal read+reset overlap witness | ✓ | — | ✓ | ✓ | — |
-| EXEC-013 | `consumeForFiring_eq_program` — inputs-then-RESET-tail ordering of the compiled consume program, with reads peeked at the reset_ops_start boundary — the ordering EXEC-013 requires; single firing only<br>`token_conservation` — the reset-destroyed summand of the conservation equality: after input opcodes run, each reset place's remaining queue is destroyed in full and survives nowhere; clock-restart and event obligations of the requirement not covered<br>`read_reset_order_diverges` — retrodiction of divergence (b), the reset side: the RESET tail must drain after reads peek — witness that the opposite order is observably wrong; single minimal net | ✓ | ✓ | ✓ | ✓ | ✓ |
+| EXEC-012 | `consumeForFiring_eq_program` — the read peek at the reset_ops_start boundary observes but does not mutate the pool (peekReads is pure by construction); peeked content is the post-input, pre-reset head token per read place<br>`read_reset_order_diverges` — retrodiction of divergence (b): pre-fix reads peeked after the RESET tail observed an empty place; post-fix consumeForFiring peeks at the reset_ops_start boundary and observes the pre-reset head, as the reference does — minimal read+reset overlap witness | ✓ | ✓ | ✓ | ✓ | ✓ |
+| EXEC-013 | `consumeForFiring_eq_program` — inputs-then-RESET-tail ordering of the compiled consume program, with reads peeked at the reset_ops_start boundary — the ordering EXEC-013 requires; single firing only<br>`token_conservation` — the reset-destroyed summand of the conservation equality: after input opcodes run, each reset place's remaining queue is destroyed in full and survives nowhere; clock-restart and event obligations of the requirement not covered<br>`read_reset_order_diverges` — retrodiction of divergence (b), the reset side: the RESET tail must drain after reads peek — witness that the opposite order is observably wrong; single minimal net<br>`CORE_034_reference` — AC1 and AC2 on token counts: a firing leaves a reset place holding exactly its deposit (all tokens removed), and a reset arc never affects whether its transition can fire, so an unmarked reset place is no error; the queue-level drain is EXEC_013_reference<br>`TIME_012_ac3` — AC3 in TIME-012's form: a reset drain in the intermediate marking disarms an input transition it disables, which is newly armed with a fresh clock when the firing re-enables it; a transition the drain leaves enabled keeps its clock | ✓ | ✓ | ✓ | ✓ | ✓ |
 | EXEC-020 | `produceAll_spec` — produced tokens append at the FIFO tail of their target place in emission order via ring_add_last (grow path included); single-firing produce phase, output-spec validation out of scope | ✓ | — | — | — | — |
-| EXEC-021 | — | — | — | — | — | — |
-| EXEC-022 | — | — | ✓ | ✓ | ✓ | — |
+| EXEC-021 | — | ✓ | — | — | — | — |
+| EXEC-022 | — | ✓ | ✓ | ✓ | ✓ | — |
 | EXEC-030 | — | ✓ | — | — | — | — |
 | EXEC-031 | — | — | ✓ | ✓ | ✓ | ✓ |
 | EXEC-040 | `exec040_rest_reaped_enabled` — condition 1 reads 'no transition armed', not 'no transition enabled': on the timed reference step a Window(3, 5) transition reaped at reading 10 stays enabled but not armed in every reachable state, no transition is armed and none can fire, so the literal 'no transition enabled' never holds on a run that rests there, while 'no transition armed' does; atomic Phase 1 step, no in-flight actions or environment places | ✓ | — | — | — | — |
@@ -147,9 +147,9 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ENV-010 | — | — | — | — | — | — |
 | ENV-011 | — | — | — | — | ✓ | — |
 | ENV-012 | — | — | — | — | — | — |
-| ENV-013 | — | — | ✓ | ✓ | ✓ | — |
+| ENV-013 | — | ✓ | ✓ | ✓ | ✓ | — |
 | ENV-014 | — | — | ✓ | ✓ | ✓ | ✓ |
-| ENV-015 | — | — | — | — | — | — |
+| ENV-015 | — | ✓ | — | — | — | — |
 | ENV-016 | — | — | — | — | — | — |
 
 ## 07-verification.md — VER
@@ -190,7 +190,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EVT-005 | — | — | — | — | — | — |
 | EVT-006 | — | ✓ | — | — | — | — |
 | EVT-007 | — | ✓ | — | — | — | — |
-| EVT-008 | — | — | — | — | — | — |
+| EVT-008 | — | ✓ | — | — | — | — |
 | EVT-009 | — | ✓ | ✓ | — | — | — |
 | EVT-010 | — | — | — | — | — | — |
 | EVT-011 | — | — | — | — | — | — |
@@ -264,7 +264,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-013 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-014 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-020 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| MOD-021 | — | — | ✓ | ✓ | ✓ | ✓ |
+| MOD-021 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | MOD-022 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-023 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-024 | — | ✓ | ✓ | ✓ | ✓ | — |
@@ -278,7 +278,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-050 | — | — | — | — | — | — |
 | MOD-051 | — | — | ✓ | ✓ | ✓ | ✓ |
 | MOD-060 | — | — | ✓ | ✓ | ✓ | — |
-| MOD-061 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-061 | — | ✓ | ✓ | ✓ | ✓ | — |
 
 ## 12-nu-nets.md — NU
 

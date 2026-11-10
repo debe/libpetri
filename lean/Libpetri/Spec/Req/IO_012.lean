@@ -113,6 +113,7 @@ requirement IO_012
           "AC4 (two branches whose claims are the same set never reach a firing) is the build check: such a spec does not pass C, and the firing line is stated only for specs that pass. The strict-subset remark of AC4 is the exact reading above: Xor(And(A, B, C), And(A, B)) passes the check (checked by example below)."
           "AC5 (the rejected and accepted specs and their reported pairs and places) is checked by example on IO_012_check below, with the places A, B, C, P, Q, a named by the numbers 0, 1, 2, 3, 4, 5. The Timeout duration d is not in the reference Out. The composition case (two output ports in different alternatives bound to one host place) is the check applied to the composed spec; composition itself is MOD-024's model, not this block's."
           "The Test derivation's build cases are AC5's; its firing cases are AC3's."
+          "Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling."
   signoff "pending"
   statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Out N → Option (Nat × Nat × List N)) →
       (Trans N → Option String) → FireRel N → Prop :=
@@ -121,7 +122,7 @@ requirement IO_012
       (∀ (o : Out N) (i j : Nat) (ps : List N), C o = some (i, j, ps) ↔ IO_012_reported o i j ps) ∧
       (∀ (t : Trans N) (o : Out N), OutputSpec t = some o → ¬ IO_012_unambiguous o →
         Build t ≠ none ∧
-        (InputsDistinct t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
+        (PreOutputChecks t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
           forwardOutside o = none →
           (∀ s ∈ forwardSources o, s ∈ inPlaces t) →
           ∀ i j ps, C o = some (i, j, ps) → Build t = some (msgAmbiguous t i j ps))) ∧
@@ -142,7 +143,7 @@ fun {N} [DecidableEq N] [ToString N] C Build F =>
           OutputSpec t = some o →
             ¬IO_012_unambiguous o →
               Build t ≠ none ∧
-                (InputsDistinct t →
+                (PreOutputChecks t →
                   ¬DupBranch o →
                     timeoutCount o ≤ 1 →
                       xorInTimeout o = false →
@@ -165,7 +166,7 @@ def IO_012_buildLine [DecidableEq N] [ToString N] (C : Out N → Option (Nat × 
     (Build : Trans N → Option String) : Prop :=
   ∀ (t : Trans N) (o : Out N), OutputSpec t = some o → ¬ IO_012_unambiguous o →
     Build t ≠ none ∧
-    (InputsDistinct t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
+    (PreOutputChecks t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
           forwardOutside o = none →
       (∀ s ∈ forwardSources o, s ∈ inPlaces t) →
       ∀ i j ps, C o = some (i, j, ps) → Build t = some (msgAmbiguous t i j ps))
@@ -412,7 +413,7 @@ check reports. -/
 theorem IO_012_refBuild_rejects [DecidableEq N] [ToString N] (t : Trans N) (o : Out N)
     (ho : OutputSpec t = some o) (hu : ¬ IO_012_unambiguous o) :
     refBuild t ≠ none ∧
-      (InputsDistinct t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
+      (PreOutputChecks t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
           forwardOutside o = none →
         (∀ s ∈ forwardSources o, s ∈ inPlaces t) →
         ∀ i j ps, IO_012_check o = some (i, j, ps) → refBuild t = some (msgAmbiguous t i j ps)) := by
@@ -427,8 +428,9 @@ theorem IO_012_refBuild_rejects [DecidableEq N] [ToString N] (t : Trans N) (o : 
     have hfind : (forwardSources o).find? (fun s => decide (s ∉ inPlaces t)) = none := by
       rw [List.find?_eq_none]; intro s hm; simpa using hs s hm
     have hc2 : ¬ 2 ≤ timeoutCount o := by omega
-    simp only [refBuild, hin, not_true_eq_false, if_false, ho', checkOut,
-      (firstDup_eq_none_iff o).2 hd, hc2, hxt, Bool.false_eq_true, hf, hfind, hfc, hps]
+    rw [refBuild_of_pre hin]
+    simp only [ho', checkOut,
+      (firstDup_eq_none_iff o).2 hd, hc2, hxt, Bool.false_eq_true, hf, hfind, hfc, hps, if_false]
 
 /-! ### AC5: the reported pairs and places
 

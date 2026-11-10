@@ -155,8 +155,9 @@ struct GenTrans {
     /// `CompiledNet::compile` (CORE-030).
     inputs: Vec<(usize, GenCard)>,
     output: GenOut,
-    /// Distinct place indices; may overlap inputs/reset (EXEC-012/EXEC-013
-    /// read-peek semantics are exactly the historically buggy overlap).
+    /// Distinct place indices, disjoint from the inputs (an input and a read
+    /// on one place are rejected at build, EXEC-012); may overlap the reset
+    /// (EXEC-013 read-before-drain).
     reads: Vec<usize>,
     inhibitor: Option<usize>,
     reset: Option<usize>,
@@ -232,7 +233,10 @@ fn gen_transition(place_count: usize) -> impl Strategy<Value = GenTrans> {
                 GenTrans {
                     inputs,
                     output,
-                    reads,
+                    reads: reads
+                        .into_iter()
+                        .filter(|r| !ins.contains(r))
+                        .collect(),
                     inhibitor,
                     reset,
                     priority,
@@ -420,7 +424,10 @@ fn gen_boundary_transition(place_count: usize, first: bool) -> impl Strategy<Val
                     GenTrans {
                         inputs,
                         output,
-                        reads,
+                        reads: reads
+                            .into_iter()
+                            .filter(|r| !ins.contains(r))
+                            .collect(),
                         inhibitor,
                         reset,
                         priority,
@@ -518,10 +525,10 @@ fn place_name(i: usize, width: usize) -> String {
 ///
 /// The echoed value is the first consumed token of the first input place
 /// plus the front token of every read arc that still holds one at firing
-/// time. Folding reads in makes the oracle sensitive to the EXEC-012/
-/// EXEC-013 read-peek boundary (post-input, pre-reset) — the historically
-/// divergent spot — while staying total: a read place drained by this very
-/// firing's input consumption simply contributes nothing.
+/// time. Folding reads in makes the oracle sensitive to the EXEC-013
+/// read-peek boundary (pre-reset), the historically divergent spot, while
+/// staying total: a read place with no token at firing time contributes
+/// nothing. Reads never share a place with an input (EXEC-012).
 fn build_net(g: &GenNet) -> (PetriNet, Marking) {
     let width = name_width(g.place_count);
     let places: Vec<Place<i32>> = (0..g.place_count)

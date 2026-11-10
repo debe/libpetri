@@ -1804,6 +1804,72 @@ mod tests {
     }
 
     // ============================================================
+    //  EXEC-012 (D15): an input and a read on one place, reached
+    //  through composition and fusion
+    // ============================================================
+
+    fn panic_message(f: impl FnOnce()) -> String {
+        let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+            .expect_err("expected the build to panic");
+        err.downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+            .expect("a string panic payload")
+    }
+
+    /// EXEC-012: binding an input port and a read port of one transition to
+    /// one host place ([MOD-020]) fails the rebuild with the EXEC-012 message.
+    #[test]
+    fn exec012_binding_an_input_port_and_a_read_port_to_one_place_is_rejected() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let out = Place::<String>::new("out");
+        let def = SubnetDef::<()>::builder("Peek")
+            .input_port("a", &a)
+            .input_port("b", &b)
+            .output_port("out", &out)
+            .transition(
+                Transition::builder("peek")
+                    .input(one(&a))
+                    .read(crate::arc::read(&b))
+                    .output(out_place(&out))
+                    .action(crate::action::fork())
+                    .build(),
+            )
+            .build();
+        let x = Place::<String>::new("X");
+        let instance = def.instantiate_unit("s");
+        let msg = panic_message(|| {
+            let _ = PetriNet::builder("Host")
+                .compose_with(&instance, |b| {
+                    b.bind_port::<String>("a", &x).bind_port::<String>("b", &x);
+                })
+                .build();
+        });
+        assert_eq!(msg, crate::transition::input_and_read_message("s/peek", "X"));
+    }
+
+    /// EXEC-012: fusing an input place with a read place of one transition
+    /// ([MOD-061]) fails the net build with the EXEC-012 message, naming the
+    /// canonical place.
+    #[test]
+    fn exec012_fusing_an_input_place_with_a_read_place_is_rejected() {
+        let a = Place::<i32>::new("a");
+        let b = Place::<i32>::new("b");
+        let t = Transition::builder("t")
+            .input(one(&a))
+            .read(crate::arc::read(&b))
+            .build();
+        let msg = panic_message(|| {
+            let _ = PetriNet::builder("Fused")
+                .transition(t)
+                .fuse([FusionSet::of("ab", &a, &[&b])])
+                .build();
+        });
+        assert_eq!(msg, crate::transition::input_and_read_message("t", "a"));
+    }
+
+    // ============================================================
     //  MOD-027: references to bound (retired) port places
     // ============================================================
 

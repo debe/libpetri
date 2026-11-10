@@ -79,7 +79,7 @@ count (`refFire_apply`), neither `Seam.enabledNA` nor the deposit (`Seam.nconsum
 the reset arcs, so a firing of `t` and of `t` without its reset arcs on `p` exist at the same
 markings with the same deposits, and `Seam.fireNC` reads the reset arcs only at the reset place
 itself. -/
-@[evidence holds CORE_034]
+@[evidence holds CORE_034, evidence cites "EXEC-013" "AC1 and AC2 on token counts: a firing leaves a reset place holding exactly its deposit (all tokens removed), and a reset arc never affects whether its transition can fire, so an unmarked reset place is no error; the queue-level drain is EXEC_013_reference"]
 theorem CORE_034_reference {N : Type} [DecidableEq N] : CORE_034 (RefFire (N := N)) := by
   intro t p hp
   refine ⟨fun d m m' h => ?_, fun d m m'' h => ?_, fun d m m' h => ?_⟩

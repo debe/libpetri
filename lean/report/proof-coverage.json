@@ -982,6 +982,16 @@
       ]
     },
     {
+      "name": "CORE_034_reference",
+      "module": "Libpetri/Spec/Req/CORE_034.lean",
+      "specIds": [
+        {
+          "id": "EXEC-013",
+          "fragment": "AC1 and AC2 on token counts: a firing leaves a reset place holding exactly its deposit (all tokens removed), and a reset arc never affects whether its transition can fire, so an unmarked reset place is no error; the queue-level drain is EXEC_013_reference"
+        }
+      ]
+    },
+    {
       "name": "EXEC_002_unique",
       "module": "Libpetri/Spec/Req/EXEC_002.lean",
       "specIds": [
@@ -1156,6 +1166,16 @@
         {
           "id": "TIME-011",
           "fragment": "AC1: a transition armed again must wait its full earliest bound from the moment it was armed again, for every relation satisfying TIME-010 and TIME-011 whose delay advances the clock by the delay"
+        }
+      ]
+    },
+    {
+      "name": "TIME_012_ac3",
+      "module": "Libpetri/Spec/Req/TIME_012.lean",
+      "specIds": [
+        {
+          "id": "EXEC-013",
+          "fragment": "AC3 in TIME-012's form: a reset drain in the intermediate marking disarms an input transition it disables, which is newly armed with a fresh clock when the firing re-enables it; a transition the drain leaves enabled keeps its clock"
         }
       ]
     },

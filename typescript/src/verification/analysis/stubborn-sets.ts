@@ -67,7 +67,7 @@ export class StubbornSets {
         tst.add(arc.place.name);
         enabling.push({ place: arc.place.name, need: 1, inhibitor: false });
       }
-      // Stable: an input and a read on one place keep the input first.
+      // No place carries an input and a read (EXEC-012).
       enabling.sort((x, y) => compareCodePoints(x.place, y.place));
       const inhibitors = t.inhibitors.map(a => a.place.name).sort(compareCodePoints);
       for (const p of inhibitors) {

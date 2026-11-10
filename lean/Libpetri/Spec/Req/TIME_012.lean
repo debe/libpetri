@@ -394,7 +394,7 @@ theorem TIME_012_ac2 :
 /-- AC3 (reset drain, positive requirement): `z` drains place `0` through a reset arc and puts a
 token back. `T`, whose input arc requires one token, restarts at `10`. With an input arc that
 requires no token `T` stays enabled in the drained place and keeps its stamp `0`. -/
-@[evidence nonvacuous TIME_012]
+@[evidence nonvacuous TIME_012, evidence cites "EXEC-013" "AC3 in TIME-012's form: a reset drain in the intermediate marking disarms an input transition it disables, which is newly armed with a fresh clock when the firing re-enables it; a transition the drain leaves enabled keeps its clock"]
 theorem TIME_012_ac3 :
     RefTStep (time012_X time012_Tin) (time012_s time012_m1) (.fire time012_z [0])
         (time012_after refPolicy time012_Tin time012_m1 time012_z [0]) ∧

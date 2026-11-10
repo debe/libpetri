@@ -1,4 +1,5 @@
 import Libpetri.Reference.Semantics
+import Libpetri.Reference.Queue
 import Libpetri.Spec.Registry
 
 set_option linter.missingDocs true
@@ -230,15 +231,21 @@ def ExactOn (o : Out N) (d : List N) (b : List N) : Prop :=
 /-! ## Building a transition: the build-time checks
 
 **Glossary: Build-time checks.** "The checks building a transition runs: the input-arc check of
-[CORE-030], then, on its output spec and in this order, a place named twice in one output branch
+[CORE-030], the input-count checks of [IO-002] and [IO-004], the input-and-read check of
+[EXEC-012], the timing check of [TIME-001], then, on its output spec and in this order, a place
+named twice in one output branch
 [IO-011], more than one `Timeout` node [IO-013], an `Xor` node inside the child of the `Timeout`
 node [IO-013], a `ForwardInput` outside the child of a `Timeout` node [IO-014], a `ForwardInput`
 whose `from` is not an input place [IO-014], and two output branches that claim the same set of
 places [IO-012]. The first check that fails names the error. No executor option skips them
 [CONC-026]."
 
-`WellFormedOut` is the output-spec part, `Builds` the whole; `refBuild` is the reference builder,
-which names the first failing check with its message, byte for byte. -/
+`WellFormedOut` is the output-spec part, `PreOutputChecks` the checks that run before it
+([CORE-030], the [IO-002]/[IO-004] input counts, and [EXEC-012]'s input-and-read check), `Builds`
+the whole. The timing check of [TIME-001] is outside this model, because `Trans` carries no
+timing; `Reference/Load.lean` and the runtimes run it in the stated place. The spec orders [EXEC-012] after both, and orders neither of [CORE-030] and the
+count checks before the other; `refBuild` is the reference builder, which names the first failing
+check with its message, byte for byte. -/
 
 /-- The input places of `t`, in declaration order. -/
 def inPlaces (t : Trans N) : List N := t.core.inputs.map (·.place)
@@ -248,6 +255,55 @@ def InputsDistinct (t : Trans N) : Prop := (inPlaces t).Nodup
 
 instance [DecidableEq N] (t : Trans N) : Decidable (InputsDistinct t) :=
   inferInstanceAs (Decidable (inPlaces t).Nodup)
+
+/-- **The input-count checks pass** ([IO-002] AC1, [IO-004] AC1): every input arc requires at
+least one token, so no `Exactly(0)` and no `AtLeast(0)`. -/
+def InputCountsPositive (t : Trans N) : Prop := ∀ s ∈ t.core.inputs, 1 ≤ requiredCount s.card
+
+instance (t : Trans N) : Decidable (InputCountsPositive t) := by
+  unfold InputCountsPositive; infer_instance
+
+/-- The stand-in message of the [IO-002] and [IO-004] count checks (`Exactly(n)` or
+`AtLeast(n)` with `n < 1`). The spec gives the checks no message of their own here, so the
+reference builder uses a stand-in, as it does for [CORE-030]. -/
+def msgCount : String := "IO-002/IO-004"
+
+/-- **[EXEC-012]'s build error** (ruling D15), for the transition `t` and the place `p`, byte
+for byte the message of the spec with `<t>` the name of `t` and `<p>` the place. -/
+def msgInputRead [ToString N] (t : Trans N) (p : N) : String :=
+  "Transition '" ++ t.core.name ++ "' declares an input arc and a read arc on place '" ++
+    toString p ++ "'. A read of a place the same firing consumes from has no coherent " ++
+    "semantics and is rejected (EXEC-012). Remove the read arc: the input arc already hands " ++
+    "the consumed tokens to the action."
+
+/-- The place the [EXEC-012] build check names: the place of the first read arc, in declaration
+order, whose place is an input place of `t`; `none` when there is none. -/
+def firstInputRead [DecidableEq N] (t : Trans N) : Option N :=
+  t.core.reads.find? (fun p => decide (p ∈ inPlaces t))
+
+/-- The check finds nothing exactly when `t` has no input arc and read arc on one place. -/
+theorem firstInputRead_eq_none_iff [DecidableEq N] (t : Trans N) :
+    firstInputRead t = none ↔ NoInputRead t := by
+  unfold firstInputRead NoInputRead
+  rw [List.find?_eq_none]
+  constructor
+  · intro h s hs hr
+    have := h s.place hr
+    simp only [decide_eq_true_eq] at this
+    exact this (List.mem_map.mpr ⟨s, hs, rfl⟩)
+  · intro h p hp hin
+    simp only [decide_eq_true_eq] at hin
+    obtain ⟨s, hs, rfl⟩ := List.mem_map.mp hin
+    exact h s hs hp
+
+/-- **The checks before the output-spec checks pass**: the input places are distinct
+([CORE-030]), every input arc requires at least one token ([IO-002], [IO-004]), and no place
+carries both an input arc and a read arc ([EXEC-012], ruling D15). -/
+def PreOutputChecks [DecidableEq N] (t : Trans N) : Prop :=
+  InputsDistinct t ∧ InputCountsPositive t ∧ NoInputRead t
+
+instance [DecidableEq N] (t : Trans N) : Decidable (PreOutputChecks t) := by
+  unfold PreOutputChecks; infer_instance
 
 /-- Some output branch of `o` names a place twice: [IO-011]'s build check, the first of the
 output-spec checks. -/
@@ -679,16 +735,18 @@ instance [DecidableEq N] (inputs : List N) (o : Out N) : Decidable (WellFormedOu
 definition that fails one is not a transition of any net: no executor holds it, so it is never
 enabled and never fires [CORE-022]."
 
-`Builds t`: the input places of `t` are distinct ([CORE-030]) and its output spec, if it has
-one, passes the build-time checks (`WellFormedOut`) against them. -/
+`Builds t`: the checks before the output-spec checks pass (`PreOutputChecks`: distinct input
+places [CORE-030], positive input counts [IO-002]/[IO-004], no input arc and read arc on one
+place [EXEC-012]) and its output spec, if it has one, passes the build-time checks
+(`WellFormedOut`) against its input places. -/
 def Builds [DecidableEq N] (t : Trans N) : Prop :=
-  InputsDistinct t ∧ ∀ o, OutputSpec t = some o → WellFormedOut (inPlaces t) o
+  PreOutputChecks t ∧ ∀ o, OutputSpec t = some o → WellFormedOut (inPlaces t) o
 
 instance [DecidableEq N] (t : Trans N) : Decidable (Builds t) :=
   match h : t.out with
-  | none => decidable_of_iff (InputsDistinct t) (by
+  | none => decidable_of_iff (PreOutputChecks t) (by
       simp only [Builds, OutputSpec, h, reduceCtorEq, false_implies, implies_true, and_true])
-  | some o => decidable_of_iff (InputsDistinct t ∧ WellFormedOut (inPlaces t) o) (by
+  | some o => decidable_of_iff (PreOutputChecks t ∧ WellFormedOut (inPlaces t) o) (by
       simp only [Builds, OutputSpec, h, Option.some.injEq, forall_eq'])
 
 /-- The output-spec checks of the reference builder, in the order of the Output Composition
@@ -713,64 +771,94 @@ def checkOut [DecidableEq N] [ToString N] (t : Trans N) (ins : List N) (o : Out 
         | none => none
 
 /-- **The reference builder**: [CORE-030]'s input-arc check (its message is a stand-in, the spec
-gives none), then the output-spec checks of `checkOut`. `refBuild t = none`: `t` builds;
-`refBuild t = some msg`: building `t` fails with `msg`. -/
+gives none), the [IO-002]/[IO-004] count checks (stand-in `msgCount`), [EXEC-012]'s
+input-and-read check (`msgInputRead`, ruling D15), then the output-spec checks of `checkOut`.
+Running [CORE-030] before the count checks is this builder's choice, not the spec's: the spec
+orders neither before the other, and the runtimes interleave the two per input arc. No
+requirement block depends on that order; [EXEC-012] after both is the spec's.
+`refBuild t = none`: `t` builds; `refBuild t = some msg`: building `t` fails with `msg`. -/
 def refBuild [DecidableEq N] [ToString N] (t : Trans N) : Option String :=
   if ¬ InputsDistinct t then some "CORE-030"
-  else match t.out with
-    | none => none
-    | some o => checkOut t (inPlaces t) o
+  else if ¬ InputCountsPositive t then some msgCount
+  else match firstInputRead t with
+    | some p => some (msgInputRead t p)
+    | none =>
+      match t.out with
+      | none => none
+      | some o => checkOut t (inPlaces t) o
 
 /- The reference builder is a witness model of the blocks that constrain building. -/
 #spec_witness refBuild
 
+/-- The output-spec checks of the reference builder pass exactly on a well-formed output spec. -/
+theorem checkOut_eq_none_iff [DecidableEq N] [ToString N] (t : Trans N) (o : Out N) :
+    checkOut t (inPlaces t) o = none ↔ WellFormedOut (inPlaces t) o := by
+  unfold checkOut WellFormedOut
+  rw [← firstClash_eq_none_iff]
+  cases hd : firstDup o with
+  | some p =>
+    exact iff_of_false (by simp)
+      (fun h => h.1 ((dupBranch_iff o).2 ⟨p, firstDup_some hd⟩))
+  | none =>
+  have hd := (firstDup_eq_none_iff o).1 hd
+  simp only
+  by_cases hc : 2 ≤ timeoutCount o
+  · rw [if_pos hc]; exact iff_of_false (by simp) (fun h => by have := h.2.1; omega)
+  rw [if_neg hc]
+  cases hxt : xorInTimeout o with
+  | true => exact iff_of_false (by simp) (fun h => by have := h.2.2.1; simp at this)
+  | false =>
+  simp only [Bool.false_eq_true, if_false]
+  cases hf : forwardOutside o with
+  | some x =>
+    exact iff_of_false (by simp) (fun h => by have := h.2.2.2.1; simp at this)
+  | none =>
+    cases hs : (forwardSources o).find? (fun s => decide (s ∉ inPlaces t)) with
+    | some s =>
+      have hn : s ∉ inPlaces t := by simpa using List.find?_some hs
+      exact iff_of_false (by simp)
+        (fun h => hn (h.2.2.2.2.1 s (List.mem_of_find?_eq_some hs)))
+    | none =>
+      rw [List.find?_eq_none] at hs
+      have hs' : ∀ s ∈ forwardSources o, s ∈ inPlaces t := fun s hm => by
+        simpa using hs s hm
+      cases hx : firstClash o.branches with
+      | some x =>
+        exact iff_of_false (by simp)
+          (fun h => by have := h.2.2.2.2.2; simp at this)
+      | none => exact iff_of_true rfl ⟨hd, by omega, trivial, rfl, hs', rfl⟩
+
+/-- On a transition that passes the checks before the output-spec checks, the reference builder
+is its output-spec checks. -/
+theorem refBuild_of_pre [DecidableEq N] [ToString N] {t : Trans N} (h : PreOutputChecks t) :
+    refBuild t = match t.out with
+      | none => none
+      | some o => checkOut t (inPlaces t) o := by
+  unfold refBuild
+  rw [if_neg (not_not.mpr h.1), if_neg (not_not.mpr h.2.1),
+    (firstInputRead_eq_none_iff t).2 h.2.2]
+
 /-- The reference builder accepts exactly the transitions that build. -/
 theorem refBuild_eq_none_iff [DecidableEq N] [ToString N] (t : Trans N) :
     refBuild t = none ↔ Builds t := by
-  unfold refBuild Builds
-  by_cases hi : InputsDistinct t
-  · rw [if_neg (not_not.mpr hi)]
+  by_cases hp : PreOutputChecks t
+  · rw [refBuild_of_pre hp]
     cases ho : t.out with
-    | none => simp [hi, OutputSpec, ho]
+    | none => simp [Builds, hp, OutputSpec, ho]
     | some o =>
-      have key : checkOut t (inPlaces t) o = none ↔ WellFormedOut (inPlaces t) o := by
-        unfold checkOut WellFormedOut
-        rw [← firstClash_eq_none_iff]
-        cases hd : firstDup o with
-        | some p =>
-          exact iff_of_false (by simp)
-            (fun h => h.1 ((dupBranch_iff o).2 ⟨p, firstDup_some hd⟩))
-        | none =>
-        have hd := (firstDup_eq_none_iff o).1 hd
-        simp only
-        by_cases hc : 2 ≤ timeoutCount o
-        · rw [if_pos hc]; exact iff_of_false (by simp) (fun h => by have := h.2.1; omega)
-        rw [if_neg hc]
-        cases hxt : xorInTimeout o with
-        | true => exact iff_of_false (by simp) (fun h => by have := h.2.2.1; simp at this)
-        | false =>
-        simp only [Bool.false_eq_true, if_false]
-        cases hf : forwardOutside o with
-        | some x =>
-          exact iff_of_false (by simp) (fun h => by have := h.2.2.2.1; simp at this)
-        | none =>
-          cases hs : (forwardSources o).find? (fun s => decide (s ∉ inPlaces t)) with
-          | some s =>
-            have hn : s ∉ inPlaces t := by simpa using List.find?_some hs
-            exact iff_of_false (by simp)
-              (fun h => hn (h.2.2.2.2.1 s (List.mem_of_find?_eq_some hs)))
-          | none =>
-            rw [List.find?_eq_none] at hs
-            have hs' : ∀ s ∈ forwardSources o, s ∈ inPlaces t := fun s hm => by
-              simpa using hs s hm
-            cases hx : firstClash o.branches with
-            | some x =>
-              exact iff_of_false (by simp)
-                (fun h => by have := h.2.2.2.2.2; simp at this)
-            | none => exact iff_of_true rfl ⟨hd, by omega, trivial, rfl, hs', rfl⟩
-      simp only [hi, OutputSpec, ho, Option.some.injEq, forall_eq', true_and]
-      exact key
-  · simp [hi]
+      simp only [Builds, hp, OutputSpec, ho, Option.some.injEq, forall_eq', true_and]
+      exact checkOut_eq_none_iff t o
+  · refine iff_of_false ?_ (fun h => hp h.1)
+    unfold refBuild
+    by_cases hi : InputsDistinct t
+    · by_cases hc : InputCountsPositive t
+      · have hw : ¬ NoInputRead t := fun hw => hp ⟨hi, hc, hw⟩
+        rw [if_neg (not_not.mpr hi), if_neg (not_not.mpr hc)]
+        cases hf : firstInputRead t with
+        | some p => simp
+        | none => exact absurd ((firstInputRead_eq_none_iff t).1 hf) hw
+      · rw [if_neg (not_not.mpr hi), if_pos hc]; simp
+    · rw [if_pos hi]; simp
 
 /-! ## Bridge lemmas: the readable forms agree with the reference definitions -/
 

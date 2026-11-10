@@ -4,7 +4,8 @@ Python runs the precompiled backend only, so each scenario was a live
 user-visible bug here. Mirrors Rust `backend_suite_tests::{read_and_reset_same_place,
 duplicate_input_place_rejected_at_build, unknown_place_initial_tokens_retained,
 unknown_place_warns_once_per_place, unknown_places::*}` — EXEC-013 AC4,
-CORE-030 AC3, CORE-072 AC3/AC4.
+CORE-030 AC3, CORE-072 AC3/AC4. The EXEC-012 build checks mirror Rust
+`transition::tests::exec012_*`.
 """
 
 from __future__ import annotations
@@ -74,6 +75,60 @@ def test_two_one_input_arcs_on_same_place_rejected_at_build() -> None:
         r".*rejected \(CORE-030\)",
     ):
         builder.build()
+
+
+# ---------- input + read on one place rejected at build (EXEC-012, D15) --
+
+
+EXEC012_MESSAGE = (
+    "Transition 't' declares an input arc and a read arc on place 'p'. A read of a "
+    "place the same firing consumes from has no coherent semantics and is rejected "
+    "(EXEC-012). Remove the read arc: the input arc already hands the consumed tokens "
+    "to the action."
+)
+
+
+@pytest.mark.parametrize(
+    "make_input",
+    [lp.one, lp.all_tokens, lambda p: lp.exactly(2, p), lambda p: lp.at_least(1, p)],
+    ids=["one", "all", "exactly2", "at_least1"],
+)
+def test_input_and_read_on_same_place_rejected_at_build(make_input) -> None:
+    # EXEC-012 AC2: the Rust builder's message, byte for byte, as a StructureError
+    # (a ValueError).
+    p = lp.Place("p")
+    builder = lp.Transition("t").input(make_input(p)).read(lp.read(p))
+    with pytest.raises(lp.StructureError) as excinfo:
+        builder.build()
+    assert isinstance(excinfo.value, ValueError)
+    assert str(excinfo.value) == EXEC012_MESSAGE
+
+
+def test_input_and_read_rejection_names_first_offending_read() -> None:
+    # EXEC-012 AC3: reads declared b then a name b; two inputs plus a read on one
+    # place report CORE-030 instead.
+    a, b, p = lp.Place("a"), lp.Place("b"), lp.Place("p")
+    builder = (
+        lp.Transition("t")
+        .input(lp.one(a))
+        .input(lp.one(b))
+        .read(lp.read(b))
+        .read(lp.read(a))
+    )
+    with pytest.raises(lp.StructureError) as excinfo:
+        builder.build()
+    assert str(excinfo.value) == EXEC012_MESSAGE.replace("place 'p'", "place 'b'")
+
+    builder = lp.Transition("t").input(lp.one(p)).input(lp.exactly(2, p)).read(lp.read(p))
+    with pytest.raises(lp.StructureError, match=r"rejected \(CORE-030\)"):
+        builder.build()
+
+
+def test_input_and_read_on_different_places_and_read_with_reset_build() -> None:
+    # EXEC-012 AC4.
+    a, b = lp.Place("a"), lp.Place("b")
+    lp.Transition("t").input(lp.one(a)).read(lp.read(b)).build()
+    lp.Transition("t").read(lp.read(a)).reset(lp.reset(a)).build()
 
 
 # ---------- undeclared-place token retention (CORE-072 AC3) -------------

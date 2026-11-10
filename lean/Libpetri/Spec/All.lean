@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.GlossaryQueue
 import Libpetri.Spec.Core
 import Libpetri.Spec.Req.CORE_022
 import Libpetri.Spec.Req.CORE_030
@@ -24,6 +25,10 @@ import Libpetri.Spec.Req.IO_014
 import Libpetri.Spec.Req.IO_015
 import Libpetri.Spec.Req.IO_016
 import Libpetri.Spec.Req.EXEC_002
+import Libpetri.Spec.Req.EXEC_010
+import Libpetri.Spec.Req.EXEC_012
+import Libpetri.Spec.Req.EXEC_013
+import Libpetri.Spec.Req.EXEC_020
 import Libpetri.Spec.Req.TIME_001
 import Libpetri.Spec.Req.TIME_002
 import Libpetri.Spec.Req.TIME_003
@@ -37,6 +42,7 @@ import Libpetri.Spec.Req.TIME_013
 import Libpetri.Spec.Req.TIME_015
 import Libpetri.Spec.Consistency
 import Libpetri.Spec.ConsistencyTime
+import Libpetri.Spec.ConsistencyQueue
 import Libpetri.Spec.Clashes
 import Libpetri.Spec.ClashesTime
 

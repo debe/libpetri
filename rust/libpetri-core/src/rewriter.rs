@@ -1653,17 +1653,28 @@ mod tests {
 
     #[test]
     fn channel_merge_identical_kind_sets_merge_not_reject() {
-        // Same kind set on both sides is no rule-(d) conflict: input+read on
-        // each side pairs up under rules (a)/(b) — input sums, read collapses.
+        // Same kind set on both sides is no rule-(d) conflict: read+reset on `p`
+        // on each side collapses under rule (a), and the input on `q` sums under
+        // rule (b). (Input+read on one place is rejected at build, EXEC-012.)
         let p = Place::<String>::new("p");
+        let q = Place::<String>::new("q");
 
-        let caller = Transition::builder("merged").input(one(&p)).read(read(&p)).build();
-        let instance = Transition::builder("instanceSide").input(one(&p)).read(read(&p)).build();
+        let caller = Transition::builder("merged")
+            .input(one(&q))
+            .read(read(&p))
+            .reset(reset(&p))
+            .build();
+        let instance = Transition::builder("instanceSide")
+            .input(one(&q))
+            .read(read(&p))
+            .reset(reset(&p))
+            .build();
 
         let merged = merge_transitions(&caller, &instance, Arc::<str>::from("merged"));
         assert_eq!(merged.input_specs().len(), 1);
         assert_eq!(crate::input::required_count(&merged.input_specs()[0]), 2);
         assert_eq!(merged.reads().len(), 1);
+        assert_eq!(merged.resets().len(), 1);
     }
 
     #[test]

@@ -4076,15 +4076,20 @@ abstract class AbstractNetExecutorEngineTest {
 
         @Test
         void samePlace_inputAndRead() throws Exception {
-            // Same place as both input AND read
-            // Input consumes, read requires but doesn't consume
-            // Net effect: needs at least 1 token, consumes 1
+            // Same place as both input AND read is rejected when the transition is built
+            // (EXEC-012). The input arc alone already requires and consumes the token.
             var shared = Place.of("Shared", CounterValue.class);
             var output = Place.of("Output", SimpleValue.class);
 
+            var rejected = Transition.builder("t")
+                .inputs(Arc.In.one(shared))
+                .read(shared)
+                .outputs(Arc.Out.and(output));
+            var error = assertThrows(IllegalArgumentException.class, rejected::build);
+            assertTrue(error.getMessage().contains("EXEC-012"), error.getMessage());
+
             var t = Transition.builder("t")
                 .inputs(Arc.In.one(shared))
-                .read(shared)  // Same place - requires token to exist
                 .outputs(Arc.Out.and(output))
                 .timing(Timing.deadline(Duration.ofMillis(100)))
                 .action(TransitionAction.produce(output, new SimpleValue("fired")))

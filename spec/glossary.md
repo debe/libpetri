@@ -1,10 +1,10 @@
 # Glossary: firing semantics
 
-This glossary fixes the terms the CORE and IO firing requirements and the TIME timing
-requirements use. It is not numbered and defines no requirements; each entry cites the
-requirements that define the term. The Lean counterpart is `lean/Libpetri/Spec/Glossary.lean`
-for the firing terms and `lean/Libpetri/Spec/GlossaryTime.lean` for the timing terms, whose
-docstrings quote these entries.
+This glossary fixes the terms the CORE and IO firing requirements, the TIME timing
+requirements and the EXEC execution requirements use. It is not numbered and defines no
+requirements; each entry cites the requirements that define the term. The Lean counterpart is
+`lean/Libpetri/Spec/Glossary.lean` for the firing terms and `lean/Libpetri/Spec/GlossaryTime.lean`
+for the timing terms, whose docstrings quote these entries.
 
 ---
 
@@ -57,7 +57,8 @@ An arc from a place to a transition that disables the transition while the place
 ### Read arc
 
 An arc from a place to a transition that requires the place to be marked for the transition to
-be enabled [CORE-032]. It never consumes.
+be enabled [CORE-032]. It never consumes. A transition has no read arc on a place it has an input arc on
+[EXEC-012].
 
 ### Reset arc
 
@@ -137,8 +138,9 @@ other, whatever the order or repetition. Places are the same under the implement
 
 ### Build-time checks
 
-The checks building a transition runs: the input-arc check of [CORE-030], then, on its output
-spec and in this order, a place named twice in one output branch [IO-011], more than one
+The checks building a transition runs: the input-arc check of [CORE-030], the input-count checks
+of [IO-002] and [IO-004], the input-and-read check of [EXEC-012], the timing check of [TIME-001],
+then, on its output spec and in this order, a place named twice in one output branch [IO-011], more than one
 `Timeout` node [IO-013], an `Xor` node inside the child of the `Timeout` node [IO-013], a
 `ForwardInput` outside the child of a `Timeout` node [IO-014], a
 `ForwardInput` whose `from` is not an input place [IO-014], and two output branches that claim
@@ -224,3 +226,22 @@ To reap an expired transition is to disarm it in the deadline step of a cycle wi
 emitting `TransitionTimedOut` [TIME-013], [EXEC-001], [EVT-009]. A reaped transition keeps its
 tokens and stays enabled but not armed, and does not fire, until a firing or an injected token
 writes one of its arc places; it is then newly armed if it is enabled [TIME-013].
+
+---
+
+## Execution
+
+### Queue order
+
+The tokens of a place are kept in the order they were added. The oldest token is the head of the
+place; a firing consumes from the head, except on a correlated input of a ν-net match [EXEC-010],
+[NU-020], and reads the head [EXEC-012], and a deposit adds at the tail [EXEC-020].
+
+### Admitted completion
+
+A completion is an action that returned normally [EXEC-020]. The executor admits it when it
+processes it, in step 1 of a cycle or, for a synchronous action, inside the firing pass
+[EXEC-001]. It never admits the completion of a firing that ended with its timeout outcome
+[EXEC-022], that a stop on a terminal place abandoned [EXEC-042] or that an immediate
+termination abandoned [ENV-015]. Only an admitted completion deposits, and only when output
+validation, if enabled [CONC-026], does not reject its produced set [EXEC-020], [EXEC-021].

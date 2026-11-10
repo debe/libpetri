@@ -12,7 +12,8 @@ against the reference semantics (`Reference.Fires`, as `RefFire`), against concr
 relations that each drop one condition, and against a mutant reading per clause.
 
 CORE-022 concerns transitions that build. `Builds` is the build-time check of a transition
-(the input-arc check of [CORE-030] and the output-spec checks of [IO-011]–[IO-014]); the block
+(the input-arc check of [CORE-030], the input-count checks of [IO-002] and [IO-004], the
+input-and-read check of [EXEC-012] and the output-spec checks of [IO-011]–[IO-014]); the block
 quantifies over the transitions that pass it.
 -/
 
@@ -31,8 +32,8 @@ requirement CORE_022
         "*While* a read place of a transition is unmarked, the transition *shall not* fire."
         "*While* an inhibitor place of a transition is marked, the transition *shall not* fire."
         "*While* a transition is enabled, the transition *shall* be able to fire."
-        "This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking."
-  reading "For every transition t that builds (Builds t: at most one input arc per place, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward's from an input place, no two output branches claiming the same set of places):"
+        "This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-002], [IO-004], [EXEC-012], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking."
+  reading "For every transition t that builds (Builds t: at most one input arc per place, every input arc requiring at least one token, no place with both an input arc and a read arc, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward's from an input place, no two output branches claiming the same set of places):"
           "t does not fire from a marking in which the place of some input arc of t holds fewer tokens than that arc's required count;"
           "t does not fire from a marking in which some read place of t is unmarked;"
           "t does not fire from a marking in which some inhibitor place of t is marked;"
@@ -43,7 +44,7 @@ requirement CORE_022
           "The 'able to fire' line needs every transition to have at least one way to end (an output branch, or the empty deposit when it has no output spec); the reference semantics has one for every output spec (`Reference.exists_deposit`)."
           "Transitions with a ν match specification (NU-020) add a correlation condition on top of these three; this block reads CORE-022 for transitions without one, as the reference semantics has none."
           "The inhibitor line restates the first clause of CORE-031 because CORE-022 lists it as one of its conditions; it is kept so that this block stands on its own."
-          "'Transitions that build' is read as the build-time checks themselves (`Builds`): the input-arc check of CORE-030 and the output-spec checks of IO-011 (a place twice in one branch), IO-013 (more than one Timeout node), IO-014 (a ForwardInput outside a Timeout child; a forward from a non-input place) and IO-012 (two output branches claiming the same set of places). A transition that fails one constrains nothing here: no executor ever holds it, so it neither fires nor is required to. Branch sets are compared as sets (`SameSet`), so Xor(And(A, B, C), And(A, B)) and Xor(And(P, A), And(P, B)) build and are covered, while Xor(P, P) and Xor(And(A, B), And(B, A)) are not."
+          "'Transitions that build' is read as the build-time checks themselves (`Builds`): the input-arc check of CORE-030, the input-count checks of IO-002 and IO-004 (no Exactly(0), no AtLeast(0)), the input-and-read check of EXEC-012 (ruling D15) and the output-spec checks of IO-011 (a place twice in one branch), IO-013 (more than one Timeout node), IO-014 (a ForwardInput outside a Timeout child; a forward from a non-input place) and IO-012 (two output branches claiming the same set of places). A transition that fails one constrains nothing here: no executor ever holds it, so it neither fires nor is required to. Branch sets are compared as sets (`SameSet`), so Xor(And(A, B, C), And(A, B)) and Xor(And(P, A), And(P, B)) build and are covered, while Xor(P, P) and Xor(And(A, B), And(B, A)) are not."
           "The reference `Out` is binary; n-ary And / Xor are read as right-nested, which keeps the IO-016 enumeration order, so the IO-012 branch indices and the build verdict are those of the n-ary spec."
           "AC1 (satisfied inputs, reads present, inhibitors empty, enabled) is the last line."
           "AC2 (missing input tokens, disabled) is the second line."

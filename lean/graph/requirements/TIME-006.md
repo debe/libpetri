@@ -13,71 +13,71 @@ flowchart TD
     n179["Libpetri.Novel.Dbm.Bound"]
   end
   subgraph g1["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2232["Libpetri.Novel.TimedScg.Timing"]
-    n2233["Libpetri.Novel.TimedScg.Timing.Valid"]
-    n2239["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2241["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2242["Libpetri.Novel.TimedScg.Timing.earliest"]
-    n2243["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2244["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
-    n2245["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2246["Libpetri.Novel.TimedScg.Timing.latest"]
-    n2247["Libpetri.Novel.TimedScg.Timing.reapable"]
-    n2259["Libpetri.Novel.TimedScg.Timing.window"]
-    n2286["Libpetri.Novel.TimedScg.eftT"]
-    n2365["Libpetri.Novel.TimedScg.lftT"]
-    n2376["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2233["Libpetri.Novel.TimedScg.Timing"]
+    n2234["Libpetri.Novel.TimedScg.Timing.Valid"]
+    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2243["Libpetri.Novel.TimedScg.Timing.earliest"]
+    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2245["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
+    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2247["Libpetri.Novel.TimedScg.Timing.latest"]
+    n2248["Libpetri.Novel.TimedScg.Timing.reapable"]
+    n2260["Libpetri.Novel.TimedScg.Timing.window"]
+    n2287["Libpetri.Novel.TimedScg.eftT"]
+    n2366["Libpetri.Novel.TimedScg.lftT"]
+    n2377["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g2["Libpetri/Spec/Req/TIME_006.lean"]
-    n4433["Libpetri.Spec.time006_graph_interval"]
-    n4437["Libpetri.Spec.time006_interval"]
+    n4662["Libpetri.Spec.time006_graph_interval"]
+    n4666["Libpetri.Spec.time006_interval"]
   end
-  n2233 --> n2239
-  n2233 --> n2241
-  n2233 --> n2243
-  n2233 --> n2245
-  n2233 --> n2259
-  n2233 --> n2376
-  n2239 --> n2232
-  n2241 --> n2232
-  n2242 --> n2239
-  n2242 --> n2241
-  n2242 --> n2243
-  n2242 --> n2245
-  n2242 --> n2259
-  n2243 --> n2232
-  n2244 --> n2239
-  n2244 --> n2241
-  n2244 --> n2243
-  n2244 --> n2245
-  n2244 --> n2259
-  n2245 --> n2232
-  n2246 --> n2239
-  n2246 --> n2241
-  n2246 --> n2243
-  n2246 --> n2245
-  n2246 --> n2259
-  n2246 --> n2376
-  n2247 --> n2239
-  n2247 --> n2241
-  n2247 --> n2243
-  n2247 --> n2245
-  n2247 --> n2259
-  n2259 --> n2232
-  n2286 --> n2242
-  n2365 --> n179
-  n2365 --> n2246
-  n4433 --> n2286
-  n4433 --> n2365
-  n4437 --> n2233
-  n4437 --> n2242
-  n4437 --> n2244
-  n4437 --> n2246
-  n4437 --> n2247
+  n2234 --> n2240
+  n2234 --> n2242
+  n2234 --> n2244
+  n2234 --> n2246
+  n2234 --> n2260
+  n2234 --> n2377
+  n2240 --> n2233
+  n2242 --> n2233
+  n2243 --> n2240
+  n2243 --> n2242
+  n2243 --> n2244
+  n2243 --> n2246
+  n2243 --> n2260
+  n2244 --> n2233
+  n2245 --> n2240
+  n2245 --> n2242
+  n2245 --> n2244
+  n2245 --> n2246
+  n2245 --> n2260
+  n2246 --> n2233
+  n2247 --> n2240
+  n2247 --> n2242
+  n2247 --> n2244
+  n2247 --> n2246
+  n2247 --> n2260
+  n2247 --> n2377
+  n2248 --> n2240
+  n2248 --> n2242
+  n2248 --> n2244
+  n2248 --> n2246
+  n2248 --> n2260
+  n2260 --> n2233
+  n2287 --> n2243
+  n2366 --> n179
+  n2366 --> n2247
+  n4662 --> n2287
+  n4662 --> n2366
+  n4666 --> n2234
+  n4666 --> n2243
+  n4666 --> n2245
+  n4666 --> n2247
+  n4666 --> n2248
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4433,n4437 root
+  class n4662,n4666 root
 ```
 
 Axioms used:

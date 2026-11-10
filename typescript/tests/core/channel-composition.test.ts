@@ -169,11 +169,13 @@ describe('SubnetRewriter.mergeTransitions — channel composition (MOD-021)', ()
     expect(msg).toContain('MOD-021');
   });
 
-  it('channelMerge_identicalKindSets_mergeNotReject: input+read on both sides pairs up per rules (a)/(b)', () => {
+  it('channelMerge_identicalKindSets_mergeNotReject: input+reset on both sides pairs up per rules (a)/(b)', () => {
+    // Input + reset rather than input + read: an input and a read on one place is rejected
+    // when the transition is built (EXEC-012).
     const shared = place<string>('shared');
 
-    const caller = Transition.builder('merged').inputs(one(shared)).read(shared).build();
-    const instance = Transition.builder('instanceSide').inputs(one(shared)).read(shared).build();
+    const caller = Transition.builder('merged').inputs(one(shared)).reset(shared).build();
+    const instance = Transition.builder('instanceSide').inputs(one(shared)).reset(shared).build();
 
     const merged = mergeTransitions(caller, instance, 'merged');
 
@@ -181,7 +183,7 @@ describe('SubnetRewriter.mergeTransitions — channel composition (MOD-021)', ()
     const spec = merged.inputSpecs[0]!;
     expect(spec.type).toBe('exactly');
     expect((spec as { count: number }).count).toBe(2);
-    expect(merged.reads.length).toBe(1);
+    expect(merged.resets.length).toBe(1);
   });
 
   it('channelMerge_unionsInhibitorReadResetArcs: inhibitor + read + reset arcs from both sides survive', () => {

@@ -95,7 +95,7 @@ requirement IO_014
           "T is the relation of firings that end with the timeout outcome (glossary: Timeout outcome), read as one step from a marking to a marking that deposits the Timeout child's tokens (glossary: Fire, Deposit); timing and priority play no part. A plain FireRel cannot be used: on Timeout(ForwardInput(from, to)) the action branch [to] and a forward of one token are the same deposit. The witness refTimedOutFire is the part of RefFire whose outcome is a timedOut choice (refTimedOutFire_refFire). That the resulting marking receives d is the effect rule (CORE-030, CORE-034, CORE-035) on the plain firing relation, not restated here."
           "The build error is msgForward, byte for byte: output spec of transition '<t>' uses ForwardInput('<from>', '<to>') outside the child of a Timeout node; a forward deposits only on the timeout outcome (IO-014). 'Not inside the child of a Timeout node' and 'the first such node' are forwardOutside: the pre-order walk, children left to right, that does not enter a Timeout node. The preamble's order runs the IO-011 check (a place twice in one output branch) and the IO-013 checks (more than one Timeout node, an Xor node inside the Timeout child) first, so on such a spec the message is theirs, and the second line only requires that building fails; CORE-030's input-arc check is not placed by the preamble and is treated the same way."
           "'On every construction path' is read as: Build is the one builder every construction path goes through (builders, composition, channel merge, fusion), so a transition that a path yields builds exactly when Build accepts it. Which paths exist is not in the model. No executor option reaches Build (CONC-026)."
-          "The fifth line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing every build check of the output composition preamble and CORE-030 builds. The checks are the glossary terms Builds and WellFormedOut, the same checks IO-013 reads."
+          "The fifth line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing the checks before the output spec (CORE-030, the IO-002/IO-004 input counts and EXEC-012's input-and-read check, PreOutputChecks) and every build check of the output composition preamble builds. The checks are the glossary terms Builds and WellFormedOut, the same checks IO-013 reads."
           "The firing line is stated for every transition whose output spec has at most one Timeout node, not only for transitions that build: a transition with two or more Timeout nodes is rejected (IO-013) and has no single Timeout child, so no reading of 'the Timeout child' is claimed there, while a transition with a forward from a non-input place, rejected by the fourth line, is still covered, which is what keeps the fourth quote (no input consumed, nothing forwarded) checkable. A transition with one Timeout node has one Timeout child, the one Out.findTimeout finds."
           "'The `ForwardInput(from, to)` node of an output spec that, on the timeout outcome, deposits in `to` the tokens a firing consumed' (first quote) is the firing line, which says how many."
           "'Every ForwardInput(from, to) in the Timeout child' includes a ForwardInput nested under And or Xor. On a transition that builds the child holds no Xor node (IO-013), so it has one timeout deposit (glossary: timeoutOutcome_unique); the line is also stated for transitions that do not build, where an Xor child has several timeout deposits and which one a firing chose is visible only in the whole deposit, so the statement compares d place by place with one timeout deposit e of the child (glossary: Timeout outcome, TimeoutOutcome); deposits are compared per place, so the order of the deposit list does not matter (CORE-036). This also fixes the tokens the child's Place leaves put in, which is IO-013's subject (AC5); it is restated here only because it is what identifies the chosen alternative. Comparing only the place `to` would let a forward-first firing pass whenever another alternative of the child happens to put the same count in `to`."
@@ -108,13 +108,14 @@ requirement IO_014
           "AC5 (a forwarded token's created_at equals the original's and is not re-stamped from the epoch clock, while a minted recovery token is, in every implementation) is token metadata below the count granularity and is not encoded."
           "AC6 (every analysis deposits what the executor deposits) is about the verifier's branch expansion (IO-016, VER-001), not about firings or building; Novel/ForwardDeposit.lean proves it for the flattened rows."
           "AC7 is the second, third and fifth lines: its three rejected specs (ForwardInput(a, b), Xor(c, ForwardInput(a, b)), And(c, Xor(e, ForwardInput(a, b)))) fail with the message naming a and b, and its two accepted specs (Timeout(d, ForwardInput(a, b)), Xor(c, Timeout(d, And(e, ForwardInput(a, b))))) build, under the reference builder with a an input place (IO_014_ac7_rejected, IO_014_ac7_builds)."
+          "Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling."
   signoff "pending"
   statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Trans N → Option String) → FireRel N → Prop :=
     fun Build T =>
       (∀ t o src dst, OutputSpec t = some o → forwardOutside o = some (src, dst) →
         Build t ≠ none) ∧
       (∀ t o src dst, OutputSpec t = some o → forwardOutside o = some (src, dst) →
-        InputsDistinct t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
+        PreOutputChecks t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
         Build t = some (msgForward t src dst)) ∧
       (∀ t o src, OutputSpec t = some o → src ∈ forwardSources o →
         src ∉ inPlaces t → Build t ≠ none) ∧
@@ -134,7 +135,7 @@ fun {N} [DecidableEq N] [ToString N] Build T =>
     (∀ (t : Reference.Trans N) (o : Out N) (src dst : N),
         OutputSpec t = some o →
           forwardOutside o = some (src, dst) →
-            InputsDistinct t →
+            PreOutputChecks t →
               ¬DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false → Build t = some (msgForward t src dst)) ∧
       (∀ (t : Reference.Trans N) (o : Out N) (src : N),
           OutputSpec t = some o → src ∈ forwardSources o → src ∉ inPlaces t → Build t ≠ none) ∧
@@ -161,7 +162,7 @@ def IO_014_bareRejected {N : Type} (Build : Trans N → Option String) : Prop :=
 def IO_014_bareMessage {N : Type} [DecidableEq N] [ToString N]
     (Build : Trans N → Option String) : Prop :=
   ∀ t o src dst, OutputSpec t = some o → forwardOutside o = some (src, dst) →
-    InputsDistinct t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
+    PreOutputChecks t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
     Build t = some (msgForward t src dst)
 
 /-- Third line (AC1, AC3): a forward from a non-input place makes building fail. -/
@@ -234,15 +235,12 @@ theorem IO_014_refBuild_bare {N : Type} [DecidableEq N] [ToString N] {t : Trans 
     {o : Out N} {src dst : N} (ho : OutputSpec t = some o)
     (h : forwardOutside o = some (src, dst)) :
     refBuild t ≠ none ∧
-      (InputsDistinct t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
+      (PreOutputChecks t → ¬ DupBranch o → timeoutCount o ≤ 1 → xorInTimeout o = false →
         refBuild t = some (msgForward t src dst)) := by
   have ho' : t.out = some o := ho
-  unfold refBuild
-  refine ⟨?_, fun hi hd hc hx => ?_⟩
-  · split
-    · simp
-    · rw [ho']; exact (IO_014_checkOut_bare h).1
-  · rw [if_neg (not_not.mpr hi), ho']; exact (IO_014_checkOut_bare h).2 hd hc hx
+  refine ⟨fun hb => (IO_014_checkOut_bare h).1
+    ((checkOut_eq_none_iff t o).2 (((refBuild_eq_none_iff t).1 hb).2 o ho)), fun hi hd hc hx => ?_⟩
+  rw [refBuild_of_pre hi, ho']; exact (IO_014_checkOut_bare h).2 hd hc hx
 
 /-- The output-spec checks reject a forward from a place outside `ins`. -/
 theorem IO_014_checkOut_nonInput {N : Type} [DecidableEq N] [ToString N] {t : Trans N}
@@ -266,12 +264,9 @@ theorem IO_014_checkOut_nonInput {N : Type} [DecidableEq N] [ToString N] {t : Tr
 /-- The reference builder satisfies the third line. -/
 theorem IO_014_refBuild_nonInput {N : Type} [DecidableEq N] [ToString N] {t : Trans N}
     {o : Out N} {src : N} (ho : OutputSpec t = some o) (hs : src ∈ forwardSources o)
-    (hn : src ∉ inPlaces t) : refBuild t ≠ none := by
-  have ho' : t.out = some o := ho
-  unfold refBuild
-  split
-  · simp
-  · rw [ho']; exact IO_014_checkOut_nonInput hs hn
+    (hn : src ∉ inPlaces t) : refBuild t ≠ none := fun hb =>
+  IO_014_checkOut_nonInput hs hn
+    ((checkOut_eq_none_iff t o).2 (((refBuild_eq_none_iff t).1 hb).2 o ho))
 
 /-- The reference builder satisfies the fourth line. -/
 theorem IO_014_refBuild_wf {N : Type} [DecidableEq N] [ToString N] {t : Trans N}
@@ -630,12 +625,12 @@ theorem IO_014_mutant_dropNonInput_killed :
     · rw [ho']; exact (IO_014_checkOut_bare h).1
   · have ho' : t.out = some o := ho
     unfold IO_014_buildNoInputCheck
-    rw [if_neg (not_not.mpr hi), ho']
+    rw [if_neg (not_not.mpr hi.1), ho']
     exact (IO_014_checkOut_bare h).2 hd hc hx
   · have hr := IO_014_refBuild_wf hw
     unfold IO_014_buildNoInputCheck
-    unfold refBuild at hr
-    rw [if_neg (not_not.mpr hw.1)] at hr ⊢
+    rw [refBuild_of_pre hw.1] at hr
+    rw [if_neg (not_not.mpr hw.1.1)]
     cases ho : t.out with
     | none => rfl
     | some o =>

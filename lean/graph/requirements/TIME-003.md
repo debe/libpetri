@@ -18,10 +18,10 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Run.lean"]
-    n2195["Libpetri.Novel.TimedScg.Edge"]
-    n2466["Libpetri.Novel.TimedScg.succ_mem_succList"]
-    n2473["Libpetri.Novel.TimedScg.timed_run_sound"]
-    n2492["Libpetri.Novel.TimedScg.urgent_s0"]
+    n2196["Libpetri.Novel.TimedScg.Edge"]
+    n2467["Libpetri.Novel.TimedScg.succ_mem_succList"]
+    n2474["Libpetri.Novel.TimedScg.timed_run_sound"]
+    n2493["Libpetri.Novel.TimedScg.urgent_s0"]
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c14["📁 Libpetri/Novel/Dbm.lean (18 declarations, collapsed)"]
@@ -32,16 +32,16 @@ flowchart TD
   c63 --> c26
   c63 --> c65
   c65 --> c14
-  n2195 --> c63
-  n2466 --> c63
-  n2473 --> n2195
-  n2473 --> n2466
-  n2473 --> n2492
-  n2492 --> c63
+  n2196 --> c63
+  n2467 --> c63
+  n2474 --> n2196
+  n2474 --> n2467
+  n2474 --> n2493
+  n2493 --> c63
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2473 root
+  class n2474 root
   class c0,c14,c26,c63,c65 collapsed
 ```
 
@@ -52,36 +52,36 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2232["Libpetri.Novel.TimedScg.Timing"]
-    n2233["Libpetri.Novel.TimedScg.Timing.Valid"]
-    n2239["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2241["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2243["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2245["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2257["Libpetri.Novel.TimedScg.Timing.valid_deadline_iff"]
-    n2259["Libpetri.Novel.TimedScg.Timing.window"]
-    n2376["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2233["Libpetri.Novel.TimedScg.Timing"]
+    n2234["Libpetri.Novel.TimedScg.Timing.Valid"]
+    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2258["Libpetri.Novel.TimedScg.Timing.valid_deadline_iff"]
+    n2260["Libpetri.Novel.TimedScg.Timing.window"]
+    n2377["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n4332["Libpetri.Spec.time003_construction"]
+    n4561["Libpetri.Spec.time003_construction"]
   end
-  n2233 --> n2239
-  n2233 --> n2241
-  n2233 --> n2243
-  n2233 --> n2245
-  n2233 --> n2259
-  n2233 --> n2376
-  n2239 --> n2232
-  n2241 --> n2232
-  n2243 --> n2232
-  n2245 --> n2232
-  n2257 --> n2233
-  n2259 --> n2232
-  n4332 --> n2257
+  n2234 --> n2240
+  n2234 --> n2242
+  n2234 --> n2244
+  n2234 --> n2246
+  n2234 --> n2260
+  n2234 --> n2377
+  n2240 --> n2233
+  n2242 --> n2233
+  n2244 --> n2233
+  n2246 --> n2233
+  n2258 --> n2234
+  n2260 --> n2233
+  n4561 --> n2258
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4332 root
+  class n4561 root
 ```
 
 ### `Libpetri.Spec.time003_construction_examples`
@@ -91,38 +91,38 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2232["Libpetri.Novel.TimedScg.Timing"]
-    n2233["Libpetri.Novel.TimedScg.Timing.Valid"]
-    n2239["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2241["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2243["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2245["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2257["Libpetri.Novel.TimedScg.Timing.valid_deadline_iff"]
-    n2259["Libpetri.Novel.TimedScg.Timing.window"]
-    n2376["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2233["Libpetri.Novel.TimedScg.Timing"]
+    n2234["Libpetri.Novel.TimedScg.Timing.Valid"]
+    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2258["Libpetri.Novel.TimedScg.Timing.valid_deadline_iff"]
+    n2260["Libpetri.Novel.TimedScg.Timing.window"]
+    n2377["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n4332["Libpetri.Spec.time003_construction"]
-    n4333["Libpetri.Spec.time003_construction_examples"]
+    n4561["Libpetri.Spec.time003_construction"]
+    n4562["Libpetri.Spec.time003_construction_examples"]
   end
-  n2233 --> n2239
-  n2233 --> n2241
-  n2233 --> n2243
-  n2233 --> n2245
-  n2233 --> n2259
-  n2233 --> n2376
-  n2239 --> n2232
-  n2241 --> n2232
-  n2243 --> n2232
-  n2245 --> n2232
-  n2257 --> n2233
-  n2259 --> n2232
-  n4332 --> n2257
-  n4333 --> n4332
+  n2234 --> n2240
+  n2234 --> n2242
+  n2234 --> n2244
+  n2234 --> n2246
+  n2234 --> n2260
+  n2234 --> n2377
+  n2240 --> n2233
+  n2242 --> n2233
+  n2244 --> n2233
+  n2246 --> n2233
+  n2258 --> n2234
+  n2260 --> n2233
+  n4561 --> n2258
+  n4562 --> n4561
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4333 root
+  class n4562 root
 ```
 
 ### `Libpetri.Spec.time003_interval`
@@ -132,55 +132,55 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2232["Libpetri.Novel.TimedScg.Timing"]
-    n2239["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2241["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2242["Libpetri.Novel.TimedScg.Timing.earliest"]
-    n2243["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2244["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
-    n2245["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2246["Libpetri.Novel.TimedScg.Timing.latest"]
-    n2247["Libpetri.Novel.TimedScg.Timing.reapable"]
-    n2259["Libpetri.Novel.TimedScg.Timing.window"]
-    n2376["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2233["Libpetri.Novel.TimedScg.Timing"]
+    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2243["Libpetri.Novel.TimedScg.Timing.earliest"]
+    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2245["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
+    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2247["Libpetri.Novel.TimedScg.Timing.latest"]
+    n2248["Libpetri.Novel.TimedScg.Timing.reapable"]
+    n2260["Libpetri.Novel.TimedScg.Timing.window"]
+    n2377["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n4340["Libpetri.Spec.time003_interval"]
+    n4569["Libpetri.Spec.time003_interval"]
   end
-  n2239 --> n2232
-  n2241 --> n2232
-  n2242 --> n2239
-  n2242 --> n2241
-  n2242 --> n2243
-  n2242 --> n2245
-  n2242 --> n2259
-  n2243 --> n2232
-  n2244 --> n2239
-  n2244 --> n2241
-  n2244 --> n2243
-  n2244 --> n2245
-  n2244 --> n2259
-  n2245 --> n2232
-  n2246 --> n2239
-  n2246 --> n2241
-  n2246 --> n2243
-  n2246 --> n2245
-  n2246 --> n2259
-  n2246 --> n2376
-  n2247 --> n2239
-  n2247 --> n2241
-  n2247 --> n2243
-  n2247 --> n2245
-  n2247 --> n2259
-  n2259 --> n2232
-  n4340 --> n2242
-  n4340 --> n2244
-  n4340 --> n2246
-  n4340 --> n2247
+  n2240 --> n2233
+  n2242 --> n2233
+  n2243 --> n2240
+  n2243 --> n2242
+  n2243 --> n2244
+  n2243 --> n2246
+  n2243 --> n2260
+  n2244 --> n2233
+  n2245 --> n2240
+  n2245 --> n2242
+  n2245 --> n2244
+  n2245 --> n2246
+  n2245 --> n2260
+  n2246 --> n2233
+  n2247 --> n2240
+  n2247 --> n2242
+  n2247 --> n2244
+  n2247 --> n2246
+  n2247 --> n2260
+  n2247 --> n2377
+  n2248 --> n2240
+  n2248 --> n2242
+  n2248 --> n2244
+  n2248 --> n2246
+  n2248 --> n2260
+  n2260 --> n2233
+  n4569 --> n2243
+  n4569 --> n2245
+  n4569 --> n2247
+  n4569 --> n2248
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4340 root
+  class n4569 root
 ```
 
 Axioms used:

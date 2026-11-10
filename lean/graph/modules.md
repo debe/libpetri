@@ -74,92 +74,99 @@ flowchart TD
   f65["Libpetri/Novel/TimedScg/Zone.lean (33)"]
   f66["Libpetri/Novel/TransferRows.lean (15)"]
   f67["Libpetri/Priority.lean (27)"]
-  f68["Libpetri/Reference/Semantics.lean (50)"]
-  f69["Libpetri/Reference/Timed.lean (41)"]
-  f70["Libpetri/Refinement.lean (20)"]
-  f71["Libpetri/Refinement/Correspondence.lean (2)"]
-  f72["Libpetri/Refinement/Model.lean (39)"]
-  f73["Libpetri/Retrodict.lean (15)"]
-  f74["Libpetri/RetrodictExec.lean (11)"]
-  f75["Libpetri/Ring.lean (3)"]
-  f76["Libpetri/Ring/Core.lean (58)"]
-  f77["Libpetri/Ring/Grow.lean (40)"]
-  f78["Libpetri/Ring/Match.lean (38)"]
-  f79["Libpetri/RingArith.lean (9)"]
-  f80["Libpetri/Sched.lean (19)"]
-  f81["Libpetri/Semiflow.lean (40)"]
-  f82["Libpetri/Soundness.lean (32)"]
-  f83["Libpetri/Spec/Clashes.lean (38)"]
-  f84["Libpetri/Spec/ClashesTime.lean (51)"]
-  f85["Libpetri/Spec/Consistency.lean (2)"]
-  f86["Libpetri/Spec/ConsistencyTime.lean (4)"]
-  f87["Libpetri/Spec/Core.lean (16)"]
-  f88["Libpetri/Spec/Ears.lean (61)"]
-  f89["Libpetri/Spec/Glossary.lean (91)"]
-  f90["Libpetri/Spec/GlossaryTime.lean (59)"]
-  f91["Libpetri/Spec/Registry.lean (83)"]
-  f92["Libpetri/Spec/Req/CORE_022.lean (40)"]
-  f93["Libpetri/Spec/Req/CORE_030.lean (24)"]
-  f94["Libpetri/Spec/Req/CORE_032.lean (29)"]
-  f95["Libpetri/Spec/Req/CORE_033.lean (25)"]
-  f96["Libpetri/Spec/Req/CORE_034.lean (36)"]
-  f97["Libpetri/Spec/Req/CORE_035.lean (36)"]
-  f98["Libpetri/Spec/Req/CORE_036.lean (104)"]
-  f99["Libpetri/Spec/Req/EXEC_002.lean (79)"]
-  f100["Libpetri/Spec/Req/IO_001.lean (38)"]
-  f101["Libpetri/Spec/Req/IO_002.lean (28)"]
-  f102["Libpetri/Spec/Req/IO_003.lean (41)"]
-  f103["Libpetri/Spec/Req/IO_004.lean (38)"]
-  f104["Libpetri/Spec/Req/IO_005.lean (19)"]
-  f105["Libpetri/Spec/Req/IO_007.lean (22)"]
-  f106["Libpetri/Spec/Req/IO_010.lean (27)"]
-  f107["Libpetri/Spec/Req/IO_011.lean (55)"]
-  f108["Libpetri/Spec/Req/IO_012.lean (71)"]
-  f109["Libpetri/Spec/Req/IO_013.lean (77)"]
-  f110["Libpetri/Spec/Req/IO_014.lean (73)"]
-  f111["Libpetri/Spec/Req/IO_015.lean (47)"]
-  f112["Libpetri/Spec/Req/IO_016.lean (34)"]
-  f113["Libpetri/Spec/Req/TIME_001.lean (42)"]
-  f114["Libpetri/Spec/Req/TIME_002.lean (33)"]
-  f115["Libpetri/Spec/Req/TIME_003.lean (58)"]
-  f116["Libpetri/Spec/Req/TIME_004.lean (40)"]
-  f117["Libpetri/Spec/Req/TIME_005.lean (48)"]
-  f118["Libpetri/Spec/Req/TIME_006.lean (39)"]
-  f119["Libpetri/Spec/Req/TIME_010.lean (40)"]
-  f120["Libpetri/Spec/Req/TIME_011.lean (41)"]
-  f121["Libpetri/Spec/Req/TIME_012.lean (54)"]
-  f122["Libpetri/Spec/Req/TIME_013.lean (50)"]
-  f123["Libpetri/Spec/Req/TIME_015.lean (47)"]
-  f124["Libpetri/StateEquation.lean (27)"]
-  f125["Libpetri/Strengthening.lean (30)"]
-  f126["Libpetri/Strengthening/Hypotheses.lean (4)"]
-  f127["Libpetri/TimedCycle.lean (37)"]
-  f1 --> f77
+  f68["Libpetri/Reference/Queue.lean (56)"]
+  f69["Libpetri/Reference/Semantics.lean (50)"]
+  f70["Libpetri/Reference/Timed.lean (41)"]
+  f71["Libpetri/Refinement.lean (20)"]
+  f72["Libpetri/Refinement/Correspondence.lean (2)"]
+  f73["Libpetri/Refinement/Model.lean (39)"]
+  f74["Libpetri/Retrodict.lean (15)"]
+  f75["Libpetri/RetrodictExec.lean (11)"]
+  f76["Libpetri/Ring.lean (3)"]
+  f77["Libpetri/Ring/Core.lean (58)"]
+  f78["Libpetri/Ring/Grow.lean (40)"]
+  f79["Libpetri/Ring/Match.lean (38)"]
+  f80["Libpetri/RingArith.lean (9)"]
+  f81["Libpetri/Sched.lean (19)"]
+  f82["Libpetri/Semiflow.lean (40)"]
+  f83["Libpetri/Soundness.lean (32)"]
+  f84["Libpetri/Spec/Clashes.lean (38)"]
+  f85["Libpetri/Spec/ClashesTime.lean (51)"]
+  f86["Libpetri/Spec/Consistency.lean (2)"]
+  f87["Libpetri/Spec/ConsistencyQueue.lean (1)"]
+  f88["Libpetri/Spec/ConsistencyTime.lean (4)"]
+  f89["Libpetri/Spec/Core.lean (16)"]
+  f90["Libpetri/Spec/Ears.lean (61)"]
+  f91["Libpetri/Spec/Glossary.lean (101)"]
+  f92["Libpetri/Spec/GlossaryQueue.lean (20)"]
+  f93["Libpetri/Spec/GlossaryTime.lean (59)"]
+  f94["Libpetri/Spec/Registry.lean (83)"]
+  f95["Libpetri/Spec/Req/CORE_022.lean (40)"]
+  f96["Libpetri/Spec/Req/CORE_030.lean (24)"]
+  f97["Libpetri/Spec/Req/CORE_032.lean (26)"]
+  f98["Libpetri/Spec/Req/CORE_033.lean (25)"]
+  f99["Libpetri/Spec/Req/CORE_034.lean (36)"]
+  f100["Libpetri/Spec/Req/CORE_035.lean (36)"]
+  f101["Libpetri/Spec/Req/CORE_036.lean (104)"]
+  f102["Libpetri/Spec/Req/EXEC_002.lean (79)"]
+  f103["Libpetri/Spec/Req/EXEC_010.lean (34)"]
+  f104["Libpetri/Spec/Req/EXEC_012.lean (56)"]
+  f105["Libpetri/Spec/Req/EXEC_013.lean (22)"]
+  f106["Libpetri/Spec/Req/EXEC_020.lean (33)"]
+  f107["Libpetri/Spec/Req/IO_001.lean (38)"]
+  f108["Libpetri/Spec/Req/IO_002.lean (28)"]
+  f109["Libpetri/Spec/Req/IO_003.lean (41)"]
+  f110["Libpetri/Spec/Req/IO_004.lean (38)"]
+  f111["Libpetri/Spec/Req/IO_005.lean (19)"]
+  f112["Libpetri/Spec/Req/IO_007.lean (22)"]
+  f113["Libpetri/Spec/Req/IO_010.lean (27)"]
+  f114["Libpetri/Spec/Req/IO_011.lean (55)"]
+  f115["Libpetri/Spec/Req/IO_012.lean (71)"]
+  f116["Libpetri/Spec/Req/IO_013.lean (77)"]
+  f117["Libpetri/Spec/Req/IO_014.lean (73)"]
+  f118["Libpetri/Spec/Req/IO_015.lean (47)"]
+  f119["Libpetri/Spec/Req/IO_016.lean (34)"]
+  f120["Libpetri/Spec/Req/TIME_001.lean (42)"]
+  f121["Libpetri/Spec/Req/TIME_002.lean (33)"]
+  f122["Libpetri/Spec/Req/TIME_003.lean (58)"]
+  f123["Libpetri/Spec/Req/TIME_004.lean (40)"]
+  f124["Libpetri/Spec/Req/TIME_005.lean (48)"]
+  f125["Libpetri/Spec/Req/TIME_006.lean (39)"]
+  f126["Libpetri/Spec/Req/TIME_010.lean (40)"]
+  f127["Libpetri/Spec/Req/TIME_011.lean (41)"]
+  f128["Libpetri/Spec/Req/TIME_012.lean (54)"]
+  f129["Libpetri/Spec/Req/TIME_013.lean (50)"]
+  f130["Libpetri/Spec/Req/TIME_015.lean (47)"]
+  f131["Libpetri/StateEquation.lean (27)"]
+  f132["Libpetri/Strengthening.lean (30)"]
+  f133["Libpetri/Strengthening/Hypotheses.lean (4)"]
+  f134["Libpetri/TimedCycle.lean (37)"]
+  f1 --> f78
   f2 --> f1
   f2 --> f3
-  f3 --> f76
+  f3 --> f77
   f4 --> f2
-  f6 --> f82
+  f6 --> f83
   f7 --> f8
   f7 --> f10
   f8 --> f9
-  f9 --> f75
-  f9 --> f77
+  f9 --> f76
+  f9 --> f78
   f10 --> f1
   f10 --> f9
   f12 --> f26
-  f12 --> f124
-  f13 --> f82
+  f12 --> f131
+  f13 --> f83
   f15 --> f26
   f16 --> f20
   f17 --> f20
   f18 --> f19
   f18 --> f49
   f19 --> f26
-  f19 --> f73
+  f19 --> f74
   f20 --> f15
   f20 --> f18
-  f21 --> f124
+  f21 --> f131
   f22 --> f24
   f23 --> f15
   f23 --> f22
@@ -167,16 +174,16 @@ flowchart TD
   f24 --> f28
   f25 --> f23
   f25 --> f31
-  f26 --> f82
+  f26 --> f83
   f27 --> f26
-  f27 --> f126
+  f27 --> f133
   f28 --> f26
   f28 --> f29
-  f28 --> f125
+  f28 --> f132
   f30 --> f31
   f30 --> f49
-  f31 --> f125
-  f31 --> f127
+  f31 --> f132
+  f31 --> f134
   f32 --> f0
   f33 --> f6
   f33 --> f26
@@ -207,7 +214,7 @@ flowchart TD
   f49 --> f29
   f49 --> f50
   f49 --> f52
-  f49 --> f125
+  f49 --> f132
   f50 --> f51
   f51 --> f0
   f52 --> f26
@@ -217,7 +224,7 @@ flowchart TD
   f55 --> f13
   f55 --> f30
   f56 --> f15
-  f57 --> f125
+  f57 --> f132
   f58 --> f62
   f58 --> f64
   f59 --> f62
@@ -233,118 +240,145 @@ flowchart TD
   f65 --> f14
   f66 --> f15
   f67 --> f0
-  f68 --> f52
-  f69 --> f64
-  f69 --> f68
-  f70 --> f71
+  f68 --> f69
+  f68 --> f73
+  f69 --> f52
+  f70 --> f64
+  f70 --> f69
   f71 --> f72
-  f72 --> f4
-  f73 --> f82
-  f74 --> f2
-  f74 --> f80
-  f75 --> f78
-  f76 --> f0
+  f72 --> f73
+  f73 --> f4
+  f74 --> f83
+  f75 --> f2
+  f75 --> f81
   f76 --> f79
-  f77 --> f76
-  f78 --> f76
-  f81 --> f125
-  f82 --> f0
-  f83 --> f98
-  f83 --> f106
-  f83 --> f107
-  f83 --> f108
-  f83 --> f111
-  f84 --> f99
-  f85 --> f87
-  f85 --> f92
-  f85 --> f93
-  f85 --> f94
-  f85 --> f95
-  f85 --> f96
-  f85 --> f97
-  f85 --> f98
-  f85 --> f100
-  f85 --> f101
+  f77 --> f0
+  f77 --> f80
+  f78 --> f77
+  f79 --> f77
+  f82 --> f132
+  f83 --> f0
+  f84 --> f101
+  f84 --> f113
+  f84 --> f114
+  f84 --> f115
+  f84 --> f118
   f85 --> f102
-  f85 --> f103
-  f85 --> f104
-  f85 --> f105
-  f85 --> f106
-  f85 --> f107
-  f85 --> f108
-  f85 --> f109
-  f85 --> f110
-  f85 --> f111
-  f85 --> f112
-  f86 --> f85
+  f86 --> f89
+  f86 --> f95
+  f86 --> f96
+  f86 --> f97
+  f86 --> f98
   f86 --> f99
+  f86 --> f100
+  f86 --> f101
+  f86 --> f107
+  f86 --> f108
+  f86 --> f109
+  f86 --> f110
+  f86 --> f111
+  f86 --> f112
   f86 --> f113
   f86 --> f114
   f86 --> f115
   f86 --> f116
   f86 --> f117
   f86 --> f118
-  f86 --> f120
-  f86 --> f121
-  f86 --> f122
-  f86 --> f123
-  f87 --> f88
-  f87 --> f89
-  f89 --> f68
-  f90 --> f69
-  f90 --> f88
-  f90 --> f89
-  f92 --> f88
-  f92 --> f89
-  f93 --> f88
-  f93 --> f89
-  f94 --> f90
-  f95 --> f88
-  f95 --> f89
-  f96 --> f88
-  f96 --> f89
-  f97 --> f88
-  f97 --> f89
-  f98 --> f88
-  f98 --> f89
-  f99 --> f74
+  f86 --> f119
+  f87 --> f86
+  f87 --> f102
+  f87 --> f103
+  f87 --> f104
+  f87 --> f105
+  f87 --> f106
+  f87 --> f120
+  f87 --> f121
+  f87 --> f122
+  f87 --> f123
+  f87 --> f124
+  f87 --> f125
+  f87 --> f127
+  f87 --> f128
+  f87 --> f129
+  f87 --> f130
+  f88 --> f86
+  f88 --> f102
+  f88 --> f120
+  f88 --> f121
+  f88 --> f122
+  f88 --> f123
+  f88 --> f124
+  f88 --> f125
+  f88 --> f127
+  f88 --> f128
+  f88 --> f129
+  f88 --> f130
+  f89 --> f90
+  f89 --> f91
+  f91 --> f68
+  f92 --> f91
+  f93 --> f70
+  f93 --> f90
+  f93 --> f91
+  f95 --> f90
+  f95 --> f91
+  f96 --> f90
+  f96 --> f91
+  f97 --> f90
+  f97 --> f91
+  f98 --> f90
+  f98 --> f91
   f99 --> f90
-  f100 --> f88
-  f100 --> f89
-  f101 --> f88
-  f101 --> f89
-  f102 --> f88
-  f102 --> f89
-  f103 --> f88
-  f103 --> f89
-  f104 --> f88
-  f104 --> f89
-  f105 --> f89
-  f106 --> f88
-  f106 --> f89
-  f107 --> f88
-  f107 --> f89
-  f108 --> f88
-  f108 --> f89
-  f109 --> f88
-  f109 --> f89
-  f110 --> f88
-  f110 --> f89
-  f111 --> f89
-  f112 --> f89
+  f99 --> f91
+  f100 --> f90
+  f100 --> f91
+  f101 --> f90
+  f101 --> f91
+  f102 --> f75
+  f102 --> f93
+  f103 --> f90
+  f103 --> f92
+  f104 --> f90
+  f104 --> f92
+  f105 --> f90
+  f105 --> f92
+  f106 --> f92
+  f107 --> f90
+  f107 --> f91
+  f108 --> f90
+  f108 --> f91
+  f109 --> f90
+  f109 --> f91
+  f110 --> f90
+  f110 --> f91
+  f111 --> f90
+  f111 --> f91
+  f112 --> f91
   f113 --> f90
+  f113 --> f91
   f114 --> f90
+  f114 --> f91
   f115 --> f90
-  f116 --> f119
-  f117 --> f119
-  f118 --> f119
-  f119 --> f90
-  f120 --> f119
-  f121 --> f90
-  f122 --> f119
-  f123 --> f119
-  f124 --> f81
-  f125 --> f73
+  f115 --> f91
+  f116 --> f90
+  f116 --> f91
+  f117 --> f90
+  f117 --> f91
+  f118 --> f91
+  f119 --> f91
+  f120 --> f93
+  f121 --> f93
+  f122 --> f93
+  f123 --> f126
+  f124 --> f126
   f125 --> f126
-  f126 --> f6
+  f126 --> f93
+  f127 --> f126
+  f128 --> f93
+  f129 --> f126
+  f130 --> f126
+  f131 --> f82
+  f132 --> f74
+  f132 --> f133
+  f133 --> f6
 ```

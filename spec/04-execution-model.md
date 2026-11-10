@@ -116,15 +116,22 @@ firing whose output is drained, reset or inhibited as two steps for that reason 
 #### EXEC-010: FIFO Token Consumption
 
 **Priority:** MUST
+**Kind:** B
 
 When a transition fires, it consumes tokens from the oldest-first (FIFO) end of each input place's queue. The number of tokens consumed is determined by the input cardinality's `consumptionCount(available)`.
+
+*When* a transition fires, it *shall* consume from each of its input places that is not a correlated input of its match specification ([NU-020]) the oldest tokens the place holds, as many as the consumption count of the input arc.
+
+*When* a transition fires, its action *shall* receive the tokens consumed from each input place that is not a correlated input of its match specification in queue order, the oldest first.
+
+A correlated input of a ν-net match specification is the one exception to oldest-first consumption: it takes the matched tokens of the chosen name, oldest first among the tokens of that name, so it can pass over an older token of another name ([NU-020]). Its non-correlated inputs consume as above.
 
 **Acceptance Criteria:**
 1. Tokens added in order A, B, C; One consumes A.
 2. Exactly(2) consumes A, B.
 3. All consumes A, B, C.
 
-**Depends on:** [CORE-013], [IO-007]
+**Depends on:** [CORE-013], [IO-007], [NU-020]
 **Test derivation:** Add tokens with identifiable values; fire transition; verify consumed tokens match FIFO order.
 
 ---
@@ -147,22 +154,51 @@ Retained as a tombstone for traceability; excluded from the active requirement c
 #### EXEC-012: Read Arc Peek
 
 **Priority:** MUST
+**Kind:** B
 
 When a transition fires, read arc values are provided to the action without consuming the tokens. The oldest token in the read place is peeked.
 
+*When* a transition fires, its action *shall* receive, for each of its read places, the oldest token the place holds.
+
+*When* a transition fires, each of its read places that is not one of its reset places *shall* end the firing holding the tokens it held before the firing, in the same queue order, followed by the tokens the firing deposits there.
+
+*If* a transition declares an input arc and a read arc on the same place, *then* building the transition *shall* fail with
+
+```
+Transition '<t>' declares an input arc and a read arc on place '<p>'. A read of a place the same firing consumes from has no coherent semantics and is rejected (EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to the action.
+```
+
+The message is the same, byte for byte, in every implementation. The read would peek the place after the firing's own consumption ([EXEC-013] AC4), which can leave it empty although the transition was enabled, so no reading of the pair is coherent. "The same place" is the implementation's own `Place` equality, as for [CORE-030] ([CORE-002]; name-and-type in Java, name-only in TypeScript and Rust).
+
+The check runs when the transition is built, on every construction path, as the check of [CORE-030] does: the transitions that channel composition merges ([MOD-021]), that instantiation rewrites onto host places ([MOD-020]) and that fusion rewrites when the net is built ([MOD-061]) all pass through the transition builder. It runs after every input-arc check ([CORE-030], [IO-002], [IO-004]) and before the timing check ([TIME-001]) and the output-spec checks ([IO-011]–[IO-014]). It walks the read arcs in declaration order and names the place of the first read arc whose place is an input place of the transition.
+
 **Acceptance Criteria:**
 1. Read place has tokens A, B; action receives A; both A and B remain after firing.
+2. A transition `t` with a `one()` input arc on `p` and a read arc on `p` → building `t` fails with the message above, `<t>` = `t` and `<p>` = `p`. With `all()`, `exactly(2)` or `atLeast(1)` in place of `one()` it fails the same way.
+3. A transition `t` with input arcs on `a` and `b` and read arcs declared on `b`, then `a` → the message names `b`. A transition with two input arcs on `p` and a read arc on `p` → the [CORE-030] message, not this one.
+4. A transition with an input arc on `a` and a read arc on `b`, or a read arc and a reset arc on the same place, builds.
 
-**Depends on:** [CORE-032]
-**Test derivation:** Read place with 2 tokens; fire transition; verify both tokens remain; verify action received first.
+**Depends on:** [CORE-032], [CORE-030]
+**Test derivation:** Read place with 2 tokens; fire transition; verify both tokens remain; verify action received first. Build each rejected transition of AC2 and AC3 and verify the exact message; build each transition of AC4 and verify it builds.
 
 ---
 
 #### EXEC-013: Reset Arc Execution
 
 **Priority:** MUST
+**Kind:** B
 
 When a transition fires, all tokens are removed from each reset place. This happens during the firing step, before the action executes. Like input consumption, the drain lands in the intermediate marking, so it restarts the clocks of transitions it disables there (see [TIME-012]).
+
+*When* a transition fires, it *shall* drain each of its reset places ([CORE-034]) before its action starts.
+
+*When* a transition fires, it *shall* consume from its input places first, then peek its read places, then drain its reset places.
+
+*When* a transition with a read arc and a reset arc on the same place fires, its action *shall* receive as the read token the oldest token the place held before the drain.
+
+*If* a reset place of a firing transition is unmarked, *then* the drain *shall* remove nothing and the firing *shall* proceed.
+
+A token a synchronous action deposited earlier in the same firing pass survives the drain ([EXEC-003] AC5).
 
 **Acceptance Criteria:**
 1. Reset place with 5 tokens → all removed.
@@ -174,7 +210,7 @@ When a transition fires, all tokens are removed from each reset place. This happ
    overall in-firing order is: input consumption, then read peeks, then reset
    draining.
 
-**Depends on:** [CORE-034], [EXEC-012], [CORE-032]
+**Depends on:** [CORE-034], [EXEC-012], [CORE-032], [EXEC-003]
 **Test derivation:** Transition with reset on place with 3 tokens; verify all removed; verify clock restart for affected transitions.
 
 ---
@@ -184,31 +220,53 @@ When a transition fires, all tokens are removed from each reset place. This happ
 #### EXEC-020: Output Token Deposition
 
 **Priority:** MUST
+**Kind:** B
 
-After an action completes, the executor deposits produced tokens into the marking according to the output specification. Each token is added to the end of the target place's FIFO queue.
+After an action completes and the executor admits the completion, the executor deposits produced tokens into the marking according to the output specification, unless output validation rejects them ([EXEC-021]). Each token is added to the end of the target place's FIFO queue, in the order the action produced it.
+
+A completion is an action that returned normally; an action that throws or returns an error fails instead ([EXEC-030]). The executor **admits** a completion when it processes it: in step 1 of a cycle, or inside the firing pass for a synchronous action ([EXEC-001]). It never admits the completion of a firing that ended with its timeout outcome ([EXEC-022], [IO-013]), that a stop on a terminal place abandoned ([EXEC-042]) or that an immediate termination abandoned ([ENV-015]). A close ([ENV-013]) waits for in-flight actions and admits their completions.
+
+*When* the executor admits the completion of an action and output validation does not reject the produced tokens ([EXEC-021], [CONC-026]), the executor *shall* add each produced token at the tail of its place's queue, in the order the action produced the tokens.
+
+*If* the completion of an action is not admitted, or output validation rejects the produced tokens, *then* the executor *shall not* deposit any token the action produced at completion.
+
+Tokens an action published before it completed ([IO-015], mid-action publication) are deposited when the executor processes the publication, which can be after the completion's own tokens. They are not deposited again, and once deposited they stay in the marking, whatever happens to the completion. A publication still queued when a terminal place stops the run ([EXEC-042]) is discarded.
 
 **Acceptance Criteria:**
 1. Action produces token with value V to place P; V appears at end of P's queue.
 2. Multiple tokens to same place are added in order.
+3. A completion that is not admitted (the firing ended with its timeout outcome, or a terminal place stopped the run while the action was in flight) deposits none of the action's tokens.
+4. A completion whose produced tokens fail output validation deposits none of them ([EXEC-021]).
 
-**Test derivation:** Action produces 3 tokens to P; verify all 3 appear in order.
+**Depends on:** [EXEC-021], [EXEC-022], [EXEC-042], [IO-015]
+**Test derivation:** Action produces 3 tokens to P; verify all 3 appear in order. Action with a timeout budget that writes to P and then outlives the budget; verify P receives nothing from the action. Action that writes to a place outside its chosen output branch; verify nothing is deposited.
 
 ---
 
 #### EXEC-021: Output Spec Validation
 
 **Priority:** MUST
+**Kind:** B
 
-After depositing tokens, the executor validates that the produced tokens satisfy the declared output specification (see [IO-015]). An executor with the validation skip of [CONC-026] enabled does not validate.
+Before depositing tokens, the executor validates that the produced tokens satisfy the declared output specification (see [IO-015]). An executor with the validation skip of [CONC-026] enabled does not validate.
+
+*When* an executor with output validation enabled admits the completion of an action, it *shall* validate the produced tokens against the transition's output spec ([IO-015]) before it deposits any of them.
+
+*If* the produced tokens of an admitted completion fail output validation, *then* the executor *shall* deposit none of them and *shall* emit a TransitionFailed event ([EVT-008]).
+
+*If* the produced tokens of an admitted completion fail output validation, *then* the executor *shall not* restore the tokens the firing consumed and *shall not* remove the tokens the action published before it completed ([IO-015]).
+
+The timeout outcome is not a completion of the action: [EXEC-022] and [IO-013] govern its deposit.
 
 **Acceptance Criteria:**
 1. And: all children received tokens → valid.
 2. Xor: exactly one child is selected; overlapping branches resolve without a tie-break, because [IO-015] requires the selected assignment's claim to *equal* the produced set, not merely be satisfied by it.
 3. Violation → failure event emitted.
 4. Validation is applied by every executor backend a language ships, not only the reference one.
+5. Violation → the event is TransitionFailed, no produced token is deposited, the consumed tokens are not restored ([EXEC-030]), and tokens the action published mid-action stay in the marking.
 
-**Depends on:** [IO-011], [IO-012], [IO-015]
-**Test derivation:** Xor output with tokens to 2 branches → violation event.
+**Depends on:** [IO-011], [IO-012], [IO-015], [EVT-008], [EXEC-030]
+**Test derivation:** Xor output with tokens to 2 branches → violation event; verify neither branch place received a token.
 
 ---
 

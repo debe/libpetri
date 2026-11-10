@@ -269,7 +269,7 @@ ports 'a' and 'b' of instance 's' are both bound to host place 'X'; transition '
 
 and not with the generic [IO-011] rejection the rebuild would otherwise raise. A branch is taken after flattening nested `And`s, as in [IO-011]. Two ports that land in **different** `Xor` alternatives are not a port-binding collision, because each alternative still names the place once. *If* the substitution makes two distinct alternatives claim the same set of places, such as `Xor(a, b)` becoming `Xor(X, X)`, *then* rebuilding the transition *shall* fail with the [IO-012] ambiguity message, which names the transition, the two output branches and the places.
 
-Other effects of binding two ports to one place (an input and a read arc, an input and an output, an input and an inhibitor) are unchanged: they are legal arcs with their usual semantics. The checks apply wherever [MOD-020] bindings are processed, so the auto-bound form of [MOD-024] is covered too.
+Other effects of binding two ports to one place (an input and an output, an input and an inhibitor) are unchanged: they are legal arcs with their usual semantics. Binding an input port and a read port of one transition to one place makes the rebuilt transition fail with the [EXEC-012] message. The checks apply wherever [MOD-020] bindings are processed, so the auto-bound form of [MOD-024] is covered too.
 
 **Acceptance Criteria:**
 1. Compose an instance with binding `port "out" -> callerPlace P`; verify that every arc in the renamed body that referenced the port's renamed place now references `P` directly.
@@ -309,7 +309,7 @@ When a composition binding maps an interface channel to a caller-side `Transitio
 - (a) **Same arc type with same cardinality/weight**: collapse to a single arc.
 - (b) **Same arc type with a defined merge**: `Input` arcs on one place are reconciled by the canonical merge table below. `Read`, `Inhibitor` and `Reset` arcs carry no cardinality dimension, so a same-type pair on one place collapses per rule (a). Output is one spec tree per transition rather than a per-place arc: the two sides' trees combine under a single outer `And` (clause 1), and a one-sided spec carries through unchanged.
 - (c) **Same arc type with no defined merge**: an `Input` pairing absent from the table MUST be rejected at compose time with the diagnostic below.
-- (d) **Different arc types** (e.g. one side declares an `Input` arc on `P` and the other declares a `Reset` arc on `P`, or `Read` + `Inhibitor`, etc.): the merge MUST be rejected at compose time with an error identifying both conflicting arcs by transition side, place, and arc type. Same-type arcs from the two sides pair up under rules (a)/(b) before this rule applies, so two sides declaring the *same* set of arc types on a place (e.g. `Input` + `Read` on each side) are not a conflict.
+- (d) **Different arc types** (e.g. one side declares an `Input` arc on `P` and the other declares a `Reset` arc on `P`, or `Read` + `Inhibitor`, etc.): the merge MUST be rejected at compose time with an error identifying both conflicting arcs by transition side, place, and arc type. Same-type arcs from the two sides pair up under rules (a)/(b) before this rule applies, so two sides declaring the *same* set of arc types on a place (e.g. `Read` + `Reset` on each side) are not a conflict.
 
 **Canonical input-arc merge table.** This is the single normative statement of rule (b); [MOD-061] and [CORE-030] refer here rather than restating it. The table is symmetric.
 

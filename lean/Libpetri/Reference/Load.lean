@@ -8,7 +8,9 @@ Not verified: this is the front end that turns a net file into `Net String`, a c
 marking and the properties. It refuses, rather than guesses:
 
 * **invalid** nets, as the builders would reject them: two input arcs on one place ([CORE-030]),
-  `exactly` / `atLeast` with `n < 1` ([IO-002], [IO-004]), an `and` without children or a `xor`
+  `exactly` / `atLeast` with `n < 1` ([IO-002], [IO-004]), an input arc and a read arc on one
+  place ([EXEC-012], ruling D15, with the builders' message after `invalid: `, checked after the
+  input-arc checks and before the timing and output-spec checks), an `and` without children or a `xor`
   with fewer than two ([IO-011], [IO-012]), a timeout with `afterMs ≤ 0` ([IO-013]), two
   transitions with one name, and the build-time output-spec checks, in the builders' order with
   the first failure reported ([IO-011]–[IO-014]): a branch naming a place twice ([IO-011]), more
@@ -273,9 +275,6 @@ def parseTrans (j : Json) : Err (Trans String) := do
   onlyKeys j ["name", "inputs", "inhibitors", "reads", "resets", "output", "priority", "timing"]
     "transition"
   let name ← str (← field j "name") "transition name"
-  let reapable ← match optField j "timing" with
-    | some tm => parseTiming name tm
-    | none => pure false
   let inputs ← match optField j "inputs" with
     | some a => do (← arr a "inputs").mapM parseInput
     | none => pure []
@@ -294,6 +293,16 @@ def parseTrans (j : Json) : Err (Trans String) := do
   let places := inputs.map NInSpec.place
   if !places.Nodup then
     fail s!"invalid: '{name}' declares two input arcs on one place (CORE-030)"
+  -- EXEC-012 (ruling D15): after the input-arc checks, before the timing and output-spec checks;
+  -- the first read arc, in declaration order, whose place is an input place is named.
+  if let some p := rds.find? (fun r => places.contains r) then
+    fail s!"invalid: Transition '{name}' declares an input arc and a read arc on place '{p}'. \
+      A read of a place the same firing consumes from has no coherent semantics and is rejected \
+      (EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to the \
+      action."
+  let reapable ← match optField j "timing" with
+    | some tm => parseTiming name tm
+    | none => pure false
   -- The build-time output-spec checks, in the builders' order; the first failure wins.
   if let some o := out then
     if let some oj := optField j "output" then
@@ -448,6 +457,49 @@ private def xorMsg : String :=
   some "invalid: output spec of transition 't' has 2 Timeout nodes; an output spec has at most one, nested or not (IO-013)"
 #guard buildError (xor_ [p "A", tmo (p "B")]) == none
 #guard buildError (tmo (and_ [p "A", fwd "i" "B"])) == none
+
+/-! ### The input-and-read refusal ([EXEC-012], ruling D15)
+
+`transError t` is the refusal of the transition `t` (JSON), or `none` when it loads. The check
+runs after the input-arc checks and before the timing and output-spec checks, and names the first
+read arc, in declaration order, whose place is an input place. -/
+
+private def transError (t : String) : Option String :=
+  match Json.parse t with
+  | .error e => some s!"json: {e}"
+  | .ok j => match parseTrans j with
+    | .error e => some e
+    | .ok _ => none
+
+private def inp (k pl : String) : String := s!"\{\"kind\": \"{k}\", \"place\": \"{pl}\"}"
+private def inpN (k pl : String) (n : Nat) : String :=
+  s!"\{\"kind\": \"{k}\", \"place\": \"{pl}\", \"n\": {n}}"
+private def strList (xs : List String) : String := "[" ++ ", ".intercalate (xs.map (s!"\"{·}\"")) ++ "]"
+private def tr (ins : List String) (rds rst : List String) (extra : String := "") : String :=
+  s!"\{\"name\": \"t\", \"inputs\": [{", ".intercalate ins}], \"reads\": {strList rds}, \"resets\": {strList rst}{extra}}"
+
+private def irMsg (pl : String) : String :=
+  s!"invalid: Transition 't' declares an input arc and a read arc on place '{pl}'. A read of a place the same firing consumes from has no coherent semantics and is rejected (EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to the action."
+
+-- AC2: one(), all(), exactly(2), atLeast(1) with a read on the same place.
+#guard transError (tr [inp "one" "p"] ["p"] []) == some (irMsg "p")
+#guard transError (tr [inp "all" "p"] ["p"] []) == some (irMsg "p")
+#guard transError (tr [inpN "exactly" "p" 2] ["p"] []) == some (irMsg "p")
+#guard transError (tr [inpN "atLeast" "p" 1] ["p"] []) == some (irMsg "p")
+-- AC3: reads declared b then a name b; two inputs on p and a read on p give CORE-030's message.
+#guard transError (tr [inp "one" "a", inp "one" "b"] ["b", "a"] []) == some (irMsg "b")
+#guard transError (tr [inp "one" "p", inp "one" "p"] ["p"] []) ==
+  some "invalid: 't' declares two input arcs on one place (CORE-030)"
+-- After the count checks: exactly(0) with a read on the same place gives IO-002's message.
+#guard transError (tr [inpN "exactly" "p" 0] ["p"] []) == some "invalid: exactly(n) needs n ≥ 1 (IO-002)"
+-- Before the timing and output-spec checks.
+#guard transError (tr [inp "one" "p"] ["p"] [] ", \"timing\": {\"kind\": \"deadline\", \"latestMs\": 0}") ==
+  some (irMsg "p")
+#guard transError (tr [inp "one" "p"] ["p"] [] s!", \"output\": {and_ [p "A", p "A"]}") ==
+  some (irMsg "p")
+-- AC4: input a with read b, and a read and a reset on one place, both load.
+#guard transError (tr [inp "one" "a"] ["b"] []) == none
+#guard transError (tr [] ["p"] ["p"]) == none
 
 /-! ### The timing refusals at the maximum duration
 

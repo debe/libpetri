@@ -77,8 +77,8 @@ impl StubbornSets {
                 tst.insert(arc.place.name().to_string());
                 enabling.push(Condition { place: arc.place.name().to_string(), need: 1, inhibitor: false });
             }
-            // Stable: an input and a read on one place keep the input first. String
-            // order is code-point order.
+            // No place carries an input and a read (EXEC-012). String order is
+            // code-point order.
             enabling.sort_by(|x, y| x.place.cmp(&y.place));
             let inhibitors: BTreeSet<String> =
                 t.inhibitors().iter().map(|a| a.place.name().to_string()).collect();

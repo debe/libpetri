@@ -16,49 +16,49 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n3582["Libpetri.Spec.Time001.decValid"]
-    n3586["Libpetri.Spec.TimingContract"]
-    n3589["Libpetri.Spec.TimingContract.earliest"]
-    n3593["Libpetri.Spec.TimingContract.mk"]
-    n4242["Libpetri.Spec.refTimingFactory"]
-    n4244["Libpetri.Spec.refTimingMsg"]
-    n4245["Libpetri.Spec.refTimingQ"]
-    n4293["Libpetri.Spec.time001_fire_after_earliest"]
+    n3707["Libpetri.Spec.Time001.decValid"]
+    n3711["Libpetri.Spec.TimingContract"]
+    n3714["Libpetri.Spec.TimingContract.earliest"]
+    n3718["Libpetri.Spec.TimingContract.mk"]
+    n4470["Libpetri.Spec.refTimingFactory"]
+    n4472["Libpetri.Spec.refTimingMsg"]
+    n4473["Libpetri.Spec.refTimingQ"]
+    n4522["Libpetri.Spec.time001_fire_after_earliest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c26["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c52["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
   c64["📁 Libpetri/Novel/TimedScg/Timing.lean (12 declarations, collapsed)"]
-  c68["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
-  c89["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c90["📁 Libpetri/Spec/GlossaryTime.lean (13 declarations, collapsed)"]
+  c69["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c70["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
+  c91["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c93["📁 Libpetri/Spec/GlossaryTime.lean (13 declarations, collapsed)"]
   c52 --> c0
-  c68 --> c26
-  c68 --> c52
-  c69 --> c64
-  c69 --> c68
-  c89 --> c68
-  c90 --> c69
-  c90 --> c89
-  n3582 --> c64
-  n3589 --> c64
-  n3589 --> n3586
-  n3593 --> c64
-  n3593 --> n3586
-  n4242 --> n3582
-  n4242 --> n4244
-  n4244 --> c64
-  n4245 --> n3593
-  n4245 --> n4242
-  n4293 --> c90
-  n4293 --> n3589
-  n4293 --> n4245
+  c69 --> c26
+  c69 --> c52
+  c70 --> c64
+  c70 --> c69
+  c91 --> c69
+  c93 --> c70
+  c93 --> c91
+  n3707 --> c64
+  n3714 --> c64
+  n3714 --> n3711
+  n3718 --> c64
+  n3718 --> n3711
+  n4470 --> n3707
+  n4470 --> n4472
+  n4472 --> c64
+  n4473 --> n3718
+  n4473 --> n4470
+  n4522 --> c93
+  n4522 --> n3714
+  n4522 --> n4473
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4293 root
-  class c0,c26,c52,c64,c68,c69,c89,c90 collapsed
+  class n4522 root
+  class c0,c26,c52,c64,c69,c70,c91,c93 collapsed
 ```
 
 ### `Libpetri.collect_ready_general_refines`
@@ -70,36 +70,36 @@ flowchart TD
   subgraph g0["Libpetri/Sched.lean"]
     n84["Libpetri.LevelBlocks"]
     n87["Libpetri.LevelBlocks.mk"]
-    n2812["Libpetri.SchedKey"]
-    n2813["Libpetri.SchedKey.clock"]
-    n2814["Libpetri.SchedKey.lt"]
-    n2815["🔒 Libpetri.SchedKey.lt_asymm"]
-    n2819["Libpetri.SchedKey.prio"]
-    n4754["🔒 Libpetri.collect_ready_general_refines"]
-    n4815["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n4891["🔒 Libpetri.levelBlocks_sorted"]
-    n4916["🔒 Libpetri.pairwise_imp_mem"]
+    n2867["Libpetri.SchedKey"]
+    n2868["Libpetri.SchedKey.clock"]
+    n2869["Libpetri.SchedKey.lt"]
+    n2870["🔒 Libpetri.SchedKey.lt_asymm"]
+    n2874["Libpetri.SchedKey.prio"]
+    n4983["🔒 Libpetri.collect_ready_general_refines"]
+    n5044["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n5120["🔒 Libpetri.levelBlocks_sorted"]
+    n5145["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n84 --> n2812
+  n84 --> n2867
   n87 --> n84
-  n87 --> n2813
-  n87 --> n2819
-  n2813 --> n2812
-  n2814 --> n2813
-  n2814 --> n2819
-  n2815 --> n2814
-  n2819 --> n2812
-  n4754 --> n4815
-  n4754 --> n4891
-  n4815 --> n2815
-  n4891 --> n87
-  n4891 --> n2814
-  n4891 --> n4916
+  n87 --> n2868
+  n87 --> n2874
+  n2868 --> n2867
+  n2869 --> n2868
+  n2869 --> n2874
+  n2870 --> n2869
+  n2874 --> n2867
+  n4983 --> n5044
+  n4983 --> n5120
+  n5044 --> n2870
+  n5120 --> n87
+  n5120 --> n2869
+  n5120 --> n5145
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4754 root
-  class n2815,n4754,n4815,n4891,n4916 locked
+  class n4983 root
+  class n2870,n4983,n5044,n5120,n5145 locked
 ```
 
 Axioms used:

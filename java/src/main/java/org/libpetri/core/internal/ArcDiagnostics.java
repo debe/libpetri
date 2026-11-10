@@ -45,6 +45,14 @@ public final class ArcDiagnostics {
             + "arc with exactly(n) / atLeast(n) instead.").formatted(transition, place);
     }
 
+    /** The [EXEC-012] rejection text: an input arc and a read arc on one place. */
+    public static String inputAndReadMessage(String transition, String place) {
+        return ("Transition '%s' declares an input arc and a read arc on place '%s'. A read of a "
+            + "place the same firing consumes from has no coherent semantics and is rejected "
+            + "(EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to "
+            + "the action.").formatted(transition, place);
+    }
+
     /** The [IO-011] rejection text: a place named twice in one AND branch of an output spec. */
     public static String duplicateOutputMessage(String transition, String place) {
         return ("output spec of transition '%s' names place '%s' twice in one AND branch; outputs are "

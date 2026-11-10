@@ -37,62 +37,62 @@ flowchart TD
     n1850["Libpetri.Novel.Seam.enabledNA"]
   end
   subgraph g2["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2232["Libpetri.Novel.TimedScg.Timing"]
-    n2239["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2241["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2242["Libpetri.Novel.TimedScg.Timing.earliest"]
-    n2243["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2245["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2259["Libpetri.Novel.TimedScg.Timing.window"]
+    n2233["Libpetri.Novel.TimedScg.Timing"]
+    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2243["Libpetri.Novel.TimedScg.Timing.earliest"]
+    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2260["Libpetri.Novel.TimedScg.Timing.window"]
   end
   subgraph g3["Libpetri/Reference/Semantics.lean"]
-    n2711["Libpetri.Reference.Net"]
-    n2714["Libpetri.Reference.Net.transitions"]
-    n2773["Libpetri.Reference.Trans"]
-    n2774["Libpetri.Reference.Trans.core"]
+    n2712["Libpetri.Reference.Net"]
+    n2715["Libpetri.Reference.Net.transitions"]
+    n2783["Libpetri.Reference.Trans"]
+    n2784["Libpetri.Reference.Trans.core"]
   end
   subgraph g4["Libpetri/Reference/Timed.lean"]
-    n2756["Libpetri.Reference.TLbl"]
-    n2757["Libpetri.Reference.TLbl.delay"]
-    n2758["Libpetri.Reference.TLbl.fire"]
-    n2759["Libpetri.Reference.TLbl.reap"]
-    n2760["Libpetri.Reference.TSt"]
-    n2764["Libpetri.Reference.TSt.m"]
-    n2766["Libpetri.Reference.TSt.now"]
-    n2767["Libpetri.Reference.TSt.stamp"]
-    n2768["Libpetri.Reference.TimedNet"]
-    n2770["Libpetri.Reference.TimedNet.net"]
-    n2771["Libpetri.Reference.TimedNet.timing"]
+    n2766["Libpetri.Reference.TLbl"]
+    n2767["Libpetri.Reference.TLbl.delay"]
+    n2768["Libpetri.Reference.TLbl.fire"]
+    n2769["Libpetri.Reference.TLbl.reap"]
+    n2770["Libpetri.Reference.TSt"]
+    n2774["Libpetri.Reference.TSt.m"]
+    n2776["Libpetri.Reference.TSt.now"]
+    n2777["Libpetri.Reference.TSt.stamp"]
+    n2778["Libpetri.Reference.TimedNet"]
+    n2780["Libpetri.Reference.TimedNet.net"]
+    n2781["Libpetri.Reference.TimedNet.timing"]
   end
   subgraph g5["Libpetri/Spec/Ears.lean"]
-    n3422["Libpetri.Spec.StepShall"]
-    n3613["Libpetri.Spec.WhileNever"]
+    n3547["Libpetri.Spec.StepShall"]
+    n3738["Libpetri.Spec.WhileNever"]
   end
   subgraph g6["Libpetri/Spec/Glossary.lean"]
-    n2991["Libpetri.Spec.CountMarking"]
-    n3023["Libpetri.Spec.Enabled"]
-    n3368["Libpetri.Spec.InhibitorArc"]
-    n3384["Libpetri.Spec.Produced"]
-    n3386["Libpetri.Spec.ReadArc"]
-    n3412["Libpetri.Spec.ResetArc"]
-    n3932["Libpetri.Spec.inPlaces"]
+    n3046["Libpetri.Spec.CountMarking"]
+    n3138["Libpetri.Spec.Enabled"]
+    n3484["Libpetri.Spec.InhibitorArc"]
+    n3504["Libpetri.Spec.Produced"]
+    n3510["Libpetri.Spec.ReadArc"]
+    n3537["Libpetri.Spec.ResetArc"]
+    n4143["Libpetri.Spec.inPlaces"]
   end
   subgraph g7["Libpetri/Spec/GlossaryTime.lean"]
-    n2828["Libpetri.Spec.ArcPlace"]
-    n2829["Libpetri.Spec.Armed"]
-    n2988["Libpetri.Spec.ClockReading"]
-    n3022["Libpetri.Spec.Elapsed"]
-    n3367["Libpetri.Spec.InNet"]
-    n3581["Libpetri.Spec.TRel"]
-    n3594["Libpetri.Spec.TimingOf"]
-    n3616["Libpetri.Spec.Writes"]
+    n2884["Libpetri.Spec.ArcPlace"]
+    n2885["Libpetri.Spec.Armed"]
+    n3043["Libpetri.Spec.ClockReading"]
+    n3135["Libpetri.Spec.Elapsed"]
+    n3483["Libpetri.Spec.InNet"]
+    n3706["Libpetri.Spec.TRel"]
+    n3719["Libpetri.Spec.TimingOf"]
+    n3741["Libpetri.Spec.Writes"]
   end
   subgraph g8["Libpetri/Spec/Req/TIME_010.lean"]
-    n3504["Libpetri.Spec.TIME_010"]
+    n3629["Libpetri.Spec.TIME_010"]
   end
   subgraph g9["Libpetri/Spec/Req/TIME_011.lean"]
-    n3515["Libpetri.Spec.TIME_011"]
-    n4495["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n3640["Libpetri.Spec.TIME_011"]
+    n4724["Libpetri.Spec.time011_elapsed_from_rearm"]
   end
   n9 --> n8
   n10 --> n8
@@ -117,93 +117,93 @@ flowchart TD
   n1850 --> n1756
   n1850 --> n1757
   n1850 --> n1760
-  n2239 --> n2232
-  n2241 --> n2232
-  n2242 --> n2239
-  n2242 --> n2241
-  n2242 --> n2243
-  n2242 --> n2245
-  n2242 --> n2259
-  n2243 --> n2232
-  n2245 --> n2232
-  n2259 --> n2232
-  n2714 --> n2711
-  n2714 --> n2773
-  n2757 --> n2756
-  n2758 --> n2756
-  n2758 --> n2773
-  n2759 --> n2756
-  n2759 --> n2773
-  n2764 --> n2760
-  n2766 --> n2760
-  n2767 --> n2760
-  n2770 --> n2711
-  n2770 --> n2768
-  n2771 --> n2232
-  n2771 --> n2768
-  n2771 --> n2773
-  n2774 --> n1755
-  n2774 --> n2773
-  n2828 --> n3368
-  n2828 --> n3386
-  n2828 --> n3412
-  n2828 --> n3932
-  n2829 --> n1759
-  n2829 --> n2764
-  n2829 --> n2767
-  n2829 --> n3023
-  n2988 --> n2766
-  n3022 --> n1759
-  n3022 --> n2767
-  n3022 --> n2774
-  n3022 --> n2988
-  n3023 --> n1850
-  n3023 --> n2774
-  n3023 --> n2991
-  n3367 --> n1759
-  n3367 --> n2714
-  n3367 --> n2770
-  n3367 --> n2774
-  n3368 --> n1756
-  n3368 --> n2774
-  n3386 --> n1760
-  n3386 --> n2774
-  n3412 --> n1761
-  n3412 --> n2774
-  n3504 --> n2242
-  n3504 --> n2758
-  n3504 --> n2828
-  n3504 --> n2829
-  n3504 --> n3022
-  n3504 --> n3367
-  n3504 --> n3422
-  n3504 --> n3581
-  n3504 --> n3594
-  n3504 --> n3613
-  n3504 --> n3616
-  n3515 --> n2829
-  n3515 --> n2988
-  n3515 --> n3367
-  n3515 --> n3422
-  n3515 --> n3581
-  n3581 --> n2756
-  n3581 --> n2760
-  n3581 --> n2768
-  n3594 --> n2771
-  n3616 --> n3384
-  n3616 --> n3412
-  n3616 --> n3932
-  n3932 --> n1740
-  n3932 --> n1757
-  n3932 --> n2774
-  n4495 --> n2757
-  n4495 --> n2759
-  n4495 --> n3504
-  n4495 --> n3515
+  n2240 --> n2233
+  n2242 --> n2233
+  n2243 --> n2240
+  n2243 --> n2242
+  n2243 --> n2244
+  n2243 --> n2246
+  n2243 --> n2260
+  n2244 --> n2233
+  n2246 --> n2233
+  n2260 --> n2233
+  n2715 --> n2712
+  n2715 --> n2783
+  n2767 --> n2766
+  n2768 --> n2766
+  n2768 --> n2783
+  n2769 --> n2766
+  n2769 --> n2783
+  n2774 --> n2770
+  n2776 --> n2770
+  n2777 --> n2770
+  n2780 --> n2712
+  n2780 --> n2778
+  n2781 --> n2233
+  n2781 --> n2778
+  n2781 --> n2783
+  n2784 --> n1755
+  n2784 --> n2783
+  n2884 --> n3484
+  n2884 --> n3510
+  n2884 --> n3537
+  n2884 --> n4143
+  n2885 --> n1759
+  n2885 --> n2774
+  n2885 --> n2777
+  n2885 --> n3138
+  n3043 --> n2776
+  n3135 --> n1759
+  n3135 --> n2777
+  n3135 --> n2784
+  n3135 --> n3043
+  n3138 --> n1850
+  n3138 --> n2784
+  n3138 --> n3046
+  n3483 --> n1759
+  n3483 --> n2715
+  n3483 --> n2780
+  n3483 --> n2784
+  n3484 --> n1756
+  n3484 --> n2784
+  n3510 --> n1760
+  n3510 --> n2784
+  n3537 --> n1761
+  n3537 --> n2784
+  n3629 --> n2243
+  n3629 --> n2768
+  n3629 --> n2884
+  n3629 --> n2885
+  n3629 --> n3135
+  n3629 --> n3483
+  n3629 --> n3547
+  n3629 --> n3706
+  n3629 --> n3719
+  n3629 --> n3738
+  n3629 --> n3741
+  n3640 --> n2885
+  n3640 --> n3043
+  n3640 --> n3483
+  n3640 --> n3547
+  n3640 --> n3706
+  n3706 --> n2766
+  n3706 --> n2770
+  n3706 --> n2778
+  n3719 --> n2781
+  n3741 --> n3504
+  n3741 --> n3537
+  n3741 --> n4143
+  n4143 --> n1740
+  n4143 --> n1757
+  n4143 --> n2784
+  n4724 --> n2767
+  n4724 --> n2769
+  n4724 --> n3629
+  n4724 --> n3640
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4495 root
+  class n4724 root
 ```
 
 ### `Libpetri.Spec.time011_no_early_fire`
@@ -213,38 +213,38 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_011.lean"]
-    n3515["Libpetri.Spec.TIME_011"]
-    n4495["Libpetri.Spec.time011_elapsed_from_rearm"]
-    n4507["Libpetri.Spec.time011_no_early_fire"]
+    n3640["Libpetri.Spec.TIME_011"]
+    n4724["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n4736["Libpetri.Spec.time011_no_early_fire"]
   end
   c0["📁 Libpetri/Basic.lean (6 declarations, collapsed)"]
   c52["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
   c64["📁 Libpetri/Novel/TimedScg/Timing.lean (7 declarations, collapsed)"]
-  c68["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Timed.lean (11 declarations, collapsed)"]
-  c88["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
-  c89["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
-  c90["📁 Libpetri/Spec/GlossaryTime.lean (9 declarations, collapsed)"]
-  c119["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
+  c69["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
+  c70["📁 Libpetri/Reference/Timed.lean (11 declarations, collapsed)"]
+  c90["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
+  c91["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
+  c93["📁 Libpetri/Spec/GlossaryTime.lean (9 declarations, collapsed)"]
+  c126["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
   c52 --> c0
-  c68 --> c52
-  c69 --> c64
-  c69 --> c68
-  c89 --> c68
-  c90 --> c69
-  c90 --> c89
-  c119 --> c88
-  c119 --> c90
-  n3515 --> c88
-  n3515 --> c90
-  n4495 --> c119
-  n4495 --> n3515
-  n4507 --> n4495
+  c69 --> c52
+  c70 --> c64
+  c70 --> c69
+  c91 --> c69
+  c93 --> c70
+  c93 --> c91
+  c126 --> c90
+  c126 --> c93
+  n3640 --> c90
+  n3640 --> c93
+  n4724 --> c126
+  n4724 --> n3640
+  n4736 --> n4724
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4507 root
-  class c0,c52,c64,c68,c69,c88,c89,c90,c119 collapsed
+  class n4736 root
+  class c0,c52,c64,c69,c70,c90,c91,c93,c126 collapsed
 ```
 
 ### `Libpetri.pb_update_reenables`
@@ -260,25 +260,25 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n4917["🔒 Libpetri.pb_update_reenables"]
-    n5028["Libpetri.updateCell"]
+    n5146["🔒 Libpetri.pb_update_reenables"]
+    n5257["Libpetri.updateCell"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n4917 --> n5028
-  n5028 --> n16
-  n5028 --> n17
-  n5028 --> n18
-  n5028 --> n19
-  n5028 --> n20
+  n5146 --> n5257
+  n5257 --> n16
+  n5257 --> n17
+  n5257 --> n18
+  n5257 --> n19
+  n5257 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4917 root
-  class n4917 locked
+  class n5146 root
+  class n5146 locked
 ```
 
 Axioms used:

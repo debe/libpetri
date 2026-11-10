@@ -50,22 +50,22 @@ flowchart TD
     n922["Libpetri.Novel.ReapAware.upd_enabled"]
   end
   c0["📁 Libpetri/Basic.lean (23 declarations, collapsed)"]
-  c82["📁 Libpetri/Soundness.lean (6 declarations, collapsed)"]
-  c127["📁 Libpetri/TimedCycle.lean (9 declarations, collapsed)"]
-  c82 --> c0
+  c83["📁 Libpetri/Soundness.lean (6 declarations, collapsed)"]
+  c134["📁 Libpetri/TimedCycle.lean (9 declarations, collapsed)"]
+  c83 --> c0
   n879 --> n880
   n879 --> n881
   n879 --> n891
-  n880 --> c82
+  n880 --> c83
   n880 --> n888
   n880 --> n899
-  n881 --> c82
+  n881 --> c83
   n881 --> n899
-  n882 --> c82
+  n882 --> c83
   n882 --> n893
   n882 --> n894
   n882 --> n915
-  n884 --> c82
+  n884 --> c83
   n885 --> n886
   n885 --> n895
   n885 --> n903
@@ -76,10 +76,10 @@ flowchart TD
   n893 --> c0
   n893 --> n892
   n894 --> c0
-  n894 --> c127
+  n894 --> c134
   n894 --> n892
   n895 --> c0
-  n895 --> c127
+  n895 --> c134
   n895 --> n892
   n896 --> n879
   n896 --> n898
@@ -96,7 +96,7 @@ flowchart TD
   n902 --> n900
   n902 --> n922
   n903 --> c0
-  n903 --> c127
+  n903 --> c134
   n904 --> n882
   n904 --> n895
   n904 --> n903
@@ -117,7 +117,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n916 root
-  class c0,c82,c127 collapsed
+  class c0,c83,c134 collapsed
 ```
 
 ### `Libpetri.Spec.time001_reap_past_latest`
@@ -127,50 +127,50 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n3582["Libpetri.Spec.Time001.decValid"]
-    n3586["Libpetri.Spec.TimingContract"]
-    n3591["Libpetri.Spec.TimingContract.hasDeadline"]
-    n3592["Libpetri.Spec.TimingContract.latest"]
-    n3593["Libpetri.Spec.TimingContract.mk"]
-    n4242["Libpetri.Spec.refTimingFactory"]
-    n4244["Libpetri.Spec.refTimingMsg"]
-    n4245["Libpetri.Spec.refTimingQ"]
-    n4299["Libpetri.Spec.time001_reap_past_latest"]
+    n3707["Libpetri.Spec.Time001.decValid"]
+    n3711["Libpetri.Spec.TimingContract"]
+    n3716["Libpetri.Spec.TimingContract.hasDeadline"]
+    n3717["Libpetri.Spec.TimingContract.latest"]
+    n3718["Libpetri.Spec.TimingContract.mk"]
+    n4470["Libpetri.Spec.refTimingFactory"]
+    n4472["Libpetri.Spec.refTimingMsg"]
+    n4473["Libpetri.Spec.refTimingQ"]
+    n4528["Libpetri.Spec.time001_reap_past_latest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c26["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c52["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
   c64["📁 Libpetri/Novel/TimedScg/Timing.lean (13 declarations, collapsed)"]
-  c68["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
-  c90["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
+  c69["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c70["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
+  c93["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
   c52 --> c0
-  c68 --> c26
-  c68 --> c52
-  c69 --> c64
-  c69 --> c68
-  c90 --> c69
-  n3582 --> c64
-  n3591 --> c64
-  n3591 --> n3586
-  n3592 --> c64
-  n3592 --> n3586
-  n3593 --> c64
-  n3593 --> n3586
-  n4242 --> n3582
-  n4242 --> n4244
-  n4244 --> c64
-  n4245 --> n3593
-  n4245 --> n4242
-  n4299 --> c90
-  n4299 --> n3591
-  n4299 --> n3592
-  n4299 --> n4245
+  c69 --> c26
+  c69 --> c52
+  c70 --> c64
+  c70 --> c69
+  c93 --> c70
+  n3707 --> c64
+  n3716 --> c64
+  n3716 --> n3711
+  n3717 --> c64
+  n3717 --> n3711
+  n3718 --> c64
+  n3718 --> n3711
+  n4470 --> n3707
+  n4470 --> n4472
+  n4472 --> c64
+  n4473 --> n3718
+  n4473 --> n4470
+  n4528 --> c93
+  n4528 --> n3716
+  n4528 --> n3717
+  n4528 --> n4473
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4299 root
-  class c0,c26,c52,c64,c68,c69,c90 collapsed
+  class n4528 root
+  class c0,c26,c52,c64,c69,c70,c93 collapsed
 ```
 
 ### `Libpetri.bb_never_fires_after_reap`
@@ -186,71 +186,71 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n4675["Libpetri.Timing"]
-    n4676["Libpetri.Timing.earliest"]
-    n4677["Libpetri.Timing.latest"]
-    n4678["Libpetri.Timing.mk"]
-    n4736["🔒 Libpetri.bb_cycle_disabled_frame"]
-    n4737["🔒 Libpetri.bb_never_fires_after_reap"]
-    n4738["🔒 Libpetri.bb_reaped_stays_disabled"]
-    n4788["Libpetri.cycle"]
-    n4789["Libpetri.deadlineExpired"]
-    n4811["Libpetri.enforceBB"]
-    n4841["Libpetri.fires"]
-    n4908["Libpetri.obsBB"]
-    n4958["Libpetri.reaps"]
-    n4981["Libpetri.run"]
-    n5028["Libpetri.updateCell"]
-    n5036["Libpetri.wInit"]
-    n5045["Libpetri.wTiming"]
-    n5047["Libpetri.windowOpen"]
+    n4904["Libpetri.Timing"]
+    n4905["Libpetri.Timing.earliest"]
+    n4906["Libpetri.Timing.latest"]
+    n4907["Libpetri.Timing.mk"]
+    n4965["🔒 Libpetri.bb_cycle_disabled_frame"]
+    n4966["🔒 Libpetri.bb_never_fires_after_reap"]
+    n4967["🔒 Libpetri.bb_reaped_stays_disabled"]
+    n5017["Libpetri.cycle"]
+    n5018["Libpetri.deadlineExpired"]
+    n5040["Libpetri.enforceBB"]
+    n5070["Libpetri.fires"]
+    n5137["Libpetri.obsBB"]
+    n5187["Libpetri.reaps"]
+    n5210["Libpetri.run"]
+    n5257["Libpetri.updateCell"]
+    n5265["Libpetri.wInit"]
+    n5274["Libpetri.wTiming"]
+    n5276["Libpetri.windowOpen"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n4676 --> n4675
-  n4677 --> n4675
-  n4678 --> n4675
-  n4736 --> n4788
-  n4736 --> n4811
-  n4737 --> n4738
-  n4737 --> n4908
-  n4737 --> n5036
-  n4737 --> n5045
-  n4738 --> n4736
-  n4738 --> n4981
-  n4788 --> n4676
-  n4788 --> n4677
-  n4788 --> n4841
-  n4788 --> n5028
-  n4811 --> n17
-  n4811 --> n19
-  n4811 --> n20
-  n4811 --> n4958
-  n4841 --> n16
-  n4841 --> n18
-  n4841 --> n20
-  n4841 --> n5047
-  n4908 --> n4811
-  n4908 --> n4981
-  n4958 --> n16
-  n4958 --> n18
-  n4958 --> n4789
-  n4981 --> n4788
-  n5028 --> n16
-  n5028 --> n17
-  n5028 --> n18
-  n5028 --> n19
-  n5028 --> n20
-  n5036 --> n19
-  n5045 --> n4678
+  n4905 --> n4904
+  n4906 --> n4904
+  n4907 --> n4904
+  n4965 --> n5017
+  n4965 --> n5040
+  n4966 --> n4967
+  n4966 --> n5137
+  n4966 --> n5265
+  n4966 --> n5274
+  n4967 --> n4965
+  n4967 --> n5210
+  n5017 --> n4905
+  n5017 --> n4906
+  n5017 --> n5070
+  n5017 --> n5257
+  n5040 --> n17
+  n5040 --> n19
+  n5040 --> n20
+  n5040 --> n5187
+  n5070 --> n16
+  n5070 --> n18
+  n5070 --> n20
+  n5070 --> n5276
+  n5137 --> n5040
+  n5137 --> n5210
+  n5187 --> n16
+  n5187 --> n18
+  n5187 --> n5018
+  n5210 --> n5017
+  n5257 --> n16
+  n5257 --> n17
+  n5257 --> n18
+  n5257 --> n19
+  n5257 --> n20
+  n5265 --> n19
+  n5274 --> n4907
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4737 root
-  class n4736,n4737,n4738 locked
+  class n4966 root
+  class n4965,n4966,n4967 locked
 ```
 
 ### `Libpetri.bb_reaped_stays_disabled`
@@ -266,57 +266,57 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n4675["Libpetri.Timing"]
-    n4676["Libpetri.Timing.earliest"]
-    n4677["Libpetri.Timing.latest"]
-    n4736["🔒 Libpetri.bb_cycle_disabled_frame"]
-    n4738["🔒 Libpetri.bb_reaped_stays_disabled"]
-    n4788["Libpetri.cycle"]
-    n4789["Libpetri.deadlineExpired"]
-    n4811["Libpetri.enforceBB"]
-    n4841["Libpetri.fires"]
-    n4958["Libpetri.reaps"]
-    n4981["Libpetri.run"]
-    n5028["Libpetri.updateCell"]
-    n5047["Libpetri.windowOpen"]
+    n4904["Libpetri.Timing"]
+    n4905["Libpetri.Timing.earliest"]
+    n4906["Libpetri.Timing.latest"]
+    n4965["🔒 Libpetri.bb_cycle_disabled_frame"]
+    n4967["🔒 Libpetri.bb_reaped_stays_disabled"]
+    n5017["Libpetri.cycle"]
+    n5018["Libpetri.deadlineExpired"]
+    n5040["Libpetri.enforceBB"]
+    n5070["Libpetri.fires"]
+    n5187["Libpetri.reaps"]
+    n5210["Libpetri.run"]
+    n5257["Libpetri.updateCell"]
+    n5276["Libpetri.windowOpen"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n4676 --> n4675
-  n4677 --> n4675
-  n4736 --> n4788
-  n4736 --> n4811
-  n4738 --> n4736
-  n4738 --> n4981
-  n4788 --> n4676
-  n4788 --> n4677
-  n4788 --> n4841
-  n4788 --> n5028
-  n4811 --> n17
-  n4811 --> n19
-  n4811 --> n20
-  n4811 --> n4958
-  n4841 --> n16
-  n4841 --> n18
-  n4841 --> n20
-  n4841 --> n5047
-  n4958 --> n16
-  n4958 --> n18
-  n4958 --> n4789
-  n4981 --> n4788
-  n5028 --> n16
-  n5028 --> n17
-  n5028 --> n18
-  n5028 --> n19
-  n5028 --> n20
+  n4905 --> n4904
+  n4906 --> n4904
+  n4965 --> n5017
+  n4965 --> n5040
+  n4967 --> n4965
+  n4967 --> n5210
+  n5017 --> n4905
+  n5017 --> n4906
+  n5017 --> n5070
+  n5017 --> n5257
+  n5040 --> n17
+  n5040 --> n19
+  n5040 --> n20
+  n5040 --> n5187
+  n5070 --> n16
+  n5070 --> n18
+  n5070 --> n20
+  n5070 --> n5276
+  n5187 --> n16
+  n5187 --> n18
+  n5187 --> n5018
+  n5210 --> n5017
+  n5257 --> n16
+  n5257 --> n17
+  n5257 --> n18
+  n5257 --> n19
+  n5257 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4738 root
-  class n4736,n4738 locked
+  class n4967 root
+  class n4965,n4967 locked
 ```
 
 ### `Libpetri.deadline_reap_dirty_diverges`
@@ -332,74 +332,74 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n4675["Libpetri.Timing"]
-    n4676["Libpetri.Timing.earliest"]
-    n4677["Libpetri.Timing.latest"]
-    n4678["Libpetri.Timing.mk"]
-    n4788["Libpetri.cycle"]
-    n4789["Libpetri.deadlineExpired"]
-    n4790["🔒 Libpetri.deadline_reap_dirty_diverges"]
-    n4811["Libpetri.enforceBB"]
-    n4812["Libpetri.enforcePB"]
-    n4841["Libpetri.fires"]
-    n4908["Libpetri.obsBB"]
-    n4909["Libpetri.obsPB"]
-    n4958["Libpetri.reaps"]
-    n4981["Libpetri.run"]
-    n5028["Libpetri.updateCell"]
-    n5036["Libpetri.wInit"]
-    n5043["Libpetri.wSched"]
-    n5045["Libpetri.wTiming"]
-    n5047["Libpetri.windowOpen"]
+    n4904["Libpetri.Timing"]
+    n4905["Libpetri.Timing.earliest"]
+    n4906["Libpetri.Timing.latest"]
+    n4907["Libpetri.Timing.mk"]
+    n5017["Libpetri.cycle"]
+    n5018["Libpetri.deadlineExpired"]
+    n5019["🔒 Libpetri.deadline_reap_dirty_diverges"]
+    n5040["Libpetri.enforceBB"]
+    n5041["Libpetri.enforcePB"]
+    n5070["Libpetri.fires"]
+    n5137["Libpetri.obsBB"]
+    n5138["Libpetri.obsPB"]
+    n5187["Libpetri.reaps"]
+    n5210["Libpetri.run"]
+    n5257["Libpetri.updateCell"]
+    n5265["Libpetri.wInit"]
+    n5272["Libpetri.wSched"]
+    n5274["Libpetri.wTiming"]
+    n5276["Libpetri.windowOpen"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n4676 --> n4675
-  n4677 --> n4675
-  n4678 --> n4675
-  n4788 --> n4676
-  n4788 --> n4677
-  n4788 --> n4841
-  n4788 --> n5028
-  n4790 --> n4908
-  n4790 --> n4909
-  n4790 --> n5036
-  n4790 --> n5043
-  n4790 --> n5045
-  n4811 --> n17
-  n4811 --> n19
-  n4811 --> n20
-  n4811 --> n4958
-  n4812 --> n19
-  n4812 --> n20
-  n4812 --> n4958
-  n4841 --> n16
-  n4841 --> n18
-  n4841 --> n20
-  n4841 --> n5047
-  n4908 --> n4811
-  n4908 --> n4981
-  n4909 --> n4812
-  n4909 --> n4981
-  n4958 --> n16
-  n4958 --> n18
-  n4958 --> n4789
-  n4981 --> n4788
-  n5028 --> n16
-  n5028 --> n17
-  n5028 --> n18
-  n5028 --> n19
-  n5028 --> n20
-  n5036 --> n19
-  n5045 --> n4678
+  n4905 --> n4904
+  n4906 --> n4904
+  n4907 --> n4904
+  n5017 --> n4905
+  n5017 --> n4906
+  n5017 --> n5070
+  n5017 --> n5257
+  n5019 --> n5137
+  n5019 --> n5138
+  n5019 --> n5265
+  n5019 --> n5272
+  n5019 --> n5274
+  n5040 --> n17
+  n5040 --> n19
+  n5040 --> n20
+  n5040 --> n5187
+  n5041 --> n19
+  n5041 --> n20
+  n5041 --> n5187
+  n5070 --> n16
+  n5070 --> n18
+  n5070 --> n20
+  n5070 --> n5276
+  n5137 --> n5040
+  n5137 --> n5210
+  n5138 --> n5041
+  n5138 --> n5210
+  n5187 --> n16
+  n5187 --> n18
+  n5187 --> n5018
+  n5210 --> n5017
+  n5257 --> n16
+  n5257 --> n17
+  n5257 --> n18
+  n5257 --> n19
+  n5257 --> n20
+  n5265 --> n19
+  n5274 --> n4907
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4790 root
-  class n4790 locked
+  class n5019 root
+  class n5019 locked
 ```
 
 ### `Libpetri.reaped_rearms_on_touch`
@@ -415,56 +415,56 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n4675["Libpetri.Timing"]
-    n4676["Libpetri.Timing.earliest"]
-    n4677["Libpetri.Timing.latest"]
-    n4788["Libpetri.cycle"]
-    n4789["Libpetri.deadlineExpired"]
-    n4811["Libpetri.enforceBB"]
-    n4841["Libpetri.fires"]
-    n4957["Libpetri.reaped_rearms_on_touch"]
-    n4958["Libpetri.reaps"]
-    n5016["Libpetri.touch"]
-    n5028["Libpetri.updateCell"]
-    n5047["Libpetri.windowOpen"]
+    n4904["Libpetri.Timing"]
+    n4905["Libpetri.Timing.earliest"]
+    n4906["Libpetri.Timing.latest"]
+    n5017["Libpetri.cycle"]
+    n5018["Libpetri.deadlineExpired"]
+    n5040["Libpetri.enforceBB"]
+    n5070["Libpetri.fires"]
+    n5186["Libpetri.reaped_rearms_on_touch"]
+    n5187["Libpetri.reaps"]
+    n5245["Libpetri.touch"]
+    n5257["Libpetri.updateCell"]
+    n5276["Libpetri.windowOpen"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n4676 --> n4675
-  n4677 --> n4675
-  n4788 --> n4676
-  n4788 --> n4677
-  n4788 --> n4841
-  n4788 --> n5028
-  n4811 --> n17
-  n4811 --> n19
-  n4811 --> n20
-  n4811 --> n4958
-  n4841 --> n16
-  n4841 --> n18
-  n4841 --> n20
-  n4841 --> n5047
-  n4957 --> n4788
-  n4957 --> n4811
-  n4957 --> n5016
-  n4958 --> n16
-  n4958 --> n18
-  n4958 --> n4789
-  n5016 --> n16
-  n5016 --> n18
-  n5016 --> n19
-  n5028 --> n16
-  n5028 --> n17
-  n5028 --> n18
-  n5028 --> n19
-  n5028 --> n20
+  n4905 --> n4904
+  n4906 --> n4904
+  n5017 --> n4905
+  n5017 --> n4906
+  n5017 --> n5070
+  n5017 --> n5257
+  n5040 --> n17
+  n5040 --> n19
+  n5040 --> n20
+  n5040 --> n5187
+  n5070 --> n16
+  n5070 --> n18
+  n5070 --> n20
+  n5070 --> n5276
+  n5186 --> n5017
+  n5186 --> n5040
+  n5186 --> n5245
+  n5187 --> n16
+  n5187 --> n18
+  n5187 --> n5018
+  n5245 --> n16
+  n5245 --> n18
+  n5245 --> n19
+  n5257 --> n16
+  n5257 --> n17
+  n5257 --> n18
+  n5257 --> n19
+  n5257 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4957 root
+  class n5186 root
 ```
 
 Axioms used:

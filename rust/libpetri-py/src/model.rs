@@ -410,7 +410,8 @@ impl PyTransitionBuilder {
     }
 
     /// Builds the transition. Raises `StructureError` when two input arcs name one
-    /// place (**CORE-030**: use one arc with `exactly(n)` / `at_least(n)`), when a
+    /// place (**CORE-030**: use one arc with `exactly(n)` / `at_least(n)`), when an
+    /// input arc and a read arc name one place (**EXEC-012**: remove the read arc), when a
     /// forward-input output or a match spec names a place that is not an input, or
     /// when the output spec names a place twice in one AND branch (**IO-011**), holds
     /// more than one `timeout` or an `xor` inside the `timeout` child (**IO-013**),

@@ -13,30 +13,30 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_010.lean"]
-    n4462["Libpetri.Spec.time010_gate"]
+    n4691["Libpetri.Spec.time010_gate"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c26["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c52["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
   c64["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
-  c68["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Timed.lean (34 declarations, collapsed)"]
-  c89["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c90["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
+  c69["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c70["📁 Libpetri/Reference/Timed.lean (34 declarations, collapsed)"]
+  c91["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
+  c93["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
   c52 --> c0
-  c68 --> c26
-  c68 --> c52
-  c69 --> c64
-  c69 --> c68
-  c89 --> c68
-  c90 --> c69
-  c90 --> c89
-  n4462 --> c90
+  c69 --> c26
+  c69 --> c52
+  c70 --> c64
+  c70 --> c69
+  c91 --> c69
+  c93 --> c70
+  c93 --> c91
+  n4691 --> c93
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4462 root
-  class c0,c26,c52,c64,c68,c69,c89,c90 collapsed
+  class n4691 root
+  class c0,c26,c52,c64,c69,c70,c91,c93 collapsed
 ```
 
 Axioms used:

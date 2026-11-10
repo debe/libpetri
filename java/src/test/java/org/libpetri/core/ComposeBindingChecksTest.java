@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
+import org.libpetri.core.internal.ArcDiagnostics;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -135,6 +136,26 @@ class ComposeBindingChecksTest {
                     + " would consume from 'X' through two input arcs. Bind them to distinct places or"
                     + " use one port."),
             error.getMessage());
+    }
+
+    /** A transition consuming from one port and reading another. */
+    private static SubnetDef<Void> peek() {
+        var a = p("A");
+        var bb = p("B");
+        return SubnetDef.builder("Peek").place(a).place(bb).place(p("OUT"))
+            .transition(Transition.builder("peek").inputs(In.one(a)).read(bb).outputs(Out.place(p("OUT"))).build())
+            .inputPort("a", a).inputPort("b", bb).outputPort("out", p("OUT"))
+            .build();
+    }
+
+    @Test
+    void inputPortAndReadPortOnOneHostPlace_failTheRebuildWithTheExec012Message() {
+        // EXEC-012 (D15): the rewritten transition passes through the builder, which rejects it.
+        var x = p("X");
+        var error = assertThrows(IllegalArgumentException.class, () -> PetriNet.builder("peek")
+            .compose(peek().instantiate("s"), Map.of("a", x, "b", x, "out", p("DONE")))
+            .build());
+        assertEquals(ArcDiagnostics.inputAndReadMessage("s/peek", "X"), error.getMessage());
     }
 
     @Test

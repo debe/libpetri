@@ -278,6 +278,15 @@ export class TransitionBuilder {
       }
     }
 
+    // EXEC-012: a read of a place the same firing consumes from would peek the place after the
+    // firing's own consumption. Runs after every input-arc check and before the timing and
+    // output-spec checks, and names the first read arc, in declaration order, on an input place.
+    for (const r of this._reads) {
+      if (seenInputPlaces.has(r.place.name)) {
+        throw new Error(inputAndReadArcMessage(this._name, r.place.name));
+      }
+    }
+
     // TIME-001 AC5: a timing written as an object literal skips the factories' checks, so
     // they run again here. Past MAX_DURATION_MS a state-class graph reads a transition that
     // can fire as one that never can.
@@ -386,6 +395,16 @@ export function duplicateInputArcMessage(transitionName: string, placeName: stri
   return `Transition '${transitionName}' declares two input arcs on place '${placeName}'. `
     + 'Duplicate input places have no coherent consumption semantics and are rejected '
     + '(CORE-030). Use a single arc with exactly(n) / atLeast(n) instead.';
+}
+
+/**
+ * @internal The EXEC-012 rejection message for an input arc and a read arc on one place.
+ * Byte-identical across implementations.
+ */
+export function inputAndReadArcMessage(transitionName: string, placeName: string): string {
+  return `Transition '${transitionName}' declares an input arc and a read arc on place '${placeName}'. `
+    + 'A read of a place the same firing consumes from has no coherent semantics and is rejected '
+    + '(EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to the action.';
 }
 
 /** Recursively searches the output spec for a Timeout node. */

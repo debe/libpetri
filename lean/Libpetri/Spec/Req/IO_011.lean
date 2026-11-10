@@ -54,7 +54,7 @@ message naming the place the walk reports (`firstDup`). -/
 def IO_011_buildLine {N : Type} [DecidableEq N] [ToString N] (Build : Trans N → Option String) :
     Prop :=
   ∀ (t : Trans N) (o : Out N), OutputSpec t = some o → DupBranch o →
-    Build t ≠ none ∧ (InputsDistinct t → ∀ p, firstDup o = some p → Build t = some (msgDup t p))
+    Build t ≠ none ∧ (PreOutputChecks t → ∀ p, firstDup o = some p → Build t = some (msgDup t p))
 
 /-! ## IO-011: Output And -/
 
@@ -91,6 +91,7 @@ requirement IO_011
           "The walk is firstDup, through dupScan, clause for clause: steps 1 and 2 are its place, forward and timeout clauses, step 3 its xor clause (xorJoin: the first child's report, else the second's, else the places of both, each once, in first-seen order), step 4 its and clause (andStep at each child: the child's report, else the first place the child names that an earlier child of the And names, else the child's places join the pool). The reference Out is binary: an n-ary And or Xor is right-nested, and dupScan walks a .and met as a child of a .and as part of its parent, so the children of And(c1, ..., cn) are walked as the n-ary node's children. A spec with an And written as a direct child of an And is the one shape the binary Out cannot tell from the flat n-ary node; on it the builders walk the inner And first, the loader's walk (Load.dupWalk, over the spec as written) does the same, and firstDup reads the flat node."
           "'The walk reports a place exactly when some output branch names a place twice' is the theorem firstDup_eq_none_iff, and the place it reports is named twice in some output branch (firstDup_some); the build line therefore names a place exactly when it rejects a duplicate. AC5's And(Xor(A, B), Xor(B, A)) names B (IO_011_ac5); naming the first place repeated in the first repeating output branch, in IO-016 order, would name A, and that builder violates the build line (IO_011_forbids_firstBranchName)."
           "'Which place the message names' is a constraint on the message only: which transitions build is the first build line together with the other build-time checks, and IO-013's third line ties Builds to the builder."
+          "Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling."
            "A firing is read as one step from a marking to a marking that deposits the tokens of one outcome (glossary: Fire, Deposit); timing and priority play no part. A completion that fails validation (AC3) deposits no outcome and is not a firing here."
           "Scope: 'applies to an executor with output validation enabled' is read as a restriction on the model: F is the firing relation of such an executor. An executor with the CONC-026 skip enabled is not an F this block speaks of; what it does (an And(A, B) firing that deposits only A, CONC-026 AC4) is exactly what io011_leftOnlyFire models, and this block forbids it of a validating executor (IO_011_forbids_leftOnly)."
           "Scope: the statement quantifies over transitions that build. Building runs the checks of the Output Composition preamble (WellFormedOut: no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every ForwardInput's from an input place, no two output branches at different indices with the same set of places). CORE-022 applies to transitions that build, and a definition the checks reject is not a transition of any net. Build reads one transition definition, so the construction paths that reach the builder are not encoded."
@@ -110,7 +111,7 @@ requirement IO_011
     fun {N} [DecidableEq N] [ToString N] Build F =>
       (∀ (t : Trans N) (o : Out N), OutputSpec t = some o → DupBranch o →
         Build t ≠ none ∧
-        (InputsDistinct t → ∀ p, firstDup o = some p → Build t = some (msgDup t p))) ∧
+        (PreOutputChecks t → ∀ p, firstDup o = some p → Build t = some (msgDup t p))) ∧
       ∀ (t : Trans N) (l r : Out N), OutputSpec t = some (.and l r) →
       Builds t → (Out.and l r).findTimeout = none →
       (∀ c ∈ andChildren (.and l r), ∀ d : List N,
@@ -126,7 +127,7 @@ fun {N} [DecidableEq N] [ToString N] Build F =>
   (∀ (t : Reference.Trans N) (o : Out N),
       OutputSpec t = some o →
         DupBranch o →
-          Build t ≠ none ∧ (InputsDistinct t → ∀ (p : N), firstDup o = some p → Build t = some (msgDup t p))) ∧
+          Build t ≠ none ∧ (PreOutputChecks t → ∀ (p : N), firstDup o = some p → Build t = some (msgDup t p))) ∧
     ∀ (t : Reference.Trans N) (l r : Out N),
       OutputSpec t = some (l.and r) →
         Builds t →
@@ -227,7 +228,8 @@ theorem IO_011_refBuild_names {N : Type} [DecidableEq N] [ToString N] :
   intro t o ho hd
   refine ⟨fun h => (((refBuild_eq_none_iff t).1 h).2 o ho).1 hd, fun hin p hp => ?_⟩
   simp only [OutputSpec] at ho
-  simp [refBuild, hin, ho, checkOut, hp]
+  rw [refBuild_of_pre hin]
+  simp [ho, checkOut, hp]
 
 /-- The reference semantics satisfies IO-011: the reference builder names the walk's place
 (`IO_011_refBuild_names`), and with no Timeout node the only outcome a reference
@@ -594,7 +596,7 @@ def IO_011_mutant_anyDupName {N : Type} [DecidableEq N] [ToString N]
     (Build : Trans N → Option String) (F : FireRel N) : Prop :=
   (∀ (t : Trans N) (o : Out N), OutputSpec t = some o → DupBranch o →
     Build t ≠ none ∧
-    (InputsDistinct t → ∃ p, BranchDuplicate o p ∧ Build t = some (msgDup t p))) ∧
+    (PreOutputChecks t → ∃ p, BranchDuplicate o p ∧ Build t = some (msgDup t p))) ∧
   ∀ (t : Trans N) (l r : Out N), OutputSpec t = some (.and l r) → Builds t →
     (Out.and l r).findTimeout = none →
     (∀ c ∈ andChildren (.and l r), ∀ d : List N,
@@ -637,7 +639,7 @@ message naming it. -/
 theorem IO_011_nonvacuous_name :
     OutputSpec io011_cross = some (.and (.xor (.place 0) (.place 1)) (.xor (.place 1) (.place 0))) ∧
       DupBranch (Out.and (.xor (.place 0) (.place 1)) (.xor (.place 1) (.place 0)) : Out Nat) ∧
-      InputsDistinct io011_cross ∧
+      PreOutputChecks io011_cross ∧
       firstDup (Out.and (.xor (.place 0) (.place 1)) (.xor (.place 1) (.place 0)) : Out Nat) = some 1 ∧
       refBuild io011_cross = some (msgDup io011_cross 1) :=
   ⟨rfl, by decide, by decide, rfl, rfl⟩

@@ -9,63 +9,63 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2232["Libpetri.Novel.TimedScg.Timing"]
-    n2233["Libpetri.Novel.TimedScg.Timing.Valid"]
-    n2239["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2241["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2242["Libpetri.Novel.TimedScg.Timing.earliest"]
-    n2243["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2244["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
-    n2245["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2246["Libpetri.Novel.TimedScg.Timing.latest"]
-    n2247["Libpetri.Novel.TimedScg.Timing.reapable"]
-    n2259["Libpetri.Novel.TimedScg.Timing.window"]
-    n2376["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2233["Libpetri.Novel.TimedScg.Timing"]
+    n2234["Libpetri.Novel.TimedScg.Timing.Valid"]
+    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2243["Libpetri.Novel.TimedScg.Timing.earliest"]
+    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2245["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
+    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2247["Libpetri.Novel.TimedScg.Timing.latest"]
+    n2248["Libpetri.Novel.TimedScg.Timing.reapable"]
+    n2260["Libpetri.Novel.TimedScg.Timing.window"]
+    n2377["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_004.lean"]
-    n4370["Libpetri.Spec.time004_interval"]
+    n4599["Libpetri.Spec.time004_interval"]
   end
-  n2233 --> n2239
-  n2233 --> n2241
-  n2233 --> n2243
-  n2233 --> n2245
-  n2233 --> n2259
-  n2233 --> n2376
-  n2239 --> n2232
-  n2241 --> n2232
-  n2242 --> n2239
-  n2242 --> n2241
-  n2242 --> n2243
-  n2242 --> n2245
-  n2242 --> n2259
-  n2243 --> n2232
-  n2244 --> n2239
-  n2244 --> n2241
-  n2244 --> n2243
-  n2244 --> n2245
-  n2244 --> n2259
-  n2245 --> n2232
-  n2246 --> n2239
-  n2246 --> n2241
-  n2246 --> n2243
-  n2246 --> n2245
-  n2246 --> n2259
-  n2246 --> n2376
-  n2247 --> n2239
-  n2247 --> n2241
-  n2247 --> n2243
-  n2247 --> n2245
-  n2247 --> n2259
-  n2259 --> n2232
-  n4370 --> n2233
-  n4370 --> n2242
-  n4370 --> n2244
-  n4370 --> n2246
-  n4370 --> n2247
+  n2234 --> n2240
+  n2234 --> n2242
+  n2234 --> n2244
+  n2234 --> n2246
+  n2234 --> n2260
+  n2234 --> n2377
+  n2240 --> n2233
+  n2242 --> n2233
+  n2243 --> n2240
+  n2243 --> n2242
+  n2243 --> n2244
+  n2243 --> n2246
+  n2243 --> n2260
+  n2244 --> n2233
+  n2245 --> n2240
+  n2245 --> n2242
+  n2245 --> n2244
+  n2245 --> n2246
+  n2245 --> n2260
+  n2246 --> n2233
+  n2247 --> n2240
+  n2247 --> n2242
+  n2247 --> n2244
+  n2247 --> n2246
+  n2247 --> n2260
+  n2247 --> n2377
+  n2248 --> n2240
+  n2248 --> n2242
+  n2248 --> n2244
+  n2248 --> n2246
+  n2248 --> n2260
+  n2260 --> n2233
+  n4599 --> n2234
+  n4599 --> n2243
+  n4599 --> n2245
+  n4599 --> n2247
+  n4599 --> n2248
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4370 root
+  class n4599 root
 ```
 
 Axioms used:

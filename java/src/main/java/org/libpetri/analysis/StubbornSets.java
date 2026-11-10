@@ -68,7 +68,7 @@ final class StubbornSets {
                 tst.add(arc.place().name());
                 enabling.add(new Condition(arc.place().name(), 1, false));
             }
-            // Stable: an input and a read on one place keep the input first.
+            // No place carries an input and a read (EXEC-012).
             enabling.sort((x, y) -> CodePointOrder.compare(x.place(), y.place()));
             var inhibitors = new TreeSet<String>(CodePointOrder.COMPARATOR);
             for (var arc : t.inhibitors()) inhibitors.add(arc.place().name());
