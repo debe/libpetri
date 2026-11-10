@@ -10,12 +10,12 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "libpetri": "^9.0.0",
+    "libpetri": "^10.0.0",
     "tsx": "^4.22.0"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.6",
-    "@types/node": "^26.4.1"
+    "vitest": "^4.1.6"
   }
 }
