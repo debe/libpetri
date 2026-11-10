@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Java 11.0.0 / TypeScript 10.0.0 / Rust 12.0.0 / Python 8.0.0 — 2026-11-10
 
 **Breaking in all languages:** output specs that used to build and fail or misbehave at runtime are now rejected when the transition is built.
 
