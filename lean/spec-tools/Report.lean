@@ -27,6 +27,7 @@ import Libpetri.Novel.FiringBound.Bmc
 import Libpetri.Novel.FiringBound.Phase
 import Libpetri.Novel.FiringBound.Ranking
 import Libpetri.Novel.FiringBound.Reaping
+import Libpetri.Novel.FiringBound.Witness
 import Libpetri.Novel.ForwardDeposit
 import Libpetri.Novel.InFlight
 import Libpetri.Novel.LinearBound
@@ -146,6 +147,7 @@ import Libpetri.Spec.Req.TIME_011
 import Libpetri.Spec.Req.TIME_012
 import Libpetri.Spec.Req.TIME_013
 import Libpetri.Spec.Req.TIME_015
+import Libpetri.Spec.Req.VER_025
 import Libpetri.StateEquation
 import Libpetri.Strengthening
 import Libpetri.Strengthening.Hypotheses

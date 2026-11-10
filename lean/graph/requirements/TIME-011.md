@@ -25,74 +25,74 @@ flowchart TD
     n14["Libpetri.Card.required"]
   end
   subgraph g1["Libpetri/Novel/Seam/Net.lean"]
-    n1737["Libpetri.Novel.Seam.NInSpec"]
-    n1738["Libpetri.Novel.Seam.NInSpec.card"]
-    n1740["Libpetri.Novel.Seam.NInSpec.place"]
-    n1755["Libpetri.Novel.Seam.NTransition"]
-    n1756["Libpetri.Novel.Seam.NTransition.inhibitors"]
-    n1757["Libpetri.Novel.Seam.NTransition.inputs"]
-    n1759["Libpetri.Novel.Seam.NTransition.name"]
-    n1760["Libpetri.Novel.Seam.NTransition.reads"]
-    n1761["Libpetri.Novel.Seam.NTransition.resets"]
-    n1850["Libpetri.Novel.Seam.enabledNA"]
+    n1878["Libpetri.Novel.Seam.NInSpec"]
+    n1879["Libpetri.Novel.Seam.NInSpec.card"]
+    n1881["Libpetri.Novel.Seam.NInSpec.place"]
+    n1896["Libpetri.Novel.Seam.NTransition"]
+    n1897["Libpetri.Novel.Seam.NTransition.inhibitors"]
+    n1898["Libpetri.Novel.Seam.NTransition.inputs"]
+    n1900["Libpetri.Novel.Seam.NTransition.name"]
+    n1901["Libpetri.Novel.Seam.NTransition.reads"]
+    n1902["Libpetri.Novel.Seam.NTransition.resets"]
+    n1991["Libpetri.Novel.Seam.enabledNA"]
   end
   subgraph g2["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2233["Libpetri.Novel.TimedScg.Timing"]
-    n2240["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2242["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2243["Libpetri.Novel.TimedScg.Timing.earliest"]
-    n2244["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2246["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2260["Libpetri.Novel.TimedScg.Timing.window"]
+    n2374["Libpetri.Novel.TimedScg.Timing"]
+    n2381["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2383["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2384["Libpetri.Novel.TimedScg.Timing.earliest"]
+    n2385["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2387["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2401["Libpetri.Novel.TimedScg.Timing.window"]
   end
   subgraph g3["Libpetri/Reference/Semantics.lean"]
-    n2712["Libpetri.Reference.Net"]
-    n2715["Libpetri.Reference.Net.transitions"]
-    n2783["Libpetri.Reference.Trans"]
-    n2784["Libpetri.Reference.Trans.core"]
+    n2853["Libpetri.Reference.Net"]
+    n2856["Libpetri.Reference.Net.transitions"]
+    n2924["Libpetri.Reference.Trans"]
+    n2925["Libpetri.Reference.Trans.core"]
   end
   subgraph g4["Libpetri/Reference/Timed.lean"]
-    n2766["Libpetri.Reference.TLbl"]
-    n2767["Libpetri.Reference.TLbl.delay"]
-    n2768["Libpetri.Reference.TLbl.fire"]
-    n2769["Libpetri.Reference.TLbl.reap"]
-    n2770["Libpetri.Reference.TSt"]
-    n2774["Libpetri.Reference.TSt.m"]
-    n2776["Libpetri.Reference.TSt.now"]
-    n2777["Libpetri.Reference.TSt.stamp"]
-    n2778["Libpetri.Reference.TimedNet"]
-    n2780["Libpetri.Reference.TimedNet.net"]
-    n2781["Libpetri.Reference.TimedNet.timing"]
+    n2907["Libpetri.Reference.TLbl"]
+    n2908["Libpetri.Reference.TLbl.delay"]
+    n2909["Libpetri.Reference.TLbl.fire"]
+    n2910["Libpetri.Reference.TLbl.reap"]
+    n2911["Libpetri.Reference.TSt"]
+    n2915["Libpetri.Reference.TSt.m"]
+    n2917["Libpetri.Reference.TSt.now"]
+    n2918["Libpetri.Reference.TSt.stamp"]
+    n2919["Libpetri.Reference.TimedNet"]
+    n2921["Libpetri.Reference.TimedNet.net"]
+    n2922["Libpetri.Reference.TimedNet.timing"]
   end
   subgraph g5["Libpetri/Spec/Ears.lean"]
-    n3547["Libpetri.Spec.StepShall"]
-    n3738["Libpetri.Spec.WhileNever"]
+    n3691["Libpetri.Spec.StepShall"]
+    n3905["Libpetri.Spec.WhileNever"]
   end
   subgraph g6["Libpetri/Spec/Glossary.lean"]
-    n3046["Libpetri.Spec.CountMarking"]
-    n3138["Libpetri.Spec.Enabled"]
-    n3484["Libpetri.Spec.InhibitorArc"]
-    n3504["Libpetri.Spec.Produced"]
-    n3510["Libpetri.Spec.ReadArc"]
-    n3537["Libpetri.Spec.ResetArc"]
-    n4143["Libpetri.Spec.inPlaces"]
+    n3187["Libpetri.Spec.CountMarking"]
+    n3279["Libpetri.Spec.Enabled"]
+    n3625["Libpetri.Spec.InhibitorArc"]
+    n3647["Libpetri.Spec.Produced"]
+    n3653["Libpetri.Spec.ReadArc"]
+    n3680["Libpetri.Spec.ResetArc"]
+    n4310["Libpetri.Spec.inPlaces"]
   end
   subgraph g7["Libpetri/Spec/GlossaryTime.lean"]
-    n2884["Libpetri.Spec.ArcPlace"]
-    n2885["Libpetri.Spec.Armed"]
-    n3043["Libpetri.Spec.ClockReading"]
-    n3135["Libpetri.Spec.Elapsed"]
-    n3483["Libpetri.Spec.InNet"]
-    n3706["Libpetri.Spec.TRel"]
-    n3719["Libpetri.Spec.TimingOf"]
-    n3741["Libpetri.Spec.Writes"]
+    n3025["Libpetri.Spec.ArcPlace"]
+    n3026["Libpetri.Spec.Armed"]
+    n3184["Libpetri.Spec.ClockReading"]
+    n3276["Libpetri.Spec.Elapsed"]
+    n3624["Libpetri.Spec.InNet"]
+    n3850["Libpetri.Spec.TRel"]
+    n3863["Libpetri.Spec.TimingOf"]
+    n3908["Libpetri.Spec.Writes"]
   end
   subgraph g8["Libpetri/Spec/Req/TIME_010.lean"]
-    n3629["Libpetri.Spec.TIME_010"]
+    n3773["Libpetri.Spec.TIME_010"]
   end
   subgraph g9["Libpetri/Spec/Req/TIME_011.lean"]
-    n3640["Libpetri.Spec.TIME_011"]
-    n4724["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n3784["Libpetri.Spec.TIME_011"]
+    n4891["Libpetri.Spec.time011_elapsed_from_rearm"]
   end
   n9 --> n8
   n10 --> n8
@@ -102,108 +102,108 @@ flowchart TD
   n14 --> n10
   n14 --> n12
   n14 --> n13
-  n1738 --> n8
-  n1738 --> n1737
-  n1740 --> n1737
-  n1756 --> n1755
-  n1757 --> n1737
-  n1757 --> n1755
-  n1759 --> n1755
-  n1760 --> n1755
-  n1761 --> n1755
-  n1850 --> n14
-  n1850 --> n1738
-  n1850 --> n1740
-  n1850 --> n1756
-  n1850 --> n1757
-  n1850 --> n1760
-  n2240 --> n2233
-  n2242 --> n2233
-  n2243 --> n2240
-  n2243 --> n2242
-  n2243 --> n2244
-  n2243 --> n2246
-  n2243 --> n2260
-  n2244 --> n2233
-  n2246 --> n2233
-  n2260 --> n2233
-  n2715 --> n2712
-  n2715 --> n2783
-  n2767 --> n2766
-  n2768 --> n2766
-  n2768 --> n2783
-  n2769 --> n2766
-  n2769 --> n2783
-  n2774 --> n2770
-  n2776 --> n2770
-  n2777 --> n2770
-  n2780 --> n2712
-  n2780 --> n2778
-  n2781 --> n2233
-  n2781 --> n2778
-  n2781 --> n2783
-  n2784 --> n1755
-  n2784 --> n2783
-  n2884 --> n3484
-  n2884 --> n3510
-  n2884 --> n3537
-  n2884 --> n4143
-  n2885 --> n1759
-  n2885 --> n2774
-  n2885 --> n2777
-  n2885 --> n3138
-  n3043 --> n2776
-  n3135 --> n1759
-  n3135 --> n2777
-  n3135 --> n2784
-  n3135 --> n3043
-  n3138 --> n1850
-  n3138 --> n2784
-  n3138 --> n3046
-  n3483 --> n1759
-  n3483 --> n2715
-  n3483 --> n2780
-  n3483 --> n2784
-  n3484 --> n1756
-  n3484 --> n2784
-  n3510 --> n1760
-  n3510 --> n2784
-  n3537 --> n1761
-  n3537 --> n2784
-  n3629 --> n2243
-  n3629 --> n2768
-  n3629 --> n2884
-  n3629 --> n2885
-  n3629 --> n3135
-  n3629 --> n3483
-  n3629 --> n3547
-  n3629 --> n3706
-  n3629 --> n3719
-  n3629 --> n3738
-  n3629 --> n3741
-  n3640 --> n2885
-  n3640 --> n3043
-  n3640 --> n3483
-  n3640 --> n3547
-  n3640 --> n3706
-  n3706 --> n2766
-  n3706 --> n2770
-  n3706 --> n2778
-  n3719 --> n2781
-  n3741 --> n3504
-  n3741 --> n3537
-  n3741 --> n4143
-  n4143 --> n1740
-  n4143 --> n1757
-  n4143 --> n2784
-  n4724 --> n2767
-  n4724 --> n2769
-  n4724 --> n3629
-  n4724 --> n3640
+  n1879 --> n8
+  n1879 --> n1878
+  n1881 --> n1878
+  n1897 --> n1896
+  n1898 --> n1878
+  n1898 --> n1896
+  n1900 --> n1896
+  n1901 --> n1896
+  n1902 --> n1896
+  n1991 --> n14
+  n1991 --> n1879
+  n1991 --> n1881
+  n1991 --> n1897
+  n1991 --> n1898
+  n1991 --> n1901
+  n2381 --> n2374
+  n2383 --> n2374
+  n2384 --> n2381
+  n2384 --> n2383
+  n2384 --> n2385
+  n2384 --> n2387
+  n2384 --> n2401
+  n2385 --> n2374
+  n2387 --> n2374
+  n2401 --> n2374
+  n2856 --> n2853
+  n2856 --> n2924
+  n2908 --> n2907
+  n2909 --> n2907
+  n2909 --> n2924
+  n2910 --> n2907
+  n2910 --> n2924
+  n2915 --> n2911
+  n2917 --> n2911
+  n2918 --> n2911
+  n2921 --> n2853
+  n2921 --> n2919
+  n2922 --> n2374
+  n2922 --> n2919
+  n2922 --> n2924
+  n2925 --> n1896
+  n2925 --> n2924
+  n3025 --> n3625
+  n3025 --> n3653
+  n3025 --> n3680
+  n3025 --> n4310
+  n3026 --> n1900
+  n3026 --> n2915
+  n3026 --> n2918
+  n3026 --> n3279
+  n3184 --> n2917
+  n3276 --> n1900
+  n3276 --> n2918
+  n3276 --> n2925
+  n3276 --> n3184
+  n3279 --> n1991
+  n3279 --> n2925
+  n3279 --> n3187
+  n3624 --> n1900
+  n3624 --> n2856
+  n3624 --> n2921
+  n3624 --> n2925
+  n3625 --> n1897
+  n3625 --> n2925
+  n3653 --> n1901
+  n3653 --> n2925
+  n3680 --> n1902
+  n3680 --> n2925
+  n3773 --> n2384
+  n3773 --> n2909
+  n3773 --> n3025
+  n3773 --> n3026
+  n3773 --> n3276
+  n3773 --> n3624
+  n3773 --> n3691
+  n3773 --> n3850
+  n3773 --> n3863
+  n3773 --> n3905
+  n3773 --> n3908
+  n3784 --> n3026
+  n3784 --> n3184
+  n3784 --> n3624
+  n3784 --> n3691
+  n3784 --> n3850
+  n3850 --> n2907
+  n3850 --> n2911
+  n3850 --> n2919
+  n3863 --> n2922
+  n3908 --> n3647
+  n3908 --> n3680
+  n3908 --> n4310
+  n4310 --> n1881
+  n4310 --> n1898
+  n4310 --> n2925
+  n4891 --> n2908
+  n4891 --> n2910
+  n4891 --> n3773
+  n4891 --> n3784
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4724 root
+  class n4891 root
 ```
 
 ### `Libpetri.Spec.time011_no_early_fire`
@@ -213,38 +213,38 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_011.lean"]
-    n3640["Libpetri.Spec.TIME_011"]
-    n4724["Libpetri.Spec.time011_elapsed_from_rearm"]
-    n4736["Libpetri.Spec.time011_no_early_fire"]
+    n3784["Libpetri.Spec.TIME_011"]
+    n4891["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n4903["Libpetri.Spec.time011_no_early_fire"]
   end
   c0["📁 Libpetri/Basic.lean (6 declarations, collapsed)"]
-  c52["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
-  c64["📁 Libpetri/Novel/TimedScg/Timing.lean (7 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Timed.lean (11 declarations, collapsed)"]
-  c90["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
-  c91["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
-  c93["📁 Libpetri/Spec/GlossaryTime.lean (9 declarations, collapsed)"]
-  c126["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
-  c52 --> c0
-  c69 --> c52
-  c70 --> c64
-  c70 --> c69
-  c91 --> c69
-  c93 --> c70
-  c93 --> c91
-  c126 --> c90
-  c126 --> c93
-  n3640 --> c90
-  n3640 --> c93
-  n4724 --> c126
-  n4724 --> n3640
-  n4736 --> n4724
+  c53["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
+  c65["📁 Libpetri/Novel/TimedScg/Timing.lean (7 declarations, collapsed)"]
+  c70["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
+  c71["📁 Libpetri/Reference/Timed.lean (11 declarations, collapsed)"]
+  c91["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
+  c92["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
+  c94["📁 Libpetri/Spec/GlossaryTime.lean (9 declarations, collapsed)"]
+  c127["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
+  c53 --> c0
+  c70 --> c53
+  c71 --> c65
+  c71 --> c70
+  c92 --> c70
+  c94 --> c71
+  c94 --> c92
+  c127 --> c91
+  c127 --> c94
+  n3784 --> c91
+  n3784 --> c94
+  n4891 --> c127
+  n4891 --> n3784
+  n4903 --> n4891
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4736 root
-  class c0,c52,c64,c69,c70,c90,c91,c93,c126 collapsed
+  class n4903 root
+  class c0,c53,c65,c70,c71,c91,c92,c94,c127 collapsed
 ```
 
 ### `Libpetri.pb_update_reenables`
@@ -260,25 +260,25 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n5146["🔒 Libpetri.pb_update_reenables"]
-    n5257["Libpetri.updateCell"]
+    n5354["🔒 Libpetri.pb_update_reenables"]
+    n5465["Libpetri.updateCell"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n5146 --> n5257
-  n5257 --> n16
-  n5257 --> n17
-  n5257 --> n18
-  n5257 --> n19
-  n5257 --> n20
+  n5354 --> n5465
+  n5465 --> n16
+  n5465 --> n17
+  n5465 --> n18
+  n5465 --> n19
+  n5465 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5146 root
-  class n5146 locked
+  class n5354 root
+  class n5354 locked
 ```
 
 Axioms used:

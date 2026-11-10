@@ -943,7 +943,7 @@ lean = ["Libpetri/Novel/ReapAware.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/smt_verifier.rs"
 fn = "verify_net"
-lean = ["Libpetri/Novel/SiphonSearch.lean", "Libpetri/Novel/EnvSemantics/Premise.lean", "Libpetri/Novel/InFlight.lean"]
+lean = ["Libpetri/Novel/SiphonSearch.lean", "Libpetri/Novel/EnvSemantics/Premise.lean", "Libpetri/Novel/InFlight.lean", "Libpetri/Novel/FiringBound/Witness.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/smt_verifier.rs"
@@ -1086,7 +1086,7 @@ lean = ["Libpetri/Novel/FiringBound/Ranking.lean"]
 [[pin]]
 file = "rust/libpetri-verification/src/bounded_run.rs"
 fn = "replay_run"
-lean = ["Libpetri/Novel/FiringBound/Ranking.lean", "Libpetri/Novel/FiringBound/Bmc.lean"]
+lean = ["Libpetri/Novel/FiringBound/Ranking.lean", "Libpetri/Novel/FiringBound/Bmc.lean", "Libpetri/Novel/FiringBound/Witness.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/bounded_run.rs"
@@ -1122,6 +1122,69 @@ lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
 file = "rust/libpetri-verification/src/bounded_run.rs"
 fn = "run_firing_bound_phase"
 lean = ["Libpetri/Novel/FiringBound/Phase.lean"]
+
+# ---- FiringBound/Witness.lean + Bmc.lean (injection steps, bounded witness phase, [VER-025]) ----
+
+# The one place a step is taken (`Bmc.stepIdx`): `replay_run` and the trim both step through it.
+# A type pin hashes the struct and its impl (`of`, `step`).
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "StepRelation"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean", "Libpetri/Novel/FiringBound/Witness.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "injection_steps"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "environment_caps"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/abstract_replay.rs"
+fn = "inject_a"
+lean = ["Libpetri/Novel/FiringBound/Bmc.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "violating_prefix"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
+
+# `trim`; its stop poll is not modelled (a stop ends the phase, `WitnessOutcome::Stopped`).
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "trim_run"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "run_witness_phase"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "witness_phase"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
+
+# `Witness.Outcome` without `Stopped`. Not `parikh_search.rs`'s type of the same name.
+[[pin]]
+file = "rust/libpetri-verification/src/bounded_run.rs"
+fn = "WitnessOutcome"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
+
+# `witnessPhase`'s `D = 0 ∨ enter = false` gate.
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "witness_phase_applies"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
+
+# `pipeline`: a replayed run is the result, anything else hands over to the fixpoint query.
+[[pin]]
+file = "rust/libpetri-verification/src/smt_verifier.rs"
+fn = "witness_decision"
+lean = ["Libpetri/Novel/FiringBound/Witness.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/abstract_replay.rs"

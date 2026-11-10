@@ -71,9 +71,11 @@ theorem reachAD_filter_canFire (rows : List Row) (a0 a : AMarking) :
 
 /-! ## Runs as the Rust replays them -/
 
-/-- `replay_run` without the final property check: fire the rows named by index in order,
-each enabled (`enabled_a`) at the marking it fires from (`fire_a`); `none` on a disabled firing
-or an index the net does not have. -/
+/-- `replay_run` without the final property check, with no injection (`env_inject = []`, as the
+firing-bound phase calls it, P6): fire the rows named by index in order, each enabled
+(`enabled_a`) at the marking it fires from (`fire_a`); `none` on a disabled firing or an index
+the net does not have. `replayEnv` (`Bmc.lean`) is the replay with injection steps, and
+`replayEnv_nil` shows it is this one at `J = 0`. -/
 def replay (rows : List Row) : AMarking → List Nat → Option AMarking
   | a, [] => some a
   | a, t :: ts =>

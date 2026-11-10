@@ -15,9 +15,12 @@ The engine supports safety property verification using SMT solvers via the IC3/P
 1. **Flatten XOR** — expand XOR output branches into virtual transitions
 2. **Structural pre-check** — attempt to prove properties via P-invariants alone
 3. **P-invariant computation** — derive place invariants from the incidence matrix
-4. **SMT encoding** — encode the Petri net as CHC (Constrained Horn Clauses)
-5. **IC3 query** — invoke Z3 Spacer engine for reachability analysis
-6. **Decode result** — extract verdict, counterexample, or inductive invariant
+4. **Pre-fixpoint phases**: the linear bound ([VER-015]), the state-equation phase ([VER-018]),
+   the firing-bound phase ([VER-019]) and, on the flat encoding, the bounded witness phase
+   ([VER-025]), each of which can decide the property before the fixpoint query
+5. **SMT encoding** — encode the Petri net as CHC (Constrained Horn Clauses)
+6. **IC3 query** — invoke Z3 Spacer engine for reachability analysis
+7. **Decode result** — extract verdict, counterexample, or inductive invariant
 
 **Undeclared marked places are inert places.** An initial marking MAY put tokens on a place the
 net does not declare; the executor retains them, inert ([CORE-072] AC3). Verification models the
@@ -53,8 +56,9 @@ child's places only, one minted token each, and for a `ForwardInput(from, to)` o
 `to` per token consumed from `from`, which is the required count of a `One` / `Exactly(n)` input.
 Every analysis that fires a transition reads this one expansion: the flattener behind the
 encoders, the linear bound ([VER-015]), the state equation ([VER-016], [VER-018]), the firing
-bound ([VER-019]), the enumeration route ([VER-017]), Route B and the ν fragment ([VER-012]),
-the name-coloured encoder ([NU-053]) and open-net closure ([VER-022]). A virtual transition is
+bound ([VER-019]), the bounded witness phase ([VER-025]), the enumeration route ([VER-017]),
+Route B and the ν fragment ([VER-012]), the name-coloured encoder ([NU-053]) and open-net
+closure ([VER-022]). A virtual transition is
 named after its transition alone when there is one, and `<t>_b<i>` when there are several. A
 forward from an `All` / `AtLeast` input deposits the drained batch, which depends on the
 marking the firing drains: a **transfer**. The graph routes fire each class's marking, so
@@ -62,9 +66,9 @@ they count the drained batch exactly as the executor does: the enumeration route
 ([VER-017]), the timed state-class graph ([VER-010]) and Route B ([VER-012]) decide such a
 net. No post vector holds it, so every route that reads the flat net (the structural
 pre-check ([VER-020]), the P-invariants ([VER-005]), the linear bound ([VER-015]), the state
-equation ([VER-016], [VER-018]), the firing bound ([VER-019]), the fixpoint query and Route A
-([NU-053])) refuses it with `Unknown`. The refusal sits after the graph routes and before
-the first linear one, so no exit of the pipeline bypasses it ([VER-003] AC5).
+equation ([VER-016], [VER-018]), the firing bound ([VER-019]), the bounded witness phase
+([VER-025]), the fixpoint query and Route A ([NU-053])) refuses it with `Unknown`. The refusal
+sits after the graph routes and before the first linear one, so no exit of the pipeline bypasses it ([VER-003] AC5).
 
 **Acceptance Criteria:**
 1. Pipeline accepts a net, initial marking, and property.
@@ -119,7 +123,7 @@ error conditions below means "every transition that is not reapable is disabled"
 
 Every route reads this one quiescence (AC7). The encoders leave a reapable
 transition out of the quiescence clause of `Bad`, on the fixpoint query, the certificate
-check, the [VER-018] and [VER-019] phases and Route A alike. A graph route treats an expanded
+check, the [VER-018], [VER-019] and [VER-025] phases and Route A alike. A graph route treats an expanded
 class as resting when every transition it enables is reapable (the ν name-partition graph of
 [VER-012]: when every firing out of it is of a reapable transition).
 
@@ -290,7 +294,10 @@ The verification result includes:
 - **Counterexample confirmed** (`counterexampleConfirmed`): whether the trace **replays in the
   untimed abstraction** ([VER-004]) as an ordered firing sequence from the initial marking to a
   violating marking. It is a claim about the untimed, value-blind model only: `true` does not
-  mean the run is possible under the net's timing. Absent where no replay applies.
+  mean the run is possible under the net's timing. On a net with match transitions the flat
+  replay counts tokens and ignores names, so there `true` confirms a run of the name-blind
+  untimed abstraction ([NU-050]), whether the fixpoint query or a pre-fixpoint phase
+  ([VER-025]) found it. Absent where no replay applies.
 - **Counterexample timing** (`counterexampleTiming`): what the counterexample means for the
   **timed** net. Absent unless the verdict is `Violated`; with `Violated`, exactly one of:
   - `UNTIMED_NET`: every transition is `immediate`, so timing cannot affect the trace.
@@ -768,8 +775,8 @@ certificate script and its detail re-run each receive the full budget.
 **Total budget.** Because the timeout is per invocation, one `verify()` can run for several times
 it: the bound query ([VER-015]), the state-equation phase shared across its refinements
 ([VER-018]) and its certificate check and detail re-run, the firing-bound phase at half the
-timeout ([VER-019]), the HORN query and its certificate check and detail re-run add up to about
-7.5 timeouts, plus 2 s of watchdog slack per process, plus the solver-free work (the enumeration
+timeout ([VER-019]), the bounded witness phase at an eighth of it ([VER-025]), the HORN query and
+its certificate check and detail re-run add up to about 7.6 timeouts, plus 2 s of watchdog slack per process, plus the solver-free work (the enumeration
 route [VER-017], Route B [VER-012], the timed check [VER-023], the siphon and trap search
 [VER-020], Farkas, the colour-slot simplex of [NU-053]), which no timeout bounds. An
 implementation SHOULD therefore offer an
@@ -782,7 +789,8 @@ it unset behaviour and reports are byte-identical to the above. When it is set:
   `-t`, `-T` and the watchdog from that clamped value by the formulas above. When nothing
   remains, no process is started.
 - The solver-free graph builds (the enumeration route, Route B, the timed check) and the long
-  solver-free loops (siphon and trap search, Farkas, the colour-slot simplex) poll the deadline,
+  solver-free loops (siphon and trap search, Farkas, the colour-slot simplex, the trim of the
+  bounded witness phase [VER-025]) poll the deadline,
   cheaply (every so many classes or iterations), and stop when it has passed. The colour-slot
   simplex runs as its own step, `colour-slot bound`, entered once every other check of the
   coloured plan has passed, and polls before every pivot.
@@ -796,8 +804,8 @@ it unset behaviour and reports are byte-identical to the above. When it is set:
   a state-space cache ([VER-017]) as a truncation at the class budget: it leaves the cache entry
   as it found it, like a build that fails.
 - The HORN query no longer keeps its full budget. Without a total budget, the fixpoint query gets
-  the whole timeout however long the pre-fixpoint phases of [VER-018] and [VER-019] took; under a
-  total budget it gets what they left.
+  the whole timeout however long the pre-fixpoint phases of [VER-018], [VER-019] and [VER-025]
+  took; under a total budget it gets what they left.
 
 The per-call timeout keeps its meaning above: the budget of one process. The total budget
 applies to one `verify()` call. `SubnetDef.verify` ([MOD-051]) and open-net verification
@@ -844,7 +852,8 @@ one. It is probed once per verification with `--version` and refused below **4.8
 `LIBPETRI_SMT_DUMP` to a directory keeps every script and reply there as `NNN-<phase>.smt2`,
 `NNN-<phase>.out` and, when stderr was not empty, `NNN-<phase>.err`, with `NNN` a zero-padded
 counter and the phase one of `bound` ([VER-015]), `state-equation`, `invariant` ([VER-018]),
-`ranking`, `bmc` ([VER-019]), `horn`, `horn-coloured`, `certificate`, `certificate-detail`.
+`ranking`, `bmc` ([VER-019]), `witness` ([VER-025]), `horn`, `horn-coloured`, `certificate`,
+`certificate-detail`.
 
 **Reply classification.** The verdict is the first stdout line equal to `sat`, `unsat` or
 `unknown`, wherever it appears: a build may print a warning first, and the HORN script's paired
@@ -1526,7 +1535,9 @@ arrived. Each candidate is settled, in this order, by:
    so its marking is stuck whatever the environment does. A completed search there proves
    nothing, since an injected token could enable a run it never tried, so the search MUST report
    itself inconclusive rather than report that no violating run exists. Implementations MUST NOT
-   skip the search on such nets: it is the phase's only source of witnesses there.
+   skip the search on such nets: it is the phase's only source of witnesses there. A run that
+   needs an injection is left to the bounded witness phase ([VER-025]), which unrolls injection
+   steps and runs before the fixpoint query.
 2. **Trap.** An initially marked trap the candidate leaves empty (Esparza, Ledesma-Garza,
    Majumdar, Meyer and Niksic, CAV 2014). A transition with a consume-all input or a reset arc on
    a trap place removes tokens from the trap, so it too must put one back. Adds
@@ -1597,7 +1608,8 @@ left to the next phase.
   `encodeScripts().stateEquation()`.
 - Naming: the pre-fixpoint phases are toggled by `linearBound` ([VER-015]),
   `stateEquationPhase` ([VER-018]) and `firingBound` ([VER-019]), one boolean each, spelled as
-  the language spells its other toggles. `stateEquationPhase` is not `stateEquation`
+  the language spells its other toggles. The bounded witness phase ([VER-025]) is set by its
+  depth, `witnessDepth`, where 0 turns it off. `stateEquationPhase` is not `stateEquation`
   ([VER-016]), which adds firing counters *inside* the fixpoint encoding and is off by default;
   an implementation SHOULD cross-reference the two wherever it documents either.
 
@@ -1646,8 +1658,10 @@ A proof from this phase has no inductive invariant, so the certificate check doe
 rests on the exactly re-checked ranking and the solver's `unsat`. The phase gets half the
 timeout: short counterexamples take seconds, while a proof to a deep bound on a wide net can
 outlast any budget. It runs where [VER-018] runs, and not on a net with injected environment
-places, since no weighting bounds an injection. On by default; MAY be disabled to force the
-fixpoint path.
+places, since no weighting bounds an injection. Its bounded run has transition steps only. The
+bounded witness phase ([VER-025]) shares its encoder, adds injection steps to it and asks one
+fixed depth without a bound, so it finds runs but proves nothing; on a net without injection
+its script is this phase's script. On by default; MAY be disabled to force the fixpoint path.
 
 Every implementation MUST default this phase and [VER-018]'s the same way: a pre-fixpoint verdict
 carries its own `method` and report, so differing defaults break the verdict-parity fixtures
@@ -1687,6 +1701,280 @@ with the re-entry routed through a place of its own they have one, and where the
 `budget + s + 2*src` gives the bound 5, and the bounded model check at depth 5 proves the property;
 with the cancel alternative, a replayed run violates it. A ring `p0 → t0 → p1 → t1 → p2 → t2 → p0`
 has no ranking: the report names `t0, t1, t2`, and the fixpoint query proves `placeBound(p0, 1)`.
+
+---
+
+#### VER-025: Bounded Witness Phase
+
+**Priority:** SHOULD
+**Kind:** B
+
+Directly before the flat fixpoint query, the verifier asks one `QF_LIA` query (phase `witness`,
+through the transport of [VER-013]): does a run of at most `D` steps lead from `M0` to a
+violating marking? A step is the firing of a flat transition or an **injection step** of
+[VER-006]. A `sat` answer is decoded into a run, replayed under the exact abstract semantics
+([VER-004]), trimmed and reported `Violated`, confirmed. Every other answer leaves the pipeline as
+it was, and the fixpoint query runs. The phase finds the short counterexamples the earlier phases
+cannot: [VER-018] does not search injections, [VER-019] refuses a net with injected environment
+places, and neither runs on a net with match transitions.
+
+The phase proves nothing. `unsat` at depth `D` says nothing about a run of `D + 1` steps, and a
+net with injections or loops has no firing bound ([VER-019]) that would turn it into a proof. The
+phase therefore adds `Violated` verdicts and never removes one: a replayed run is a run of the
+step relation the fixpoint query over-approximates, so a sound fixpoint query could not have
+proven the property.
+
+**Where it runs.**
+
+*If* the pipeline reaches the flat fixpoint query, the witness depth `D` is positive, and the net has no match transitions or the property is a reachability-safety property with a budget place declared, *then* the verifier *shall* run the phase directly before the fixpoint script is encoded.
+
+*While* the fixpoint query takes the name-coloured encoding ([NU-053]), the verifier *shall not* run the phase.
+
+*If* the net has match transitions and either the property is not a reachability-safety property or no budget place is declared, *then* the verifier *shall not* run the phase.
+
+The ν guard ([NU-050]) turns every verdict there into `Unknown`, so the query would be pure cost.
+
+*If* the witness depth is 0, *then* the verifier *shall not* run the phase, and its verdict, route, report and scripts *shall* be those of the pipeline without the phase.
+
+*When* the verifier does not run the phase, it *shall* send no query for it and print no report line for it.
+
+*While* environment places are registered under `Ignore`, the phase *shall* run where it runs on any other flat net, with no injection step.
+
+A run that injects nothing is a run of the net, as the fixpoint query's `Violated` is there
+([VER-006]). Under `Arrivals` the net is rewritten before any route runs and has no environment
+places ([VER-006]), so the arrivals are ordinary transitions of the run.
+
+*While* the counterexample replay of [VER-003] is disabled, the phase *shall* run where it runs with the replay enabled, and a run it reports *shall* still be confirmed.
+
+That option governs the replay after the fixpoint query only; the phase replays its own run.
+
+*If* the property is a name-alignment property ([NU-055]), *then* the phase *shall* send no query and *shall* end inconclusive with the reason of [NU-055] that the property is decided only by the name-partition state-class graph.
+
+Route B decides such a property before the pipeline reaches the phase; the refusal keeps the
+phase from reading a run of counts as a claim about names.
+
+**The step relation.** The phase unrolls the flat net's steps:
+
+- a **transition step** fires one flat transition under the exact abstract semantics of [VER-004]
+  (consume-all and reset clearing, inhibitor and read guards) and keeps the environment post-caps
+  of [VER-006];
+- an **injection step** adds one token to one injected environment place that resolves in the
+  flat net. Under `Bounded(k)` it is enabled only while the place holds fewer than `k` tokens,
+  under `AlwaysAvailable` always. It has no post-cap: its guard already keeps the place at or
+  below `k`.
+
+These are the steps of the HORN encoding's transition and injection rules and of the
+counterexample replay of [VER-003]. The phase's script and replay carry no P-invariant or
+semiflow conjunct ([VER-005], [VER-007]), which the HORN rules add: a `Violated` from the phase
+rests on the replay alone and does not depend on the invariants the pipeline computed.
+
+The script caps every marking after `M0` and the replay caps each transition step's successor,
+so the two accept the same runs only while `M0` is within the post-caps. The premises of
+[VER-006] AC3, checked before any route runs, keep it there.
+
+**The script.** `T` is the number of flat transitions and `J` the number of injected environment
+places that resolve in the flat net, taken in place-index order, each with its bound under
+`Bounded(k)` or none. Selector value `t < T` is transition `t` in net order, `T + j` is injection
+`j`, and `T + J` is the idle step. Each step `i` of the `D` steps emits, in this order:
+
+1. `(assert (and (>= s<i> 0) (<= s<i> <T+J>)))`;
+2. when `i + 1 < D`, `(assert (=> (= s<i> <T+J>) (= s<i+1> <T+J>)))`;
+3. one guard line per transition, as the bounded run of [VER-019] emits it;
+4. one line per bounded injection `j`, in order, `(assert (=> (= s<i> <T+j>) (< <m> <k>)))`, with
+   `<m>` the place's marking term at step `i` (the literal from `M0` at step 0); an injection
+   without a bound emits no line;
+5. per place, the `ite` chain of [VER-019], whose selectors are the transitions that touch the
+   place, in net order, followed by `T + j` for each injection `j` into the place, reversed and
+   nested as there, with the injection arm `(+ <m> 1)`;
+6. the environment post-caps, as the bounded run of [VER-019] emits them.
+
+The violation at the last marking and the trailer are those of [VER-019], and so is the first
+line, `; Bounded run (VER-019): <D> steps of the exact step relation from M0, idle`.
+
+*When* the phase runs, the verifier *shall* send this script, and every implementation *shall* emit it byte for byte the same for the same net, initial marking, property and options.
+
+*If* `J` is 0, *then* the script *shall* be byte-identical to the bounded run of [VER-019] at the same depth.
+
+**Decode, replay and trim.**
+
+*When* the solver answers `sat`, the phase *shall* read the run from the model's selectors in step order up to the first idle step, taking a value in `[0, T)` as a transition step, a value in `[T, T + J)` as an injection step, and any other value, or a selector the model leaves undefined, as idle, and *shall* read no run from a model that defines no selector.
+
+*When* the phase replays a run, it *shall* fire each transition step under the exact abstract semantics with the environment post-caps, take each injection step only while its guard holds, and accept the run only when every step is enabled and the last marking violates the property.
+
+*When* a run replays, the phase *shall* trim it: it *shall* first cut the run to its violating prefix, then try the steps from the last to the first, replace the run by the violating prefix of the run without that step whenever one exists, and repeat such passes until one changes nothing.
+
+The violating prefix of a run is its shortest prefix that replays to a violating marking, the
+empty prefix (`M0` itself) included; a run has none when no prefix replays to a violating
+marking. A step after the violation need not be enabled for a prefix to count.
+
+*When* the phase reports a run, it *shall* report the trimmed run, replayed, with each transition step labelled by its transition's name and each injection step by `inject(<place>)`.
+
+The solver pads a run to the full depth with steps that lead nowhere, and a padded run can pass a
+violating marking and go on; the trim removes such steps. The trimmed run ends at the first
+violating marking it reaches, and it is irredundant: no single step of it can be dropped so that
+some prefix of the rest still replays to a violating marking. When `M0` violates, the trimmed run
+is the empty one, whatever model the solver returned. It is not claimed to be a shortest run.
+Which run is reported depends on the model the solver returns; for one model the trim fixes it,
+so every implementation reports the same run for the same stub model.
+
+**Budget.**
+
+*When* the phase starts, it *shall* start a wall-clock budget of `max(1, floor(timeout_ms / 8))` milliseconds before it encodes the script, and the query *shall* receive what is left of it.
+
+The query passes the total-budget clamp of [VER-013] like every other process. The phase is the
+step `witness phase` of that requirement's reason
+`total verification budget of <N> ms exhausted during <phase>`. The trim polls the [VER-013]
+deadline (the total budget and cancellation) before each candidate it replays; a stop found there
+ends the verification as a stop anywhere else in the step `witness phase` does. Outside a
+`verify()` call the poll does nothing.
+
+**Report.**
+
+*When* the phase runs, the report *shall* carry the line `  Bounded witness phase (VER-025):` followed by exactly one of the status lines below.
+
+- `    Status: a run of <n> steps reaches a violation (replayed; depth <D>)`, with `<n>` the
+  number of steps of the trimmed run, written the same way for every `n` (`a run of 1 steps`
+  included, and `0` exactly when `M0` violates)
+- `    Status: no run of at most <D> steps reaches a violation (not a proof)`
+- `    Status: inconclusive (<reason>)`
+
+The inconclusive reasons are the transport's failure message ([VER-013]);
+`z3 reported an error: <line>`, when the reply carries an `(error ...)` line other than
+`model is not available`, with a verdict line or without; `time budget of <ms> ms exhausted`,
+with `<ms>` the phase budget `max(1, floor(timeout_ms / 8))`, when that budget is spent before
+the query starts; `the bounded run at depth <D> answered unknown`; `the bounded run did not
+replay under the exact semantics`, when the model yields no run or its run does not replay; and
+the reason of [NU-055] for a name-alignment property. A reply with such an error line counts as
+a query that fails in the transport: an errored assertion drops out of the query, so its verdict
+line would answer a different question. The phases of [VER-018] and [VER-019] read their replies
+the same way. When the total budget or a cancellation of [VER-013] stops the verification during
+the phase, the trim included, the status line is `    Status: inconclusive (<reason>)` with the
+stop reason of [VER-013], and the `Unknown` result of that requirement follows it.
+
+**Outcomes.**
+
+*When* a run replays, the phase *shall* return `Violated` with the trimmed run as the counterexample, `counterexampleConfirmed` `true` and the route of the SMT pipeline ([VER-003]), and the result *shall* continue as the witness result of [VER-018] and [VER-019] does.
+
+That result is `=== RESULT ===`, `VIOLATED: <property>`,
+`  Counterexample trace (replay order, <k> states):` with one line per marking,
+`  Firing sequence: <a> -> <b>` unless the run is empty, and the untimed warning of [VER-003]
+AC7. A run of 0 steps is the empty firing sequence of [VER-003] AC8: one marking, no transition
+and no `Firing sequence` line.
+
+*When* the phase returns `Violated` on a net with match transitions, the result *shall* pass the ν guard of [NU-050] as a name-blind verdict and carry the guard's note that the counterexample may be spurious.
+
+*When* the phase returns `Violated`, the counterexample-timing step of [VER-023] *shall* apply to the result as to every result of the pipeline.
+
+*If* the solver answers `unsat`, *then* the phase *shall* report that no run of at most `D` steps reaches a violation, and the pipeline *shall* continue to the fixpoint query.
+
+*If* the query fails in the transport, the solver answers `unknown`, the phase budget is spent or the run does not replay, *then* the phase *shall* report itself inconclusive with its reason, and the pipeline *shall* continue to the fixpoint query.
+
+The phase *shall not* report `Proven`, and *shall not* read an `unsat` answer as a proof.
+
+*If* the phase ends without a run, *then* the pipeline *shall* continue as it does without the phase, and the phase *shall* change no verdict except through the time it spends against the total budget of [VER-013].
+
+**Option.**
+
+The witness depth *shall* default to 8 in every implementation.
+
+*When* the caller sets the witness depth to a positive `n`, the phase *shall* ask one query at depth `n`.
+
+*If* the caller sets a negative witness depth, *then* setting it *shall* fail with the argument error `witnessDepth must be non-negative, got <n>`.
+
+A language whose depth type has no negative value has no such error. Only depth 8 is cheap: a
+larger depth costs up to the phase budget on every query that has no short run, each `Proven`
+one included.
+
+**Scripts and dump.**
+
+*When* `LIBPETRI_SMT_DUMP` is set, the verifier *shall* keep the phase's script and reply under the phase name `witness` ([VER-013]).
+
+*When* the scripts are encoded without a solver ([VER-013] AC1), the result *shall* carry as its `witness` member the script `verify()` sends when it reaches the phase, present exactly when the encoding is flat, the witness depth is positive, and the net has no match transitions or the property is a reachability-safety property with a budget place declared, and absent otherwise.
+
+The member follows these gates alone: it is present whether or not an earlier phase, an earlier
+route or a refusal (an unresolved property place among them) would end `verify()` before the
+phase.
+
+Measured on a 169-place net with 18 bounded injected places (z3 4.16.0): three violations need
+runs of 7 steps with one or two injections. Depth 8 finds each in 0.15 to 0.25 s, where the
+fixpoint query took 57 to 272 s, and every model is 8 steps long before the trim. A depth-8 query
+with no run costs 0.15 to 0.32 s. Where no run exists, depth 12 costs up to 3.7 s and depth 16
+up to 120 s, so a depth above 8 is opt-in.
+
+**Acceptance Criteria:**
+1. **An injection witness.** The fixture `env-bounded-witness-violated` (`envBoundedPair`:
+   `t: one(e) → p1`, `e` an environment place under `Bounded(2)`, empty `M0`):
+   `PlaceBound(p1, 1)` is `Violated` by the phase at the default depth, confirmed, with a run of
+   4 steps, two `inject(e)` and two `t`. The report carries
+   `    Status: a run of 4 steps reaches a violation (replayed; depth 8)`, and no fixpoint query
+   is sent.
+2. **A deeper violation falls through.** The fixture `env-bounded-deep-witness-violated` (the
+   same net, `PlaceBound(p1, 4)`, whose shortest run has 10 steps): the report carries
+   `    Status: no run of at most 8 steps reaches a violation (not a proof)` and the fixpoint
+   query answers `Violated`. With the witness depth 10 the phase reports a run of 10 steps.
+3. **Off.** With the witness depth 0, verdict, route, report and encoded scripts are those of
+   the pipeline without the phase on every shared verdict-parity fixture; `encodeScripts()` has
+   no `witness` script and the dump has no `witness` file.
+4. **Name-coloured encoding.** A query that takes the name-coloured encoding ([NU-053]) carries
+   no phase line and no `witness` script.
+5. **ν gates.** On a net with match transitions the phase does not run for a quiescence property,
+   nor for a reachability-safety property with no budget place declared. With a budget place, a
+   reachability-safety property and an encoding that stays flat (modelled injection,
+   [VER-006] AC7) it runs, and its `Violated` carries the ν guard's note.
+6. **Name alignment.** Called directly with a name-alignment property, the phase sends no query
+   and ends inconclusive with the reason of [NU-055].
+7. **Each fall-through.** With a stub solver ([VER-013]), an `unsat` reply, an `unknown` reply, a
+   transport failure, a spent phase budget and a `sat` model whose run does not replay each give
+   their own status line, are followed by the fixpoint query, and never give `Proven`.
+8. **Selector range.** A stub model whose selector is `T + j` decodes as injection `j`, not as
+   idle; a selector of `T + J` or more, or a negative one, ends the run.
+9. **Injection replay.** An injection step at a place that holds its bound does not replay; an
+   injection without a bound always does; an injection step is labelled `inject(<place>)` and is
+   checked against no post-cap.
+10. **Trim.** A stub model on `envBoundedPair` padded with needless steps is reported as a run of
+    4 steps for `PlaceBound(p1, 1)`; dropping any single step of a reported run makes it fail to
+    replay.
+11. **Initial violation.** When `M0` violates the property, with the enumeration route, [VER-018]
+    and [VER-019] off, the phase reports `a run of 0 steps`, and the result is the empty firing
+    sequence of [VER-003] AC8, confirmed. A stub model whose run leaves `M0` and comes back to a
+    violating marking (`t1: p0 → p1`, `t2: p1 → p0`, `M0 = {p0: 2}`, `PlaceBound(p0, 1)`, the
+    model `t1, t2`) is reported as the run of 0 steps too, and a stub model whose run passes a
+    violating marking and goes on is reported cut at that marking.
+12. **Replay option.** With the counterexample replay of [VER-003] disabled, the phase still runs
+    and its `Violated` has `counterexampleConfirmed` `true`.
+13. **Ignore.** Under `Ignore` with environment places registered the phase runs, and its script
+    has no injection selector (`J = 0`).
+14. **Script.** With `J = 0` the script is byte-identical to the bounded run of [VER-019] at the
+    same depth, so the goldens of [VER-019] are unchanged. A golden `witness.smt2` for a net with
+    a bounded injected place is the same in every implementation ([VER-013] AC1), and
+    `LIBPETRI_SMT_DUMP` names the phase's files `NNN-witness`.
+15. **Option.** The default depth is 8 in every implementation; a positive depth `n` sends one
+    query at depth `n`; a negative depth fails with `witnessDepth must be non-negative, got -1`.
+
+**Implementation notes:**
+- Java: `org.libpetri.smt.z3.BoundedRun` (`encodeBoundedRun`, `decodeBoundedRun`, `replayRun`
+  and the phase driver); `SmtVerifier.witnessDepth(int)`; `encodeScripts().witness()`.
+- TypeScript: `verification/z3/bounded-run`; `SmtVerifier.witnessDepth(n)`;
+  `encodeScripts().witness` (`string | null`). A non-integer depth fails with
+  `witnessDepth must be an integer, got <n>`; the other languages' depth types hold integers
+  only.
+- Rust: behind the `z3` feature, `bounded_run`; `SmtVerifier::witness_depth(usize)`;
+  `encode_scripts().witness` (`Option<String>`).
+- Python: `verify(..., witness_depth=8)`; `encode_smt_scripts(..., witness_depth=8)["witness"]`.
+  The negative-depth error names the option as Python spells it:
+  `witness_depth must be non-negative, got <n>`.
+- The goldens `spec/verification-fixtures/scripts/<id>/witness.smt2` are written by the Rust
+  verifier (`scripts/smt-script-parity.py --update`), never by hand.
+
+**Depends on:** [VER-001], [VER-003], [VER-004], [VER-006], [VER-013], [VER-018], [VER-019],
+[VER-023], [NU-050], [NU-053], [NU-055]
+
+**Test derivation:** the `envBoundedPair` fixtures at the default depth and at depth 10. One test
+per gate and per outcome, each failing when only that gate or outcome is removed: the stub replies
+of AC7 and AC8, and for AC5 the ν-net of [VER-006] AC7 under `Bounded(1)` with `Unreachable(merged)`
+and with `DeadlockFree`. A test elsewhere that pins the fixpoint query's own result (its replay
+and the replay's outcomes, the replay opt-out, its report lines, a dump listing) sets the witness
+depth to 0, since the phase now answers first.
 
 ---
 

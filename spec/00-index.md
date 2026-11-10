@@ -38,13 +38,13 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places | 15 |
 | [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
-| [07-verification.md](07-verification.md) | VER | SMT/IC3, total budget, state-equation phase, firing bound, state class graph, stubborn-set reduction, timed counterexample check, structural analysis, open-net contracts | 22 |
+| [07-verification.md](07-verification.md) | VER | SMT/IC3, total budget, state-equation phase, firing bound, bounded witness phase, state class graph, stubborn-set reduction, timed counterexample check, structural analysis, open-net contracts | 23 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
 | [09-export.md](09-export.md) | EXP | Graph export, formal interchange | 17 |
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, bound-port references, channel fusion, action binding per instance, place fusion | 27 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, name alignment, bounded-budget decidability ledger | 15 |
-| **Total** | | | **226** |
+| **Total** | | | **227** |
 
 > **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
 > removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
@@ -332,6 +332,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-022 | Open-Net Verification Against a Contract | MAY | VER-002, 004, 006, 010, 014, 017 |
 | VER-023 | Timed Counterexample Check | SHOULD | VER-003, 004, 006, 010, 013, 014, 017, EXEC-042 |
 | VER-024 | Stubborn-Set Reduction of the Enumeration Route | SHOULD | VER-004, 017, 021, EXEC-042, IO-014 |
+| VER-025 | Bounded Witness Phase | SHOULD | VER-001, 003, 004, 006, 013, 018, 019, 023, NU-050, NU-053, NU-055 |
 
 ---
 
@@ -340,9 +341,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 144   | Core contract; all implementations must conform |
-| SHOULD   | 64    | Recommended; implementations should include unless technically infeasible |
+| SHOULD   | 65    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 18    | Optional; implementations may include |
-| **Total** | **226** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| **Total** | **227** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
 
 ---
 
@@ -508,6 +509,7 @@ The Rust column doubles as Python's: `libpetri-py` binds the same engine, so a `
 | VER-018 | `StateEquationQueryTest`, `TrapRefinementTest`, `InvariantSynthesisTest`, `ParikhSearchTest`, `StateEquationPhaseTest`, `StateEquationPhaseVerifierTest`, `StateEquationQueryGoldenTest` | `state-equation-phase.test.ts` (building blocks, end to end, dump phases) | `trap_refinement::tests`, `invariant_synthesis::tests`, `parikh_search::tests`, `state_equation_phase::tests`, `smt_verifier::tests` (`state_equation_phase_*`), `tests/phase_dump.rs`; Python `test_state_equation_phase.py` |
 | VER-019 | `BoundedRunTest`, `StateEquationPhaseVerifierTest` | `state-equation-phase.test.ts` (firing bound) | `bounded_run::tests`, `smt_verifier::tests` (`firing_bound_*`), `tests/phase_dump.rs`; Python `test_state_equation_phase.py` |
 | VER-022 | `OpenNetVerificationTest` | `open-net.test.ts` | `open_net::tests`; Python `test_open_net.py` |
+| VER-025 | `WitnessPhaseTest`, `WitnessPhaseVerifierTest`, `InitialViolationTraceTest`, `StubZ3Test` | `verification/witness-phase.test.ts`, `initial-violation-trace.test.ts`, `stub-z3.test.ts` | `bounded_run::tests` (`the_witness_phase_*`), `smt_verifier::tests` (`the_witness_*`, `witness_depth_*`, `encode_scripts_reports_the_witness_query_*`), `tests/stub_z3.rs`; Python `test_witness_phase.py`, `test_state_equation_phase.py` |
 | VER-010 AC1 (canonical class identity) | `StateClassGraphTest` (canonical class identity), `DBMTest` (zone key) | `state-class-graph.test.ts > canonical class identity`, `dbm.test.ts > DBM zone identity` | `state_class_graph::tests` (canonical order), `dbm::tests` (zone key) |
 | VER-013 | `StubZ3Test`, `Z3BinaryGateTest`, `SmtScriptGoldenTest`, `SmtScriptParityTest` | `stub-z3.test.ts`, `z3-gate.test.ts`, `smt-script-golden.test.ts`, `smt-script-parity.test.ts` | `tests/stub_z3.rs`, `tests/z3_gate.rs`, `tests/smt_script_parity.rs`, `z3_process::tests`; Python `test_z3_gate.py`, `test_smt_script_parity.py` |
 | VER-013 AC7 (code-point name order) | `CodePointOrderTest` | `core/internal/code-point-order.test.ts` | `marking_state::tests`, `open_net::report::tests` |

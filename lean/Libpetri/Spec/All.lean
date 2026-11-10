@@ -40,6 +40,7 @@ import Libpetri.Spec.Req.TIME_011
 import Libpetri.Spec.Req.TIME_012
 import Libpetri.Spec.Req.TIME_013
 import Libpetri.Spec.Req.TIME_015
+import Libpetri.Spec.Req.VER_025
 import Libpetri.Spec.Consistency
 import Libpetri.Spec.ConsistencyTime
 import Libpetri.Spec.ConsistencyQueue

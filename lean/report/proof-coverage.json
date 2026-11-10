@@ -322,6 +322,216 @@
       ]
     },
     {
+      "name": "bmcEnv_complete",
+      "module": "Libpetri/Novel/FiringBound/Bmc.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "exactness of the script with injection steps: the depth-d constraint system has a model iff some run of at most d firings and injections replays to a violating marking (P1, P2, P5, P9, seed within the caps; the SMT-LIB text is P4); backs the status line 'no run of at most D steps reaches a violation'"
+        }
+      ]
+    },
+    {
+      "name": "bmcEnv_sat_replays",
+      "module": "Libpetri/Novel/FiringBound/Bmc.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a model of the depth-d script decodes, at stepCount T + J (selectors in [T, T + J) are injection steps), to a run that replays under the exact step relation to a violating marking: a truthful sat is never turned away by the replay"
+        }
+      ]
+    },
+    {
+      "name": "bmcModelEnv_nil",
+      "module": "Libpetri/Novel/FiringBound/Bmc.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "with J = 0 the constraint system of the witness script is the bounded run of VER-019 (constraint level; the byte identity of the text is the golden parity tests)"
+        }
+      ]
+    },
+    {
+      "name": "bmc_complete",
+      "module": "Libpetri/Novel/FiringBound/Bmc.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "the depth-d bounded run has a model iff some run of at most d firings reaches a violating marking; proved as the J = 0 case of the VER-025 script with injection steps"
+        }
+      ]
+    },
+    {
+      "name": "bmc_sat_replays",
+      "module": "Libpetri/Novel/FiringBound/Bmc.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "a model of the depth-d bounded run decodes to a run that replays under the exact semantics to a violating marking; the J = 0 case of the VER-025 decode"
+        }
+      ]
+    },
+    {
+      "name": "replayEnv_sound",
+      "module": "Libpetri/Novel/FiringBound/Bmc.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a run the replay accepts, firings and injection steps by index, is a run of the step relation StepEnv: an enabled row whose successor passes the post-caps, or an injection while its guard holds; model of replay_run"
+        }
+      ]
+    },
+    {
+      "name": "pipeline_eq_fixpoint",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a phase that ends without a run changes no verdict except through the budget it spends: the verdict is the fixpoint route at the budget left"
+        }
+      ]
+    },
+    {
+      "name": "pipeline_some_eq",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a phase that ran and ended without a run hands the fixpoint route the total budget minus the time it spent, and changes nothing else"
+        }
+      ]
+    },
+    {
+      "name": "replayRun_sound",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a run replay_run accepts is a run of StepEnv from M0 to a violating marking, every index a step index in [0, T + J)"
+        }
+      ]
+    },
+    {
+      "name": "stepEnv_injsOf",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the phase's step relation at the verifier's injection list is EnvSemantics.StepAE, the transition and injection rules of the HORN encoding without their strengthening conjuncts"
+        }
+      ]
+    },
+    {
+      "name": "trim_first",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the trimmed run ends at the first violating marking it reaches: no proper prefix of it replays to a violation"
+        }
+      ]
+    },
+    {
+      "name": "trim_initial",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "when M0 violates the trimmed run is the empty one, whatever model the solver returned"
+        }
+      ]
+    },
+    {
+      "name": "trim_irredundant",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the trimmed run is irredundant: dropping any single step leaves a run no prefix of which replays to a violation; not claimed shortest"
+        }
+      ]
+    },
+    {
+      "name": "trim_sound",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the trim keeps a replaying run replaying"
+        }
+      ]
+    },
+    {
+      "name": "trim_sublist",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the trim only drops steps: the trimmed run is a sublist of the decoded run"
+        }
+      ]
+    },
+    {
+      "name": "witnessPhase_depth0",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "with the witness depth 0 the phase does not run and the verdict is that of the pipeline without the phase"
+        }
+      ]
+    },
+    {
+      "name": "witnessPhase_never_proven",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the phase never reports Proven: a Proven of the pipeline is the fixpoint route at the budget left"
+        }
+      ]
+    },
+    {
+      "name": "witnessPhase_noRun_exact",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "'no run' comes only from unsat, and with a truthful unsat (P4) no run of at most D steps, firings and injections, reaches a violation; nothing about longer runs, so not a proof"
+        }
+      ]
+    },
+    {
+      "name": "witnessPhase_sat_violated",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a sat answer that defines the selectors of a model of the depth-D script always ends in a reported run"
+        }
+      ]
+    },
+    {
+      "name": "witnessPhase_violated_sound",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "a reported run is the trim of a sat model's decoded run, has at most D steps, replays from M0 to a violating marking under the exact step relation, ends at the first violating marking it reaches, is irredundant, and is empty when M0 violates"
+        }
+      ]
+    },
+    {
+      "name": "witness_horn_derivation",
+      "module": "Libpetri/Novel/FiringBound/Witness.lean",
+      "specIds": [
+        {
+          "id": "VER-025",
+          "fragment": "the phase adds Violated verdicts and never removes one: every marking a replayed witness reaches is reachable in the strengthened CHC system the fixpoint query solves (P-invariants, state-equation rows, post-caps, Bounded(k) guard), on duplicate-free rows with gate-validated laws"
+        }
+      ]
+    },
+    {
       "name": "deposit_mem_fixedRows",
       "module": "Libpetri/Novel/ForwardDeposit.lean",
       "specIds": [

@@ -398,6 +398,14 @@ jobs:
           #print axioms Libpetri.Novel.FiringBound.bmc_complete
           #print axioms Libpetri.Novel.FiringBound.bmc_exact_at_bound
           #print axioms Libpetri.Novel.FiringBound.bmc_agrees_with_enumeration
+          #print axioms Libpetri.Novel.FiringBound.bmcEnv_complete
+          #print axioms Libpetri.Novel.FiringBound.bmcEnv_sat_replays
+          #print axioms Libpetri.Novel.FiringBound.replayEnv_sound
+          #print axioms Libpetri.Novel.FiringBound.trim_irredundant
+          #print axioms Libpetri.Novel.FiringBound.witnessPhase_violated_sound
+          #print axioms Libpetri.Novel.FiringBound.witnessPhase_noRun_exact
+          #print axioms Libpetri.Novel.FiringBound.witnessPhase_never_proven
+          #print axioms Libpetri.Novel.FiringBound.witness_horn_derivation
           #print axioms Libpetri.Novel.ReapAware.reap_quiescent_iff_quiescent
           #print axioms Libpetri.Novel.ReapAware.reapQuiescent_of_quiescent
           #print axioms Libpetri.Novel.ReapAware.halts_reapQuiescent

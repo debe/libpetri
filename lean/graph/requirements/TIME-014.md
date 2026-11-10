@@ -13,30 +13,30 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_010.lean"]
-    n4691["Libpetri.Spec.time010_gate"]
+    n4858["Libpetri.Spec.time010_gate"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
-  c26["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
-  c52["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
-  c64["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Timed.lean (34 declarations, collapsed)"]
-  c91["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c93["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
-  c52 --> c0
-  c69 --> c26
-  c69 --> c52
-  c70 --> c64
-  c70 --> c69
-  c91 --> c69
-  c93 --> c70
-  c93 --> c91
-  n4691 --> c93
+  c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
+  c53["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
+  c65["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
+  c70["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c71["📁 Libpetri/Reference/Timed.lean (34 declarations, collapsed)"]
+  c92["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
+  c94["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
+  c53 --> c0
+  c70 --> c27
+  c70 --> c53
+  c71 --> c65
+  c71 --> c70
+  c92 --> c70
+  c94 --> c71
+  c94 --> c92
+  n4858 --> c94
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4691 root
-  class c0,c26,c52,c64,c69,c70,c91,c93 collapsed
+  class n4858 root
+  class c0,c27,c53,c65,c70,c71,c92,c94 collapsed
 ```
 
 Axioms used:

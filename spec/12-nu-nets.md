@@ -1185,7 +1185,7 @@ verified by another route; it says the verdict is `Unknown`.
 
 **Route B only.** Route A ([NU-050], [NU-053]), the name-blind SMT pipeline ([VER-001]), the linear
 bound ([VER-015]), the state-equation and firing-bound phases ([VER-018], [VER-019]), the bounded
-enumeration ([VER-017]) and the structural checks ([VER-020]) do not see names. None of them decides a
+witness phase ([VER-025]), the bounded enumeration ([VER-017]) and the structural checks ([VER-020]) do not see names. None of them decides a
 name-alignment property: called directly, each returns no verdict, or `Unknown` with a reason
 saying that it is decided only by the name-partition graph, and the dispatcher MUST NOT defer a
 Route B `Unknown` to any of them (no [NU-053] fallback). The script encoders (`encodeScripts`,

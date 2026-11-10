@@ -1,7 +1,8 @@
 # Glossary: firing semantics
 
 This glossary fixes the terms the CORE and IO firing requirements, the TIME timing
-requirements and the EXEC execution requirements use. It is not numbered and defines no
+requirements and the EXEC execution requirements use, and the terms of the verifier's bounded
+runs. It is not numbered and defines no
 requirements; each entry cites the requirements that define the term. The Lean counterpart is
 `lean/Libpetri/Spec/Glossary.lean` for the firing terms and `lean/Libpetri/Spec/GlossaryTime.lean`
 for the timing terms, whose docstrings quote these entries.
@@ -245,3 +246,21 @@ processes it, in step 1 of a cycle or, for a synchronous action, inside the firi
 [EXEC-022], that a stop on a terminal place abandoned [EXEC-042] or that an immediate
 termination abandoned [ENV-015]. Only an admitted completion deposits, and only when output
 validation, if enabled [CONC-026], does not reject its produced set [EXEC-020], [EXEC-021].
+
+---
+
+## Verification
+
+### Injection step
+
+A step of the verifier's flat step relation that adds one token to an injected environment place
+that resolves in the flat net: the injection rule of the HORN encoding [VER-006], the
+`inject(<place>)` step of the counterexample replay [VER-003] and of the bounded witness phase
+[VER-025]. Under `Bounded(k)` it is enabled only while the place holds fewer than `k` tokens,
+under `AlwaysAvailable` always. Under `Ignore` and `Arrivals` the flat net has none [VER-006].
+
+### Irredundant run
+
+A run to a violating marking from which no single step can be dropped so that the rest still
+replays to a violating marking [VER-025]. An irredundant run need not be a shortest one. The
+bounded witness phase reports one that also ends at the first violating marking it reaches.

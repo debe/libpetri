@@ -18,170 +18,170 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/InFlight.lean"]
-    n741["Libpetri.Novel.InFlight.Completes"]
-    n742["Libpetri.Novel.InFlight.MonoAt"]
-    n743["Libpetri.Novel.InFlight.NamesUnique"]
-    n744["Libpetri.Novel.InFlight.Row"]
-    n745["Libpetri.Novel.InFlight.SReach"]
-    n746["Libpetri.Novel.InFlight.SStep"]
-    n747["Libpetri.Novel.InFlight.SStep.atomic"]
-    n748["Libpetri.Novel.InFlight.SStep.complete"]
-    n749["Libpetri.Novel.InFlight.SStep.start"]
-    n750["Libpetri.Novel.InFlight.Untested"]
-    n752["Libpetri.Novel.InFlight.UpClosedOff"]
-    n753["Libpetri.Novel.InFlight.XReach"]
-    n754["Libpetri.Novel.InFlight.XState"]
-    n755["Libpetri.Novel.InFlight.XState.a"]
-    n756["Libpetri.Novel.InFlight.XState.mk"]
-    n757["Libpetri.Novel.InFlight.XState.pend"]
-    n758["Libpetri.Novel.InFlight.XStep"]
-    n759["Libpetri.Novel.InFlight.XStep.complete"]
-    n760["Libpetri.Novel.InFlight.XStep.start"]
-    n763["Libpetri.Novel.InFlight.addAll"]
-    n764["Libpetri.Novel.InFlight.addAll_cons"]
-    n765["Libpetri.Novel.InFlight.addAll_nil"]
-    n766["Libpetri.Novel.InFlight.addAll_of_zero"]
-    n767["Libpetri.Novel.InFlight.addAll_perm"]
-    n768["Libpetri.Novel.InFlight.addD"]
-    n769["Libpetri.Novel.InFlight.addD_addAll"]
-    n773["Libpetri.Novel.InFlight.completes_exists"]
-    n774["Libpetri.Novel.InFlight.completes_nonsplit"]
-    n777["Libpetri.Novel.InFlight.enabledA_addAll"]
-    n778["Libpetri.Novel.InFlight.enabledA_addD"]
-    n782["Libpetri.Novel.InFlight.filter_erase_of_false"]
-    n783["Libpetri.Novel.InFlight.filter_erase_of_true"]
-    n784["Libpetri.Novel.InFlight.fireAD_eq_addD_startA"]
-    n786["Libpetri.Novel.InFlight.le_addAll"]
-    n789["Libpetri.Novel.InFlight.live_addAll"]
-    n790["Libpetri.Novel.InFlight.pend_has_row"]
-    n794["Libpetri.Novel.InFlight.quiescent_count_stop_sound"]
-    n800["Libpetri.Novel.InFlight.split_covers_executor"]
-    n804["Libpetri.Novel.InFlight.split_stop_sound"]
-    n805["Libpetri.Novel.InFlight.startA"]
-    n806["Libpetri.Novel.InFlight.startA_addAll"]
-    n807["Libpetri.Novel.InFlight.startA_addD"]
-    n808["Libpetri.Novel.InFlight.stopCountBad"]
-    n809["Libpetri.Novel.InFlight.stopCountBad_upClosedOff"]
+    n882["Libpetri.Novel.InFlight.Completes"]
+    n883["Libpetri.Novel.InFlight.MonoAt"]
+    n884["Libpetri.Novel.InFlight.NamesUnique"]
+    n885["Libpetri.Novel.InFlight.Row"]
+    n886["Libpetri.Novel.InFlight.SReach"]
+    n887["Libpetri.Novel.InFlight.SStep"]
+    n888["Libpetri.Novel.InFlight.SStep.atomic"]
+    n889["Libpetri.Novel.InFlight.SStep.complete"]
+    n890["Libpetri.Novel.InFlight.SStep.start"]
+    n891["Libpetri.Novel.InFlight.Untested"]
+    n893["Libpetri.Novel.InFlight.UpClosedOff"]
+    n894["Libpetri.Novel.InFlight.XReach"]
+    n895["Libpetri.Novel.InFlight.XState"]
+    n896["Libpetri.Novel.InFlight.XState.a"]
+    n897["Libpetri.Novel.InFlight.XState.mk"]
+    n898["Libpetri.Novel.InFlight.XState.pend"]
+    n899["Libpetri.Novel.InFlight.XStep"]
+    n900["Libpetri.Novel.InFlight.XStep.complete"]
+    n901["Libpetri.Novel.InFlight.XStep.start"]
+    n904["Libpetri.Novel.InFlight.addAll"]
+    n905["Libpetri.Novel.InFlight.addAll_cons"]
+    n906["Libpetri.Novel.InFlight.addAll_nil"]
+    n907["Libpetri.Novel.InFlight.addAll_of_zero"]
+    n908["Libpetri.Novel.InFlight.addAll_perm"]
+    n909["Libpetri.Novel.InFlight.addD"]
+    n910["Libpetri.Novel.InFlight.addD_addAll"]
+    n914["Libpetri.Novel.InFlight.completes_exists"]
+    n915["Libpetri.Novel.InFlight.completes_nonsplit"]
+    n918["Libpetri.Novel.InFlight.enabledA_addAll"]
+    n919["Libpetri.Novel.InFlight.enabledA_addD"]
+    n923["Libpetri.Novel.InFlight.filter_erase_of_false"]
+    n924["Libpetri.Novel.InFlight.filter_erase_of_true"]
+    n925["Libpetri.Novel.InFlight.fireAD_eq_addD_startA"]
+    n927["Libpetri.Novel.InFlight.le_addAll"]
+    n930["Libpetri.Novel.InFlight.live_addAll"]
+    n931["Libpetri.Novel.InFlight.pend_has_row"]
+    n935["Libpetri.Novel.InFlight.quiescent_count_stop_sound"]
+    n941["Libpetri.Novel.InFlight.split_covers_executor"]
+    n945["Libpetri.Novel.InFlight.split_stop_sound"]
+    n946["Libpetri.Novel.InFlight.startA"]
+    n947["Libpetri.Novel.InFlight.startA_addAll"]
+    n948["Libpetri.Novel.InFlight.startA_addD"]
+    n949["Libpetri.Novel.InFlight.stopCountBad"]
+    n950["Libpetri.Novel.InFlight.stopCountBad_upClosedOff"]
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
-  c26["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
-  c83["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c133["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
-  c26 --> c0
-  c83 --> c0
-  c133 --> c83
-  n741 --> n744
-  n742 --> c0
-  n743 --> n744
-  n744 --> c26
-  n745 --> n746
-  n745 --> n756
-  n746 --> n744
-  n746 --> n754
-  n747 --> n746
-  n747 --> n755
-  n747 --> n756
-  n747 --> n757
-  n748 --> n746
-  n748 --> n755
-  n748 --> n756
-  n748 --> n757
-  n748 --> n768
-  n749 --> n746
-  n749 --> n755
-  n749 --> n756
-  n749 --> n757
-  n749 --> n805
-  n750 --> n742
-  n750 --> n744
-  n752 --> c0
-  n753 --> n756
-  n753 --> n758
-  n755 --> c0
-  n755 --> n754
-  n756 --> c0
-  n756 --> n754
-  n757 --> n754
-  n758 --> n744
-  n758 --> n754
-  n759 --> n755
-  n759 --> n756
-  n759 --> n757
-  n759 --> n758
-  n759 --> n768
-  n760 --> n755
-  n760 --> n756
-  n760 --> n757
-  n760 --> n758
-  n760 --> n805
-  n763 --> n744
-  n764 --> n763
-  n764 --> n768
-  n765 --> n763
-  n766 --> n763
-  n767 --> n763
-  n768 --> c26
-  n769 --> n763
-  n769 --> n768
-  n773 --> n741
-  n774 --> n741
-  n777 --> n750
-  n777 --> n764
-  n777 --> n765
-  n777 --> n778
-  n778 --> n742
-  n778 --> n768
-  n784 --> n768
-  n784 --> n805
-  n786 --> n763
-  n789 --> n764
-  n789 --> n765
-  n790 --> n753
-  n790 --> n759
-  n790 --> n760
-  n794 --> n804
-  n794 --> n809
-  n800 --> n743
-  n800 --> n745
-  n800 --> n747
-  n800 --> n748
-  n800 --> n749
-  n800 --> n753
-  n800 --> n759
-  n800 --> n760
-  n800 --> n767
-  n800 --> n769
-  n800 --> n774
-  n800 --> n777
-  n800 --> n782
-  n800 --> n783
-  n800 --> n784
-  n800 --> n789
-  n800 --> n806
-  n804 --> n752
-  n804 --> n766
-  n804 --> n773
-  n804 --> n786
-  n804 --> n790
-  n804 --> n800
-  n805 --> c26
-  n806 --> n750
-  n806 --> n764
-  n806 --> n765
-  n806 --> n778
-  n806 --> n807
-  n807 --> c133
-  n807 --> n742
-  n807 --> n768
-  n807 --> n805
-  n808 --> c0
-  n809 --> n752
-  n809 --> n808
+  c27["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
+  c84["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
+  c135["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c27 --> c0
+  c84 --> c0
+  c135 --> c84
+  n882 --> n885
+  n883 --> c0
+  n884 --> n885
+  n885 --> c27
+  n886 --> n887
+  n886 --> n897
+  n887 --> n885
+  n887 --> n895
+  n888 --> n887
+  n888 --> n896
+  n888 --> n897
+  n888 --> n898
+  n889 --> n887
+  n889 --> n896
+  n889 --> n897
+  n889 --> n898
+  n889 --> n909
+  n890 --> n887
+  n890 --> n896
+  n890 --> n897
+  n890 --> n898
+  n890 --> n946
+  n891 --> n883
+  n891 --> n885
+  n893 --> c0
+  n894 --> n897
+  n894 --> n899
+  n896 --> c0
+  n896 --> n895
+  n897 --> c0
+  n897 --> n895
+  n898 --> n895
+  n899 --> n885
+  n899 --> n895
+  n900 --> n896
+  n900 --> n897
+  n900 --> n898
+  n900 --> n899
+  n900 --> n909
+  n901 --> n896
+  n901 --> n897
+  n901 --> n898
+  n901 --> n899
+  n901 --> n946
+  n904 --> n885
+  n905 --> n904
+  n905 --> n909
+  n906 --> n904
+  n907 --> n904
+  n908 --> n904
+  n909 --> c27
+  n910 --> n904
+  n910 --> n909
+  n914 --> n882
+  n915 --> n882
+  n918 --> n891
+  n918 --> n905
+  n918 --> n906
+  n918 --> n919
+  n919 --> n883
+  n919 --> n909
+  n925 --> n909
+  n925 --> n946
+  n927 --> n904
+  n930 --> n905
+  n930 --> n906
+  n931 --> n894
+  n931 --> n900
+  n931 --> n901
+  n935 --> n945
+  n935 --> n950
+  n941 --> n884
+  n941 --> n886
+  n941 --> n888
+  n941 --> n889
+  n941 --> n890
+  n941 --> n894
+  n941 --> n900
+  n941 --> n901
+  n941 --> n908
+  n941 --> n910
+  n941 --> n915
+  n941 --> n918
+  n941 --> n923
+  n941 --> n924
+  n941 --> n925
+  n941 --> n930
+  n941 --> n947
+  n945 --> n893
+  n945 --> n907
+  n945 --> n914
+  n945 --> n927
+  n945 --> n931
+  n945 --> n941
+  n946 --> c27
+  n947 --> n891
+  n947 --> n905
+  n947 --> n906
+  n947 --> n919
+  n947 --> n948
+  n948 --> c135
+  n948 --> n883
+  n948 --> n909
+  n948 --> n946
+  n949 --> c0
+  n950 --> n893
+  n950 --> n949
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n794 root
-  class c0,c26,c83,c133 collapsed
+  class n935 root
+  class c0,c27,c84,c135 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.split_covers_executor`
@@ -191,143 +191,143 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/InFlight.lean"]
-    n741["Libpetri.Novel.InFlight.Completes"]
-    n742["Libpetri.Novel.InFlight.MonoAt"]
-    n743["Libpetri.Novel.InFlight.NamesUnique"]
-    n744["Libpetri.Novel.InFlight.Row"]
-    n745["Libpetri.Novel.InFlight.SReach"]
-    n746["Libpetri.Novel.InFlight.SStep"]
-    n747["Libpetri.Novel.InFlight.SStep.atomic"]
-    n748["Libpetri.Novel.InFlight.SStep.complete"]
-    n749["Libpetri.Novel.InFlight.SStep.start"]
-    n750["Libpetri.Novel.InFlight.Untested"]
-    n753["Libpetri.Novel.InFlight.XReach"]
-    n754["Libpetri.Novel.InFlight.XState"]
-    n755["Libpetri.Novel.InFlight.XState.a"]
-    n756["Libpetri.Novel.InFlight.XState.mk"]
-    n757["Libpetri.Novel.InFlight.XState.pend"]
-    n758["Libpetri.Novel.InFlight.XStep"]
-    n759["Libpetri.Novel.InFlight.XStep.complete"]
-    n760["Libpetri.Novel.InFlight.XStep.start"]
-    n763["Libpetri.Novel.InFlight.addAll"]
-    n764["Libpetri.Novel.InFlight.addAll_cons"]
-    n765["Libpetri.Novel.InFlight.addAll_nil"]
-    n767["Libpetri.Novel.InFlight.addAll_perm"]
-    n768["Libpetri.Novel.InFlight.addD"]
-    n769["Libpetri.Novel.InFlight.addD_addAll"]
-    n774["Libpetri.Novel.InFlight.completes_nonsplit"]
-    n777["Libpetri.Novel.InFlight.enabledA_addAll"]
-    n778["Libpetri.Novel.InFlight.enabledA_addD"]
-    n782["Libpetri.Novel.InFlight.filter_erase_of_false"]
-    n783["Libpetri.Novel.InFlight.filter_erase_of_true"]
-    n784["Libpetri.Novel.InFlight.fireAD_eq_addD_startA"]
-    n789["Libpetri.Novel.InFlight.live_addAll"]
-    n800["Libpetri.Novel.InFlight.split_covers_executor"]
-    n805["Libpetri.Novel.InFlight.startA"]
-    n806["Libpetri.Novel.InFlight.startA_addAll"]
-    n807["Libpetri.Novel.InFlight.startA_addD"]
+    n882["Libpetri.Novel.InFlight.Completes"]
+    n883["Libpetri.Novel.InFlight.MonoAt"]
+    n884["Libpetri.Novel.InFlight.NamesUnique"]
+    n885["Libpetri.Novel.InFlight.Row"]
+    n886["Libpetri.Novel.InFlight.SReach"]
+    n887["Libpetri.Novel.InFlight.SStep"]
+    n888["Libpetri.Novel.InFlight.SStep.atomic"]
+    n889["Libpetri.Novel.InFlight.SStep.complete"]
+    n890["Libpetri.Novel.InFlight.SStep.start"]
+    n891["Libpetri.Novel.InFlight.Untested"]
+    n894["Libpetri.Novel.InFlight.XReach"]
+    n895["Libpetri.Novel.InFlight.XState"]
+    n896["Libpetri.Novel.InFlight.XState.a"]
+    n897["Libpetri.Novel.InFlight.XState.mk"]
+    n898["Libpetri.Novel.InFlight.XState.pend"]
+    n899["Libpetri.Novel.InFlight.XStep"]
+    n900["Libpetri.Novel.InFlight.XStep.complete"]
+    n901["Libpetri.Novel.InFlight.XStep.start"]
+    n904["Libpetri.Novel.InFlight.addAll"]
+    n905["Libpetri.Novel.InFlight.addAll_cons"]
+    n906["Libpetri.Novel.InFlight.addAll_nil"]
+    n908["Libpetri.Novel.InFlight.addAll_perm"]
+    n909["Libpetri.Novel.InFlight.addD"]
+    n910["Libpetri.Novel.InFlight.addD_addAll"]
+    n915["Libpetri.Novel.InFlight.completes_nonsplit"]
+    n918["Libpetri.Novel.InFlight.enabledA_addAll"]
+    n919["Libpetri.Novel.InFlight.enabledA_addD"]
+    n923["Libpetri.Novel.InFlight.filter_erase_of_false"]
+    n924["Libpetri.Novel.InFlight.filter_erase_of_true"]
+    n925["Libpetri.Novel.InFlight.fireAD_eq_addD_startA"]
+    n930["Libpetri.Novel.InFlight.live_addAll"]
+    n941["Libpetri.Novel.InFlight.split_covers_executor"]
+    n946["Libpetri.Novel.InFlight.startA"]
+    n947["Libpetri.Novel.InFlight.startA_addAll"]
+    n948["Libpetri.Novel.InFlight.startA_addD"]
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
-  c26["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
-  c83["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c133["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
-  c26 --> c0
-  c83 --> c0
-  c133 --> c83
-  n741 --> n744
-  n742 --> c0
-  n743 --> n744
-  n744 --> c26
-  n745 --> n746
-  n745 --> n756
-  n746 --> n744
-  n746 --> n754
-  n747 --> n746
-  n747 --> n755
-  n747 --> n756
-  n747 --> n757
-  n748 --> n746
-  n748 --> n755
-  n748 --> n756
-  n748 --> n757
-  n748 --> n768
-  n749 --> n746
-  n749 --> n755
-  n749 --> n756
-  n749 --> n757
-  n749 --> n805
-  n750 --> n742
-  n750 --> n744
-  n753 --> n756
-  n753 --> n758
-  n755 --> c0
-  n755 --> n754
-  n756 --> c0
-  n756 --> n754
-  n757 --> n754
-  n758 --> n744
-  n758 --> n754
-  n759 --> n755
-  n759 --> n756
-  n759 --> n757
-  n759 --> n758
-  n759 --> n768
-  n760 --> n755
-  n760 --> n756
-  n760 --> n757
-  n760 --> n758
-  n760 --> n805
-  n763 --> n744
-  n764 --> n763
-  n764 --> n768
-  n765 --> n763
-  n767 --> n763
-  n768 --> c26
-  n769 --> n763
-  n769 --> n768
-  n774 --> n741
-  n777 --> n750
-  n777 --> n764
-  n777 --> n765
-  n777 --> n778
-  n778 --> n742
-  n778 --> n768
-  n784 --> n768
-  n784 --> n805
-  n789 --> n764
-  n789 --> n765
-  n800 --> n743
-  n800 --> n745
-  n800 --> n747
-  n800 --> n748
-  n800 --> n749
-  n800 --> n753
-  n800 --> n759
-  n800 --> n760
-  n800 --> n767
-  n800 --> n769
-  n800 --> n774
-  n800 --> n777
-  n800 --> n782
-  n800 --> n783
-  n800 --> n784
-  n800 --> n789
-  n800 --> n806
-  n805 --> c26
-  n806 --> n750
-  n806 --> n764
-  n806 --> n765
-  n806 --> n778
-  n806 --> n807
-  n807 --> c133
-  n807 --> n742
-  n807 --> n768
-  n807 --> n805
+  c27["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
+  c84["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
+  c135["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c27 --> c0
+  c84 --> c0
+  c135 --> c84
+  n882 --> n885
+  n883 --> c0
+  n884 --> n885
+  n885 --> c27
+  n886 --> n887
+  n886 --> n897
+  n887 --> n885
+  n887 --> n895
+  n888 --> n887
+  n888 --> n896
+  n888 --> n897
+  n888 --> n898
+  n889 --> n887
+  n889 --> n896
+  n889 --> n897
+  n889 --> n898
+  n889 --> n909
+  n890 --> n887
+  n890 --> n896
+  n890 --> n897
+  n890 --> n898
+  n890 --> n946
+  n891 --> n883
+  n891 --> n885
+  n894 --> n897
+  n894 --> n899
+  n896 --> c0
+  n896 --> n895
+  n897 --> c0
+  n897 --> n895
+  n898 --> n895
+  n899 --> n885
+  n899 --> n895
+  n900 --> n896
+  n900 --> n897
+  n900 --> n898
+  n900 --> n899
+  n900 --> n909
+  n901 --> n896
+  n901 --> n897
+  n901 --> n898
+  n901 --> n899
+  n901 --> n946
+  n904 --> n885
+  n905 --> n904
+  n905 --> n909
+  n906 --> n904
+  n908 --> n904
+  n909 --> c27
+  n910 --> n904
+  n910 --> n909
+  n915 --> n882
+  n918 --> n891
+  n918 --> n905
+  n918 --> n906
+  n918 --> n919
+  n919 --> n883
+  n919 --> n909
+  n925 --> n909
+  n925 --> n946
+  n930 --> n905
+  n930 --> n906
+  n941 --> n884
+  n941 --> n886
+  n941 --> n888
+  n941 --> n889
+  n941 --> n890
+  n941 --> n894
+  n941 --> n900
+  n941 --> n901
+  n941 --> n908
+  n941 --> n910
+  n941 --> n915
+  n941 --> n918
+  n941 --> n923
+  n941 --> n924
+  n941 --> n925
+  n941 --> n930
+  n941 --> n947
+  n946 --> c27
+  n947 --> n891
+  n947 --> n905
+  n947 --> n906
+  n947 --> n919
+  n947 --> n948
+  n948 --> c135
+  n948 --> n883
+  n948 --> n909
+  n948 --> n946
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n800 root
-  class c0,c26,c83,c133 collapsed
+  class n941 root
+  class c0,c27,c84,c135 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.split_stop_sound`
@@ -337,162 +337,162 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/InFlight.lean"]
-    n741["Libpetri.Novel.InFlight.Completes"]
-    n742["Libpetri.Novel.InFlight.MonoAt"]
-    n743["Libpetri.Novel.InFlight.NamesUnique"]
-    n744["Libpetri.Novel.InFlight.Row"]
-    n745["Libpetri.Novel.InFlight.SReach"]
-    n746["Libpetri.Novel.InFlight.SStep"]
-    n747["Libpetri.Novel.InFlight.SStep.atomic"]
-    n748["Libpetri.Novel.InFlight.SStep.complete"]
-    n749["Libpetri.Novel.InFlight.SStep.start"]
-    n750["Libpetri.Novel.InFlight.Untested"]
-    n752["Libpetri.Novel.InFlight.UpClosedOff"]
-    n753["Libpetri.Novel.InFlight.XReach"]
-    n754["Libpetri.Novel.InFlight.XState"]
-    n755["Libpetri.Novel.InFlight.XState.a"]
-    n756["Libpetri.Novel.InFlight.XState.mk"]
-    n757["Libpetri.Novel.InFlight.XState.pend"]
-    n758["Libpetri.Novel.InFlight.XStep"]
-    n759["Libpetri.Novel.InFlight.XStep.complete"]
-    n760["Libpetri.Novel.InFlight.XStep.start"]
-    n763["Libpetri.Novel.InFlight.addAll"]
-    n764["Libpetri.Novel.InFlight.addAll_cons"]
-    n765["Libpetri.Novel.InFlight.addAll_nil"]
-    n766["Libpetri.Novel.InFlight.addAll_of_zero"]
-    n767["Libpetri.Novel.InFlight.addAll_perm"]
-    n768["Libpetri.Novel.InFlight.addD"]
-    n769["Libpetri.Novel.InFlight.addD_addAll"]
-    n773["Libpetri.Novel.InFlight.completes_exists"]
-    n774["Libpetri.Novel.InFlight.completes_nonsplit"]
-    n777["Libpetri.Novel.InFlight.enabledA_addAll"]
-    n778["Libpetri.Novel.InFlight.enabledA_addD"]
-    n782["Libpetri.Novel.InFlight.filter_erase_of_false"]
-    n783["Libpetri.Novel.InFlight.filter_erase_of_true"]
-    n784["Libpetri.Novel.InFlight.fireAD_eq_addD_startA"]
-    n786["Libpetri.Novel.InFlight.le_addAll"]
-    n789["Libpetri.Novel.InFlight.live_addAll"]
-    n790["Libpetri.Novel.InFlight.pend_has_row"]
-    n800["Libpetri.Novel.InFlight.split_covers_executor"]
-    n804["Libpetri.Novel.InFlight.split_stop_sound"]
-    n805["Libpetri.Novel.InFlight.startA"]
-    n806["Libpetri.Novel.InFlight.startA_addAll"]
-    n807["Libpetri.Novel.InFlight.startA_addD"]
+    n882["Libpetri.Novel.InFlight.Completes"]
+    n883["Libpetri.Novel.InFlight.MonoAt"]
+    n884["Libpetri.Novel.InFlight.NamesUnique"]
+    n885["Libpetri.Novel.InFlight.Row"]
+    n886["Libpetri.Novel.InFlight.SReach"]
+    n887["Libpetri.Novel.InFlight.SStep"]
+    n888["Libpetri.Novel.InFlight.SStep.atomic"]
+    n889["Libpetri.Novel.InFlight.SStep.complete"]
+    n890["Libpetri.Novel.InFlight.SStep.start"]
+    n891["Libpetri.Novel.InFlight.Untested"]
+    n893["Libpetri.Novel.InFlight.UpClosedOff"]
+    n894["Libpetri.Novel.InFlight.XReach"]
+    n895["Libpetri.Novel.InFlight.XState"]
+    n896["Libpetri.Novel.InFlight.XState.a"]
+    n897["Libpetri.Novel.InFlight.XState.mk"]
+    n898["Libpetri.Novel.InFlight.XState.pend"]
+    n899["Libpetri.Novel.InFlight.XStep"]
+    n900["Libpetri.Novel.InFlight.XStep.complete"]
+    n901["Libpetri.Novel.InFlight.XStep.start"]
+    n904["Libpetri.Novel.InFlight.addAll"]
+    n905["Libpetri.Novel.InFlight.addAll_cons"]
+    n906["Libpetri.Novel.InFlight.addAll_nil"]
+    n907["Libpetri.Novel.InFlight.addAll_of_zero"]
+    n908["Libpetri.Novel.InFlight.addAll_perm"]
+    n909["Libpetri.Novel.InFlight.addD"]
+    n910["Libpetri.Novel.InFlight.addD_addAll"]
+    n914["Libpetri.Novel.InFlight.completes_exists"]
+    n915["Libpetri.Novel.InFlight.completes_nonsplit"]
+    n918["Libpetri.Novel.InFlight.enabledA_addAll"]
+    n919["Libpetri.Novel.InFlight.enabledA_addD"]
+    n923["Libpetri.Novel.InFlight.filter_erase_of_false"]
+    n924["Libpetri.Novel.InFlight.filter_erase_of_true"]
+    n925["Libpetri.Novel.InFlight.fireAD_eq_addD_startA"]
+    n927["Libpetri.Novel.InFlight.le_addAll"]
+    n930["Libpetri.Novel.InFlight.live_addAll"]
+    n931["Libpetri.Novel.InFlight.pend_has_row"]
+    n941["Libpetri.Novel.InFlight.split_covers_executor"]
+    n945["Libpetri.Novel.InFlight.split_stop_sound"]
+    n946["Libpetri.Novel.InFlight.startA"]
+    n947["Libpetri.Novel.InFlight.startA_addAll"]
+    n948["Libpetri.Novel.InFlight.startA_addD"]
   end
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
-  c26["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
-  c83["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c133["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
-  c26 --> c0
-  c83 --> c0
-  c133 --> c83
-  n741 --> n744
-  n742 --> c0
-  n743 --> n744
-  n744 --> c26
-  n745 --> n746
-  n745 --> n756
-  n746 --> n744
-  n746 --> n754
-  n747 --> n746
-  n747 --> n755
-  n747 --> n756
-  n747 --> n757
-  n748 --> n746
-  n748 --> n755
-  n748 --> n756
-  n748 --> n757
-  n748 --> n768
-  n749 --> n746
-  n749 --> n755
-  n749 --> n756
-  n749 --> n757
-  n749 --> n805
-  n750 --> n742
-  n750 --> n744
-  n752 --> c0
-  n753 --> n756
-  n753 --> n758
-  n755 --> c0
-  n755 --> n754
-  n756 --> c0
-  n756 --> n754
-  n757 --> n754
-  n758 --> n744
-  n758 --> n754
-  n759 --> n755
-  n759 --> n756
-  n759 --> n757
-  n759 --> n758
-  n759 --> n768
-  n760 --> n755
-  n760 --> n756
-  n760 --> n757
-  n760 --> n758
-  n760 --> n805
-  n763 --> n744
-  n764 --> n763
-  n764 --> n768
-  n765 --> n763
-  n766 --> n763
-  n767 --> n763
-  n768 --> c26
-  n769 --> n763
-  n769 --> n768
-  n773 --> n741
-  n774 --> n741
-  n777 --> n750
-  n777 --> n764
-  n777 --> n765
-  n777 --> n778
-  n778 --> n742
-  n778 --> n768
-  n784 --> n768
-  n784 --> n805
-  n786 --> n763
-  n789 --> n764
-  n789 --> n765
-  n790 --> n753
-  n790 --> n759
-  n790 --> n760
-  n800 --> n743
-  n800 --> n745
-  n800 --> n747
-  n800 --> n748
-  n800 --> n749
-  n800 --> n753
-  n800 --> n759
-  n800 --> n760
-  n800 --> n767
-  n800 --> n769
-  n800 --> n774
-  n800 --> n777
-  n800 --> n782
-  n800 --> n783
-  n800 --> n784
-  n800 --> n789
-  n800 --> n806
-  n804 --> n752
-  n804 --> n766
-  n804 --> n773
-  n804 --> n786
-  n804 --> n790
-  n804 --> n800
-  n805 --> c26
-  n806 --> n750
-  n806 --> n764
-  n806 --> n765
-  n806 --> n778
-  n806 --> n807
-  n807 --> c133
-  n807 --> n742
-  n807 --> n768
-  n807 --> n805
+  c27["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
+  c84["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
+  c135["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c27 --> c0
+  c84 --> c0
+  c135 --> c84
+  n882 --> n885
+  n883 --> c0
+  n884 --> n885
+  n885 --> c27
+  n886 --> n887
+  n886 --> n897
+  n887 --> n885
+  n887 --> n895
+  n888 --> n887
+  n888 --> n896
+  n888 --> n897
+  n888 --> n898
+  n889 --> n887
+  n889 --> n896
+  n889 --> n897
+  n889 --> n898
+  n889 --> n909
+  n890 --> n887
+  n890 --> n896
+  n890 --> n897
+  n890 --> n898
+  n890 --> n946
+  n891 --> n883
+  n891 --> n885
+  n893 --> c0
+  n894 --> n897
+  n894 --> n899
+  n896 --> c0
+  n896 --> n895
+  n897 --> c0
+  n897 --> n895
+  n898 --> n895
+  n899 --> n885
+  n899 --> n895
+  n900 --> n896
+  n900 --> n897
+  n900 --> n898
+  n900 --> n899
+  n900 --> n909
+  n901 --> n896
+  n901 --> n897
+  n901 --> n898
+  n901 --> n899
+  n901 --> n946
+  n904 --> n885
+  n905 --> n904
+  n905 --> n909
+  n906 --> n904
+  n907 --> n904
+  n908 --> n904
+  n909 --> c27
+  n910 --> n904
+  n910 --> n909
+  n914 --> n882
+  n915 --> n882
+  n918 --> n891
+  n918 --> n905
+  n918 --> n906
+  n918 --> n919
+  n919 --> n883
+  n919 --> n909
+  n925 --> n909
+  n925 --> n946
+  n927 --> n904
+  n930 --> n905
+  n930 --> n906
+  n931 --> n894
+  n931 --> n900
+  n931 --> n901
+  n941 --> n884
+  n941 --> n886
+  n941 --> n888
+  n941 --> n889
+  n941 --> n890
+  n941 --> n894
+  n941 --> n900
+  n941 --> n901
+  n941 --> n908
+  n941 --> n910
+  n941 --> n915
+  n941 --> n918
+  n941 --> n923
+  n941 --> n924
+  n941 --> n925
+  n941 --> n930
+  n941 --> n947
+  n945 --> n893
+  n945 --> n907
+  n945 --> n914
+  n945 --> n927
+  n945 --> n931
+  n945 --> n941
+  n946 --> c27
+  n947 --> n891
+  n947 --> n905
+  n947 --> n906
+  n947 --> n919
+  n947 --> n948
+  n948 --> c135
+  n948 --> n883
+  n948 --> n909
+  n948 --> n946
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n804 root
-  class c0,c26,c83,c133 collapsed
+  class n945 root
+  class c0,c27,c84,c135 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.terminal_stop_witness`
@@ -516,56 +516,56 @@ flowchart TD
     n77["Libpetri.InSpec.card"]
     n79["Libpetri.InSpec.mk"]
     n80["Libpetri.InSpec.place"]
-    n2521["Libpetri.PlaceId"]
-    n4909["Libpetri.Transition"]
-    n4910["Libpetri.Transition.inhibitors"]
-    n4911["Libpetri.Transition.inputs"]
-    n4912["Libpetri.Transition.mk"]
-    n4913["Libpetri.Transition.name"]
-    n4915["Libpetri.Transition.reads"]
-    n4916["Libpetri.Transition.resets"]
-    n4986["Libpetri.consumeAllAt"]
-    n5038["Libpetri.enabledA"]
-    n5161["Libpetri.pre"]
-    n5216["Libpetri.specAt"]
+    n2662["Libpetri.PlaceId"]
+    n5117["Libpetri.Transition"]
+    n5118["Libpetri.Transition.inhibitors"]
+    n5119["Libpetri.Transition.inputs"]
+    n5120["Libpetri.Transition.mk"]
+    n5121["Libpetri.Transition.name"]
+    n5123["Libpetri.Transition.reads"]
+    n5124["Libpetri.Transition.resets"]
+    n5194["Libpetri.consumeAllAt"]
+    n5246["Libpetri.enabledA"]
+    n5369["Libpetri.pre"]
+    n5424["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
-    n668["Libpetri.Novel.ForwardDeposit.Deposit"]
-    n696["Libpetri.Novel.ForwardDeposit.fireAD"]
+    n809["Libpetri.Novel.ForwardDeposit.Deposit"]
+    n837["Libpetri.Novel.ForwardDeposit.fireAD"]
   end
   subgraph g2["Libpetri/Novel/InFlight.lean"]
-    n744["Libpetri.Novel.InFlight.Row"]
-    n745["Libpetri.Novel.InFlight.SReach"]
-    n746["Libpetri.Novel.InFlight.SStep"]
-    n747["Libpetri.Novel.InFlight.SStep.atomic"]
-    n748["Libpetri.Novel.InFlight.SStep.complete"]
-    n749["Libpetri.Novel.InFlight.SStep.start"]
-    n753["Libpetri.Novel.InFlight.XReach"]
-    n754["Libpetri.Novel.InFlight.XState"]
-    n755["Libpetri.Novel.InFlight.XState.a"]
-    n756["Libpetri.Novel.InFlight.XState.mk"]
-    n757["Libpetri.Novel.InFlight.XState.pend"]
-    n758["Libpetri.Novel.InFlight.XStep"]
-    n759["Libpetri.Novel.InFlight.XStep.complete"]
-    n760["Libpetri.Novel.InFlight.XStep.start"]
-    n761["Libpetri.Novel.InFlight.a0F"]
-    n768["Libpetri.Novel.InFlight.addD"]
-    n776["Libpetri.Novel.InFlight.demand_stops_short"]
-    n780["Libpetri.Novel.InFlight.executor_stops_short"]
-    n781["Libpetri.Novel.InFlight.fF"]
-    n787["Libpetri.Novel.InFlight.liveF"]
-    n791["Libpetri.Novel.InFlight.plain_misses_demand"]
-    n792["Libpetri.Novel.InFlight.plain_never_short"]
-    n795["Libpetri.Novel.InFlight.rowsF"]
-    n797["Libpetri.Novel.InFlight.shortF"]
-    n798["Libpetri.Novel.InFlight.spDemand"]
-    n799["Libpetri.Novel.InFlight.spPlain"]
-    n805["Libpetri.Novel.InFlight.startA"]
-    n808["Libpetri.Novel.InFlight.stopCountBad"]
-    n812["Libpetri.Novel.InFlight.tF"]
-    n815["Libpetri.Novel.InFlight.terminal_stop_witness"]
+    n885["Libpetri.Novel.InFlight.Row"]
+    n886["Libpetri.Novel.InFlight.SReach"]
+    n887["Libpetri.Novel.InFlight.SStep"]
+    n888["Libpetri.Novel.InFlight.SStep.atomic"]
+    n889["Libpetri.Novel.InFlight.SStep.complete"]
+    n890["Libpetri.Novel.InFlight.SStep.start"]
+    n894["Libpetri.Novel.InFlight.XReach"]
+    n895["Libpetri.Novel.InFlight.XState"]
+    n896["Libpetri.Novel.InFlight.XState.a"]
+    n897["Libpetri.Novel.InFlight.XState.mk"]
+    n898["Libpetri.Novel.InFlight.XState.pend"]
+    n899["Libpetri.Novel.InFlight.XStep"]
+    n900["Libpetri.Novel.InFlight.XStep.complete"]
+    n901["Libpetri.Novel.InFlight.XStep.start"]
+    n902["Libpetri.Novel.InFlight.a0F"]
+    n909["Libpetri.Novel.InFlight.addD"]
+    n917["Libpetri.Novel.InFlight.demand_stops_short"]
+    n921["Libpetri.Novel.InFlight.executor_stops_short"]
+    n922["Libpetri.Novel.InFlight.fF"]
+    n928["Libpetri.Novel.InFlight.liveF"]
+    n932["Libpetri.Novel.InFlight.plain_misses_demand"]
+    n933["Libpetri.Novel.InFlight.plain_never_short"]
+    n936["Libpetri.Novel.InFlight.rowsF"]
+    n938["Libpetri.Novel.InFlight.shortF"]
+    n939["Libpetri.Novel.InFlight.spDemand"]
+    n940["Libpetri.Novel.InFlight.spPlain"]
+    n946["Libpetri.Novel.InFlight.startA"]
+    n949["Libpetri.Novel.InFlight.stopCountBad"]
+    n953["Libpetri.Novel.InFlight.tF"]
+    n956["Libpetri.Novel.InFlight.terminal_stop_witness"]
   end
-  n0 --> n2521
+  n0 --> n2662
   n9 --> n8
   n10 --> n8
   n11 --> n9
@@ -584,143 +584,143 @@ flowchart TD
   n79 --> n8
   n79 --> n74
   n79 --> n76
-  n79 --> n2521
+  n79 --> n2662
   n80 --> n76
-  n80 --> n2521
-  n668 --> n2521
-  n696 --> n0
-  n696 --> n668
-  n696 --> n4916
-  n696 --> n4986
-  n696 --> n5161
-  n744 --> n668
-  n744 --> n4909
-  n745 --> n746
-  n745 --> n756
-  n746 --> n0
-  n746 --> n744
-  n746 --> n754
-  n747 --> n696
-  n747 --> n746
-  n747 --> n755
-  n747 --> n756
-  n747 --> n757
-  n747 --> n4913
-  n747 --> n5038
-  n748 --> n746
-  n748 --> n755
-  n748 --> n756
-  n748 --> n757
-  n748 --> n768
-  n748 --> n4913
-  n749 --> n746
-  n749 --> n755
-  n749 --> n756
-  n749 --> n757
-  n749 --> n805
-  n749 --> n4913
-  n749 --> n5038
-  n753 --> n756
-  n753 --> n758
-  n755 --> n0
-  n755 --> n754
-  n756 --> n0
-  n756 --> n754
-  n757 --> n754
-  n758 --> n0
-  n758 --> n744
-  n758 --> n754
-  n759 --> n755
-  n759 --> n756
-  n759 --> n757
-  n759 --> n758
-  n759 --> n768
-  n759 --> n4913
-  n760 --> n755
-  n760 --> n756
-  n760 --> n757
-  n760 --> n758
-  n760 --> n805
-  n760 --> n4913
-  n760 --> n5038
-  n761 --> n0
-  n768 --> n0
-  n768 --> n668
-  n776 --> n745
-  n776 --> n748
-  n776 --> n749
-  n776 --> n761
-  n776 --> n787
-  n776 --> n795
-  n776 --> n797
-  n776 --> n798
-  n780 --> n753
-  n780 --> n759
-  n780 --> n760
-  n780 --> n761
-  n780 --> n787
-  n780 --> n795
-  n780 --> n797
-  n781 --> n13
-  n781 --> n79
-  n781 --> n4912
-  n787 --> n0
-  n791 --> n795
-  n791 --> n799
-  n791 --> n4913
-  n792 --> n745
-  n792 --> n747
-  n792 --> n748
-  n792 --> n749
-  n792 --> n761
-  n792 --> n787
-  n792 --> n795
-  n792 --> n797
-  n792 --> n799
-  n795 --> n744
-  n795 --> n781
-  n795 --> n812
-  n797 --> n808
-  n805 --> n696
-  n808 --> n0
-  n812 --> n13
-  n812 --> n79
-  n812 --> n4912
-  n815 --> n776
-  n815 --> n780
-  n815 --> n791
-  n815 --> n792
-  n4910 --> n2521
-  n4910 --> n4909
-  n4911 --> n76
-  n4911 --> n4909
-  n4912 --> n76
-  n4912 --> n2521
-  n4912 --> n4909
-  n4913 --> n4909
-  n4915 --> n2521
-  n4915 --> n4909
-  n4916 --> n2521
-  n4916 --> n4909
-  n4986 --> n11
-  n4986 --> n77
-  n4986 --> n5216
-  n5038 --> n0
-  n5038 --> n14
-  n5038 --> n77
-  n5038 --> n80
-  n5038 --> n4910
-  n5038 --> n4911
-  n5038 --> n4915
-  n5161 --> n14
-  n5161 --> n77
-  n5161 --> n5216
-  n5216 --> n80
-  n5216 --> n4911
+  n80 --> n2662
+  n809 --> n2662
+  n837 --> n0
+  n837 --> n809
+  n837 --> n5124
+  n837 --> n5194
+  n837 --> n5369
+  n885 --> n809
+  n885 --> n5117
+  n886 --> n887
+  n886 --> n897
+  n887 --> n0
+  n887 --> n885
+  n887 --> n895
+  n888 --> n837
+  n888 --> n887
+  n888 --> n896
+  n888 --> n897
+  n888 --> n898
+  n888 --> n5121
+  n888 --> n5246
+  n889 --> n887
+  n889 --> n896
+  n889 --> n897
+  n889 --> n898
+  n889 --> n909
+  n889 --> n5121
+  n890 --> n887
+  n890 --> n896
+  n890 --> n897
+  n890 --> n898
+  n890 --> n946
+  n890 --> n5121
+  n890 --> n5246
+  n894 --> n897
+  n894 --> n899
+  n896 --> n0
+  n896 --> n895
+  n897 --> n0
+  n897 --> n895
+  n898 --> n895
+  n899 --> n0
+  n899 --> n885
+  n899 --> n895
+  n900 --> n896
+  n900 --> n897
+  n900 --> n898
+  n900 --> n899
+  n900 --> n909
+  n900 --> n5121
+  n901 --> n896
+  n901 --> n897
+  n901 --> n898
+  n901 --> n899
+  n901 --> n946
+  n901 --> n5121
+  n901 --> n5246
+  n902 --> n0
+  n909 --> n0
+  n909 --> n809
+  n917 --> n886
+  n917 --> n889
+  n917 --> n890
+  n917 --> n902
+  n917 --> n928
+  n917 --> n936
+  n917 --> n938
+  n917 --> n939
+  n921 --> n894
+  n921 --> n900
+  n921 --> n901
+  n921 --> n902
+  n921 --> n928
+  n921 --> n936
+  n921 --> n938
+  n922 --> n13
+  n922 --> n79
+  n922 --> n5120
+  n928 --> n0
+  n932 --> n936
+  n932 --> n940
+  n932 --> n5121
+  n933 --> n886
+  n933 --> n888
+  n933 --> n889
+  n933 --> n890
+  n933 --> n902
+  n933 --> n928
+  n933 --> n936
+  n933 --> n938
+  n933 --> n940
+  n936 --> n885
+  n936 --> n922
+  n936 --> n953
+  n938 --> n949
+  n946 --> n837
+  n949 --> n0
+  n953 --> n13
+  n953 --> n79
+  n953 --> n5120
+  n956 --> n917
+  n956 --> n921
+  n956 --> n932
+  n956 --> n933
+  n5118 --> n2662
+  n5118 --> n5117
+  n5119 --> n76
+  n5119 --> n5117
+  n5120 --> n76
+  n5120 --> n2662
+  n5120 --> n5117
+  n5121 --> n5117
+  n5123 --> n2662
+  n5123 --> n5117
+  n5124 --> n2662
+  n5124 --> n5117
+  n5194 --> n11
+  n5194 --> n77
+  n5194 --> n5424
+  n5246 --> n0
+  n5246 --> n14
+  n5246 --> n77
+  n5246 --> n80
+  n5246 --> n5118
+  n5246 --> n5119
+  n5246 --> n5123
+  n5369 --> n14
+  n5369 --> n77
+  n5369 --> n5424
+  n5424 --> n80
+  n5424 --> n5119
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n815 root
+  class n956 root
 ```
 
 Axioms used:
