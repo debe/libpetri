@@ -22,7 +22,7 @@ use libpetri_verification::marking_state::{MarkingState, MarkingStateBuilder};
 
 /// A built fixture: the net, its initial marking, and the environment
 /// configuration the fixture's `netDescription` prescribes (VER-006 for
-/// `envSingleFeed`; `Ignore` with no env places everywhere else).
+/// `envSingleFeed` and `envBoundedPair`; `Ignore` with no env places everywhere else).
 pub struct FixtureNet {
     pub net: PetriNet,
     pub initial: MarkingState,
@@ -220,6 +220,23 @@ pub fn build(name: &str) -> FixtureNet {
                 initial: MarkingStateBuilder::new().build(),
                 env_places: vec!["e".to_string()],
                 env_mode: EnvironmentAnalysisMode::AlwaysAvailable,
+            }
+        }
+        // envSingleFeed with e in bounded(2) injection mode (VER-006): p1 still
+        // grows without bound, two injected tokens at a time at most.
+        "envBoundedPair" => {
+            let e = Place::<i32>::new("e");
+            let p1 = Place::<i32>::new("p1");
+            let t = Transition::builder("t")
+                .input(one(&e))
+                .output(out_place(&p1))
+                .action(fork())
+                .build();
+            FixtureNet {
+                net: PetriNet::builder("envBoundedPair").transition(t).build(),
+                initial: MarkingStateBuilder::new().build(),
+                env_places: vec!["e".to_string()],
+                env_mode: EnvironmentAnalysisMode::Bounded { max_tokens: 2 },
             }
         }
         // Nothing ever drains blocker(1), so the inhibitor keeps t frozen and

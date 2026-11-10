@@ -67,6 +67,10 @@
 //! certificate check — or a run within a candidate's firing counts violates it. The
 //! firing bound of [VER-019] (`firing_bound(true)`, [`bounded_run`]) finds weights
 //! every firing lowers, which bound every run, and model-checks runs of that length.
+//! Directly before the flat fixpoint query, the bounded witness phase of [VER-025]
+//! (`witness_depth(8)`, `0` disabling it) asks the same bounded model check for one run
+//! of at most that many steps, environment injections among them, and reports the run
+//! it replays as `Violated`; finding none proves nothing, and the fixpoint query runs.
 //!
 //! Before any of that, an untimed net with no ν-joins and no environment places
 //! is tried against the [`scg_verifier`] route of [VER-017]: when the

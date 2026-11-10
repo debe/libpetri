@@ -111,7 +111,7 @@ describeZ3('QuiescentCount (VER-002): the SMT routes agree', () => {
   }, 120_000);
 
   it('IC3 decides it too, and its certificate passes the check', async () => {
-    const pinned = (v: SmtVerifier) => v.stateEquationPhase(false).firingBound(false);
+    const pinned = (v: SmtVerifier) => v.stateEquationPhase(false).firingBound(false).witnessDepth(0);
     const proven = await verify(jobsNet({ abort: true }), 2, 2, pinned);
     expect(proven.verdict.type, proven.report).toBe('proven');
     expect(proven.verdict.type === 'proven' && proven.verdict.method).toBe('IC3/PDR');

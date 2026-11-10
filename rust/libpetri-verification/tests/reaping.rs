@@ -70,9 +70,9 @@ fn the_witness_rests_at_its_initial_marking() {
     assert!(result.report.contains("Reaping (TIME-013): t can be reaped"), "{}", result.report);
 }
 
-/// The same on the fixpoint query alone, with the state-equation and firing-bound phases
-/// off: the CHC `Bad` reads reap-quiescence too, and the initial-marking violation comes
-/// back as the empty trace ([VER-003] AC8).
+/// The same on the fixpoint query alone, with the state-equation, firing-bound and
+/// bounded witness phases off: the CHC `Bad` reads reap-quiescence too, and the
+/// initial-marking violation comes back as the empty trace ([VER-003] AC8).
 #[test]
 fn the_fixpoint_query_alone_finds_the_reaped_rest() {
     require_z3!("the_fixpoint_query_alone_finds_the_reaped_rest");
@@ -83,6 +83,7 @@ fn the_fixpoint_query_alone_finds_the_reaped_rest() {
             .sink_places(["p1".to_string()])
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .assume_no_reaping(no_reaping)
             .timeout(30_000)
             .verify()

@@ -28,6 +28,15 @@
 - **An input arc and a read arc on the same place are rejected at build ([EXEC-012]).** Building the transition fails with `Transition '<t>' declares an input arc and a read arc on place '<p>'. A read of a place the same firing consumes from has no coherent semantics and is rejected (EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to the action.`, the same text in every language. The check runs after the input-arc checks and before the timing and output-spec checks, names the first read arc in declaration order whose place is an input place, and covers composition and fusion.
 - **Spec:** [EXEC-010], [EXEC-012], [EXEC-013], [EXEC-020] and [EXEC-021] gain a Kind line and EARS sentences. [EXEC-010] excludes ν-correlated inputs ([NU-020]) from oldest-first consumption. [EXEC-020] deposits only an admitted completion, never one abandoned by a timeout, a terminal stop or `terminateNow()`. [EXEC-021] validates before it deposits, as every runtime already does; a failed validation is `TransitionFailed` ([EVT-008]) and tokens published by `ctx.flush()` survive it. Such tokens enter the marking when the executor processes the publication; one still queued when a terminal place stops the run is discarded. The glossary gains *Queue order* and *Admitted completion*.
 
+### Added
+
+- **Bounded witness phase ([VER-025]), on by default in all languages.** Directly before the fixpoint query on the flat encoding, one bounded run of at most 8 steps looks for a counterexample, where a step is a transition firing or an environment injection ([VER-006]). A run found is replayed, trimmed of the steps it does not need and reported `Violated`, confirmed, with `inject(<place>)` steps. It runs on a ν-net under the name-blind encoding and on nets with injected environment places, where no earlier phase searches for a counterexample and the fixpoint query took minutes for a seven-step run, at a cost that varied with the place names.
+  - It only ever adds a `Violated`. `no run of at most 8 steps reaches a violation (not a proof)` leaves the pipeline as it was, at the cost of one query (0.05 to 0.5 s on a 169-place net).
+  - New option `witnessDepth(n)` (Java, TypeScript), `witness_depth(n)` (Rust), `witness_depth=` (Python): default 8, `0` disables. A query without a run gets expensive quickly as the depth grows.
+  - The bounded run of [VER-019] gains one selector value per injection step; scripts for nets without injection are byte for byte unchanged. New dump phase `witness` ([VER-013]).
+  - **Breaking (Java, Rust):** `EncodedScripts` gains `witness`, a new record component in Java and a new public field in Rust. TypeScript and Python gain the same key additively.
+  - A counterexample the fixpoint query used to report unconfirmed, or with `counterexampleReplay(false)`, can now arrive confirmed from this phase. Tests that pin the replay after the fixpoint query need `witnessDepth(0)`.
+
 ### Implementations
 
 - **All:** `deadline(by)` checks `by <= MAX_DURATION_MS`, and so does building a transition whose `Deadline` timing was written without the factory. Python raises `ValueError` with the Rust message.

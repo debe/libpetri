@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.libpetri.smt.SmtVerificationResult;
 import org.libpetri.smt.SmtVerifier;
+import org.libpetri.smt.z3.BoundedRun;
 import org.libpetri.smt.conformance.ConformanceNet.PropSpec;
 
 import java.io.IOException;
@@ -29,7 +30,7 @@ import java.util.stream.Stream;
  * <p>The route setups mirror {@code rust/libpetri-verification/tests/route_agreement.rs}:
  * {@code enum} (the default pipeline, enumeration first, class budget 5000), {@code smt+lb}
  * (enumeration off, linear bound on), {@code smt-lb} (linear bound off) and {@code ic3}
- * (linear bound and both VER-018/019 phases off: IC3/PDR alone).
+ * (linear bound and the VER-018/019/025 phases off: IC3/PDR alone).
  *
  * <p>The four setups run twice. The <b>atomic</b> pass ({@code assumeAtomicFiring(true)}) reads
  * every firing as one step, as the reference does, and is held to every rule. The <b>default</b>
@@ -347,6 +348,8 @@ public final class ConformanceRunner {
             .linearBound(route.linearBound())
             .stateEquationPhase(route.phases())
             .firingBound(route.phases())
+            // [VER-025] is a pre-fixpoint phase too: off where the setup is IC3/PDR alone.
+            .witnessDepth(route.phases() ? BoundedRun.DEFAULT_WITNESS_DEPTH : 0)
             .certificateCheck(true)
             .counterexampleReplay(true)
             .timeout(Duration.ofSeconds(4))

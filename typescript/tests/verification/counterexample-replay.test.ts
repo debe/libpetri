@@ -11,8 +11,8 @@ import { bindProducers } from '../fixtures/producing-actions.js';
 
 // End-to-end abstract counterexample replay (C3) against the real z3 executable. The
 // replay reads Spacer's refutation, so every query here goes to the fixpoint query:
-// the state-equation phase (VER-018) and the firing bound (VER-019) would find these
-// counterexamples first, by a search of their own.
+// the state-equation phase (VER-018), the firing bound (VER-019) and the bounded witness
+// phase (VER-025) would find these counterexamples first, by a search of their own.
 const Z3_TIMEOUT = 60_000;
 
 describeZ3('counterexample replay (Z3 integration)', () => {
@@ -33,6 +33,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
       .enumerationMaxClasses(0)
       .stateEquationPhase(false)
       .firingBound(false)
+      .witnessDepth(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .timeout(30_000)
@@ -72,6 +73,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
       .enumerationMaxClasses(0)
       .stateEquationPhase(false)
       .firingBound(false)
+      .witnessDepth(0)
       .initialMarking(m => m.tokens(idle1, 1).tokens(idle2, 1))
       .property(mutualExclusion(crit1, crit2))
       .timeout(30_000)
@@ -93,6 +95,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
       .enumerationMaxClasses(0)
       .stateEquationPhase(false)
       .firingBound(false)
+      .witnessDepth(0)
       .initialMarking(m => m.tokens(pA, 1))
       .property(deadlockFree())
       .counterexampleReplay(false)
@@ -136,6 +139,7 @@ describeZ3('counterexample replay (Z3 integration)', () => {
       .enumerationMaxClasses(0)
       .stateEquationPhase(false)
       .firingBound(false)
+      .witnessDepth(0)
       .initialMarking(m => m.tokens(p0, 3))
       .property(placeBound(p1, 2))
       .timeout(30_000)

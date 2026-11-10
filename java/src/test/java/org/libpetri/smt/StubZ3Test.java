@@ -303,24 +303,29 @@ class StubZ3Test {
         assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(), result.report());
         try (Stream<Path> files = Files.list(dump)) {
             // A reachability-safety property runs the linear bound (VER-015) before the
-            // HORN query; the stub answers `unsat` to both (no bound separates; then the
+            // bounded witness run (VER-025) and the HORN query; the stub answers `unsat` to all
+            // three (no bound separates; no run within the depth; then the
             // violation). The counter is process-wide, so an earlier dump anywhere in this
-            // JVM moves it: check the phases in order and that horn follows bound, not the
+            // JVM moves it: check the phases in order and that each follows the last, not the
             // absolute numbers.
             var names = files.map(p -> p.getFileName().toString())
                 .sorted(Comparator.comparingInt(StubZ3Test::dumpCounter).thenComparing(Comparator.naturalOrder()))
                 .toList();
-            assertEquals(4, names.size(), "two scripts and two replies: " + names);
-            assertEquals(List.of("bound.out", "bound.smt2", "horn.out", "horn.smt2"),
+            assertEquals(6, names.size(), "three scripts and three replies: " + names);
+            assertEquals(List.of("bound.out", "bound.smt2", "witness.out", "witness.smt2", "horn.out", "horn.smt2"),
                 names.stream().map(n -> n.substring(n.indexOf('-') + 1)).toList(), names.toString());
             assertEquals(dumpCounter(names.get(0)) + 1, dumpCounter(names.get(2)),
-                "the HORN query is dumped straight after the bound: " + names);
+                "the witness run is dumped straight after the bound: " + names);
+            assertEquals(dumpCounter(names.get(2)) + 1, dumpCounter(names.get(4)),
+                "the HORN query is dumped straight after the witness run: " + names);
             String bound = Files.readString(dump.resolve(names.get(1)));
             assertTrue(bound.contains("(set-logic QF_LIA)"), "the bound dump is the QF_LIA script:\n" + bound);
-            String script = Files.readString(dump.resolve(names.get(3)));
+            String witness = Files.readString(dump.resolve(names.get(3)));
+            assertTrue(witness.startsWith("; Bounded run (VER-019): 8 steps"), "the witness dump is the bounded run:\n" + witness);
+            String script = Files.readString(dump.resolve(names.get(5)));
             assertTrue(script.contains("(set-logic HORN)") && script.endsWith("(get-model)"),
                 "the dump is the script as sent:\n" + script);
-            String reply = Files.readString(dump.resolve(names.get(2)));
+            String reply = Files.readString(dump.resolve(names.get(4)));
             assertTrue(reply.contains("\nunsat\n"), "the dump is the reply as received:\n" + reply);
         }
     }
@@ -352,6 +357,67 @@ class StubZ3Test {
         // 500 ms plus one watchdog's slack (2 s), with room for a loaded machine: far below the
         // 62 s the unclamped watchdog would wait.
         assertTrue(ms < 15_000, "returned after " + ms + " ms");
+    }
+
+    /**
+     * [VER-025] is a step of its own under the total budget: with the linear bound off its
+     * query is the first one sent, and a solver that never answers is cut off there, by name.
+     */
+    @Test
+    void totalBudget_cutsTheWitnessPhaseOffByName() throws IOException {
+        var solver = stub("witness-sleeper", VERSION_OK, "exec sleep 30\n");
+        var result = SmtVerifier.forNet(chainNet())
+            .enumerationMaxClasses(0)
+            .initialMarking(m -> m.tokens(P0, 1))
+            .property(SmtProperty.placeBound(P1, 0))
+            .linearBound(false)
+            .stateEquationPhase(false)
+            .firingBound(false)
+            .solver(solver)
+            .timeout(Duration.ofSeconds(60))
+            .totalBudget(Duration.ofMillis(500))
+            .verify();
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(), result.report());
+        assertEquals("total verification budget of 500 ms exhausted during witness phase", unknown.reason());
+        // The phase's header keeps its one status line, then the stop is the verdict.
+        assertTrue(result.report().contains(
+            "  Bounded witness phase (VER-025):\n"
+            + "    Status: inconclusive (total verification budget of 500 ms exhausted during witness phase)\n"
+            + "\n=== RESULT ===\n\n"
+            + "UNKNOWN: total verification budget of 500 ms exhausted during witness phase\n"), result.report());
+    }
+
+    /** Answers the bounded run of [VER-025] with {@code witnessReply}, every other script as V5 does. */
+    private static String witnessStub(String witnessReply) {
+        return "if grep -q '^; Bounded run'; then\n" + witnessReply + "\nelse\n"
+            + "echo 'unsat'\necho '(error \"model is not available\")'\n"
+            + "echo '(proof (asserted (Reachable 1 0)) (asserted (Reachable 0 1)))'\nfi\n";
+    }
+
+    /**
+     * [VER-025]: whatever the witness query answers short of a replayed run, the fixpoint query
+     * still runs and decides, and the report says why the phase stepped aside.
+     */
+    @Test
+    void ver025_anAnswerWithoutARunFallsThroughWithItsReason() throws IOException {
+        record Case(String name, String reply, String status) {}
+        for (var c : List.of(
+                new Case("unknown", "echo unknown",
+                    "    Status: inconclusive (the bounded run at depth 8 answered unknown)\n"),
+                new Case("unsat", "echo unsat",
+                    "    Status: no run of at most 8 steps reaches a violation (not a proof)\n"),
+                // A model that fires nothing: p1 stays empty, so it is not a run to a violation.
+                new Case("no-replay", "echo sat\necho '((define-fun s0 () Int 1))'",
+                    "    Status: inconclusive (the bounded run did not replay under the exact semantics)\n"),
+                new Case("error", "echo '(error \"line 1 column 1: boom\")'\necho sat",
+                    "    Status: inconclusive (z3 reported an error: "))) {
+            var result = verify(stub("witness-" + c.name(), VERSION_OK, witnessStub(c.reply())),
+                SmtProperty.placeBound(P1, 0));
+            assertInstanceOf(SmtVerificationResult.Verdict.Violated.class, result.verdict(), c.name() + "\n" + result.report());
+            assertTrue(result.report().contains("  Bounded witness phase (VER-025):\n" + c.status()),
+                c.name() + "\n" + result.report());
+            assertTrue(result.report().contains("Status: SAT (counterexample found)"), c.name() + "\n" + result.report());
+        }
     }
 
     /** A spent budget starts no process: the stub would leave a marker file if it ran. */

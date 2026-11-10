@@ -58,6 +58,7 @@ class InitialViolationTraceTest {
                     .linearBound(false)
                     .stateEquationPhase(false)
                     .firingBound(false)
+                    .witnessDepth(0)
                     .counterexampleReplay(replay)
                     .verify();
                 var tag = c.property().description() + " (replay " + replay + "):\n" + r.report();

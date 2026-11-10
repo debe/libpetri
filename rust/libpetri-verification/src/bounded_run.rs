@@ -20,13 +20,23 @@
 //! run, decoded and replayed firing by firing before it is believed ([`replay_run`]);
 //! `unsat` at `d = K` covers every run of the net.
 //!
-//! `env_inject` is the resolved injection list (`smt_encoder::resolve_env_injection`);
-//! the bounded mode's post-caps are its entries with a bound. Every emitted script is
-//! byte-identical to the TypeScript port's ([VER-013] AC1).
+//! **Injection.** `env_inject` is the resolved injection list
+//! (`smt_encoder::resolve_env_injection`). Each entry is a step of the bounded run
+//! beside the transitions ([VER-006]): injection `j` takes the selector `T + j`, adds
+//! one token to its place, and under the bounded mode is taken only below the bound.
+//! The bounded mode's post-caps are the entries with a bound. The firing-bound phase
+//! never unrolls one — an injection is not a firing, so it refuses such a net — and
+//! with none the selectors are the transitions' alone and `T` idles.
+//!
+//! **Witness phase ([VER-025]).** [`run_witness_phase`] asks the bounded model check
+//! once, at a fixed depth, with no ranking: a search limit, not a bound. `sat` is a run,
+//! replayed, trimmed of every step it can lose, and reported; `unsat` proves nothing.
+//!
+//! Every emitted script is byte-identical to the TypeScript port's ([VER-013] AC1).
 
 use std::collections::BTreeMap;
 
-use crate::abstract_replay::{enabled_a, fire_a, violation_predicate, within_env_bounds};
+use crate::abstract_replay::{enabled_a, fire_a, inject_a, violation_predicate, within_env_bounds};
 use crate::marking_state::MarkingState;
 use crate::net_flattener::{FlatNet, FlatTransition};
 use crate::property::SmtProperty;
@@ -218,9 +228,10 @@ pub fn decode_repeatable_vector(stdout: &str, transition_count: usize) -> Option
     if support.is_empty() { None } else { Some(support) }
 }
 
-/// The bounded model check: `depth` steps from `initial`, selector `s_i ∈ [0, T]` per
-/// step (`T` idles), the exact guard and update of the selected transition, the
-/// environment post-caps, and the property's violation at the last marking.
+/// The bounded model check: `depth` steps from `initial`, selector `s_i ∈ [0, T + J]`
+/// per step — a transition, then injection `j` of `env_inject` at `T + j`, and `T + J`
+/// idles — the exact guard and update of the selected step, the environment post-caps,
+/// and the property's violation at the last marking.
 pub fn encode_bounded_run(
     flat: &FlatNet,
     initial: &[i64],
@@ -239,9 +250,13 @@ pub fn encode_bounded_run(
             format!("m{i}_{p}")
         }
     };
-    // Empty while `run_firing_bound_phase` refuses injection; kept as the encoder's
-    // `envBounds(M')` conjunct, load-bearing once that guard is relaxed.
+    // The encoder's `envBounds(M')` conjunct. Empty for the firing-bound phase, which
+    // refuses a net with injection; live for the witness phase ([VER-025]).
     let caps = environment_caps(env_inject, place_count);
+    // The injection steps ([VER-006]) take the selectors after the transitions'; idling
+    // moves past them.
+    let injections = injection_steps(env_inject, place_count);
+    let idle = transition_count + injections.len();
     // Each place's touchers, reversed: the `ite` chain nests from the last one inward.
     let nesting: Vec<Vec<usize>> = (0..place_count)
         .map(|p| {
@@ -252,6 +267,13 @@ pub fn encode_bounded_run(
                 .filter(|(_, ft)| clears(ft, p) || column(ft, p) != 0)
                 .map(|(t, _)| t)
                 .collect();
+            touching.extend(
+                injections
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &(pid, _))| pid == p)
+                    .map(|(j, _)| transition_count + j),
+            );
             touching.reverse();
             touching
         })
@@ -270,25 +292,31 @@ pub fn encode_bounded_run(
         }
     }
     for i in 0..depth {
-        lines.push(format!("(assert (and (>= s{i} 0) (<= s{i} {transition_count})))"));
+        lines.push(format!("(assert (and (>= s{i} 0) (<= s{i} {idle})))"));
         if i + 1 < depth {
-            lines.push(format!(
-                "(assert (=> (= s{i} {transition_count}) (= s{} {transition_count})))",
-                i + 1
-            ));
+            lines.push(format!("(assert (=> (= s{i} {idle}) (= s{} {idle})))", i + 1));
         }
         for (t, ft) in flat.transitions.iter().enumerate() {
             let guard = guard_conditions(ft, place_count, |p| m(i, p));
             lines.push(format!("(assert (=> (= s{i} {t}) {}))", conjoin(&guard)));
         }
+        for (j, &(pid, bound)) in injections.iter().enumerate() {
+            if let Some(bound) = bound {
+                lines.push(format!(
+                    "(assert (=> (= s{i} {}) (< {} {bound})))",
+                    transition_count + j,
+                    m(i, pid)
+                ));
+            }
+        }
         for p in 0..place_count {
             let mut value = m(i, p);
             for &t in &nesting[p] {
-                let ft = &flat.transitions[t];
-                let next = if clears(ft, p) {
-                    arc(&ft.post, p).to_string()
-                } else {
-                    shifted(&m(i, p), column(ft, p))
+                let next = match flat.transitions.get(t) {
+                    Some(ft) if clears(ft, p) => arc(&ft.post, p).to_string(),
+                    Some(ft) => shifted(&m(i, p), column(ft, p)),
+                    // An injection step: one more token.
+                    None => shifted(&m(i, p), 1),
                 };
                 value = format!("(ite (= s{i} {t}) {next} {value})");
             }
@@ -313,14 +341,16 @@ pub fn encode_bounded_run(
     lines.join("\n")
 }
 
-/// The transitions a `sat` bounded run fires, in order, up to the first idle step;
-/// `None` when the model defines no selector (at a positive depth).
+/// The steps a `sat` bounded run takes, in order, up to the first idle step; `None`
+/// when the model defines no selector (at a positive depth).
 ///
-/// A selector outside `[0, T)` is an idle step, however far outside: one too large for
-/// any integer type is read as idle too, which is what it is.
+/// `step_count` is `T + J`, the transitions and the injection steps the script was
+/// encoded with: a selector in `[T, T + J)` is injection `selector − T`. A selector
+/// outside `[0, T + J)` is an idle step, however far outside: one too large for any
+/// integer type is read as idle too, which is what it is.
 pub fn decode_bounded_run(
     stdout: &str,
-    transition_count: usize,
+    step_count: usize,
     depth: usize,
 ) -> Option<Vec<usize>> {
     // `None` is an idle step, the default of a selector the model is silent on.
@@ -333,7 +363,7 @@ pub fn decode_bounded_run(
         let Some(i) = indexed(name, 's').filter(|&i| i < depth) else {
             continue;
         };
-        selectors[i] = literal.index_below(transition_count);
+        selectors[i] = literal.index_below(step_count);
         seen = true;
     }
     if !seen {
@@ -347,15 +377,21 @@ pub fn decode_bounded_run(
 pub struct ReplayedRun {
     /// The markings, `M0` first and the violating one last.
     pub states: Vec<Vec<i64>>,
-    /// The flat transition names fired between consecutive states.
+    /// The steps taken between consecutive states: a flat transition's name, or
+    /// `inject(<place>)` for an injection step.
     pub steps: Vec<String>,
 }
 
-/// Replays a firing sequence from `initial` under the exact abstract semantics and
-/// returns its markings and step names when every firing is enabled, respects the
-/// environment post-caps, and the last marking violates the property (`is_bad`, as
-/// `abstract_replay::violation_predicate` builds it); `None` otherwise, including for
-/// a transition index the net does not have.
+/// Replays a run from `initial` under the exact abstract semantics and returns its
+/// markings and step names when every step is enabled and the last marking violates
+/// the property (`is_bad`, as `abstract_replay::violation_predicate` builds it); `None`
+/// otherwise, including for a step index past `T + J`.
+///
+/// An index below `T` fires that transition, which must also respect the environment
+/// post-caps. `T + j` is injection `j` of `env_inject` ([VER-006]): refused at its
+/// bound, else one more token, with no post-cap check — the injection rule of the
+/// fixpoint encoding has none, and `abstract_replay::replay` takes the step the same
+/// way.
 pub fn replay_run(
     flat: &FlatNet,
     initial: &[i64],
@@ -363,29 +399,85 @@ pub fn replay_run(
     env_inject: &[(usize, Option<usize>)],
     is_bad: impl Fn(&[i64]) -> bool,
 ) -> Option<ReplayedRun> {
-    let caps: Vec<(usize, usize)> = environment_caps(env_inject, flat.place_count)
-        .into_iter()
-        .collect();
+    let relation = StepRelation::of(flat, env_inject);
     let mut states = vec![initial.to_vec()];
     let mut steps = Vec::with_capacity(firings.len());
     let mut state = initial.to_vec();
     for &t in firings {
-        let ft = flat.transitions.get(t)?;
-        if !enabled_a(flat, &state, ft) {
-            return None;
-        }
-        state = fire_a(flat, &state, ft);
-        if !within_env_bounds(&state, &caps) {
-            return None;
-        }
+        let (next, label) = relation.step(&state, t)?;
+        state = next;
         states.push(state.clone());
-        steps.push(ft.name.clone());
+        steps.push(label);
     }
     if is_bad(&state) {
         Some(ReplayedRun { states, steps })
     } else {
         None
     }
+}
+
+/// The steps a run is replayed with: the flat net's transitions, then the injection
+/// steps, with the environment post-caps a firing has to respect. Resolved once per
+/// replay, and the one place a step is taken, so [`replay_run`] and the trim of the
+/// witness phase ([`violating_prefix`]) cannot disagree about a step.
+struct StepRelation<'a> {
+    flat: &'a FlatNet,
+    caps: Vec<(usize, usize)>,
+    injections: Vec<(usize, Option<usize>)>,
+}
+
+impl<'a> StepRelation<'a> {
+    fn of(flat: &'a FlatNet, env_inject: &[(usize, Option<usize>)]) -> Self {
+        Self {
+            flat,
+            caps: environment_caps(env_inject, flat.place_count).into_iter().collect(),
+            injections: injection_steps(env_inject, flat.place_count),
+        }
+    }
+
+    /// The marking after step `t` from `state` and the step's name; `None` when the
+    /// step is not enabled there, a firing leaves a post-cap, or `t` is past `T + J`.
+    fn step(&self, state: &[i64], t: usize) -> Option<(Vec<i64>, String)> {
+        let Some(ft) = self.flat.transitions.get(t) else {
+            let &(pid, bound) = self.injections.get(t - self.flat.transitions.len())?;
+            let next = inject_a(state, pid, bound)?;
+            return Some((next, format!("inject({})", self.flat.places[pid])));
+        };
+        if !enabled_a(self.flat, state, ft) {
+            return None;
+        }
+        let next = fire_a(self.flat, state, ft);
+        within_env_bounds(&next, &self.caps).then(|| (next, ft.name.clone()))
+    }
+}
+
+/// The shortest prefix of `run` that replays to a violating marking, as the markings
+/// and step names it passes: the violation is tested before each step and after the
+/// last, and the replay stops at the first hit. The empty prefix counts, so a
+/// violating `initial` is the run of no steps. `None` when a step is not enabled
+/// before any marking violates, or none does. Steps after the first violating marking
+/// are not looked at, so they need not be enabled.
+fn violating_prefix(
+    relation: &StepRelation<'_>,
+    initial: &[i64],
+    run: &[usize],
+    is_bad: impl Fn(&[i64]) -> bool,
+) -> Option<ReplayedRun> {
+    let mut replayed = ReplayedRun {
+        states: vec![initial.to_vec()],
+        steps: Vec::new(),
+    };
+    let mut state = initial.to_vec();
+    for &t in run {
+        if is_bad(&state) {
+            return Some(replayed);
+        }
+        let (next, label) = relation.step(&state, t)?;
+        state = next;
+        replayed.states.push(state.clone());
+        replayed.steps.push(label);
+    }
+    is_bad(&state).then_some(replayed)
 }
 
 /// `budget + s + 2*src` — the ranking as the report prints it.
@@ -641,6 +733,226 @@ pub fn run_firing_bound_phase(
     }
 }
 
+/// Outcome of [`run_witness_phase`]. Never a proof: the depth is a search limit, not a
+/// bound on the runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WitnessOutcome {
+    /// A run reaches a violation: replayed under the exact semantics, then trimmed to
+    /// end at the first violating marking it reaches and of every step it can lose.
+    /// `steps` names the flat transitions and the `inject(<place>)` steps between
+    /// consecutive `states`, the last of which is the only violating one.
+    Violated {
+        states: Vec<Vec<i64>>,
+        steps: Vec<String>,
+    },
+    /// `unsat`: no run of at most the depth reaches a violation.
+    NoRun,
+    /// The phase stepped aside, and why.
+    Inconclusive { reason: String },
+    /// The verification was stopped during the trim ([VER-013]): its total budget ran
+    /// out, or it was cancelled. Not a reason of the phase's own: the stop is sticky,
+    /// and the pipeline's next step ends the query with the reason that names this one.
+    Stopped,
+}
+
+/// Options of [`run_witness_phase`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WitnessOptions {
+    /// Wall-clock budget for the phase in milliseconds, started before the script is
+    /// encoded; the query gets what is left (default 7 500, an eighth of the verifier's
+    /// default timeout).
+    pub budget_ms: u64,
+    /// The length of the bounded run the phase asks for (default 8).
+    pub depth: usize,
+}
+
+impl Default for WitnessOptions {
+    fn default() -> Self {
+        Self {
+            budget_ms: 7_500,
+            depth: 8,
+        }
+    }
+}
+
+/// The script [`run_witness_phase`] sends at `depth`: [`encode_bounded_run`] from the
+/// initial marking. What `SmtVerifier::encode_scripts` reports as `witness`.
+pub fn encode_witness_query(
+    flat: &FlatNet,
+    initial_marking: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    env_inject: &[(usize, Option<usize>)],
+    depth: usize,
+) -> String {
+    encode_bounded_run(
+        flat,
+        &initial_vector(flat, initial_marking),
+        property,
+        sink_places,
+        conditional_sinks,
+        env_inject,
+        depth,
+    )
+}
+
+/// The initial marking as the bounded run counts it, one entry per flat place.
+fn initial_vector(flat: &FlatNet, initial_marking: &MarkingState) -> Vec<i64> {
+    flat.places
+        .iter()
+        .map(|name| i64::try_from(initial_marking.count(name)).unwrap_or(i64::MAX))
+        .collect()
+}
+
+/// Runs the bounded witness phase ([VER-025]): one bounded model check of `depth` steps,
+/// the injection steps of `env_inject` among them, with no firing bound behind it. A
+/// violating run is replayed before it is believed, then trimmed, since the solver pads
+/// a run to the full depth.
+///
+/// The trim keeps the shortest prefix that replays to a violating marking
+/// ([`violating_prefix`]). Then one step at a time is dropped, last to first, wherever
+/// what is left still has such a prefix, which becomes the run; the passes repeat until
+/// one drops nothing. What is left after a drop only has to replay up to its first
+/// violating marking: the steps past it are cut, so they need not be enabled. The run
+/// reported therefore ends at the first violating marking it reaches, and no single
+/// step of it can go; it is not claimed to be the shortest. A violating initial marking
+/// is always the run of no steps, whatever model the solver returned.
+///
+/// The trim is cubic in the run's length and runs no solver, so it polls the
+/// verification's stop ([VER-013]: total budget and cancellation alike) before every
+/// candidate and answers [`WitnessOutcome::Stopped`]. Without a stop scope — a direct
+/// caller, outside `SmtVerifier::verify` — the poll does nothing.
+///
+/// `solver(script, phase, timeout_ms)` is the transport of [`run_firing_bound_phase`];
+/// `phase` is `witness`, the dump name of [VER-013].
+#[allow(clippy::too_many_arguments)]
+pub fn run_witness_phase(
+    flat: &FlatNet,
+    initial_marking: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    env_inject: &[(usize, Option<usize>)],
+    solver: impl Fn(&str, &str, u64) -> Result<String, String>,
+    options: WitnessOptions,
+) -> WitnessOutcome {
+    witness_phase(
+        flat,
+        initial_marking,
+        property,
+        sink_places,
+        conditional_sinks,
+        env_inject,
+        solver,
+        options,
+        crate::total_budget::cut,
+    )
+}
+
+/// [`run_witness_phase`] with the stop its trim polls: `stop()` answers whether the
+/// verification must end now.
+#[allow(clippy::too_many_arguments)]
+fn witness_phase(
+    flat: &FlatNet,
+    initial_marking: &MarkingState,
+    property: &SmtProperty,
+    sink_places: &[String],
+    conditional_sinks: &[ConditionalSinks],
+    env_inject: &[(usize, Option<usize>)],
+    solver: impl Fn(&str, &str, u64) -> Result<String, String>,
+    options: WitnessOptions,
+    stop: impl Fn() -> bool,
+) -> WitnessOutcome {
+    // [NU-055]: a run of counts carries no names.
+    if property.is_name_alignment() {
+        return WitnessOutcome::Inconclusive {
+            reason: property.route_b_only_reason(),
+        };
+    }
+    let budget = QueryBudget::start(options.budget_ms);
+    let depth = options.depth;
+    let initial = initial_vector(flat, initial_marking);
+    let is_bad = violation_predicate(flat, property, sink_places, conditional_sinks, env_inject);
+    let script = encode_witness_query(
+        flat,
+        initial_marking,
+        property,
+        sink_places,
+        conditional_sinks,
+        env_inject,
+        depth,
+    );
+    let reply = match budget.left().and_then(|left| solver(&script, "witness", left)) {
+        Ok(reply) => reply,
+        Err(reason) => return WitnessOutcome::Inconclusive { reason },
+    };
+    match classify_first_line(&reply) {
+        Some("sat") => {}
+        Some("unsat") => return WitnessOutcome::NoRun,
+        _ => {
+            return WitnessOutcome::Inconclusive {
+                reason: format!("the bounded run at depth {depth} answered unknown"),
+            };
+        }
+    }
+    let relation = StepRelation::of(flat, env_inject);
+    let step_count = flat.transitions.len() + relation.injections.len();
+    // The whole run has to replay before any of it is believed.
+    let run = decode_bounded_run(&reply, step_count, depth)
+        .filter(|run| replay_run(flat, &initial, run, env_inject, &is_bad).is_some());
+    let Some(run) = run else {
+        return WitnessOutcome::Inconclusive {
+            reason: "the bounded run did not replay under the exact semantics".to_string(),
+        };
+    };
+    match trim_run(&relation, &initial, run, &is_bad, stop) {
+        Some(trimmed) => WitnessOutcome::Violated {
+            states: trimmed.states,
+            steps: trimmed.steps,
+        },
+        None => WitnessOutcome::Stopped,
+    }
+}
+
+/// The trim of the witness phase ([VER-025]) on `run`, which replays to a violating
+/// marking: its shortest violating prefix ([`violating_prefix`]), then, pass after pass
+/// until one drops nothing, each step from the last to the first is dropped where what
+/// is left still has a violating prefix, which becomes the run. Returns the trimmed
+/// run, replayed, or `None` when `stop`, asked before every candidate, answered `true`.
+fn trim_run(
+    relation: &StepRelation<'_>,
+    initial: &[i64],
+    mut run: Vec<usize>,
+    is_bad: impl Fn(&[i64]) -> bool,
+    stop: impl Fn() -> bool,
+) -> Option<ReplayedRun> {
+    let prefix = |run: &[usize]| violating_prefix(relation, initial, run, &is_bad);
+    let mut replayed = prefix(&run)?;
+    run.truncate(replayed.steps.len());
+    loop {
+        let before = run.len();
+        // Only the last marking of `run` violates, so what is left after dropping step
+        // `k` passes the same `k` markings first: its prefix keeps more than `k` steps,
+        // and every smaller index is still one of the run.
+        for k in (0..run.len()).rev() {
+            if stop() {
+                return None;
+            }
+            let mut candidate = run.clone();
+            candidate.remove(k);
+            if let Some(shorter) = prefix(&candidate) {
+                candidate.truncate(shorter.steps.len());
+                run = candidate;
+                replayed = shorter;
+            }
+        }
+        if run.len() == before {
+            return Some(replayed);
+        }
+    }
+}
+
 /// The bounded injections' post-caps, `place index → cap`, in place-index order (the
 /// verifier's own environment-bound order). An index past the net is dropped rather
 /// than emitted as an undeclared variable.
@@ -652,6 +964,21 @@ fn environment_caps(
         .iter()
         .filter(|&&(pid, _)| pid < place_count)
         .filter_map(|&(pid, bound)| bound.map(|cap| (pid, cap)))
+        .collect()
+}
+
+/// The injection steps of a bounded run ([VER-006]), in the list's order — place-index
+/// order as the verifier resolves it — so injection `j` takes the selector `T + j` in
+/// the script, the decode and the replay alike. An index past the net is dropped, as
+/// its cap is.
+fn injection_steps(
+    env_inject: &[(usize, Option<usize>)],
+    place_count: usize,
+) -> Vec<(usize, Option<usize>)> {
+    env_inject
+        .iter()
+        .copied()
+        .filter(|&(pid, _)| pid < place_count)
         .collect()
 }
 
@@ -1408,6 +1735,545 @@ mod tests {
                 }
                 other => panic!("expected inconclusive, got {other:?}"),
             }
+        }
+    }
+
+    // === Injection steps and the bounded witness phase ([VER-025]) ===
+
+    /// `t: e → p1`, with `e` the place the environment injects into. Places in flat
+    /// order: e, p1. One transition, so injection 0 takes the selector 1 and idling 2.
+    fn env_pair() -> FlatNet {
+        let e = Place::<i32>::new("e");
+        let p1 = Place::<i32>::new("p1");
+        let t = Transition::builder("t").input(one(&e)).output(out_place(&p1)).action(fork()).build();
+        flatten(&PetriNet::builder("envPair").transition(t).build())
+    }
+
+    /// A `sat` reply whose step `i` selects `selectors[i]`.
+    fn model(selectors: &[usize]) -> String {
+        let defs: Vec<String> =
+            selectors.iter().enumerate().map(|(i, s)| format!("(define-fun s{i} () Int {s})")).collect();
+        format!("sat\n({})", defs.join(" "))
+    }
+
+    /// `t1: p1 → p2` and `t2: p2 → p1`: a cycle of two steps. Places in flat order: p1,
+    /// p2; idling is selector 2.
+    fn two_cycle() -> FlatNet {
+        let p1 = Place::<i32>::new("p1");
+        let p2 = Place::<i32>::new("p2");
+        let t = |name: &str| Transition::builder(name).action(fork());
+        let net = PetriNet::builder("twoCycle")
+            .transitions([
+                t("t1").input(one(&p1)).output(out_place(&p2)).build(),
+                t("t2").input(one(&p2)).output(out_place(&p1)).build(),
+            ])
+            .build();
+        flatten(&net)
+    }
+
+    /// `arm: a → blocker`, `clear: c → d` resetting `blocker`, and `fire: s → bad`
+    /// inhibited by `blocker`. Places in flat order: a, bad, blocker, c, d, s; idling is
+    /// selector 3.
+    fn blocked() -> FlatNet {
+        let p = |name: &str| Place::<i32>::new(name);
+        let (a, bad, blocker, c, d, s) = (p("a"), p("bad"), p("blocker"), p("c"), p("d"), p("s"));
+        let t = |name: &str| Transition::builder(name).action(fork());
+        let net = PetriNet::builder("blocked")
+            .transitions([
+                t("arm").input(one(&a)).output(out_place(&blocker)).build(),
+                t("clear").input(one(&c)).reset(reset(&blocker)).output(out_place(&d)).build(),
+                t("fire").input(one(&s)).inhibitor(inhibitor(&blocker)).output(out_place(&bad)).build(),
+            ])
+            .build();
+        flatten(&net)
+    }
+
+    /// The witness phase on `flat` from `tokens`, answered `reply`, the solver's calls
+    /// recorded as `(first script line, phase, timeout)`.
+    fn witness_on(
+        flat: &FlatNet,
+        tokens: &[(&str, usize)],
+        property: &SmtProperty,
+        env_inject: &[(usize, Option<usize>)],
+        options: WitnessOptions,
+        reply: Result<String, String>,
+    ) -> (WitnessOutcome, Vec<(String, String, u64)>) {
+        let mut m0 = MarkingStateBuilder::new();
+        for (place, count) in tokens {
+            m0 = m0.tokens(*place, *count);
+        }
+        let calls: RefCell<Vec<(String, String, u64)>> = RefCell::new(Vec::new());
+        let outcome = run_witness_phase(
+            flat,
+            &m0.build(),
+            property,
+            &[],
+            &[],
+            env_inject,
+            |script: &str, phase: &str, timeout_ms: u64| {
+                let header = script.lines().next().unwrap_or("").to_string();
+                calls.borrow_mut().push((header, phase.to_string(), timeout_ms));
+                reply.clone()
+            },
+            options,
+        );
+        (outcome, calls.into_inner())
+    }
+
+    /// [`witness_on`] the net [`env_pair`], `e` injected under `bound`.
+    fn witness(
+        tokens: &[(&str, usize)],
+        property: &SmtProperty,
+        bound: Option<usize>,
+        options: WitnessOptions,
+        reply: Result<String, String>,
+    ) -> (WitnessOutcome, Vec<(String, String, u64)>) {
+        let flat = env_pair();
+        witness_on(&flat, tokens, property, &[(flat.place_index["e"], bound)], options, reply)
+    }
+
+    /// The whole script, as [VER-025] lays it out: the selector range and the idle
+    /// selector move past the injection, a bounded injection is guarded below its bound,
+    /// and its arm is the last toucher of its place, so the innermost `ite`.
+    #[test]
+    fn encodes_an_injection_step_after_the_transitions() {
+        let flat = env_pair();
+        let e = flat.place_index["e"];
+        let property = SmtProperty::place_bound("p1", 1);
+        let script = encode_bounded_run(&flat, &[0, 0], &property, &[], &[], &[(e, Some(2))], 2);
+        assert_eq!(
+            script,
+            "; Bounded run (VER-019): 2 steps of the exact step relation from M0, idle\n\
+             ; only at the end; sat = a run to a violating marking.\n\
+             (set-logic QF_LIA)\n\
+             (declare-const s0 Int)\n(declare-const s1 Int)\n\
+             (declare-const m1_0 Int)\n(declare-const m1_1 Int)\n\
+             (declare-const m2_0 Int)\n(declare-const m2_1 Int)\n\
+             (assert (and (>= s0 0) (<= s0 2)))\n\
+             (assert (=> (= s0 2) (= s1 2)))\n\
+             (assert (=> (= s0 0) (>= 0 1)))\n\
+             (assert (=> (= s0 1) (< 0 2)))\n\
+             (assert (= m1_0 (ite (= s0 0) (- 0 1) (ite (= s0 1) (+ 0 1) 0))))\n\
+             (assert (= m1_1 (ite (= s0 0) (+ 0 1) 0)))\n\
+             (assert (<= m1_0 2))\n\
+             (assert (and (>= s1 0) (<= s1 2)))\n\
+             (assert (=> (= s1 0) (>= m1_0 1)))\n\
+             (assert (=> (= s1 1) (< m1_0 2)))\n\
+             (assert (= m2_0 (ite (= s1 0) (- m1_0 1) (ite (= s1 1) (+ m1_0 1) m1_0))))\n\
+             (assert (= m2_1 (ite (= s1 0) (+ m1_1 1) m1_1)))\n\
+             (assert (<= m2_0 2))\n\
+             (assert (> m2_1 1))\n\
+             (check-sat)\n(get-model)"
+        );
+        // An unbounded injection is a step with no guard line and no cap.
+        let unbounded = encode_bounded_run(&flat, &[0, 0], &property, &[], &[], &[(e, None)], 1);
+        assert_eq!(
+            unbounded,
+            "; Bounded run (VER-019): 1 steps of the exact step relation from M0, idle\n\
+             ; only at the end; sat = a run to a violating marking.\n\
+             (set-logic QF_LIA)\n\
+             (declare-const s0 Int)\n\
+             (declare-const m1_0 Int)\n(declare-const m1_1 Int)\n\
+             (assert (and (>= s0 0) (<= s0 2)))\n\
+             (assert (=> (= s0 0) (>= 0 1)))\n\
+             (assert (= m1_0 (ite (= s0 0) (- 0 1) (ite (= s0 1) (+ 0 1) 0))))\n\
+             (assert (= m1_1 (ite (= s0 0) (+ 0 1) 0)))\n\
+             (assert (> m1_1 1))\n\
+             (check-sat)\n(get-model)"
+        );
+        // Two injections take consecutive selectors in the list's order; an index past
+        // the net is no step.
+        let both = encode_bounded_run(&flat, &[0, 0], &property, &[], &[], &[(e, None), (1, Some(3)), (7, None)], 1);
+        assert!(both.contains("(assert (and (>= s0 0) (<= s0 3)))\n"), "{both}");
+        assert!(both.contains("(assert (=> (= s0 2) (< 0 3)))\n"), "{both}");
+        assert!(both.contains("(assert (= m1_1 (ite (= s0 0) (+ 0 1) (ite (= s0 2) (+ 0 1) 0))))\n"), "{both}");
+        // Without injection the selectors are the transitions' and idling, as before.
+        let closed = encode_bounded_run(&flat, &[0, 0], &property, &[], &[], &[], 1);
+        assert!(closed.contains("(assert (and (>= s0 0) (<= s0 1)))\n"), "{closed}");
+        assert!(closed.contains("(assert (= m1_0 (ite (= s0 0) (- 0 1) 0)))\n"), "{closed}");
+    }
+
+    /// Decoded with `T + J`, an injection selector is a step; decoded with `T` it would
+    /// end the run, as idling does.
+    #[test]
+    fn an_injection_selector_decodes_as_a_step_not_as_idle() {
+        let reply = model(&[1, 0, 1, 0, 2, 2]);
+        assert_eq!(decode_bounded_run(&reply, 2, 6), Some(vec![1, 0, 1, 0]));
+        assert_eq!(decode_bounded_run(&reply, 1, 6), Some(vec![]));
+
+        // The phase decodes with `T + J`: read as idle, the run would be empty, and the
+        // empty run does not violate the bound.
+        let (outcome, _) = witness(
+            &[],
+            &SmtProperty::place_bound("p1", 1),
+            Some(2),
+            WitnessOptions::default(),
+            Ok(model(&[1, 0, 1, 0, 2, 2, 2, 2])),
+        );
+        assert_eq!(
+            outcome,
+            WitnessOutcome::Violated {
+                states: vec![vec![0, 0], vec![1, 0], vec![0, 1], vec![1, 1], vec![0, 2]],
+                steps: vec!["inject(e)".into(), "t".into(), "inject(e)".into(), "t".into()],
+            }
+        );
+    }
+
+    /// An injection step is taken only below its bound, adds one token, and is named
+    /// `inject(<place>)`. It carries no post-cap check, as the injection rule of the
+    /// fixpoint encoding carries none; a firing does.
+    #[test]
+    fn replays_an_injection_below_its_bound_and_without_a_post_cap() {
+        let flat = env_pair();
+        let e = flat.place_index["e"];
+        let accept = |_: &[i64]| true;
+        let run = replay_run(&flat, &[0, 0], &[1, 1, 0], &[(e, Some(2))], accept).expect("two injections fit");
+        assert_eq!(run.steps, vec!["inject(e)", "inject(e)", "t"]);
+        assert_eq!(run.states, vec![vec![0, 0], vec![1, 0], vec![2, 0], vec![1, 1]]);
+        // The third injection meets the bound; unbounded, it is a step like the others.
+        assert_eq!(replay_run(&flat, &[0, 0], &[1, 1, 1], &[(e, Some(2))], accept), None);
+        let run = replay_run(&flat, &[0, 0], &[1, 1, 1], &[(e, None)], accept).expect("no bound");
+        assert_eq!(run.steps, vec!["inject(e)", "inject(e)", "inject(e)"]);
+        assert_eq!(run.states.last(), Some(&vec![3, 0]));
+        // The step after the injections is idling, which is no step of a run.
+        assert_eq!(replay_run(&flat, &[0, 0], &[2], &[(e, None)], accept), None);
+        // An injection still has to end in a violation.
+        assert_eq!(replay_run(&flat, &[0, 0], &[1], &[(e, None)], |m: &[i64]| m[1] > 0), None);
+
+        // `sig` sits over its cap: a firing is refused there, an injection into another
+        // place is not.
+        let flat = gated();
+        let (sig, q) = (flat.place_index["sig"], flat.place_index["q"]);
+        let over = vec![0, 1, 0, 3, 1];
+        let inject = [(sig, Some(2)), (q, Some(5))];
+        let transitions = flat.transitions.len();
+        assert_eq!(replay_run(&flat, &over, &[index_of(&flat, "fill")], &inject, accept), None);
+        let run = replay_run(&flat, &over, &[transitions + 1], &inject, accept).expect("no post-cap check");
+        assert_eq!(run.steps, vec!["inject(q)"]);
+        assert_eq!(replay_run(&flat, &over, &[transitions], &inject, accept), None);
+    }
+
+    /// The solver pads a run to the depth. Steps are dropped one at a time, last to
+    /// first, while what is left still reaches a violation, and the passes repeat until
+    /// one drops nothing.
+    #[test]
+    fn the_witness_phase_trims_a_replayed_run_until_no_step_can_go() {
+        // Two injections after the violation are padding; the four before are needed.
+        let (outcome, calls) = witness(
+            &[],
+            &SmtProperty::place_bound("p1", 1),
+            Some(2),
+            WitnessOptions::default(),
+            Ok(model(&[1, 1, 0, 0, 1, 1, 2, 2])),
+        );
+        assert_eq!(
+            outcome,
+            WitnessOutcome::Violated {
+                states: vec![vec![0, 0], vec![1, 0], vec![2, 0], vec![1, 1], vec![0, 2]],
+                steps: vec!["inject(e)".into(), "inject(e)".into(), "t".into(), "t".into()],
+            }
+        );
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "; Bounded run (VER-019): 8 steps of the exact step relation from M0, idle");
+        assert_eq!(calls[0].1, "witness");
+        assert!(calls[0].2 > 0 && calls[0].2 <= 7_500, "{calls:?}");
+
+        // `arm, clear, fire`: `fire` alone violates, but `clear` cannot go while `arm`
+        // is there, and `arm` is the last step a pass tries. The first pass drops `arm`
+        // only; the second then drops `clear`.
+        let (outcome, _) = witness_on(
+            &blocked(),
+            &[("a", 1), ("c", 1), ("s", 1)],
+            &SmtProperty::place_bound("bad", 0),
+            &[],
+            WitnessOptions::default(),
+            Ok(model(&[0, 1, 2, 3, 3, 3, 3, 3])),
+        );
+        assert_eq!(
+            outcome,
+            WitnessOutcome::Violated {
+                states: vec![vec![1, 0, 0, 1, 0, 1], vec![1, 1, 0, 1, 0, 0]],
+                steps: vec!["fire".into()],
+            }
+        );
+    }
+
+    /// [VER-013]: the trim asks the verification's stop before every candidate, and a
+    /// stop ends the phase as a stop, not as a reason of its own. A run with no step to
+    /// drop has no candidate and asks nothing.
+    #[test]
+    fn the_trim_polls_the_stop_before_every_candidate() {
+        let flat = env_pair();
+        let inject = [(flat.place_index["e"], Some(2))];
+        let phase = |tokens: usize, property: SmtProperty, selectors: &[usize], stop_at: usize| {
+            let polls = std::cell::Cell::new(0usize);
+            let outcome = witness_phase(
+                &flat,
+                &MarkingStateBuilder::new().tokens("p1", tokens).build(),
+                &property,
+                &[],
+                &[],
+                &inject,
+                |_: &str, _: &str, _: u64| Ok(model(selectors)),
+                WitnessOptions::default(),
+                || {
+                    polls.set(polls.get() + 1);
+                    polls.get() >= stop_at
+                },
+            );
+            (outcome, polls.get())
+        };
+        // Four steps are needed: the one pass has four candidates and drops none, so
+        // the stop is asked four times, and here it never answers.
+        let needed = [1, 1, 0, 0, 1, 1, 2, 2];
+        let (outcome, polls) = phase(0, SmtProperty::place_bound("p1", 1), &needed, usize::MAX);
+        assert!(matches!(outcome, WitnessOutcome::Violated { ref steps, .. } if steps.len() == 4), "{outcome:?}");
+        assert_eq!(polls, 4);
+        // A stop on the first poll ends the trim there.
+        assert_eq!(phase(0, SmtProperty::place_bound("p1", 1), &needed, 1), (WitnessOutcome::Stopped, 1));
+        // And one that comes later, before the third candidate.
+        assert_eq!(phase(0, SmtProperty::place_bound("p1", 1), &needed, 3), (WitnessOutcome::Stopped, 3));
+        // `M0` violates: the run is empty, there is no candidate, and nothing is asked,
+        // although the stop would answer at once.
+        let (outcome, polls) = phase(2, SmtProperty::place_bound("p1", 1), &needed, 1);
+        assert_eq!(outcome, WitnessOutcome::Violated { states: vec![vec![0, 2]], steps: vec![] });
+        assert_eq!(polls, 0);
+    }
+
+    /// [VER-013]: the poll of [`run_witness_phase`] is the verification's own. The
+    /// solver cancels the call as it answers, so the stop arrives between the reply and
+    /// the trim: the phase ends stopped, and the reason names the step it ran in.
+    /// Outside a stop scope the same call trims to the end.
+    #[test]
+    fn the_trim_ends_on_the_verifications_stop_and_polls_nothing_outside_one() {
+        let flat = env_pair();
+        let inject = [(flat.place_index["e"], Some(2))];
+        let token = crate::cancel::CancelToken::new();
+        let run = || {
+            run_witness_phase(
+                &flat,
+                &MarkingStateBuilder::new().build(),
+                &SmtProperty::place_bound("p1", 1),
+                &[],
+                &[],
+                &inject,
+                |_: &str, _: &str, _: u64| {
+                    token.cancel();
+                    Ok(model(&[1, 1, 0, 0, 1, 1, 2, 2]))
+                },
+                WitnessOptions::default(),
+            )
+        };
+        // No scope holds the token: its cancellation is nobody's stop.
+        assert!(matches!(run(), WitnessOutcome::Violated { ref steps, .. } if steps.len() == 4));
+
+        let token = crate::cancel::CancelToken::new();
+        let _scope = crate::total_budget::enter(None, Some(token.clone()));
+        assert!(!crate::total_budget::step("witness phase"));
+        let run = || {
+            run_witness_phase(
+                &flat,
+                &MarkingStateBuilder::new().build(),
+                &SmtProperty::place_bound("p1", 1),
+                &[],
+                &[],
+                &inject,
+                |_: &str, _: &str, _: u64| {
+                    token.cancel();
+                    Ok(model(&[1, 1, 0, 0, 1, 1, 2, 2]))
+                },
+                WitnessOptions::default(),
+            )
+        };
+        assert_eq!(run(), WitnessOutcome::Stopped);
+        assert_eq!(
+            crate::total_budget::stopped_reason().as_deref(),
+            Some("verification cancelled during witness phase")
+        );
+        // The stop is sticky: the pipeline's next step finds it.
+        assert!(crate::total_budget::step("IC3/PDR query"));
+    }
+
+    /// The prefix rule of the trim: a violating initial marking is the run of no steps
+    /// whatever the model. Here the model walks the cycle four times and returns to
+    /// `M0`; dropping any one of its steps leaves a run that does not replay.
+    #[test]
+    fn the_witness_phase_reports_the_empty_run_when_the_model_cycles_back_to_a_violating_m0() {
+        let (outcome, _) = witness_on(
+            &two_cycle(),
+            &[("p1", 1)],
+            &SmtProperty::place_bound("p1", 0),
+            &[],
+            WitnessOptions::default(),
+            Ok(model(&[0, 1, 0, 1, 0, 1, 0, 1])),
+        );
+        assert_eq!(outcome, WitnessOutcome::Violated { states: vec![vec![1, 0]], steps: vec![] });
+    }
+
+    /// The prefix rule of the trim: a run that passes a violating marking and goes on is
+    /// cut there. `t1` marks `p2`; `t2, t1` take the token round once more, and no one
+    /// step of `t1, t2, t1` can be dropped from the whole run.
+    #[test]
+    fn the_witness_phase_cuts_a_run_at_the_first_violating_marking_it_reaches() {
+        let (outcome, _) = witness_on(
+            &two_cycle(),
+            &[("p1", 1)],
+            &SmtProperty::place_bound("p2", 0),
+            &[],
+            WitnessOptions::default(),
+            Ok(model(&[0, 1, 0, 2, 2, 2, 2, 2])),
+        );
+        assert_eq!(
+            outcome,
+            WitnessOutcome::Violated { states: vec![vec![1, 0], vec![0, 1]], steps: vec!["t1".into()] }
+        );
+    }
+
+    /// The prefix rule of the trim: what is left after a drop only has to replay up to
+    /// its first violating marking. Without `t`, two injections fill `e` to its bound,
+    /// which violates; the third injection that follows is not enabled there, and is
+    /// cut with everything else past the violation.
+    #[test]
+    fn the_witness_phase_drops_a_step_when_the_rest_violates_before_its_tail_is_disabled() {
+        let (outcome, _) = witness(
+            &[],
+            &SmtProperty::place_bound("e", 1),
+            Some(2),
+            WitnessOptions::default(),
+            Ok(model(&[1, 0, 1, 1, 2, 2, 2, 2])),
+        );
+        assert_eq!(
+            outcome,
+            WitnessOutcome::Violated {
+                states: vec![vec![0, 0], vec![1, 0], vec![2, 0]],
+                steps: vec!["inject(e)".into(), "inject(e)".into()],
+            }
+        );
+    }
+
+    /// A marking that violates at `M0` is the run of no steps.
+    #[test]
+    fn the_witness_phase_reports_a_violating_initial_marking_as_the_empty_run() {
+        let (outcome, _) = witness(
+            &[("p1", 2)],
+            &SmtProperty::place_bound("p1", 1),
+            Some(2),
+            WitnessOptions::default(),
+            Ok(model(&[2, 2, 2, 2, 2, 2, 2, 2])),
+        );
+        assert_eq!(outcome, WitnessOutcome::Violated { states: vec![vec![0, 2]], steps: vec![] });
+    }
+
+    /// One query at the depth asked for, not at 8 first, and `unsat` is no proof.
+    #[test]
+    fn the_witness_phase_asks_once_at_its_depth_and_finds_no_run_on_unsat() {
+        let options = WitnessOptions { depth: 12, ..Default::default() };
+        let (outcome, calls) =
+            witness(&[], &SmtProperty::place_bound("p1", 1), Some(2), options, Ok("unsat".to_string()));
+        assert_eq!(outcome, WitnessOutcome::NoRun);
+        let headers: Vec<&str> = calls.iter().map(|(header, _, _)| header.as_str()).collect();
+        assert_eq!(headers, vec!["; Bounded run (VER-019): 12 steps of the exact step relation from M0, idle"]);
+        assert_eq!(WitnessOptions::default(), WitnessOptions { budget_ms: 7_500, depth: 8 });
+    }
+
+    /// Everything that is not a replayed run leaves the phase without a verdict, each
+    /// with its own reason.
+    #[test]
+    fn the_witness_phase_steps_aside_on_unknown_a_failed_transport_a_spent_budget_or_a_failed_replay() {
+        let property = SmtProperty::place_bound("p1", 1);
+        let aside = |reply: Result<String, String>, options: WitnessOptions| {
+            let (outcome, calls) = witness(&[], &property, Some(2), options, reply);
+            match outcome {
+                WitnessOutcome::Inconclusive { reason } => (reason, calls.len()),
+                other => panic!("expected inconclusive, got {other:?}"),
+            }
+        };
+        let defaults = WitnessOptions::default();
+
+        let unknown = aside(Ok("unknown".to_string()), defaults);
+        assert_eq!(unknown, ("the bounded run at depth 8 answered unknown".to_string(), 1));
+
+        let failed = aside(Err("z3 hard timeout after 3s".to_string()), defaults);
+        assert_eq!(failed, ("z3 hard timeout after 3s".to_string(), 1));
+
+        // Nothing is left of the budget once the script is encoded: no query is sent.
+        let spent = aside(Ok(model(&[1, 0, 1, 0])), WitnessOptions { budget_ms: 0, ..defaults });
+        assert_eq!(spent, ("time budget of 0 ms exhausted".to_string(), 0));
+
+        let not_replayed = "the bounded run did not replay under the exact semantics".to_string();
+        // `t` with no token in `e`; a run that ends short of the violation; an
+        // injection past the bound; a run that violates after four steps and then takes
+        // a `t` that is not enabled (the whole run has to replay before its prefix is
+        // believed); and a model with no selector at all.
+        for reply in [
+            model(&[0]),
+            model(&[1, 0, 2]),
+            model(&[1, 1, 1, 0, 0]),
+            model(&[1, 1, 0, 0, 0]),
+            "sat\n()".to_string(),
+        ] {
+            assert_eq!(aside(Ok(reply), defaults), (not_replayed.clone(), 1));
+        }
+    }
+
+    /// [NU-055]: a run of counts carries no names, so the witness phase steps aside
+    /// before any query.
+    #[test]
+    fn nu055_the_witness_phase_is_inconclusive_for_name_alignment() {
+        let flat = env_pair();
+        for property in [SmtProperty::name_aligned(["e", "p1"]), SmtProperty::quiescent_name_aligned(["e", "p1"])] {
+            let outcome = run_witness_phase(
+                &flat,
+                &MarkingStateBuilder::new().build(),
+                &property,
+                &[],
+                &[],
+                &[],
+                |_: &str, _: &str, _: u64| -> Result<String, String> { panic!("no solver call expected") },
+                WitnessOptions::default(),
+            );
+            match outcome {
+                WitnessOutcome::Inconclusive { reason } => {
+                    assert!(reason.contains("decided only by the name-partition state-class graph (NU-055, Route B)"), "{reason}");
+                }
+                other => panic!("expected inconclusive, got {other:?}"),
+            }
+        }
+    }
+
+    /// [VER-025]'s test derivation, at the phase: two injections under a bounded
+    /// environment are found and trimmed to the four steps the violation needs; a
+    /// violation ten steps away is none at depth 8 and a run at depth 10.
+    #[test]
+    fn finds_the_run_with_two_injections_through_z3() {
+        if !z3_available() {
+            eprintln!("skipping finds_the_run_with_two_injections_through_z3: z3 binary not on PATH");
+            return;
+        }
+        let flat = env_pair();
+        let m0 = MarkingStateBuilder::new().build();
+        let inject = [(flat.place_index["e"], Some(2))];
+        let run = |bound: usize, depth: usize| {
+            let property = SmtProperty::place_bound("p1", bound);
+            let options = WitnessOptions { budget_ms: 30_000, depth };
+            run_witness_phase(&flat, &m0, &property, &[], &[], &inject, z3(), options)
+        };
+        match run(1, 8) {
+            WitnessOutcome::Violated { states, mut steps } => {
+                assert_eq!(states.len(), 5, "{states:?}");
+                assert_eq!(states.last(), Some(&vec![0, 2]));
+                steps.sort();
+                assert_eq!(steps, vec!["inject(e)", "inject(e)", "t", "t"]);
+            }
+            other => panic!("expected a violation, got {other:?}"),
+        }
+        assert_eq!(run(4, 8), WitnessOutcome::NoRun);
+        match run(4, 10) {
+            WitnessOutcome::Violated { states, steps } => {
+                assert_eq!(steps.len(), 10, "{steps:?}");
+                assert_eq!(states.last(), Some(&vec![0, 5]));
+            }
+            other => panic!("expected a violation, got {other:?}"),
         }
     }
 }

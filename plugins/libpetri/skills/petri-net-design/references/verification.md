@@ -160,6 +160,17 @@ method `state-equation`, and list the refinements in `discoveredInvariants`. The
 length (method `bounded-model-check`). A `Violated` from either is a replayed run. Neither runs on
 a ν-net; the firing bound also skips nets with injected environment places.
 
+Directly before Spacer a third phase looks for a short counterexample: the **bounded witness
+phase** (VER-025) asks one bounded run of at most `witnessDepth` steps (default 8, `0` disables),
+where a step is a firing or an environment injection. It runs on a ν-net under the name-blind
+encoding and on nets with injected environment places, the cases the other two leave to Spacer,
+which finds a short counterexample late and at a cost that swings with the place names. It only
+ever adds a `Violated` (a replayed run with `inject(<place>)` steps, trimmed of the steps it does
+not need); the report line `no run of at most 8 steps reaches a violation (not a proof)` means
+exactly that, and Spacer then runs as before. A query without a run gets expensive quickly as
+the depth grows, so raise `witnessDepth` only for a net whose counterexamples are known to be
+longer.
+
 ## 2a. Actions in flight: the two-step split
 
 Every route used to read a firing as one step. The executor consumes a firing's inputs when the action starts, deposits its outputs when the action completes, and fires other transitions in between: for as long as an asynchronous action runs, and until the end of the firing pass for a synchronous one. The gap only matters to a transition that tests an output non-monotonically, so by default the verifier (VER-004) splits exactly these transitions `t` into `t`, which consumes and marks `inflight:<t>`, and an immediate `complete:<t>`, which deposits the outputs:

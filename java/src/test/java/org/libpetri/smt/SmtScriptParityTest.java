@@ -106,6 +106,7 @@ class SmtScriptParityTest {
         compare(id, goldenDir.resolve("certificate.smt2"), encoded.certificate());
         compare(id, goldenDir.resolve("bound.smt2"), encoded.bound());
         compare(id, goldenDir.resolve("state-equation.smt2"), encoded.stateEquation());
+        compare(id, goldenDir.resolve("witness.smt2"), encoded.witness());
     }
 
     /** A JSON array of place names; empty when the field is absent. */
@@ -159,6 +160,9 @@ class SmtScriptParityTest {
         // The state-equation phase's first query ([VER-018] AC7); absent where the phase does
         // not run (a ν-net, Ignore with environment places).
         compare(id, goldenDir.resolve("state-equation.smt2"), scripts.stateEquation());
+        // The bounded run of the witness phase ([VER-025]); absent where the phase does not run
+        // (the name-coloured encoding, a ν-net the guard would downgrade).
+        compare(id, goldenDir.resolve("witness.smt2"), scripts.witness());
     }
 
     private static void compare(String id, Path golden, String actual) throws IOException {

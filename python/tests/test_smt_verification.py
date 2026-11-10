@@ -399,14 +399,15 @@ def test_counterexample_confirmed_is_a_tri_state():
     # sequence) and ignores `counterexample_replay`, so the tri-state would never
     # be exercised. The route's own confirmed-by-construction contract is pinned
     # by test_enumeration_route_decides_without_a_solver below. The VER-018/019
-    # phases are pinned off for the same reason: they decide this net before the
-    # fixpoint query, and a bounded run they find is replayed whatever
-    # `counterexample_replay` says.
+    # phases and the VER-025 witness phase are pinned off for the same reason: they
+    # decide this net before the fixpoint query, and a bounded run they find is
+    # replayed whatever `counterexample_replay` says.
     _p0, p1, net = _conserved_pair()
     solver = dict(
         enumeration_max_classes=0,
         state_equation_phase=False,
         firing_bound=False,
+        witness_depth=0,
         timeout_ms=15_000,
     )
 
@@ -467,9 +468,9 @@ def test_counterexample_confirmed_is_false_when_the_replay_exhausts_its_budget()
     # Explicit VER-017 opt-out: the replay is what is under test, and this net's
     # state-class graph does not close — the enumeration route would spend the
     # whole 50 000-class budget (minutes) only to truncate and hand the query to
-    # the very pipeline the test wants, unchanged. The VER-018/019 phases are
-    # pinned off too: their witness is a run they find themselves, so the replay
-    # under test would never be reached.
+    # the very pipeline the test wants, unchanged. The VER-018/019 phases and the
+    # VER-025 witness phase are pinned off too: their witness is a run they find
+    # themselves, so the replay under test would never be reached.
     result = lp.verify(
         net,
         lp.place_bound(first_sink, 3),
@@ -477,6 +478,7 @@ def test_counterexample_confirmed_is_false_when_the_replay_exhausts_its_budget()
         enumeration_max_classes=0,
         state_equation_phase=False,
         firing_bound=False,
+        witness_depth=0,
         timeout_ms=30_000,
     )
     assert result.verdict == "violated", result.report
@@ -705,9 +707,9 @@ def test_state_equation_keeps_verdicts_and_passes_the_certificate_check():
     # Explicit VER-017 opt-out: the state equation is part of the flat ENCODING,
     # which the enumeration route never builds — it would close this seven-class
     # graph and report neither the counter count nor a certificate check. The
-    # VER-018 phase would decide first too, so it and VER-019 are pinned off: the
-    # HORN encoding is what is under test.
-    phases_off = dict(state_equation_phase=False, firing_bound=False)
+    # VER-018 phase would decide first too, so it, VER-019 and the VER-025 witness
+    # phase are pinned off: the HORN encoding is what is under test.
+    phases_off = dict(state_equation_phase=False, firing_bound=False, witness_depth=0)
     proven = lp.verify(
         net,
         lp.deadlock_free(),

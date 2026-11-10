@@ -199,6 +199,33 @@ fn verdict_parity_fixtures() {
                 result.report
             ));
         }
+        // [VER-025]: which query answered the two bounded-environment fixtures. The
+        // 4-step run is the bounded witness phase's, so no fixpoint query follows it;
+        // the 10-step one is past the default depth, so the phase reports none and the
+        // fixpoint query's refutation is what replays.
+        let fixpoint_replay = result.report.contains("Counterexample replay: CONFIRMED");
+        let witness = match id {
+            "env-bounded-witness-violated" => Some((
+                "  Bounded witness phase (VER-025):\n    \
+                 Status: a run of 4 steps reaches a violation (replayed; depth 8)\n",
+                false,
+            )),
+            "env-bounded-deep-witness-violated" => Some((
+                "  Bounded witness phase (VER-025):\n    \
+                 Status: no run of at most 8 steps reaches a violation (not a proof)\n",
+                true,
+            )),
+            _ => None,
+        };
+        if let Some((lines, by_fixpoint)) = witness {
+            if !result.report.contains(lines) || fixpoint_replay != by_fixpoint {
+                findings.push(format!(
+                    "WITNESS PHASE FINDING [{id}]: expected the report to carry {lines:?} and the \
+                     fixpoint query to answer = {by_fixpoint}\n--- verifier report ---\n{}",
+                    result.report
+                ));
+            }
+        }
     }
 
     assert!(

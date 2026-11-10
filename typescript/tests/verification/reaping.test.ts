@@ -119,7 +119,7 @@ describeZ3('deadline reaping (TIME-013)', () => {
 
   it('the fixpoint query alone finds the reaped rest', async () => {
     const r = await verifier(witness()).property(deadlockFree())
-      .stateEquationPhase(false).firingBound(false).verify();
+      .stateEquationPhase(false).firingBound(false).witnessDepth(0).verify();
     expect(r.verdict.type, r.report).toBe('violated');
     expect(r.route).toBe('smt');
     expect(r.counterexampleTransitions).toEqual([]);

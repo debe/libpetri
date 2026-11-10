@@ -4,9 +4,10 @@
 //! verifier would send to z3 ([`SmtVerifier::encode_scripts`]) must equal the
 //! committed goldens under `spec/verification-fixtures/scripts/<id>/`, byte for
 //! byte: `horn.smt2`, `certificate.smt2` (flat encoding), `bound.smt2` (the
-//! [VER-015] query, for a reachability-safety property on the flat path) and
+//! [VER-015] query, for a reachability-safety property on the flat path),
 //! `state-equation.smt2` (the first query of the [VER-018] phase, wherever that
-//! phase runs — [VER-018] AC7). The goldens are written by THIS test with `LIBPETRI_SMT_SCRIPT_UPDATE=1`
+//! phase runs — [VER-018] AC7) and `witness.smt2` (the bounded witness query of
+//! [VER-025], wherever that phase runs). The goldens are written by THIS test with `LIBPETRI_SMT_SCRIPT_UPDATE=1`
 //! (`scripts/smt-script-parity.py --update`) and diffed by the Java, TypeScript
 //! and Python script-parity tests too, so the four implementations emit the same
 //! text. A diff is a parity finding in whichever emitter drifted, never a reason
@@ -16,8 +17,9 @@
 //! `verify()` actually sends (captured through `LIBPETRI_SMT_DUMP`) is what
 //! `encode_scripts()` reports. Each fixture is verified twice for that: with the
 //! defaults, where the phases of [VER-018]/[VER-019] run and send the state-equation
-//! query, and with both phases off, where the fixpoint path sends the HORN query they
-//! would otherwise decide before. The environment is process-global, so this file
+//! query, and the witness phase of [VER-025] its own where they step aside; and with all
+//! three off, where the fixpoint path sends the HORN query they would otherwise decide
+//! before. The environment is process-global, so this file
 //! holds exactly ONE `#[test]`.
 //!
 //! The same test writes and checks the `expected` objects of the shared colour-slot LP
@@ -212,6 +214,7 @@ fn smt_scripts_match_the_committed_goldens() {
         let certificate = dir.join("certificate.smt2");
         let bound = dir.join("bound.smt2");
         let state_equation = dir.join("state-equation.smt2");
+        let witness = dir.join("witness.smt2");
         if update {
             fs::create_dir_all(&dir).expect("create golden dir");
             fs::write(&horn, &scripts.horn).expect("write horn golden");
@@ -235,12 +238,19 @@ fn smt_scripts_match_the_committed_goldens() {
                     let _ = fs::remove_file(&state_equation);
                 }
             }
+            match &scripts.witness {
+                Some(text) => fs::write(&witness, text).expect("write witness golden"),
+                None => {
+                    let _ = fs::remove_file(&witness);
+                }
+            }
             eprintln!("[script-parity] wrote {}", dir.display());
         } else {
             compare(&mut findings, id, &horn, Some(&scripts.horn));
             compare(&mut findings, id, &certificate, scripts.certificate.as_deref());
             compare(&mut findings, id, &bound, scripts.bound.as_deref());
             compare(&mut findings, id, &state_equation, scripts.state_equation.as_deref());
+            compare(&mut findings, id, &witness, scripts.witness.as_deref());
         }
         encoded.push((id.to_string(), scripts));
     }
@@ -295,9 +305,10 @@ fn smt_scripts_match_the_committed_goldens() {
             let id = fixture.str("id");
             let reported = &encoded.iter().find(|(f, _)| f == id).expect("encoded").1;
             // With the defaults the phases of [VER-018]/[VER-019] run before the fixpoint
-            // query and, on most fixtures, decide; with both off, the HORN query is sent.
-            // encode_scripts() reports the same HORN script either way, since neither
-            // toggle changes the encoding.
+            // query and, on most fixtures, decide, and the witness phase of [VER-025]
+            // asks its query where they step aside; with all three off, the HORN query
+            // is sent. encode_scripts() reports the same HORN script either way, since
+            // no toggle changes the encoding.
             let runs: [(&str, bool, Vec<(&str, &str, Option<&str>)>); 2] = [
                 (
                     "phases",
@@ -305,6 +316,7 @@ fn smt_scripts_match_the_committed_goldens() {
                     vec![
                         ("-bound", "bound", reported.bound.as_deref()),
                         ("-state-equation", "state-equation", reported.state_equation.as_deref()),
+                        ("-witness", "witness", reported.witness.as_deref()),
                         ("-horn", "HORN", Some(reported.horn.as_str())),
                     ],
                 ),
@@ -324,6 +336,7 @@ fn smt_scripts_match_the_committed_goldens() {
                 let _ = verifier_for(fixture, built)
                     .state_equation_phase(phases)
                     .firing_bound(phases)
+                    .witness_depth(if phases { 8 } else { 0 })
                     .verify();
                 // SAFETY: as above.
                 unsafe { std::env::remove_var("LIBPETRI_SMT_DUMP") };
@@ -366,7 +379,7 @@ fn smt_scripts_match_the_committed_goldens() {
             }
         }
         let _ = fs::remove_dir_all(&scratch);
-        for label in ["bound", "state-equation", "HORN"] {
+        for label in ["bound", "state-equation", "witness", "HORN"] {
             assert!(
                 compared.contains(&label),
                 "the verify() dump cross-check compared no {label} script on any fixture"

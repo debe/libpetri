@@ -674,6 +674,15 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
     }
 }
 
+/// Reads the `witness_depth` keyword argument (VER-025): the depth of the bounded
+/// witness phase, `0` disabling it. A negative depth is an argument error, named as the
+/// keyword is spelled.
+#[cfg(feature = "z3")]
+pub(crate) fn parse_witness_depth(depth: i64) -> PyResult<usize> {
+    usize::try_from(depth)
+        .map_err(|_| PyValueError::new_err(format!("witness_depth must be non-negative, got {depth}")))
+}
+
 /// Verifies a single property against `net` using SMT (Z3). Without the `z3`
 /// feature, returns `VerificationResult` with verdict `"unknown"`.
 ///
@@ -688,7 +697,11 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// stubborn sets for the quiescence properties;
 /// `state_equation_phase` (VER-018) and `firing_bound` (VER-019), both default
 /// `True`, are the pre-fixpoint phases, `False` forcing the fixpoint path. Unlike
-/// `state_equation`, neither changes the fixpoint encoding. `state_space_cache`
+/// `state_equation`, neither changes the fixpoint encoding. `witness_depth` (VER-025,
+/// default 8) is the depth of the bounded witness phase directly before the flat
+/// fixpoint query: one query for a run of at most that many steps, environment
+/// injections among them, to a violation; `0` disables it and a negative depth
+/// raises `ValueError`. `state_space_cache`
 /// (VER-017) shares the enumeration route's state space across calls.
 /// `total_budget_ms` (VER-013, default `None`) caps the whole call's wall clock;
 /// `timed_counterexample_check` (VER-023, default `False`) checks a `"violated"`
@@ -703,7 +716,7 @@ pub(crate) fn parse_semiflow_mode(value: Option<&Bound<'_, PyAny>>) -> PyResult<
 /// drain is verified as a start and a `complete:<name>` step, since the executor
 /// fires other transitions while its action is in flight.
 #[pyfunction(name = "verify_net")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, mint_transitions = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, partial_order_reduction = true, state_equation_phase = true, firing_bound = true, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None, assume_no_reaping = false, assume_atomic_firing = false))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, timeout_ms = 60_000, nu_max_classes = None, fragment_mode = None, carrier_places = None, mint_transitions = None, priority_semantics = None, certificate_check = true, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, enumeration_max_classes = None, partial_order_reduction = true, state_equation_phase = true, firing_bound = true, witness_depth = 8, state_space_cache = None, total_budget_ms = None, timed_counterexample_check = false, cancel = None, assume_no_reaping = false, assume_atomic_firing = false))]
 fn py_verify_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -729,6 +742,7 @@ fn py_verify_net(
     partial_order_reduction: bool,
     state_equation_phase: bool,
     firing_bound: bool,
+    witness_depth: i64,
     state_space_cache: Option<PyRef<'_, PyStateSpaceCache>>,
     total_budget_ms: Option<u64>,
     timed_counterexample_check: bool,
@@ -793,6 +807,8 @@ fn py_verify_net(
         let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
         // VER-007: bool or "auto", read here for the same reason.
         let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
+        // VER-025: a negative depth is refused before any work.
+        let witness_depth = parse_witness_depth(witness_depth)?;
         // `for_net` panics on a CORE-043 net; a panic must not unwind across the FFI
         // boundary, least of all out of a detached region.
         let result = panic_to_py(|| py.detach(move || {
@@ -825,6 +841,9 @@ fn py_verify_net(
                 // phase's verdict carries its own method and report.
                 .state_equation_phase(state_equation_phase)
                 .firing_bound(firing_bound)
+                // VER-025: the bounded witness phase ahead of the flat fixpoint
+                // query, at depth 8 by default; 0 disables it.
+                .witness_depth(witness_depth)
                 // VER-023: the timed counterexample check, off by default.
                 .timed_counterexample_check(timed_counterexample_check)
                 // TIME-013: quiescence read strictly (off by default: reap-aware).
@@ -867,7 +886,7 @@ fn py_verify_net(
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, mint_transitions, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, partial_order_reduction, state_equation_phase, firing_bound, state_space_cache, total_budget_ms, timed_counterexample_check, cancel, assume_no_reaping, assume_atomic_firing);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, timeout_ms, nu_max_classes, fragment_mode, carrier_places, mint_transitions, priority_semantics, certificate_check, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, enumeration_max_classes, partial_order_reduction, state_equation_phase, firing_bound, witness_depth, state_space_cache, total_budget_ms, timed_counterexample_check, cancel, assume_no_reaping, assume_atomic_firing);
         Ok(PyVerificationResult::unknown("z3 feature not enabled"))
     }
 }
@@ -875,16 +894,18 @@ fn py_verify_net(
 /// The SMT-LIB2 scripts `verify_net` would send to z3 for this configuration, without
 /// running a solver (VER-013 AC1), as the cross-language golden tests diff them:
 /// `{"horn": str, "certificate": str | None, "coloured": bool, "bound": str | None,
-/// "state_equation": str | None}`. `bound` (VER-015) and `state_equation` (VER-018
-/// AC7, the phase's first query) are `None` exactly when `verify_net` would not send
-/// them, so `linear_bound = False` and `state_equation_phase = False` null them. The
+/// "state_equation": str | None, "witness": str | None}`. `bound` (VER-015),
+/// `state_equation` (VER-018 AC7, the phase's first query) and `witness` (VER-025, the
+/// bounded witness query at `witness_depth`) are `None` exactly when `verify_net` would
+/// not send them, so `linear_bound = False`, `state_equation_phase = False` and
+/// `witness_depth = 0` null them; a negative `witness_depth` raises `ValueError`. The
 /// `state_equation` keyword is VER-016's counters in `horn`, not that key. A declared
 /// mint (`mint_transitions`, NU-010) that is no transition of `net` raises `ValueError`
 /// with the reason `verify_net` gives for its Unknown verdict. A name-alignment property
 /// (NU-055) raises `StructureError` (a `ValueError`): only Route B decides it, and Route B
 /// sends no script.
 #[pyfunction(name = "encode_smt_scripts")]
-#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, mint_transitions = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true, assume_no_reaping = false, assume_atomic_firing = false))]
+#[pyo3(signature = (net, property, *, initial_marking = None, environment_places = None, environment_mode = None, sink_places = None, budget_places = None, fragment_mode = None, carrier_places = None, mint_transitions = None, counterexample_replay = true, semiflow_invariants = None, sink_places_when = None, linear_bound = true, state_equation = false, state_equation_phase = true, witness_depth = 8, assume_no_reaping = false, assume_atomic_firing = false))]
 fn py_encode_smt_scripts(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -903,6 +924,7 @@ fn py_encode_smt_scripts(
     linear_bound: bool,
     state_equation: bool,
     state_equation_phase: bool,
+    witness_depth: i64,
     assume_no_reaping: bool,
     assume_atomic_firing: bool,
 ) -> PyResult<Py<PyDict>> {
@@ -922,6 +944,7 @@ fn py_encode_smt_scripts(
         let marking = parse_initial_marking(initial_marking.as_ref())?;
         let sink_places_when = parse_sink_places_when(sink_places_when.as_ref())?;
         let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
+        let witness_depth = parse_witness_depth(witness_depth)?;
         let mint_transitions = mint_transitions.unwrap_or_default();
         // NU-010: `encode_scripts` panics on a declared mint that is not a transition of
         // the net; raise the same reason as a ValueError, as `verify_net` answers Unknown.
@@ -951,6 +974,9 @@ fn py_encode_smt_scripts(
                 // VER-018 AC7: the `state_equation` script is gated on the phase
                 // exactly as `verify_net` gates the phase itself.
                 .state_equation_phase(state_equation_phase)
+                // VER-025: the `witness` script is gated on the depth exactly as
+                // `verify_net` gates the phase, and encoded at that depth.
+                .witness_depth(witness_depth)
                 // TIME-013: the quiescence clause keeps reapable transitions only
                 // under the strict reading.
                 .assume_no_reaping(assume_no_reaping)
@@ -966,11 +992,12 @@ fn py_encode_smt_scripts(
         dict.set_item("coloured", scripts.coloured)?;
         dict.set_item("bound", scripts.bound)?;
         dict.set_item("state_equation", scripts.state_equation)?;
+        dict.set_item("witness", scripts.witness)?;
         Ok(dict.unbind())
     }
     #[cfg(not(feature = "z3"))]
     {
-        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, mint_transitions, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, state_equation_phase, assume_no_reaping, assume_atomic_firing);
+        let _ = (py, net, property, initial_marking, environment_places, environment_mode, sink_places, budget_places, fragment_mode, carrier_places, mint_transitions, counterexample_replay, semiflow_invariants, sink_places_when, linear_bound, state_equation, state_equation_phase, witness_depth, assume_no_reaping, assume_atomic_firing);
         Err(pyo3::exceptions::PyRuntimeError::new_err("z3 feature not enabled"))
     }
 }

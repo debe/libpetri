@@ -128,6 +128,16 @@ def _net(name: str):
         )
         return net, {}, {"environment_places": ["e"], "environment_mode": lp.always_available()}
 
+    if name == "envBoundedPair":
+        # envSingleFeed with e in bounded(2) injection mode (VER-006).
+        e, p1 = lp.Place("e"), lp.Place("p1")
+        net = (
+            lp.Net("envBoundedPair")
+            .transition(lp.Transition("t").input(lp.one(e)).output(lp.out(p1)).action(lp.fork).build())
+            .build()
+        )
+        return net, {}, {"environment_places": ["e"], "environment_mode": lp.bounded(2)}
+
     if name == "inhibitorFrozen":
         # Nothing ever drains blocker(1), so t stays frozen and p1 stays empty.
         p0, blocker, p1 = lp.Place("p0"), lp.Place("blocker"), lp.Place("p1")

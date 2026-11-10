@@ -41,6 +41,8 @@ def test_a_forward_of_two_tokens_violates_a_bound_of_one(budget, linear_bound, p
         linear_bound=linear_bound,
         state_equation_phase=phases,
         firing_bound=phases,
+        # With the phases off the fixpoint query is the route under test.
+        witness_depth=8 if phases else 0,
         timeout_ms=15_000,
     )
     assert result.verdict == "violated", result.report
@@ -111,6 +113,8 @@ def test_a_three_place_mutual_exclusion_is_pairwise(budget, linear_bound, phases
             linear_bound=linear_bound,
             state_equation_phase=phases,
             firing_bound=phases,
+            # With the phases off the fixpoint query is the route under test.
+            witness_depth=8 if phases else 0,
             timeout_ms=15_000,
         )
 
@@ -129,7 +133,8 @@ def test_a_three_place_mutual_exclusion_is_pairwise(budget, linear_bound, phases
 
 
 def test_an_initial_violation_on_the_fixpoint_query_is_the_empty_trace():
-    # One marking (M0), no transition — with the replay on or off.
+    # One marking (M0), no transition — with the replay on or off. The bounded
+    # witness phase (VER-025) is off: it reports the same run ahead of this query.
     p, q = lp.Place("p"), lp.Place("q")
     net = lp.Net("initial").transition(
         lp.Transition("t").input(lp.one(p)).output(lp.out(q)).action(lp.fork).build()
@@ -143,6 +148,7 @@ def test_an_initial_violation_on_the_fixpoint_query_is_the_empty_trace():
             linear_bound=False,
             state_equation_phase=False,
             firing_bound=False,
+            witness_depth=0,
             counterexample_replay=replay,
             timeout_ms=15_000,
         )

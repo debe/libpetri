@@ -597,6 +597,7 @@ def verify_net(
     partial_order_reduction: bool = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
+    witness_depth: int = ...,
     state_space_cache: StateSpaceCache | None = ...,
     total_budget_ms: int | None = ...,
     timed_counterexample_check: bool = ...,
@@ -619,6 +620,9 @@ def verify_net(
     when the null-space basis lost a law to the H1 guard (VER-007).
     ``state_equation_phase`` (VER-018) and ``firing_bound`` (VER-019), both on by
     default, are the pre-fixpoint phases; ``False`` forces the fixpoint path.
+    ``witness_depth`` (default ``8``, VER-025) is the depth of the bounded witness
+    phase directly before the flat fixpoint query; ``0`` disables it, and a negative
+    depth raises ``ValueError``.
     ``total_budget_ms`` caps the whole call's wall clock (VER-013);
     ``timed_counterexample_check`` checks a ``"violated"`` on a timed net against
     the timed state-class graph (VER-023). ``assume_no_reaping`` reads quiescence
@@ -670,17 +674,20 @@ def encode_smt_scripts(
     linear_bound: bool = ...,
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
+    witness_depth: int = ...,
     assume_no_reaping: bool = ...,
     assume_atomic_firing: bool = ...,
 ) -> dict[str, str | bool | None]:
     """Returns ``horn``, ``certificate``, ``coloured``, ``bound`` -- the linear
     state-equation bound query, present exactly when ``verify_net`` would send it
-    (VER-015) -- and ``state_equation``, the first query of the VER-018 phase,
-    present exactly where that phase runs. ``sink_places_when`` (VER-014),
-    ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
-    ``state_equation`` (VER-016's counters in ``horn``) and ``state_equation_phase``
-    (VER-018; ``False`` returns ``state_equation: None``) shape the scripts as they
-    do for ``verify_net``, and so do ``assume_no_reaping`` (TIME-013) and
+    (VER-015) -- ``state_equation``, the first query of the VER-018 phase, present
+    exactly where that phase runs, and ``witness``, the query of the VER-025 bounded
+    witness phase, present exactly where that phase runs. ``sink_places_when``
+    (VER-014), ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
+    ``state_equation`` (VER-016's counters in ``horn``), ``state_equation_phase``
+    (VER-018; ``False`` returns ``state_equation: None``) and ``witness_depth``
+    (VER-025; ``0`` returns ``witness: None``, a negative depth raises
+    ``ValueError``) shape the scripts as they do for ``verify_net``, and so do ``assume_no_reaping`` (TIME-013) and
     ``assume_atomic_firing`` (VER-004). A ``mint_transitions`` name that is no
     transition of ``net`` raises ``ValueError`` (NU-010)."""
 def z3_available() -> bool: ...
@@ -775,13 +782,17 @@ def verify_open_net(
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
+    witness_depth: int = ...,
     semiflow_invariants: bool | Literal["auto"] | None = ...,
     cancel: CancelToken | None = ...,
     assume_no_reaping: bool = ...,
     assume_atomic_firing: bool = ...,
     mint_transitions: list[str] | None = ...,
 ) -> OpenNetResult:
-    """VER-022. ``assume_atomic_firing`` reads every firing as one step on both routes;
+    """VER-022. ``witness_depth`` (default ``8``, VER-025) is the depth of the bounded
+    witness phase ahead of each SMT query's fixpoint query; ``0`` disables it, and a
+    negative depth raises ``ValueError``. ``assume_atomic_firing`` reads every firing
+    as one step on both routes;
     by default a transition whose output another tests with an inhibitor, reset or
     drain, or that marks a terminal place (EXEC-042), is split (VER-004). A
     ``mint_transitions`` name that is no transition of ``net`` makes the verdict

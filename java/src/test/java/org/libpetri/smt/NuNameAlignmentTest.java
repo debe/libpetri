@@ -500,6 +500,19 @@ class NuNameAlignmentTest {
         }
     }
 
+    /** [VER-025]: a run of counts carries no names, so the witness phase refuses the property too. */
+    @Test
+    void nu055_ac4_theWitnessPhaseIsInconclusive() throws IOException {
+        var r = Routes.of();
+        for (var prop : r.props()) {
+            var outcome = BoundedRun.runWitnessPhase(r.flat(), r.m0(), prop, Set.of(), List.of(),
+                (script, phase, timeoutMs) -> { throw new AssertionError("no solver call expected"); },
+                60_000, BoundedRun.DEFAULT_WITNESS_DEPTH);
+            var inconclusive = assertInstanceOf(BoundedRun.WitnessOutcome.Inconclusive.class, outcome);
+            assertTrue(inconclusive.reason().contains(ONLY_B), inconclusive.reason());
+        }
+    }
+
     @Test
     void nu055_ac4_theFiringBoundPhaseIsInconclusive() throws IOException {
         var r = Routes.of();

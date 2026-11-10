@@ -62,6 +62,7 @@ def test_the_fixpoint_query_alone_finds_the_reaped_rest():
         lp.deadlock_free(),
         state_equation_phase=False,
         firing_bound=False,
+        witness_depth=0,
     )
     assert result.verdict == "violated", result.report
     assert result.counterexample_transitions == [], result.report

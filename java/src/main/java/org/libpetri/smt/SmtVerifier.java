@@ -191,6 +191,7 @@ public final class SmtVerifier {
     private boolean stateEquation = false;
     private boolean stateEquationPhase = true;
     private boolean firingBound = true;
+    private int witnessDepth = BoundedRun.DEFAULT_WITNESS_DEPTH;
     private CertificateCheck certificateChecker = CertificateChecker::check;
     private Z3Solver solver = null;
     private Set<MarkingState> replayStateSetOverride = null;
@@ -1318,6 +1319,35 @@ public final class SmtVerifier {
     }
 
     /**
+     * Sets the depth of the bounded witness phase ([VER-025]). Default
+     * {@value BoundedRun#DEFAULT_WITNESS_DEPTH}; {@code 0} disables the phase.
+     *
+     * <p>Directly before the fixpoint query on the flat encoding, one bounded run asks whether
+     * at most {@code depth} steps from the initial marking reach a violation, where a step is a
+     * transition firing or an environment injection ([VER-006]). A run found is replayed under
+     * the exact abstract semantics, trimmed of the steps it does not need, and reported
+     * {@code Violated}, confirmed. The fixpoint search finds a short counterexample late and at
+     * a cost that varies with the place names; this finds it in a fraction of a second.
+     *
+     * <p>The phase only ever adds a {@code Violated}. No run within the depth is not a proof,
+     * and the fixpoint query then runs as before. It runs on a net with match transitions too,
+     * under the name-blind encoding, where the result carries the same note as a fixpoint
+     * {@code Violated}; not on the name-coloured encoding, and not where the ν guard would turn
+     * any verdict into {@code Unknown}. The cost of a query without a run grows quickly with
+     * the depth, so raise it only for a net whose counterexamples are known to be longer. The
+     * phase gets an eighth of the timeout.
+     *
+     * @throws IllegalArgumentException when {@code depth} is negative
+     */
+    public SmtVerifier witnessDepth(int depth) {
+        if (depth < 0) {
+            throw new IllegalArgumentException("witnessDepth must be non-negative, got " + depth);
+        }
+        this.witnessDepth = depth;
+        return this;
+    }
+
+    /**
      * Test seam: runs this verification against a specific z3 executable instead of
      * resolving {@code LIBPETRI_Z3} / {@code PATH} (the JVM cannot change its own
      * environment). Package-private — not API.
@@ -1384,8 +1414,14 @@ public final class SmtVerifier {
      * that finds no chain downgrades the verdict to UNKNOWN (spurious
      * counterexample or decoder mismatch — the abstraction is untimed and
      * value-blind, VER-004); a search that cannot decide keeps VIOLATED and
-     * reports {@code FALSE}. Disabling it here leaves the field {@code null}.
-     * The replay never invokes Z3.
+     * reports {@code FALSE}. Disabling it here leaves the field {@code null}
+     * for a verdict the fixpoint query reached. The replay never invokes Z3.
+     *
+     * <p>This governs the replay after the fixpoint query only. A run the phases
+     * of [VER-018], [VER-019] or [VER-025] found is replayed before it is
+     * reported, whatever this is set to, and arrives {@code TRUE}; disable those
+     * phases ({@link #witnessDepth(int) witnessDepth(0)} for the last) to reach
+     * the fixpoint query's own counterexample.
      */
     public SmtVerifier counterexampleReplay(boolean enabled) {
         this.counterexampleReplay = enabled;
@@ -2239,6 +2275,16 @@ public final class SmtVerifier {
                         invariants.size(), structResultStr),
                     SmtVerificationResult.Route.UNAVAILABLE);
             }
+            // Bounded witness phase ([VER-025]): a short run to a violation, injection steps
+            // included, ahead of the fixpoint search. Unlike [VER-018] and [VER-019] it runs on a
+            // ν-net, so its Violated returns through the guard like the fixpoint one below.
+            if (witnessPhaseApplies(hasMatch)) {
+                enter("witness phase", SmtVerificationResult.Route.SMT);
+                var decided = witnessDecision(flatNet, z3, report, propDesc, conditional, invariants, stats, start);
+                if (decided != null) {
+                    return applyNuGuard(decided, hasMatch, nuBounded, false, undeclaredPointer);
+                }
+            }
             // C3: request the refutation proof the replay decoder reads.
             encoding = SmtEncoder.encode(
                 flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay,
@@ -2851,6 +2897,68 @@ public final class SmtVerifier {
         }
     }
 
+    /**
+     * Whether the bounded witness phase ([VER-025]) runs on the flat encoding: enabled, and not
+     * on a ν-net whose verdict the guard would turn into {@code Unknown} anyway (a quiescence
+     * property, or no declared budget), where the query would be pure cost. Shared by
+     * {@link #verify()} and {@link #encodeScripts()}, so the reported script is the sent one.
+     */
+    private boolean witnessPhaseApplies(boolean hasMatch) {
+        return witnessDepth > 0
+            && !(hasMatch && (!isReachabilitySafety(property) || budgetPlaces.isEmpty()));
+    }
+
+    /**
+     * The witness phase's wall-clock budget: an eighth of the timeout. A run within the default
+     * depth is found in a fraction of a second, so this only bounds what a query without one may
+     * cost ahead of the fixpoint query, which still gets its full timeout.
+     */
+    private long witnessBudgetMillis() {
+        return Math.max(1, Math.floorDiv(timeoutMillis(), 8));
+    }
+
+    /**
+     * Runs the bounded witness phase ([VER-025]). Returns a {@code Violated} result when a run
+     * replayed, and {@code null} otherwise, with the reason in the report: no run within the
+     * depth is not a proof, so nothing else is ever a verdict.
+     */
+    private SmtVerificationResult witnessDecision(
+            FlatNet flatNet, Z3Solver z3, StringBuilder report, String propDesc,
+            List<RestSet.ConditionalSinks> conditional, List<PInvariant> invariants,
+            SmtVerificationResult.SmtStatistics stats, Instant start
+    ) {
+        report.append("  Bounded witness phase (VER-025):\n");
+        BoundedRun.WitnessOutcome outcome;
+        try {
+            outcome = BoundedRun.runWitnessPhase(
+                flatNet, initialMarking, property, sinkPlaces, conditional,
+                (script, phase, ms) -> runPhaseScript(z3, script, phase.label(), ms),
+                witnessBudgetMillis(), witnessDepth);
+        } catch (VerificationDeadline.Stopped stopped) {
+            // [VER-013]: the total budget ran out or the call was cancelled, in the query or in
+            // the trim. The header still gets its one status line; verify() reports the rest.
+            report.append("    Status: inconclusive (").append(stopped.reason()).append(")\n");
+            throw stopped;
+        }
+        switch (outcome) {
+            case BoundedRun.WitnessOutcome.Inconclusive inconclusive -> {
+                report.append("    Status: inconclusive (").append(inconclusive.reason()).append(")\n");
+                return null;
+            }
+            case BoundedRun.WitnessOutcome.NoRun _ -> {
+                report.append("    Status: no run of at most ").append(witnessDepth)
+                    .append(" steps reaches a violation (not a proof)\n");
+                return null;
+            }
+            case BoundedRun.WitnessOutcome.Violated violated -> {
+                report.append("    Status: a run of ").append(violated.steps().size())
+                    .append(" steps reaches a violation (replayed; depth ").append(witnessDepth).append(")\n");
+                return witnessResult(flatNet, violated.states(), violated.steps(), report, propDesc,
+                    invariants, stats, start);
+            }
+        }
+    }
+
     /** {@code    Bound: 5 firings (budget + s + 2*src drops on every firing)} ([VER-019] AC1). */
     private static void appendFiringBound(StringBuilder report, FlatNet flatNet, BoundedRun.FiringBound bound) {
         report.append("    Bound: ").append(bound.bound()).append(" firings (")
@@ -2867,7 +2975,7 @@ public final class SmtVerifier {
     }
 
     /**
-     * A {@code Violated} result for a run the phases of [VER-018] and [VER-019] found and
+     * A {@code Violated} result for a run the phases of [VER-018], [VER-019] and [VER-025] found and
      * replayed. A firing sequence re-executed under the exact abstract semantics is confirmed by
      * construction, so there is nothing left for the counterexample replay to do.
      */
@@ -2931,9 +3039,15 @@ public final class SmtVerifier {
      *                    {@code null} where the phase does not run (the name-coloured encoding,
      *                    a &nu;-net, {@code Ignore} with environment places, or the phase
      *                    disabled)
+     * @param witness     the bounded run of the witness phase ([VER-025]) at the configured
+     *                    depth, present exactly when {@link #verify()} would send it;
+     *                    {@code null} where the phase does not run (the name-coloured encoding,
+     *                    a &nu;-net with a quiescence property or without a budget, or
+     *                    {@link #witnessDepth(int) witnessDepth(0)})
      */
     public record EncodedScripts(
-        String horn, String certificate, boolean coloured, String bound, String stateEquation) {}
+        String horn, String certificate, boolean coloured, String bound, String stateEquation,
+        String witness) {}
 
     /**
      * {@code (define-fun Reachable ((x!0 Int) …) Bool true)}: the certificate stand-in
@@ -3043,7 +3157,7 @@ public final class SmtVerifier {
             ? StateEquationQuery.encode(flatNet, initialMarking, property, sinkPlaces, conditional, List.of())
             : null;
         if (coloured.encoding() != null) {
-            return new EncodedScripts(coloured.encoding().smt2(), null, true, bound, stateEquationQuery);
+            return new EncodedScripts(coloured.encoding().smt2(), null, true, bound, stateEquationQuery, null);
         }
         var flat = SmtEncoder.encode(
             flatNet, initialMarking, property, invariants, sinkPlaces, counterexampleReplay,
@@ -3051,7 +3165,13 @@ public final class SmtVerifier {
         String certificate = CertificateChecker.vcScript(
             placeholderCertificate(flatNet.placeCount() + flat.counterCount()), flatNet,
             initialMarking, property, sinkPlaces, invariants, conditional, stateEquation);
-        return new EncodedScripts(flat.smt2(), certificate, false, bound, stateEquationQuery);
+        // The witness run ([VER-025]) exactly when verify() would send it on the flat encoding.
+        String witness = witnessPhaseApplies(hasMatch)
+            ? BoundedRun.encodeBoundedRun(
+                flatNet, AbstractReplayer.toVector(flatNet, initialMarking), property, sinkPlaces,
+                conditional, witnessDepth)
+            : null;
+        return new EncodedScripts(flat.smt2(), certificate, false, bound, stateEquationQuery, witness);
     }
 
     /**

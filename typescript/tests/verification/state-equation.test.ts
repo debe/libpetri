@@ -162,7 +162,8 @@ describeZ3('state equation (VER-016) — end to end', () => {
     const result = await SmtVerifier.forNet(net)
       .enumerationMaxClasses(0).initialMarking(m0)
       .property(deadlockFree()).sinkPlaces(done).stateEquation(true)
-      .stateEquationPhase(false).firingBound(false).timeout(30_000).verify();
+      // The HORN encoding under test; the bounded witness phase (VER-025) would decide first.
+      .stateEquationPhase(false).firingBound(false).witnessDepth(0).timeout(30_000).verify();
     expect(result.verdict.type, result.report).toBe('violated');
     expect(result.counterexampleConfirmed).toBe(true);
     expect(result.counterexampleTrace.at(-1)!.tokens(place('halt'))).toBe(1);

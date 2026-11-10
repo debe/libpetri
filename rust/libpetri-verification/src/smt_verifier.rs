@@ -7,7 +7,10 @@ use libpetri_core::place::PlaceRef;
 use crate::abstract_replay::{self, ReplayOutcome};
 use crate::branch_outcomes;
 use crate::cancel::CancelToken;
-use crate::bounded_run::{self, DepthAnswer, DepthStep, FiringBound, FiringBoundOptions, FiringBoundOutcome};
+use crate::bounded_run::{
+    self, DepthAnswer, DepthStep, FiringBound, FiringBoundOptions, FiringBoundOutcome, WitnessOptions,
+    WitnessOutcome,
+};
 use crate::certificate_check::{self, CertificateCheck};
 use crate::counterexample::{self, DecodedTrace};
 use crate::environment::EnvironmentAnalysisMode;
@@ -149,6 +152,9 @@ pub struct SmtVerifier<'a> {
     /// Whether the firing-bound phase runs before the fixpoint query ([VER-019],
     /// default `true`). See [`SmtVerifier::firing_bound`].
     firing_bound: bool,
+    /// The depth of the bounded witness phase ahead of the flat fixpoint query
+    /// ([VER-025], default 8; `0` disables it). See [`SmtVerifier::witness_depth`].
+    witness_depth: usize,
     /// Wall-clock cap on the whole `verify()` call ([VER-013], default `None`:
     /// no cap). See [`SmtVerifier::total_budget`].
     total_budget_ms: Option<u64>,
@@ -231,9 +237,10 @@ impl<'a> SmtVerifier<'a> {
             conditional_sinks: Vec::new(),
             budget_places: HashSet::new(),
             mint_transitions: HashSet::new(),
-            // 60 s, as in TypeScript and Java. The phases of [VER-018] and [VER-019] take
-            // their budgets from it (the whole of it, and half), so a different default
-            // decides a query that runs between the two in one language and not the other.
+            // 60 s, as in TypeScript and Java. The phases of [VER-018], [VER-019] and
+            // [VER-025] take their budgets from it (the whole of it, half, and an eighth),
+            // so a different default decides a query that runs between two of them in one
+            // language and not the other.
             timeout_ms: 60_000,
             nu_max_classes: 100_000,
             fragment_mode: FragmentMode::Base,
@@ -253,6 +260,7 @@ impl<'a> SmtVerifier<'a> {
             // fixtures ([VER-019]).
             state_equation_phase: true,
             firing_bound: true,
+            witness_depth: 8,
             total_budget_ms: None,
             timed_counterexample_check: false,
             cancel_token: None,
@@ -481,8 +489,11 @@ impl<'a> SmtVerifier<'a> {
     }
 
     /// Enables or disables abstract counterexample replay on the violated
-    /// flat-path verdict (default: enabled). With it off, no counterexample
-    /// trace is produced at all. See [`crate::abstract_replay`].
+    /// flat-path verdict (default: enabled). With it off, the fixpoint query's
+    /// counterexample carries no trace. A run one of the phases ahead of that query
+    /// reports ([VER-018], [VER-019], [VER-025]) is replayed by the phase itself, so
+    /// it keeps its trace and its confirmation either way. See
+    /// [`crate::abstract_replay`].
     pub fn counterexample_replay(mut self, enabled: bool) -> Self {
         self.counterexample_replay = enabled;
         self
@@ -688,6 +699,35 @@ impl<'a> SmtVerifier<'a> {
     /// Runs after the state-equation phase, on the same nets, within half the timeout.
     pub fn firing_bound(mut self, enabled: bool) -> Self {
         self.firing_bound = enabled;
+        self
+    }
+
+    /// Sets the depth of the **bounded witness phase** ([VER-025]; default 8). `0`
+    /// disables it: verdict, route and report are then those of the pipeline without it.
+    ///
+    /// Directly before the flat fixpoint query, one `QF_LIA` query asks for a run of at
+    /// most `depth` steps from the initial marking to a violating one, a step being a
+    /// transition firing or an environment injection ([VER-006]). A run the solver
+    /// finds is replayed under the exact abstract semantics, trimmed of every step it
+    /// can lose, and reported `Violated`, confirmed. Anything else — no such run, an
+    /// `unknown`, a solver failure, a spent budget, a run that does not replay — leaves
+    /// the pipeline as it was and the fixpoint query runs: the depth is a search limit,
+    /// so the phase never proves anything.
+    ///
+    /// A violation is usually a short run, which IC3/PDR can take minutes to dig out of
+    /// a wide net and this query finds in milliseconds. A larger depth asks one query at
+    /// that depth, not 8 first; its cost grows with the depth and is paid on every
+    /// query the fixpoint goes on to prove.
+    ///
+    /// Flat encoding only: a net on the name-coloured encoding ([NU-050]) never enters
+    /// the phase, and neither does a ν-net whose verdict the ν guard would turn into
+    /// `Unknown` anyway (a quiescence property, or no budget place). It runs under
+    /// `Ignore` with environment places, where a run without injections is still a real
+    /// one, and with [`SmtVerifier::counterexample_replay`] off, which governs the replay
+    /// of the fixpoint query's counterexample only. Within an eighth of
+    /// [`SmtVerifier::timeout`].
+    pub fn witness_depth(mut self, depth: usize) -> Self {
+        self.witness_depth = depth;
         self
     }
 
@@ -1030,6 +1070,7 @@ impl<'a> SmtVerifier<'a> {
             linear_bound: self.linear_bound,
             state_equation_phase: self.state_equation_phase,
             firing_bound: self.firing_bound,
+            witness_depth: self.witness_depth,
             total_budget_ms: self.total_budget_ms,
             timed_counterexample_check: self.timed_counterexample_check,
             cancel_token: self.cancel_token,
@@ -2041,6 +2082,22 @@ no constraint the encoding does not already have; they may still differ in FORM)
             None => (None, None),
         };
 
+        // Bounded witness phase ([VER-025]): on the flat encoding, directly before its
+        // fixpoint query. A run it replays is the verdict; anything else changes
+        // nothing below.
+        if coloured_plan.is_none() && self.witness_phase_applies(&property, has_match, nu_bounded) {
+            step!("witness phase", VerificationRoute::Smt, stats());
+            if let Some(result) = self.witness_decision(
+                &phase_context,
+                has_match,
+                nu_bounded,
+                undeclared_pointer.as_deref(),
+                &mut report,
+            ) {
+                return result;
+            }
+        }
+
         step!("IC3/PDR query", VerificationRoute::Smt, stats());
         let encoding = if let Some(plan) = &coloured_plan {
             report.push_str(&format!(
@@ -2194,7 +2251,10 @@ no constraint the encoding does not already have; they may still differ in FORM)
     /// unresolved-place refusal are bypassed: it is what Route A encodes. `bound`
     /// is the linear state-equation query ([VER-015]) exactly when `verify()` would
     /// send it: flat path, enabled, not refused by [VER-006], and a property with
-    /// a linear demand (else `None`).
+    /// a linear demand (else `None`). `witness` is the bounded witness query
+    /// ([VER-025]) exactly where that phase runs: the flat encoding,
+    /// [`witness_depth`](Self::witness_depth) above 0, and not a ν-net with a
+    /// quiescence property or no budget place (else `None`).
     ///
     /// [`SemiflowMode::Auto`] is honoured here exactly as `verify()` honours it —
     /// the union happens when the basis lost a law to the H1 guard — so the script
@@ -2347,8 +2407,24 @@ no constraint the encoding does not already have; they may still differ in FORM)
                 coloured: true,
                 bound,
                 state_equation,
+                witness: None,
             };
         }
+        // The bounded witness query ([VER-025]) exactly when verify() would send it:
+        // ahead of the flat HORN query, under the gate verify() applies.
+        let witness = self
+            .witness_phase_applies(&property, scripts_has_match, !self.budget_places.is_empty())
+            .then(|| {
+                bounded_run::encode_witness_query(
+                    &flat,
+                    &self.initial_marking,
+                    &property,
+                    &sink_places,
+                    &self.conditional_sinks,
+                    &smt_encoder::resolve_env_injection(&flat, &env_injection),
+                    self.witness_depth,
+                )
+            });
 
         let flat_encoding = smt_encoder::encode_net(
             &flat,
@@ -2382,6 +2458,7 @@ no constraint the encoding does not already have; they may still differ in FORM)
             coloured: false,
             bound,
             state_equation,
+            witness,
         }
     }
 
@@ -2596,6 +2673,98 @@ no constraint the encoding does not already have; they may still differ in FORM)
              by arrivals(k): an injected token's name is unknown, so an arrival is not a fresh mint; \
              refusing to decide it by name (VER-006)"
         ))
+    }
+
+    /// Whether the bounded witness phase ([VER-025]) runs ahead of the flat fixpoint
+    /// query: enabled, and not on a ν-net whose verdict [`apply_nu_guard`] turns into
+    /// `Unknown` whatever it is (a quiescence property, or no budget place), where the
+    /// phase would be pure cost. `verify()` and `encode_scripts()` share it, on top of
+    /// "the encoding is flat".
+    fn witness_phase_applies(&self, property: &SmtProperty, has_match: bool, nu_bounded: bool) -> bool {
+        self.witness_depth > 0 && !(has_match && (!is_reachability_safety(property) || !nu_bounded))
+    }
+
+    /// Runs the bounded witness phase ([VER-025]). Returns the final result when a run
+    /// replayed — `Violated`, through the ν guard as the name-blind verdict it is — and
+    /// `None` otherwise, with the status in the report: no run within the depth is not a
+    /// proof, so the fixpoint query still decides.
+    fn witness_decision(
+        &self,
+        cx: &PhaseContext<'_>,
+        has_match: bool,
+        nu_bounded: bool,
+        undeclared: Option<&str>,
+        report: &mut String,
+    ) -> Option<VerificationResult> {
+        let flat = cx.flat;
+        report.push_str("  Bounded witness phase (VER-025):\n");
+        let env_inject = smt_encoder::resolve_env_injection(flat, cx.env_injection);
+        let depth = self.witness_depth;
+        let outcome = bounded_run::run_witness_phase(
+            flat,
+            &self.initial_marking,
+            cx.property,
+            cx.sink_places,
+            &self.conditional_sinks,
+            &env_inject,
+            phase_solver(cx.solver),
+            WitnessOptions {
+                // An eighth of the timeout: a short run is found in milliseconds, and
+                // the fixpoint query still gets its full budget.
+                budget_ms: (self.timeout_ms / 8).max(1),
+                depth,
+            },
+        );
+        match outcome {
+            WitnessOutcome::Inconclusive { reason } => {
+                // [VER-013]: a query the stop cut short comes back as the transport's
+                // failure. The status line names the stop instead, as the verdict will.
+                total_budget::cut();
+                let reason = total_budget::stopped_reason().unwrap_or(reason);
+                report.push_str(&format!("    Status: inconclusive ({reason})\n"));
+                None
+            }
+            WitnessOutcome::NoRun => {
+                report.push_str(&format!(
+                    "    Status: no run of at most {depth} steps reaches a violation (not a proof)\n"
+                ));
+                None
+            }
+            WitnessOutcome::Stopped => {
+                // [VER-013]: the total budget ran out, or the call was cancelled, while
+                // the run was trimmed. The stop is sticky and already charged to this
+                // step, so the next step ends the query with the same reason.
+                let reason = total_budget::stopped_reason()
+                    .unwrap_or_else(|| "verification stopped during witness phase".to_string());
+                report.push_str(&format!("    Status: inconclusive ({reason})\n"));
+                None
+            }
+            WitnessOutcome::Violated { states, steps } => {
+                report.push_str(&format!(
+                    "    Status: a run of {} steps reaches a violation (replayed; depth {depth})\n",
+                    steps.len()
+                ));
+                append_witness(cx, &states, &steps, report);
+                // Name-blind on a ν-net: the guard adds its "may be spurious" note.
+                let verdict = apply_nu_guard(
+                    Verdict::Violated,
+                    has_match,
+                    nu_bounded,
+                    false,
+                    cx.property,
+                    undeclared,
+                    report,
+                );
+                Some(if verdict.is_violated() {
+                    confirmed_violation(cx, states, steps, report)
+                } else {
+                    // Not reached: the phase runs only where the guard keeps a
+                    // name-blind `Violated` (`witness_phase_applies`).
+                    let invariants = cx.invariants.to_vec();
+                    phase_result(cx, verdict, report, Diagnostics { invariants, ..Diagnostics::none() })
+                })
+            }
+        }
     }
 
     /// Whether no marking of the net can be quiescent under the modelled injection, so a
@@ -3156,6 +3325,10 @@ pub struct EncodedScripts {
     /// refinement, or `None` where the phase does not run (the name-coloured
     /// encoding, a ν-net, `Ignore` with environment places, or the phase disabled).
     pub state_equation: Option<String>,
+    /// The query of the bounded witness phase ([VER-025]), or `None` where the phase
+    /// does not run (the name-coloured encoding, `witness_depth(0)`, or a ν-net with a
+    /// quiescence property or no budget place).
+    pub witness: Option<String>,
 }
 
 /// `(define-fun Reachable ((x!0 Int) …) Bool true)`: the certificate stand-in
@@ -3166,9 +3339,9 @@ pub fn placeholder_certificate(place_count: usize) -> String {
     format!("(define-fun Reachable ({}) Bool\n    true)", params.join(" "))
 }
 
-/// What the pre-fixpoint phases of [VER-018] and [VER-019] read from `verify()`: the
-/// flat net and the canonical declarations the fixpoint path encodes, the solver, and
-/// what their result carries when they decide.
+/// What the pre-fixpoint phases of [VER-018], [VER-019] and [VER-025] read from
+/// `verify()`: the flat net and the canonical declarations the fixpoint path encodes,
+/// the solver, and what their result carries when they decide.
 struct PhaseContext<'p> {
     flat: &'p FlatNet,
     /// The property with its place lists in canonical order.
@@ -3185,11 +3358,11 @@ struct PhaseContext<'p> {
     start: Instant,
 }
 
-/// The solver as the phases of [VER-018] and [VER-019] ask it: one script through the
-/// transport, returning stdout. Refuses a reply with no verdict line, and one where z3
-/// reported an error other than the `model is not available` a `(get-model)` after
-/// `unsat` always draws — an errored assert silently drops out of the query, so the
-/// verdict line alone would answer a different question.
+/// The solver as the phases of [VER-018], [VER-019] and [VER-025] ask it: one script
+/// through the transport, returning stdout. Refuses a reply with no verdict line, and
+/// one where z3 reported an error other than the `model is not available` a
+/// `(get-model)` after `unsat` always draws — an errored assert silently drops out of
+/// the query, so the verdict line alone would answer a different question.
 fn phase_solver(solver: &Z3Solver) -> impl Fn(&str, &str, u64) -> Result<String, String> + '_ {
     move |script: &str, phase: &str, timeout_ms: u64| {
         let reply = solver.run(script, phase, timeout_ms, &[])?;
@@ -3218,6 +3391,13 @@ fn witness_result(
     steps: Vec<String>,
     report: &mut String,
 ) -> VerificationResult {
+    append_witness(cx, &states, &steps, report);
+    confirmed_violation(cx, states, steps, report)
+}
+
+/// The `=== RESULT ===` block of a replayed run: the verdict line, the markings, the
+/// steps between them, and the untimed warning ([VER-018], [VER-019], [VER-025]).
+fn append_witness(cx: &PhaseContext<'_>, states: &[Vec<i64>], steps: &[String], report: &mut String) {
     report.push('\n');
     report.push_str("=== RESULT ===\n\n");
     report.push_str(&format!("VIOLATED: {}\n", cx.prop_desc));
@@ -3233,6 +3413,16 @@ fn witness_result(
     }
     report.push_str("\n  WARNING: This counterexample is in UNTIMED semantics.\n");
     report.push_str("  It may be spurious if timing constraints prevent this sequence.\n");
+}
+
+/// The confirmed `Violated` result of a replayed run, its report already written
+/// ([`append_witness`]).
+fn confirmed_violation(
+    cx: &PhaseContext<'_>,
+    states: Vec<Vec<i64>>,
+    steps: Vec<String>,
+    report: &mut String,
+) -> VerificationResult {
     let trace = states
         .iter()
         .map(|state| abstract_state_to_marking(cx.flat, state))
@@ -4057,7 +4247,7 @@ impl<'a> SmtVerifier<'a> {
     /// [`StateSpaceCache`] as a truncation.
     ///
     /// Under a total budget the HORN query no longer keeps its full timeout
-    /// after the [VER-018] and [VER-019] phases: it gets what they left.
+    /// after the [VER-018], [VER-019] and [VER-025] phases: it gets what they left.
     pub fn total_budget(mut self, ms: u64) -> Self {
         self.total_budget_ms = Some(ms);
         self
@@ -5147,6 +5337,8 @@ mod tests {
                 .linear_bound(linear_bound)
                 .state_equation_phase(phases)
                 .firing_bound(phases)
+                // With the phases off the fixpoint query is the route under test.
+                .witness_depth(if phases { 8 } else { 0 })
                 .verify();
             let tag = format!("budget {budget}, linear bound {linear_bound}, phases {phases}");
             assert!(matches!(result.verdict, Verdict::Violated), "{tag}: {:?}\n{}", result.verdict, result.report);
@@ -5232,6 +5424,7 @@ mod tests {
                     .linear_bound(false)
                     .state_equation_phase(false)
                     .firing_bound(false)
+                    .witness_depth(0)
                     .counterexample_replay(replay)
                     .verify();
                 let tag = format!("{} (replay {replay})", property.description());
@@ -5246,7 +5439,8 @@ mod tests {
     }
 
     /// The four route setups of the conformance suite: (enumeration budget, linear
-    /// bound, VER-018 / VER-019 phases).
+    /// bound, VER-018 / VER-019 phases). The last is the fixpoint query alone, so a test
+    /// turns the witness phase of VER-025 off with the phases.
     const ROUTE_SETUPS: [(usize, bool, bool); 4] =
         [(50_000, true, true), (0, true, true), (0, false, true), (0, false, false)];
 
@@ -5290,6 +5484,8 @@ mod tests {
                     .linear_bound(linear_bound)
                     .state_equation_phase(phases)
                     .firing_bound(phases)
+                    // With the phases off the fixpoint query is the route under test.
+                    .witness_depth(if phases { 8 } else { 0 })
                     .verify()
             };
             let tag = format!("budget {budget}, linear bound {linear_bound}, phases {phases}");
@@ -5563,9 +5759,10 @@ mod tests {
             .initial_marking(MarkingStateBuilder::new().tokens("budget", 1).build())
             .property(SmtProperty::place_bound("sink", 1))
             .semiflow_invariants(true)
-            // The semiflow-strengthened HORN encoding is under test; VER-018/019 would decide first.
+            // The semiflow-strengthened HORN encoding is under test; VER-018/019/025 would decide first.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .timeout(30_000)
             .verify();
         assert!(matches!(result.verdict, Verdict::Violated), "{}", result.report);
@@ -6981,9 +7178,10 @@ mod tests {
         let keeping = jobs_net(false, false);
         let kept = SmtVerifier::for_net(&keeping)
             .enumeration_max_classes(0)
-            // The IC3/PDR path is under test; the phases of VER-018/019 would decide first.
+            // The IC3/PDR path is under test; the phases of VER-018/019/025 would decide first.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(jobs_m0())
             .property(budget_count(2, Some(2), &["halt"]))
             .timeout(30_000)
@@ -7387,10 +7585,11 @@ mod tests {
         // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
             .enumeration_max_classes(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
-            // this counterexample first, by a search of their own.
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would
+            // find this counterexample first, by a search of their own.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .timeout(15_000)
@@ -7436,10 +7635,11 @@ mod tests {
         // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
             .enumeration_max_classes(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
-            // this counterexample first, by a search of their own.
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would
+            // find this counterexample first, by a search of their own.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 6).build())
             .property(SmtProperty::place_bound("p2", 5))
             // flat place order is sorted: [p1, p2] — this is M0 and nothing else.
@@ -7468,10 +7668,11 @@ mod tests {
         // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
             .enumeration_max_classes(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
-            // this counterexample first, by a search of their own.
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would
+            // find this counterexample first, by a search of their own.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .replay_node_budget(1)
@@ -7501,10 +7702,11 @@ mod tests {
         // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
             .enumeration_max_classes(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
-            // this counterexample first, by a search of their own.
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would
+            // find this counterexample first, by a search of their own.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .replay_state_set_override(vec![vec![2, 1], vec![0, 3]])
@@ -7534,10 +7736,11 @@ mod tests {
         // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
             .enumeration_max_classes(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
-            // this counterexample first, by a search of their own.
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would
+            // find this counterexample first, by a search of their own.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .replay_state_set_override(Vec::new())
@@ -7567,10 +7770,11 @@ mod tests {
         // enumeration route would otherwise short-circuit before a solver ran.
         let result = SmtVerifier::for_net(&net)
             .enumeration_max_classes(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
-            // this counterexample first, by a search of their own.
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would
+            // find this counterexample first, by a search of their own.
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
             .property(SmtProperty::place_bound("p2", 2))
             .counterexample_replay(false)
@@ -7600,6 +7804,9 @@ mod tests {
             .environment_places(vec!["IN".into()])
             .environment_mode(EnvironmentAnalysisMode::AlwaysAvailable)
             .property(SmtProperty::place_bound("OUT", 0))
+            // The replay of the fixpoint query's refutation is under test; the witness
+            // phase of VER-025 would find this run first, by a search of its own.
+            .witness_depth(0)
             .timeout(15_000)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
@@ -8220,6 +8427,9 @@ mod tests {
             .state_equation(true)
             .state_equation_phase(false)
             .firing_bound(false)
+            // The counter-carrying fixpoint encoding is under test; the witness phase of
+            // VER-025 would find this run first.
+            .witness_depth(0)
             .timeout(30_000)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
@@ -9025,8 +9235,8 @@ mod tests {
 
     /// Where the phases do not run: under `Ignore` with environment places ([VER-006]),
     /// where every `Proven` is refused anyway, and on a ν-net's exact routes. A phase
-    /// that stepped aside on a net with injection says why, and the fixpoint query
-    /// still decides.
+    /// that stepped aside on a net with injection says why, and the bounded witness
+    /// phase ([VER-025]), which searches injection steps, finds the run.
     #[test]
     fn the_phases_step_aside_where_they_cannot_decide() {
         if !z3_available() {
@@ -9064,12 +9274,15 @@ mod tests {
                 "    Status: inconclusive (no trap and no inductive inequality with weights within ±8 excludes the candidate)\n\
                  \x20   Unsettled candidate: OUT=1 after T x1\n\
                  \x20 Firing bound (VER-019):\n\
-                 \x20   Status: inconclusive (environment injection has no firing bound)\n"
+                 \x20   Status: inconclusive (environment injection has no firing bound)\n\
+                 \x20 Bounded witness phase (VER-025):\n\
+                 \x20   Status: a run of 2 steps reaches a violation (replayed; depth 8)\n"
             ),
             "{}",
             injected.report
         );
         assert_eq!(injected.counterexample_confirmed, Some(true), "{}", injected.report);
+        assert_eq!(injected.counterexample_transitions, vec!["inject(IN)", "T"]);
     }
 
     /// [VER-018] AC7: `encode_scripts()` exposes the phase's first query exactly where
@@ -9115,6 +9328,421 @@ mod tests {
         assert!(verifier.firing_bound);
         let off = SmtVerifier::for_net(&net).state_equation_phase(false).firing_bound(false);
         assert!(!off.state_equation_phase && !off.firing_bound);
+    }
+
+    // === VER-025: the bounded witness phase ===
+
+    /// The header and the three status lines of the phase, as the report prints them.
+    const WITNESS_HEADER: &str = "  Bounded witness phase (VER-025):\n";
+    const WITNESS_NO_RUN_8: &str =
+        "  Bounded witness phase (VER-025):\n    Status: no run of at most 8 steps reaches a violation (not a proof)\n";
+
+    /// `envBoundedPair` of the shared fixtures on [`env_source_net`]: `IN` injected under
+    /// `Bounded(2)`, so `OUT` exceeds `bound` after `bound + 1` injections and firings.
+    fn bounded_pair(net: &PetriNet, bound: usize) -> SmtVerifier<'_> {
+        SmtVerifier::for_net(net)
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::Bounded { max_tokens: 2 })
+            .property(SmtProperty::place_bound("OUT", bound))
+            .timeout(15_000)
+    }
+
+    /// A report with its `Elapsed:` line, the one line that differs between two runs
+    /// of one query, taken out.
+    fn without_elapsed(report: &str) -> String {
+        report.lines().filter(|line| !line.starts_with("Elapsed: ")).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn the_witness_depth_is_8_by_default() {
+        let net = env_source_net();
+        assert_eq!(SmtVerifier::for_net(&net).witness_depth, 8);
+        assert_eq!(SmtVerifier::for_net(&net).witness_depth(0).witness_depth, 0);
+        // The rewrites ahead of the pipeline carry the option to the net they verify.
+        assert_eq!(SmtVerifier::for_net(&net).witness_depth(12).on_net(&net).witness_depth, 12);
+    }
+
+    /// The run needs two injections under a bounded environment: the phases of
+    /// [VER-018]/[VER-019] step aside there, and the witness phase reports it, replayed
+    /// and trimmed to the four steps it takes, with no fixpoint query.
+    #[test]
+    fn the_witness_phase_reports_a_run_with_injections_as_a_confirmed_violation() {
+        if !z3_available() {
+            eprintln!("skipping the_witness_phase_reports_a_run_with_injections_*: z3 binary not on PATH");
+            return;
+        }
+        let net = env_source_net();
+        let result = bounded_pair(&net, 1).verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::Smt);
+        assert_eq!(result.counterexample_confirmed, Some(true), "{}", result.report);
+        assert!(
+            result.report.contains(
+                "  Firing bound (VER-019):\n\
+                 \x20   Status: inconclusive (environment injection has no firing bound)\n\
+                 \x20 Bounded witness phase (VER-025):\n\
+                 \x20   Status: a run of 4 steps reaches a violation (replayed; depth 8)\n\
+                 \n\
+                 === RESULT ===\n\
+                 \n\
+                 VIOLATED: Place OUT bounded by 1\n\
+                 \x20 Counterexample trace (replay order, 5 states):\n\
+                 \x20   0: {}\n"
+            ),
+            "{}",
+            result.report
+        );
+        assert!(
+            result.report.contains(
+                "    4: {OUT:2}\n\
+                 \x20 Firing sequence: "
+            ),
+            "{}",
+            result.report
+        );
+        assert!(
+            result.report.contains(
+                "\n  WARNING: This counterexample is in UNTIMED semantics.\n  It may be spurious if \
+                 timing constraints prevent this sequence.\n\nElapsed: "
+            ),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains("Spacer"), "no fixpoint query: {}", result.report);
+        let mut steps = result.counterexample_transitions.clone();
+        steps.sort();
+        assert_eq!(steps, vec!["T", "T", "inject(IN)", "inject(IN)"]);
+        assert_eq!(result.counterexample_trace.len(), 5);
+        assert_eq!(result.counterexample_trace[0].count("OUT"), 0);
+        assert_eq!(result.counterexample_trace[4].count("OUT"), 2);
+    }
+
+    /// The shortest violating run has ten steps: the phase reports none at its depth,
+    /// which is no proof, and the fixpoint query answers. At depth 10 the phase finds
+    /// it, with one query at that depth.
+    #[test]
+    fn the_witness_phase_finding_no_run_leaves_the_verdict_to_the_fixpoint_query() {
+        if !z3_available() {
+            eprintln!("skipping the_witness_phase_finding_no_run_*: z3 binary not on PATH");
+            return;
+        }
+        let net = env_source_net();
+        let result = bounded_pair(&net, 4).verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert!(
+            result.report.contains(&format!(
+                "{WITNESS_NO_RUN_8}Result: property violated (Spacer UNSAT — no inductive invariant)\n\
+                 Counterexample replay: CONFIRMED"
+            )),
+            "{}",
+            result.report
+        );
+        assert_eq!(result.counterexample_transitions.len(), 10, "{}", result.report);
+
+        let deeper = bounded_pair(&net, 4).witness_depth(10).verify();
+        assert!(deeper.is_violated(), "{}", deeper.report);
+        assert!(
+            deeper.report.contains(&format!(
+                "{WITNESS_HEADER}    Status: a run of 10 steps reaches a violation (replayed; depth 10)\n"
+            )),
+            "{}",
+            deeper.report
+        );
+        assert!(!deeper.report.contains("Spacer"), "no fixpoint query: {}", deeper.report);
+        assert_eq!(deeper.counterexample_transitions.len(), 10);
+
+        // A property that holds: `unsat` at the depth is never the proof. The fixpoint
+        // query proves it, and its certificate is what is checked.
+        let cycle = cert_cycle_net();
+        let proven = SmtVerifier::for_net(&cycle)
+            .enumeration_max_classes(0)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
+            .property(SmtProperty::place_bound("p2", 3))
+            .linear_bound(false)
+            .state_equation_phase(false)
+            .firing_bound(false)
+            .timeout(15_000)
+            .verify();
+        assert!(proven.is_proven(), "{}", proven.report);
+        assert_eq!(method_of(&proven), Some("IC3/PDR"), "{}", proven.report);
+        assert!(
+            proven.report.contains(&format!(
+                "{WITNESS_NO_RUN_8}Result: property proven (Spacer SAT — inductive invariant found)\n"
+            )),
+            "{}",
+            proven.report
+        );
+        assert!(proven.report.contains("  Certificate check: PASSED"), "{}", proven.report);
+    }
+
+    /// `witness_depth(0)`: verdict, route and report are those of the pipeline without
+    /// the phase. With the phase on and no run found, the report differs by the two
+    /// lines of the phase and by nothing else.
+    #[test]
+    fn witness_depth_zero_is_the_pipeline_without_the_phase() {
+        if !z3_available() {
+            eprintln!("skipping witness_depth_zero_is_the_pipeline_without_the_phase: z3 binary not on PATH");
+            return;
+        }
+        let net = env_source_net();
+        let off = bounded_pair(&net, 4).witness_depth(0).verify();
+        let on = bounded_pair(&net, 4).verify();
+        assert!(!off.report.contains("VER-025"), "{}", off.report);
+        assert!(on.report.contains(WITNESS_NO_RUN_8), "{}", on.report);
+        assert_eq!(off.verdict, on.verdict);
+        assert_eq!(off.route, on.route);
+        assert_eq!(off.counterexample_transitions, on.counterexample_transitions);
+        assert_eq!(off.counterexample_confirmed, on.counterexample_confirmed);
+        assert_eq!(without_elapsed(&off.report), without_elapsed(&on.report.replace(WITNESS_NO_RUN_8, "")));
+
+        // Where the phase would have answered, the fixpoint query does.
+        let off = bounded_pair(&net, 1).witness_depth(0).verify();
+        assert!(off.is_violated(), "{}", off.report);
+        assert!(!off.report.contains("VER-025"), "{}", off.report);
+        assert!(off.report.contains("Result: property violated (Spacer UNSAT"), "{}", off.report);
+        assert_eq!(bounded_pair(&net, 1).witness_depth(0).encode_scripts().witness, None);
+    }
+
+    /// The phase is not entered on the name-coloured encoding, where names decide what
+    /// a run is: the coloured query answers, and no witness script is reported.
+    #[test]
+    fn the_witness_phase_is_not_entered_on_the_name_coloured_encoding() {
+        if !z3_available() {
+            eprintln!("skipping the_witness_phase_is_not_entered_on_the_name_coloured_encoding: z3 binary not on PATH");
+            return;
+        }
+        // A violation the flat bounded run would find in two steps (`fork`, `join`).
+        let net = comint_carrier_drain_net(true);
+        let coloured = || {
+            SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
+                .property(SmtProperty::place_bound("merged", 0))
+                .budget_place("source")
+                .timeout(15_000)
+        };
+        let result = coloured().verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert!(result.report.contains("  ν-encoding: name-coloured (colour-slot bound k="), "{}", result.report);
+        assert!(!result.report.contains("VER-025"), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, None, "{}", result.report);
+        let scripts = coloured().encode_scripts();
+        assert!(scripts.coloured);
+        assert_eq!(scripts.witness, None);
+    }
+
+    /// On a ν-net the flat encoding is name-blind, and the ν guard turns its verdict
+    /// into `Unknown` for a quiescence property and without a budget place: the phase is
+    /// skipped there. With a budget place and a reachability-safety property the guard
+    /// keeps a `Violated`, so the phase runs, and its result carries the guard's note.
+    #[test]
+    fn the_witness_phase_runs_on_a_nu_net_only_where_the_guard_keeps_its_verdict() {
+        if !z3_available() {
+            eprintln!("skipping the_witness_phase_runs_on_a_nu_net_only_*: z3 binary not on PATH");
+            return;
+        }
+        // Outside the BASE fragment (the undeclared mint), so the flat encoding answers.
+        let net = comint_carrier_drain_net(true);
+        let flat = |property: SmtProperty| {
+            SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("source", 1).build())
+                .property(property)
+                .sink_places(vec!["merged".into(), "deadletter".into()])
+                .timeout(15_000)
+        };
+        // A quiescence property.
+        let quiescence = flat(SmtProperty::DeadlockFree).verify();
+        assert!(quiescence.report.contains("=== Phase 4: SMT Verification ===\n"), "{}", quiescence.report);
+        assert!(!quiescence.report.contains("VER-025"), "{}", quiescence.report);
+        assert!(
+            matches!(&quiescence.verdict, Verdict::Unknown { reason } if reason.contains("the property depends on quiescence")),
+            "{:?}\n{}",
+            quiescence.verdict,
+            quiescence.report
+        );
+        assert_eq!(flat(SmtProperty::DeadlockFree).encode_scripts().witness, None);
+
+        // No budget place: `fork`, `join` violates the bound, and the verdict is Unknown
+        // whatever the flat encoding finds.
+        let unbudgeted = flat(SmtProperty::place_bound("merged", 0)).verify();
+        assert!(unbudgeted.report.contains("Result: property violated (Spacer UNSAT"), "{}", unbudgeted.report);
+        assert!(!unbudgeted.report.contains("VER-025"), "{}", unbudgeted.report);
+        assert!(
+            matches!(&unbudgeted.verdict, Verdict::Unknown { reason } if reason.contains("unbounded fresh names")),
+            "{:?}\n{}",
+            unbudgeted.verdict,
+            unbudgeted.report
+        );
+        assert_eq!(flat(SmtProperty::place_bound("merged", 0)).encode_scripts().witness, None);
+
+        // A budget place and a reachability-safety property, on the flat encoding
+        // because the name-coloured one does not model injection ([VER-006]).
+        let net = nu_scatter_gather_net();
+        let budgeted = || {
+            SmtVerifier::for_net(&net)
+                .initial_marking(MarkingStateBuilder::new().tokens("budget", 2).build())
+                .environment_places(vec!["source".into()])
+                .environment_mode(EnvironmentAnalysisMode::Bounded { max_tokens: 2 })
+                .property(SmtProperty::unreachable(vec!["merged".into()]))
+                .budget_place("budget")
+                .timeout(15_000)
+        };
+        let result = budgeted().verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, Some(true));
+        assert_eq!(result.counterexample_transitions, vec!["inject(source)", "fork", "join"]);
+        assert!(
+            result.report.contains(&format!(
+                "{WITNESS_HEADER}    Status: a run of 3 steps reaches a violation (replayed; depth 8)\n"
+            )),
+            "{}",
+            result.report
+        );
+        // Through the ν guard as a name-blind verdict: its note closes the result.
+        assert!(
+            result.report.contains(
+                "  It may be spurious if timing constraints prevent this sequence.\n\
+                 Note: matched (ν-join) transitions are over-approximated (name equality assumed \
+                 satisfiable). 'Proven' is sound; a 'Violated' counterexample may be spurious pending \
+                 the exact ν-analysis (NU-050).\n\nElapsed: "
+            ),
+            "{}",
+            result.report
+        );
+        let scripts = budgeted().encode_scripts();
+        assert!(!scripts.coloured);
+        assert!(scripts.witness.is_some());
+    }
+
+    /// The phase runs under `Ignore` with environment places — the flat net has no
+    /// injection step there, and a run without one is a real run — and with
+    /// `counterexample_replay(false)`, which governs the replay of the fixpoint query's
+    /// counterexample only: the phase's run is replayed and confirmed either way.
+    #[test]
+    fn the_witness_phase_runs_under_ignore_and_with_the_fixpoint_replay_off() {
+        if !z3_available() {
+            eprintln!("skipping the_witness_phase_runs_under_ignore_*: z3 binary not on PATH");
+            return;
+        }
+        let net = env_source_net();
+        let ignored = |tokens: usize| {
+            SmtVerifier::for_net(&net)
+                .environment_places(vec!["IN".into()])
+                .environment_mode(EnvironmentAnalysisMode::Ignore)
+                .initial_marking(MarkingStateBuilder::new().tokens("IN", tokens).build())
+                .property(SmtProperty::place_bound("OUT", 0))
+                .timeout(15_000)
+        };
+        let result = ignored(1).verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_transitions, vec!["T"]);
+        assert!(
+            result.report.contains(&format!(
+                "{WITNESS_HEADER}    Status: a run of 1 steps reaches a violation (replayed; depth 8)\n"
+            )),
+            "{}",
+            result.report
+        );
+        // No injection step is searched under `Ignore`: with `IN` empty there is no
+        // run, and the fixpoint query's vacuous proof is still refused ([VER-006]).
+        let empty = ignored(0).verify();
+        assert!(empty.report.contains(WITNESS_NO_RUN_8), "{}", empty.report);
+        assert!(
+            matches!(&empty.verdict, Verdict::Unknown { reason } if reason == IGNORE_MODE_VACUITY_REASON),
+            "{:?}\n{}",
+            empty.verdict,
+            empty.report
+        );
+        let script = ignored(0).encode_scripts().witness.expect("the phase runs under Ignore");
+        assert!(script.contains("(assert (and (>= s0 0) (<= s0 1)))\n"), "no injection selector: {script}");
+
+        let cycle = cert_cycle_net();
+        let result = SmtVerifier::for_net(&cycle)
+            .enumeration_max_classes(0)
+            .state_equation_phase(false)
+            .firing_bound(false)
+            .initial_marking(MarkingStateBuilder::new().tokens("p1", 3).build())
+            .property(SmtProperty::place_bound("p2", 2))
+            .counterexample_replay(false)
+            .timeout(15_000)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.counterexample_confirmed, Some(true), "{}", result.report);
+        assert_eq!(result.counterexample_transitions, vec!["t1", "t1", "t1"]);
+        assert!(
+            result.report.contains(&format!(
+                "{WITNESS_HEADER}    Status: a run of 3 steps reaches a violation (replayed; depth 8)\n"
+            )),
+            "{}",
+            result.report
+        );
+    }
+
+    /// An initial marking that violates is the run of no steps: one marking, no firing
+    /// sequence, confirmed — the form the fixpoint path reports it in.
+    #[test]
+    fn the_witness_phase_reports_a_violating_initial_marking_as_the_empty_trace() {
+        if !z3_available() {
+            eprintln!("skipping the_witness_phase_reports_a_violating_initial_marking_*: z3 binary not on PATH");
+            return;
+        }
+        let (p, q) = (Place::<i32>::new("p"), Place::<i32>::new("q"));
+        let t = Transition::builder("t").input(one(&p)).output(out_place(&q)).action(fork()).build();
+        let net = PetriNet::builder("initial").transition(t).build();
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("p", 1).build())
+            .property(SmtProperty::place_bound("p", 0))
+            .enumeration_max_classes(0)
+            .linear_bound(false)
+            .state_equation_phase(false)
+            .firing_bound(false)
+            .verify();
+        assert!(result.is_violated(), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::Smt);
+        assert_eq!(result.counterexample_trace.len(), 1, "{}", result.report);
+        assert!(result.counterexample_transitions.is_empty());
+        assert_eq!(result.counterexample_confirmed, Some(true));
+        assert!(
+            result.report.contains(&format!(
+                "{WITNESS_HEADER}    Status: a run of 0 steps reaches a violation (replayed; depth 8)\n\
+                 \n\
+                 === RESULT ===\n\
+                 \n\
+                 VIOLATED: Place p bounded by 0\n\
+                 \x20 Counterexample trace (replay order, 1 states):\n\
+                 \x20   0: {{p:1}}\n\
+                 \n\
+                 \x20 WARNING: This counterexample is in UNTIMED semantics.\n"
+            )),
+            "{}",
+            result.report
+        );
+        assert!(!result.report.contains("Firing sequence"), "{}", result.report);
+    }
+
+    /// `encode_scripts()` reports the witness query exactly where `verify()` sends it,
+    /// at the depth asked for, with the injection steps the verifier resolved.
+    #[test]
+    fn encode_scripts_reports_the_witness_query_exactly_where_the_phase_runs() {
+        let net = env_source_net();
+        let script = bounded_pair(&net, 1).encode_scripts().witness.expect("the phase runs on the flat path");
+        assert!(
+            script.starts_with("; Bounded run (VER-019): 8 steps of the exact step relation from M0, idle\n"),
+            "{script}"
+        );
+        // One transition and one injection: selectors 0 and 1, idling 2, the injection
+        // guarded below its bound.
+        assert!(script.contains("(assert (and (>= s0 0) (<= s0 2)))\n"), "{script}");
+        assert!(script.contains("(assert (=> (= s0 1) (< 0 2)))\n"), "{script}");
+        assert!(script.contains("(assert (> m8_1 1))\n"), "{script}");
+        let deeper = bounded_pair(&net, 1).witness_depth(12).encode_scripts().witness.expect("a script");
+        assert!(deeper.starts_with("; Bounded run (VER-019): 12 steps "), "{deeper}");
+        // The phases of [VER-018]/[VER-019] do not gate it, nor does the fixpoint replay.
+        let ungated = bounded_pair(&net, 1)
+            .state_equation_phase(false)
+            .firing_bound(false)
+            .counterexample_replay(false)
+            .encode_scripts();
+        assert_eq!(ungated.witness.as_deref(), Some(script.as_str()));
     }
 
     /// A catch that degrades a result must not launder a defect into a verdict:
@@ -9238,6 +9866,7 @@ mod tests {
             .linear_bound(false)
             .state_equation_phase(false)
             .firing_bound(false)
+            .witness_depth(0)
             .verify();
         assert!(result.is_violated(), "{}", result.report);
         assert!(result.report.contains("Result: property violated (Spacer UNSAT"), "{}", result.report);

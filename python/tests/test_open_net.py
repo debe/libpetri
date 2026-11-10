@@ -286,6 +286,51 @@ def test_smt_route_names_the_broken_edge_too():
 
 
 @needs_z3
+def test_witness_depth_configures_every_query_of_the_smt_route_and_0_disables_the_phase(tmp_path, monkeypatch):
+    # VER-025. The open-net report carries no line of the per-part verifiers' reports,
+    # so the phase shows in the solver traffic instead (LIBPETRI_SMT_DUMP, VER-013). With
+    # the phases of VER-018/019 off, each part's fixpoint query is preceded by a
+    # `witness` script at the depth asked for; at depth 0 none is sent, and the verdict
+    # and the broken part are the ones the fixpoint queries reach.
+    def run(name, **kw):
+        dump = tmp_path / name
+        monkeypatch.setenv("LIBPETRI_SMT_DUMP", str(dump))
+        try:
+            result = lp.verify_open_net(
+                _gadget(skip_forgets_e2=True),
+                _contract(termination=False),
+                max_classes=0,
+                state_equation_phase=False,
+                firing_bound=False,
+                **kw,
+            )
+        finally:
+            monkeypatch.delenv("LIBPETRI_SMT_DUMP")
+        sent = sorted(dump.glob("*.smt2"))
+        return result, [p for p in sent if p.name.endswith("-witness.smt2")], sent
+
+    on, witness_on, _ = run("on")
+    assert witness_on, on.report
+    assert all(p.read_text().startswith("; Bounded run (VER-019): 8 steps ") for p in witness_on)
+
+    deeper, witness_deeper, _ = run("deeper", witness_depth=12)
+    assert witness_deeper, deeper.report
+    assert all(p.read_text().startswith("; Bounded run (VER-019): 12 steps ") for p in witness_deeper)
+
+    off, witness_off, sent_off = run("off", witness_depth=0)
+    assert witness_off == [], [p.name for p in witness_off]
+    assert any(p.name.endswith("-horn.smt2") for p in sent_off), [p.name for p in sent_off]
+
+    for result in (on, deeper, off):
+        assert result.verdict == "violated", result.report
+        assert result.route == "smt"
+        assert "e2" in [v.subject for v in result.violations]
+
+    with pytest.raises(ValueError, match=r"^witness_depth must be non-negative, got -1$"):
+        lp.verify_open_net(_gadget(), _contract(), witness_depth=-1)
+
+
+@needs_z3
 def test_smt_route_names_the_stranded_place_with_the_same_widening_the_graph_applies():
     r = lp.verify_open_net(_gadget(leak=True), _contract(termination=False), max_classes=0)
     assert r.verdict == "violated", r.report

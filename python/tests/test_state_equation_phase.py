@@ -278,7 +278,14 @@ def test_quiescent_count_is_decided_by_ic3_too_when_the_phases_are_off():
 
     def verify(net):
         return lp.verify(
-            net, count, initial_marking=JOBS_M0, state_equation_phase=False, firing_bound=False, **SOLVER
+            net,
+            count,
+            initial_marking=JOBS_M0,
+            state_equation_phase=False,
+            firing_bound=False,
+            # The VER-025 witness phase would find the kept budget's run before IC3.
+            witness_depth=0,
+            **SOLVER,
         )
 
     proven = verify(_jobs_net(abort=True))

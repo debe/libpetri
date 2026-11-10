@@ -26,7 +26,10 @@ import {
 import { classifyFirstLine, errorLine } from './z3/smt-text.js';
 import { encodeStateEquationQuery, formatInequality, refinementCertificate } from './z3/state-equation-query.js';
 import { describeCandidate, runStateEquationPhase } from './z3/state-equation-phase.js';
-import { formatRanking, runFiringBoundPhase, type DepthStep, type FiringBound } from './z3/bounded-run.js';
+import {
+  encodeBoundedRun, formatRanking, runFiringBoundPhase, runWitnessPhase, type DepthStep, type FiringBound,
+  type WitnessOutcome,
+} from './z3/bounded-run.js';
 import { failureReason, formatZ3Version, resolveZ3, runZ3Text, timeoutBudget, Z3Unavailable, type Z3Solver } from './z3/z3-process.js';
 import { buildColouredPlan, encodeColoured, type ColouredPlan } from './z3/name-coloured-encoder.js';
 import { slotBoundReportLine, solveSlotBound, type LpAnswer, type SlotBound } from './z3/slot-bound-lp.js';
@@ -157,6 +160,7 @@ export class SmtVerifier {
   private _linearBound: boolean = true;
   private _stateEquationPhase: boolean = true;
   private _firingBound: boolean = true;
+  private _witnessDepth: number = 8;
   private _nuMaxClasses: number = 100_000;
   private _enumerationMaxClasses: number = 50_000;
   private _partialOrderReduction: boolean = true;
@@ -553,9 +557,10 @@ export class SmtVerifier {
    * default: no total budget, and behaviour is exactly as without this call).
    *
    * {@link timeout} bounds each z3 process, and a verification can run several — the bound
-   * query, the state-equation phase and its certificate check, the firing bound, the fixpoint
-   * query and its certificate check — besides solver-free work: the enumeration and Route B
-   * graph builds, the siphon/trap search, the semiflow enumeration, the colour-slot simplex
+   * query, the state-equation phase and its certificate check, the firing bound, the bounded
+   * witness query, the fixpoint query and its certificate check — besides solver-free work:
+   * the enumeration and Route B graph builds, the siphon/trap search, the semiflow enumeration,
+   * the colour-slot simplex
    * (its own phase, `colour-slot bound`, polled before every pivot). The total budget starts at
    * the top of `verify()`; every z3 process then gets the smaller of its own budget and what
    * remains (no process starts once nothing remains), and the solver-free builds and loops poll
@@ -743,6 +748,9 @@ export class SmtVerifier {
    * abstract semantics the encoder emits (Lean's `fireA`, Basic.lean), searching
    * for a firing order from M₀ to a property-violating marking. See
    * `SmtVerificationResult.counterexampleConfirmed` for how each outcome lands.
+   *
+   * It governs the replay behind the fixpoint query only: a run a pre-fixpoint phase reports
+   * (VER-018, VER-019, VER-025) is replayed by the phase itself, with this option on or off.
    */
   counterexampleReplay(enabled: boolean): this {
     this._counterexampleReplay = enabled;
@@ -889,6 +897,32 @@ export class SmtVerifier {
    */
   firingBound(enabled: boolean): this {
     this._firingBound = enabled;
+    return this;
+  }
+
+  /**
+   * The depth of the bounded witness phase (VER-025; default: 8). `0` disables it.
+   *
+   * Directly before the flat fixpoint query, one linear query asks for a run of at most `n`
+   * steps from the initial marking to a violating one, where a step fires a transition or
+   * injects a token into an environment place ([VER-006]). A run it finds is replayed under
+   * the exact abstract semantics, trimmed (it ends at the first violating marking it reaches,
+   * and no single step of it can be dropped; the empty run when the initial marking violates),
+   * and reported `violated`, confirmed. Anything else (no such run, an inconclusive solver, a run that does
+   * not replay) leaves the pipeline unchanged and the fixpoint query runs: the phase never
+   * reports `proven`, since the net may run longer than `n` steps.
+   *
+   * Runs within an eighth of the {@link timeout}, also with {@link counterexampleReplay}
+   * disabled (that option governs the replay after the fixpoint query). Skipped on a ν-net
+   * whose verdict the ν guard would turn into `unknown` (a quiescence property, or no budget
+   * place declared).
+   *
+   * @throws Error when `n` is negative or not an integer
+   */
+  witnessDepth(n: number): this {
+    if (n < 0) throw new Error(`witnessDepth must be non-negative, got ${n}`);
+    if (!Number.isInteger(n)) throw new Error(`witnessDepth must be an integer, got ${n}`);
+    this._witnessDepth = n;
     return this;
   }
 
@@ -1145,7 +1179,7 @@ export class SmtVerifier {
           )
         : null;
     if (attempt.encoding != null) {
-      return { horn: attempt.encoding.smt2, certificate: null, coloured: true, bound, stateEquation };
+      return { horn: attempt.encoding.smt2, certificate: null, coloured: true, bound, stateEquation, witness: null };
     }
     const flat = encodeNet(flatNet, this._initialMarking, this._property, invariants, {
       sinkPlaces: this._sinkPlaces,
@@ -1157,7 +1191,14 @@ export class SmtVerifier {
       placeholderCertificate(flatNet.places.length + flat.counterCount), flatNet, this._initialMarking,
       this._property, this._sinkPlaces, invariants, this._conditionalSinks, this._stateEquation,
     );
-    return { horn: flat.smt2, certificate, coloured: false, bound, stateEquation };
+    // The bounded-witness query (VER-025) under verify()'s guard, at the depth it would ask.
+    const witness = this.witnessPhaseApplies(scriptsHasMatch)
+      ? encodeBoundedRun(
+          flatNet, vectorize(this._initialMarking, flatNet), this._property, this._sinkPlaces,
+          this._conditionalSinks, this._witnessDepth,
+        )
+      : null;
+    return { horn: flat.smt2, certificate, coloured: false, bound, stateEquation, witness };
   }
 
   /**
@@ -1638,8 +1679,8 @@ export class SmtVerifier {
     // marking each firing drains, exactly as the executor does (`Deposit` kind 'drained'), so
     // they decide such a net. Every route below reads the flat net, whose post vectors are
     // constants — the structural pre-check, the P-invariants, the linear bound, the VER-018 /
-    // VER-019 phases, the CHC fixpoint query and Route A — so a `proven` from any of them
-    // would be about a different net. Refuse here, after the graph routes and before the
+    // VER-019 / VER-025 phases, the CHC fixpoint query and Route A — so a verdict from any of
+    // them would be about a different net. Refuse here, after the graph routes and before the
     // first linear one: every exit below this point is then covered ([VER-003] AC5).
     // The linear bound ahead of the enumeration skips such a net, so none ran before.
     const drained = drainedForward(this.net);
@@ -1977,6 +2018,16 @@ export class SmtVerifier {
         report.push('=== RESULT ===\n');
         report.push(`UNKNOWN: ${reason}`);
         return buildResult({ type: 'unknown', reason }, report.join('\n'), invariants, [], [], [], performance.now() - start, stats, null, 'unavailable');
+      }
+      // Bounded witness phase (VER-025): a short run to a violation, injection steps
+      // included, before the fixpoint search. Through the ν guard, inexact: the run is
+      // name-blind, so on a ν-net it carries the "may be spurious" note.
+      if (this.witnessPhaseApplies(hasMatch)) {
+        this.enter(run, 'witness phase');
+        const decided = await this.witnessDecision(
+          { flatNet, solver, report, propDesc, invariants, stats, start }, run,
+        );
+        if (decided != null) return this.applyNuGuard(decided, hasMatch, nuBounded, false);
       }
       // C3: request the refutation proof the replay decoder reads.
       encoding = encodeNet(flatNet, this._initialMarking, this._property, invariants, {
@@ -2404,6 +2455,59 @@ export class SmtVerifier {
   }
 
   /**
+   * Whether the bounded witness phase (VER-025) runs on the flat path: enabled, and not on a
+   * ν-net whose verdict the ν guard turns into `unknown` (a quiescence property, or no budget
+   * place declared), where it would be pure cost. Shared by {@link verify} and
+   * {@link encodeScripts}.
+   */
+  private witnessPhaseApplies(hasMatch: boolean): boolean {
+    return this._witnessDepth > 0
+      && !(hasMatch && (!isReachabilitySafety(this._property) || this._budgetPlaces.size === 0));
+  }
+
+  /**
+   * Runs the bounded witness phase (VER-025). Returns the confirmed `violated` result when a
+   * run replayed, and `null` when the phase stepped aside, with the reason in the report.
+   * Never a `proven`.
+   *
+   * A stop of the run's deadline during the phase (VER-013: the total budget, or a
+   * cancellation) is thrown, as from any other step, after the header got its one status line:
+   * `Status: inconclusive (<the stop's reason>)`. It comes from the trim, which polls the
+   * deadline before each candidate, or from a query the deadline cut short.
+   */
+  private async witnessDecision(phase: PhaseContext, run: RunState): Promise<SmtVerificationResult | null> {
+    const { flatNet, report } = phase;
+    const depth = this._witnessDepth;
+    report.push('  Bounded witness phase (VER-025):');
+    let outcome: WitnessOutcome;
+    try {
+      // An eighth of the timeout: a short run is found in milliseconds, and the fixpoint query
+      // after this still gets its full one (under a total budget, what remains).
+      outcome = await runWitnessPhase(
+        flatNet, this._initialMarking, this._property, this._sinkPlaces, this._conditionalSinks,
+        phaseSolver(phase.solver),
+        { depth, budgetMs: Math.max(1, Math.floor(this._timeoutMs / 8)), poll: Deadline.poller(run.deadline, 1) },
+      );
+      // A query the deadline cut short is the stop's verdict, not the transport's failure.
+      if (outcome.kind === 'inconclusive') run.deadline?.check();
+    } catch (e) {
+      if (e instanceof VerificationStopped) report.push(`    Status: inconclusive (${e.reasonDuring(run.phase)})`);
+      throw e;
+    }
+    switch (outcome.kind) {
+      case 'inconclusive':
+        report.push(`    Status: inconclusive (${outcome.reason})`);
+        return null;
+      case 'none':
+        report.push(`    Status: no run of at most ${depth} steps reaches a violation (not a proof)`);
+        return null;
+      case 'violated':
+        report.push(`    Status: a run of ${outcome.steps.length} steps reaches a violation (replayed; depth ${depth})`);
+        return witnessResult(phase, outcome.states, outcome.steps);
+    }
+  }
+
+  /**
    * Sets {@link SmtVerificationResult.counterexampleTiming} on a `violated` result ([VER-003]),
    * running the opt-in timed check of [VER-023] where it applies. Never changes a verdict.
    */
@@ -2588,7 +2692,7 @@ interface RunState {
   route: VerificationRoute;
 }
 
-/** What the pre-fixpoint phases of VER-018/019 read from `verify()`. */
+/** What the pre-fixpoint phases of VER-018/019/025 read from `verify()`. */
 interface PhaseContext {
   readonly flatNet: FlatNet;
   readonly solver: Z3Solver;
@@ -2601,7 +2705,7 @@ interface PhaseContext {
 }
 
 /**
- * The solver as the phases of VER-018/019 ask it: resolves with stdout. Rejects a reply
+ * The solver as the phases of VER-018/019/025 ask it: resolves with stdout. Rejects a reply
  * with no verdict line, and one where z3 reported an error other than the `model is not
  * available` that `(get-model)` after `unsat` draws: an errored assert silently drops out
  * of the query.
@@ -2619,7 +2723,7 @@ function phaseSolver(solver: Z3Solver): (script: string, phase: string, timeoutM
   };
 }
 
-/** The confirmed `violated` result for a run a VER-018/019 phase found and replayed. */
+/** The confirmed `violated` result for a run a VER-018/019/025 phase found and replayed. */
 function witnessResult(
   phase: PhaseContext,
   states: readonly AbstractState[],
@@ -2783,6 +2887,13 @@ export interface EncodedScripts {
    * with environment places, or the phase disabled).
    */
   readonly stateEquation: string | null;
+  /**
+   * The bounded-run query of the witness phase (VER-025) at the configured
+   * {@link SmtVerifier.witnessDepth}, or `null` where the phase does not run (the
+   * name-coloured encoding, depth `0`, or a ν-net whose verdict the ν guard turns into
+   * `unknown`).
+   */
+  readonly witness: string | null;
 }
 
 /**

@@ -2,6 +2,7 @@ package org.libpetri.smt.z3;
 
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Place;
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.smt.NameAlignment;
 import org.libpetri.smt.ProgrammingError;
 import org.libpetri.smt.RestSet;
@@ -43,6 +44,12 @@ import java.util.regex.Pattern;
  * ({@link #encodeBoundedRun}). Idling makes "at most {@code d} firings" one query. {@code sat}
  * is a run, decoded and replayed firing by firing before it is believed ({@link #replayRun});
  * {@code unsat} at {@code d = K} covers every run of the net.
+ *
+ * <p><b>Witness phase</b> ([VER-025]). The same bounded run, asked once at a fixed depth without
+ * a ranking, looks for a short counterexample ahead of the fixpoint query
+ * ({@link #runWitnessPhase}). There the unrolled step relation also takes the
+ * environment-injection steps of [VER-006], so it runs on a net the firing-bound phase refuses.
+ * It only ever adds a {@code Violated}: a depth is a search limit, not a bound on the net's runs.
  *
  * <p>Every emitted script is byte-identical to the TypeScript, Rust and Python ports for the
  * same input ([VER-013] AC1): places in flat index order, transitions in net order,
@@ -261,9 +268,12 @@ public final class BoundedRun {
 
     /**
      * The bounded model check: {@code depth} steps from {@code initial}, selector
-     * {@code s_i ∈ [0, T]} per step ({@code T} idles), the exact guard and update of the
-     * selected transition, the environment post-caps, and the property's violation at the last
-     * marking, exactly as the HORN error rule encodes it.
+     * {@code s_i ∈ [0, T + J]} per step, the exact guard and update of the selected transition,
+     * the environment post-caps, and the property's violation at the last marking, exactly as
+     * the HORN error rule encodes it. Values below {@code T} are the flat transitions, the next
+     * {@code J} the environment-injection steps of [VER-006] in place-index order (guard
+     * {@code m < bound} when bounded, one more token), and {@code T + J} idles. A net without
+     * injection has {@code J = 0}, and the firing-bound phase only sends such a net.
      *
      * <p>Step 0 reads {@code M0} as literals rather than variables, so the first step's guards
      * and updates are ground terms the solver simplifies away.
@@ -283,11 +293,14 @@ public final class BoundedRun {
     ) {
         int placeCount = flatNet.placeCount();
         int transitionCount = flatNet.transitionCount();
-        // Vacuous as the phase stands: only the bounded environment mode fills
-        // `environmentBounds`, and that mode fills `environmentInjection` for the same places,
-        // which `runFiringBoundPhase` refuses outright. Kept because it is the encoder's
-        // `envBounds(M')` conjunct — parity, and load-bearing the moment that guard is relaxed.
+        // The encoder's `envBounds(M')` conjunct. Vacuous for the firing-bound phase, which
+        // refuses a net with declared injection; live for the witness phase ([VER-025]), which
+        // unrolls the injection steps below.
         List<int[]> caps = SmtEncoder.envBounds(flatNet);
+        // Injection steps ([VER-006]) take the selector values after the transitions', in
+        // place-index order, exactly the rules the HORN encoding adds; idling moves past them.
+        List<SmtEncoder.Injection> injections = SmtEncoder.resolveEnvInjection(flatNet);
+        int idle = transitionCount + injections.size();
         // Each place's touchers, reversed once, here: the `ite` chain below nests from the last
         // toucher inward, and the nesting must not change from one step to the next.
         var nesting = new ArrayList<List<Integer>>(placeCount);
@@ -297,6 +310,11 @@ public final class BoundedRun {
                 var ft = flatNet.transitions().get(t);
                 if (clears(ft, p) || ft.postVector()[p] != ft.preVector()[p]) {
                     touching.add(t);
+                }
+            }
+            for (int j = 0; j < injections.size(); j++) {
+                if (injections.get(j).pid() == p) {
+                    touching.add(transitionCount + j);
                 }
             }
             Collections.reverse(touching);
@@ -315,23 +333,34 @@ public final class BoundedRun {
             }
         }
         for (int i = 0; i < depth; i++) {
-            lines.add("(assert (and (>= s" + i + " 0) (<= s" + i + " " + transitionCount + ")))");
+            lines.add("(assert (and (>= s" + i + " 0) (<= s" + i + " " + idle + ")))");
             if (i + 1 < depth) {
-                lines.add("(assert (=> (= s" + i + " " + transitionCount + ") (= s" + (i + 1) + " "
-                    + transitionCount + ")))");
+                lines.add("(assert (=> (= s" + i + " " + idle + ") (= s" + (i + 1) + " " + idle + ")))");
             }
             for (int t = 0; t < transitionCount; t++) {
                 var guard = guardConditions(flatNet.transitions().get(t), initial, i);
                 lines.add("(assert (=> (= s" + i + " " + t + ") " + SmtEncoder.conjoin(guard) + "))");
             }
+            for (int j = 0; j < injections.size(); j++) {
+                var injection = injections.get(j);
+                if (injection.bound() != null) {
+                    lines.add("(assert (=> (= s" + i + " " + (transitionCount + j) + ") (< "
+                        + marking(initial, i, injection.pid()) + " " + injection.bound() + ")))");
+                }
+            }
             for (int p = 0; p < placeCount; p++) {
                 String current = marking(initial, i, p);
                 String value = current;
                 for (int t : nesting.get(p)) {
-                    var ft = flatNet.transitions().get(t);
-                    String next = clears(ft, p)
-                        ? String.valueOf(ft.postVector()[p])
-                        : shifted(current, ft.postVector()[p] - ft.preVector()[p]);
+                    String next;
+                    if (t >= transitionCount) {
+                        next = shifted(current, 1);
+                    } else {
+                        var ft = flatNet.transitions().get(t);
+                        next = clears(ft, p)
+                            ? String.valueOf(ft.postVector()[p])
+                            : shifted(current, ft.postVector()[p] - ft.preVector()[p]);
+                    }
                     value = "(ite (= s" + i + " " + t + ") " + next + " " + value + ")";
                 }
                 lines.add("(assert (= " + marking(initial, i + 1, p) + " " + value + "))");
@@ -353,11 +382,15 @@ public final class BoundedRun {
     }
 
     /**
-     * The transitions a {@code sat} bounded run fires, in order, up to the first idle step;
+     * The steps a {@code sat} bounded run takes, in order, up to the first idle step;
      * {@code null} when the model defines no selector at a positive depth.
      *
-     * <p>A selector outside {@code [0, T)} is an idle step, however far outside, and a selector
-     * the model is silent on idles too: the run is the prefix the solver committed to.
+     * <p>A selector outside {@code [0, transitionCount)} is an idle step, however far outside,
+     * and a selector the model is silent on idles too: the run is the prefix the solver
+     * committed to.
+     *
+     * @param transitionCount the number of selector values that are steps: the flat transitions,
+     *                        plus the injection steps when the script unrolled any
      */
     public static List<Integer> decodeBoundedRun(String stdout, int transitionCount, int depth) {
         int[] selectors = new int[depth];
@@ -412,19 +445,51 @@ public final class BoundedRun {
      * <p>This is what makes a {@code sat} bounded run a counterexample rather than a claim: the
      * run is believed because it replays, not because the solver produced it.
      *
-     * @param firings flat transition indices; one the net does not have is a defect in the
-     *                caller, and throws {@link IndexOutOfBoundsException}
+     * @param firings flat transition indices, and {@code T + j} for the {@code j}-th injection
+     *                step in place-index order; an index the net has neither for is a defect in
+     *                the caller, and throws {@link IndexOutOfBoundsException}
      * @param isBad   the violation predicate, as {@link AbstractReplayer#violationPredicate} builds it
      */
     public static ReplayedRun replayRun(
             FlatNet flatNet, int[] initial, List<Integer> firings, Predicate<int[]> isBad
     ) {
+        return walk(flatNet, initial, firings, isBad, false);
+    }
+
+    /**
+     * {@link #replayRun}, or with {@code firstViolation} the shortest prefix of the run that
+     * replays to a violating marking: the violation is then asked before every step as well,
+     * and the walk stops at the first marking that violates. The steps past that marking are
+     * not taken, so they need not be enabled. {@code null} when a step before it is not enabled
+     * or no marking of the run violates.
+     */
+    private static ReplayedRun walk(
+            FlatNet flatNet, int[] initial, List<Integer> firings, Predicate<int[]> isBad, boolean firstViolation
+    ) {
         List<int[]> caps = SmtEncoder.envBounds(flatNet);
+        List<SmtEncoder.Injection> injections = SmtEncoder.resolveEnvInjection(flatNet);
+        int transitionCount = flatNet.transitionCount();
         var states = new ArrayList<int[]>();
         var steps = new ArrayList<String>();
         int[] state = initial.clone();
         states.add(state);
         for (int t : firings) {
+            if (firstViolation && isBad.test(state.clone())) {
+                return new ReplayedRun(states, steps);
+            }
+            if (t >= transitionCount) {
+                // An injection step, as AbstractReplayer.successors takes it: under its bound,
+                // one more token, no post-cap (the HORN injection rule carries none).
+                var injection = injections.get(t - transitionCount);
+                if (injection.bound() != null && state[injection.pid()] >= injection.bound()) {
+                    return null;
+                }
+                state = state.clone();
+                state[injection.pid()]++;
+                states.add(state);
+                steps.add("inject(" + flatNet.places().get(injection.pid()).name() + ")");
+                continue;
+            }
             var ft = flatNet.transitions().get(t);
             if (!AbstractReplayer.enabledA(state, ft)) {
                 return null;
@@ -551,7 +616,9 @@ public final class BoundedRun {
         /** The ranking query and, when there is none, the repeatable-vector query. */
         RANKING("ranking"),
         /** A bounded run. */
-        BMC("bmc");
+        BMC("bmc"),
+        /** A bounded run of the witness phase ([VER-025]). */
+        WITNESS("witness");
 
         private final String label;
 
@@ -717,6 +784,150 @@ public final class BoundedRun {
             }
             depth = (int) Math.min(Math.min(2L * depth, k), maxDepth);
         }
+    }
+
+    /** The depth the witness phase ([VER-025]) searches to when the caller names none. */
+    public static final int DEFAULT_WITNESS_DEPTH = 8;
+
+    /** Outcome of {@link #runWitnessPhase}. Never a proof: the depth is a search limit, not a bound. */
+    public sealed interface WitnessOutcome {
+
+        /**
+         * A run reaches a violation: replayed under the exact semantics, then trimmed and
+         * replayed again.
+         *
+         * @param states the markings of the run, {@code M0} first
+         * @param steps  the flat transitions and {@code inject(<place>)} steps taken, one per
+         *               consecutive pair of {@code states}
+         */
+        record Violated(List<int[]> states, List<String> steps) implements WitnessOutcome {
+            public Violated {
+                states = List.copyOf(states);
+                steps = List.copyOf(steps);
+            }
+        }
+
+        /** {@code unsat}: no run of at most the depth reaches a violation. Not a proof. */
+        record NoRun() implements WitnessOutcome {}
+
+        /**
+         * The phase stepped aside.
+         *
+         * @param reason report-ready
+         */
+        record Inconclusive(String reason) implements WitnessOutcome {
+            public Inconclusive {
+                Objects.requireNonNull(reason);
+            }
+        }
+    }
+
+    /**
+     * The bounded witness phase ([VER-025]): one bounded run of at most {@code depth} steps from
+     * {@code M0}, environment-injection steps included ([VER-006]), within {@code budgetMs}. A
+     * {@code sat} run is replayed, trimmed ({@link #trimRun}) and reported. Every other answer
+     * leaves the property open: {@code unsat} says nothing about a longer run.
+     *
+     * @param sinkPlaces       places where a token may rest ([VER-002])
+     * @param conditionalSinks places where a token may rest while a marker is marked ([VER-014])
+     * @param solver           runs one script; see {@link FiringBoundSolver}
+     * @param budgetMs         wall-clock budget, encoding included; the query gets what is left
+     * @param depth            the most steps a run may take; positive
+     */
+    public static WitnessOutcome runWitnessPhase(
+            FlatNet flatNet,
+            MarkingState initialMarking,
+            SmtProperty property,
+            Set<Place<?>> sinkPlaces,
+            List<RestSet.ConditionalSinks> conditionalSinks,
+            FiringBoundSolver solver,
+            long budgetMs,
+            int depth
+    ) {
+        if (depth <= 0) {
+            throw new IllegalArgumentException("depth must be positive, got " + depth);
+        }
+        // NU-055: a run of counts carries no names.
+        if (NameAlignment.isNameAlignment(property)) {
+            return new WitnessOutcome.Inconclusive(NameAlignment.routeBOnlyReason(property));
+        }
+        var clock = new Deadline(budgetMs);
+        int[] initial = AbstractReplayer.toVector(flatNet, initialMarking);
+        Predicate<int[]> isBad = AbstractReplayer.violationPredicate(flatNet, property, sinkPlaces, conditionalSinks);
+        int stepCount = flatNet.transitionCount() + SmtEncoder.resolveEnvInjection(flatNet).size();
+        Reply reply = ask(solver, clock,
+            encodeBoundedRun(flatNet, initial, property, sinkPlaces, conditionalSinks, depth), Phase.WITNESS);
+        if (reply.failure() != null) {
+            return new WitnessOutcome.Inconclusive(reply.failure());
+        }
+        String answer = SmtText.classifyFirstLine(reply.stdout());
+        if ("unsat".equals(answer)) {
+            return new WitnessOutcome.NoRun();
+        }
+        if (!"sat".equals(answer)) {
+            return new WitnessOutcome.Inconclusive("the bounded run at depth " + depth + " answered unknown");
+        }
+        List<Integer> firings = decodeBoundedRun(reply.stdout(), stepCount, depth);
+        if (firings == null || replayRun(flatNet, initial, firings, isBad) == null) {
+            return new WitnessOutcome.Inconclusive("the bounded run did not replay under the exact semantics");
+        }
+        ReplayedRun trimmed = replayRun(flatNet, initial, trimRun(flatNet, initial, firings, isBad), isBad);
+        return new WitnessOutcome.Violated(trimmed.states(), trimmed.steps());
+    }
+
+    /**
+     * Drops the steps a violating run does not need. The solver pads a run to the full depth, so
+     * a reported run would carry injections and firings that lead nowhere, or wander on past the
+     * violation. The run is first cut at the first violating marking it reaches. Each pass then
+     * tries the steps from the last to the first and drops one when the run without it still
+     * reaches a violation, cutting there again; passes repeat until one drops nothing.
+     *
+     * <p>The result replays, ends at the first violating marking it reaches, and no single step
+     * of it can be dropped. When {@code M0} violates it is the empty run, whatever the model
+     * was. It is not claimed to be a shortest run.
+     *
+     * <p>Solver-free. The work grows with the cube of the run's length, so every candidate is
+     * preceded by a poll of the deadline ([VER-013]): a total budget or a cancellation stops the
+     * trim, and with it the query, as it stops any other step.
+     *
+     * @param firings a run {@link #replayRun} accepts
+     */
+    public static List<Integer> trimRun(
+            FlatNet flatNet, int[] initial, List<Integer> firings, Predicate<int[]> isBad
+    ) {
+        List<Integer> run = violatingPrefix(flatNet, initial, firings, isBad);
+        if (run == null) {
+            throw new IllegalArgumentException("the run does not replay to a violation");
+        }
+        boolean dropped = true;
+        while (dropped) {
+            dropped = false;
+            // No marking before the run's last one violates, so a candidate first violates at
+            // or after the dropped step: a cut never leaves the run shorter than `k`.
+            for (int k = run.size() - 1; k >= 0; k--) {
+                // [VER-013]: a run found at a raised depth makes this a long solver-free loop.
+                VerificationDeadline.checkpoint();
+                var candidate = new ArrayList<>(run);
+                candidate.remove(k);
+                var shorter = violatingPrefix(flatNet, initial, candidate, isBad);
+                if (shorter != null) {
+                    run = shorter;
+                    dropped = true;
+                }
+            }
+        }
+        return run;
+    }
+
+    /**
+     * The shortest prefix of {@code firings} that replays to a violating marking, the empty one
+     * when {@code initial} violates; {@code null} when no prefix does.
+     */
+    private static List<Integer> violatingPrefix(
+            FlatNet flatNet, int[] initial, List<Integer> firings, Predicate<int[]> isBad
+    ) {
+        ReplayedRun reached = walk(flatNet, initial, firings, isBad, true);
+        return reached == null ? null : List.copyOf(firings.subList(0, reached.steps().size()));
     }
 
     /** A solver's stdout, or the reason there is none. Exactly one is non-null. */

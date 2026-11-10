@@ -20,6 +20,7 @@ import type { MarkingStateBuilder } from '../../src/verification/marking-state.j
 import {
   type EnvironmentAnalysisMode,
   alwaysAvailable,
+  bounded,
 } from '../../src/verification/analysis/environment-analysis-mode.js';
 import { bindProducers } from './producing-actions.js';
 
@@ -122,6 +123,15 @@ function envSingleFeed(): VerificationFixtureNet {
   const t = Transition.builder('t').inputs(one(e.place)).outputs(outPlace(p1)).build();
   const net = PetriNet.builder('envSingleFeed').transitions(t).build();
   return fixture(net, () => {}, [e.place, p1], [e], alwaysAvailable());
+}
+
+/** Environment place e (bounded(2) injection, VER-006); t: one(e)->p1. Empty initial marking. */
+function envBoundedPair(): VerificationFixtureNet {
+  const e = environmentPlace('e');
+  const p1 = place('p1');
+  const t = Transition.builder('t').inputs(one(e.place)).outputs(outPlace(p1)).build();
+  const net = PetriNet.builder('envBoundedPair').transitions(t).build();
+  return fixture(net, () => {}, [e.place, p1], [e], bounded(2));
 }
 
 /** p0(1),blocker(1),p1; t: one(p0), inhibitor(blocker) -> p1. Blocker never drains. */
@@ -352,6 +362,7 @@ export const verificationNets: Record<string, () => VerificationFixtureNet> = {
   mutexUnlocked,
   conservedPair,
   envSingleFeed,
+  envBoundedPair,
   inhibitorFrozen,
   h1ConsumeAll,
   atLeastDrain,

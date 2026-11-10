@@ -105,7 +105,7 @@ describe('the state-class graph deposits every consumed token (IO-014)', () => {
 });
 
 describeZ3('a timeout forward deposits every consumed token (IO-014)', () => {
-  // (budget, linear bound, VER-018/VER-019 phases): the last SMT arm leaves the CHC/IC3
+  // (budget, linear bound, VER-018/VER-019/VER-025 phases): the last SMT arm leaves the CHC/IC3
   // fixpoint alone to decide.
   it.each([
     [0, true, true, 'smt'],
@@ -122,6 +122,7 @@ describeZ3('a timeout forward deposits every consumed token (IO-014)', () => {
         .linearBound(linearBound)
         .stateEquationPhase(phases)
         .firingBound(phases)
+        .witnessDepth(phases ? 8 : 0)
         .verify();
       expect(result.verdict.type, result.report).toBe('violated');
       expect(result.route, result.report).toBe(route);

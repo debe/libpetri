@@ -59,6 +59,7 @@ public final class VerificationNets {
             case "mutexUnlocked" -> mutexUnlocked();
             case "conservedPair" -> conservedPair();
             case "envSingleFeed" -> envSingleFeed();
+            case "envBoundedPair" -> envBoundedPair();
             case "inhibitorFrozen" -> inhibitorFrozen();
             case "h1ConsumeAll" -> h1ConsumeAll();
             case "atLeastDrain" -> atLeastDrain();
@@ -254,6 +255,23 @@ public final class VerificationNets {
             MarkingState.empty(),
             Set.of(env),
             EnvironmentAnalysisMode.alwaysAvailable());
+    }
+
+    /**
+     * Environment place {@code e} ({@code bounded(2)} injection, VER-006);
+     * {@code t: one(e)->p1}, empty initial marking. Every token in p1 costs one injection and
+     * one firing, so a bound of {@code n} on p1 is first exceeded after {@code 2(n + 1)} steps.
+     */
+    public static NamedNet envBoundedPair() {
+        var e = place("e");
+        var p1 = place("p1");
+        var env = EnvironmentPlace.of(e);
+        var t = Transition.builder("t").inputs(In.one(e)).outputs(Out.place(p1)).build();
+        return new NamedNet(
+            StructureOnly.bind(PetriNet.builder("envBoundedPair").transitions(t).build()),
+            MarkingState.empty(),
+            Set.of(env),
+            EnvironmentAnalysisMode.bounded(2));
     }
 
     /**

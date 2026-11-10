@@ -45,6 +45,8 @@ describeZ3('an initial violation on the fixpoint query', () => {
           .linearBound(false)
           .stateEquationPhase(false)
           .firingBound(false)
+          // The bounded witness phase (VER-025) reports M0 violating before the fixpoint query.
+          .witnessDepth(0)
           .counterexampleReplay(replay)
           .verify();
         expect(result.verdict.type, result.report).toBe('violated');

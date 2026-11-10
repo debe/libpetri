@@ -564,6 +564,9 @@ def run_route(built: Any, net: ConfNet, prop: dict[str, Any], setup: RouteSetup)
         linear_bound=setup.linear_bound,
         state_equation_phase=setup.phases,
         firing_bound=setup.phases,
+        # The `ic3` setup is the fixpoint query alone; the others keep the bounded
+        # witness phase of VER-025 at its default depth.
+        witness_depth=8 if setup.phases else 0,
         certificate_check=True,
         counterexample_replay=True,
         timeout_ms=4_000,

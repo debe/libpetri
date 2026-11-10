@@ -112,6 +112,7 @@ def verify(
     partial_order_reduction: bool = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
+    witness_depth: int = ...,
     state_space_cache: StateSpaceCache | None = ...,
     total_budget_ms: int | None = ...,
     timed_counterexample_check: bool = ...,
@@ -134,6 +135,12 @@ def verify(
     null-space basis lost a law to the H1 guard (VER-007). ``state_equation_phase``
     (VER-018) and ``firing_bound`` (VER-019), both on by default, can decide the
     property before the fixpoint query; ``False`` forces the fixpoint path.
+    ``witness_depth`` (default ``8``, VER-025) is the depth of the bounded witness
+    phase directly before the flat fixpoint query: one query for a run of at most
+    that many steps, environment injections among them, to a violation, reported
+    ``"violated"`` and confirmed once it replays; no run is no proof, and the
+    fixpoint query then decides. ``0`` disables the phase; a negative depth raises
+    ``ValueError``.
     ``state_space_cache`` shares the enumeration route's state-class graph across
     queries on one net and initial marking (VER-017). The result names the
     deciding route in ``route`` (VER-003). ``total_budget_ms`` caps the whole
@@ -211,18 +218,22 @@ def encode_smt_scripts(
     linear_bound: bool = ...,
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
+    witness_depth: int = ...,
     assume_no_reaping: bool = ...,
     assume_atomic_firing: bool = ...,
 ) -> dict[str, str | bool | None]:
     """Returns ``horn``, ``certificate``, ``coloured``, ``bound`` -- the linear
     state-equation bound query, present exactly when :func:`verify` would send it
-    (VER-015) -- and ``state_equation``, the first query of the VER-018 phase,
-    present exactly where that phase runs. ``sink_places_when`` (VER-014),
-    ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
-    ``state_equation`` (VER-016's counters in ``horn``) and ``state_equation_phase``
-    (VER-018; ``False`` returns ``state_equation: None``) shape the scripts as they
-    do for :func:`verify`. ``assume_no_reaping`` (TIME-013) keeps the ``deadline`` /
-    ``window`` transitions in a quiescence clause, which leaves them out by default;
+    (VER-015) -- ``state_equation``, the first query of the VER-018 phase, present
+    exactly where that phase runs, and ``witness``, the query of the VER-025 bounded
+    witness phase, present exactly where that phase runs. ``sink_places_when``
+    (VER-014), ``linear_bound`` (VER-015; ``False`` returns ``bound: None``),
+    ``state_equation`` (VER-016's counters in ``horn``), ``state_equation_phase``
+    (VER-018; ``False`` returns ``state_equation: None``) and ``witness_depth``
+    (VER-025; the depth of ``witness``, ``0`` returns ``witness: None``, a negative
+    depth raises ``ValueError``) shape the scripts as they do for :func:`verify`.
+    ``assume_no_reaping`` (TIME-013) keeps the ``deadline`` / ``window``
+    transitions in a quiescence clause, which leaves them out by default;
     ``assume_atomic_firing`` (VER-004) encodes the net without the in-flight split.
     ``mint_transitions`` (NU-010) declares the mints as :func:`verify` takes them; a
     name that is no transition of ``net`` raises ``ValueError``."""
@@ -266,6 +277,7 @@ def verify_open_net(
     state_equation: bool = ...,
     state_equation_phase: bool = ...,
     firing_bound: bool = ...,
+    witness_depth: int = ...,
     semiflow_invariants: bool | Literal["auto"] = ...,
     cancel: CancelToken | None = ...,
     assume_no_reaping: bool = ...,
@@ -275,7 +287,9 @@ def verify_open_net(
     """Verifies ``net`` in isolation against ``contract`` (VER-022): the closed
     net's untimed state-class graph within ``max_classes``, then, unless ``smt`` is
     ``False``, one SMT query per part of the contract, configured by the remaining
-    keywords as :func:`verify` is. ``assume_atomic_firing`` (VER-004) reads every
+    keywords as :func:`verify` is: ``witness_depth`` (default ``8``, VER-025) is the
+    depth of the bounded witness phase ahead of each query's fixpoint query, ``0``
+    disables it, and a negative depth raises ``ValueError``. ``assume_atomic_firing`` (VER-004) reads every
     firing as one step on both routes; by default a transition whose output another
     tests with an inhibitor, reset or drain, or that marks a terminal place
     (EXEC-042), is verified as a start and a completion step. A ``mint_transitions``

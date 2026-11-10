@@ -57,6 +57,8 @@ describe('SMT script parity with the Rust goldens (VER-013 AC1)', () => {
       compare(fixture.id, join(dir, 'bound.smt2'), scripts.bound);
       // VER-018 AC7: the state-equation phase's first query, pinned wherever the phase runs.
       compare(fixture.id, join(dir, 'state-equation.smt2'), scripts.stateEquation);
+      // VER-025: the bounded-witness query, pinned wherever the phase runs.
+      compare(fixture.id, join(dir, 'witness.smt2'), scripts.witness);
     });
   }
 });

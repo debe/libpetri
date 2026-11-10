@@ -1685,10 +1685,11 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would find
             // this counterexample first, by a search of their own.
             .stateEquationPhase(false)
             .firingBound(false)
+            .witnessDepth(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -1721,10 +1722,11 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would find
             // this counterexample first, by a search of their own.
             .stateEquationPhase(false)
             .firingBound(false)
+            .witnessDepth(0)
             .initialMarking(m -> m.tokens(p1, 1))
             .property(SmtProperty.deadlockFree())
             .timeout(Duration.ofSeconds(10))
@@ -1778,10 +1780,11 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would find
             // this counterexample first, by a search of their own.
             .stateEquationPhase(false)
             .firingBound(false)
+            .witnessDepth(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of(mk(places.getFirst(), 1)))
@@ -1806,10 +1809,11 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would find
             // this counterexample first, by a search of their own.
             .stateEquationPhase(false)
             .firingBound(false)
+            .witnessDepth(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayNodeBudget(1)
@@ -1833,10 +1837,11 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would find
             // this counterexample first, by a search of their own.
             .stateEquationPhase(false)
             .firingBound(false)
+            .witnessDepth(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of(mk(places.get(1), 1), mk(places.get(2), 1)))
@@ -1861,10 +1866,11 @@ class SmtVerifierTest {
             // small untimed net and would decide it with no solver at all, leaving the
             // encoding path this test pins unexercised.
             .enumerationMaxClasses(0)
-            // The replay reads Spacer's refutation; the phases of VER-018/019 would find
+            // The replay reads Spacer's refutation; the phases of VER-018/019/025 would find
             // this counterexample first, by a search of their own.
             .stateEquationPhase(false)
             .firingBound(false)
+            .witnessDepth(0)
             .initialMarking(m -> m.tokens(places.getFirst(), 1))
             .property(SmtProperty.placeBound(places.getLast(), 0))
             .replayStateSetOverride(java.util.Set.of())

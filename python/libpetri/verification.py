@@ -281,6 +281,7 @@ def verify(
     partial_order_reduction: bool = True,
     state_equation_phase: bool = True,
     firing_bound: bool = True,
+    witness_depth: int = 8,
     state_space_cache: StateSpaceCache | None = None,
     total_budget_ms: int | None = None,
     timed_counterexample_check: bool = False,
@@ -379,8 +380,10 @@ def verify(
       informative than "did not apply", so it reports ``False``, never ``None``;
     * ``True`` -- the replay chained the initial marking to a violating state.
 
-    Turning this off also turns off the only source of
-    ``counterexample_trace``.
+    Turning this off leaves the fixpoint query's ``violated`` without a
+    ``counterexample_trace``. A run one of the phases ahead of that query finds
+    (``state_equation_phase``, ``firing_bound``, ``witness_depth``) is replayed by
+    the phase itself, so it keeps its trace and ``True`` either way.
 
     ``semiflow_invariants`` (default ``False``, VER-007) also hands the
     gate-validated P-semiflows (the net's minimal non-negative conservation
@@ -476,6 +479,26 @@ def verify(
     (``result.method == "bounded-model-check"``); without one, the report names
     the transitions that can repeat. Turn either phase off to force the fixpoint
     path, for its certificate or to pin a test to it.
+
+    ``witness_depth`` (default ``8``, VER-025) is the depth of the bounded witness
+    phase, which runs directly before the flat fixpoint query: one query asks for a
+    run of at most that many steps from the initial marking to a violating one, a
+    step being a transition firing or an injection into an environment place
+    (VER-006). A run the solver finds is replayed under the exact abstract
+    semantics, trimmed of every step it can lose, and reported ``violated`` with
+    ``counterexample_confirmed`` ``True``; an injection step shows in
+    ``counterexample_transitions`` as ``inject(<place>)``. Finding no run proves
+    nothing: the report says ``no run of at most 8 steps reaches a violation (not a
+    proof)`` and the fixpoint query decides, as it does when the query is
+    inconclusive. A larger depth asks one query at that depth, not 8 first; ``0``
+    disables the phase, so verdict, route and report are those of the pipeline
+    without it; a negative depth raises ``ValueError`` (``witness_depth must be
+    non-negative, got -1``). The phase runs on the flat
+    encoding only: not on the name-coloured encoding of a ν-net, nor on a ν-net
+    with a quiescence property or no budget place, where the verdict is
+    ``unknown`` whatever the flat encoding finds. It runs under :func:`ignore`
+    and with ``counterexample_replay=False``, which governs the replay of the
+    fixpoint query's counterexample only. Its budget is an eighth of ``timeout_ms``.
 
     ``state_space_cache`` (VER-017) is a :class:`StateSpaceCache` the caller
     creates, passes to every query on one net, and owns. The state-class graph
@@ -581,6 +604,7 @@ def verify(
         partial_order_reduction=partial_order_reduction,
         state_equation_phase=state_equation_phase,
         firing_bound=firing_bound,
+        witness_depth=witness_depth,
         state_space_cache=state_space_cache,
         total_budget_ms=total_budget_ms,
         timed_counterexample_check=timed_counterexample_check,
@@ -703,6 +727,7 @@ def encode_smt_scripts(
     linear_bound: bool = True,
     state_equation: bool = False,
     state_equation_phase: bool = True,
+    witness_depth: int = 8,
     assume_no_reaping: bool = False,
     assume_atomic_firing: bool = False,
 ) -> dict:
@@ -720,7 +745,11 @@ def encode_smt_scripts(
     * ``"state_equation"`` -- the first query of the VER-018 phase, before any
       refinement; ``None`` for a ν-net, under ``ignore()`` with environment
       places, or with ``state_equation_phase=False``. The ``state_equation``
-      *keyword* is VER-016's counters in ``"horn"``, not this query.
+      *keyword* is VER-016's counters in ``"horn"``, not this query;
+    * ``"witness"`` -- the query of the VER-025 bounded witness phase, at
+      ``witness_depth`` steps; ``None`` on the name-coloured encoding, for a ν-net
+      with a quiescence property or no budget place, or with ``witness_depth=0``.
+      A negative ``witness_depth`` raises ``ValueError``.
 
     Every option :func:`verify` takes that shapes a script changes it the same way
     here: ``semiflow_invariants`` (``"auto"`` included) conjoins the strengthened
@@ -759,6 +788,7 @@ def encode_smt_scripts(
         linear_bound=linear_bound,
         state_equation=state_equation,
         state_equation_phase=state_equation_phase,
+        witness_depth=witness_depth,
         assume_no_reaping=assume_no_reaping,
         assume_atomic_firing=assume_atomic_firing,
     )
@@ -960,6 +990,7 @@ def verify_open_net(
     state_equation: bool = False,
     state_equation_phase: bool = True,
     firing_bound: bool = True,
+    witness_depth: int = 8,
     semiflow_invariants: bool | Literal["auto"] = False,
     cancel: CancelToken | None = None,
     assume_no_reaping: bool = False,
@@ -975,7 +1006,10 @@ def verify_open_net(
     SMT pipeline unless ``smt`` is ``False``: one query per part of the contract,
     and termination by the firing bound of VER-019 within
     ``termination_timeout_ms``. ``timeout_ms`` and the phase toggles configure each
-    of those queries exactly as they configure :func:`verify`.
+    of those queries exactly as they configure :func:`verify`: ``witness_depth``
+    (default ``8``, VER-025) is the depth of the bounded witness phase ahead of each
+    query's fixpoint query, ``0`` disables it, and a negative depth raises
+    ``ValueError``.
 
     ``result.verdict`` is ``"proven"`` when, in every run of the environment the
     contract assumes, every quiescent marking meets the contract and (unless
@@ -1021,6 +1055,7 @@ def verify_open_net(
         state_equation=state_equation,
         state_equation_phase=state_equation_phase,
         firing_bound=firing_bound,
+        witness_depth=witness_depth,
         semiflow_invariants=semiflow_invariants,
         cancel=cancel,
         assume_no_reaping=assume_no_reaping,

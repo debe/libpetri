@@ -21,7 +21,9 @@ use pyo3::wrap_pyfunction;
 
 use crate::error::panic_to_py;
 use crate::model::{PyPetriNet, PyTransition};
-use crate::verification::{bound_text, marking_dict, marking_entries, parse_count_bound, parse_semiflow_mode};
+use crate::verification::{
+    bound_text, marking_dict, marking_entries, parse_count_bound, parse_semiflow_mode, parse_witness_depth,
+};
 
 /// Builds an `OpenNetContract`. Each method returns the builder, and a contract that
 /// cannot mean anything raises `StructureError` (a `ValueError`) where it is built, with
@@ -347,14 +349,16 @@ impl PyOpenNetResult {
 ///
 /// The remaining keywords configure every verifier the SMT route builds, as `verify_net`
 /// takes them; `termination_timeout_ms` is the firing-bound query that decides termination
-/// there. `assume_no_reaping` (default `False`, TIME-013) reads quiescence strictly, as if
+/// there. `witness_depth` (VER-025, default 8) is the depth of the bounded witness phase
+/// ahead of each query's fixpoint query; `0` disables it and a negative depth raises
+/// `ValueError`. `assume_no_reaping` (default `False`, TIME-013) reads quiescence strictly, as if
 /// no `deadline` / `window` transition were ever reaped. `assume_atomic_firing` (default
 /// `False`, VER-004) reads every firing as one step instead of splitting a transition whose
 /// output another tests with an inhibitor, reset or drain. `mint_transitions` (NU-010) declares
 /// the transitions a ν route may read as minting a fresh name. Raises `StructureError` when
 /// the net violates CORE-043 or the closure's names collide with the net's.
 #[pyfunction(name = "verify_open_net")]
-#[pyo3(signature = (net, contract, *, max_classes = 50_000, smt = true, termination_timeout_ms = 60_000, timeout_ms = 60_000, linear_bound = true, state_equation = false, state_equation_phase = true, firing_bound = true, semiflow_invariants = None, cancel = None, assume_no_reaping = false, assume_atomic_firing = false, mint_transitions = None))]
+#[pyo3(signature = (net, contract, *, max_classes = 50_000, smt = true, termination_timeout_ms = 60_000, timeout_ms = 60_000, linear_bound = true, state_equation = false, state_equation_phase = true, firing_bound = true, witness_depth = 8, semiflow_invariants = None, cancel = None, assume_no_reaping = false, assume_atomic_firing = false, mint_transitions = None))]
 fn py_verify_open_net(
     py: Python<'_>,
     net: &PyPetriNet,
@@ -367,6 +371,7 @@ fn py_verify_open_net(
     state_equation: bool,
     state_equation_phase: bool,
     firing_bound: bool,
+    witness_depth: i64,
     semiflow_invariants: Option<Bound<'_, PyAny>>,
     cancel: Option<PyRef<'_, crate::verification::PyCancelToken>>,
     assume_no_reaping: bool,
@@ -376,6 +381,7 @@ fn py_verify_open_net(
     let net = net.net().clone();
     let contract = contract.inner.clone();
     let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
+    let witness_depth = parse_witness_depth(witness_depth)?;
     // Applied unconditionally, as `verify_net` does: the keyword defaults are the
     // verifier's own, so passing nothing builds what Rust builds without a configurator.
     let mint_transitions = mint_transitions.unwrap_or_default();
@@ -386,6 +392,7 @@ fn py_verify_open_net(
             .state_equation(state_equation)
             .state_equation_phase(state_equation_phase)
             .firing_bound(firing_bound)
+            .witness_depth(witness_depth)
             .semiflow_invariants(semiflow_invariants)
     });
     // VER-013: the graph build, every query and the termination ranking honour it.

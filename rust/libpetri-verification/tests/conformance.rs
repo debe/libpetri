@@ -103,6 +103,9 @@ fn run_config(net: &CorpusNet, prop: &CorpusProperty, cfg: Config) -> Verificati
         .linear_bound(cfg.linear_bound)
         .state_equation_phase(cfg.phases)
         .firing_bound(cfg.phases)
+        // The `ic3` setup is the fixpoint query alone; the others keep the bounded
+        // witness phase of VER-025 at its default depth.
+        .witness_depth(if cfg.phases { 8 } else { 0 })
         .certificate_check(true)
         .counterexample_replay(true)
         .timeout(4_000)

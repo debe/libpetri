@@ -134,6 +134,9 @@ async function runConfig(loaded: LoadedNet, index: number, cfg: RouteConfig): Pr
     .linearBound(cfg.linearBound)
     .stateEquationPhase(cfg.phases)
     .firingBound(cfg.phases)
+    // The bounded witness phase (VER-025) is a pre-fixpoint phase too: the `ic3` setups keep
+    // the fixpoint query and its replay as the route under comparison.
+    .witnessDepth(cfg.phases ? 8 : 0)
     .certificateCheck(true)
     .counterexampleReplay(true)
     .timeout(4_000)

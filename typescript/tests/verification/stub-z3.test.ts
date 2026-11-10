@@ -86,9 +86,10 @@ describe.skipIf(process.platform === 'win32')('stub z3 (VER-013 transport contra
       .property(property)
       .environmentMode(ignore())
       // The contract under test is the HORN and certificate scripts' transport. The
-      // phases of VER-018/019 run first and would consume the stub's canned replies.
+      // phases of VER-018/019/025 run first and would consume the stub's canned replies.
       .stateEquationPhase(false)
       .firingBound(false)
+      .witnessDepth(0)
       .timeout(timeoutMs)
       .verify();
   }

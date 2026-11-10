@@ -97,12 +97,14 @@ fn frozen_net() -> PetriNet {
     PetriNet::builder("stub_frozen").transition(t).build()
 }
 
-fn verify_with(
-    net: &PetriNet,
+/// The verifier every scenario runs: the solver's replies reach the fixpoint path, and
+/// the bounded witness phase ([VER-025]) directly ahead of it.
+fn stub_verifier<'n>(
+    net: &'n PetriNet,
     tokens: &[(&str, usize)],
     property: SmtProperty,
     timeout_ms: u64,
-) -> VerificationResult {
+) -> SmtVerifier<'n> {
     let mut marking = MarkingStateBuilder::new();
     for (place, count) in tokens {
         marking = marking.tokens(*place, *count);
@@ -120,7 +122,34 @@ fn verify_with(
         .state_equation_phase(false)
         .firing_bound(false)
         .timeout(timeout_ms)
-        .verify()
+}
+
+fn verify_with(
+    net: &PetriNet,
+    tokens: &[(&str, usize)],
+    property: SmtProperty,
+    timeout_ms: u64,
+) -> VerificationResult {
+    // The witness phase of VER-025 would consume a canned reply too.
+    stub_verifier(net, tokens, property, timeout_ms).witness_depth(0).verify()
+}
+
+/// [`verify`] with the bounded witness phase ([VER-025]) on, at its default depth.
+fn verify_with_witness(net: &PetriNet, tokens: &[(&str, usize)], property: SmtProperty) -> VerificationResult {
+    stub_verifier(net, tokens, property, 5_000).verify()
+}
+
+/// A stub that answers the bounded witness script with `witness` and every other
+/// script with `otherwise`, both shell fragments.
+fn witness_stub(witness: &str, otherwise: &str) -> String {
+    format!(
+        "script=$(cat)\ncase \"$script\" in\n  *\"Bounded run (VER-019)\"*)\n{witness}\n    ;;\n  *)\n{otherwise}\n    ;;\nesac\n"
+    )
+}
+
+/// The header of the phase and its status line, as the report prints them.
+fn witness_status(status: &str) -> String {
+    format!("  Bounded witness phase (VER-025):\n    Status: {status}\n")
 }
 
 fn verify(net: &PetriNet, tokens: &[(&str, usize)], property: SmtProperty) -> VerificationResult {
@@ -500,6 +529,144 @@ echo '(proof (asserted (Reachable 1 0)) (asserted (Reachable 0 1)))'
     );
     assert!(
         result.report.contains("  Solver: z3 unavailable (z3 binary not found:"),
+        "{}",
+        result.report
+    );
+
+    // === VER-025: every reply but a replayed run leaves the fixpoint query to answer ===
+    //
+    // The stub's HORN answer is the one of the scenarios above, so each verdict below
+    // is the fixpoint path's; the phase only adds its two report lines.
+    let violated = "echo 'unsat'\necho '(proof (asserted (Reachable 1 0)) (asserted (Reachable 0 1)))'";
+
+    // `unknown`.
+    use_stub(&install_stub(&root, "witness-unknown", VERSION_OK, &witness_stub("echo 'unknown'", violated)));
+    let result = verify_with_witness(&chain_net(), &[("p0", 1)], SmtProperty::place_bound("p1", 0));
+    assert!(result.is_violated(), "{}", result.report);
+    assert!(
+        result.report.contains(&format!(
+            "{}Result: property violated (Spacer UNSAT",
+            witness_status("inconclusive (the bounded run at depth 8 answered unknown)")
+        )),
+        "{}",
+        result.report
+    );
+    assert_eq!(result.counterexample_confirmed, Some(true), "{}", result.report);
+
+    // A reply the transport refuses: no verdict line.
+    use_stub(&install_stub(&root, "witness-failed", VERSION_OK, &witness_stub("echo 'garbage'", violated)));
+    let result = verify_with_witness(&chain_net(), &[("p0", 1)], SmtProperty::place_bound("p1", 0));
+    assert!(result.is_violated(), "{}", result.report);
+    assert!(
+        result.report.contains(&format!(
+            "{}Result: property violated (Spacer UNSAT",
+            witness_status("inconclusive (Unexpected Z3 output: garbage)")
+        )),
+        "{}",
+        result.report
+    );
+
+    // `sat` with a run the net cannot take: `t` is frozen by its inhibitor. The run is
+    // not believed, and the fixpoint path's own replay then withholds its VIOLATED (C4).
+    use_stub(&install_stub(
+        &root,
+        "witness-no-replay",
+        VERSION_OK,
+        &witness_stub(
+            "echo 'sat'\necho '((define-fun s0 () Int 0))'",
+            "echo 'unsat'\necho '(proof (asserted (Reachable 1 1 0)))'",
+        ),
+    ));
+    let result = verify_with_witness(
+        &frozen_net(),
+        &[("p0", 1), ("blocker", 1)],
+        SmtProperty::unreachable(vec!["p1".into()]),
+    );
+    assert!(
+        result.report.contains(&witness_status(
+            "inconclusive (the bounded run did not replay under the exact semantics)"
+        )),
+        "{}",
+        result.report
+    );
+    assert!(unknown_reason(&result).starts_with("counterexample replay found no firing chain"));
+
+    // `unsat` is no proof: the fixpoint query's certificate is what proves the bound.
+    use_stub(&install_stub(
+        &root,
+        "witness-unsat",
+        VERSION_OK,
+        r#"script=$(cat)
+case "$script" in
+  *"Bounded run (VER-019)"*)
+    echo 'unsat'
+    echo '(error "model is not available")'
+    ;;
+  *"set-logic HORN"*)
+    echo 'sat'
+    echo '(error "proof is not available")'
+    echo '(define-fun Reachable ((x!0 Int) (x!1 Int)) Bool (<= x!1 1))'
+    ;;
+  *)
+    echo 'unsat'
+    echo 'unsat'
+    echo 'unsat'
+    ;;
+esac
+"#,
+    ));
+    let result = verify_with_witness(&chain_net(), &[("p0", 1)], SmtProperty::place_bound("p1", 1));
+    assert!(
+        matches!(&result.verdict, Verdict::Proven { method, .. } if method == "IC3/PDR"),
+        "{:?}\n{}",
+        result.verdict,
+        result.report
+    );
+    assert!(
+        result.report.contains(&format!(
+            "{}Result: property proven (Spacer SAT",
+            witness_status("no run of at most 8 steps reaches a violation (not a proof)")
+        )),
+        "{}",
+        result.report
+    );
+
+    // `sat` with a run that replays is the verdict, and no HORN script is sent: the
+    // stub would answer it `unknown`.
+    use_stub(&install_stub(
+        &root,
+        "witness-sat",
+        VERSION_OK,
+        &witness_stub("echo 'sat'\necho '((define-fun s0 () Int 0) (define-fun s1 () Int 1))'", "echo 'unknown'"),
+    ));
+    let result = verify_with_witness(&chain_net(), &[("p0", 1)], SmtProperty::place_bound("p1", 0));
+    assert!(result.is_violated(), "{}", result.report);
+    assert_eq!(result.counterexample_confirmed, Some(true));
+    assert_eq!(result.counterexample_transitions, vec!["t"]);
+    assert!(
+        result.report.contains(&witness_status("a run of 1 steps reaches a violation (replayed; depth 8)")),
+        "{}",
+        result.report
+    );
+    assert!(!result.report.contains("Spacer"), "{}", result.report);
+
+    // The phase is the step `witness phase` of [VER-013]: a total budget that runs
+    // out while its query is the one running names it.
+    use_stub(&install_stub(&root, "witness-budget", VERSION_OK, "exec sleep 30\n"));
+    let result = stub_verifier(&chain_net(), &[("p0", 1)], SmtProperty::place_bound("p1", 0), 60_000)
+        .linear_bound(false)
+        .total_budget(1_500)
+        .verify();
+    assert_eq!(
+        unknown_reason(&result),
+        "total verification budget of 1500 ms exhausted during witness phase"
+    );
+    // The header keeps its one status line, with the stop's reason, as in every port.
+    assert!(
+        result.report.contains(
+            "  Bounded witness phase (VER-025):\n\
+             \x20   Status: inconclusive (total verification budget of 1500 ms exhausted during witness phase)\n"
+        ),
         "{}",
         result.report
     );

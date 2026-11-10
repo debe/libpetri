@@ -1,8 +1,8 @@
 //! `LIBPETRI_SMT_DUMP` under the pre-fixpoint phases ([VER-013], [VER-018] AC6).
 //!
-//! Every script the state-equation phase and the firing bound send is kept under its
-//! own phase name: `state-equation` and `invariant` ([VER-018]), `ranking` and `bmc`
-//! ([VER-019]). The environment variable is process-global and the dump counter
+//! Every script the state-equation phase, the firing bound and the bounded witness
+//! phase send is kept under its own phase name: `state-equation` and `invariant`
+//! ([VER-018]), `ranking` and `bmc` ([VER-019]), `witness` ([VER-025]). The environment variable is process-global and the dump counter
 //! process-wide, so this file holds exactly ONE `#[test]`: the first verification here
 //! is the first dump of the process, and its files are numbered from `001`.
 
@@ -18,6 +18,7 @@ use libpetri_core::output::{and, out_place, xor};
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::Place;
 use libpetri_core::transition::Transition;
+use libpetri_verification::environment::EnvironmentAnalysisMode;
 use libpetri_verification::marking_state::MarkingStateBuilder;
 use libpetri_verification::property::SmtProperty;
 use libpetri_verification::result::VerificationResult;
@@ -163,6 +164,26 @@ fn the_phases_dump_each_query_under_its_own_phase_name() {
     });
     assert!(result.is_proven(), "{}", result.report);
     assert_eq!(scripts, vec!["005-ranking.smt2", "006-bmc.smt2"], "{}", result.report);
+
+    // The linear bound, then the bounded witness query, which finds the run: `e` is
+    // injected, so the firing bound sends nothing, and no HORN query follows a run.
+    let (e, p1) = (Place::<i32>::new("e"), Place::<i32>::new("p1"));
+    let pair = PetriNet::builder("envBoundedPair")
+        .transition(Transition::builder("t").input(one(&e)).output(out_place(&p1)).action(fork()).build())
+        .build();
+    let (result, scripts) = dumped(&scratch.join("pair"), || {
+        SmtVerifier::for_net(&pair)
+            .environment_places(["e".to_string()])
+            .environment_mode(EnvironmentAnalysisMode::Bounded { max_tokens: 2 })
+            .property(SmtProperty::place_bound("p1", 1))
+            .state_equation_phase(false)
+            .timeout(30_000)
+            .verify()
+    });
+    assert!(result.is_violated(), "{}", result.report);
+    assert_eq!(scripts, vec!["007-bound.smt2", "008-witness.smt2"], "{}", result.report);
+    let sent = fs::read_to_string(scratch.join("pair").join("008-witness.smt2")).expect("the dumped witness script");
+    assert!(sent.starts_with("; Bounded run (VER-019): 8 steps "), "{sent}");
 
     let _ = fs::remove_dir_all(&scratch);
 }

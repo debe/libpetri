@@ -105,6 +105,8 @@ describeZ3('counterexampleTiming (VER-003) and the timed check (VER-023)', () =>
     const result = await verifier(watchdogs(1, delayed(1)), 1)
       .stateEquationPhase(false)
       .firingBound(false)
+      // The bounded witness phase (VER-025) replays the run it finds, whatever the replay option.
+      .witnessDepth(0)
       .counterexampleReplay(false)
       .timedCounterexampleCheck(true)
       .verify();
