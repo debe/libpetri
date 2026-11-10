@@ -13,7 +13,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_010.lean"]
-    n4858["Libpetri.Spec.time010_gate"]
+    n5755["Libpetri.Spec.time010_gate"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -22,21 +22,21 @@ flowchart TD
   c70["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
   c71["📁 Libpetri/Reference/Timed.lean (34 declarations, collapsed)"]
   c92["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c94["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
+  c96["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
   c53 --> c0
   c70 --> c27
   c70 --> c53
   c71 --> c65
   c71 --> c70
   c92 --> c70
-  c94 --> c71
-  c94 --> c92
-  n4858 --> c94
+  c96 --> c71
+  c96 --> c92
+  n5755 --> c96
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4858 root
-  class c0,c27,c53,c65,c70,c71,c92,c94 collapsed
+  class n5755 root
+  class c0,c27,c53,c65,c70,c71,c92,c96 collapsed
 ```
 
 Axioms used:

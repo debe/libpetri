@@ -1,4 +1,5 @@
 import Libpetri.Reference.Queue
+import Libpetri.Ring.Grow
 import Libpetri.Spec.Glossary
 
 set_option linter.missingDocs true
@@ -73,6 +74,92 @@ FIFO queue." `M'` holds at `p` the queue `base` held there, followed by the toke
 def AppendedAtTail [DecidableEq N] (base M' : QueueMarking N T) (e : List (N × T)) (p : N) :
     Prop :=
   M' p = base p ++ EmittedTo e p
+
+/-! ## Marking operations
+
+The operations of a marking that [CORE-070] names (an empty marking, adding a token, removing
+one, the count of a place) and that the precompiled token store of [CONC-022] offers by place
+id. `MarkingOps` is the one interface both requirements are stated over, so that "add at the
+tail, remove the head" has one normative form. It has two registered witnesses: `refQOps`, the
+queue marking of `RefQFire` itself, and `refRingStore`, the flat ring pool of `Libpetri.Pool`
+(`Ring/Core.lean`, `Ring/Grow.lean`). -/
+
+/-- **Remove first** (glossary: Queue order, "The oldest token is the head of the place";
+[CORE-070]): take the head of `p`'s queue. The result is the token removed, `none` when `p` is
+not marked, and the queue marking without it; every other place keeps its queue. -/
+def removeFirst [DecidableEq N] (M : QueueMarking N T) (p : N) : Option T × QueueMarking N T :=
+  (Head M p, fun q => if q = p then (M q).tail else M q)
+
+/-- **Marking operations** ([CORE-070], [CONC-022]): a token store with the operations of a
+marking. `σ` is the store's state type and `view` reads the queue each place holds, oldest
+first, so that every operation can be stated against queue order (glossary: Queue order).
+
+`ok s p` says that `s` is a well-formed store that holds a queue for `p`. A store whose places
+are fixed when the net is compiled (the ring pool, sized per place id) holds queues for those
+places only; the queue marking holds one for every place. -/
+structure MarkingOps (N T : Type) where
+  /-- The state type of the store. -/
+  σ : Type
+  /-- `s` is a well-formed store and holds a queue for the place. -/
+  ok : σ → N → Prop
+  /-- The queue each place holds, oldest token first. -/
+  view : σ → QueueMarking N T
+  /-- The empty store. -/
+  empty : σ
+  /-- Add a token to a place. -/
+  add : σ → N → T → σ
+  /-- Remove the first token of a place: the token removed, if any, and the store without it. -/
+  removeFirst : σ → N → Option T × σ
+  /-- The first token of a place, without removing it. -/
+  peek : σ → N → Option T
+  /-- The token count of a place. -/
+  count : σ → N → Nat
+
+/-- The queue marking as a store ([CORE-070]): the state is the queue marking `RefQFire`
+steps, `view` is the identity, `add` is `qAppendOne` (the deposit of one token, [EXEC-020]),
+`removeFirst` is `removeFirst`, `peek` is `Head` and `count` is `Counts`. Every place has a
+queue. -/
+def refQOps [DecidableEq N] : MarkingOps N T where
+  σ := QueueMarking N T
+  ok _ _ := True
+  view M := M
+  empty := qEmpty
+  add := qAppendOne
+  removeFirst M p := removeFirst M p
+  peek := Head
+  count M := Counts M
+
+#spec_witness refQOps
+
+/-- The empty ring pool: no place, no slot. The precompiled executor sizes one ring per place
+id when it compiles the net, so a pool over no place is the only store that holds no token and
+needs no net. -/
+def emptyPool : Pool where
+  pool _ := none
+  len := 0
+  offset _ := 0
+  head _ := 0
+  tail _ := 0
+  cnt _ := 0
+  cap _ := 0
+  nplaces := 0
+
+/-- The flat ring pool as a store ([CONC-022]): `Libpetri.Pool`, the field-for-field model of
+the precompiled backend's token pool. A place has a queue when the pool is well formed
+(`Pool.WF`) and the place id is below `nplaces`; `view` is the refinement map `Pool.proj`; `add`
+is `Pool.addLast`, which grows the ring when it is full; `removeFirst` returns `Pool.peekFirst`
+and `Pool.removeFirst`; `count` is the stored count `Pool.cnt`. -/
+def refRingStore : MarkingOps PlaceId Colour where
+  σ := Pool
+  ok s p := Pool.WF s ∧ p < s.nplaces
+  view := Pool.proj
+  empty := emptyPool
+  add := Pool.addLast
+  removeFirst s p := (s.peekFirst p, s.removeFirst p)
+  peek := Pool.peekFirst
+  count := Pool.cnt
+
+#spec_witness refRingStore
 
 /-! ## Queue firing relations -/
 
@@ -158,5 +245,33 @@ theorem refQFire_read_kept [DecidableEq N] {t : Trans N} (hw : NoInputRead t)
   refine refQFire_appendedAtTail h (fun hi => ?_) hr
   obtain ⟨s, hs, rfl⟩ := List.mem_map.mp hi
   exact hw s hs hp
+
+/-! ## Bridge lemmas: removing the first token -/
+
+/-- `removeFirst` returns the head of the place. -/
+theorem removeFirst_fst [DecidableEq N] (M : QueueMarking N T) (p : N) :
+    (removeFirst M p).1 = Head M p := rfl
+
+/-- `removeFirst` leaves the place its queue without the head. -/
+theorem removeFirst_self [DecidableEq N] (M : QueueMarking N T) (p : N) :
+    (removeFirst M p).2 p = (M p).tail := by
+  simp [removeFirst]
+
+/-- `removeFirst` leaves every other place as it is. -/
+theorem removeFirst_other [DecidableEq N] (M : QueueMarking N T) {p q : N} (h : q ≠ p) :
+    (removeFirst M p).2 q = M q := by
+  simp [removeFirst, h]
+
+/-- The token removed, followed by the queue left, is the queue before: `removeFirst` keeps the
+rest of the place in order. -/
+theorem removeFirst_order [DecidableEq N] (M : QueueMarking N T) (p : N) :
+    (removeFirst M p).1.toList ++ (removeFirst M p).2 p = M p := by
+  rw [removeFirst_fst, removeFirst_self, Head]
+  cases M p <;> rfl
+
+/-- `removeFirst` lowers the count of the place by one (none on an unmarked place). -/
+theorem removeFirst_count [DecidableEq N] (M : QueueMarking N T) (p : N) :
+    Counts (removeFirst M p).2 p = Counts M p - 1 := by
+  simp [Counts, qCount, removeFirst_self]
 
 end Libpetri.Spec

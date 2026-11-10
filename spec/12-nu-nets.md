@@ -556,6 +556,7 @@ name-colouring) eliminates it, while a same-name join still reaches its merge.
 #### NU-051: EXTENDED Coloured-Consumer Fragment
 
 **Priority:** MAY
+**Kind:** F
 
 The [NU-050] Route B name-partition quotient decides the **mint → matched-join**
 fragment exactly. An opt-in **EXTENDED** fragment mode widens that exact path to
@@ -568,20 +569,35 @@ builder (`fragmentMode` / `fragment_mode`). Both are decided solely by the
 solver-free Route B quotient; neither changes the canonical name-partition key
 format ([VER-012]), so cross-language byte compatibility is preserved.
 
-- **Coloured consumer (drain/relay).** Under EXTENDED, a transition with **no**
-  match spec MAY consume a coloured place. The analyzer admits it only as a
-  drain/relay role and only when it consumes **exactly one** coloured input at
-  count **exactly one** ([IO-001] `One` or [IO-002] `Exactly(1)`). It **relays**
-  the consumed name-symbol into each coloured output of the fired branch
-  (threading the same name), or **drains** it (dead-letters the name) on a branch
-  that produces no coloured output; a single `Xor` transition ([IO-012]) MAY relay
-  on one branch and drain on another. Because the consumed count is fixed at one,
-  the role is identified by the input place name alone — no count, no input list.
-  A consumer that consumes more than one coloured place, or consumes at any count
-  other than one (`Exactly(n≥2)`, `AtLeast`, `All`), is **rejected** to the sound
-  over-approximation: the base marking adds exactly one token per output place, so
-  re-emitting a higher input cardinality into the name layer would over-count and
-  could let a join fire by equating two distinct names (a false `Proven`).
+- **Coloured consumer (drain/relay).** Under EXTENDED, a transition with **no** match spec MAY
+  consume a coloured place. The analyzer admits it only as a drain/relay role and only when it
+  consumes **exactly one** coloured input at count **exactly one** ([IO-001] `One` or [IO-002]
+  `Exactly(1)`). *While* the fragment mode is BASE, the fragment classifier *shall* give no role
+  to a transition without a match spec that consumes a coloured place. *While* the fragment mode
+  is EXTENDED, *if* a transition without a match spec consumes exactly one coloured input, at
+  count one, has no reset, read or inhibitor arc on a coloured place, puts on each branch
+  exactly one token, and never a drained batch, into each coloured place the branch writes, and
+  on timeout writes a coloured place only by forwarding that input, *then* the fragment
+  classifier *shall* give it the coloured-consumer role of that input's place, whether or not it
+  is declared a mint. A coloured consumer **relays** the consumed name-symbol into each coloured
+  output of the fired branch (threading the same name), or **drains** it (dead-letters the name)
+  on a branch that produces no coloured output; a single `Xor` transition ([IO-012]) MAY relay
+  on one branch and drain on another. *When* a coloured consumer fires on a branch with a name
+  its coloured input holds, the name layer *shall* remove one token of that name from the input,
+  add one token of that name to each coloured output of the branch and change no other count, so
+  a branch with no coloured output drains the name. Because the consumed count is fixed at one,
+  the role is identified by the input place name alone — no count, no input list. A consumer
+  that consumes more than one coloured place, or consumes at any count other than one
+  (`Exactly(n≥2)`, `AtLeast`, `All`), is **rejected** to the sound over-approximation: the base
+  marking adds exactly one token per output place, so re-emitting a higher input cardinality
+  into the name layer would over-count and could let a join fire by equating two distinct names
+  (a false `Proven`). *While* the fragment mode is EXTENDED, the fragment classifier *shall*
+  give a transition without a match spec that consumes a coloured place no role other than the
+  coloured-consumer role of its one coloured input, and that role only when it consumes exactly
+  one coloured input, at count one, and puts on each branch exactly one token, and never a
+  drained batch, into each coloured place the branch writes. The fragment classifier *shall*
+  give the coloured-consumer role to no other transition: to none while the fragment mode is
+  BASE, to no matched transition and to no transition that consumes no coloured place.
 
 - **Relay/drain action precondition.** The coloured-consumer role is a modeling
   contract on the action, and MUST be documented as such. The action MUST thread
@@ -595,7 +611,9 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   no action write: a timeout of a coloured consumer that writes a coloured place is a
   relay only when it forwards the consumed coloured input itself. A forward of another
   input copies a name the consumer did not consume, and an `Out.Place` writes a unit
-  token with no name; either puts the net outside the fragment.
+  token with no name; either puts the net outside the fragment. *If* a transition without a
+  match spec consumes a coloured place and its timeout writes a coloured place other than by
+  forwarding that consumed input, *then* the fragment classifier *shall* give it no role.
 
 - **Carrier places (fork-threaded co-mint).** Under EXTENDED, an author MAY declare
   intermediate **carrier** places (`carrierPlaces` / `carrier_place(s)`) that carry
@@ -615,11 +633,15 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   zero or gate the coloured place while the name layer keeps the symbol, drifting
   the name layer from the base count marking. This is a deliberate soundness
   tightening applied to BASE too (rejection just falls back to the sound
-  over-approximation); it never turns a `Proven`/`Violated` into an unsound verdict.
+  over-approximation); it never turns a `Proven`/`Violated` into an unsound verdict. *If* a
+  coloured place carries a reset, read or inhibitor arc of a transition, *then* the fragment
+  classifier *shall* give that transition no role, in both BASE and EXTENDED.
 
 - **Off-key coloured input exclusion (BOTH modes).** In **both** BASE and EXTENDED,
   the analyzer rejects a net in which a matched transition consumes a coloured place
-  through an input that is **not** one of its match keys. Such an input consumes
+  through an input that is **not** one of its match keys. *If* a matched transition
+  consumes a coloured place through an input that is not one of its match keys, *then* the
+  fragment classifier *shall* give it no role, in both BASE and EXTENDED. Such an input consumes
   FIFO ([NU-020]), whatever the token's name, so the name layer cannot know which
   name leaves the place: Route B would keep the symbol and Route A would force the
   join's shared colour on it. A non-coloured non-key input (a budget or permit) is
@@ -673,6 +695,7 @@ VIOLATED when the drain is removed.
 #### NU-052: Conflict-Only Priority for the Route B Name-SCG
 
 **Priority:** MAY
+**Kind:** F
 
 The [VER-012] name-aware state-class graph (Route B) is otherwise priority- and
 timing-blind: it expands every base-enabled transition, a sound over-approximation
@@ -708,7 +731,32 @@ class when another enabled transition `H` in the same class
 - **actually fires** in this class — a name-disabled join, whose inputs carry no
   shared name, produces no name-successor and MUST NOT pre-empt a conflicting drain.
 
+*While* the mode is `CONFLICT`, the Route B graph *shall* leave a base-enabled transition `L`
+unexpanded from a class exactly when another transition `H` of the net pre-empts `L` in that
+class, and *shall* expand every other base-enabled transition of the class as under `NONE`, in
+the same order.
+
+*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` whose
+input arcs on the places both consume from have cardinality `One` or `Exactly` to compete in a
+class exactly when some place is a consumed input of both and its token count in the class
+marking is less than the sum of the tokens each of them consumes from it on one firing.
+
+*While* the mode is `CONFLICT`, the Route B graph *shall* take `H` to be ready no later than `L`
+in a class exactly when `readyEarliest[H] <= readyEarliest[L]` within a float epsilon, where
+`readyEarliest` is the DBM lower bound of each enabled clock before time is let to pass.
+
 The default mode, `NONE`, MUST reproduce the prior Route B behaviour byte-for-byte.
+
+*While* the mode is `NONE`, the Route B graph *shall* expand each base-enabled transition of a
+class, in the class's clock order (the code-point order of the transitions' names, [VER-010]
+AC1), with the successors the transition has when it is expanded alone from the same class and
+the same base layer, *shall* expand no other transition, and *shall not* read the readiness,
+in-flight state or competition of any transition.
+
+*While* the mode is `NONE`, the Route B graph *shall* give a base-enabled transition at least one
+successor labelled with its name when the base layer can fire one of its branches in the class
+and the transition will fire on the name layer (always for an ordinary or minting transition,
+with an enabling name for a join, with a resident name for a consumer).
 
 **Soundness.** The pruning removes only interleavings in which a lower-priority
 transition fires ahead of a ready, conflicting, strictly-higher-priority one —
@@ -1125,6 +1173,7 @@ it decides; on the proven quiescence cases it returns `Unknown` (Spacer).
 #### NU-055: Name Alignment
 
 **Priority:** MAY
+**Kind:** F
 
 The ν properties of [NU-040] and [VER-002] count tokens. Some contracts are about which name the
 tokens carry. A search box that shows the results of the latest query should hold one name in the
@@ -1142,11 +1191,15 @@ offer two properties that read the name layer of Route B ([NU-050], [VER-012]):
   firing out of which is of a reapable transition. Like `JoinedOrDeadLettered` ([NU-040]) it
   carries no sink clause: declared sink places ([VER-002], [VER-014]) do not weaken it.
 
+*Where* name alignment is offered, `NameAligned(S)` for a non-empty `S` *shall* hold on a class of the graph exactly when, for places `p` and `q` of `S`, the same place included, every name-symbol resident in `p` equals every name-symbol resident in `q`.
+
 `NameAligned` is a reachability-safety property and `QuiescentNameAligned` a quiescence property,
 for every rule of [VER-012] that distinguishes the two (the early stop of AC5, the prefix rule of
 AC3). The predicate compares names only for equality, so it is invariant under any permutation of
 the name-symbols. It is therefore a function of the canonical key of a class ([VER-012] AC2), and
 deciding it on the name-permutation quotient decides it on the graph.
+
+*When* the graph closes, Route B *shall* answer `Proven` for `NameAligned(S)` exactly when every class of the graph is name-aligned on `S`, and for `QuiescentNameAligned(S)` exactly when every class of the graph at which the net rests is.
 
 `S` keeps the order the caller gives. Its places compare by name, and a place listed twice counts
 once, at its first occurrence, so `NameAligned(box, list, box)` is `NameAligned(box, list)`. An
@@ -1246,6 +1299,10 @@ net rests (every firing out of it is of a reapable transition; with nothing reap
 class with no successor, Lean `Decide.quiescentAt`), is `Violated` with the shortest witness in
 the explored graph and a report line naming the truncation; otherwise the verdict is `Unknown`.
 
+*If* the graph does not close, because the build reaches the class bound, runs out of total budget or is cancelled ([VER-013]), *then* Route B *shall not* answer `Proven` for either property.
+
+*If* the graph does not close and the prefix rule finds no violation, *then* Route B *shall* answer `Unknown`.
+
 **Violated.** A counterexample is reported as every Route B counterexample is ([VER-003],
 [VER-012]): the shortest path in the name-partition graph from the initial class to a violating
 class, attributed to Route B, with `counterexampleConfirmed` absent (the trace is a path of the
@@ -1253,6 +1310,8 @@ graph, not of the flat abstract semantics) and `counterexampleTiming` set by [VE
 expands every base-enabled firing and lets a coloured consumer take any resident name, where the
 executor takes the oldest token ([EXEC-010]); a run of the net follows the trace when the executor's
 order meets the graph's choice.
+
+*If* Route B answers `Violated` for either property, *then* the class its counterexample ends at *shall* violate the property.
 
 **Soundness.** Lean `Novel/RouteB/Aligned.lean` (`routeB_untimed_nameAligned_sound`,
 `routeB_untimed_quiescentNameAligned_sound`) proves: for the **untimed, environment-free executor
@@ -1271,6 +1330,10 @@ carry the same name. The premises are:
 - every place of `S` coloured, which the refusal above enforces;
 - the conditions the classifier establishes (`InFragment`), unguarded inputs, and, for the
   quiescent form, join keys that consume at least one token (`PosKeys`).
+
+*If* the premises above hold, *then* Route B *shall* answer `Proven` for `NameAligned(S)` only if the tokens in the places of `S` all carry the same name in every marking the untimed, environment-free executor with atomic firings reaches.
+
+*If* the premises above hold, *then* Route B *shall* answer `Proven` for `QuiescentNameAligned(S)` only if the tokens in the places of `S` all carry the same name in every marking that the untimed, environment-free executor with atomic firings reaches and rests at, resting being read with the reapable set of the call ([VER-002]).
 
 The proof reads the predicate on the executor's name view (`alignedAll_view_iff`) and shows that an
 uncoloured place of `S` adds nothing to it (`alignedAll_uncoloured`), which is why that case is not

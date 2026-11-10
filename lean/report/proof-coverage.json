@@ -1192,6 +1192,36 @@
       ]
     },
     {
+      "name": "CONC_004_reference",
+      "module": "Libpetri/Spec/Req/CONC_004.lean",
+      "specIds": [
+        {
+          "id": "PERF-002",
+          "fragment": "what the O(W) enablement check returns: the presence check of a transition passes on a bitmap exactly when every needs-mask bit is set and no inhibitor-mask bit is set"
+        }
+      ]
+    },
+    {
+      "name": "conc025_matches_bitmap",
+      "module": "Libpetri/Spec/Req/CONC_025.lean",
+      "specIds": [
+        {
+          "id": "CONC-025",
+          "fragment": "on the untimed immediate synchronous fragment the marking the precompiled executor materialises after any number of cycles equals the bitmap reference executor's marking on every compiled place (marking_agreement)"
+        }
+      ]
+    },
+    {
+      "name": "CORE_010_of_EXEC",
+      "module": "Libpetri/Spec/Req/CORE_010.lean",
+      "specIds": [
+        {
+          "id": "CORE-010",
+          "fragment": "lines 1 to 5, under ruling D15: every queue firing relation that satisfies EXEC-010, EXEC-012, EXEC-013 and EXEC-020 keeps every token it neither consumed nor cleared, keeps, delivers and reads only tokens the place held, without extra copies, or deposits emitted ones"
+        }
+      ]
+    },
+    {
       "name": "CORE_034_reference",
       "module": "Libpetri/Spec/Req/CORE_034.lean",
       "specIds": [
@@ -1202,12 +1232,62 @@
       ]
     },
     {
+      "name": "CORE_070_derivation",
+      "module": "Libpetri/Spec/Req/CORE_070.lean",
+      "specIds": [
+        {
+          "id": "CORE-070",
+          "fragment": "the test derivation (create an empty marking, add 3 tokens to place P, the count is 3, remove one, the count is 2) follows from the statement for every store, from the empty marking of any net containing P, and the token removed is the first one added"
+        }
+      ]
+    },
+    {
+      "name": "CORE_070_ringStore",
+      "module": "Libpetri/Spec/Req/CORE_070.lean",
+      "specIds": [
+        {
+          "id": "CORE-070",
+          "fragment": "the second quoted sentence ('Internally, each place maps to a FIFO queue of tokens') for the precompiled backend's flat ring pool (Libpetri.Pool, refRingStore), the store CONC-022 states the same interface over: its Lean model, with the removal guarded by the count as every caller of ring_remove_first does, satisfies the whole block"
+        }
+      ]
+    },
+    {
+      "name": "core072_init_stamp",
+      "module": "Libpetri/Spec/Req/CORE_072.lean",
+      "specIds": [
+        {
+          "id": "TIME-010",
+          "fragment": "first case of the quoted sentence on being newly armed ('A transition is newly armed when it is enabled in the initial marking'): the reference initialiser TSt.init stamps every transition of the net enabled in the initial marking with the start reading now0, so its elapsed time starts at 0; TIME_010.lean leaves this case outside its step relation and CORE-072 line 2 states it"
+        }
+      ]
+    },
+    {
       "name": "EXEC_002_unique",
       "module": "Libpetri/Spec/Req/EXEC_002.lean",
       "specIds": [
         {
           "id": "EXEC-002",
           "fragment": "AC4, general path only: two ready orders that satisfy the block (a permutation of the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC) are equal on every input outside the all-immediate fast path; on the fast path they agree on the ready set and on ties of priority and stamp only (D14 open)"
+        }
+      ]
+    },
+    {
+      "name": "NU_051_routeA_consume",
+      "module": "Libpetri/Spec/Req/NU_051.lean",
+      "specIds": [
+        {
+          "id": "NU-051",
+          "fragment": "AC8, Route A half: a coloured consumer whose timeout forwards another input, or writes a unit token, into a coloured place is refused by the shipped Route A plan"
+        }
+      ]
+    },
+    {
+      "name": "denseEnable_maskCheck",
+      "module": "Libpetri/Spec/Req/PERF_042.lean",
+      "specIds": [
+        {
+          "id": "CONC-004",
+          "fragment": "the presence check (marking & needs-mask) == needs-mask AND (marking & inhibitor-mask) == 0, read word by word: on bitmaps packed into words by any injective placement of places at bits, the full-width word check denseEnable of PERF-042 passes exactly when MaskCheck passes"
         }
       ]
     },

@@ -63,7 +63,7 @@ flowchart TD
     n2518["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n4728["Libpetri.Spec.time003_construction"]
+    n5625["Libpetri.Spec.time003_construction"]
   end
   n2375 --> n2381
   n2375 --> n2383
@@ -77,11 +77,11 @@ flowchart TD
   n2387 --> n2374
   n2399 --> n2375
   n2401 --> n2374
-  n4728 --> n2399
+  n5625 --> n2399
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4728 root
+  class n5625 root
 ```
 
 ### `Libpetri.Spec.time003_construction_examples`
@@ -102,8 +102,8 @@ flowchart TD
     n2518["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n4728["Libpetri.Spec.time003_construction"]
-    n4729["Libpetri.Spec.time003_construction_examples"]
+    n5625["Libpetri.Spec.time003_construction"]
+    n5626["Libpetri.Spec.time003_construction_examples"]
   end
   n2375 --> n2381
   n2375 --> n2383
@@ -117,12 +117,12 @@ flowchart TD
   n2387 --> n2374
   n2399 --> n2375
   n2401 --> n2374
-  n4728 --> n2399
-  n4729 --> n4728
+  n5625 --> n2399
+  n5626 --> n5625
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4729 root
+  class n5626 root
 ```
 
 ### `Libpetri.Spec.time003_interval`
@@ -145,7 +145,7 @@ flowchart TD
     n2518["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n4736["Libpetri.Spec.time003_interval"]
+    n5633["Libpetri.Spec.time003_interval"]
   end
   n2381 --> n2374
   n2383 --> n2374
@@ -173,14 +173,14 @@ flowchart TD
   n2389 --> n2387
   n2389 --> n2401
   n2401 --> n2374
-  n4736 --> n2384
-  n4736 --> n2386
-  n4736 --> n2388
-  n4736 --> n2389
+  n5633 --> n2384
+  n5633 --> n2386
+  n5633 --> n2388
+  n5633 --> n2389
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4736 root
+  class n5633 root
 ```
 
 Axioms used:

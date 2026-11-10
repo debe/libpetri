@@ -22,11 +22,11 @@ flowchart TD
     n79["Libpetri.InSpec.mk"]
     n80["Libpetri.InSpec.place"]
     n2662["Libpetri.PlaceId"]
-    n5117["Libpetri.Transition"]
-    n5118["Libpetri.Transition.inhibitors"]
-    n5119["Libpetri.Transition.inputs"]
-    n5120["Libpetri.Transition.mk"]
-    n5123["Libpetri.Transition.reads"]
+    n6024["Libpetri.Transition"]
+    n6025["Libpetri.Transition.inhibitors"]
+    n6026["Libpetri.Transition.inputs"]
+    n6027["Libpetri.Transition.mk"]
+    n6030["Libpetri.Transition.reads"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -36,7 +36,7 @@ flowchart TD
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
     n34["Libpetri.DistinctInputPlaces"]
-    n5182["Libpetri.canEnable"]
+    n6089["Libpetri.canEnable"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -44,19 +44,19 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n5255["Libpetri.execOp"]
-    n5258["Libpetri.execOpsFrom"]
+    n6162["Libpetri.execOp"]
+    n6165["Libpetri.execOpsFrom"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n5116["Libpetri.TokenBag"]
-    n5139["Libpetri.addBag"]
-    n5245["Libpetri.emptyBag"]
-    n5362["Libpetri.popN"]
+    n6023["Libpetri.TokenBag"]
+    n6046["Libpetri.addBag"]
+    n6152["Libpetri.emptyBag"]
+    n6269["Libpetri.popN"]
   end
   subgraph g4["Libpetri/RetrodictExec.lean"]
-    n5184["🔒 Libpetri.canEnable_insufficient_for_totality"]
-    n5229["Libpetri.demoPool"]
-    n5447["Libpetri.tDup"]
+    n6091["🔒 Libpetri.canEnable_insufficient_for_totality"]
+    n6136["Libpetri.demoPool"]
+    n6354["Libpetri.tDup"]
   end
   subgraph g5["Libpetri/Ring/Core.lean"]
     n2669["Libpetri.Pool"]
@@ -74,7 +74,7 @@ flowchart TD
     n2789["Libpetri.Pool.tail"]
   end
   subgraph g6["Libpetri/RingArith.lean"]
-    n5405["Libpetri.ringPos"]
+    n6312["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
@@ -95,16 +95,16 @@ flowchart TD
   n27 --> n22
   n27 --> n2662
   n29 --> n28
-  n29 --> n5116
+  n29 --> n6023
   n30 --> n28
-  n30 --> n5116
+  n30 --> n6023
   n31 --> n28
   n31 --> n2669
-  n31 --> n5116
+  n31 --> n6023
   n32 --> n28
   n32 --> n2669
   n34 --> n80
-  n34 --> n5119
+  n34 --> n6026
   n74 --> n21
   n77 --> n8
   n77 --> n76
@@ -141,58 +141,58 @@ flowchart TD
   n2784 --> n2684
   n2784 --> n2713
   n2784 --> n2737
-  n2784 --> n5405
+  n2784 --> n6312
   n2789 --> n2662
   n2789 --> n2669
-  n5116 --> n21
-  n5116 --> n2662
-  n5118 --> n2662
-  n5118 --> n5117
-  n5119 --> n76
-  n5119 --> n5117
-  n5120 --> n76
-  n5120 --> n2662
-  n5120 --> n5117
-  n5123 --> n2662
-  n5123 --> n5117
-  n5139 --> n5116
-  n5182 --> n14
-  n5182 --> n77
-  n5182 --> n80
-  n5182 --> n2685
-  n5182 --> n5118
-  n5182 --> n5119
-  n5182 --> n5123
-  n5184 --> n34
-  n5184 --> n5182
-  n5184 --> n5229
-  n5184 --> n5245
-  n5184 --> n5258
-  n5184 --> n5447
-  n5229 --> n2735
-  n5245 --> n5116
-  n5255 --> n23
-  n5255 --> n24
-  n5255 --> n25
-  n5255 --> n26
-  n5255 --> n27
-  n5255 --> n29
-  n5255 --> n30
-  n5255 --> n31
-  n5255 --> n32
-  n5255 --> n5139
-  n5255 --> n5362
-  n5258 --> n5255
-  n5362 --> n2690
-  n5362 --> n2765
-  n5447 --> n13
-  n5447 --> n79
-  n5447 --> n5120
+  n6023 --> n21
+  n6023 --> n2662
+  n6025 --> n2662
+  n6025 --> n6024
+  n6026 --> n76
+  n6026 --> n6024
+  n6027 --> n76
+  n6027 --> n2662
+  n6027 --> n6024
+  n6030 --> n2662
+  n6030 --> n6024
+  n6046 --> n6023
+  n6089 --> n14
+  n6089 --> n77
+  n6089 --> n80
+  n6089 --> n2685
+  n6089 --> n6025
+  n6089 --> n6026
+  n6089 --> n6030
+  n6091 --> n34
+  n6091 --> n6089
+  n6091 --> n6136
+  n6091 --> n6152
+  n6091 --> n6165
+  n6091 --> n6354
+  n6136 --> n2735
+  n6152 --> n6023
+  n6162 --> n23
+  n6162 --> n24
+  n6162 --> n25
+  n6162 --> n26
+  n6162 --> n27
+  n6162 --> n29
+  n6162 --> n30
+  n6162 --> n31
+  n6162 --> n32
+  n6162 --> n6046
+  n6162 --> n6269
+  n6165 --> n6162
+  n6269 --> n2690
+  n6269 --> n2765
+  n6354 --> n13
+  n6354 --> n79
+  n6354 --> n6027
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5184 root
-  class n5184 locked
+  class n6091 root
+  class n6091 locked
 ```
 
 Axioms used:

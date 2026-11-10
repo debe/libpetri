@@ -65,34 +65,34 @@ flowchart TD
     n2922["Libpetri.Reference.TimedNet.timing"]
   end
   subgraph g5["Libpetri/Spec/Ears.lean"]
-    n3691["Libpetri.Spec.StepShall"]
-    n3905["Libpetri.Spec.WhileNever"]
+    n4087["Libpetri.Spec.StepShall"]
+    n4312["Libpetri.Spec.WhileNever"]
   end
   subgraph g6["Libpetri/Spec/Glossary.lean"]
-    n3187["Libpetri.Spec.CountMarking"]
-    n3279["Libpetri.Spec.Enabled"]
-    n3625["Libpetri.Spec.InhibitorArc"]
-    n3647["Libpetri.Spec.Produced"]
-    n3653["Libpetri.Spec.ReadArc"]
-    n3680["Libpetri.Spec.ResetArc"]
-    n4310["Libpetri.Spec.inPlaces"]
+    n3399["Libpetri.Spec.CountMarking"]
+    n3513["Libpetri.Spec.Enabled"]
+    n3884["Libpetri.Spec.InhibitorArc"]
+    n4024["Libpetri.Spec.Produced"]
+    n4036["Libpetri.Spec.ReadArc"]
+    n4063["Libpetri.Spec.ResetArc"]
+    n5022["Libpetri.Spec.inPlaces"]
   end
   subgraph g7["Libpetri/Spec/GlossaryTime.lean"]
-    n3025["Libpetri.Spec.ArcPlace"]
-    n3026["Libpetri.Spec.Armed"]
-    n3184["Libpetri.Spec.ClockReading"]
-    n3276["Libpetri.Spec.Elapsed"]
-    n3624["Libpetri.Spec.InNet"]
-    n3850["Libpetri.Spec.TRel"]
-    n3863["Libpetri.Spec.TimingOf"]
-    n3908["Libpetri.Spec.Writes"]
+    n3039["Libpetri.Spec.ArcPlace"]
+    n3040["Libpetri.Spec.Armed"]
+    n3391["Libpetri.Spec.ClockReading"]
+    n3505["Libpetri.Spec.Elapsed"]
+    n3883["Libpetri.Spec.InNet"]
+    n4246["Libpetri.Spec.TRel"]
+    n4260["Libpetri.Spec.TimingOf"]
+    n4316["Libpetri.Spec.Writes"]
   end
   subgraph g8["Libpetri/Spec/Req/TIME_010.lean"]
-    n3773["Libpetri.Spec.TIME_010"]
+    n4169["Libpetri.Spec.TIME_010"]
   end
   subgraph g9["Libpetri/Spec/Req/TIME_011.lean"]
-    n3784["Libpetri.Spec.TIME_011"]
-    n4891["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n4180["Libpetri.Spec.TIME_011"]
+    n5788["Libpetri.Spec.time011_elapsed_from_rearm"]
   end
   n9 --> n8
   n10 --> n8
@@ -144,66 +144,66 @@ flowchart TD
   n2922 --> n2924
   n2925 --> n1896
   n2925 --> n2924
-  n3025 --> n3625
-  n3025 --> n3653
-  n3025 --> n3680
-  n3025 --> n4310
-  n3026 --> n1900
-  n3026 --> n2915
-  n3026 --> n2918
-  n3026 --> n3279
-  n3184 --> n2917
-  n3276 --> n1900
-  n3276 --> n2918
-  n3276 --> n2925
-  n3276 --> n3184
-  n3279 --> n1991
-  n3279 --> n2925
-  n3279 --> n3187
-  n3624 --> n1900
-  n3624 --> n2856
-  n3624 --> n2921
-  n3624 --> n2925
-  n3625 --> n1897
-  n3625 --> n2925
-  n3653 --> n1901
-  n3653 --> n2925
-  n3680 --> n1902
-  n3680 --> n2925
-  n3773 --> n2384
-  n3773 --> n2909
-  n3773 --> n3025
-  n3773 --> n3026
-  n3773 --> n3276
-  n3773 --> n3624
-  n3773 --> n3691
-  n3773 --> n3850
-  n3773 --> n3863
-  n3773 --> n3905
-  n3773 --> n3908
-  n3784 --> n3026
-  n3784 --> n3184
-  n3784 --> n3624
-  n3784 --> n3691
-  n3784 --> n3850
-  n3850 --> n2907
-  n3850 --> n2911
-  n3850 --> n2919
-  n3863 --> n2922
-  n3908 --> n3647
-  n3908 --> n3680
-  n3908 --> n4310
-  n4310 --> n1881
-  n4310 --> n1898
-  n4310 --> n2925
-  n4891 --> n2908
-  n4891 --> n2910
-  n4891 --> n3773
-  n4891 --> n3784
+  n3039 --> n3884
+  n3039 --> n4036
+  n3039 --> n4063
+  n3039 --> n5022
+  n3040 --> n1900
+  n3040 --> n2915
+  n3040 --> n2918
+  n3040 --> n3513
+  n3391 --> n2917
+  n3505 --> n1900
+  n3505 --> n2918
+  n3505 --> n2925
+  n3505 --> n3391
+  n3513 --> n1991
+  n3513 --> n2925
+  n3513 --> n3399
+  n3883 --> n1900
+  n3883 --> n2856
+  n3883 --> n2921
+  n3883 --> n2925
+  n3884 --> n1897
+  n3884 --> n2925
+  n4036 --> n1901
+  n4036 --> n2925
+  n4063 --> n1902
+  n4063 --> n2925
+  n4169 --> n2384
+  n4169 --> n2909
+  n4169 --> n3039
+  n4169 --> n3040
+  n4169 --> n3505
+  n4169 --> n3883
+  n4169 --> n4087
+  n4169 --> n4246
+  n4169 --> n4260
+  n4169 --> n4312
+  n4169 --> n4316
+  n4180 --> n3040
+  n4180 --> n3391
+  n4180 --> n3883
+  n4180 --> n4087
+  n4180 --> n4246
+  n4246 --> n2907
+  n4246 --> n2911
+  n4246 --> n2919
+  n4260 --> n2922
+  n4316 --> n4024
+  n4316 --> n4063
+  n4316 --> n5022
+  n5022 --> n1881
+  n5022 --> n1898
+  n5022 --> n2925
+  n5788 --> n2908
+  n5788 --> n2910
+  n5788 --> n4169
+  n5788 --> n4180
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4891 root
+  class n5788 root
 ```
 
 ### `Libpetri.Spec.time011_no_early_fire`
@@ -213,9 +213,9 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_011.lean"]
-    n3784["Libpetri.Spec.TIME_011"]
-    n4891["Libpetri.Spec.time011_elapsed_from_rearm"]
-    n4903["Libpetri.Spec.time011_no_early_fire"]
+    n4180["Libpetri.Spec.TIME_011"]
+    n5788["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n5800["Libpetri.Spec.time011_no_early_fire"]
   end
   c0["📁 Libpetri/Basic.lean (6 declarations, collapsed)"]
   c53["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
@@ -224,27 +224,27 @@ flowchart TD
   c71["📁 Libpetri/Reference/Timed.lean (11 declarations, collapsed)"]
   c91["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
   c92["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
-  c94["📁 Libpetri/Spec/GlossaryTime.lean (9 declarations, collapsed)"]
-  c127["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
+  c96["📁 Libpetri/Spec/GlossaryTime.lean (9 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
   c53 --> c0
   c70 --> c53
   c71 --> c65
   c71 --> c70
   c92 --> c70
-  c94 --> c71
-  c94 --> c92
-  c127 --> c91
-  c127 --> c94
-  n3784 --> c91
-  n3784 --> c94
-  n4891 --> c127
-  n4891 --> n3784
-  n4903 --> n4891
+  c96 --> c71
+  c96 --> c92
+  c146 --> c91
+  c146 --> c96
+  n4180 --> c91
+  n4180 --> c96
+  n5788 --> c146
+  n5788 --> n4180
+  n5800 --> n5788
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4903 root
-  class c0,c53,c65,c70,c71,c91,c92,c94,c127 collapsed
+  class n5800 root
+  class c0,c53,c65,c70,c71,c91,c92,c96,c146 collapsed
 ```
 
 ### `Libpetri.pb_update_reenables`
@@ -260,25 +260,25 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n5354["🔒 Libpetri.pb_update_reenables"]
-    n5465["Libpetri.updateCell"]
+    n6261["🔒 Libpetri.pb_update_reenables"]
+    n6372["Libpetri.updateCell"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n5354 --> n5465
-  n5465 --> n16
-  n5465 --> n17
-  n5465 --> n18
-  n5465 --> n19
-  n5465 --> n20
+  n6261 --> n6372
+  n6372 --> n16
+  n6372 --> n17
+  n6372 --> n18
+  n6372 --> n19
+  n6372 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5354 root
-  class n5354 locked
+  class n6261 root
+  class n6261 locked
 ```
 
 Axioms used:

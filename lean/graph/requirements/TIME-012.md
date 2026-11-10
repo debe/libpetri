@@ -24,16 +24,16 @@ flowchart TD
     n77["Libpetri.InSpec.card"]
     n80["Libpetri.InSpec.place"]
     n2662["Libpetri.PlaceId"]
-    n5117["Libpetri.Transition"]
-    n5118["Libpetri.Transition.inhibitors"]
-    n5119["Libpetri.Transition.inputs"]
-    n5120["Libpetri.Transition.mk"]
-    n5123["Libpetri.Transition.reads"]
-    n5124["Libpetri.Transition.resets"]
-    n5194["Libpetri.consumeAllAt"]
-    n5246["Libpetri.enabledA"]
-    n5369["Libpetri.pre"]
-    n5424["Libpetri.specAt"]
+    n6024["Libpetri.Transition"]
+    n6025["Libpetri.Transition.inhibitors"]
+    n6026["Libpetri.Transition.inputs"]
+    n6027["Libpetri.Transition.mk"]
+    n6030["Libpetri.Transition.reads"]
+    n6031["Libpetri.Transition.resets"]
+    n6101["Libpetri.consumeAllAt"]
+    n6153["Libpetri.enabledA"]
+    n6276["Libpetri.pre"]
+    n6331["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
     n809["Libpetri.Novel.ForwardDeposit.Deposit"]
@@ -78,24 +78,24 @@ flowchart TD
   n809 --> n2662
   n837 --> n0
   n837 --> n809
-  n837 --> n5124
-  n837 --> n5194
-  n837 --> n5369
+  n837 --> n6031
+  n837 --> n6101
+  n837 --> n6276
   n2359 --> n2368
   n2373 --> n2368
-  n2373 --> n5117
+  n2373 --> n6024
   n2430 --> n2359
   n2430 --> n2373
-  n2430 --> n5246
+  n2430 --> n6153
   n2431 --> n2430
   n2431 --> n2630
   n2432 --> n2430
   n2446 --> n2555
   n2494 --> n0
-  n2494 --> n5124
-  n2494 --> n5194
-  n2494 --> n5369
-  n2546 --> n5120
+  n2494 --> n6031
+  n2494 --> n6101
+  n2494 --> n6276
+  n2546 --> n6027
   n2554 --> n2555
   n2555 --> n837
   n2555 --> n2494
@@ -109,32 +109,32 @@ flowchart TD
   n2630 --> n2359
   n2630 --> n2373
   n2630 --> n2546
-  n5118 --> n2662
-  n5118 --> n5117
-  n5119 --> n76
-  n5119 --> n5117
-  n5120 --> n76
-  n5120 --> n2662
-  n5120 --> n5117
-  n5123 --> n2662
-  n5123 --> n5117
-  n5124 --> n2662
-  n5124 --> n5117
-  n5194 --> n11
-  n5194 --> n77
-  n5194 --> n5424
-  n5246 --> n0
-  n5246 --> n14
-  n5246 --> n77
-  n5246 --> n80
-  n5246 --> n5118
-  n5246 --> n5119
-  n5246 --> n5123
-  n5369 --> n14
-  n5369 --> n77
-  n5369 --> n5424
-  n5424 --> n80
-  n5424 --> n5119
+  n6025 --> n2662
+  n6025 --> n6024
+  n6026 --> n76
+  n6026 --> n6024
+  n6027 --> n76
+  n6027 --> n2662
+  n6027 --> n6024
+  n6030 --> n2662
+  n6030 --> n6024
+  n6031 --> n2662
+  n6031 --> n6024
+  n6101 --> n11
+  n6101 --> n77
+  n6101 --> n6331
+  n6153 --> n0
+  n6153 --> n14
+  n6153 --> n77
+  n6153 --> n80
+  n6153 --> n6025
+  n6153 --> n6026
+  n6153 --> n6030
+  n6276 --> n14
+  n6276 --> n77
+  n6276 --> n6331
+  n6331 --> n80
+  n6331 --> n6026
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

@@ -94,6 +94,16 @@ transition's output spec names [CORE-035], [IO-017]." -/
 def OutputArc (t : Trans N) (p : N) : Prop :=
   ∃ o, t.out = some o ∧ p ∈ outPlaces o
 
+/-- `OutputArc t p` is decided by looking up `p` in the places of `t`'s output spec, so a
+definition can branch on it ([CORE-062], [CORE-072]). -/
+instance [DecidableEq N] (t : Trans N) (p : N) : Decidable (OutputArc t p) :=
+  match h : t.out with
+  | none => isFalse fun ⟨_, ho, _⟩ => by rw [h] at ho; cases ho
+  | some o =>
+    if hp : p ∈ outPlaces o then isTrue ⟨o, h, hp⟩
+    else isFalse fun ⟨o', ho, hp'⟩ => by
+      rw [h] at ho; cases ho; exact hp hp'
+
 /-! ## Cardinality -/
 
 /-- **Glossary: Required count.** "`requiredCount()`: the fewest tokens an input place must hold

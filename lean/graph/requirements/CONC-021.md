@@ -13,23 +13,23 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Refinement.lean"]
-    n5207["🔒 Libpetri.consume_marking_rel"]
-    n5232["🔒 Libpetri.disable_rel"]
-    n5274["🔒 Libpetri.fireConsume_rel"]
-    n5282["🔒 Libpetri.foldFire_rel"]
-    n5294["🔒 Libpetri.inputs_bag_rel"]
-    n5320["Libpetri.iterate"]
-    n5356["🔒 Libpetri.pcCycle_rel"]
-    n5358["🔒 Libpetri.pcFire_rel"]
-    n5366["🔒 Libpetri.postFire_rel"]
-    n5375["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
-    n5381["🔒 Libpetri.produceMany_rel"]
-    n5384["🔒 Libpetri.produceOne_rel"]
-    n5391["🔒 Libpetri.reads_bag_rel"]
-    n5396["🔒 Libpetri.recheck_rel"]
-    n5426["🔒 Libpetri.specAt_none"]
-    n5427["🔒 Libpetri.specAt_some_mem"]
-    n5468["🔒 Libpetri.updateEnablement_rel"]
+    n6114["🔒 Libpetri.consume_marking_rel"]
+    n6139["🔒 Libpetri.disable_rel"]
+    n6181["🔒 Libpetri.fireConsume_rel"]
+    n6189["🔒 Libpetri.foldFire_rel"]
+    n6201["🔒 Libpetri.inputs_bag_rel"]
+    n6227["Libpetri.iterate"]
+    n6263["🔒 Libpetri.pcCycle_rel"]
+    n6265["🔒 Libpetri.pcFire_rel"]
+    n6273["🔒 Libpetri.postFire_rel"]
+    n6282["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
+    n6288["🔒 Libpetri.produceMany_rel"]
+    n6291["🔒 Libpetri.produceOne_rel"]
+    n6298["🔒 Libpetri.reads_bag_rel"]
+    n6303["🔒 Libpetri.recheck_rel"]
+    n6333["🔒 Libpetri.specAt_none"]
+    n6334["🔒 Libpetri.specAt_some_mem"]
+    n6375["🔒 Libpetri.updateEnablement_rel"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -51,41 +51,41 @@ flowchart TD
   c78 --> c0
   c78 --> c81
   c79 --> c78
-  n5207 --> c74
-  n5207 --> n5426
-  n5207 --> n5427
-  n5232 --> c74
-  n5274 --> n5207
-  n5282 --> n5232
-  n5282 --> n5358
-  n5282 --> n5396
-  n5294 --> c74
-  n5294 --> n5426
-  n5294 --> n5427
-  n5356 --> n5282
-  n5356 --> n5468
-  n5358 --> n5274
-  n5358 --> n5294
-  n5358 --> n5366
-  n5358 --> n5381
-  n5358 --> n5391
-  n5366 --> c74
-  n5375 --> n5320
-  n5375 --> n5356
-  n5381 --> n5384
-  n5384 --> c74
-  n5391 --> c74
-  n5391 --> n5426
-  n5391 --> n5427
-  n5396 --> c73
-  n5426 --> c0
-  n5427 --> c0
-  n5468 --> c73
+  n6114 --> c74
+  n6114 --> n6333
+  n6114 --> n6334
+  n6139 --> c74
+  n6181 --> n6114
+  n6189 --> n6139
+  n6189 --> n6265
+  n6189 --> n6303
+  n6201 --> c74
+  n6201 --> n6333
+  n6201 --> n6334
+  n6263 --> n6189
+  n6263 --> n6375
+  n6265 --> n6181
+  n6265 --> n6201
+  n6265 --> n6273
+  n6265 --> n6288
+  n6265 --> n6298
+  n6273 --> c74
+  n6282 --> n6227
+  n6282 --> n6263
+  n6288 --> n6291
+  n6291 --> c74
+  n6298 --> c74
+  n6298 --> n6333
+  n6298 --> n6334
+  n6303 --> c73
+  n6333 --> c0
+  n6334 --> c0
+  n6375 --> c73
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5375 root
-  class n5207,n5232,n5274,n5282,n5294,n5356,n5358,n5366,n5375,n5381,n5384,n5391,n5396,n5426,n5427,n5468 locked
+  class n6282 root
+  class n6114,n6139,n6181,n6189,n6201,n6263,n6265,n6273,n6282,n6288,n6291,n6298,n6303,n6333,n6334,n6375 locked
   class c0,c1,c2,c3,c4,c73,c74,c78,c79,c81 collapsed
 ```
 

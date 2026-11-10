@@ -58,8 +58,15 @@ A place only accepts tokens whose values are compatible with the place's declare
 #### CORE-010: Token Immutability
 
 **Priority:** MUST
+**Kind:** B
 
 A token is an immutable value object consisting of a typed payload value and a creation timestamp. Once created, neither the value nor the timestamp can be modified.
+
+*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, every token a place holds after the firing *shall* be a token the place held before the firing, with the same value and creation timestamp, or a token the action emitted to that place, and the firing *shall* not duplicate any of these tokens.
+
+*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, every token that a place without a reset arc of the transition held before the firing *shall* still be in that place after the firing, with the same value and creation timestamp, unless the action received it from that place as a consumed input.
+
+*When* a transition fires, every token its action receives from one of its input places or read places *shall* be a token that place held before the firing, with the same value and creation timestamp, and the action *shall* not receive a consumed token more often than its input place held it.
 
 **Acceptance Criteria:**
 1. Token value is accessible after creation and matches the original.
@@ -102,8 +109,13 @@ A unit token is a special token with no meaningful payload value, used for pure 
 #### CORE-013: Token FIFO Ordering
 
 **Priority:** MUST
+**Kind:** B
 
 Tokens within a place are stored in FIFO (first-in, first-out) order. The oldest token is consumed first when a transition fires.
+
+*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, each place that is neither one of its input places nor one of its reset places ([CORE-034]) *shall* end the firing holding its whole queue from before the firing, in queue order, followed by the tokens the firing deposited there, in the order the action produced them ([EXEC-020]).
+
+*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, its action *shall* receive from each input place that is not a correlated input of its match specification ([NU-020]) the first tokens of the place's queue before the firing, in queue order; unless the place is also one of its reset places, the place *shall* end the firing holding the rest of that queue, in queue order, followed by the tokens the firing deposited there, in the order the action produced them ([EXEC-010], [EXEC-020]).
 
 **Acceptance Criteria:**
 1. Adding tokens A, B, C in order, then consuming one, yields A.
@@ -714,8 +726,21 @@ The transition context supports injection of external objects (e.g., tracing spa
 #### CORE-070: Marking State
 
 **Priority:** MUST
+**Kind:** F
 
 A marking represents the current distribution of tokens across all places. Internally, each place maps to a FIFO queue of tokens.
+
+A marking *shall* hold a queue of tokens for each place of its net, oldest token first, and the token count of a place *shall* be the length of its queue.
+
+An empty marking *shall* hold no token in any place.
+
+*When* a token is added to a place, the marking *shall* append it at the tail of that place's queue and leave the queue of every other place unchanged.
+
+*When* the first token of a marked place is removed, the marking *shall* return the head of that place's queue and keep the rest of that queue in order, leaving the queue of every other place unchanged.
+
+*If* the first token of a place that is not marked is removed, *then* the marking *shall* return no token and change no queue.
+
+*When* a token is added to or removed from a marking, the resulting marking *shall* still hold a queue for each place of its net.
 
 **Acceptance Criteria:**
 1. Empty marking has zero tokens in all places.
@@ -746,8 +771,17 @@ An implementation MAY additionally expose a read-only observation path that retu
 #### CORE-072: Initial Marking
 
 **Priority:** MUST
+**Kind:** B
 
 An executor can be initialized with an initial marking that pre-populates places with tokens before execution begins.
+
+*When* an executor is initialized with an initial marking, its marking *shall* hold, before execution begins, exactly the tokens the initial marking puts on each place, whether or not the net declares that place.
+
+*When* execution begins, a transition of the net *shall* be armed exactly when the initial marking enables it, with the firing clock's reading at that moment as its stamp, so that its elapsed time starts at 0 ([TIME-010]).
+
+*While* a place is an unknown place, the executor *shall* retain its tokens in the marking, in their order and ahead of any token that reaches the place later, and *shall not* drop any of them.
+
+*While* a place is an unknown place, the executor *shall not* change its tokens when the firing clock advances or when it reaps a transition ([TIME-013]).
 
 **Acceptance Criteria:**
 1. Initial marking distributes tokens to specified places.

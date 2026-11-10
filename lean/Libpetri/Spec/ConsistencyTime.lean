@@ -12,6 +12,9 @@ import Libpetri.Spec.Req.TIME_012
 import Libpetri.Spec.Req.TIME_013
 import Libpetri.Spec.Req.TIME_015
 import Libpetri.Spec.Req.EXEC_002
+import Libpetri.Spec.Req.CONC_005
+import Libpetri.Spec.Req.CONC_023
+import Libpetri.Spec.Req.CONC_024
 
 set_option linter.missingDocs true
 
@@ -31,6 +34,11 @@ read off a state of `R`; nothing more ties it to `R`, since the atomic step rela
 and no choice among ready transitions (that is the Phase 2 cycle relation). The output-port
 interfaces of IO-007, IO-015 and IO-016 are separate models, as in `spec_consistent_coreIO`. The
 witness for `R` is the timed reference step `RefTStep`.
+
+The precompiled blocks over these models are stated over the same witnesses: the timing table
+`C` of [CONC-024] is compiled through the same contract `Q` (`refTimingCompile`, built from
+`refTimingQ`), the ready order `O` satisfies [CONC-023] as well as EXEC-002, and the step
+relation `R` satisfies the dirty-set lines of [CONC-005].
 
 The clock frame is not a sentence of any TIME section. Without it a firing fused with a hidden
 delay satisfies TIME-012 (`TIME_012_gap_fireAdvancesClock`), so it is conjoined here, next to
@@ -60,37 +68,39 @@ contract whose bounds are the `Timing` accessors the TIME blocks read; and a rea
 every pass input. The witnesses are the reference firing relation, the reference timing
 contract, the reference ready order and the timed reference step, whose firings take no time on
 the firing clock, whose delays and reaps leave the marking as it is, and which covers every
-ready firing, every expired reap and every delay. -/
+ready firing, every expired reap and every delay. The same contract compiles the timing table of
+CONC-024, the same ready order satisfies CONC-023 and the same step relation CONC-005. -/
 @[evidence consistent CORE_022 CORE_030 CORE_031 CORE_032 CORE_033 CORE_034 CORE_035 CORE_036
   IO_001 IO_002 IO_003 IO_004 IO_005 IO_007 IO_010 IO_011 IO_012 IO_013 IO_014 IO_015 IO_016
   TIME_001 TIME_002 TIME_003 TIME_004 TIME_005 TIME_006 TIME_010 TIME_011 TIME_012 TIME_013
-  TIME_015 EXEC_002]
+  TIME_015 EXEC_002 CONC_005 CONC_023 CONC_024]
 theorem spec_consistent_coreIO_time {N : Type} [DecidableEq N] [ToString N] :
-    ∃ (Build : Trans N → Option String) (F T : FireRel N) (Q : TimingContract) (O : ReadyOrder)
-      (R : TRel N),
+    ∃ (Build : Trans N → Option String) (F T : FireRel N) (Q : TimingContract)
+      (C : TimingCompile) (O : ReadyOrder) (R : TRel N),
       (CORE_022 F ∧ CORE_030 F ∧ CORE_031 F ∧ CORE_032 F ∧ CORE_033 F ∧ CORE_034 F ∧
         CORE_035 F ∧ CORE_036 F ∧ IO_001 F ∧ IO_002 F ∧ IO_003 F ∧ IO_004 F ∧ IO_005 F ∧
         IO_010 F ∧ IO_011 Build F ∧ IO_012 IO_012_check Build F ∧ IO_013 Build F T ∧
         IO_014 Build T) ∧
       ((∃ K, IO_007 K) ∧ (∃ V : OutputValidator N, IO_015 V) ∧ (∃ E : BranchEnum N, IO_016 E)) ∧
-      (TIME_001 Q ∧ Q.earliest = Timing.earliest ∧ Q.latest = Timing.latest) ∧
-      EXEC_002 O ∧
+      (TIME_001 Q ∧ Q.earliest = Timing.earliest ∧ Q.latest = Timing.latest ∧ CONC_024 Q C) ∧
+      (EXEC_002 O ∧ CONC_023 O) ∧
       ProjectsTo R F ∧ FramesMarking R ∧ time012_FramesClock R ∧ Covers R ∧
       CoversReap R ∧ CoversDelay R ∧ TIME_002 R ∧ TIME_003 R ∧ TIME_004 R ∧ TIME_005 R ∧
-      TIME_006 R ∧ TIME_010 R ∧ TIME_011 R ∧ TIME_012 R ∧ TIME_013 R ∧ TIME_015 R :=
-  ⟨refBuild, RefFire, refTimeoutOutcomeFire, refTimingQ, refReadyOrder, RefTStep,
+      TIME_006 R ∧ TIME_010 R ∧ TIME_011 R ∧ TIME_012 R ∧ TIME_013 R ∧ TIME_015 R ∧
+      CONC_005 R :=
+  ⟨refBuild, RefFire, refTimeoutOutcomeFire, refTimingQ, refTimingCompile, refReadyOrder, RefTStep,
     ⟨CORE_022_reference, CORE_030_reference, CORE_031_reference, CORE_032_reference,
       CORE_033_reference, CORE_034_reference, CORE_035_reference, CORE_036_reference,
       IO_001_reference, IO_002_reference, IO_003_reference, IO_004_reference, IO_005_reference,
       IO_010_reference, IO_011_reference, IO_012_reference, IO_013_reference,
       refTimeoutOutcomeFire_eq_refTimedOutFire (N := N) ▸ IO_014_reference⟩,
     ⟨⟨_, IO_007_reference⟩, ⟨_, IO_015_reference (N := N)⟩, ⟨_, IO_016_reference (N := N)⟩⟩,
-    ⟨TIME_001_reference, rfl, rfl⟩, EXEC_002_reference,
+    ⟨TIME_001_reference, rfl, rfl, CONC_024_reference⟩, ⟨EXEC_002_reference, CONC_023_reference⟩,
     refTStep_projectsTo, refTStep_framesMarking, TIME_012_reference_framesClock,
     refTStep_covers, refTStep_coversReap, refTStep_coversDelay, TIME_002_reference,
     TIME_003_reference, TIME_004_reference, TIME_005_reference, TIME_006_reference,
     TIME_010_reference, TIME_011_reference, TIME_012_reference, TIME_013_reference,
-    TIME_015_reference⟩
+    TIME_015_reference, CONC_005_reference⟩
 
 /-- The relation that takes no step. -/
 def timeEmptyRel : TRel Nat := fun _ _ _ _ => False

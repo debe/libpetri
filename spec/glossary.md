@@ -1,11 +1,14 @@
 # Glossary: firing semantics
 
 This glossary fixes the terms the CORE and IO firing requirements, the TIME timing
-requirements and the EXEC execution requirements use, and the terms of the verifier's bounded
-runs. It is not numbered and defines no
+requirements, the EXEC execution requirements, the CONC enablement-check requirements, the ν
+verifier requirements and the verifier's bounded runs use. It is not numbered and defines no
 requirements; each entry cites the requirements that define the term. The Lean counterpart is
-`lean/Libpetri/Spec/Glossary.lean` for the firing terms and `lean/Libpetri/Spec/GlossaryTime.lean`
-for the timing terms, whose docstrings quote these entries.
+`lean/Libpetri/Spec/Glossary.lean` for the firing terms, `lean/Libpetri/Spec/GlossaryTime.lean`
+for the timing terms, `lean/Libpetri/Spec/GlossaryQueue.lean` for the execution terms,
+`lean/Libpetri/Spec/GlossaryEnable.lean` for the enablement-check terms and
+`lean/Libpetri/Spec/GlossaryNuVer.lean` for the ν verification terms, whose docstrings quote
+these entries.
 
 ---
 
@@ -238,6 +241,12 @@ The tokens of a place are kept in the order they were added. The oldest token is
 place; a firing consumes from the head, except on a correlated input of a ν-net match [EXEC-010],
 [NU-020], and reads the head [EXEC-012], and a deposit adds at the tail [EXEC-020].
 
+### Unknown place
+
+A place the net does not declare: no transition of the net has an arc on it or names it in its
+output spec. Its tokens are retained in the marking, inert, since no arc can reference them
+[CORE-072].
+
 ### Admitted completion
 
 A completion is an action that returned normally [EXEC-020]. The executor admits it when it
@@ -264,3 +273,79 @@ under `AlwaysAvailable` always. Under `Ignore` and `Arrivals` the flat net has n
 A run to a violating marking from which no single step can be dropped so that the rest still
 replays to a violating marking [VER-025]. An irredundant run need not be a shortest one. The
 bounded witness phase reports one that also ends at the first violating marking it reaches.
+
+---
+
+## Enablement check
+
+### Presence bitmap
+
+The bitmap of a marking with one bit per place, set exactly when the place is marked [CONC-004].
+
+### Word
+
+A machine word of a bitmap: it holds the bits of a run of consecutive place indices. A bitmap is
+a sequence of words, and a word past the end of a bitmap reads as zero [CONC-004], [PERF-042].
+
+### Needs-mask
+
+The bitmap of a transition with a bit set for each of its input places and read places: all of
+them must be marked [CONC-004].
+
+### Inhibitor-mask
+
+The bitmap of a transition with a bit set for each of its inhibitor places: none of them may be
+marked [CONC-004].
+
+### Presence check
+
+Phase 1 of the enablement check. It passes on a bitmap when every bit of the transition's
+needs-mask is set and no bit of its inhibitor-mask is set:
+`(marking & needs-mask) == needs-mask AND (marking & inhibitor-mask) == 0` [CONC-004],
+[CONC-008]. Reset arcs and output arcs play no part.
+
+### Cardinality check
+
+Phase 2 of the enablement check. It passes when every input place holds at least its required
+count [CONC-008], [IO-007].
+
+### Enablement check
+
+The check an executor runs to decide whether a transition is enabled: the presence check on the
+presence bitmap of the marking, then the cardinality check, then, for a transition with a match
+specification, the ν-match check [CONC-008], [NU-020].
+
+---
+
+## ν verification
+
+### Coloured place
+
+A place whose tokens carry a correlation name in the name layer of Route B: a match key of a
+matched transition [NU-020] and, under EXTENDED, also a declared carrier place [NU-051] and a
+relay target [NU-054]. Under BASE the coloured set is the match keys alone [NU-055]. The
+classifier computes the coloured set for each call.
+
+### Fragment classifier
+
+The function a ν verifier applies to each transition of a net, in the fragment mode BASE or
+EXTENDED, to give it a role in the fragment Route B decides exactly (a mint, a matched join, a
+coloured consumer or an ordinary transition), or no role, in which case the net falls back to the
+sound over-approximation [NU-050], [NU-051].
+
+### Pre-empt
+
+Under conflict-only priority, a transition H pre-empts a transition L in a class when H is
+enabled, is not L, has strictly higher priority, is ready no later than L, has no firing in
+flight, fires in the class and competes with L for a consumed input. L is then not expanded from
+the class [NU-052].
+
+### Name-aligned
+
+A list S of places is name-aligned in a marking when the places of S together hold at most one
+distinct name: any two names resident in places of S, in the same place or in two, are equal
+[NU-055].
+
+### Verdict
+
+The answer a verifier gives for a property: `Proven`, `Violated` or `Unknown` [VER-003].

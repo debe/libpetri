@@ -66,6 +66,7 @@ All writes performed by an action (output tokens, side effects) are visible to t
 #### CONC-004: Bitmap-Based Enablement Check
 
 **Priority:** MUST
+**Kind:** F
 
 The primary executor uses precomputed bitmasks for O(1) enablement checking per transition (proportional to the number of machine words needed to represent all places).
 
@@ -74,6 +75,8 @@ Each transition has precomputed masks:
 - **inhibitor-mask**: bits set for all inhibitor places (none may have tokens)
 
 Enablement check: `(marking & needs-mask) == needs-mask AND (marking & inhibitor-mask) == 0`
+
+The presence check of a transition *shall* pass on a bitmap exactly when every bit of its needs-mask is set in the bitmap and no bit of its inhibitor-mask is set.
 
 **Acceptance Criteria:**
 1. Enablement is checked via bitwise operations, not by iterating over arcs.
@@ -87,8 +90,15 @@ Enablement check: `(marking & needs-mask) == needs-mask AND (marking & inhibitor
 #### CONC-005: Dirty Set Optimization
 
 **Priority:** MUST
+**Kind:** B
 
 When tokens are added or removed from a place, only transitions affected by that place need re-evaluation. A precomputed reverse index maps each place to the set of transitions that reference it.
+
+*When* a firing or an injected token writes one of a transition's arc places, the executor *shall* re-evaluate whether the transition is enabled.
+
+The executor *shall* re-evaluate whether a transition is enabled only when a firing or an injected token writes one of its arc places, or when the transition itself fires.
+
+*If* the consumption of a firing, the deposit of a firing or an injected token writes none of a transition's arc places, *then* the transition *shall* be enabled after it exactly when it was enabled before it.
 
 The dirty set is maintained as a bitmap: when a place changes, the executor sets the bits for all affected transitions. Each cycle, only dirty transitions are re-evaluated.
 
@@ -138,6 +148,7 @@ Precomputed data includes:
 #### CONC-008: Multi-Phase Enablement
 
 **Priority:** MUST
+**Kind:** F
 
 Enablement checking is a multi-phase process:
 1. **Phase 1 — Bitmap presence check**: O(W) bitwise check against needs-mask and inhibitor-mask. Fast reject for most transitions.
@@ -145,6 +156,14 @@ Enablement checking is a multi-phase process:
 3. **Phase 3 — ν-match check**: For transitions carrying a match specification ([NU-020]), scan the correlated inputs for a name shared by all of them. This is the only per-token phase; there is no value-predicate phase (guards were removed, [IO-006]).
 
 Phases 2 and 3 are only reached if Phase 1 passes, minimizing work for most transitions.
+
+*When* a transition that builds has no match specification and has an `Exactly(n)`, `All` or `AtLeast(m)` input, and its presence check passes on the presence bitmap of the marking, its cardinality check *shall* pass exactly when every input place holds at least its required count.
+
+*When* a transition that builds has no match specification and has an `Exactly(n)`, `All` or `AtLeast(m)` input, its enablement check *shall* pass exactly when the presence check passes on the presence bitmap of the marking and the cardinality check passes.
+
+*When* a transition that builds has no match specification and no `Exactly(n)`, `All` or `AtLeast(m)` input, its enablement check *shall* pass exactly when the presence check passes on the presence bitmap of the marking.
+
+*When* a transition that builds has no match specification, its enablement check *shall* pass exactly when the transition is enabled ([CORE-022]).
 
 **Acceptance Criteria:**
 1. A transition with only One inputs and no match specification is fully checked in Phase 1.
@@ -208,8 +227,19 @@ Opcodes:
 #### CONC-022: Flat-Array Token Storage
 
 **Priority:** SHOULD
+**Kind:** F
 
 Token storage uses ring buffers indexed by place ID for O(1) access. Each place has a dedicated ring buffer that preserves FIFO ordering [CORE-013] and grows dynamically when capacity is exceeded.
+
+The precompiled executor's token storage *shall* hold a dedicated queue for each place of the net it is built for.
+
+*When* a token is added to a place the token storage holds a queue for, the token storage *shall* append it at the tail of the place's queue whatever the capacity of the place's storage, *shall* keep holding a queue for every place it held, and *shall* leave the queue of every other place unchanged.
+
+*When* the first token of a marked place the token storage holds a queue for is removed, the token storage *shall* return the head of the place's queue, keep the rest of that queue in queue order, keep holding a queue for every place it held, and leave the queue of every other place unchanged.
+
+*When* the first token of a place the token storage holds a queue for is read without removing it, the token storage *shall* return the head of the place's queue, or nothing when the place is not marked.
+
+The token storage *shall* report as the token count of a place it holds a queue for the length of the place's queue.
 
 **Acceptance Criteria:**
 1. Token access is O(1) by place ID — no hashing or map lookup.
@@ -225,8 +255,17 @@ Token storage uses ring buffers indexed by place ID for O(1) access. Each place 
 #### CONC-023: Priority-Partitioned Ready Queues
 
 **Priority:** SHOULD
+**Kind:** F
 
 Distinct priority values are sorted descending at compile time. Each priority level has its own FIFO queue. Transition selection scans priority levels in descending order and picks the first non-empty queue, giving O(L) selection where L is the number of distinct priority levels (typically 1–3).
+
+*Where* the net does not take the all-immediate fast path, the ready order *shall* be the ready transitions grouped by priority level, at most one group per priority level, with the groups in descending order of priority.
+
+*Where* the net does not take the all-immediate fast path, the ready order *shall* offer the ready transitions of one priority level in ascending order of stamp.
+
+The ready order *shall* hold every ready transition exactly once and no other transition, on the all-immediate fast path as well.
+
+The ready order *shall* offer ready transitions of one priority level with equal stamps in ascending declaration order, also when they were armed in different cycles and on the all-immediate fast path.
 
 Each transition maps to a priority index for O(1) ready-queue insertion.
 
@@ -251,6 +290,7 @@ Each transition maps to a priority index for O(1) ready-queue insertion.
 #### CONC-024: Precomputed Timing Arrays
 
 **Priority:** SHOULD
+**Kind:** F
 
 Timing constraints are precomputed into flat arrays at compile time to avoid virtual dispatch on timing types during execution:
 - `earliestNanos[]` / `earliestMillis[]` — earliest firing time per transition
@@ -260,6 +300,14 @@ Timing constraints are precomputed into flat arrays at compile time to avoid vir
 - `anyDeadlines` — global flag: true if any transition has a deadline
 
 Millisecond arrays are precomputed to avoid nanosecond-to-millisecond division on the hot path.
+
+*When* a net is precompiled, the timing arrays *shall* hold, for each transition, the `earliest()` of its timing in the array's unit and the `hasDeadline()` of its timing ([TIME-001]).
+
+*When* a net is precompiled, the timing arrays *shall* hold, for each transition whose timing's `hasDeadline()` is true, the `latest()` of its timing in the array's unit.
+
+*When* a net is precompiled, `allImmediate` *shall* be true exactly when every transition of the net has the timing `Immediate`.
+
+*When* a net is precompiled, `anyDeadlines` *shall* be true exactly when some transition of the net has a timing whose `hasDeadline()` is true.
 
 **Acceptance Criteria:**
 1. Timing arrays are populated at compile time, not computed per cycle.
@@ -274,8 +322,11 @@ Millisecond arrays are precomputed to avoid nanosecond-to-millisecond division o
 #### CONC-025: Lazy Marking Synchronization
 
 **Priority:** SHOULD
+**Kind:** B
 
 The executor maintains token state internally in ring buffers [CONC-022] and materializes a Marking object lazily — only when needed for events [EVT-014], debug inspection, or the execution result [EXEC-041]. During normal execution cycles, no Marking object is created or updated.
+
+*When* the executor materializes a Marking, it *shall* give each place the token storage holds a queue for exactly the tokens of that queue at that moment, in queue order.
 
 **Acceptance Criteria:**
 1. Normal execution cycles do not create or update a Marking object.
@@ -289,6 +340,7 @@ The executor maintains token state internally in ring buffers [CONC-022] and mat
 #### CONC-026: Optional Output Validation Skip
 
 **Priority:** MAY
+**Kind:** N
 
 The executor MAY support an opt-in builder option to skip output validation ([IO-015], [EXEC-021]) for known-correct nets. This is a performance optimization for production use where nets have been verified at development time.
 

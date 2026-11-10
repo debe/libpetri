@@ -9,8 +9,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 ## Summary
 
 - Active requirements: **227**
-- Proven in Lean (≥ 1 validated theorem fragment): **48**
-- Referenced in Lean comments only (mention without a validated theorem mapping): **58**
+- Proven in Lean (≥ 1 validated theorem fragment): **54**
+- Referenced in Lean comments only (mention without a validated theorem mapping): **78**
 - Referenced by ≥ 1 test file: java **115**, typescript **113**, rust **128**, python **73**
 - Untested anywhere (no test-file reference in any language): **93**
 
@@ -21,10 +21,10 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-001 | — | ✓ | — | — | ✓ | — |
 | CORE-002 | — | ✓ | — | — | — | — |
 | CORE-003 | — | — | — | — | — | — |
-| CORE-010 | — | — | — | — | — | — |
+| CORE-010 | `CORE_010_of_EXEC` — lines 1 to 5, under ruling D15: every queue firing relation that satisfies EXEC-010, EXEC-012, EXEC-013 and EXEC-020 keeps every token it neither consumed nor cleared, keeps, delivers and reads only tokens the place held, without extra copies, or deposits emitted ones | ✓ | — | — | — | — |
 | CORE-011 | — | ✓ | — | — | ✓ | — |
-| CORE-012 | — | — | — | — | — | — |
-| CORE-013 | — | — | — | — | ✓ | — |
+| CORE-012 | — | ✓ | — | — | — | — |
+| CORE-013 | — | ✓ | — | — | ✓ | — |
 | CORE-020 | — | — | — | — | — | — |
 | CORE-021 | — | — | — | — | ✓ | — |
 | CORE-022 | — | ✓ | — | ✓ | ✓ | — |
@@ -36,7 +36,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-035 | — | ✓ | — | — | ✓ | — |
 | CORE-036 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-037 | — | — | ✓ | ✓ | ✓ | ✓ |
-| CORE-040 | — | — | — | — | ✓ | — |
+| CORE-040 | — | ✓ | — | — | ✓ | — |
 | CORE-041 | — | — | — | — | — | — |
 | CORE-042 | — | — | ✓ | ✓ | ✓ | ✓ |
 | CORE-043 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -45,15 +45,15 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CORE-052 | — | — | — | — | — | — |
 | CORE-053 | — | — | — | — | — | — |
 | CORE-054 | — | — | — | — | — | — |
-| CORE-060 | — | — | — | — | — | — |
+| CORE-060 | — | ✓ | — | — | — | — |
 | CORE-061 | — | ✓ | — | — | — | — |
-| CORE-062 | — | — | — | — | — | — |
+| CORE-062 | — | ✓ | — | — | — | — |
 | CORE-063 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CORE-064 | — | — | — | — | — | — |
-| CORE-070 | — | ✓ | — | — | — | — |
-| CORE-071 | — | — | — | — | — | — |
+| CORE-070 | `CORE_070_derivation` — the test derivation (create an empty marking, add 3 tokens to place P, the count is 3, remove one, the count is 2) follows from the statement for every store, from the empty marking of any net containing P, and the token removed is the first one added<br>`CORE_070_ringStore` — the second quoted sentence ('Internally, each place maps to a FIFO queue of tokens') for the precompiled backend's flat ring pool (Libpetri.Pool, refRingStore), the store CONC-022 states the same interface over: its Lean model, with the removal guarded by the count as every caller of ring_remove_first does, satisfies the whole block | ✓ | — | — | — | — |
+| CORE-071 | — | ✓ | — | — | — | — |
 | CORE-072 | `unknown_place_drop` — AC3 retrodiction of divergence (d): pre-fix produce_token was the identity for places the program does not know — a token silently dropped, violating conservation; motivates the extra_marking retention fix, whose post-fix behaviour is not itself modelled | ✓ | ✓ | ✓ | ✓ | ✓ |
-| CORE-073 | — | — | ✓ | ✓ | ✓ | ✓ |
+| CORE-073 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 02-input-output-specs.md — IO
 
@@ -84,7 +84,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | TIME-004 | `time004_interval` — earliest() = after, latest() = maximum duration, hasDeadline() = false, construction 0 <= after <= maximum duration | ✓ | — | — | ✓ | — |
 | TIME-005 | `time005_construction` — AC3 and AC4: construction with latest < earliest, or earliest or latest above the maximum duration, is rejected<br>`time005_construction_examples` — AC3 and AC4 boundary cases of the window construction<br>`time005_interval` — earliest() = earliest, latest() = latest, hasDeadline() = true; Window is reapable | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-006 | `time006_graph_interval` — the interval [at, at] is the precise value used for verification and simulation (logical time)<br>`time006_interval` — earliest() = latest() = at, hasDeadline() = true, not reapable, construction 0 <= at <= maximum duration | ✓ | ✓ | ✓ | ✓ | ✓ |
-| TIME-010 | `collect_ready_general_refines` — ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md)<br>`time001_fire_after_earliest` — the earliest-bound gate of the timed reference step reads earliest() of the TIME-001 reference contract (Timing.earliest) | ✓ | — | — | ✓ | — |
+| TIME-010 | `collect_ready_general_refines` — ready-collection fragment only: readiness reads the enablement clock as the lower bound earliest <= now - clock; clock start/restart semantics and deadline enforcement are explicitly out of scope (see lean/README.md)<br>`core072_init_stamp` — first case of the quoted sentence on being newly armed ('A transition is newly armed when it is enabled in the initial marking'): the reference initialiser TSt.init stamps every transition of the net enabled in the initial marking with the start reading now0, so its elapsed time starts at 0; TIME_010.lean leaves this case outside its step relation and CORE-072 line 2 states it<br>`time001_fire_after_earliest` — the earliest-bound gate of the timed reference step reads earliest() of the TIME-001 reference contract (Timing.earliest) | ✓ | — | — | ✓ | — |
 | TIME-011 | `time011_elapsed_from_rearm` — its elapsed time shall be measured from the moment it was armed again, not from any earlier stamp: derived over two steps from TIME-011 line 2 (fresh stamp) and TIME-010 line 2 (an armed transition keeps its stamp across a delay)<br>`time011_no_early_fire` — AC1: a transition armed again must wait its full earliest bound from the moment it was armed again, for every relation satisfying TIME-010 and TIME-011 whose delay advances the clock by the delay<br>`pb_update_reenables` — a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit) | ✓ | — | — | ✓ | — |
 | TIME-012 | `fired_never_persists` — bullet 4 in the state class graph: the fired transition never keeps its clock<br>`persistence_rule` — state class graph persistence rule: a transition keeps its clock across a firing iff it was enabled before, is not the fired transition, and is enabled after the firing and in the intermediate marking M - Pre(f) (inputs consumed, resets drained); untimed abstract marking, VER-010 AC4<br>`reset_restarts` — bullet 2 / AC3 in the state class graph: a transition consuming with positive requirement or reading from a place the fired transition resets restarts its clock<br>`surplus_keeps` — bullet 3 / AC4 in the state class graph: surplus tokens keep the clock | ✓ | ✓ | ✓ | ✓ | ✓ |
 | TIME-013 | `rest_sound` — holds for any reaping rule that leaves non-reapable transitions alone<br>`time001_reap_past_latest` — the reap step of the timed reference step reads latest() of the TIME-001 reference contract (Timing.latest), strictly past latest plus the tolerance, and only for Deadline and Window<br>`bb_never_fires_after_reap` — the TIME-013 ruling, 'stays disabled': with no token mutation after a reap the transition never fires again, over every schedule, in both backends since the ruling - quiet-net control-cell fragment only<br>`bb_reaped_stays_disabled` — induction backbone for bb_never_fires_after_reap: a disabled, clean control cell is a fixed point of the shipped cycle over any schedule<br>`deadline_reap_dirty_diverges` — retrodiction of the pre-ruling precompiled re-arm: before the 2026-09-30 TIME-013 ruling the precompiled enforce_deadlines re-dirtied a reaped transition and fired it once its window reopened, the bitmap one never did, on a one-transition quiet-net control-cell model; the ruling took the bitmap side for both backends<br>`reaped_rearms_on_touch` — the TIME-013 ruling, 'until an input changes': a token change marks the reaped cell dirty and the next cycle re-enables it on the fresh clock without reaping it again - one control cell, the token change abstracted to a dirty mark and a presence bit | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -107,7 +107,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXEC-030 | — | ✓ | — | — | — | — |
 | EXEC-031 | — | — | ✓ | ✓ | ✓ | ✓ |
 | EXEC-040 | `exec040_rest_reaped_enabled` — condition 1 reads 'no transition armed', not 'no transition enabled': on the timed reference step a Window(3, 5) transition reaped at reading 10 stays enabled but not armed in every reachable state, no transition is armed and none can fire, so the literal 'no transition enabled' never holds on a run that rests there, while 'no transition armed' does; atomic Phase 1 step, no in-flight actions or environment places | ✓ | — | — | — | — |
-| EXEC-041 | — | — | ✓ | ✓ | ✓ | — |
+| EXEC-041 | — | ✓ | ✓ | ✓ | ✓ | — |
 | EXEC-042 | `quiescent_count_stop_sound` — the actions a terminal stop abandons cannot leave a QuiescentCount lower bound short unseen<br>`split_covers_executor` — the strict stop gates every step of the executor and the split net; an action in flight at the stop is abandoned, which the covering state represents as in flight<br>`split_stop_sound` — covers the executor's terminal stop, which abandons the actions in flight<br>`terminal_stop_witness` — witness that a terminal stop abandons an action in flight | ✓ | ✓ | ✓ | ✓ | ✓ |
 | EXEC-050 | — | — | — | — | — | — |
 
@@ -118,20 +118,20 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | CONC-001 | — | — | — | — | ✓ | — |
 | CONC-002 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | CONC-003 | — | — | — | — | — | — |
-| CONC-004 | — | — | — | — | — | — |
+| CONC-004 | `denseEnable_maskCheck` — the presence check (marking & needs-mask) == needs-mask AND (marking & inhibitor-mask) == 0, read word by word: on bitmaps packed into words by any injective placement of places at bits, the full-width word check denseEnable of PERF-042 passes exactly when MaskCheck passes | ✓ | — | — | — | — |
 | CONC-005 | `fireConsume_dirty_sound` — dirty-set soundness over one firing's consume phase: any state change that can flip another transition's enablement marks it dirty (canEnable reads only touched places, affected_transitions covers every toucher); bit granularity — u64 word packing and two-level summaries out of scope<br>`updateEnablement_sync` — the dirty scan restores exact enablement: after update_enablement every transition's enabled bit equals canEnable (clean bits were accurate, dirty bits recomputed) — what makes the dirty-set optimization behaviorally invisible; bit granularity | ✓ | — | — | — | — |
 | CONC-006 | — | — | — | — | — | — |
-| CONC-007 | — | — | — | — | — | — |
-| CONC-008 | — | — | — | — | — | — |
+| CONC-007 | — | ✓ | — | — | — | — |
+| CONC-008 | — | ✓ | — | — | — | — |
 | CONC-010 | — | — | — | — | — | — |
 | CONC-011 | — | — | — | — | — | — |
 | CONC-012 | — | — | — | — | — | — |
-| CONC-020 | — | — | — | ✓ | — | — |
+| CONC-020 | — | ✓ | — | ✓ | — | — |
 | CONC-021 | `precompiled_refines_bitmap_immediate` — the opcode consume program plus flat pool refine the bitmap reference: identical firing decisions and materialized markings, cycle for cycle — untimed/immediate sync fragment, actions abstracted to a pure emission function with proven-identical inputs/reads bags; u32 opcode encoding not modelled | ✓ | — | — | — | — |
-| CONC-022 | — | — | — | — | — | — |
+| CONC-022 | — | ✓ | — | — | — | — |
 | CONC-023 | `collect_ready_general_refines` — the post-fix per-priority-level drain (LevelBlocks, RQ1-RQ4) produces the same list as the reference's stable (priority DESC, enabled_at ASC) sort; queue maintenance beyond the collection phase not modelled | ✓ | ✓ | ✓ | ✓ | — |
-| CONC-024 | — | — | — | — | — | — |
-| CONC-025 | — | — | — | — | — | — |
+| CONC-024 | — | ✓ | — | — | — | — |
+| CONC-025 | `conc025_matches_bitmap` — on the untimed immediate synchronous fragment the marking the precompiled executor materialises after any number of cycles equals the bitmap reference executor's marking on every compiled place (marking_agreement) | ✓ | — | — | — | — |
 | CONC-026 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 06-environment-places.md — ENV
@@ -139,7 +139,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
 | ENV-001 | — | — | — | — | — | — |
-| ENV-002 | — | — | — | — | — | — |
+| ENV-002 | — | ✓ | — | — | — | — |
 | ENV-003 | — | ✓ | — | — | ✓ | — |
 | ENV-004 | — | ✓ | ✓ | ✓ | — | — |
 | ENV-005 | — | — | — | ✓ | ✓ | — |
@@ -148,7 +148,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | ENV-011 | — | — | — | — | ✓ | — |
 | ENV-012 | — | — | — | — | — | — |
 | ENV-013 | — | ✓ | ✓ | ✓ | ✓ | — |
-| ENV-014 | — | — | ✓ | ✓ | ✓ | ✓ |
+| ENV-014 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | ENV-015 | — | ✓ | — | — | — | — |
 | ENV-016 | — | — | — | — | — | — |
 
@@ -197,7 +197,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EVT-011 | — | — | — | — | — | — |
 | EVT-012 | — | — | — | — | — | — |
 | EVT-013 | — | ✓ | ✓ | ✓ | ✓ | — |
-| EVT-014 | — | — | ✓ | ✓ | ✓ | — |
+| EVT-014 | — | ✓ | ✓ | ✓ | ✓ | — |
 | EVT-020 | — | — | — | — | — | — |
 | EVT-021 | — | — | — | — | — | — |
 | EVT-022 | — | — | — | — | — | — |
@@ -217,8 +217,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXP-003 | — | — | — | — | — | — |
 | EXP-004 | — | — | — | — | — | — |
 | EXP-005 | — | — | — | — | — | — |
-| EXP-006 | — | — | — | — | — | — |
-| EXP-007 | — | — | — | — | — | — |
+| EXP-006 | — | ✓ | — | — | — | — |
+| EXP-007 | — | ✓ | — | — | — | — |
 | EXP-008 | — | — | — | — | — | — |
 | EXP-010 | — | — | — | — | — | — |
 | EXP-011 | — | — | — | — | — | — |
@@ -228,15 +228,15 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EXP-015 | — | — | — | — | — | — |
 | EXP-016 | — | — | ✓ | ✓ | ✓ | — |
 | EXP-017 | — | — | ✓ | ✓ | ✓ | — |
-| EXP-018 | — | — | ✓ | ✓ | ✓ | — |
+| EXP-018 | — | ✓ | ✓ | ✓ | ✓ | — |
 
 ## 10-performance.md — PERF
 
 | ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
 |----|---------------------------------|----------|------|------------|------|--------|
 | PERF-001 | — | — | — | — | — | — |
-| PERF-002 | — | — | — | — | — | — |
-| PERF-003 | — | — | — | — | — | — |
+| PERF-002 | `CONC_004_reference` — what the O(W) enablement check returns: the presence check of a transition passes on a bitmap exactly when every needs-mask bit is set and no inhibitor-mask bit is set | ✓ | — | — | — | — |
+| PERF-003 | — | ✓ | — | — | — | — |
 | PERF-004 | — | — | — | — | — | — |
 | PERF-010 | — | — | — | — | ✓ | — |
 | PERF-011 | — | — | — | — | — | — |
@@ -278,7 +278,7 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | MOD-041 | — | — | ✓ | ✓ | ✓ | — |
 | MOD-050 | — | — | — | — | — | — |
 | MOD-051 | — | — | ✓ | ✓ | ✓ | ✓ |
-| MOD-060 | — | — | ✓ | ✓ | ✓ | — |
+| MOD-060 | — | ✓ | ✓ | ✓ | ✓ | — |
 | MOD-061 | — | ✓ | ✓ | ✓ | ✓ | — |
 
 ## 12-nu-nets.md — NU
@@ -287,14 +287,14 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 |----|---------------------------------|----------|------|------------|------|--------|
 | NU-001 | — | ✓ | ✓ | — | ✓ | — |
 | NU-010 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| NU-011 | — | — | ✓ | ✓ | ✓ | ✓ |
+| NU-011 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-020 | `fire_muts_lockstep` — the eligibility gate isolates a cached place: foreign firings emit no mutation on it, the owner's consume phase is exactly one fixed-count matched consume mirrored by the matcher - consume phase modeled per place, produce/inject as mirrored adds<br>`match_cache_lockstep` — incremental match-cache lockstep: under the three-conjunct fast-path eligibility gate of init_match_caches, cache contents equal the from-scratch per-name FIFO recompute of the live ring after any sequence of modeled pool mutations - queue contents only, at one correlated input's granularity; name selection/tie-break not covered<br>`no_reset_is_necessary` — necessity of the never-reset conjunct: a reset arc drains the ring with no cache call - concrete one-sweep desync<br>`one_exactly_is_necessary` — necessity of the One/Exactly conjunct: an AtLeast(1) correlated input consumes count_matching tokens while the fixed-consume matcher pops only the minimum - concrete two-token desync<br>`sole_consumer_is_necessary` — necessity of the sole-consumer conjunct: a rival input arc consumes via ring_remove_first, a path with no cache call - concrete one-firing desync | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-021 | — | ✓ | ✓ | ✓ | ✓ | — |
 | NU-022 | `sync_matchedRemove_step` — the incremental consume (FIFO-within-name pop paired with ring_remove_matching) preserves content equality with the reference index's underlying queues - contents fragment only; AC2 selection equality remains the differential test's claim | ✓ | — | — | — | — |
 | NU-030 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-040 | — | — | ✓ | ✓ | ✓ | ✓ |
 | NU-050 | `canonicalKey_comp` — Route B symmetry quotient, soundness half: the modelled canonical_key (signature ranking by (signature, raw id), per-place sorted (rank, count) lists) is invariant under every permutation of the name symbols; the string rendering is not modelled (it is injective over a fixed coloured_order)<br>`canonicalKey_complete` — Route B symmetry quotient, completeness half: on finite live supports, equal canonical keys imply the name markings differ by a symbol permutation (N = M o sigma), so the quotient merges exactly the renaming orbits; name_successors equivariance remains a stated hypothesis | ✓ | ✓ | ✓ | ✓ | ✓ |
-| NU-051 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| NU-051 | `NU_051_routeA_consume` — AC8, Route A half: a coloured consumer whose timeout forwards another input, or writes a unit token, into a coloured place is refused by the shipped Route A plan | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-052 | `inFlight_guard_is_necessary` — retrodiction of the 2026-09-30 in-flight guard: a pruner whose earlier firing is in flight pre-empts nothing on the Java and TypeScript executors; the prune without the guard drops a firing they perform, the shipped one keeps it - untimed fragment, boolean name layer; the split demand (conflict_demand) that makes inflight:H observable is not modelled<br>`postFixPrune_agrees_with_executor` — the shipped prune condition never contradicts the executor's firing rule (immediate by construction — the condition is the executor's rule); untimed fragment, boolean name layer<br>`willFire_guard_is_necessary` — retrodiction of c23cd9e: the pre-fix conflict-only prune (no will-fire guard) drops a drain firing the executor really performs, the shipped prune does not — nu name layer abstracted to a boolean nameEnabled, untimed fragment | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-053 | `buildPlan_premisesS` — the slot bound of the plan build_plan returns reaches k only through the checker: a returned plan discharges every plan premise of coloured_simulates but ConsumeNoSelfLoop with no hypothesis about the simplex; the coloured set is taken as given, and the NU-054 join refusal is not modelled (it only refuses more)<br>`checkCover_sound` — the checked slot bound: any scaled weighting (Y, D) that the exact re-check check_cover accepts (D >= 1, Y >= 0, Y >= D on every coloured place, Y.C <= 0 on every flat row, k = floor(Y.M0 / D) within the int cap) is a scaled cover at k, whatever the untrusted simplex returned; the simplex is not modelled, and the Rust length check on Y is a shape guard outside the model (it only refuses more)<br>`vacuous_colour_layer_lp` — AC6 for the LP bound: under a scaled cover at k = 0 every coloured place is empty on every marking the flat deposit rows reach, so any sub-net keeping the rows that touch no coloured place reaches exactly the same markings - the zero-slot plan is exact; no H1, reset and consume-all places may carry weight; coloured encoder modelled, not extracted; injection-free (coloured_attempt declines under injection)<br>`covered_place_empty` — AC6, the column side, for the semiflow bound build_plan read before the LP bound: under a covering semi-positive validated law with y.M0 = 0 every positively-weighted (coloured) place is empty on every abstract reachable marking - the zero colour slots the k = 0 plan drops are identically zero (coloured_tokens_le gives the same for the LP bound)<br>`vacuous_colour_layer` — AC6 for the semiflow bound build_plan read before the LP bound (vacuous_colour_layer_lp covers the shipped bound): every flat transition consuming from or producing into a covered place is dead on the reachable set, so any sub-net keeping the untouched rows (what the zero-slot coloured encoding emits) reaches exactly the same markings - the k = 0 plan was exact; coloured encoder modelled, not extracted; injection-free fragment (vacuous_colour_layer_inj is the env-aware twin) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | NU-054 | — | ✓ | ✓ | ✓ | ✓ | ✓ |

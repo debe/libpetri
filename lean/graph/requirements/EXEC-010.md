@@ -21,17 +21,17 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n5187["🔒 Libpetri.canEnable_spec"]
-    n5198["Libpetri.consumeForFiring"]
-    n5206["🔒 Libpetri.consume_faithful"]
-    n5255["Libpetri.execOp"]
-    n5256["🔒 Libpetri.execOp_input_spec"]
-    n5257["🔒 Libpetri.execOp_pop_spec"]
-    n5258["Libpetri.execOpsFrom"]
-    n5260["🔒 Libpetri.execOpsFrom_cons"]
-    n5262["🔒 Libpetri.execOps_inputs"]
-    n5263["🔒 Libpetri.execOps_resets"]
-    n5360["Libpetri.peekReads"]
+    n6094["🔒 Libpetri.canEnable_spec"]
+    n6105["Libpetri.consumeForFiring"]
+    n6113["🔒 Libpetri.consume_faithful"]
+    n6162["Libpetri.execOp"]
+    n6163["🔒 Libpetri.execOp_input_spec"]
+    n6164["🔒 Libpetri.execOp_pop_spec"]
+    n6165["Libpetri.execOpsFrom"]
+    n6167["🔒 Libpetri.execOpsFrom_cons"]
+    n6169["🔒 Libpetri.execOps_inputs"]
+    n6170["🔒 Libpetri.execOps_resets"]
+    n6267["Libpetri.peekReads"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
@@ -50,35 +50,35 @@ flowchart TD
   n31 --> n28
   n32 --> c78
   n32 --> n28
-  n5187 --> c1
-  n5198 --> n5258
-  n5198 --> n5360
-  n5206 --> n5187
-  n5206 --> n5198
-  n5206 --> n5262
-  n5206 --> n5263
-  n5255 --> c1
-  n5255 --> n29
-  n5255 --> n30
-  n5255 --> n31
-  n5255 --> n32
-  n5256 --> n5255
-  n5256 --> n5257
-  n5257 --> n29
-  n5257 --> n30
-  n5257 --> n31
-  n5257 --> n32
-  n5258 --> n5255
-  n5260 --> n5258
-  n5262 --> n5256
-  n5262 --> n5260
-  n5263 --> n5260
-  n5360 --> c3
+  n6094 --> c1
+  n6105 --> n6165
+  n6105 --> n6267
+  n6113 --> n6094
+  n6113 --> n6105
+  n6113 --> n6169
+  n6113 --> n6170
+  n6162 --> c1
+  n6162 --> n29
+  n6162 --> n30
+  n6162 --> n31
+  n6162 --> n32
+  n6163 --> n6162
+  n6163 --> n6164
+  n6164 --> n29
+  n6164 --> n30
+  n6164 --> n31
+  n6164 --> n32
+  n6165 --> n6162
+  n6167 --> n6165
+  n6169 --> n6163
+  n6169 --> n6167
+  n6170 --> n6167
+  n6267 --> c3
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5206 root
-  class n5187,n5206,n5256,n5257,n5260,n5262,n5263 locked
+  class n6113 root
+  class n6094,n6113,n6163,n6164,n6167,n6169,n6170 locked
   class c0,c1,c3,c78,c81 collapsed
 ```
 
@@ -94,17 +94,17 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n5187["🔒 Libpetri.canEnable_spec"]
-    n5198["Libpetri.consumeForFiring"]
-    n5255["Libpetri.execOp"]
-    n5256["🔒 Libpetri.execOp_input_spec"]
-    n5257["🔒 Libpetri.execOp_pop_spec"]
-    n5258["Libpetri.execOpsFrom"]
-    n5260["🔒 Libpetri.execOpsFrom_cons"]
-    n5262["🔒 Libpetri.execOps_inputs"]
-    n5263["🔒 Libpetri.execOps_resets"]
-    n5360["Libpetri.peekReads"]
-    n5452["🔒 Libpetri.token_conservation"]
+    n6094["🔒 Libpetri.canEnable_spec"]
+    n6105["Libpetri.consumeForFiring"]
+    n6162["Libpetri.execOp"]
+    n6163["🔒 Libpetri.execOp_input_spec"]
+    n6164["🔒 Libpetri.execOp_pop_spec"]
+    n6165["Libpetri.execOpsFrom"]
+    n6167["🔒 Libpetri.execOpsFrom_cons"]
+    n6169["🔒 Libpetri.execOps_inputs"]
+    n6170["🔒 Libpetri.execOps_resets"]
+    n6267["Libpetri.peekReads"]
+    n6359["🔒 Libpetri.token_conservation"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
@@ -123,35 +123,35 @@ flowchart TD
   n31 --> n28
   n32 --> c78
   n32 --> n28
-  n5187 --> c1
-  n5198 --> n5258
-  n5198 --> n5360
-  n5255 --> c1
-  n5255 --> n29
-  n5255 --> n30
-  n5255 --> n31
-  n5255 --> n32
-  n5256 --> n5255
-  n5256 --> n5257
-  n5257 --> n29
-  n5257 --> n30
-  n5257 --> n31
-  n5257 --> n32
-  n5258 --> n5255
-  n5260 --> n5258
-  n5262 --> n5256
-  n5262 --> n5260
-  n5263 --> n5260
-  n5360 --> c3
-  n5452 --> n5187
-  n5452 --> n5198
-  n5452 --> n5262
-  n5452 --> n5263
+  n6094 --> c1
+  n6105 --> n6165
+  n6105 --> n6267
+  n6162 --> c1
+  n6162 --> n29
+  n6162 --> n30
+  n6162 --> n31
+  n6162 --> n32
+  n6163 --> n6162
+  n6163 --> n6164
+  n6164 --> n29
+  n6164 --> n30
+  n6164 --> n31
+  n6164 --> n32
+  n6165 --> n6162
+  n6167 --> n6165
+  n6169 --> n6163
+  n6169 --> n6167
+  n6170 --> n6167
+  n6267 --> c3
+  n6359 --> n6094
+  n6359 --> n6105
+  n6359 --> n6169
+  n6359 --> n6170
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5452 root
-  class n5187,n5256,n5257,n5260,n5262,n5263,n5452 locked
+  class n6359 root
+  class n6094,n6163,n6164,n6167,n6169,n6170,n6359 locked
   class c0,c1,c3,c78,c81 collapsed
 ```
 

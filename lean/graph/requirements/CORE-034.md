@@ -26,24 +26,24 @@ flowchart TD
     n78["Libpetri.InSpec.guard"]
     n80["Libpetri.InSpec.place"]
     n2662["Libpetri.PlaceId"]
-    n5117["Libpetri.Transition"]
-    n5118["Libpetri.Transition.inhibitors"]
-    n5119["Libpetri.Transition.inputs"]
-    n5120["Libpetri.Transition.mk"]
-    n5121["Libpetri.Transition.name"]
-    n5122["Libpetri.Transition.priority"]
-    n5123["Libpetri.Transition.reads"]
-    n5124["Libpetri.Transition.resets"]
-    n5145["Libpetri.alphaFireC"]
-    n5194["Libpetri.consumeAllAt"]
-    n5195["Libpetri.consumeCount"]
-    n5208["Libpetri.consumedAt"]
-    n5247["Libpetri.enabledC"]
-    n5268["Libpetri.fireA"]
-    n5334["Libpetri.matchCount"]
-    n5364["Libpetri.post"]
-    n5369["Libpetri.pre"]
-    n5424["Libpetri.specAt"]
+    n6024["Libpetri.Transition"]
+    n6025["Libpetri.Transition.inhibitors"]
+    n6026["Libpetri.Transition.inputs"]
+    n6027["Libpetri.Transition.mk"]
+    n6028["Libpetri.Transition.name"]
+    n6029["Libpetri.Transition.priority"]
+    n6030["Libpetri.Transition.reads"]
+    n6031["Libpetri.Transition.resets"]
+    n6052["Libpetri.alphaFireC"]
+    n6101["Libpetri.consumeAllAt"]
+    n6102["Libpetri.consumeCount"]
+    n6115["Libpetri.consumedAt"]
+    n6154["Libpetri.enabledC"]
+    n6175["Libpetri.fireA"]
+    n6241["Libpetri.matchCount"]
+    n6271["Libpetri.post"]
+    n6276["Libpetri.pre"]
+    n6331["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ResetArc.lean"]
     n1092["Libpetri.Novel.ResetArc.OnlyReset"]
@@ -81,71 +81,71 @@ flowchart TD
   n80 --> n76
   n80 --> n2662
   n1092 --> n80
-  n1092 --> n5118
-  n1092 --> n5119
-  n1092 --> n5123
-  n1094 --> n5145
+  n1092 --> n6025
+  n1092 --> n6026
+  n1092 --> n6030
+  n1094 --> n6052
   n1095 --> n1094
   n1097 --> n6
   n1100 --> n1092
   n1100 --> n1093
-  n1100 --> n5247
+  n1100 --> n6154
   n1101 --> n1097
   n1101 --> n1100
-  n1102 --> n5120
-  n1102 --> n5121
-  n1102 --> n5122
-  n1102 --> n5247
-  n1103 --> n5268
+  n1102 --> n6027
+  n1102 --> n6028
+  n1102 --> n6029
+  n1102 --> n6154
+  n1103 --> n6175
   n1104 --> n1103
   n1105 --> n1095
   n1105 --> n1101
   n1105 --> n1102
-  n5118 --> n2662
-  n5118 --> n5117
-  n5119 --> n76
-  n5119 --> n5117
-  n5120 --> n76
-  n5120 --> n2662
-  n5120 --> n5117
-  n5121 --> n5117
-  n5122 --> n5117
-  n5123 --> n2662
-  n5123 --> n5117
-  n5124 --> n2662
-  n5124 --> n5117
-  n5145 --> n0
-  n5145 --> n5124
-  n5145 --> n5208
-  n5194 --> n11
-  n5194 --> n77
-  n5194 --> n5424
-  n5195 --> n11
-  n5195 --> n14
-  n5195 --> n77
-  n5195 --> n5334
-  n5208 --> n5195
-  n5208 --> n5424
-  n5247 --> n14
-  n5247 --> n77
-  n5247 --> n5118
-  n5247 --> n5119
-  n5247 --> n5123
-  n5247 --> n5334
-  n5268 --> n0
-  n5268 --> n5124
-  n5268 --> n5194
-  n5268 --> n5364
-  n5268 --> n5369
-  n5334 --> n6
-  n5334 --> n78
-  n5334 --> n80
-  n5364 --> n2662
-  n5369 --> n14
-  n5369 --> n77
-  n5369 --> n5424
-  n5424 --> n80
-  n5424 --> n5119
+  n6025 --> n2662
+  n6025 --> n6024
+  n6026 --> n76
+  n6026 --> n6024
+  n6027 --> n76
+  n6027 --> n2662
+  n6027 --> n6024
+  n6028 --> n6024
+  n6029 --> n6024
+  n6030 --> n2662
+  n6030 --> n6024
+  n6031 --> n2662
+  n6031 --> n6024
+  n6052 --> n0
+  n6052 --> n6031
+  n6052 --> n6115
+  n6101 --> n11
+  n6101 --> n77
+  n6101 --> n6331
+  n6102 --> n11
+  n6102 --> n14
+  n6102 --> n77
+  n6102 --> n6241
+  n6115 --> n6102
+  n6115 --> n6331
+  n6154 --> n14
+  n6154 --> n77
+  n6154 --> n6025
+  n6154 --> n6026
+  n6154 --> n6030
+  n6154 --> n6241
+  n6175 --> n0
+  n6175 --> n6031
+  n6175 --> n6101
+  n6175 --> n6271
+  n6175 --> n6276
+  n6241 --> n6
+  n6241 --> n78
+  n6241 --> n80
+  n6271 --> n2662
+  n6276 --> n14
+  n6276 --> n77
+  n6276 --> n6331
+  n6331 --> n80
+  n6331 --> n6026
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

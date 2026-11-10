@@ -92,11 +92,22 @@ XOR output branches should be labeled to indicate the branching structure. Each 
 #### EXP-006: Cardinality Labels
 
 **Priority:** SHOULD
+**Kind:** F
 
 Multi-token arcs (Exactly(n), All, AtLeast(m)) display count notation on the arc label:
 - Exactly(n): label shows "×n" or "n"
 - All: label shows "*" or "all"
 - AtLeast(m): label shows "≥m"
+
+The export *shall* give an input arc with cardinality `One` no cardinality label.
+
+The export *shall* give an input arc with cardinality `Exactly(n)` the cardinality label `×n` or `n`.
+
+The export *shall* give an input arc with cardinality `All` the cardinality label `*` or `all`.
+
+The export *shall* give an input arc with cardinality `AtLeast(m)` the cardinality label `≥m`.
+
+The export *shall* draw the cardinality label of an input arc on the edge of the arc.
 
 **Acceptance Criteria:**
 1. Non-One cardinality is displayed on the arc.

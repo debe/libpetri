@@ -22,7 +22,7 @@ flowchart TD
     n2518["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_002.lean"]
-    n4707["Libpetri.Spec.time002_interval"]
+    n5604["Libpetri.Spec.time002_interval"]
   end
   n2381 --> n2374
   n2383 --> n2374
@@ -50,14 +50,14 @@ flowchart TD
   n2389 --> n2387
   n2389 --> n2401
   n2401 --> n2374
-  n4707 --> n2384
-  n4707 --> n2386
-  n4707 --> n2388
-  n4707 --> n2389
+  n5604 --> n2384
+  n5604 --> n2386
+  n5604 --> n2388
+  n5604 --> n2389
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4707 root
+  class n5604 root
 ```
 
 Axioms used:

@@ -160,6 +160,30 @@ assumption). -/
 def NamesDistinct (X : TimedNet N) : Prop :=
   (X.net.transitions.map (·.core.name)).Nodup
 
+/-! ## The initial state and unknown places -/
+
+/-- **Glossary: Unknown place.** "A place the net does not declare: no transition of the net has
+an arc on it or names it in its output spec. Its tokens are retained in the marking, inert,
+since no arc can reference them [CORE-072]."
+
+A net of the model is its list of transitions, and a place exists by use, so a place declared
+through a builder but touched by no arc and named by no output spec is an unknown place here too. -/
+def UnknownPlace (X : TimedNet N) (p : N) : Prop :=
+  ∀ u ∈ X.net.transitions, ¬ ArcPlace u p ∧ ¬ OutputArc u p
+
+/-- **Initialiser** ([CORE-072]): the state an executor starts from, given the timed net, the
+initial marking and the first reading of the firing clock. -/
+abbrev Init (N : Type) := TimedNet N → CountMarking N → Nat → TSt N
+
+/-- **Initial arming** (glossary: Armed, "A transition is newly armed when it is enabled in the
+initial marking"): in the state `I X m0 now0` every transition of the net is armed exactly when
+it is enabled in `m0`, and an enabled one holds as its stamp the state's own clock reading, so
+its elapsed time is 0 (`initArms_elapsed`) ([CORE-072], [TIME-010]). -/
+def InitArms (I : Init N) : Prop :=
+  ∀ X m0 now0 u, InNet X u →
+    (Armed (I X m0 now0) u ↔ Enabled u m0) ∧
+      (Enabled u m0 → (I X m0 now0).stamp u.core.name = some (ClockReading (I X m0 now0)))
+
 /-! ## Timed step relations -/
 
 /-- A timed step relation: `R X s l s'` says that in the timed net `X` the executor takes the
@@ -323,6 +347,56 @@ theorem refTStep_coversReap [DecidableEq N] : CoversReap (RefTStep (N := N)) :=
 
 theorem refTStep_coversDelay [DecidableEq N] : CoversDelay (RefTStep (N := N)) :=
   fun X s δ => ⟨_, RefTStepW.delay X s δ, rfl⟩
+
+/-! ## The reference initialiser -/
+
+/- The reference initialiser (`Reference.TSt.init`), registered as a witness model: the
+initial marking as given, the first clock reading, and a stamp equal to that reading on every
+transition of the net enabled in the initial marking. It is the start state of every `RefTStep`
+run. -/
+#spec_witness TSt.init
+
+/-- The reference initialiser holds the initial marking, on every place, declared or not. -/
+theorem init_marking (X : TimedNet N) (m0 : CountMarking N) (now0 : Nat) :
+    (TSt.init X m0 now0).m = m0 := rfl
+
+/-- The reference initialiser starts the firing clock at the given reading. -/
+theorem init_clock (X : TimedNet N) (m0 : CountMarking N) (now0 : Nat) :
+    ClockReading (TSt.init X m0 now0) = now0 := rfl
+
+/-- The reference initialiser arms exactly the transitions of the net enabled in the initial
+marking, each with the first reading as its stamp. -/
+theorem initArms_init : InitArms (TSt.init (N := N)) := by
+  intro X m0 now0 u hu
+  have hf : X.net.transitions.find? (·.core.name == u.core.name) = some u := hu
+  have hs : (TSt.init X m0 now0).stamp u.core.name =
+      if enabledNA m0 u.core then some now0 else none := by
+    simp only [TSt.init, hf]
+  refine ⟨?_, fun he => ?_⟩
+  · rw [Armed, hs]
+    by_cases he : enabledNA m0 u.core = true
+    · simp [he, Enabled, TSt.init]
+    · simp [he, Enabled, TSt.init]
+  · have he' : enabledNA m0 u.core = true := he
+    rw [hs, if_pos he']
+    rfl
+
+/-- Under `InitArms`, a transition of the net enabled in the initial marking starts with elapsed
+time 0. -/
+theorem initArms_elapsed {I : Init N} (h : InitArms I) {X : TimedNet N} {m0 : CountMarking N}
+    {now0 : Nat} {u : Trans N} (hu : InNet X u) (he : Enabled u m0) :
+    Elapsed (I X m0 now0) u = 0 := by
+  simp [Elapsed, (h X m0 now0 u hu).2 he]
+
+/-- No transition of the net has an unknown place among its arc places. -/
+theorem unknownPlace_not_arc {X : TimedNet N} {p : N} (h : UnknownPlace X p) {u : Trans N}
+    (hu : u ∈ X.net.transitions) : ¬ ArcPlace u p :=
+  (h u hu).1
+
+/-- No transition of the net names an unknown place in its output spec. -/
+theorem unknownPlace_not_output {X : TimedNet N} {p : N} (h : UnknownPlace X p) {u : Trans N}
+    (hu : u ∈ X.net.transitions) : ¬ OutputArc u p :=
+  (h u hu).2
 
 /-! ## The frames, for any policy -/
 
