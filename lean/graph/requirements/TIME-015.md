@@ -18,23 +18,23 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n5506["Libpetri.Spec.refTStepW_delay_zero"]
+    n6881["Libpetri.Spec.refTStepW_delay_zero"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
-  c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
-  c53["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c71["📁 Libpetri/Reference/Timed.lean (24 declarations, collapsed)"]
-  c53 --> c0
-  c70 --> c27
-  c70 --> c53
-  c71 --> c70
-  n5506 --> c71
+  c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Timed.lean (24 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c28
+  c78 --> c54
+  c80 --> c78
+  n6881 --> c80
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5506 root
-  class c0,c27,c53,c70,c71 collapsed
+  class n6881 root
+  class c0,c28,c54,c78,c80 collapsed
 ```
 
 ### `Libpetri.Spec.time015_ac10_coarse_jump`
@@ -44,50 +44,50 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n4245["Libpetri.Spec.TReach"]
-    n4372["Libpetri.Spec.clashT_X"]
-    n4373["Libpetri.Spec.clashT_at"]
-    n4377["Libpetri.Spec.clashT_inv"]
-    n4380["Libpetri.Spec.clashT_inv_reach"]
-    n4381["Libpetri.Spec.clashT_inv_step"]
-    n4382["Libpetri.Spec.clashT_m0"]
-    n4383["Libpetri.Spec.clashT_mem"]
-    n4385["Libpetri.Spec.clashT_s0"]
-    n4386["Libpetri.Spec.clashT_u"]
-    n5880["Libpetri.Spec.time015_ac10_coarse_jump"]
+    n4915["Libpetri.Spec.TReach"]
+    n5340["Libpetri.Spec.clashT_X"]
+    n5341["Libpetri.Spec.clashT_at"]
+    n5345["Libpetri.Spec.clashT_inv"]
+    n5348["Libpetri.Spec.clashT_inv_reach"]
+    n5349["Libpetri.Spec.clashT_inv_step"]
+    n5350["Libpetri.Spec.clashT_m0"]
+    n5351["Libpetri.Spec.clashT_mem"]
+    n5353["Libpetri.Spec.clashT_s0"]
+    n5354["Libpetri.Spec.clashT_u"]
+    n7267["Libpetri.Spec.time015_ac10_coarse_jump"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
-  c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
-  c53["📁 Libpetri/Novel/Seam/Net.lean (16 declarations, collapsed)"]
-  c65["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
-  c71["📁 Libpetri/Reference/Timed.lean (37 declarations, collapsed)"]
-  c53 --> c0
-  c70 --> c27
-  c70 --> c53
-  c71 --> c65
-  c71 --> c70
-  n4245 --> c71
-  n4372 --> c71
-  n4372 --> n4386
-  n4373 --> n4385
-  n4377 --> c71
-  n4377 --> n4382
-  n4380 --> n4245
-  n4380 --> n4381
-  n4381 --> n4377
-  n4381 --> n4383
-  n4383 --> n4372
-  n4385 --> n4372
-  n4385 --> n4382
-  n4386 --> c70
-  n5880 --> n4373
-  n5880 --> n4380
+  c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (16 declarations, collapsed)"]
+  c66["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Timed.lean (37 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c28
+  c78 --> c54
+  c80 --> c66
+  c80 --> c78
+  n4915 --> c80
+  n5340 --> c80
+  n5340 --> n5354
+  n5341 --> n5353
+  n5345 --> c80
+  n5345 --> n5350
+  n5348 --> n4915
+  n5348 --> n5349
+  n5349 --> n5345
+  n5349 --> n5351
+  n5351 --> n5340
+  n5353 --> n5340
+  n5353 --> n5350
+  n5354 --> c78
+  n7267 --> n5341
+  n7267 --> n5348
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5880 root
-  class c0,c27,c53,c65,c70,c71 collapsed
+  class n7267 root
+  class c0,c28,c54,c66,c78,c80 collapsed
 ```
 
 ### `Libpetri.Spec.time015_ac4_of_time010`
@@ -97,35 +97,35 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_015.lean"]
-    n3021["Libpetri.Spec.AfterWait"]
-    n5881["Libpetri.Spec.time015_ac4_of_time010"]
+    n3301["Libpetri.Spec.AfterWait"]
+    n7268["Libpetri.Spec.time015_ac4_of_time010"]
   end
   c0["📁 Libpetri/Basic.lean (6 declarations, collapsed)"]
-  c53["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
-  c65["📁 Libpetri/Novel/TimedScg/Timing.lean (7 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
-  c71["📁 Libpetri/Reference/Timed.lean (12 declarations, collapsed)"]
-  c91["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
-  c92["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
-  c96["📁 Libpetri/Spec/GlossaryTime.lean (10 declarations, collapsed)"]
-  c146["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
-  c53 --> c0
-  c70 --> c53
-  c71 --> c65
-  c71 --> c70
-  c92 --> c70
-  c96 --> c71
-  c96 --> c92
-  c146 --> c91
-  c146 --> c96
-  n3021 --> c71
-  n5881 --> c146
-  n5881 --> n3021
+  c54["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
+  c66["📁 Libpetri/Novel/TimedScg/Timing.lean (7 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Timed.lean (12 declarations, collapsed)"]
+  c104["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
+  c105["📁 Libpetri/Spec/Glossary.lean (8 declarations, collapsed)"]
+  c112["📁 Libpetri/Spec/GlossaryTime.lean (10 declarations, collapsed)"]
+  c171["📁 Libpetri/Spec/Req/TIME_010.lean (1 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c54
+  c80 --> c66
+  c80 --> c78
+  c105 --> c78
+  c112 --> c80
+  c112 --> c105
+  c171 --> c104
+  c171 --> c112
+  n3301 --> c80
+  n7268 --> c171
+  n7268 --> n3301
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5881 root
-  class c0,c53,c65,c70,c71,c91,c92,c96,c146 collapsed
+  class n7268 root
+  class c0,c54,c66,c78,c80,c104,c105,c112,c171 collapsed
 ```
 
 ### `Libpetri.Spec.time015_ac6_reap_strict`
@@ -135,30 +135,30 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_015.lean"]
-    n5882["Libpetri.Spec.time015_ac6_reap_strict"]
+    n7269["Libpetri.Spec.time015_ac6_reap_strict"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
-  c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
-  c53["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
-  c65["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c71["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
-  c92["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c96["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c53 --> c0
-  c70 --> c27
-  c70 --> c53
-  c71 --> c65
-  c71 --> c70
-  c92 --> c70
-  c96 --> c71
-  c96 --> c92
-  n5882 --> c96
+  c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
+  c66["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
+  c105["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
+  c112["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c28
+  c78 --> c54
+  c80 --> c66
+  c80 --> c78
+  c105 --> c78
+  c112 --> c80
+  c112 --> c105
+  n7269 --> c112
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5882 root
-  class c0,c27,c53,c65,c70,c71,c92,c96 collapsed
+  class n7269 root
+  class c0,c28,c54,c66,c78,c80,c105,c112 collapsed
 ```
 
 Axioms used:

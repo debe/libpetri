@@ -181,6 +181,7 @@ structure ShippedCheck (net : FlatNet) (envs : List PlaceId) (a0 d : AMarking) (
 /-- **[VER-015] soundness.** A weighting that passes the shipped exact re-check proves that no
 marking reachable from `M0` — environment injections included — meets the violation's
 demand. H1 is carried by the check but not used by the proof. -/
+@[evidence cites "VER-015" "a weighting that passes the exact re-check (non-negative, zero on injected places, rows non-increasing, y.d >= y.M0 + 1) proves that no marking reachable from M0, injections included, meets the demand"]
 theorem linear_bound_sound {net : FlatNet} {envs : List PlaceId} {a0 d : AMarking}
     {y : Weight} {n : Nat} (hc : ShippedCheck net envs a0 d y n) :
     ∀ a, ReachAInj net envs a0 a → ¬ Covers d a n :=

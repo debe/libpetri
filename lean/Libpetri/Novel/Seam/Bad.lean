@@ -225,6 +225,7 @@ theorem deadlockBad_eq (flat : FlatNet) (ix : PlaceIndex N) (sinks : List N)
 /-- **`DeadlockFree`'s `Bad` is exact on covered markings.** On the restriction of a named
 marking the index covers, the encoded violation holds iff the named marking is a deadlock that
 strands a token. -/
+@[evidence cites "VER-014" "the encoded DeadlockFree violation is exact on covered markings: it holds iff the named marking is a deadlock that strands a token under the declared and conditional sinks"]
 theorem deadlockBad_iff {ix : PlaceIndex N} {net : NNet N} (hA : ArcsIn ix net)
     (hD : InputsDistinct net) (sinks : List N) (cond : List (CondSinks N)) {m : N → Nat}
     (h : Covers ix m) :

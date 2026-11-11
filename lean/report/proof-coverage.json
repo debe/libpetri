@@ -202,6 +202,16 @@
       ]
     },
     {
+      "name": "vc_sound_state_equation",
+      "module": "Libpetri/Novel/Certificate.lean",
+      "specIds": [
+        {
+          "id": "VER-016",
+          "fragment": "the certificate check for the state-equation encoding: a candidate over (M, n) that passes the three verification conditions against the raw counter step from (M0, 0), with a violation that reads the marking only, proves the property for every marking reachable with injection; the composition of the shipped candidate is not modelled"
+        }
+      ]
+    },
+    {
       "name": "commoner",
       "module": "Libpetri/Novel/Commoner.lean",
       "specIds": [
@@ -378,6 +388,36 @@
         {
           "id": "VER-025",
           "fragment": "a run the replay accepts, firings and injection steps by index, is a run of the step relation StepEnv: an enabled row whose successor passes the post-caps, or an injection while its guard holds; model of replay_run"
+        }
+      ]
+    },
+    {
+      "name": "checkRankingExact_sound",
+      "module": "Libpetri/Novel/FiringBound/Ranking.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "the ranking is re-checked in exact integer arithmetic: the check accepts only a non-negative weighting whose column sum is at most -1 on every row that can fire, with the bound r·M0"
+        }
+      ]
+    },
+    {
+      "name": "not_canFire_never_enabled",
+      "module": "Libpetri/Novel/FiringBound/Ranking.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "a flat transition that inhibits a place it needs can never fire, so its column does not count for a ranking"
+        }
+      ]
+    },
+    {
+      "name": "ranking_bounds_length",
+      "module": "Libpetri/Novel/FiringBound/Ranking.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "with a ranking, no run from M0 has more than K = r·M0 firings"
         }
       ]
     },
@@ -688,6 +728,16 @@
       ]
     },
     {
+      "name": "linear_bound_sound",
+      "module": "Libpetri/Novel/LinearBound.lean",
+      "specIds": [
+        {
+          "id": "VER-015",
+          "fragment": "a weighting that passes the exact re-check (non-negative, zero on injected places, rows non-increasing, y.d >= y.M0 + 1) proves that no marking reachable from M0, injections included, meets the demand"
+        }
+      ]
+    },
+    {
       "name": "marking_ac3",
       "module": "Libpetri/Novel/ReapAware.lean",
       "specIds": [
@@ -852,6 +902,26 @@
         {
           "id": "NU-055",
           "fragment": "soundness of a Route B Proven of QuiescentNameAligned(S) for a list S of coloured places: in every executor-reachable marking at which the executor rests (ExecRests reap) the places of S together hold at most one distinct name; same scope and premises as the safety form, plus PosKeys"
+        }
+      ]
+    },
+    {
+      "name": "deadlockBad_iff",
+      "module": "Libpetri/Novel/Seam/Bad.lean",
+      "specIds": [
+        {
+          "id": "VER-014",
+          "fragment": "the encoded DeadlockFree violation is exact on covered markings: it holds iff the named marking is a deadlock that strands a token under the declared and conditional sinks"
+        }
+      ]
+    },
+    {
+      "name": "strandingExcuses_spec",
+      "module": "Libpetri/Novel/Seam/Excuses.lean",
+      "specIds": [
+        {
+          "id": "VER-014",
+          "fragment": "the conditional sink table by name: a place is excused outright iff it is a declared sink or a marker, and otherwise exactly by the resolving markers whose declarations name it"
         }
       ]
     },
@@ -1202,12 +1272,52 @@
       ]
     },
     {
+      "name": "conc021_program",
+      "module": "Libpetri/Spec/Req/CONC_021.lean",
+      "specIds": [
+        {
+          "id": "CONC-021",
+          "fragment": "AC1 and AC2's first half for the Rust model: the store after the consume phase and the delivered inputs are the compiled opcode list compileConsumeOps (input opcodes in declaration order, then the RESET tail) run start to finish; the read peek is outside the opcode list; the u32 encoding and the pc walk are not modelled"
+        }
+      ]
+    },
+    {
       "name": "conc025_matches_bitmap",
       "module": "Libpetri/Spec/Req/CONC_025.lean",
       "specIds": [
         {
           "id": "CONC-025",
           "fragment": "on the untimed immediate synchronous fragment the marking the precompiled executor materialises after any number of cycles equals the bitmap reference executor's marking on every compiled place (marking_agreement)"
+        }
+      ]
+    },
+    {
+      "name": "CORE_003_engine_unchecked",
+      "module": "Libpetri/Spec/Req/CORE_003.lean",
+      "specIds": [
+        {
+          "id": "CORE-003",
+          "fragment": "The engine does not check the type of a token it deposits or a host adds: the net's author and the host keep an action's outputs, a forwarded token ([IO-014]) and an injected token compatible with their places."
+        }
+      ]
+    },
+    {
+      "name": "CORE_003_unit_compatible",
+      "module": "Libpetri/Spec/Req/CORE_003.lean",
+      "specIds": [
+        {
+          "id": "CORE-003",
+          "fragment": "A token without a value, the unit token ([CORE-012]), is compatible with every place."
+        }
+      ]
+    },
+    {
+      "name": "core003_lines123_of_CORE_010",
+      "module": "Libpetri/Spec/Req/CORE_003.lean",
+      "specIds": [
+        {
+          "id": "CORE-003",
+          "fragment": "the first two EARS sentences, under ruling D15: every queue firing relation that satisfies CORE-010 keeps a compatible marking compatible under compatible deposits and delivers only compatible tokens, at every declared typing"
         }
       ]
     },
@@ -1228,6 +1338,46 @@
         {
           "id": "EXEC-013",
           "fragment": "AC1 and AC2 on token counts: a firing leaves a reset place holding exactly its deposit (all tokens removed), and a reset arc never affects whether its transition can fire, so an unmarked reset place is no error; the queue-level drain is EXEC_013_reference"
+        }
+      ]
+    },
+    {
+      "name": "core037_deadInhibitor_never_blocks",
+      "module": "Libpetri/Spec/Req/CORE_037.lean",
+      "specIds": [
+        {
+          "id": "CORE-037",
+          "fragment": "a dead inhibitor never blocks"
+        }
+      ]
+    },
+    {
+      "name": "core037_deadRead_never_enabled",
+      "module": "Libpetri/Spec/Req/CORE_037.lean",
+      "specIds": [
+        {
+          "id": "CORE-037",
+          "fragment": "a dead read arc means its transition can never be enabled"
+        }
+      ]
+    },
+    {
+      "name": "core037_deadReset_clears_nothing",
+      "module": "Libpetri/Spec/Req/CORE_037.lean",
+      "specIds": [
+        {
+          "id": "CORE-037",
+          "fragment": "a dead reset clears nothing"
+        }
+      ]
+    },
+    {
+      "name": "core037_dead_stays_empty",
+      "module": "Libpetri/Spec/Req/CORE_037.lean",
+      "specIds": [
+        {
+          "id": "CORE-037",
+          "fragment": "No firing ever puts a token on such a place: on the reference firing semantics a place no transition consumes from or produces into, empty in the initial marking, is empty in every reachable marking"
         }
       ]
     },
@@ -1278,6 +1428,116 @@
         {
           "id": "NU-051",
           "fragment": "AC8, Route A half: a coloured consumer whose timeout forwards another input, or writes a unit token, into a coloured place is refused by the shipped Route A plan"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_ac6",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC6: a slot-bound optimum below one yields the plan with k = 0: on the exactly(3) fork from one budget token every colour-slot bound that meets NU-053 answers 0"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_ac8",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC8: with a fork that consumes exactly(3) budget tokens into the two keys, a join that refunds one, and a budget of 7, the optimum is 14/3 and every colour-slot bound that meets NU-053 answers k = 4"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_ac9_reset",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC9: a reset or consume-all arc on an uncoloured place does not refuse the plan by itself: on mint: budget -> a, b, join: a, b -> budget and cancel: r -> r2 with a reset arc on budget, from {budget: 2, r: 1}, every colour-slot bound that meets NU-053 answers k = 4"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_answers_least",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "k is the floor of the optimum and is set: on a flat net small enough that the normative solve reaches no limit, a colour-slot bound that meets NU-053 answers the least certified k whenever it is within 2^31 - 1"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_infeasible",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "when no weighting exists (the program is infeasible) the plan is refused (AC4, AC5): a colour-slot bound certified by a covering weighting answers nothing when no scaled cover exists at any k; the fallback itself is the pipeline's"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_le_semiflow",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC8: k is never larger than the bound of any covering non-negative P-semiflow: an integer covering weighting with y.M0 <= m is a scaled cover at m, so a bound that no cover undercuts is at most m"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_otherRefund",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC4: a refund to a non-minting place keeps the minting budget a covering weighting, so it stays bounded: every colour-slot bound that meets NU-053 answers k = 1 on mint: budget -> a, relay: a -> a2, r from one budget token"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_relayRefund",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC4: a relay that refunds and frees a budget token for a (k+1)-th colour leaves the slot-bound program infeasible, so every colour-slot bound that meets NU-053 builds no plan"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_tokens_le",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "every reachable marking has the coloured token sum at most y.M0, so at most k live colours: under a bound that meets NU-053 line 1, every marking the flat deposit rows reach holds at most k tokens on the coloured places"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_unique",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "the optimum is unique, so every implementation computes the same k (AC8): two colour-slot bounds that are certified by a covering weighting and undercut by none agree wherever both answer"
+        }
+      ]
+    },
+    {
+      "name": "NU_053_zero_exact",
+      "module": "Libpetri/Spec/Req/NU_053.lean",
+      "specIds": [
+        {
+          "id": "NU-053",
+          "fragment": "AC6: a bound of k = 0 from a bound that meets NU-053 line 1 gives the exact zero-slot plan: any sub-net keeping the rows that touch no coloured place reaches exactly the markings the full flat net reaches"
         }
       ]
     },
@@ -1486,6 +1746,156 @@
         {
           "id": "TIME-015",
           "fragment": "AC6: with deadline tolerance 0 a Deadline transition is reaped when its elapsed time is strictly greater than its bound, and not when it is exactly its bound (the reap test of TIME-013)"
+        }
+      ]
+    },
+    {
+      "name": "VER_001_covers",
+      "module": "Libpetri/Spec/Req/VER_001.lean",
+      "specIds": [
+        {
+          "id": "VER-001",
+          "fragment": "inert undeclared places: the place index of the verified net covers the initial marking, the Covers premise of Seam.postfix_deadlock_sound that a net losing its stray token fails"
+        }
+      ]
+    },
+    {
+      "name": "VER_001_no_inert",
+      "module": "Libpetri/Spec/Req/VER_001.lean",
+      "specIds": [
+        {
+          "id": "VER-001",
+          "fragment": "a net whose initial marking marks only declared places is unaffected: the verified net is the net itself"
+        }
+      ]
+    },
+    {
+      "name": "VER_001_rows_are_outcomes",
+      "module": "Libpetri/Spec/Req/VER_001.lean",
+      "specIds": [
+        {
+          "id": "VER-001",
+          "fragment": "the virtual transitions of a transition without a drained forward are exactly the ways a reference firing from any marking can end: every action outcome and the timeout outcome (IO-013 AC5, IO-014) deposit the same per place as some row, and every row is the deposit of one outcome"
+        }
+      ]
+    },
+    {
+      "name": "VER_002_encoding",
+      "module": "Libpetri/Spec/Req/VER_002.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "AC7, flat encoder side: on a marking the place index covers, the encoded Bad of PlaceBound, pairwise MutualExclusion and a non-empty resolved Unreachable holds exactly when the reference violation reading does (Seam.placeBoundBad_iff, pairMarkedBad_iff, allMarkedBad_iff)"
+        }
+      ]
+    },
+    {
+      "name": "refPInv_sound",
+      "module": "Libpetri/Spec/Req/VER_005.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "AC1 and AC2: whatever candidates the null-space elimination returns, the exact gate (H1, a zero incidence column, zero weight on every injected place, the constant recomputed as y.M0) reports only nonzero vectors zero on every column and conserved on every marking reachable over the deposit rows with injection"
+        }
+      ]
+    },
+    {
+      "name": "ver005_conserves_env",
+      "module": "Libpetri/Spec/Req/VER_005.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "the injector column of each environment place: a vector conserved on every marking reachable with injection has zero weight on every injected place, so the injector columns are implied by line 2"
+        }
+      ]
+    },
+    {
+      "name": "ver005_units_complete",
+      "module": "Libpetri/Spec/Req/VER_005.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "the test derivation: on a net with a transition and without reset, All or AtLeast arcs, every 0/1 conservation law whose vector is zero on every column of the matrix, injector columns included, is among the laws the reference computation reports"
+        }
+      ]
+    },
+    {
+      "name": "VER_007_preserves_reach",
+      "module": "Libpetri/Spec/Req/VER_007.lean",
+      "specIds": [
+        {
+          "id": "VER-007",
+          "fragment": "AC6 and the pure-strengthening sentence: for every encoding that meets the VER-007 block, under off, on and auto, the strengthened relation over deposit rows (every handed law conjoined, injection rules carrying none) reaches exactly the abstract reachable set ReachADInj, so a genuine violation stays Violated; encoder modelled, not extracted"
+        }
+      ]
+    },
+    {
+      "name": "VER_014_encoding",
+      "module": "Libpetri/Spec/Req/VER_014.lean",
+      "specIds": [
+        {
+          "id": "VER-014",
+          "fragment": "Encoding: on a marking the place index covers, the flat encoder's DeadlockFree Bad, one stranded disjunct per excused place conjoined with its markers unmarked, holds exactly when refRestViol's DeadlockFree does at plain quiescence (no reaping, no injection)"
+        }
+      ]
+    },
+    {
+      "name": "VER_015_env_zero",
+      "module": "Libpetri/Spec/Req/VER_015.lean",
+      "specIds": [
+        {
+          "id": "VER-015",
+          "fragment": "y_p = 0 on every injected environment place (H3'): without it the bound proves a property injection violates"
+        }
+      ]
+    },
+    {
+      "name": "VER_015_h1_unused",
+      "module": "Libpetri/Spec/Req/VER_015.lean",
+      "specIds": [
+        {
+          "id": "VER-015",
+          "fragment": "y_p = 0 on every consume-all / reset place (H1): carried by the check, not needed for the soundness of a decreasing law"
+        }
+      ]
+    },
+    {
+      "name": "VER_015_sound",
+      "module": "Libpetri/Spec/Req/VER_015.lean",
+      "specIds": [
+        {
+          "id": "VER-015",
+          "fragment": "if y·d > y·M0 for some such y, no reachable marking meets the demand and the property is proven structurally; a pairwise MutualExclusion is proven when every pair's demand is separated"
+        }
+      ]
+    },
+    {
+      "name": "VER_016_certificate",
+      "module": "Libpetri/Spec/Req/VER_016.lean",
+      "specIds": [
+        {
+          "id": "VER-016",
+          "fragment": "AC3: a certificate over (M, n) passing init, consecution and safety against the raw counter step relation StepCntRel from (a0, 0), with a violation that reads the marking only, proves the property for every marking of ReachAInj; the composition of the candidate is not covered"
+        }
+      ]
+    },
+    {
+      "name": "VER_020_commoner",
+      "module": "Libpetri/Spec/Req/VER_020.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "AC2: on an ordinary net, a check that answers no potential deadlock (every minimal siphon's maximal trap marked initially, at least one transition) rules out every dead marking reachable in the untimed net"
+        }
+      ]
+    },
+    {
+      "name": "VER_020_finds_ac4",
+      "module": "Libpetri/Spec/Req/VER_020.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "AC4: every conforming siphon search returns, on the ring with minimal siphon {x, y} and on the padding witness with minimal siphon {a, b}, a list holding that siphon"
         }
       ]
     },

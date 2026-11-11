@@ -13,47 +13,47 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_010.lean"]
-    n3164["Libpetri.Spec.CORE_010"]
-    n3183["Libpetri.Spec.CORE_010_of_EXEC"]
+    n3496["Libpetri.Spec.CORE_010"]
+    n3515["Libpetri.Spec.CORE_010_of_EXEC"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
-  c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
-  c53["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
-  c69["📁 Libpetri/Reference/Queue.lean (7 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Semantics.lean (15 declarations, collapsed)"]
-  c91["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
-  c92["📁 Libpetri/Spec/Glossary.lean (12 declarations, collapsed)"]
-  c95["📁 Libpetri/Spec/GlossaryQueue.lean (8 declarations, collapsed)"]
-  c117["📁 Libpetri/Spec/Req/EXEC_010.lean (1 declarations, collapsed)"]
-  c118["📁 Libpetri/Spec/Req/EXEC_012.lean (1 declarations, collapsed)"]
-  c119["📁 Libpetri/Spec/Req/EXEC_013.lean (1 declarations, collapsed)"]
-  c120["📁 Libpetri/Spec/Req/EXEC_020.lean (1 declarations, collapsed)"]
-  c53 --> c0
-  c69 --> c70
-  c70 --> c27
-  c70 --> c53
-  c92 --> c70
-  c95 --> c69
-  c95 --> c92
-  c117 --> c91
-  c117 --> c95
-  c118 --> c91
-  c118 --> c95
-  c119 --> c91
-  c119 --> c95
-  c120 --> c95
-  n3164 --> c91
-  n3164 --> c95
-  n3183 --> c117
-  n3183 --> c118
-  n3183 --> c119
-  n3183 --> c120
-  n3183 --> n3164
+  c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
+  c76["📁 Libpetri/Reference/Queue.lean (7 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Semantics.lean (15 declarations, collapsed)"]
+  c104["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
+  c105["📁 Libpetri/Spec/Glossary.lean (12 declarations, collapsed)"]
+  c111["📁 Libpetri/Spec/GlossaryQueue.lean (8 declarations, collapsed)"]
+  c137["📁 Libpetri/Spec/Req/EXEC_010.lean (1 declarations, collapsed)"]
+  c138["📁 Libpetri/Spec/Req/EXEC_012.lean (1 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/Req/EXEC_013.lean (1 declarations, collapsed)"]
+  c140["📁 Libpetri/Spec/Req/EXEC_020.lean (1 declarations, collapsed)"]
+  c54 --> c0
+  c76 --> c78
+  c78 --> c28
+  c78 --> c54
+  c105 --> c78
+  c111 --> c76
+  c111 --> c105
+  c137 --> c104
+  c137 --> c111
+  c138 --> c104
+  c138 --> c111
+  c139 --> c104
+  c139 --> c111
+  c140 --> c111
+  n3496 --> c104
+  n3496 --> c111
+  n3515 --> c137
+  n3515 --> c138
+  n3515 --> c139
+  n3515 --> c140
+  n3515 --> n3496
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n3183 root
-  class c0,c27,c53,c69,c70,c91,c92,c95,c117,c118,c119,c120 collapsed
+  class n3515 root
+  class c0,c28,c54,c76,c78,c104,c105,c111,c137,c138,c139,c140 collapsed
 ```
 
 Axioms used:

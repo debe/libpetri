@@ -43,6 +43,7 @@ theorem canFire_of_enabled {a : AMarking} {t : Transition} (h : enabledA a t = t
   simpa using hr
 
 /-- **A filtered transition is enabled at no marking at all.** -/
+@[evidence cites "VER-019" "a flat transition that inhibits a place it needs can never fire, so its column does not count for a ranking"]
 theorem not_canFire_never_enabled {t : Transition} (h : canFire t = false) (a : AMarking) :
     enabledA a t = false := by
   cases hEn : enabledA a t with
@@ -192,6 +193,7 @@ def checkRankingExact (n : Nat) (rows : List Row) (a0 : AMarking) (r : Weight) :
   else none
 
 /-- The exact check accepts only rankings, and its bound is `r·M0`. -/
+@[evidence cites "VER-019" "the ranking is re-checked in exact integer arithmetic: the check accepts only a non-negative weighting whose column sum is at most -1 on every row that can fire, with the bound r·M0"]
 theorem checkRankingExact_sound {n : Nat} {rows : List Row} {a0 : AMarking} {r : Weight}
     {K : Int} (h : checkRankingExact n rows a0 r = some K) :
     IsRanking n rows r ∧ K = dot r a0 n := by
@@ -247,6 +249,7 @@ theorem ranking_bounds_runs {n : Nat} {rows : List Row} {r : Weight} (hr : IsRan
       · exact absurd h (by simp)
 
 /-- The run-length form: at most `K` firings. -/
+@[evidence cites "VER-019" "with a ranking, no run from M0 has more than K = r·M0 firings"]
 theorem ranking_bounds_length {n : Nat} {rows : List Row} {r : Weight}
     (hr : IsRanking n rows r) {a0 a : AMarking} {ts : List Nat}
     (h : replay rows a0 ts = some a) : (ts.length : Int) ≤ dot r a0 n := by

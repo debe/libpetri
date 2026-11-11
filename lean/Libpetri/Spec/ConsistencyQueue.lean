@@ -13,6 +13,8 @@ import Libpetri.Spec.Req.CONC_004
 import Libpetri.Spec.Req.CONC_008
 import Libpetri.Spec.Req.CONC_022
 import Libpetri.Spec.Req.CONC_025
+import Libpetri.Spec.Req.CONC_021
+import Libpetri.Spec.Req.CORE_003
 
 set_option linter.missingDocs true
 
@@ -100,15 +102,16 @@ queue firing relation whose firings, counted, are the firings of the same firing
 and which lifts every firing of `F`. The witnesses are the reference builder, the reference
 firing relation, the reference timing contract, the reference ready order, the timed reference
 step and the reference queue firing. The same queue firing relation satisfies CORE-010, CORE-013
-and, with the reference initialiser and the same step relation, CORE-072; the queue marking's
-operations satisfy CORE-070; one enablement check satisfies CONC-004 and CONC-008; and the ring
-pool, with its removal guarded by the count, and its materialiser satisfy CORE-070, CONC-022 and
-CONC-025 together. -/
+and, with the reference initialiser and the same step relation, CORE-072; the same queue firing relation keeps
+every typing of CORE-003; the queue marking's operations satisfy CORE-070; one enablement check
+satisfies CONC-004 and CONC-008; and the ring pool, with its removal guarded by the count, its
+materialiser and its consume program satisfy CORE-070, CONC-022, CONC-025 and CONC-021
+together. -/
 @[evidence consistent CORE_022 CORE_030 CORE_031 CORE_032 CORE_033 CORE_034 CORE_035 CORE_036
   IO_001 IO_002 IO_003 IO_004 IO_005 IO_007 IO_010 IO_011 IO_012 IO_013 IO_014 IO_015 IO_016
   TIME_001 TIME_002 TIME_003 TIME_004 TIME_005 TIME_006 TIME_010 TIME_011 TIME_012 TIME_013
   TIME_015 EXEC_002 EXEC_010 EXEC_012 EXEC_013 EXEC_020 CONC_005 CONC_023 CONC_024 CORE_010
-  CORE_013 CORE_070 CORE_072 IO_017 CONC_004 CONC_008 CONC_022 CONC_025]
+  CORE_013 CORE_070 CORE_072 IO_017 CONC_004 CONC_008 CONC_022 CONC_025 CORE_003 CONC_021]
 theorem spec_consistent_queue {N Tk : Type} [DecidableEq N] [ToString N] :
     ∃ (Build : Trans N → Option String) (F T : FireRel N) (Q : TimingContract)
       (C : TimingCompile) (O : ReadyOrder) (R : TRel N) (QF : QFireRel N Tk) (I : Init N)
@@ -128,9 +131,11 @@ theorem spec_consistent_queue {N Tk : Type} [DecidableEq N] [ToString N] :
       QProjectsTo QF F ∧ QCovers QF F ∧
       EXEC_010 QF ∧ EXEC_012 Build QF ∧ EXEC_013 QF ∧ EXEC_020 QF ∧
       CORE_010 QF ∧ CORE_013 QF ∧ CORE_072 I R QF ∧ CORE_070 Ops ∧
+      (∀ (Ty V : Type) (ty : N → Ty) (val : Tk → Option V) (HasType : Ty → V → Prop),
+        CORE_003 ty val HasType QF) ∧
       CONC_004 EC ∧ CONC_008 EC ∧
-      (∃ (S : MarkingOps PlaceId Colour) (X : Materialiser S),
-        CORE_070 S ∧ CONC_022 S ∧ CONC_025 S X) :=
+      (∃ (S : MarkingOps PlaceId Colour) (X : Materialiser S) (P : ConsumeProgram S),
+        CORE_070 S ∧ CONC_022 S ∧ CONC_025 S X ∧ CONC_021 S P) :=
   ⟨refBuild, RefFire, refTimeoutOutcomeFire, refTimingQ, refTimingCompile, refReadyOrder,
     RefTStep, RefQFire, TSt.init, refQOps, refEnableCheck,
     ⟨CORE_022_reference, CORE_030_reference, CORE_031_reference, CORE_032_reference,
@@ -148,8 +153,9 @@ theorem spec_consistent_queue {N Tk : Type} [DecidableEq N] [ToString N] :
     TIME_015_reference, CONC_005_reference, refQFire_projectsTo, refQFire_covers,
     EXEC_010_reference, EXEC_012_reference, EXEC_013_reference, EXEC_020_reference,
     CORE_010_reference, CORE_013_reference, CORE_072_reference, CORE_070_reference,
+    fun _ _ ty val HasType => CORE_003_reference ty val HasType,
     CONC_004_reference, CONC_008_reference,
-    ⟨core070_ringMarking, ringMarkingMaterialiser, CORE_070_ringStore, CONC_022_ringMarking,
-      CONC_025_ringMarking⟩⟩
+    ⟨core070_ringMarking, ringMarkingMaterialiser, refConsume, CORE_070_ringStore,
+      CONC_022_ringMarking, CONC_025_ringMarking, CONC_021_ringMarking⟩⟩
 
 end Libpetri.Spec

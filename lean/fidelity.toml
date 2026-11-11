@@ -259,7 +259,9 @@ lean = ["Libpetri/Soundness.lean", "Libpetri/Retrodict.lean"]
 
 # `encode` is the positional wrapper; its body is `encode_net`. The models cite
 # its options-off path line by line; StateEquation.lean models the [VER-016]
-# option. The [VER-014] option is outside every Lean model.
+# option. The [VER-014] conditional sinks are modelled by name in
+# Novel/Seam/Excuses.lean (`strandingExcuses`) and Novel/Seam/Bad.lean
+# (`deadlockBad_iff`), and stated in Spec/Req/VER_014.lean.
 [[pin]]
 file = "rust/libpetri-verification/src/smt_encoder.rs"
 fn = "encode_net"

@@ -9,86 +9,86 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/Seam/Net.lean"]
-    n1878["Libpetri.Novel.Seam.NInSpec"]
-    n1881["Libpetri.Novel.Seam.NInSpec.place"]
-    n1896["Libpetri.Novel.Seam.NTransition"]
-    n1897["Libpetri.Novel.Seam.NTransition.inhibitors"]
-    n1898["Libpetri.Novel.Seam.NTransition.inputs"]
-    n1901["Libpetri.Novel.Seam.NTransition.reads"]
+    n1936["Libpetri.Novel.Seam.NInSpec"]
+    n1939["Libpetri.Novel.Seam.NInSpec.place"]
+    n1954["Libpetri.Novel.Seam.NTransition"]
+    n1955["Libpetri.Novel.Seam.NTransition.inhibitors"]
+    n1956["Libpetri.Novel.Seam.NTransition.inputs"]
+    n1959["Libpetri.Novel.Seam.NTransition.reads"]
   end
   subgraph g1["Libpetri/Reference/Semantics.lean"]
-    n2924["Libpetri.Reference.Trans"]
-    n2925["Libpetri.Reference.Trans.core"]
+    n3064["Libpetri.Reference.Trans"]
+    n3065["Libpetri.Reference.Trans.core"]
   end
   subgraph g2["Libpetri/Spec/Glossary.lean"]
-    n3884["Libpetri.Spec.InhibitorArc"]
-    n4036["Libpetri.Spec.ReadArc"]
-    n5022["Libpetri.Spec.inPlaces"]
+    n4398["Libpetri.Spec.InhibitorArc"]
+    n4679["Libpetri.Spec.ReadArc"]
+    n6195["Libpetri.Spec.inPlaces"]
   end
   subgraph g3["Libpetri/Spec/GlossaryEnable.lean"]
-    n3885["Libpetri.Spec.InhibitorMask"]
-    n3903["Libpetri.Spec.MaskCheck"]
-    n3995["Libpetri.Spec.NeedsMask"]
+    n4399["Libpetri.Spec.InhibitorMask"]
+    n4436["Libpetri.Spec.MaskCheck"]
+    n4594["Libpetri.Spec.NeedsMask"]
   end
   subgraph g4["Libpetri/Spec/Req/PERF_042.lean"]
-    n4017["Libpetri.Spec.PacksTo"]
-    n4315["Libpetri.Spec.Words"]
-    n4849["Libpetri.Spec.denseContainsAll"]
-    n4850["Libpetri.Spec.denseContainsAll_iff"]
-    n4851["Libpetri.Spec.denseEnable"]
-    n4852["Libpetri.Spec.denseEnable_iff_bits"]
-    n4853["Libpetri.Spec.denseEnable_iff_places"]
-    n4854["Libpetri.Spec.denseEnable_maskCheck"]
-    n4855["Libpetri.Spec.denseIntersects"]
-    n4856["Libpetri.Spec.denseIntersects_iff"]
-    n5986["Libpetri.Spec.wordAt"]
-    n5987["Libpetri.Spec.wordAt_ge"]
-    n5988["Libpetri.Spec.word_and_eq_iff_bits"]
-    n5989["Libpetri.Spec.word_and_ne_zero_iff_bits"]
+    n4648["Libpetri.Spec.PacksTo"]
+    n5200["Libpetri.Spec.Words"]
+    n5940["Libpetri.Spec.denseContainsAll"]
+    n5941["Libpetri.Spec.denseContainsAll_iff"]
+    n5942["Libpetri.Spec.denseEnable"]
+    n5943["Libpetri.Spec.denseEnable_iff_bits"]
+    n5944["Libpetri.Spec.denseEnable_iff_places"]
+    n5945["Libpetri.Spec.denseEnable_maskCheck"]
+    n5946["Libpetri.Spec.denseIntersects"]
+    n5947["Libpetri.Spec.denseIntersects_iff"]
+    n7701["Libpetri.Spec.wordAt"]
+    n7702["Libpetri.Spec.wordAt_ge"]
+    n7703["Libpetri.Spec.word_and_eq_iff_bits"]
+    n7704["Libpetri.Spec.word_and_ne_zero_iff_bits"]
   end
-  n1881 --> n1878
-  n1897 --> n1896
-  n1898 --> n1878
-  n1898 --> n1896
-  n1901 --> n1896
-  n2925 --> n1896
-  n2925 --> n2924
-  n3884 --> n1897
-  n3884 --> n2925
-  n3885 --> n3884
-  n3903 --> n3885
-  n3903 --> n3995
-  n3995 --> n4036
-  n3995 --> n5022
-  n4017 --> n5986
-  n4036 --> n1901
-  n4036 --> n2925
-  n4849 --> n5986
-  n4850 --> n4849
-  n4850 --> n5987
-  n4850 --> n5988
-  n4851 --> n4849
-  n4851 --> n4855
-  n4852 --> n4850
-  n4852 --> n4851
-  n4852 --> n4856
-  n4853 --> n4017
-  n4853 --> n4852
-  n4854 --> n3903
-  n4854 --> n4853
-  n4855 --> n5986
-  n4856 --> n4855
-  n4856 --> n5987
-  n4856 --> n5989
-  n5022 --> n1881
-  n5022 --> n1898
-  n5022 --> n2925
-  n5986 --> n4315
-  n5987 --> n5986
+  n1939 --> n1936
+  n1955 --> n1954
+  n1956 --> n1936
+  n1956 --> n1954
+  n1959 --> n1954
+  n3065 --> n1954
+  n3065 --> n3064
+  n4398 --> n1955
+  n4398 --> n3065
+  n4399 --> n4398
+  n4436 --> n4399
+  n4436 --> n4594
+  n4594 --> n4679
+  n4594 --> n6195
+  n4648 --> n7701
+  n4679 --> n1959
+  n4679 --> n3065
+  n5940 --> n7701
+  n5941 --> n5940
+  n5941 --> n7702
+  n5941 --> n7703
+  n5942 --> n5940
+  n5942 --> n5946
+  n5943 --> n5941
+  n5943 --> n5942
+  n5943 --> n5947
+  n5944 --> n4648
+  n5944 --> n5943
+  n5945 --> n4436
+  n5945 --> n5944
+  n5946 --> n7701
+  n5947 --> n5946
+  n5947 --> n7702
+  n5947 --> n7704
+  n6195 --> n1939
+  n6195 --> n1956
+  n6195 --> n3065
+  n7701 --> n5200
+  n7702 --> n7701
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4854 root
+  class n5945 root
 ```
 
 Axioms used:

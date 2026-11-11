@@ -94,11 +94,11 @@ The presence check of a transition *shall* pass on a bitmap exactly when every b
 
 When tokens are added or removed from a place, only transitions affected by that place need re-evaluation. A precomputed reverse index maps each place to the set of transitions that reference it.
 
-*When* a firing or an injected token writes one of a transition's arc places, the executor *shall* re-evaluate whether the transition is enabled.
+*When* a firing or an injected token writes one of a transition's arc places, the executor *shall* re-run the transition's enablement check.
 
-The executor *shall* re-evaluate whether a transition is enabled only when a firing or an injected token writes one of its arc places, or when the transition itself fires.
+The executor *shall* re-run a transition's enablement check only when a firing or an injected token writes one of its arc places, or when the transition itself fires.
 
-*If* the consumption of a firing, the deposit of a firing or an injected token writes none of a transition's arc places, *then* the transition *shall* be enabled after it exactly when it was enabled before it.
+*If* the consumption of a firing, the deposit of a firing or an injected token writes none of a transition's arc places, *then* the transition's enablement check *shall* pass after it exactly when it passed before it.
 
 The dirty set is maintained as a bitmap: when a place changes, the executor sets the bits for all affected transitions. Each cycle, only dirty transitions are re-evaluated.
 
@@ -204,20 +204,27 @@ The precompiled net is immutable after construction.
 #### CONC-021: Opcode-Based Consume Operations
 
 **Priority:** SHOULD
+**Kind:** F
 
-Each transition's input and reset arcs are compiled into a flat integer array of opcodes. During firing, the executor iterates the opcode array instead of pattern-matching on sealed arc types. Read arcs are compiled into a separate place-ID array.
+Each transition's input and reset arcs are compiled into a flat integer array of opcodes. During firing, the executor iterates the opcode array instead of pattern-matching on sealed arc types, except for a transition with a match specification, whose inputs are consumed through the match path (its correlated inputs by name, [NU-020]). Read arcs are compiled into a separate place-ID array.
 
 Opcodes:
-- `CONSUME_ONE(0) placeId` — consume one token from place
-- `CONSUME_N(1) placeId count` — consume exactly N tokens
-- `CONSUME_ALL(2) placeId` — consume all tokens
-- `CONSUME_ATLEAST(3) placeId minimum` — consume at least N tokens (takes all)
-- `RESET(4) placeId` — clear all tokens from place
+- `CONSUME_ONE(0) placeId`: consume one token from place
+- `CONSUME_N(1) placeId count`: consume exactly N tokens
+- `CONSUME_ALL(2) placeId`: consume all tokens the firing may drain ([EXEC-003] AC5)
+- `CONSUME_ATLEAST(3) placeId minimum`: consume at least N tokens (takes all tokens the firing may drain, [EXEC-003] AC5)
+- `RESET(4) placeId`: clear from the place all tokens the firing may drain ([EXEC-003] AC5)
+
+*When* the precompiled executor fires a transition that has no match specification ([NU-020]), its consume operations *shall* hand the action from each input place the oldest tokens the place holds, as many as the consumption count of the input arc ([IO-007]) for the number of tokens the firing may drain ([EXEC-003] AC5), in queue order, and nothing from any other place.
+
+*When* the precompiled executor fires a transition that has no match specification ([NU-020]), its consume operations *shall* hand the action for each read arc the head of the read place's queue as it is after the input operations and before the reset operations.
+
+*When* the precompiled executor fires a transition that has no match specification ([NU-020]), its consume operations *shall* remove from each reset place every token the firing may drain ([EXEC-003] AC5), leave each other input place its queue without the tokens handed to the action, leave the queue of every other place unchanged, and hold a queue for every place the token storage held and for no other place.
 
 **Acceptance Criteria:**
 1. Each transition has a precompiled consume operation array.
 2. Read arcs are compiled into a separate place-ID array (reads do not consume).
-3. Firing a transition iterates the opcode array without type dispatch.
+3. Firing a transition iterates the opcode array without type dispatch, except for a transition with a match specification, whose inputs are consumed through the match path (its correlated inputs by name, [NU-020]).
 4. All five opcodes produce the same observable behavior as the corresponding arc types.
 
 **Test derivation:** Compile a net with all arc types; fire transitions; verify token consumption matches bitmap executor.
@@ -243,7 +250,7 @@ The token storage *shall* report as the token count of a place it holds a queue 
 
 **Acceptance Criteria:**
 1. Token access is O(1) by place ID — no hashing or map lookup.
-2. FIFO ordering is preserved (oldest token consumed first).
+2. FIFO ordering is preserved (oldest token consumed first, except on a correlated input of a match specification, [NU-020]).
 3. Ring buffers grow dynamically when capacity is exceeded.
 4. Token count per place is available in O(1).
 
@@ -412,14 +419,10 @@ When an action completes synchronously (returns an immediately-resolved future o
 
 ---
 
-#### CONC-012: Concurrent Action Limit
+#### CONC-012: ~~Concurrent Action Limit~~ (Removed)
 
-**Priority:** MAY
+**Status:** Removed
 
-The executor MAY support limiting the number of concurrently executing actions to prevent resource exhaustion in systems with many enabled transitions.
+No implementation offers an executor-level limit on in-flight actions, and a permit place bounds concurrency inside the net, where verification can see it. The former text and the permit-place pattern are kept as advice in [Usage guidance (non-normative)](00-index.md#usage-guidance-non-normative).
 
-**Acceptance Criteria:**
-1. If a limit is set, no more than N actions execute simultaneously.
-2. Excess transitions wait until in-flight count drops below the limit.
-
-**Test derivation:** Set limit to 3; enable 10 transitions; verify max 3 in-flight at any time.
+Retained as a tombstone for traceability; excluded from the active requirement count.

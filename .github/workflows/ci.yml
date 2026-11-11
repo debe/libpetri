@@ -566,6 +566,17 @@ jobs:
           #print axioms Libpetri.Novel.InFlight.terminal_stop_witness
           #print axioms Libpetri.reaped_rearms_on_touch
           #print axioms Libpetri.inFlight_guard_is_necessary
+          #print axioms Libpetri.Reference.refTransBuild_succeeds
+          #print axioms Libpetri.Reference.refNetBuild_trans_ok
+          #print axioms Libpetri.Reference.refExec_commit
+          #print axioms Libpetri.Reference.refExec_fail
+          #print axioms Libpetri.Spec.refEmit_leafTargets
+          #print axioms Libpetri.Spec.refEmit_outputArc
+          #print axioms Libpetri.Spec.spec_consistent_queue
+          #print axioms Libpetri.Spec.joint_core_ver_sketch
+          #print axioms Libpetri.Spec.joint_core_structure_sketch
+          #print axioms Libpetri.Spec.joint_export_sketch
+          #print axioms Libpetri.Spec.spec_consistent_exec_sketch
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out

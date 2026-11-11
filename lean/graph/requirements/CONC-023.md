@@ -9,38 +9,38 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Sched.lean"]
-    n84["Libpetri.LevelBlocks"]
-    n87["Libpetri.LevelBlocks.mk"]
-    n3008["Libpetri.SchedKey"]
-    n3009["Libpetri.SchedKey.clock"]
-    n3010["Libpetri.SchedKey.lt"]
-    n3011["🔒 Libpetri.SchedKey.lt_asymm"]
-    n3015["Libpetri.SchedKey.prio"]
-    n6098["🔒 Libpetri.collect_ready_general_refines"]
-    n6159["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n6235["🔒 Libpetri.levelBlocks_sorted"]
-    n6260["🔒 Libpetri.pairwise_imp_mem"]
+    n142["Libpetri.LevelBlocks"]
+    n145["Libpetri.LevelBlocks.mk"]
+    n3287["Libpetri.SchedKey"]
+    n3288["Libpetri.SchedKey.clock"]
+    n3289["Libpetri.SchedKey.lt"]
+    n3290["🔒 Libpetri.SchedKey.lt_asymm"]
+    n3294["Libpetri.SchedKey.prio"]
+    n7813["🔒 Libpetri.collect_ready_general_refines"]
+    n7874["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n7950["🔒 Libpetri.levelBlocks_sorted"]
+    n7975["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n84 --> n3008
-  n87 --> n84
-  n87 --> n3009
-  n87 --> n3015
-  n3009 --> n3008
-  n3010 --> n3009
-  n3010 --> n3015
-  n3011 --> n3010
-  n3015 --> n3008
-  n6098 --> n6159
-  n6098 --> n6235
-  n6159 --> n3011
-  n6235 --> n87
-  n6235 --> n3010
-  n6235 --> n6260
+  n142 --> n3287
+  n145 --> n142
+  n145 --> n3288
+  n145 --> n3294
+  n3288 --> n3287
+  n3289 --> n3288
+  n3289 --> n3294
+  n3290 --> n3289
+  n3294 --> n3287
+  n7813 --> n7874
+  n7813 --> n7950
+  n7874 --> n3290
+  n7950 --> n145
+  n7950 --> n3289
+  n7950 --> n7975
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n6098 root
-  class n3011,n6098,n6159,n6235,n6260 locked
+  class n7813 root
+  class n3290,n7813,n7874,n7950,n7975 locked
 ```
 
 Axioms used:

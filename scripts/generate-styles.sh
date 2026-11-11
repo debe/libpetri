@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Generates style constant files for all three languages from spec/petri-net-styles.json.
+# Generates style constant files for all three languages, and the Lean copy of the
+# node and edge tables, from spec/petri-net-styles.json.
 #
 # Generated files:
 #   rust/libpetri-export/src/styles.rs
 #   java/src/main/java/org/libpetri/export/StyleConstants.java
 #   typescript/src/export/styles.ts
+#   lean/Libpetri/Export/Styles.lean
 #
 # Usage:
 #   scripts/generate-styles.sh
@@ -134,6 +136,13 @@ HEADER
   echo
   rust_node "ENVIRONMENT_PLACE" "environment"
   echo
+  cat <<'EOF'
+/// A terminal place (EXEC-042): the run ends once it is marked. Takes
+/// precedence over the environment/start/end categories. Values from
+/// `spec/petri-net-styles.json` "terminal".
+EOF
+  rust_node "TERMINAL_PLACE" "terminal"
+  echo
   rust_node "TRANSITION" "transition"
   echo
   rust_node "XOR_JUNCTION" "xor-junction"
@@ -146,6 +155,12 @@ HEADER
   echo
   echo "// Edge styles"
   rust_edge "INPUT_EDGE" "input"
+  echo
+  cat <<'EOF'
+/// ν-net correlated input edge (a join input named by a `MatchSpec`, NU-020 /
+/// EXP-018). Teal to distinguish it from a plain input; carries a `⟨n⟩` label.
+EOF
+  rust_edge "MATCH_INPUT_EDGE" "match-input"
   echo
   rust_edge "OUTPUT_EDGE" "output"
   echo
@@ -201,7 +216,7 @@ java_node() {
   [[ -n "$n_height" ]] && height_java="$n_height"
   local width_java="null"
   [[ -n "$n_width" ]] && width_java="$n_width"
-  printf '    public static final NodeVisual %-13s = new NodeVisual(%s,  "%s", "%s", %s, %s, %s, %s);\n' \
+  printf '    public static final NodeVisual %-14s = new NodeVisual(%s,  "%s", "%s", %s, %s, %s, %s);\n' \
     "$const_name" "$shape_java" "$n_fill" "$n_stroke" "$n_penwidth" "$style_java" "$height_java" "$width_java"
 }
 
@@ -266,25 +281,33 @@ JAVA_HEADER
   java_node "START" "start"
   java_node "END" "end"
   java_node "ENVIRONMENT" "environment"
+  java_node "TERMINAL" "terminal"
   java_node "TRANSITION" "transition"
   java_node "XOR_JUNCTION" "xor-junction"
   java_node "AND_JUNCTION" "and-junction"
+  java_node "INTERFACE_PORT" "interface-port"
+  java_node "SYNC_CHANNEL" "sync-channel"
   echo
   cat <<'EOF'
     private static final Map<String, NodeVisual> NODE_STYLES = Map.ofEntries(
-        Map.entry("place",        PLACE),
-        Map.entry("start",        START),
-        Map.entry("end",          END),
-        Map.entry("environment",  ENVIRONMENT),
-        Map.entry("transition",   TRANSITION),
-        Map.entry("xor-junction", XOR_JUNCTION),
-        Map.entry("and-junction", AND_JUNCTION)
+        Map.entry("place",          PLACE),
+        Map.entry("start",          START),
+        Map.entry("end",            END),
+        Map.entry("environment",    ENVIRONMENT),
+        Map.entry("terminal",       TERMINAL),
+        Map.entry("transition",     TRANSITION),
+        Map.entry("xor-junction",   XOR_JUNCTION),
+        Map.entry("and-junction",   AND_JUNCTION),
+        Map.entry("interface-port", INTERFACE_PORT),
+        Map.entry("sync-channel",   SYNC_CHANNEL)
     );
 
     // ======================== Edge Styles ========================
 
 EOF
   java_edge "INPUT_EDGE" "input"
+  echo "    /** ν-net correlated input edge (a join input named by a MatchSpec, NU-020 / EXP-018). */"
+  java_edge "MATCH_INPUT_EDGE" "match-input"
   java_edge "OUTPUT_EDGE" "output"
   java_edge "INHIBITOR_EDGE" "inhibitor"
   java_edge "READ_EDGE" "read"
@@ -347,7 +370,7 @@ ts_node() {
   # Quote hyphenated keys (invalid as bare property names)
   local key_out="${key}:"
   [[ "$key" == *-* ]] && key_out="'${key}':"
-  printf "  %-15s { shape: '%s',  fill: '%s', stroke: '%s', penwidth: %s,%s },\n" \
+  printf "  %-17s{ shape: '%s',  fill: '%s', stroke: '%s', penwidth: %s,%s },\n" \
     "$key_out" "$n_shape" "$n_fill" "$n_stroke" "$n_penwidth" "$extras"
 }
 
@@ -424,9 +447,12 @@ TS_HEADER
   ts_node "start"
   ts_node "end"
   ts_node "environment"
+  ts_node "terminal"
   ts_node "transition"
   ts_node "xor-junction"
   ts_node "and-junction"
+  ts_node "interface-port"
+  ts_node "sync-channel"
   echo "};"
   echo
   echo "const EDGE_STYLES: Record<EdgeCategory, EdgeVisual> = {"
@@ -445,7 +471,7 @@ export const GRAPH: GraphStyle = { nodesep: $GRAPH_NODESEP, ranksep: $GRAPH_RANK
 
 // ======================== Public API ========================
 
-export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'transition' | 'xor-junction' | 'and-junction';
+export type NodeCategory = 'place' | 'start' | 'end' | 'environment' | 'terminal' | 'transition' | 'xor-junction' | 'and-junction' | 'interface-port' | 'sync-channel';
 export type EdgeCategory = 'input' | 'output' | 'inhibitor' | 'read' | 'reset' | 'reset-output';
 
 /** Returns the visual style for the given node category. */
@@ -458,7 +484,144 @@ export function edgeStyle(arcType: EdgeCategory): EdgeVisual {
   return EDGE_STYLES[arcType];
 }
 EOF
+  read_edge "match-input" "m_"
+  echo
+  echo "/** ν-net correlated input edge (a join input named by a MatchSpec, NU-020 / EXP-018). */"
+  echo "export const MATCH_INPUT_EDGE: EdgeVisual = { color: '$m_color', style: '$m_estyle', arrowhead: '$m_arrowhead' };"
 } >> "$TS_FILE"
 
 echo "Generated $TS_FILE"
+
+# ======================== Generate Lean ========================
+#
+# The Lean copy of the node and edge tables (export design, policy P2): requirement
+# statements name a row, never a value. Every row of `.node` and `.edge` is emitted, in the
+# order of the JSON file, so a new row reaches Lean without a change here.
+
+LEAN_FILE="$ROOT_DIR/lean/Libpetri/Export/Styles.lean"
+mkdir -p "$(dirname "$LEAN_FILE")"
+
+# kebab-case key -> lowerCamelCase constructor name, guillemets around a Lean keyword.
+lean_ctor() {
+  local name
+  name=$(echo "$1" | awk -F- '{ out = $1; for (i = 2; i <= NF; i++) out = out toupper(substr($i, 1, 1)) substr($i, 2); print out }')
+  case "$name" in
+    end|in|do|then|else|if|fun|let|at|by|from|have|show|match|with|open|where|deriving|instance|structure|inductive)
+      echo "«$name»" ;;
+    *) echo "$name" ;;
+  esac
+}
+
+# A JSON value as a Lean `Option String`.
+lean_opt() { if [[ -n "$1" ]]; then echo "some \"$1\""; else echo "none"; fi; }
+
+lean_enum() {
+  local type=$1 table=$2 doc=$3
+  local key ctor
+  echo "/-- $doc -/"
+  echo "inductive $type where"
+  for key in $(jq -r ".${table} | keys_unsorted[]" "$SPEC"); do
+    ctor=$(lean_ctor "$key")
+    echo "  /-- The \`$key\` row. -/"
+    echo "  | $ctor"
+  done
+  echo "  deriving DecidableEq, Repr"
+  echo
+  echo "/-- The row's key in \`spec/petri-net-styles.json\`. -/"
+  echo "def ${type}.key : $type → String"
+  for key in $(jq -r ".${table} | keys_unsorted[]" "$SPEC"); do
+    echo "  | .$(lean_ctor "$key") => \"$key\""
+  done
+  echo
+  echo "/-- Every row of the \`${table}\` table, in the order of the file. -/"
+  local all=()
+  for key in $(jq -r ".${table} | keys_unsorted[]" "$SPEC"); do
+    all+=(".$(lean_ctor "$key")")
+  done
+  local joined
+  joined=$(IFS=,; echo "${all[*]}")
+  echo "def ${type}.all : List $type := [${joined//,/, }]"
+}
+
+{
+  cat <<'LEAN_HEADER'
+-- GENERATED from spec/petri-net-styles.json. Do not edit manually.
+-- Regenerate with: scripts/generate-styles.sh
+
+set_option linter.missingDocs true
+
+/-!
+# Export styles (generated)
+
+The node and edge tables of `spec/petri-net-styles.json`, the style table every runtime mapper
+draws with (the Rust `styles` module, `StyleConstants.java` and `styles.ts` are generated from
+the same file).
+Requirement statements name a row (a node category or an edge row), never a colour, shape or
+pen width: the values are fixed definitions, read only by facts about the table itself, and
+the values the runtimes draw are checked by tests, not by proofs. Values are kept as the JSON
+text has them. The cluster, animation, font and graph tables are not mirrored.
+-/
+
+namespace Libpetri.Export
+
+LEAN_HEADER
+  lean_enum "NodeCat" "node" "A node category: one row of the \`node\` table."
+  echo
+  lean_enum "EdgeRow" "edge" "An edge row: one row of the \`edge\` table."
+  cat <<'LEAN_TYPES'
+
+/-- The attributes of a node row, as the JSON text holds them. -/
+structure NodeStyle where
+  /-- Graphviz shape. -/
+  shape : String
+  /-- Fill colour. -/
+  fill : String
+  /-- Stroke colour. -/
+  stroke : String
+  /-- Pen width. -/
+  penwidth : String
+  /-- Line style, when the row has one. -/
+  style : Option String
+  /-- Height, when the row has one. -/
+  height : Option String
+  /-- Width, when the row has one. -/
+  width : Option String
+  deriving DecidableEq, Repr
+
+/-- The attributes of an edge row, as the JSON text holds them. -/
+structure EdgeStyle where
+  /-- Line colour. -/
+  color : String
+  /-- Line style. -/
+  style : String
+  /-- Arrowhead. -/
+  arrowhead : String
+  /-- Pen width, when the row has one. -/
+  penwidth : Option String
+  deriving DecidableEq, Repr
+
+/-- The `node` table. -/
+def nodeStyle : NodeCat → NodeStyle
+LEAN_TYPES
+  for key in $(jq -r '.node | keys_unsorted[]' "$SPEC"); do
+    read_node "$key" "n_"
+    # One line per row: a structure instance continued on a line left of its first field
+    # does not parse.
+    printf '  | .%s => { shape := "%s", fill := "%s", stroke := "%s", penwidth := "%s", style := %s, height := %s, width := %s }\n' \
+      "$(lean_ctor "$key")" "$n_shape" "$n_fill" "$n_stroke" "$n_penwidth" \
+      "$(lean_opt "$n_style")" "$(lean_opt "$n_height")" "$(lean_opt "$n_width")"
+  done
+  echo
+  echo "/-- The \`edge\` table. -/"
+  echo "def edgeStyle : EdgeRow → EdgeStyle"
+  for key in $(jq -r '.edge | keys_unsorted[]' "$SPEC"); do
+    read_edge "$key" "e_"
+    printf '  | .%s => { color := "%s", style := "%s", arrowhead := "%s", penwidth := %s }\n' \
+      "$(lean_ctor "$key")" "$e_color" "$e_estyle" "$e_arrowhead" "$(lean_opt "$e_epenwidth")"
+  done
+  echo
+  echo "end Libpetri.Export"
+} > "$LEAN_FILE"
+
+echo "Generated $LEAN_FILE"
 echo "Done. All style files regenerated from $SPEC"

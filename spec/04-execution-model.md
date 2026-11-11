@@ -256,7 +256,13 @@ Before depositing tokens, the executor validates that the produced tokens satisf
 
 *If* the produced tokens of an admitted completion fail output validation, *then* the executor *shall not* restore the tokens the firing consumed and *shall not* remove the tokens the action published before it completed ([IO-015]).
 
+*When* an executor with output validation enabled validates the produced tokens of an admitted completion, it *shall* count the places of every batch the action published before it completed ([IO-015]) as produced, together with the places of the produced tokens.
+
+*If* the produced tokens of an admitted completion pass output validation, *then* the executor *shall not* fail the firing.
+
 The timeout outcome is not a completion of the action: [EXEC-022] and [IO-013] govern its deposit.
+
+*When* a firing ends with its timeout outcome, the executor *shall not* validate the timeout outcome against the transition's output spec; the join-relay check of [NU-054] still runs on it.
 
 **Acceptance Criteria:**
 1. And: all children received tokens → valid.
@@ -265,7 +271,7 @@ The timeout outcome is not a completion of the action: [EXEC-022] and [IO-013] g
 4. Validation is applied by every executor backend a language ships, not only the reference one.
 5. Violation → the event is TransitionFailed, no produced token is deposited, the consumed tokens are not restored ([EXEC-030]), and tokens the action published mid-action stay in the marking.
 
-**Depends on:** [IO-011], [IO-012], [IO-015], [EVT-008], [EXEC-030]
+**Depends on:** [IO-011], [IO-012], [IO-015], [EVT-008], [EXEC-030], [NU-054]
 **Test derivation:** Xor output with tokens to 2 branches → violation event; verify neither branch place received a token.
 
 ---
@@ -540,18 +546,10 @@ in flight.
 
 ## Stale Detection Pattern
 
-#### EXEC-050: Timestamp-Based Stale Detection
+#### EXEC-050: ~~Timestamp-Based Stale Detection~~ (Removed)
 
-**Priority:** SHOULD
+**Status:** Removed
 
-Transitions can implement stale detection by comparing timestamps. A transition reads a "latest search timestamp" via a read arc and compares it with the consumed token's timestamp to determine if the data is still current.
+Stale detection is a usage pattern built from read arcs ([CORE-032]), token timestamps ([CORE-010]) and XOR outputs ([IO-012]); it has no executor behaviour of its own. The pattern is kept as advice in [Usage guidance (non-normative)](00-index.md#usage-guidance-non-normative).
 
-This is a **usage pattern**, not a built-in feature — the engine provides the primitives (read arcs, token timestamps) and the action logic performs the comparison.
-
-**Acceptance Criteria:**
-1. Read arc provides timestamp from shared state.
-2. Action can compare consumed token timestamp with read value.
-3. Stale data detected → action can route to discard branch (via XOR output).
-
-**Depends on:** [CORE-032], [CORE-010]
-**Test derivation:** CommitProductList pattern: read LATEST_SEARCH_TIMESTAMP; compare with consumed token; discard if stale.
+Retained as a tombstone for traceability; excluded from the active requirement count.

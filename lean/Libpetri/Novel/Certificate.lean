@@ -111,6 +111,7 @@ theorem vc_sound_candidate {net : FlatNet} {envs : List PlaceId} {a0 : AMarking}
 (`StepCntRel`: fire and bump, or inject), the seed has zero counters, and `Bad` reads the
 marking only (the error rule quantifies the counters). The VCs prove the plain verdict, because
 every `ReachAInj` marking carries some counter vector (`counters_exist`). -/
+@[evidence cites "VER-016" "the certificate check for the state-equation encoding: a candidate over (M, n) that passes the three verification conditions against the raw counter step from (M0, 0), with a violation that reads the marking only, proves the property for every marking reachable with injection; the composition of the shipped candidate is not modelled"]
 theorem vc_sound_state_equation {net : FlatNet} {envs : List PlaceId} {a0 : AMarking}
     {Bad : AMarking → Prop} {I : AMarking × Counters → Prop}
     (h : VCs (StepCntRel net envs) (a0, fun _ => 0) (fun s => Bad s.1) I) :

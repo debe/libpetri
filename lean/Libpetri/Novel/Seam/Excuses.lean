@@ -258,6 +258,7 @@ theorem conds_spec {sinks : List N} : ∀ (C pre : List (CondSinks N)) (e : Excu
 /-- **`stranding_excuses` by name.** For every indexed place `n`: its entry is `None` iff `n` is a
 declared sink or a marker, and otherwise holds exactly the indices of the resolving markers
 whose declarations name `n`. -/
+@[evidence cites "VER-014" "the conditional sink table by name: a place is excused outright iff it is a declared sink or a marker, and otherwise exactly by the resolving markers whose declarations name it"]
 theorem strandingExcuses_spec (sinks : List N) (cond : List (CondSinks N)) :
     ExcuseSpec ix sinks cond (strandingExcuses ix sinks cond) := by
   have h0 : ExcuseSpec ix [] [] (fun _ => some []) :=

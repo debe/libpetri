@@ -32,11 +32,11 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 | File | Prefix | Scope | Req Count |
 |------|--------|-------|-----------|
-| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, dead-arc warning, net construction, actions, context, marking | 36 |
+| [01-core-model.md](01-core-model.md) | CORE | Places, tokens, transitions, arcs, dead-arc warning, net construction, actions, context, marking | 35 |
 | [02-input-output-specs.md](02-input-output-specs.md) | IO | Input cardinality, composite output routing, validation | 14 |
 | [03-timing.md](03-timing.md) | TIME | Firing intervals, clock semantics, deadline enforcement, injectable clock | 12 |
-| [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places | 15 |
-| [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 18 |
+| [04-execution-model.md](04-execution-model.md) | EXEC | Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places | 14 |
+| [05-concurrency.md](05-concurrency.md) | CONC | Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up | 17 |
 | [06-environment-places.md](06-environment-places.md) | ENV | External event injection, implicit long-running behavior, executor lifecycle | 13 |
 | [07-verification.md](07-verification.md) | VER | SMT/IC3, total budget, state-equation phase, firing bound, bounded witness phase, state class graph, stubborn-set reduction, timed counterexample check, structural analysis, open-net contracts | 23 |
 | [08-events-observability.md](08-events-observability.md) | EVT | Event types, event store, log capture | 23 |
@@ -44,12 +44,15 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | [10-performance.md](10-performance.md) | PERF | Scaling, benchmarks, memory efficiency, flat-array executor performance | 14 |
 | [11-modular-composition.md](11-modular-composition.md) | MOD | Open-net subnet definition, instantiation, port composition, bound-port references, channel fusion, action binding per instance, place fusion | 27 |
 | [12-nu-nets.md](12-nu-nets.md) | NU | Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, name alignment, bounded-budget decidability ledger | 15 |
-| **Total** | | | **227** |
+| **Total** | | | **224** |
 
-> **IO-006** (Input Guard Predicate) and **EXEC-011** (Guarded Token Consumption) were
-> removed (see [IO-006], [EXEC-011]); both are retained as struck-through tombstones for
-> traceability and are **excluded** from the active count. Counts above are active
-> requirements only.
+> **IO-006** (Input Guard Predicate), **EXEC-011** (Guarded Token Consumption),
+> **CORE-064** (Execution Context Injection), **CONC-012** (Concurrent Action Limit) and
+> **EXEC-050** (Timestamp-Based Stale Detection) were removed (see [IO-006], [EXEC-011],
+> [CORE-064], [CONC-012], [EXEC-050]); all five are retained as struck-through tombstones for
+> traceability and are **excluded** from the active count. The advice of the last three is
+> kept in [Usage guidance (non-normative)](#usage-guidance-non-normative). Counts above are
+> active requirements only.
 
 [glossary.md](glossary.md) defines the terms of the CORE and IO firing semantics. It is unnumbered, holds no requirements and is not counted above.
 
@@ -70,7 +73,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CONC-008 | Multi-Phase Enablement | MUST | — |
 | CONC-010 | Orchestrator Wake-Up | MUST | — |
 | CONC-011 | Inline Synchronous Execution | SHOULD | — |
-| CONC-012 | Concurrent Action Limit | MAY | — |
+| ~~CONC-012~~ | ~~Concurrent Action Limit~~ (Removed) | — | — |
 | CONC-020 | Precompiled Net Representation | SHOULD | CONC-007 |
 | CONC-021 | Opcode-Based Consume Operations | SHOULD | — |
 | CONC-022 | Flat-Array Token Storage | SHOULD | CORE-013 |
@@ -113,7 +116,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-061 | Context Read Access | MUST | CORE-032 |
 | CORE-062 | Context Output Access | MUST | CORE-035 |
 | CORE-063 | Context Structure Enforcement | MUST | — |
-| CORE-064 | Execution Context Injection | SHOULD | — |
+| ~~CORE-064~~ | ~~Execution Context Injection~~ (Removed) | — | — |
 | CORE-070 | Marking State | MUST | — |
 | CORE-071 | Marking Thread Safety | MUST | — |
 | CORE-072 | Initial Marking | MUST | EVT-013 |
@@ -181,7 +184,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXEC-040 | Standard Quiescence | MUST | — |
 | EXEC-041 | Execution Result | MUST | EXEC-040, ENV-013 |
 | EXEC-042 | Terminal Places | SHOULD | EXEC-001, EXEC-040, EXEC-041, ENV-004, ENV-013, ENV-015, VER-002, VER-014, VER-022, MOD-001 |
-| EXEC-050 | Timestamp-Based Stale Detection | SHOULD | CORE-032, 010 |
+| ~~EXEC-050~~ | ~~Timestamp-Based Stale Detection~~ (Removed) | — | — |
 
 ### EXP — Export
 | ID | Title | Priority | Depends On |
@@ -341,9 +344,9 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Priority | Count | Description |
 |----------|-------|-------------|
 | MUST     | 144   | Core contract; all implementations must conform |
-| SHOULD   | 65    | Recommended; implementations should include unless technically infeasible |
-| MAY      | 18    | Optional; implementations may include |
-| **Total** | **227** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011) excluded |
+| SHOULD   | 63    | Recommended; implementations should include unless technically infeasible |
+| MAY      | 17    | Optional; implementations may include |
+| **Total** | **224** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011, CORE-064, CONC-012, EXEC-050) excluded |
 
 ---
 
@@ -583,4 +586,36 @@ These patterns are derived from a representative real-time event-driven workflow
 | Implicit long-running behavior | [ENV-010] | Session awaits external events indefinitely |
 | Multiple environment places | [ENV-012] | Activity signals, data streams, tool requests, state changes |
 | Action timeout | [EXEC-022] | Guard actions with 2s timeout |
-| Stale detection via read arc | [EXEC-050] | Commit action reads latest timestamp to detect staleness |
+| Stale detection via read arc | [CORE-032] + [CORE-010] (see [Usage guidance](#usage-guidance-non-normative)) | Commit action reads latest timestamp to detect staleness |
+
+## Usage guidance (non-normative)
+
+This section holds advice that used to be written as requirements. It binds no implementation,
+has no acceptance criteria and is not counted above. Each entry names the tombstone it came
+from.
+
+### Stale detection with a read arc (from [EXEC-050])
+
+A transition can tell whether the data it consumes is still current by comparing timestamps. It
+reads a "latest request timestamp" through a read arc ([CORE-032]) and compares it with the
+creation timestamp of the token it consumes ([CORE-010]). The engine provides only these
+primitives: the comparison is action logic, and a stale token can be routed to a discard
+branch through an XOR output ([IO-012]). To test it, read the latest timestamp, consume an
+older token and check that the action takes the discard branch.
+
+### Bounding concurrent actions with a permit place (from [CONC-012])
+
+An executor may expose a limit on the number of actions in flight at once, to keep a net with
+many enabled transitions from exhausting resources; no implementation does today. The same
+bound is better written in the net: a permit place holding N tokens, an input arc from it on
+every transition that starts bounded work and an output arc back to it on the transition that
+finishes that work.
+At most N such actions are then in flight, the rest wait until a permit returns, and the bound
+is visible to verification as a place bound.
+
+### Host objects in the transition context (from [CORE-064])
+
+A language binding may let the host put objects such as a tracing span or configuration into
+the transition context, keyed by type or by string key, so that the action can read them while
+it runs and gets nothing (null or None) for a key that was never set. Not every implementation
+offers this, and no requirement depends on it.

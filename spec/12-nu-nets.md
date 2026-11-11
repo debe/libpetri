@@ -20,14 +20,29 @@ does not reintroduce them (see the note under [IO-006]).
 #### NU-001: Name Identity
 
 **Priority:** MUST
+**Kind:** F
 
-A **name** (`NameId`) is an opaque correlation identity. The only operation
-defined on names is **equality**. A total order over names exists solely for the
-deterministic match tie-break ([NU-020]) and carries no domain meaning.
+A **name** (`NameId`) is an opaque correlation identity, constructed from an
+underlying string value. Whether a matched transition is enabled, and which tokens
+its firing consumes, *shall* depend on the names its keys project only through name
+**equality** and, for the tie-break of [NU-020], the name order. The name order
+exists solely for that tie-break and carries no domain meaning.
+
+The name constructor *shall* return equal names for equal underlying values and
+different names for different underlying values. Each implementation *shall* order
+names by one fixed strict total order, the name order: if one name precedes another,
+the other does not precede it; if a first name precedes a second and the second
+precedes a third, the first precedes the third; and of two different names, one
+precedes the other. Of two names whose underlying values hold only Basic
+Multilingual Plane characters, one *shall* precede the other exactly when its value
+precedes the other's in the lexicographic order of code points. On other names the
+name order need not agree across implementations: Rust and Python order by code
+point, Java and TypeScript by UTF-16 code unit, and the two orders disagree on some
+names that hold supplementary-plane characters ([NU-020]).
 
 Identity is a **projection of the token payload**, not a field on the token: a
 [NU-020] match (or the analyzer) declares a `value → NameId` key. The token model
-([CORE-010]) is unchanged — no name field is added — so event ([EVT-011],
+([CORE-010]) is unchanged: no name field is added, so event ([EVT-011],
 [EVT-012]) and archive formats are unaffected.
 
 **Acceptance Criteria:**
@@ -825,6 +840,7 @@ to Route B.
 #### NU-053: EXTENDED-Coloured Quiescence in the Route A SMT Encoder
 
 **Priority:** MAY
+**Kind:** F
 
 [NU-050] Route A encodes a bounded ν-net as `k` colours and decides
 reachability-safety exactly over the **mint → matched-join** fragment. The
@@ -839,11 +855,15 @@ Under this extension the coloured encoder:
 
 - admits the EXTENDED fragment ([NU-051]): coloured consumers (relay/drain) and
   declared carrier places, each consuming exactly one coloured input at count one;
-- encodes **quiescence** (`DeadlockFree`, `JoinedOrDeadLettered`) as a colour-aware
-  deadlock predicate — every transition is disabled for every colour (a mint has no
-  globally-fresh colour, a join no shared colour, a consumer no resident colour) and
-  the marking is not a sink state. The encoding has no environment-injection rule, so
-  it does not answer when injection is modelled ([VER-006] AC7);
+- encodes the **quiescence** of [VER-002] colour-aware, for each quiescence property
+  (`DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered`, `QuiescentCount`): every
+  transition that is not reapable is disabled for an uncoloured reason (an uncoloured input
+  below its demand, a marked inhibitor or an empty read place) or for every colour (a mint
+  has no globally-fresh colour, a join no shared colour, a consumer no resident colour), and
+  the property conjoins its own clause over the all-colour token counts, so
+  `JoinedOrDeadLettered` carries no sink clause ([NU-040] AC4). The encoding has no
+  environment-injection rule, so it does not answer when injection is modelled ([VER-006]
+  AC7);
 - classifies each XOR output branch independently by its own incidence (no 1:1
   net↔flat assumption);
 - bounds the simultaneously-live colour count `k` **structurally**, by a linear program over
@@ -859,7 +879,7 @@ Under this extension the coloured encoder:
   computes the same `k`. The implementation solves the program itself, in exact rational
   arithmetic, with no solver, and uses its weighting only after an exact re-check in
   arbitrary-precision arithmetic (`y ≥ 0`, `y_p ≥ 1` on every coloured place, `y·C_t ≤ 0` on
-  every flat transition, `k = ⌊y·M0⌋`). A weighting that fails the re-check is discarded and
+  every flat transition, `k = ⌊y·M0⌋`, `k ≤ 2^31 − 1`). A weighting that fails the re-check is discarded and
   the plan is refused; it never sets `k`. When no weighting exists (the program is
   infeasible) the coloured tokens are not structurally bounded, a genuine colour leak, so the
   plan is refused and the query falls back to the sound over-approximation. `k = 0` is a
@@ -871,6 +891,14 @@ Under this extension the coloured encoder:
   back rather than certifying a false `Proven`. A relay threads its colour onward and still
   MUST NOT refund: the freed budget could mint a `(k+1)`-th live colour.
 
+*When* the coloured encoding decides a quiescence property, it *shall* treat an encoding state as violating exactly when every flat row (each XOR branch is its own row) whose transition is not reapable ([VER-002]) is disabled in the state for an uncoloured reason or, when the row touches a coloured place, for every colour below `k`, and the property's own clause holds of the state's all-colour token counts.
+
+*If* the verifier sets the colour-slot bound to `k`, *then* some covering weighting `y` *shall* have `⌊y·M0⌋ = k`, and no covering weighting *shall* have `⌊y·M0⌋ < k`, a covering weighting being one with `y ≥ 0`, `y_p ≥ 1` on every coloured place and `y·C_t ≤ 0` on every flat transition.
+
+*If* the verifier sets the colour-slot bound to `k`, *then* the exact re-check *shall* have accepted a weighting and given it the bound `k`.
+
+The exact re-check *shall* accept a weighting `y` exactly when `y ≥ 0`, `y_p ≥ 1` on every coloured place, `y·C_t ≤ 0` on every flat transition and `⌊y·M0⌋ ≤ 2^31 − 1`, and *shall* give an accepted weighting the bound `⌊y·M0⌋`.
+
 The update of a coloured consumer, per colour `c`, emits `(- x 1)` for its input column
 and `(+ x 1)` for each coloured output column. A consumer that relays into its own
 input (a self-loop, `spin: a, tick → a, tock` with `a` coloured) gets **no** update term
@@ -878,6 +906,8 @@ for that column: it keeps its `>= 1` guard and is carried over unchanged, as a j
 key that is also a relay target is ([NU-054]). A rule updates each column once, so
 emitting both terms would keep only the `(+ x 1)` and leave the consumer unable to fire
 under any law that weights `a`.
+
+*When* the coloured encoding emits the rule of a coloured consumer for a colour `c` below `k`, the rule *shall* be enabled only when colour `c` of the input holds a token, and *shall* subtract one from colour `c` of the input, add one to colour `c` of each coloured output, and leave unchanged colour `c` of a place that is both the input and an output and every other colour column.
 
 The verifier routes a bounded quiescence query to Route B first; when Route B
 truncates (`Unknown`), it **defers** to this scalable Route A encoding rather
@@ -917,8 +947,17 @@ same weighting and refuses the same nets:
    order: no entering column, optimal; no leaving row, infeasible; the next pivot's work past
    the limit, refused; a stop ([VER-013]), stopped; otherwise pivot, then the coefficient check.
 
-The limits bound the time of the solve whether or not a total budget is set. The report line
-is one of:
+The limits bound the time of the solve whether or not a total budget is set.
+
+*When* the verifier solves the colour-slot program of a flat net with `n` places and `m` transitions that has a covering weighting `y` with `⌊y·M0⌋ ≤ 2^31 − 1`, and `n ≤ 4096`, `m ≤ 16384`, `C(n+m, n)·(2n+1)·(n+m+1) ≤ 4000000` and `(n+1)!·E^(n+1) ≤ 2^63 − 1`, where `E` is the largest of 1, every initial count and `n` times every `pre + post` of a flat transition at a place, it *shall* set a colour-slot bound unless the solve is stopped ([VER-013]).
+
+On such a net the solve reaches no limit. Bland's rule never returns to a basis, so the solve makes
+fewer than `C(n+m, n)` pivots, and a pivot's work is at most `(2n+1)·(n+m+1)`. Every tableau entry
+in lowest terms is a ratio of two minors of the initial tableau, and each minor is at most
+`(n+1)!·E^(n+1)` in absolute value. The optimal weighting the solve reads off is an exact
+optimum, so it passes the re-check, and by the sentences above the bound is `⌊opt⌋`.
+
+The report line is one of:
 
 ```
   Colour-slot bound: LP optimum <opt> over <n> places and <m> transitions, so k=<k> (re-checked in exact arithmetic)
@@ -980,7 +1019,8 @@ behind its slot bound, are built only when the bound does not prove.
    the optimum is `14/3` and `k = 4`. `encodeScripts()` emits that `k` without starting a
    solver ([VER-013] AC1).
 9. A weighting is used only after the exact re-check: one that is negative somewhere, below
-   one on a coloured place, or increasing along a flat transition refuses the plan with the
+   one on a coloured place or increasing along a flat transition, or one whose bound
+   `⌊y·M0⌋` exceeds `2^31 − 1`, refuses the plan with the
    report line `Colour-slot bound: none (LP weighting failed the exact re-check: <reason>)`.
    A reset or consume-all arc on an uncoloured place does not refuse the plan by itself:
    `mint: budget → a, b`, `join: a, b → budget` keyed on `a` and `b`, and `cancel: r → r2`

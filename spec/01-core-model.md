@@ -42,14 +42,21 @@ Two places are considered equal if and only if they have the same identity. Iden
 #### CORE-003: Place Type Safety
 
 **Priority:** MUST
+**Kind:** A
 
-A place only accepts tokens whose values are compatible with the place's declared type. The mechanism of type checking is implementation-defined (compile-time generics, runtime type checks, or both).
+A place has a declared token type, and a token is compatible with a place when its value is of that type. A token without a value, the unit token ([CORE-012]), is compatible with every place. The engine does not check the type of a token it deposits or a host adds: the net's author and the host keep an action's outputs, a forwarded token ([IO-014]) and an injected token compatible with their places. An implementation that keeps a run-time token type for each place (Java) rejects an initial marking that puts a token with an incompatible value in a place. Where an API call takes a typed place handle (Java, TypeScript and Rust), the compiler rejects a token of another type at that call; this requirement does not rely on it.
+
+*When* a transition fires from a marking in which every token is compatible with its place, nothing else changes the marking between the firing's consumption and its deposit, and every token the firing deposits is compatible with the place it is deposited to, every token a place holds after the firing *shall* be compatible with that place.
+
+*When* a transition fires from a marking in which every token is compatible with its place, every token its action receives from one of its input places or read places *shall* be compatible with that place.
+
+*When* a transition can fire from a marking and deposit tokens to a list of places, it *shall* also be able to fire from that marking, delivering the same tokens to its action, and deposit to the same places, in the same order, any tokens compatible with them.
 
 **Acceptance Criteria:**
-1. Adding a token with a compatible value succeeds.
-2. Adding a token with an incompatible value is rejected (compile-time error or runtime error).
+1. A firing whose action outputs a token with a compatible value to a place succeeds.
+2. In an implementation that keeps a run-time token type for each place, an initial marking that puts a token with an incompatible value in a place is rejected.
 
-**Test derivation:** Create a place of type Integer; add an integer token (succeeds); attempt to add a string token (rejected).
+**Test derivation:** Create a place of type Integer and a transition that outputs to it; fire it with an action that outputs an integer token (succeeds). In Java, build an executor whose initial marking puts a string token in that place (rejected with an `IllegalArgumentException`).
 
 ---
 
@@ -111,7 +118,7 @@ A unit token is a special token with no meaningful payload value, used for pure 
 **Priority:** MUST
 **Kind:** B
 
-Tokens within a place are stored in FIFO (first-in, first-out) order. The oldest token is consumed first when a transition fires.
+Tokens within a place are stored in FIFO (first-in, first-out) order. The oldest token is consumed first when a transition fires, except on a correlated input of a match specification ([NU-020]).
 
 *When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, each place that is neither one of its input places nor one of its reset places ([CORE-034]) *shall* end the firing holding its whole queue from before the firing, in queue order, followed by the tokens the firing deposited there, in the order the action produced them ([EXEC-020]).
 
@@ -131,9 +138,10 @@ Tokens within a place are stored in FIFO (first-in, first-out) order. The oldest
 #### CORE-020: Transition Definition
 
 **Priority:** MUST
+**Kind:** F
 
 A transition is a named element that consumes tokens from input places, executes an action, and produces tokens to output places. Each transition has:
-- A name (for display/debugging)
+- A name (identifies the transition, see [TIME-010])
 - Input specifications with cardinality (see [IO-001])
 - An output specification with routing structure (see [IO-010])
 - Zero or more inhibitor arcs
@@ -142,6 +150,14 @@ A transition is a named element that consumes tokens from input places, executes
 - A timing specification (see [TIME-001])
 - A priority value (integer, higher = fires first)
 - An action to execute
+
+*When* a transition is built, the built transition *shall* carry the name and the output specification it was given, if any, and each of its input, inhibitor, read and reset arc lists exactly as given, in the order given and with its repetitions.
+
+*When* a transition is built with a timing, a priority or an action, the built transition *shall* carry that timing, priority or action.
+
+*When* a transition is built without a priority, the built transition *shall* have priority 0.
+
+Building a transition that has no match specification ([NU-020]) *shall* succeed exactly when its arcs and output specification pass the build-time checks and the timing it is given, if any, is valid ([TIME-001]).
 
 **Acceptance Criteria:**
 1. A transition can be constructed with all the above fields via a builder pattern.
@@ -171,6 +187,7 @@ Each transition instance has a unique identity. Two transition instances are nev
 **Kind:** B
 
 A transition is **enabled** in a marking when every input place holds at least its required count (see [IO-001]–[IO-004]), every read place is marked and no inhibitor place is marked.
+For a transition with a match specification these conditions are the count-level part of enablement: its enablement check also needs a name of which every correlated input holds at least its required count of tokens ([NU-020]).
 
 *While* an input place of a transition holds fewer tokens than its required count, the transition *shall not* fire.
 
@@ -178,7 +195,7 @@ A transition is **enabled** in a marking when every input place holds at least i
 
 *While* an inhibitor place of a transition is marked, the transition *shall not* fire.
 
-*While* a transition is enabled, the transition *shall* be able to fire.
+*While* a transition that has no match specification ([NU-020]) is enabled, the transition *shall* be able to fire.
 
 This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-002], [IO-004], [EXEC-012], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking.
 
@@ -400,18 +417,20 @@ As in [CORE-022], the transitions these sentences describe are transitions that 
 #### CORE-037: Dead Arc Warning
 
 **Priority:** SHOULD
+**Kind:** F
 
-A read, inhibitor or reset arc on place `P` is **dead** when nothing can ever put a token on
-`P`:
+A read, inhibitor or reset arc on place `P` is **dead** when:
 
 - no transition has an input arc on `P`,
-- no transition's output spec contains `P` anywhere in its tree (every branch of every XOR, and
-  the `Timeout` and `ForwardInput` targets included),
+- no transition's output spec names `P` anywhere in its tree (every branch of every AND and XOR,
+  the `Timeout` child and the `ForwardInput` target included),
 - `P` is not an environment place ([ENV-001]), and
 - the initial marking holds no token on `P`.
 
-A dead read arc means its transition can never be enabled; a dead inhibitor never blocks; a dead
-reset clears nothing. Each is legal: a read or inhibitor on a place the initial marking seeds, or
+No firing ever puts a token on such a place, and a host injects tokens only into environment
+places ([ENV-001]), so a dead read arc means its transition can never be enabled,
+a dead inhibitor never blocks and a dead reset clears nothing. Each is legal: a read or
+inhibitor on a place the initial marking seeds, or
 a reset on a place a host fills through injection, is common and deliberate, which is why the
 condition asks about the initial marking and the environment places, and why a dead arc is
 **never an error**. But the shape is also what a stale reference looks like: an arc naming a
@@ -419,6 +438,15 @@ place that composition renamed away, or a typo, leaves an arc that silently does
 case that motivated this requirement was a host reset naming a subnet's port place after compose
 had bound that port to a host place; [MOD-027] now rejects that case outright, and this warning
 covers the rest.
+
+In EARS form, for a net, its initial marking and its environment places, the dead-arc report is
+the list of dead arcs an implementation reports:
+
+The dead-arc report *shall* contain a read, inhibitor or reset arc of a transition of the net exactly when no transition has an input arc on the arc's place, no transition's output spec names that place anywhere in its tree (every `And` and `Xor` branch, the `Timeout` child and the `ForwardInput` target included), the place is not an environment place and the initial marking holds no token on it, and *shall* contain nothing else.
+
+The dead-arc report *shall* list each dead arc once, as its own entry (two dead arcs on one place are two entries), in the order the net holds its transitions (the order they were added to the builder) and, within a transition, its read arcs, then its inhibitor arcs, then its reset arcs, each kind in the order the transition declares those arcs.
+
+The warning text of a read, inhibitor or reset arc of a transition *shall* be `<kind> arc of '<transition>' on '<place>': no transition produces into or consumes from it and it starts empty; <effect>.` with `<kind>` the arc's kind (`read`, `inhibitor` or `reset`), `<transition>` the name of the transition that declares the arc, `<place>` the name of its place, and `<effect>` `the transition can never be enabled` for a read arc, `the arc never blocks` for an inhibitor arc and `the arc has no effect` for a reset arc.
 
 An implementation SHOULD report every dead arc, once, where the net meets its initial marking:
 
@@ -706,18 +734,13 @@ The transition context enforces that actions can only access places declared in 
 
 ---
 
-#### CORE-064: Execution Context Injection
+#### CORE-064: ~~Execution Context Injection~~ (Removed)
 
-**Priority:** SHOULD
+**Status:** Removed
 
-The transition context supports injection of external objects (e.g., tracing spans, configuration) that are available to the action during execution. Objects are keyed by type or string key.
+Host objects in the transition context (a tracing span, configuration) are a convenience of the language bindings, not part of the firing contract: not every implementation has them, and no requirement depends on them. The former text is kept as advice in [Usage guidance (non-normative)](00-index.md#usage-guidance-non-normative).
 
-**Acceptance Criteria:**
-1. External object can be added to the context.
-2. Action can retrieve the object by its key/type.
-3. Missing object returns null/None.
-
-**Test derivation:** Inject a custom object; verify action can retrieve it.
+Retained as a tombstone for traceability; excluded from the active requirement count.
 
 ---
 
@@ -777,7 +800,7 @@ An executor can be initialized with an initial marking that pre-populates places
 
 *When* an executor is initialized with an initial marking, its marking *shall* hold, before execution begins, exactly the tokens the initial marking puts on each place, whether or not the net declares that place.
 
-*When* execution begins, a transition of the net *shall* be armed exactly when the initial marking enables it, with the firing clock's reading at that moment as its stamp, so that its elapsed time starts at 0 ([TIME-010]).
+*When* execution begins, a transition of the net *shall* be armed exactly when its enablement check passes on the initial marking, with the firing clock's reading at that moment as its stamp, so that its elapsed time starts at 0 ([TIME-010]).
 
 *While* a place is an unknown place, the executor *shall* retain its tokens in the marking, in their order and ahead of any token that reaches the place later, and *shall not* drop any of them.
 

@@ -13,62 +13,62 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n4245["Libpetri.Spec.TReach"]
-    n4372["Libpetri.Spec.clashT_X"]
-    n4373["Libpetri.Spec.clashT_at"]
-    n4377["Libpetri.Spec.clashT_inv"]
-    n4378["Libpetri.Spec.clashT_invR"]
-    n4379["Libpetri.Spec.clashT_invR_reach"]
-    n4381["Libpetri.Spec.clashT_inv_step"]
-    n4382["Libpetri.Spec.clashT_m0"]
-    n4383["Libpetri.Spec.clashT_mem"]
-    n4384["Libpetri.Spec.clashT_reaped"]
-    n4385["Libpetri.Spec.clashT_s0"]
-    n4386["Libpetri.Spec.clashT_u"]
-    n4983["Libpetri.Spec.exec040_rest_reaped_enabled"]
+    n4915["Libpetri.Spec.TReach"]
+    n5340["Libpetri.Spec.clashT_X"]
+    n5341["Libpetri.Spec.clashT_at"]
+    n5345["Libpetri.Spec.clashT_inv"]
+    n5346["Libpetri.Spec.clashT_invR"]
+    n5347["Libpetri.Spec.clashT_invR_reach"]
+    n5349["Libpetri.Spec.clashT_inv_step"]
+    n5350["Libpetri.Spec.clashT_m0"]
+    n5351["Libpetri.Spec.clashT_mem"]
+    n5352["Libpetri.Spec.clashT_reaped"]
+    n5353["Libpetri.Spec.clashT_s0"]
+    n5354["Libpetri.Spec.clashT_u"]
+    n6108["Libpetri.Spec.exec040_rest_reaped_enabled"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
-  c27["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
-  c53["📁 Libpetri/Novel/Seam/Net.lean (16 declarations, collapsed)"]
-  c65["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
-  c70["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
-  c71["📁 Libpetri/Reference/Timed.lean (37 declarations, collapsed)"]
-  c92["📁 Libpetri/Spec/Glossary.lean (5 declarations, collapsed)"]
-  c96["📁 Libpetri/Spec/GlossaryTime.lean (14 declarations, collapsed)"]
-  c53 --> c0
-  c70 --> c27
-  c70 --> c53
-  c71 --> c65
-  c71 --> c70
-  c92 --> c70
-  c96 --> c71
-  c96 --> c92
-  n4245 --> c71
-  n4372 --> c71
-  n4372 --> n4386
-  n4373 --> n4385
-  n4377 --> c71
-  n4377 --> n4382
-  n4378 --> c71
-  n4378 --> n4382
-  n4379 --> n4245
-  n4379 --> n4378
-  n4379 --> n4381
-  n4381 --> n4377
-  n4381 --> n4383
-  n4383 --> n4372
-  n4384 --> n4373
-  n4385 --> n4372
-  n4385 --> n4382
-  n4386 --> c70
-  n4983 --> c96
-  n4983 --> n4379
-  n4983 --> n4384
+  c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (16 declarations, collapsed)"]
+  c66["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Timed.lean (37 declarations, collapsed)"]
+  c105["📁 Libpetri/Spec/Glossary.lean (5 declarations, collapsed)"]
+  c112["📁 Libpetri/Spec/GlossaryTime.lean (14 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c28
+  c78 --> c54
+  c80 --> c66
+  c80 --> c78
+  c105 --> c78
+  c112 --> c80
+  c112 --> c105
+  n4915 --> c80
+  n5340 --> c80
+  n5340 --> n5354
+  n5341 --> n5353
+  n5345 --> c80
+  n5345 --> n5350
+  n5346 --> c80
+  n5346 --> n5350
+  n5347 --> n4915
+  n5347 --> n5346
+  n5347 --> n5349
+  n5349 --> n5345
+  n5349 --> n5351
+  n5351 --> n5340
+  n5352 --> n5341
+  n5353 --> n5340
+  n5353 --> n5350
+  n5354 --> c78
+  n6108 --> c112
+  n6108 --> n5347
+  n6108 --> n5352
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4983 root
-  class c0,c27,c53,c65,c70,c71,c92,c96 collapsed
+  class n6108 root
+  class c0,c28,c54,c66,c78,c80,c105,c112 collapsed
 ```
 
 Axioms used:

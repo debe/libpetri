@@ -11,66 +11,66 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2374["Libpetri.Novel.TimedScg.Timing"]
-    n2375["Libpetri.Novel.TimedScg.Timing.Valid"]
-    n2381["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2383["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2384["Libpetri.Novel.TimedScg.Timing.earliest"]
-    n2385["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2386["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
-    n2387["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2388["Libpetri.Novel.TimedScg.Timing.latest"]
-    n2389["Libpetri.Novel.TimedScg.Timing.reapable"]
-    n2401["Libpetri.Novel.TimedScg.Timing.window"]
-    n2518["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2432["Libpetri.Novel.TimedScg.Timing"]
+    n2433["Libpetri.Novel.TimedScg.Timing.Valid"]
+    n2439["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2441["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2442["Libpetri.Novel.TimedScg.Timing.earliest"]
+    n2443["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2444["Libpetri.Novel.TimedScg.Timing.hasDeadline"]
+    n2445["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2446["Libpetri.Novel.TimedScg.Timing.latest"]
+    n2447["Libpetri.Novel.TimedScg.Timing.reapable"]
+    n2459["Libpetri.Novel.TimedScg.Timing.window"]
+    n2576["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_005.lean"]
-    n5688["Libpetri.Spec.time005_construction"]
-    n5689["Libpetri.Spec.time005_construction_examples"]
-    n5694["Libpetri.Spec.time005_interval"]
+    n7075["Libpetri.Spec.time005_construction"]
+    n7076["Libpetri.Spec.time005_construction_examples"]
+    n7081["Libpetri.Spec.time005_interval"]
   end
-  n2375 --> n2381
-  n2375 --> n2383
-  n2375 --> n2385
-  n2375 --> n2387
-  n2375 --> n2401
-  n2375 --> n2518
-  n2381 --> n2374
-  n2383 --> n2374
-  n2384 --> n2381
-  n2384 --> n2383
-  n2384 --> n2385
-  n2384 --> n2387
-  n2384 --> n2401
-  n2385 --> n2374
-  n2386 --> n2381
-  n2386 --> n2383
-  n2386 --> n2385
-  n2386 --> n2387
-  n2386 --> n2401
-  n2387 --> n2374
-  n2388 --> n2381
-  n2388 --> n2383
-  n2388 --> n2385
-  n2388 --> n2387
-  n2388 --> n2401
-  n2388 --> n2518
-  n2389 --> n2381
-  n2389 --> n2383
-  n2389 --> n2385
-  n2389 --> n2387
-  n2389 --> n2401
-  n2401 --> n2374
-  n5688 --> n2375
-  n5689 --> n5688
-  n5694 --> n2384
-  n5694 --> n2386
-  n5694 --> n2388
-  n5694 --> n2389
+  n2433 --> n2439
+  n2433 --> n2441
+  n2433 --> n2443
+  n2433 --> n2445
+  n2433 --> n2459
+  n2433 --> n2576
+  n2439 --> n2432
+  n2441 --> n2432
+  n2442 --> n2439
+  n2442 --> n2441
+  n2442 --> n2443
+  n2442 --> n2445
+  n2442 --> n2459
+  n2443 --> n2432
+  n2444 --> n2439
+  n2444 --> n2441
+  n2444 --> n2443
+  n2444 --> n2445
+  n2444 --> n2459
+  n2445 --> n2432
+  n2446 --> n2439
+  n2446 --> n2441
+  n2446 --> n2443
+  n2446 --> n2445
+  n2446 --> n2459
+  n2446 --> n2576
+  n2447 --> n2439
+  n2447 --> n2441
+  n2447 --> n2443
+  n2447 --> n2445
+  n2447 --> n2459
+  n2459 --> n2432
+  n7075 --> n2433
+  n7076 --> n7075
+  n7081 --> n2442
+  n7081 --> n2444
+  n7081 --> n2446
+  n7081 --> n2447
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5688,n5689,n5694 root
+  class n7075,n7076,n7081 root
 ```
 
 Axioms used:

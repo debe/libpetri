@@ -9,22 +9,13 @@ This document specifies formal verification capabilities: SMT/IC3 safety proofs,
 #### VER-001: SMT Verification Pipeline
 
 **Priority:** SHOULD
+**Kind:** F
 
-The engine supports safety property verification using SMT solvers via the IC3/PDR (Property Directed Reachability) algorithm. The verification pipeline is:
-
-1. **Flatten XOR** — expand XOR output branches into virtual transitions
-2. **Structural pre-check** — attempt to prove properties via P-invariants alone
-3. **P-invariant computation** — derive place invariants from the incidence matrix
-4. **Pre-fixpoint phases**: the linear bound ([VER-015]), the state-equation phase ([VER-018]),
-   the firing-bound phase ([VER-019]) and, on the flat encoding, the bounded witness phase
-   ([VER-025]), each of which can decide the property before the fixpoint query
-5. **SMT encoding** — encode the Petri net as CHC (Constrained Horn Clauses)
-6. **IC3 query** — invoke Z3 Spacer engine for reachability analysis
-7. **Decode result** — extract verdict, counterexample, or inductive invariant
+The engine supports safety property verification using SMT solvers via the IC3/PDR (Property Directed Reachability) algorithm. The implementation notes list the phases of the SMT route; their order describes the implementations and is not a requirement.
 
 **Undeclared marked places are inert places.** An initial marking MAY put tokens on a place the
 net does not declare; the executor retains them, inert ([CORE-072] AC3). Verification models the
-same net the executor runs, so every place the initial marking names that the net does not
+same net the executor runs, so every place the initial marking marks that the net does not
 declare is added to the verified net as a place with **no arcs**, after the declared places, in
 the order the marking lists them, so the place order is deterministic. Such a place keeps its
 tokens forever: `DeadlockFree` counts it as stranded unless it is a declared sink, `PlaceBound`
@@ -35,6 +26,8 @@ the state equation ([VER-018]), the encoders and `encodeScripts()` ([VER-013]), 
 ([VER-022]), the environment rewrites ([VER-006]), the terminal rewrite ([EXEC-042]) and the
 state-space cache key ([VER-017]). A net whose initial marking marks only declared places is
 unaffected, byte for byte.
+
+*When* the verifier verifies a net from an initial marking, it *shall* verify the net whose places are the declared places followed by every place the initial marking marks that the net does not declare, in the order the marking lists them, and whose transitions are the net's own, with no arc added.
 
 **Places are identified by name.** Verification identifies a place by its name, in every
 implementation. An environment place ([VER-006]), a sink or conditional sink ([VER-002],
@@ -47,14 +40,15 @@ through one object and named on an arc through another is still an environment p
 place equality also compares the token type ([CORE-002]); a Java net whose places have distinct
 names gets the same answer either way.
 
-**Timeout outcomes are virtual transitions.** Step 1 expands a transition into one virtual
+**Timeout outcomes are virtual transitions.** The verifier expands a transition into one virtual
 transition per way a firing can end: each output branch the action may write ([IO-016], one
 token per place), in enumeration order, then the **timeout outcome** when the spec has a
 `Timeout` and that outcome deposits differently from every branch. The timeout outcome is
 what the executor deposits when the timeout fires ([IO-013] AC5, [IO-014]): the timeout
 child's places only, one minted token each, and for a `ForwardInput(from, to)` one token in
 `to` per token consumed from `from`, which is the required count of a `One` / `Exactly(n)` input.
-Every analysis that fires a transition reads this one expansion: the flattener behind the
+Every analysis that fires a transition whose `Timeout` forwards no `All` / `AtLeast` input reads
+this one expansion: the flattener behind the
 encoders, the linear bound ([VER-015]), the state equation ([VER-016], [VER-018]), the firing
 bound ([VER-019]), the bounded witness phase ([VER-025]), the enumeration route ([VER-017]),
 Route B and the ν fragment ([VER-012]), the name-coloured encoder ([NU-053]) and open-net
@@ -70,6 +64,16 @@ equation ([VER-016], [VER-018]), the firing bound ([VER-019]), the bounded witne
 ([VER-025]), the fixpoint query and Route A ([NU-053])) refuses it with `Unknown`. The refusal
 sits after the graph routes and before the first linear one, so no exit of the pipeline bypasses it ([VER-003] AC5).
 
+*When* the verifier expands a transition that has an output spec and no `Timeout` that forwards an `All` or `AtLeast` input, it *shall* produce one virtual transition per output branch the action may write, in enumeration order, then one virtual transition for the timeout outcome when the spec has a `Timeout` and that outcome deposits differently from every branch.
+
+The verifier *shall* expand a transition with no output spec into one virtual transition that deposits nothing.
+
+The virtual transition of the timeout outcome *shall* deposit one token in each place the `Timeout` child names through `Place` and, for each `ForwardInput(from, to)` of the child, as many tokens in `to` as the required count of the input on `from`.
+
+The verifier *shall* name a virtual transition `<t>` when its transition `t` has one virtual transition, and `<t>_b<i>` when it is the `i`-th of several, counting from 0.
+
+*If* the `Timeout` of a transition forwards an `All` or `AtLeast` input, *then* no route *shall* read an expansion of that transition into virtual transitions.
+
 **Acceptance Criteria:**
 1. Pipeline accepts a net, initial marking, and property.
 2. Returns a verdict (Proven, Violated, or Unknown) with supporting evidence.
@@ -80,9 +84,10 @@ sits after the graph routes and before the first linear one, so no exit of the p
    route. The same net with no token on `a` gets the verdict and the scripts it got before.
 4. **Timeout forwards deposit per consumed token.** For `t: exactly(2, a) → xor(c,
    timeout(50, forwardInput(a, b)))` from `{a: 2}`, the flat net has three virtual transitions
-   `t_b0` (post `c`), `t_b1` (post `b`) and `t_b2` (post `2·b`), and `PlaceBound(b, 1)` is
-   `Violated` with a one-step trace ending at `{b: 2}` on the linear bound ([VER-015]), the
-   state-equation phase ([VER-018]), the fixpoint query and the enumeration route ([VER-017]).
+   `t_b0` (post `c`), `t_b1` (post `b`) and `t_b2` (post `2·b`). The linear bound ([VER-015])
+   reads the same three virtual transitions and does not prove `PlaceBound(b, 1)`, which is
+   `Violated` with a one-step trace ending at `{b: 2}` on the state-equation phase ([VER-018]),
+   the fixpoint query and the enumeration route ([VER-017]).
    A spec whose timeout outcome equals one of its branches gets the virtual transitions, and
    the scripts, it got before.
 5. **Drained forwards are decided by the graphs and refused by the linear routes.** The same
@@ -96,6 +101,18 @@ sits after the graph routes and before the first linear one, so no exit of the p
    graphs decide it exactly: VER-017 enumeration, Route B)`.
 
 **Implementation notes:**
+- The SMT route runs these phases in this order. Route B ([VER-012]), the linear bound when the
+  enumeration route applies ([VER-015]), the enumeration route ([VER-017]) and the refusal of a
+  drained forward run before them.
+  1. **Flatten XOR**: expand each transition into its virtual transitions
+  2. **Structural pre-check**: the siphon/trap check ([VER-020])
+  3. **P-invariant computation**: derive place invariants from the incidence matrix ([VER-005])
+  4. **Pre-fixpoint phases**: the linear bound ([VER-015]), the state-equation phase ([VER-018]),
+     the firing-bound phase ([VER-019]) and, on the flat encoding, the bounded witness phase
+     ([VER-025]), each of which can decide the property before the fixpoint query
+  5. **SMT encoding**: encode the Petri net as CHC (Constrained Horn Clauses)
+  6. **IC3 query**: invoke the Z3 Spacer engine for reachability analysis
+  7. **Decode result**: extract verdict, counterexample, or inductive invariant
 - All implementations: full pipeline; the CHC system is emitted as SMT-LIB2 text and solved by
   the `z3` executable with `fp.engine=spacer` through the one solver transport of [VER-013].
 - Rust: behind the `z3` feature. Python exposes the Rust pipeline via the PyO3 binding (wheel
@@ -109,6 +126,7 @@ sits after the graph routes and before the first linear one, so no exit of the p
 #### VER-002: Safety Properties
 
 **Priority:** SHOULD
+**Kind:** F
 
 **Quiescence.** Every property below that speaks of a quiescent marking reads it
 **reap-aware**. A transition is *reapable* when its timing is `Deadline` or `Window`: an
@@ -116,7 +134,7 @@ executor that is late past its latest bound plus the tolerance reaps it ([TIME-0
 its input tokens where they are, and does not arm it again until a firing or an injected token
 writes one of its arc places. A late executor can therefore come to rest at a marking that still enables a
 reapable transition (Lean `ReapingVsUntimed.reaping_refutes_ver004_ac3`). A marking is
-**quiescent** when every transition it enables is reapable. On a net without a reapable
+**quiescent** when every transition whose enablement check passes on it is reapable. On a net without a reapable
 transition this is the plain reading, no transition enabled, and every script, verdict and
 report is what it was before reaping was accounted for. "All transitions disabled" in the
 error conditions below means "every transition that is not reapable is disabled".
@@ -155,8 +173,9 @@ The following safety properties can be verified:
 
 - **DeadlockFree**: no reachable quiescent marking exists where a token is stranded.
   Optionally, the verifier accepts **sink places**: expected terminal
-  places where coming to rest is permitted. The error condition is: (all transitions
-  disabled) ∧ (some marked place is not a declared sink). A quiescent marking violates
+  places where coming to rest is permitted. Without a conditional sink declaration
+  ([VER-014]), the error condition is: (all transitions disabled) ∧ (some marked place is
+  not a declared sink). A quiescent marking violates
   exactly when it leaves a token outside the declared terminals — workflow-net proper
   completion. With no sinks declared this degenerates to: any quiescent marking still
   holding a token.
@@ -177,20 +196,22 @@ The following safety properties can be verified:
   places (Java and TypeScript do; Rust and Python take a list). A linear route
   ([VER-015]) proves a list of three or more pair by pair.
 - **PlaceBound(place, k)**: place never has more than k tokens
-- **Unreachable(places)**: the given set of places is never all simultaneously non-empty
+- **Unreachable(places)**: the given set of places is never all simultaneously non-empty.
+  The set is assumed non-empty: the property is not specified over an empty one.
 - **QuiescentCount(places, min, max, waivedBy)**: every reachable quiescent marking holds
   between `min` and `max` tokens across `places`; the lower bound is waived while any
   `waivedBy` place holds a token, the upper bound never. The error condition is: (all
   transitions disabled) ∧ ((Σ < min ∧ every `waivedBy` place empty) ∨ Σ > max). With a
   designed-terminal marker ([VER-014]) as waiver, a halted run need not refund its budget but
-  never holds more than there is.
+  never holds more than there is. A place listed twice in `places` is counted once.
 
   `max` MAY be unbounded, represented however the implementation chooses (the representation
   is not observable). An unbounded `max` MUST contribute no upper-bound clause to the encoding
   and MUST render without an upper bound in the report, so implementations emit the same
-  script. `min` MUST be a non-negative integer and `max` MUST be at least `min`; a construction
-  breaking either MUST be rejected where it is constructed, as the language reports a caller's
-  error, rather than yield a verdict. `min = 0` with `max` unbounded holds on every marking: an
+  script. `min` MUST be a non-negative integer and a bounded `max` MUST be an integer at least
+  `min`; a call of the `QuiescentCount` constructor function (named under Implementation notes) breaking either MUST be
+  rejected where it is made, as the language reports a caller's error, rather than yield a verdict. A value built
+  without that function, such as a Rust enum literal or a TypeScript object literal, is not checked. `min = 0` with `max` unbounded holds on every marking: an
   implementation MAY skip its query and SHOULD then report that it did, so a skipped clause is
   distinguishable from one that passed.
 - **NameAligned(S)** and **QuiescentNameAligned(S)**, for a non-empty list `S` of coloured places:
@@ -203,6 +224,24 @@ marking**. A quiescent `{done:1, stuck:1}` with `done` a sink violates DeadlockF
 strands `stuck`) but satisfies TerminatesAtSink. The fully drained marking `{}` satisfies
 DeadlockFree (nothing is stranded) but violates TerminatesAtSink (no sink was reached).
 Neither subsumes the other, which is why both exist.
+
+The verifier *shall* read a marking as quiescent exactly when every transition whose enablement check ([NU-020]) passes on it is reapable, and, under `assumeNoReaping`, exactly when no transition's enablement check passes on it.
+
+*When* the verifier decides `DeadlockFree`, it *shall* report a marking as a violation exactly when the marking is quiescent and some marked place of it is stranded in the sense of [VER-014].
+
+*When* the verifier decides `TerminatesAtSink`, it *shall* report a marking as a violation exactly when the marking is quiescent and no declared sink holds a token.
+
+*When* the verifier decides `MutualExclusion` over a list of places, it *shall* report a marking as a violation exactly when two entries of the list, at different positions, hold a token.
+
+*When* the verifier decides `PlaceBound(place, k)`, it *shall* report a marking as a violation exactly when the place holds more than `k` tokens.
+
+*When* the verifier decides `Unreachable` over a non-empty list of places, it *shall* report a marking as a violation exactly when every listed place holds a token.
+
+*When* the verifier decides `QuiescentCount(places, min, max, waivedBy)`, it *shall* report a marking as a violation exactly when the marking is quiescent and either the tokens across `places`, each place counted once, number fewer than `min` while every `waivedBy` place is empty, or they number more than a bounded `max`.
+
+*If* the `QuiescentCount` constructor function is called with a `min` that is negative or not a whole number, or with a `max` that is not a whole number or is below `min`, *then* the call *shall* be rejected where it is made.
+
+*When* the `QuiescentCount` constructor function is called with a whole non-negative `min` and a `max` that is unbounded or a whole number at least `min`, the call *shall* yield the property with those bounds.
 
 **Acceptance Criteria:**
 1. Each property can be constructed and passed to the verifier.
@@ -221,8 +260,8 @@ Neither subsumes the other, which is why both exist.
 8. **QuiescentCount** reports a violation for a quiescent marking below `min` while no
    `waivedBy` place is marked, and for one above `max` whether or not one is. A marking below
    `min` with a `waivedBy` place marked is not a violation.
-9. **QuiescentCount** with a negative or non-integral `min`, or a `max` below `min`, is
-   rejected at construction. Two implementations given the same unbounded `max` emit the same
+9. **QuiescentCount** with a negative or non-integral `min`, or a non-integral `max` or one
+   below `min`, is rejected at construction. Two implementations given the same unbounded `max` emit the same
    script, whatever each stores for it.
 10. **MutualExclusion is pairwise on every route.** On `t: s → a + b` with `c` declared and
     never marked, from `{s: 1}`, `MutualExclusion([c, a, b])` is `Violated` with the trace
@@ -461,14 +500,23 @@ about token *identity* rather than only token *counts*.
 #### VER-005: P-Invariant Computation
 
 **Priority:** SHOULD
+**Kind:** F
 
-The verifier computes place invariants (P-invariants) from the net's incidence matrix. A P-invariant is a weight vector `w` such that `w · M = constant` for all reachable markings M.
+The verifier computes place invariants (P-invariants) from the net's incidence matrix. A P-invariant is a nonzero weight vector `w` such that `w · M = constant` for all markings M reachable in the untimed abstraction of the verified net ([VER-004]).
 
 P-invariants provide structural proofs that do not require state enumeration.
 
+*When* the SMT pipeline ([VER-003]) builds its CHC encoding, the verifier *shall* compute the P-invariants of the verified net from the net's incidence matrix, with one injector column for each environment place into which it models injection ([VER-006]).
+
+The verifier *shall* report a nonzero weight vector `w` with a constant `c` as a P-invariant only when the product of `w` with every column of that incidence matrix is zero and `w · M = c` holds on every marking `M` reachable in the untimed abstraction of the verified net ([VER-004]), injections included.
+
+*When* the verifier computes the P-invariants of a net that has a transition and in which no transition has a reset arc, an `All` input or an `AtLeast` input, it *shall* report P-invariants such that every weight vector of zeros and ones over the net's places whose product with every column of that incidence matrix is zero is a rational linear combination of their weight vectors.
+
+*When* the verifier computes P-invariants, it *shall* list each one it reports in the verification result, with its weights and its constant.
+
 **Acceptance Criteria:**
 1. P-invariants are computed from the incidence matrix.
-2. Each invariant satisfies `sum(weights[i] * marking[i]) = constant` for all reachable markings.
+2. Each invariant satisfies `sum(weights[i] * marking[i]) = constant` for all markings reachable in the untimed abstraction of the verified net ([VER-004]).
 3. Invariants are reported in the verification result.
 
 **Test derivation:** Net with known invariant (e.g., token conservation); verify invariant is discovered.
@@ -637,6 +685,7 @@ B), while the same net with 1 on the place and no deposit keeps its verdict.
 #### VER-007: Invariant Strengthening from P-Semiflows
 
 **Priority:** SHOULD
+**Kind:** F
 
 The verifier's encoders conjoin every accepted conservation law `y·M = y·M0` into the
 transition-rule bodies of the CHC/IC3 encoding ([VER-004], [VER-005]). A law is accepted only
@@ -646,6 +695,12 @@ transition consumes with `all()` / `atLeast(n)` or clears with a reset arc, beca
 encoder's fire relation is not linear there (Lean `Strengthening.lean`, hypotheses H1/H2;
 injected environment places are covered by [VER-006], H3'). A law that fails the gate is
 dropped from the encoding and listed in the report.
+
+The encoders *shall* receive a conservation law only when the law passed the exact gate: `y·C = 0` against every column of the incidence matrix, each column counting every token its flat transition deposits and the injector columns of [VER-006] included, and `y·M0` equal to the law's constant, both in exact integer arithmetic, and zero weight on every place a transition consumes with `all()` / `atLeast(n)` or clears with a reset arc.
+
+The encoders *shall* receive every basis row of [VER-005] that passed the gate, whatever the option's setting.
+
+A law whose weights or exact sums leave the implementation's integer range fails the gate with a weight-overflow reason. Every implementation's range holds a law whose weights, and the sum of the absolute values of the terms of each of its sums `y·C` and `y·M0`, are at most `2^31 − 1`.
 
 Two sources feed the gate. The null-space basis of [VER-005] is one basis of many: Gaussian
 elimination returns mixed-sign rows (discarded as not semi-positive) and rows that fold a reset
@@ -661,7 +716,8 @@ series have `2^k` of them, measured at 2 048 for eleven and past the implementat
 beyond thirteen. Computing them for a caller who did not enable this option is a large unforced
 cost (27 s of preprocessing on a 24-layer net before the solver sees anything), and on a wide
 net an **uncatchable** one, since the heap it exhausts aborts the process rather than returning a
-verdict. An implementation MUST compute semiflows only when the option is enabled. No other phase
+verdict. An implementation MUST compute semiflows only when the option is on, or is `auto` and the
+gate dropped a basis row for its weight on a consume-all or reset place. No other phase
 reads them: the colour-slot bound of [NU-053] is a linear program over the incidence matrix, not
 a semiflow search.
 
@@ -674,6 +730,14 @@ pass, because the drops are known before the semiflows are needed. It is the set
 leaving that to the caller has a poor record — the option's unqualified reputation as "the
 biggest lever" has led a consumer to enable it globally and then build a size ceiling around its
 cost.
+
+*While* the option is off, the encoders *shall* receive exactly the basis rows that passed the gate.
+
+*While* the option is on, the encoders *shall* receive exactly the basis rows and the enumerated semiflows that passed the gate.
+
+*While* the option is `auto`, the encoders *shall* receive what they receive with the option on when the gate dropped a basis row for its weight on a consume-all or reset place, and what they receive with the option off otherwise.
+
+*If* the option is off, or it is `auto` and the gate dropped no basis row for its weight on a consume-all or reset place, *then* the verifier *shall not* compute the semiflows.
 
 **What `auto` does not decide.** It answers whether the semiflows would add information to the
 **encoding**, not whether they would appear in the result for a caller who *inspects* the
@@ -717,8 +781,8 @@ away.
    that fails it is dropped with a `Dropped semiflow:` report line and is never encoded.
 2. With the option disabled (the default) the semiflows do not reach the encoders, are not
    computed at all, and the report is byte-identical to a build without the feature.
-3. Under `auto` the report says which way it went and why, the union happens only when a law
-   was dropped, and the verdict never differs from whichever explicit setting `auto` chose. The
+3. Under `auto` the report says which way it went and why, the union happens exactly when the
+   gate dropped a basis row for its weight on a consume-all or reset place, and the verdict never differs from whichever explicit setting `auto` chose. The
    report's "off" wording MUST say that the skipped semiflows add no *constraint*, not that they
    would add nothing, so a caller reading the invariant list is not misled about their absence.
 4. With the option enabled the report carries `  Semiflows encoded as invariants: N`, where
@@ -730,22 +794,22 @@ away.
 6. A genuine violation stays `Violated` with the option enabled.
 7. The strengthened list reaches the name-coloured encoder ([NU-050]) as well as the flat one:
    there is a net on the coloured path whose encoded script differs between the option's two
-   states. (Not every such net — a semiflow already present in the basis dedups away, and AC3
+   states. (Not every such net: a semiflow already present in the basis dedups away, and AC4
    admits `N = 0`, in which case the two scripts are identical.) This is about what the encoder
-   receives, not about certification — AC4's certificate check is flat-path only, and a coloured
+   receives, not about certification: AC5's certificate check is flat-path only, and a coloured
    `Proven` reports `  Certificate check: not applicable (name-coloured encoding)`.
 
 **Implementation notes:**
-- Java: `SmtVerifier.semiflowInvariants(boolean)`.
+- Java: `SmtVerifier.semiflowInvariants(boolean)` and `semiflowInvariants(SemiflowMode)` (`OFF`, `ON`, `AUTO`).
 - TypeScript: `SmtVerifier.semiflowInvariants(enabled | 'auto')`.
-- Rust: `SmtVerifier::semiflow_invariants(bool)`.
-- Python: `verify(..., semiflow_invariants=True)`.
+- Rust: `SmtVerifier::semiflow_invariants(impl Into<SemiflowMode>)`: a `bool`, or `SemiflowMode::Off`, `On` or `Auto`.
+- Python: `verify(..., semiflow_invariants=True)`, or `semiflow_invariants="auto"`.
 
 **Depends on:** [VER-004], [VER-005], [VER-006], [NU-050], [NU-053]
 
 **Test derivation:** a budgeted work loop with one reset arc on a side place, whose null-space
 basis folds the reset place into the loop's law: a `placeBound` on the loop is proven only with
-the option; a bound the loop genuinely exceeds stays `Violated` with it. For AC6, the same loop
+the option; a bound the loop genuinely exceeds stays `Violated` with it. For AC7, the same loop
 beside a budget-declared ν-net, with the reset arc on the uncoloured half (the coloured encoder
 refuses a reset on a coloured place, and the net would silently fall back to the flat encoding):
 the encoded script must report itself coloured and must differ between the option's two states.
@@ -960,6 +1024,7 @@ comparator.
 #### VER-014: Conditional Sink Places (Designed Terminals)
 
 **Priority:** SHOULD
+**Kind:** F
 
 `DeadlockFree` ([VER-002]) reads a quiescent marking against the places where a token may
 rest. Besides the unconditional **sink places**, the verifier accepts **conditional sink
@@ -978,6 +1043,12 @@ stranded only when both are unmarked. `TerminatesAtSink` is unaffected and reads
 unconditional sinks only. An unresolved marker or place contributes nothing, as an
 unresolved sink does: a mistyped marker makes the property stricter, never laxer.
 
+The verifier *shall* read a token in place `p` of a marking `M` as stranded exactly when `p` is not a declared sink, `p` is not the marker of any conditional declaration, and every conditional declaration that names `p` has its marker unmarked in `M`.
+
+*When* the verifier decides `DeadlockFree`, it *shall* report a quiescent marking as a violation exactly when some marked place of it is stranded.
+
+*When* the verifier decides `TerminatesAtSink`, it *shall* report a quiescent marking as a violation exactly when it would without any conditional declaration.
+
 **Encoding.** In the flat and name-coloured CHC encodings the stranded disjunction of
 [VER-002] gains, for each place `p` excused by markers `k₁ < … < kₙ` (flat indices), the
 disjunct `(and (>= m_p 1) (= m_k₁ 0) … (= m_kₙ 0))` in place of `(>= m_p 1)`; declared sinks
@@ -994,10 +1065,11 @@ as `(sinks: a, b; when h: c, d; when p)`, in declaration order.
    only `p`.
 4. `TerminatesAtSink` ignores conditional declarations: a quiescent marking that marks a
    marker but no declared sink violates it.
-5. Every route that decides `DeadlockFree` — the flat encoder, the name-coloured encoder, the
-   certificate check's safety condition, the abstract counterexample replay and the ν
-   name-partition graph ([VER-012]) — reads the same rest set; the four implementations emit
-   byte-identical scripts for the same declarations ([VER-013] AC1).
+5. Every route that decides `DeadlockFree` reads the same rest set, among them the flat
+   encoder, the name-coloured encoder, the certificate check's safety condition, the abstract
+   counterexample replay, the ν name-partition graph ([VER-012]), the enumeration route
+   ([VER-017]), the state-equation phase ([VER-018]) and open-net verification ([VER-022]); the
+   four implementations emit byte-identical scripts for the same declarations ([VER-013] AC1).
 
 **Net-declared terminals.** A terminal place declared on the net ([EXEC-042]) is a designed
 terminal that the caller does not restate. Every route verifies the net with `P` inhibiting each
@@ -1029,6 +1101,7 @@ with the same declarations is violated. A chain whose marker is consumed before 
 #### VER-015: Linear State-Equation Bound
 
 **Priority:** SHOULD
+**Kind:** F
 
 Before the fixpoint query, a **reachability-safety** property (`PlaceBound`,
 `BranchPlaceBound`, `MutualExclusion`, `Unreachable`) is tried against the **state
@@ -1040,18 +1113,29 @@ demand `d` on some places (`m_p ≥ 1` for each place of an `Unreachable` or a t
 `MutualExclusion`, `m_p ≥ k+1` for a bound `k`); if `y·d > y·M0` for some such `y`, no
 reachable marking meets the demand and the property is **proven structurally**, without IC3.
 A pairwise `MutualExclusion` over three or more places ([VER-002]) is a disjunction of
-demands, one per pair: it is proven when every pair's demand is separated, one query each.
+demands, one per pair: it is proven when every pair's demand is separated, each pair with its own query.
 
-The weighting is found by one `QF_LIA` query through the solver transport of [VER-013]
+The weighting for each demand is found by one `QF_LIA` query through the solver transport of [VER-013]
 (phase `bound`): variables `y_p ≥ 0` per flat place, `y_p = 0` on every consume-all / reset
 place (H1) and every injected environment place (H3'), one row `Σ_p C[p][t]·y_p ≤ 0` per flat
 transition, and `Σ_p d_p·y_p ≥ 1 + Σ_p M0_p·y_p`. A `sat` model is **re-checked in exact
 integer arithmetic** (`y ≥ 0`, the zero weights, every row, the demand) before it is
 believed; a model that fails the check is discarded. `unsat`, `unknown` and any transport
-failure hand over to the fixpoint query. The phase is skipped under `Ignore` with
+failure hand over to the next phase of the dispatch. The phase is skipped under `Ignore` with
 environment places registered ([VER-006] AC4) and for the quiescence properties, whose
 violation is not a linear demand. A ν-net's verdict receives the [NU-050] over-approximation
 note like any other flat proof.
+
+The verifier *shall* accept a weighting `y` for a demand `d` in the exact re-check only when `y_p ≥ 0` on every flat place, `y_p = 0` on every consume-all, reset and injected environment place, `Σ_p C[p][t]·y_p ≤ 0` for every flat transition `t`, and `Σ_p d_p·y_p ≥ 1 + Σ_p M0_p·y_p`, and *shall* accept every weighting that meets these conditions when every weight, and the sum of the absolute values of the terms of each of these sums, is at most `2^127 − 2`.
+A weighting whose sums overflow the implementation's integer arithmetic is rejected; that costs a proof and never makes one.
+In the re-check, `C[p][t]` is the number of tokens the flat transition `t` deposits on `p` minus the number its input on `p` requires, which for a consume-all input (`all`, `atLeast`) is its required minimum.
+
+The verifier *shall* take as the demands of a property one demand `m_p ≥ 1` on every listed place for `Unreachable`, one demand `m ≥ 1` on the entries at positions `i` and `j` for every pair of positions `i < j` of a `MutualExclusion` of two or more entries, in lexicographic order of `(i, j)`, and one demand `m_q ≥ k + 1` on the bounded place `q` for `PlaceBound` and `BranchPlaceBound` with bound `k`.
+A `MutualExclusion` of fewer than two entries is never violated ([VER-002]), so its demands are left to the implementation and every choice is sound.
+
+*When* the verifier runs the bound phase on a property, it *shall* return `Proven` exactly when, for every demand of the property, the query returned a `sat` model whose weighting the exact re-check accepts for that demand.
+
+The verifier *shall not* return `Violated` from the bound phase; every outcome of the phase other than `Proven` hands over to the next phase of the dispatch.
 
 This closes the class of proofs IC3 does not find on pipeline-shaped nets: an *ordering*
 argument — "both join slots armed means every upstream stage has run, so no halt is still
@@ -1060,15 +1144,15 @@ over fifty variables but a linear solver finds in milliseconds. A net that answe
 after 300 s answers `proven` in under a second.
 
 **Acceptance Criteria:**
-1. A reachability-safety property whose violating markings exceed some `y·M ≤ y·M0`
-   (`y ≥ 0`, `y·C ≤ 0`) is `Proven` with method `structural`, without a fixpoint query, and
-   the report names the bound and the demand:
+1. When the bound query returns, for every demand of a reachability-safety property, a
+   weighting that passes the exact re-check, the property is `Proven` with method `structural`,
+   without a fixpoint query, and the report names the bound and the demand:
    `  Linear state-equation bound: 2*p0 + a + b <= 2; violation needs a + b + halt >= 3`.
 2. A property whose violation the state equation admits (`unsat` from the query) proceeds to
    the fixpoint query with the report line `  Linear state-equation bound: none separates the violation`.
 3. The bound is re-proven in exact integer arithmetic; a model that fails it is reported
    `inconclusive (solver model failed the exact re-check)` and the fixpoint query runs.
-4. The `bound` script is byte-identical across implementations ([VER-013] AC1) and is
+4. The first demand's `bound` script is byte-identical across implementations ([VER-013] AC1) and is
    reported by `encodeScripts()` (`null` for a quiescence property) whenever `verify()` would
    send it, including on a net with an exact name-coloured plan.
 5. A genuine violation is never masked: the phase can only return `Proven`.
@@ -1078,7 +1162,7 @@ after 300 s answers `proven` in under a second.
 7. On an untimed net the enumeration route would take, a reachability-safety property the bound
    separates is `Proven` (structural) with no enumeration report line, whatever the class budget.
    A property it does not separate is decided by the enumeration as before, and the run sends the
-   `bound` query once. On a net with a drained forward the enumeration still decides first.
+   `bound` query at most once per demand. On a net with a drained forward the enumeration still decides first.
 
 **On ν-nets the phase also runs before the name-coloured encoding ([NU-053]).** The state
 equation is written over the flat, name-blind net, whose firing rule ignores which name a token
@@ -1107,8 +1191,8 @@ several minutes at 5 000 000, and under 0.1 s with the bound first. A bound that
 as in AC1, with the report line of [VER-017] AC3 for the invariants it did not compute. Anything
 else falls through to the enumeration, and the fixpoint query later does not send the `bound`
 query again. When the solver cannot be started, the early bound is skipped with a report line and
-the enumeration runs without a solver, as it did before; the `Unavailable` verdict of [VER-013]
-comes only from the later phases. On every other net the phase keeps the slot above.
+the enumeration runs without a solver, as it did before; the `Unknown` with route `Unavailable`
+of [VER-013] comes only from the later phases. On every other net the phase keeps the slot above.
 
 It is on by default and MAY be disabled (`linearBound(false)`) to force
 the fixpoint path — for its certificate, or to exercise the engine itself.
@@ -1136,6 +1220,7 @@ over to the fixpoint query, which reports `violated` with a confirmed replay.
 #### VER-016: State-Equation Strengthening with Firing Counters
 
 **Priority:** SHOULD
+**Kind:** B
 
 The flat CHC encoding ([VER-001]) MAY carry the **state equation** itself. With the option
 enabled the state is `(M, n)` — one firing counter `n_t` per flat transition after the
@@ -1165,10 +1250,23 @@ Lean (`StateEquation.lean`: `rows_hold`, `state_equation_reach_eq`): the counter
 bookkeeping, so every row holds on every reachable augmented state and conjoining them
 removes none. The **certificate check** ranges over `(M, n)`: the candidate conjoins the
 P-invariants, `n ≥ 0` and the marking equation, and re-proves them against the raw step
-relation, whose only counter knowledge is the increment. The counterexample decoder reads a
-fact's marking from its leading `P` arguments. The option does not apply to the
-name-coloured encoding ([NU-050]) or to Route B ([VER-012]); the report says so when both
-are requested.
+relation, whose only counter knowledge is the increment. The certificate check is on by
+default; with it disabled (`certificateCheck(false)` in Java and TypeScript,
+`certificate_check(false)` in Rust, `certificate_check=False` in Python) a `Proven` rests on
+the solver's answer alone, and the report carries
+`  Certificate check: not applicable (disabled)` in place of the check. The counterexample
+decoder reads a fact's marking from its leading `P` arguments. The option does not apply to
+the name-coloured encoding ([NU-050]) or to Route B ([VER-012]); the report says so on the
+name-coloured path only, and a run that a route or phase decides before the fixpoint query
+prints no state-equation line.
+
+*While* the state-equation option is enabled, the initial fact of the flat CHC encoding *shall* set every firing counter to 0.
+
+*While* the option is enabled, the rule of each transition *shall* fire that transition only where it is enabled, with the effect it has in the untimed abstraction of [VER-004], add one to its firing counter and copy every other counter, each environment-injection rule *shall* add one token to its place and copy every counter, and no rule but these and the initial fact *shall* derive a `Reachable` fact.
+
+*While* the option is enabled, each transition rule *shall* require of its successor `(M', n')`, for every place that is not injected, the equality `m'_p = M0_p + Σ_t C[p][t]·n'_t` where no consume-all or reset arc clears the place, and the upper bound `m'_p ≤ M0_p + Σ_t C[p][t]·n'_t` where one does.
+
+*While* the option is enabled, apart from the P-invariant conjuncts of [VER-005] and [VER-007] and the environment bounds of [VER-006], the rule of each transition *shall* accept its firing from every state `(M, n)` in which the transition is enabled and whose successor meets the rows above, and each environment-injection rule *shall* accept its injection from every state, so the rows remove no reachable state.
 
 **Acceptance Criteria:**
 1. With the option disabled the scripts and reports are byte-identical to a build without it.
@@ -1177,12 +1275,13 @@ are requested.
    and every transition rule contains the marking equation of every exact place over the
    primed variables; a consume-all or reset place carries the upper bound `(<= m_pp …)`
    instead, and an injected place carries none.
-3. A `Proven` verdict passes the certificate check (`init, consecution, safety`) with the
-   equation in the candidate; a genuine violation stays `Violated` and its counterexample
-   replays.
+3. While the certificate check is enabled (the default), a `Proven` verdict that the fixpoint
+   query decides passes the certificate check (`init, consecution, safety`) with the equation
+   in the candidate; a genuine violation stays `Violated` and its counterexample replays.
 4. The report carries `  State equation: encoded over T firing counters (VER-016)` when the
    option applied, and `  State equation: not applied (name-coloured encoding)` when it was
-   requested on the coloured path.
+   requested on the coloured path; a run that a route or phase decides before the fixpoint
+   query prints no state-equation line.
 5. The HORN and certificate scripts with the option enabled are byte-identical across the four
    implementations ([VER-013] AC1).
 
@@ -1193,10 +1292,13 @@ are requested.
 - Python: `verify(..., state_equation=True)`.
 - Python inherits the Rust encoder, upper-bound rows included.
 
-**Depends on:** [VER-001], [VER-004], [VER-005], [VER-013], [VER-015]
+**Depends on:** [VER-001], [VER-004], [VER-005], [VER-006], [VER-007], [VER-013], [VER-015]
 
-**Test derivation:** the fork-that-may-halt net of [VER-015] under `deadlockFree` with
-`done` and `halt` as sinks: proven, certificate check passed, report names five counters;
+**Test derivation:** with the enumeration budget 0, the witness depth 0, the state-equation
+phase ([VER-018]) and the firing-bound phase ([VER-019]) off, and the state-equation option of
+this requirement on, since [VER-017], [VER-018], [VER-019] and [VER-025] would otherwise decide
+these small untimed nets first: the fork-that-may-halt net of [VER-015] under `deadlockFree`
+with `done` and `halt` as sinks: proven, certificate check passed, report names five counters;
 with `halt` not a sink: violated with a confirmed replay ending in a halted marking. The
 `unreachable{ra, rb, halt}` script has arity `7 + 5`, `(= m4p (+ 1 (- n0p) (- n1p)))` in each
 of its five rules, and an upper bound rather than an equation for a consume-all place on a
@@ -1631,6 +1733,7 @@ violated, with the run `produce, produce, produce, cancel`.
 #### VER-019: Firing-Bound Phase
 
 **Priority:** SHOULD
+**Kind:** B
 
 After [VER-018] and before the fixpoint query, the verifier tries to bound the length of every
 run. A **ranking** is a weighting `r ≥ 0` of the places with `r·C_t ≤ −1` for every flat
@@ -1641,31 +1744,71 @@ below zero, and no run from `M0` has more than `K = r·M0` firings.
 The ranking with the least `K` is found by one `QF_LIA` optimisation query (phase `ranking`) and
 re-checked in exact integer arithmetic.
 
+*When* the ranking query answers with a weighting `r`, the phase *shall* re-check in exact integer arithmetic that every weight is at least 0 and that `r·C_t ≤ −1` for every flat transition `t` that can fire, and *shall* take the bound `K = r·M0` only when the re-check passes.
+
+*If* the re-check fails or `K` is larger than `2^53 − 1`, *then* the phase *shall* end inconclusive without a bounded model check, and the pipeline *shall* continue.
+
+`2^53 − 1` is the largest integer that every implementation counts depths in exactly, so all of
+them refuse the same bounds.
+
 With the bound, a **bounded model check** decides the property. One `QF_LIA` script (phase `bmc`)
 unrolls `d` steps of the exact step relation from `M0`: a selector per step names the transition
-fired or an idle step, an idle step is followed only by idle steps, the environment post-caps
-apply, and the violation is asked of the last marking. The depths are 8, 16, 32, … up to `K`.
-`sat` is a run; it is replayed firing by firing under the exact abstract semantics and reported
-`violated`, confirmed. `unsat` at depth `K` is `Proven` with method `bounded-model-check`, a claim
-about every run, since none is longer.
+fired or an idle step, an idle step is followed only by idle steps, and the violation is asked of
+the last marking. The encoder also emits the environment post-caps of [VER-006] for the bounded
+witness phase ([VER-025]); here there are none, since this phase does not run on a net with
+injected environment places.
+
+*When* the phase has the bound `K`, it *shall* ask the bounded model check first at depth `min(K, 8, L)`, where `L` is the depth limit, and after an `unsat` answer at a depth `d` below both `K` and `L` it *shall* ask next at depth `min(2d, K, L)`.
+
+The depth limit `L` *shall* be 512 in every implementation.
+
+With the default limit, a bound of 5 is asked at depth 5 alone, and a bound of 25 at the depths
+8, 16 and 25.
+
+*If* the bounded model check answers `unsat` at a depth of at least `K`, *then* the phase *shall* return `Proven` with method `bounded-model-check` and the bound `K`.
+
+That is a claim about every run, since none is longer than `K`.
+
+*If* the bounded model check answers `unsat` at the depth limit while `K` is larger, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue.
+
+*When* the bounded model check answers `sat` at a depth, the phase *shall* read the run from the model's selectors as the bounded witness phase ([VER-025]) reads it with no injection step, replay it under the exact abstract semantics, and return `Violated` with that run, untrimmed and confirmed, when every step is enabled and the last marking violates the property.
+
+*If* the depth is positive and the model defines none of the step selectors, or the run does not replay to a violating marking, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue.
+
+A depth of 0 has no selectors: its run is empty, and it is reported when `M0` violates the
+property. That depth is asked only when `K` is 0.
 
 When no ranking exists, Farkas gives firing counts `y ≥ 0, y ≠ 0` with `C·y ≥ 0`, which the
 marking equation lets repeat forever. The report names their transitions (a second query) and the
 pipeline continues. This does not show that the net has an infinite run — a loop that only an
 inhibitor stops has no ranking — only that the phase makes no claim about runs it cannot bound.
 
+*If* the ranking query answers `unsat`, *then* the phase *shall* report that the net has no firing bound, whatever the second query answers, and the pipeline *shall* continue to the fixpoint query.
+
+*If* the ranking query or a bounded model check fails in the transport or answers `unknown`, or the phase budget is spent before its answer, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue.
+
 A proof from this phase has no inductive invariant, so the certificate check does not apply; it
 rests on the exactly re-checked ranking and the solver's `unsat`. The phase gets half the
-timeout: short counterexamples take seconds, while a proof to a deep bound on a wide net can
-outlast any budget. It runs where [VER-018] runs, and not on a net with injected environment
-places, since no weighting bounds an injection. Its bounded run has transition steps only. The
-bounded witness phase ([VER-025]) shares its encoder, adds injection steps to it and asks one
-fixed depth without a bound, so it finds runs but proves nothing; on a net without injection
-its script is this phase's script. On by default; MAY be disabled to force the fixpoint path.
+timeout, rounded down to whole milliseconds and at least 1 ms: short counterexamples take
+seconds, while a proof to a deep bound on a wide net can outlast any budget. It runs where
+[VER-018] runs. Its bounded run has transition steps only. The bounded witness phase ([VER-025])
+shares its encoder, adds injection steps to it and asks one fixed depth without a bound, so it
+finds runs but proves nothing; on a net without injection its script is this phase's script. A
+name-alignment property ([NU-055]) gets no query from the phase: it ends inconclusive with the
+reason of [NU-055] before any other check.
 
-Every implementation MUST default this phase and [VER-018]'s the same way: a pre-fixpoint verdict
-carries its own `method` and report, so differing defaults break the verdict-parity fixtures
-without any property differing.
+*If* environment places are declared for injection, *then* the phase *shall* send no query and *shall* end inconclusive, also when no arc touches such a place.
+
+No weighting bounds an injection.
+
+Every implementation *shall* turn this phase on by default, as it turns on the phase of [VER-018].
+
+A pre-fixpoint verdict carries its own `method` and report, so differing defaults break the
+verdict-parity fixtures without any property differing.
+
+*If* the phase is disabled, *then* the verifier *shall not* run it, and the verdicts and reports *shall* be those of the pipeline without the phase.
+
+Disabling the phase forces the fixpoint path.
 
 Measured on the same 23 workflow nets: the violated net [VER-018] leaves open has `K = 25` and a
 22-step counterexample at depth 25 in about 11 s; proofs to `K ≤ 22` take 0.1–70 s; `K = 86` on
@@ -1683,7 +1826,9 @@ with the re-entry routed through a place of its own they have one, and where the
    `  Certificate check: not applicable (bounded model check to the firing bound)`.
 4. A net without a ranking is reported with the transitions of a repeatable firing vector
    (`    Status: no firing bound — the marking equation lets t0, t1, t2 repeat; not attempted`),
-   and the fixpoint query runs.
+   or, when the second query finds no vector or gets no answer, with
+   `    Status: no firing bound (no weights decrease on every firing); not attempted`, and the
+   fixpoint query runs.
 5. With the phase disabled, verdicts and reports are those of the pipeline without it.
 
 **Implementation notes:**
@@ -1697,10 +1842,12 @@ with the re-entry routed through a place of its own they have one, and where the
 
 **Depends on:** [VER-001], [VER-003], [VER-004], [VER-013], [VER-018]
 
-**Test derivation:** the queue-and-bundle net of [VER-018] with that phase disabled: the ranking
-`budget + s + 2*src` gives the bound 5, and the bounded model check at depth 5 proves the property;
-with the cancel alternative, a replayed run violates it. A ring `p0 → t0 → p1 → t1 → p2 → t2 → p0`
-has no ranking: the report names `t0, t1, t2`, and the fixpoint query proves `placeBound(p0, 1)`.
+**Test derivation:** the queue-and-bundle net of [VER-018] with that phase disabled, the
+enumeration budget of [VER-017] at 0 and `assumeAtomicFiring`: the ranking `budget + s + 2*src`
+gives the bound 5, and the bounded model check at depth 5 proves the property; with the cancel
+alternative, a replayed run violates it. A ring `p0 → t0 → p1 → t1 → p2 → t2 → p0`, with the
+enumeration budget at 0 and the linear bound ([VER-015]) and [VER-018] off, has no ranking: the
+report names `t0, t1, t2`, and the fixpoint query proves `placeBound(p0, 1)`.
 
 ---
 
@@ -2041,8 +2188,25 @@ into it again: `d` MUST be newly enabled in the successor class. With a second t
 #### VER-011: DBM Zone Representation
 
 **Priority:** MAY
+**Kind:** F
 
-Timing constraints within a state class are represented as a Difference Bound Matrix (DBM), encoding constraints of the form `θᵢ - θⱼ ≤ cᵢⱼ` where θᵢ is the firing clock of transition i.
+Timing constraints within a state class are represented as a Difference Bound Matrix (DBM), encoding constraints of the form `θᵢ - θⱼ ≤ cᵢⱼ` where θᵢ is the firing time of transition i: the time from entering the class until it fires.
+
+*When* the zone library creates a zone from one lower and one upper bound per clock, the zone *shall* hold exactly the firing times that lie between the bounds of each clock.
+
+Canonicalising a zone *shall not* change the firing times it holds.
+
+*When* a zone holds some firing times, its canonical matrix *shall* be closed: no bound exceeds the sum of the two bounds of a detour through any clock of the matrix, the reference clock included.
+
+The zone library *shall* report a zone empty only when it holds no firing times.
+
+*If* every finite bound of a zone is a whole number of milliseconds and every clock, the reference clock included, has a finite lower bound, *then* the zone library *shall* report the zone empty exactly when it holds no firing times.
+
+*When* a transition fires from a zone, the successor zone, with the persistent clocks first in the order given and the newly enabled clocks after them, *shall* hold every firing time the firing rule allows: the fired clock is not later than any other clock, each persistent clock keeps the time it had left after the fired clock, and each newly enabled clock lies between its static bounds.
+
+*When* the clocks of a zone that holds some firing times are permuted, the zone library *shall* keep the reference clock first, move every other bound of the matrix with its two clocks, and write zero as the bound of the reference clock against itself.
+
+*If* two zones each hold some firing times and every finite bound of both is a whole number of milliseconds, *then* their dedup keys *shall* be equal exactly when their matrices are equal entry by entry, the bounds between two clocks included.
 
 **Acceptance Criteria:**
 1. DBM encodes lower and upper bounds for each transition clock.
@@ -2050,7 +2214,11 @@ Timing constraints within a state class are represented as a Difference Bound Ma
 3. Successor DBM is computed correctly after transition firing.
 4. The zone exposes a dedup key over its full canonical matrix (every `θᵢ - θⱼ` bound, not
    only the diagonal projections), and a permutation of its clocks that reorders the matrix
-   with them; equality is positional over the canonical order ([VER-010] AC1).
+   with them; equality is positional over the canonical order ([VER-010] AC1). The key renders
+   each finite bound to the millisecond, so on zones that hold some firing times it is exact
+   when every finite bound is a whole number of milliseconds.
+
+**Depends on:** [VER-010]
 
 **Implementation notes:**
 - Java: Full implementation
@@ -2331,6 +2499,7 @@ place added (AC5). Two parallel watchdogs close in 10 classes with no `TIMEOUT` 
 #### VER-020: Siphon and Trap Analysis
 
 **Priority:** MAY
+**Kind:** F
 
 The engine may support structural analysis of siphons (sets of places that, once empty, stay empty) and traps (sets of places that, once marked, stay marked).
 
@@ -2365,18 +2534,46 @@ a token stranded: `t1: one(g) one(x) → y, g` with `t2: one(h) one(y) → x, h`
 `{g:1, h:1}` (minimal siphon `{x, y}`); `t1: one(a) one(c) → b, c` with `t2: one(b) → a` from
 `{c:1}` (minimal siphon `{a, b}`).
 
+*When* the siphon search returns, every set it returns *shall* be a nonempty siphon that contains no other nonempty siphon.
+
+*When* the siphon search returns, every nonempty siphon *shall* contain a set it returns.
+
+The maximal trap the check computes inside a set of places *shall* be a trap inside that set that contains every trap inside it.
+
+*If* the net has more than 50 places or no transition, *then* the structural check *shall* answer inconclusive.
+
+The structural check *shall* pass the siphon search a budget of 10 000 search nodes.
+
+*If* the siphon search does not return, *then* the structural check *shall* answer inconclusive.
+
+*When* the siphon search returns on a net with at most 50 places and at least one transition, the structural check *shall* answer no potential deadlock exactly when the maximal trap inside each returned siphon holds a token in the initial marking, and potential deadlock otherwise.
+
+*While* the total budget of [VER-013] is not spent, the siphon search *shall* return at a budget of 10 000 search nodes on the two witnesses above with minimal siphons `{x, y}` and `{a, b}`.
+
+*If* the total budget of [VER-013] is spent before the siphon search starts on a net with at least one place, *then* the siphon search *shall not* return.
+
+**A match transition hides a dead marking from the flat net.** A match transition ([NU-020])
+joins tokens by identity, which the flat net does not see: the flat net enables the join
+whenever the counts are there, so it can have no dead marking while the net it stands for has
+one. The structural route therefore does not decide a net with match transitions, as it does
+not decide one with a reapable transition ([VER-002]) unless `assumeNoReaping` is set.
+
+The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only when it decides `DeadlockFree` on a net with no match transition ([NU-020]), no reapable transition ([VER-002]) unless `assumeNoReaping` is set, no read, inhibitor or reset arc, no consume-all input, no arc weight above one, no declared sink or conditional sink and no registered environment place.
+
 **Acceptance Criteria:**
 1. Siphons and traps are identified from the net structure.
 2. Results inform deadlock analysis (every siphon containing an initially marked trap ensures
    deadlock-freedom of an ordinary net; liveness only for free-choice nets).
-3. A structural `Proven` is offered only for a net with no read, inhibitor or reset arc, no
-   consume-all input and no arc weight above one. Each of the three witnesses above returns a
+3. A structural `Proven` is offered only for `DeadlockFree` on a net with no match transition,
+   no reapable transition (unless `assumeNoReaping` is set), no read, inhibitor or reset arc, no
+   consume-all input, no arc weight above one, no declared sink or conditional sink and no
+   registered environment place. Each of the three witnesses above returns a
    verdict from a route that models what disables them, never a structural proof. Nor is a net
    with no transition: the one-place witness above is `Violated`, not proven structurally.
 4. The siphon search is complete: it finds `{x, y}` and `{a, b}` in the two witnesses above, and
    neither net is proven structurally. A siphon whose maximal trap is empty in the initial
-   marking (the ring `a ↔ b` from the empty marking) blocks a structural proof. An exhausted
-   search budget yields an inconclusive result.
+   marking (the ring `a ↔ b` from the empty marking) blocks a structural proof. A net with more
+   than 50 places or an exhausted search budget yields an inconclusive result.
 
 **Test derivation:** Net with known siphon/trap structure; verify identification.
 

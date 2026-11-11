@@ -139,11 +139,30 @@ The export supports configuration options:
 #### EXP-008: Styling
 
 **Priority:** SHOULD
+**Kind:** F
 
 The export applies visual styling to distinguish node categories:
 - **Start places** (no incoming arcs): highlighted (e.g., green)
 - **End places** (no outgoing arcs): highlighted (e.g., blue)
 - **Transitions**: distinct color (e.g., yellow)
+
+Each place category names a row of the node table in `spec/petri-net-styles.json`: terminal, environment, start, end, or the regular `place` row. In this section an ordinary place is a place that is neither a terminal place ([EXEC-042]) nor an environment place ([ENV-001]). In the bullets above, an incoming arc of a place is an output arc on it (some transition's output spec names it), and an input arc on it is an outgoing arc; inhibitor arcs and reset arcs are neither, and whether a read arc is an outgoing arc is left open in this version (see the last two sentences below). The category of a place is the one the export's mapper gives it; a documentation generator that afterwards redraws the interface ports of a subnet body with the `interface-port` row ([EXP-011]) is outside this requirement.
+
+The export *shall* give a terminal place the terminal category.
+
+The export *shall* give an environment place that is not a terminal place the environment category.
+
+The export *shall* give an ordinary place the start category exactly when no transition's output spec names it.
+
+The export *shall* give the end category to an ordinary place that some transition's output spec names and on which no transition has an input arc or a read arc.
+
+The export *shall not* give the end category to an ordinary place on which some transition has an input arc.
+
+The export *shall* give an ordinary place the start, the end or the regular place category.
+
+An ordinary place that some transition's output spec names, and on which some transition has a read arc and none has an input arc, may have the end or the regular place category in this version; the regular place category is the intended one.
+
+The export *shall* give the same category to all ordinary places, in one net or in different nets, that some transition's output spec names, on which some transition has a read arc and on which no transition has an input arc.
 
 **Acceptance Criteria:**
 1. Start places are visually distinct from other places.
@@ -200,8 +219,9 @@ The following requirements specify the *visualization* layer that the mapper app
 #### EXP-012: XOR/AND Junction Nodes
 
 **Priority:** MUST
+**Kind:** F
 
-For every `Out.Xor` or `Out.And` group with **two or more children**, the mapper MUST insert a synthetic *junction node* between the transition and the children. Single-child XOR/AND groups MUST NOT produce a junction (they are semantically pass-through).
+For every `Out.Xor` or `Out.And` group with **two or more children**, the mapper MUST insert a synthetic *junction node* between the transition and the children. A group with fewer than two children MUST NOT produce a junction (it is a pass-through).
 
 **Junction node attributes** (gateway convention — diamond + single heavy glyph):
 - **XOR junction**: shape `diamond`, fill `#FFFFFF`, stroke `#333333`, penwidth `1.0`, width `0.3`, height `0.3`, label `"✕"` (U+2715 Multiplication X), fontsize `14`, fixedsize `true`. Style category `xor-junction`.
@@ -211,17 +231,36 @@ The two kinds share a shape and color family; the inline heavy glyph (`✕` for 
 
 **Edge routing:**
 - Edge `transition → junction`: output style, no label (or the timeout label `⏱<n>ms` if the group is wrapped in `Out.Timeout`).
-- Edge `junction → child` for an XOR junction: output style, label = the inferred branch label (place name for `Place`, target name for `ForwardInput`, `⏱<n>ms` for `Timeout`, or none if the child is itself a junction).
-- Edge `junction → child` for an AND junction: output style, no label.
+- Edge `junction → child` for an XOR junction: output style, label = the inferred branch label (place name for `Place`, `⏱<n>ms` for `Timeout`, or none if the child is itself a group).
+- Edge `junction → child` for an AND junction: output style, no label of its own.
+- A `Timeout` node puts its label `⏱<n>ms` on the edge that enters its child, wherever the `Timeout` sits.
+- A `ForwardInput` leaf edge is dashed and labelled `⟵<from>`, after the label the edge would otherwise carry and a space when it has one.
+- Where [EXP-013] combines a leaf edge into a reset place, its arc type, label and style are those of [EXP-013].
+
+The mapper *shall* draw one junction node for each `And` or `Xor` group of an output spec that has two or more children, of the group's kind, and no other junction node.
+
+*Where* an `And` or `Xor` group has fewer than two children, the mapper *shall* draw its child, if it has one, from the group's parent and with the label the edge into the group would carry.
+
+The mapper *shall* draw exactly one solid output edge into each junction node, into the place of each `Place` leaf and into the target place of each `ForwardInput` leaf, from the nearest junction node above it, or from the transition when there is none, and no other edge for the output spec.
+
+The edge into a child of an `Xor` junction *shall* carry the child's branch label: the place name of a `Place` child, `⏱<n>ms` for a `Timeout` child of n ms, and no label for an `And` or `Xor` child.
+
+The edge into a child of an `And` junction, and the edge from the transition into the output spec, *shall* carry no label of their own.
+
+*Where* a `Timeout` node of n ms is in an output spec, the edge drawn into its child *shall* carry `⏱<n>ms` in place of the label the edge into the `Timeout` would carry.
+
+*Where* a leaf is a `ForwardInput` from place F to place P, the mapper *shall* draw its edge as the edge of a `Place` leaf for P at the same position, dashed instead of solid, and with `⟵F` after its label and a space, or as its only label when it has none.
+
+*Where* [EXP-013] combines a leaf edge into a reset place, that edge *shall* take the arc type, label and style [EXP-013] gives it in place of the ones above.
 
 **Acceptance Criteria:**
 1. Net with `XOR(P_a, P_b)` exports one diamond junction labelled `"✕"` and two edges junction→{P_a, P_b}.
 2. Net with `AND(P_c, P_d)` exports one diamond junction labelled `"✚"` and two edges junction→{P_c, P_d}.
-3. Net with `XOR(P_a)` (single child) exports a direct edge transition→P_a, no junction.
+3. Net with `AND(P_a)` (single child) exports a direct edge transition→P_a, no junction.
 4. Nested groups (e.g. `XOR(AND(P_a, P_b), P_c)`) produce nested junctions.
 5. Java, TypeScript, and Rust mappers produce byte-identical junction nodes and edges for the same input net (modulo deterministic ordering already in place).
 
-**Test derivation:** For each language, build a net with `XOR(A, B)`, `AND(C, D)`, `XOR(A)`, and a nested case; export; assert junction node count, shape, and edge wiring.
+**Test derivation:** For each language, build a net with `XOR(A, B)`, `AND(C, D)`, `AND(A)`, and a nested case; export; assert junction node count, shape, and edge wiring.
 
 ---
 

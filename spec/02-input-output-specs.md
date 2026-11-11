@@ -15,7 +15,7 @@ This document specifies input cardinality and composite output routing semantics
 
 *While* the input place of a `One` input arc is unmarked, the transition *shall not* fire.
 
-*While* the input place of a `One` input arc is marked, the arc *shall not* affect whether the transition can fire.
+*While* the input place of a `One` input arc is marked and is not a correlated input of the transition's match specification ([NU-020]), the arc *shall not* affect whether the transition can fire.
 
 *When* a transition with a `One` input arc fires, it *shall* consume exactly 1 token from the input place.
 
@@ -75,11 +75,13 @@ This document specifies input cardinality and composite output routing semantics
 
 *While* the place of an `All` input arc of a transition is unmarked, the transition *shall not* fire.
 
-*While* the place of an `All` input arc of a transition is marked, the `All` input arc *shall not* affect whether the transition can fire.
+*While* the place of an `All` input arc of a transition is marked and is not a correlated input of the transition's match specification ([NU-020]), the `All` input arc *shall not* affect whether the transition can fire.
 
-*When* a transition fires, it *shall* consume every token from the place of each of its `All` input arcs.
+*When* a transition fires, it *shall* consume every token from the place of each of its `All` input arcs that is not a correlated input of its match specification ([NU-020]).
 
-*When* a transition fires, the place of each of its `All` input arcs that is not an output place of the transition *shall* end the firing empty.
+*When* a transition fires, the place of each of its `All` input arcs that is neither an output place of the transition nor a correlated input of its match specification *shall* end the firing empty.
+
+On a correlated input of a match specification, an `All` input arc consumes every token of the chosen name and leaves the tokens of other names in the place ([NU-020]).
 
 **Acceptance Criteria:**
 1. Transition enables when place has >= 1 token.
@@ -103,11 +105,13 @@ This document specifies input cardinality and composite output routing semantics
 
 *While* the input place of an `AtLeast(place, minimum)` input arc holds fewer than `minimum` tokens, the transition *shall not* fire.
 
-*While* the input place of an `AtLeast(place, minimum)` input arc holds at least `minimum` tokens, the input arc *shall not* affect whether the transition can fire.
+*While* the input place of an `AtLeast(place, minimum)` input arc holds at least `minimum` tokens and is not a correlated input of the transition's match specification ([NU-020]), the input arc *shall not* affect whether the transition can fire.
 
-*When* a transition with an `AtLeast(place, minimum)` input arc fires, it *shall* consume every token the input place holds.
+*When* a transition with an `AtLeast(place, minimum)` input arc fires, it *shall* consume every token the input place holds, unless the input place is a correlated input of its match specification ([NU-020]).
 
-*When* a transition with an `AtLeast(place, minimum)` input arc fires, and the input place is not an output place of the transition, the input place *shall* end the firing empty.
+*When* a transition with an `AtLeast(place, minimum)` input arc fires, and the input place is neither an output place nor a correlated input of the match specification of the transition, the input place *shall* end the firing empty.
+
+On a correlated input of a match specification, an `AtLeast(place, minimum)` input arc requires and consumes the tokens of the chosen name only ([NU-020]).
 
 **Acceptance Criteria:**
 1. Construction with minimum < 1 is rejected (error or panic), also when building a
@@ -130,7 +134,7 @@ All inputs on a transition are AND-joined: every input arc is a precondition, an
 
 *While* any input place of a transition holds fewer tokens than the required count of its input arc, the transition *shall not* fire.
 
-*While* every input place of a transition holds at least the required count of its input arc, the input arcs *shall not* affect whether the transition can fire.
+*While* every input place of a transition that has no match specification ([NU-020]) holds at least the required count of its input arc, the input arcs *shall not* affect whether the transition can fire.
 
 **Acceptance Criteria:**
 1. Transition with 3 inputs enables only when all 3 places have sufficient tokens.

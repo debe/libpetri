@@ -40,7 +40,12 @@ At the granularity of the firing semantics a marking is its token counts, by pla
 abbrev CountMarking (N : Type) := N → Nat
 
 /-- **Glossary: Token count.** "The number of tokens a place holds in a marking, written `m(p)`.
-Enablement and firing read token counts only: no input arc tests a token's value [IO-006]." -/
+Enablement and firing read token counts only: no input arc tests a token's value [IO-006]. The
+exception is a correlated input of a ν-net match specification, where they count the tokens of one
+name [NU-020]."
+
+The Lean definitions here are the count-level part; a correlated input of a match specification
+is NU-020's (wave W9). -/
 abbrev TokenCount (m : CountMarking N) (p : N) : Nat := m p
 
 /-- **Glossary: Marked.** "A place is marked when its token count is not zero." -/
@@ -113,7 +118,9 @@ abbrev requiredCount (c : Card) : Nat := c.required
 
 /-- **Glossary: Consumption count.** "`consumptionCount(available)`: the tokens a firing removes
 from an input place that holds `available` tokens. It is 1 for `One`, `n` for `Exactly(n)` and
-`available` for `All` and `AtLeast(m)` [IO-007]." -/
+`available` for `All` and `AtLeast(m)` [IO-007]. On a correlated input of a ν-net match
+specification, `available` is the number of tokens of the chosen name [NU-020]." Here `available`
+is the place's whole count: the count-level part, with correlated inputs NU-020's (wave W9). -/
 def consumptionCount (c : Card) (available : Nat) : Nat :=
   if c.consumesAll then available else c.required
 
@@ -121,16 +128,22 @@ def consumptionCount (c : Card) (available : Nat) : Nat :=
 
 /-- **Glossary: Enabled.** "A transition is enabled in a marking when every input place holds
 at least its required count, every read place is marked and no inhibitor place is marked
-[CORE-022], [IO-005]. Reset arcs and output arcs play no part." This is `Seam.enabledNA`;
-`enabled_iff` is the readable form. -/
+[CORE-022], [IO-005]. Reset arcs and output arcs play no part. For a transition with a ν-net match
+specification this is the count-level part of enablement only: its enablement check also needs a
+name of which every correlated input holds at least its required count of tokens [NU-020]." This
+is `Seam.enabledNA`; `enabled_iff` is the readable form. It is the count-level part: the
+transitions here carry no match specification, and the ν-match check is NU-020's (wave W9). -/
 def Enabled (t : Trans N) (m : CountMarking N) : Prop := enabledNA m t.core = true
 
 instance (t : Trans N) (m : CountMarking N) : Decidable (Enabled t m) :=
   inferInstanceAs (Decidable (enabledNA m t.core = true))
 
 /-- **Glossary: Consume.** "To remove tokens from an input place when the transition fires: as
-many as the consumption count, oldest first [CORE-030], [IO-007]. Read arcs and inhibitor arcs
-never consume [CORE-031], [CORE-032]."
+many as the consumption count, oldest first [CORE-030], [IO-007]. On a correlated input of a
+ν-net match specification the count and the order apply to the tokens of the chosen name only
+[EXEC-010], [NU-020]. Read arcs and inhibitor arcs never consume [CORE-031], [CORE-032]."
+
+This is the count-level part; consumption on a correlated input is NU-020's (wave W9).
 
 `Consumes t m p` is the number of tokens a firing of `t` from `m` consumes from `p`
 (`Seam.nconsumed`; 0 for a place with no input arc). Token order is below the count

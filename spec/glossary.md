@@ -20,7 +20,8 @@ have the same identity [CORE-002].
 ### Token count
 
 The number of tokens a place holds in a marking, written `m(p)`. Enablement and firing read
-token counts only: no input arc tests a token's value [IO-006].
+token counts only: no input arc tests a token's value [IO-006]. The exception is a correlated
+input of a ν-net match specification, where they count the tokens of one name [NU-020].
 
 ### Marking
 
@@ -46,7 +47,8 @@ It is 1 for `One` and `All`, `n` for `Exactly(n)` and `m` for `AtLeast(m)` [IO-0
 
 `consumptionCount(available)`: the tokens a firing removes from an input place that holds
 `available` tokens. It is 1 for `One`, `n` for `Exactly(n)` and `available` for `All` and
-`AtLeast(m)` [IO-007].
+`AtLeast(m)` [IO-007]. On a correlated input of a ν-net match specification, `available` is the
+number of tokens of the chosen name [NU-020].
 
 ### Output arc
 
@@ -73,7 +75,9 @@ fires [CORE-034]. It never affects enablement.
 
 A transition is enabled in a marking when every input place holds at least its required count,
 every read place is marked and no inhibitor place is marked [CORE-022], [IO-005]. Reset arcs
-and output arcs play no part.
+and output arcs play no part. For a transition with a ν-net match specification this is the
+count-level part of enablement only: its enablement check also needs a name of which every
+correlated input holds at least its required count of tokens [NU-020].
 
 ### Fire
 
@@ -85,7 +89,8 @@ priority.
 ### Consume
 
 To remove tokens from an input place when the transition fires: as many as the consumption
-count, oldest first [CORE-030], [IO-007]. Read arcs and inhibitor arcs never consume
+count, oldest first [CORE-030], [IO-007]. On a correlated input of a ν-net match specification
+the count and the order apply to the tokens of the chosen name only [EXEC-010], [NU-020]. Read arcs and inhibitor arcs never consume
 [CORE-031], [CORE-032].
 
 ### Deposit
