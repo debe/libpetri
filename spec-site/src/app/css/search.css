@@ -1,0 +1,229 @@
+/* search.css: styles of search.ts (the search overlay). Owner: reader + md + search agent.
+   The overlay's position and size are in style.css (.overlay--search > .search). */
+
+.overlay--search > .search {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.search__inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  max-height: inherit;
+}
+
+.search__field {
+  position: relative;
+  padding: var(--s3);
+  border-bottom: 1px solid var(--border);
+}
+
+.search__icon {
+  position: absolute;
+  left: calc(var(--s3) + var(--s3));
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  font-size: 20px;
+  pointer-events: none;
+}
+
+.search__field {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.search__close {
+  display: none;
+  flex: none;
+  min-height: 44px;
+  padding: 0 var(--s2);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.search__field .search__input {
+  padding-left: calc(var(--s3) + 24px);
+}
+
+.search__input::placeholder {
+  color: var(--text-3);
+}
+
+.search__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s2) 0;
+}
+
+.search__list {
+  outline: none;
+}
+
+.search__group + .search__group {
+  margin-top: var(--s2);
+}
+
+.search__group-title {
+  padding: var(--s1) var(--s4);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.search__count {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.search__option {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--s2);
+  min-height: 40px;
+  padding: var(--s2) var(--s4);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  font-size: var(--t-ui);
+}
+
+.search__option[aria-selected="true"] {
+  background: var(--accent-weak);
+  border-left-color: var(--accent);
+}
+
+.search__option--more {
+  display: block;
+  min-height: 32px;
+  padding-left: calc(var(--s4) + 24px + var(--s2));
+  color: var(--accent);
+  font-size: var(--t-small);
+}
+
+.search__option--recent {
+  align-items: center;
+}
+
+.search__glyph {
+  color: var(--text-3);
+  font-size: var(--t-small);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.search__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search__line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search__key {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.search__key--mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.search__option--theorem .search__key--mono {
+  color: var(--text);
+}
+
+.search__title {
+  color: var(--text);
+}
+
+.search__snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--t-small);
+}
+
+.search__option mark {
+  background: var(--open-bg);
+  color: var(--text);
+  border-radius: 2px;
+}
+
+.search__status {
+  display: inline-flex;
+  gap: var(--s1);
+  font-size: var(--t-small);
+  line-height: 1.6;
+}
+
+.search__lean--ok { color: var(--ok); }
+.search__lean--consistent { color: var(--consistent); }
+.search__lean--none { color: var(--text-3); }
+
+.search__defect {
+  color: var(--defect);
+}
+
+.search__empty,
+.search__try {
+  margin: var(--s3) var(--s4);
+  color: var(--text-2);
+  font-size: var(--t-ui);
+}
+
+.search__try-btn {
+  min-height: 28px;
+  padding: 0 var(--s1);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.search__hint {
+  margin: 0;
+  padding: var(--s2) var(--s4);
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: var(--t-small);
+}
+
+@media (max-width: 599px) {
+  .search__hint {
+    display: none;
+  }
+  .search__close {
+    display: inline-flex;
+    align-items: center;
+  }
+  .search__option {
+    min-height: 44px;
+  }
+}

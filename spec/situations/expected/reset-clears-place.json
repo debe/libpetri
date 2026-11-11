@@ -1,0 +1,13 @@
+{
+  "slug": "reset-clears-place",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"pending": 3, "restartReq": 2},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "work", "branch": 0, "fired": true, "marking": {"done": 1, "pending": 2, "restartReq": 2} },
+    { "index": 1, "fire": "restart", "branch": 0, "fired": true, "marking": {"done": 1, "log": 1, "pending": 1, "restartReq": 1} },
+    { "index": 2, "fire": "work", "branch": 0, "fired": true, "marking": {"done": 2, "log": 1, "restartReq": 1} },
+    { "index": 3, "fire": "restart", "branch": 0, "fired": true, "marking": {"done": 2, "log": 2, "pending": 1} },
+    { "index": 4, "fire": "restart", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "restartReq", "arc": {"kind": "one"}, "need": 1, "have": 0}, "requirement": "IO-001", "message": "'restart' is not enabled: input place 'restartReq' holds 0 tokens, its One arc needs 1" }
+  ]
+}

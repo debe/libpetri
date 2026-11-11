@@ -1,0 +1,27 @@
+{
+  "title": "A held lock keeps the gate shut",
+  "group": "Firing",
+  "text": "Three jobs wait in front of a gate. Taking a job puts a token in `lock`, and the inhibitor arc of `take` on `lock` keeps the gate shut until `release` empties `lock` again. The last step tries to take a second job while the lock is held: a job is waiting, but the inhibitor place is marked, so the transition is not enabled.",
+  "cites": ["CORE-022", "CORE-031"],
+  "places": ["job", "lock", "done"],
+  "marking": { "job": 3 },
+  "transitions": [
+    {
+      "name": "take",
+      "inputs": [ { "place": "job", "kind": "one" } ],
+      "inhibitors": ["lock"],
+      "output": { "type": "place", "place": "lock" }
+    },
+    {
+      "name": "release",
+      "inputs": [ { "place": "lock", "kind": "one" } ],
+      "output": { "type": "place", "place": "done" }
+    }
+  ],
+  "steps": [
+    { "fire": "take", "text": "The place `lock` is empty, so `take` fires and marks it." },
+    { "fire": "release", "text": "The transition `release` empties `lock` and finishes the job." },
+    { "fire": "take", "text": "The place `lock` is empty again: the second job is taken." },
+    { "fire": "take", "text": "A job still waits, but `lock` holds a token.", "expect": "blocked" }
+  ]
+}

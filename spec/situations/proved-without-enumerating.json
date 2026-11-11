@@ -1,0 +1,55 @@
+{
+  "title": "Proved on a net with no bound",
+  "group": "Verification",
+  "text": "The transition `produce` puts a new token in `queue` every time it fires, so the net has infinitely many reachable markings and no enumeration of them can finish; the Lean reference stops at its cap. The verifier still proves both properties: the linear bound `busyA + busyB + lock ≤ 1` keeps the two workers apart, and after its own enumeration stops at 50 000 classes, Commoner's theorem gives deadlock freedom, since every siphon contains an initially marked trap.",
+  "cites": ["VER-001", "VER-002", "VER-015", "VER-017", "VER-020"],
+  "places": ["source", "queue", "lock", "busyA", "busyB", "done"],
+  "marking": { "source": 1, "lock": 1 },
+  "transitions": [
+    {
+      "name": "produce",
+      "inputs": [ { "place": "source", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "source" },
+        { "type": "place", "place": "queue" } ] }
+    },
+    {
+      "name": "takeA",
+      "inputs": [
+        { "place": "queue", "kind": "one" },
+        { "place": "lock", "kind": "one" } ],
+      "output": { "type": "place", "place": "busyA" }
+    },
+    {
+      "name": "takeB",
+      "inputs": [
+        { "place": "queue", "kind": "one" },
+        { "place": "lock", "kind": "one" } ],
+      "output": { "type": "place", "place": "busyB" }
+    },
+    {
+      "name": "doneA",
+      "inputs": [ { "place": "busyA", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "lock" },
+        { "type": "place", "place": "done" } ] }
+    },
+    {
+      "name": "doneB",
+      "inputs": [ { "place": "busyB", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "lock" },
+        { "type": "place", "place": "done" } ] }
+    }
+  ],
+  "properties": [
+    { "id": "apart", "type": "mutual-exclusion", "places": ["busyA", "busyB"] },
+    { "id": "deadlock", "type": "deadlock-free", "sinks": [] }
+  ],
+  "steps": [
+    { "fire": "produce", "text": "The transition `produce` keeps its `source` token and adds one to `queue`." },
+    { "fire": "produce", "text": "And again: `queue` can grow without limit." },
+    { "fire": "takeA", "text": "Worker A takes a job and the lock." },
+    { "fire": "takeB", "text": "A job waits, but `lock` is empty: B cannot start while A is busy.", "expect": "blocked" }
+  ]
+}

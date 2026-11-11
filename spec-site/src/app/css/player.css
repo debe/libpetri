@@ -1,0 +1,513 @@
+/* player.css: styles of player.ts (design 4.3 to 4.5). Owner: DOT/SVG + player agent.
+ * Tokens from style.css only. The diagram keeps the exporter's colours on a paper canvas in both
+ * themes (design 2.4); the overlay colours are set as SVG attributes from player.ts. */
+
+.player {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+
+/* The group takes focus only from script; its children carry the visible focus rings. */
+.player:focus {
+  outline: none;
+}
+
+@media (min-width: 1100px) {
+  .player {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  }
+}
+
+.player__stage,
+.player__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+/* Canvas ---------------------------------------------------------------------------------------- */
+
+.player__canvas {
+  --canvas-cap: min(70vh, 640px);
+  position: relative;
+  max-height: var(--canvas-cap);
+  overflow: auto;
+  padding: var(--s3);
+  background: var(--paper);
+  border: 1px solid var(--paper-border);
+  border-radius: var(--r-lg);
+}
+
+.player__svg {
+  display: block;
+  margin: 0 auto;
+}
+
+/* Fit: fill the width (up to 1.5 times natural) but never shrink a tall net below its natural
+   height; a net taller than the canvas scrolls instead of turning its labels into specks. */
+.player__canvas[data-fit="true"] .player__svg {
+  width: 100%;
+  max-width: calc(var(--player-natural, 100%) * 1.5);
+  height: auto;
+  max-height: max(calc(var(--canvas-cap) - 2 * var(--s3) - 2px), var(--player-natural-h, 0px));
+}
+
+.player__canvas[data-fit="false"] .player__svg {
+  max-width: none;
+}
+
+/* The canvas is always paper white, so the button uses the paper palette (literal, like the
+   diagram colours) in both themes rather than the dark surface tokens. */
+.player__fit {
+  position: absolute;
+  top: var(--s2);
+  right: var(--s2);
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 var(--s2);
+  border: 1px solid #d0d7de;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.9);
+  color: #1f2328;
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.player__fit:hover {
+  background: #f6f8fa;
+}
+
+.player__canvas--empty {
+  background: var(--sunken);
+  border-color: var(--border);
+}
+
+.player__missing {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-ui);
+}
+
+/* Overlay motion on the diagram: a read place pulses once, a reset place's dots shrink away. */
+.player__dots--pulse,
+.player__dots--shrink {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.player__dots--pulse {
+  animation: player-pulse var(--dur-slow) var(--ease) 1;
+}
+
+.player__dots--shrink {
+  animation: player-shrink var(--dur) var(--ease) forwards;
+}
+
+@keyframes player-pulse {
+  50% {
+    transform: scale(1.4);
+  }
+}
+
+@keyframes player-shrink {
+  to {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player__dots--pulse,
+  .player__dots--shrink {
+    animation: none;
+  }
+}
+
+/* Controls -------------------------------------------------------------------------------------- */
+
+.player__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  min-height: 48px;
+  padding: var(--s1) var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.player__buttons {
+  display: flex;
+  gap: var(--s1);
+}
+
+.player__btn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.player__btn:hover {
+  background: var(--sunken);
+}
+
+.player__btn--play {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.player__btn--play:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+
+.player__btn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.player__btn[aria-disabled="true"]:hover {
+  background: var(--surface);
+  filter: none;
+}
+
+.player__btn--play[aria-disabled="true"]:hover {
+  background: var(--accent);
+}
+
+.player__scrubber {
+  flex: 1 1 140px;
+  min-width: 120px;
+  height: 32px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.player__counter {
+  color: var(--text-2);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.player__note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  background: var(--sunken);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-size: var(--t-ui);
+}
+
+.player__note strong {
+  color: var(--text);
+}
+
+@media (max-width: 599px) {
+  .player__btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .player__fit {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .player__scrubber {
+    flex-basis: 100%;
+    height: 44px;
+  }
+}
+
+/* Caption and blocked callout ------------------------------------------------------------------ */
+
+.player__caption {
+  min-height: 1.6em;
+  margin: 0;
+  font-size: var(--t-body);
+}
+
+.player__caption--blocked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--bad-bg);
+  border-left: 3px solid var(--bad);
+  border-radius: var(--r-sm);
+  color: var(--text);
+}
+
+.player__blocked-label {
+  color: var(--bad);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.player__blocked-text {
+  flex: 1 1 24ch;
+  min-width: 0;
+}
+
+.player__blocked-note {
+  display: block;
+  color: var(--text-2);
+  font-size: var(--t-small);
+}
+
+.player__blocked-rule {
+  margin-left: auto;
+}
+
+/* Marking table --------------------------------------------------------------------------------- */
+
+.player__table summary {
+  width: fit-content;
+  color: var(--accent);
+  font-size: var(--t-ui);
+  cursor: pointer;
+}
+
+.player__table-scroll {
+  margin-top: var(--s2);
+  overflow-x: auto;
+}
+
+.player__table table {
+  border-collapse: collapse;
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.player__table th,
+.player__table td {
+  padding: 2px var(--s2);
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.player__table thead th {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.player__table .player__place {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-align: left;
+}
+
+.player__table th[aria-current="step"],
+.player__table .player__count--current {
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Steps list ------------------------------------------------------------------------------------ */
+
+.player__side-title {
+  font-size: var(--t-h3);
+  line-height: 1.35;
+}
+
+.player__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.player__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding-right: var(--s2);
+  border-left: 3px solid transparent;
+  border-radius: var(--r-sm);
+}
+
+/* The current step's band spans the whole row, rule chip included. */
+.player__row--current {
+  border-left-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.player__step {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  min-width: 0;
+  min-height: 36px;
+  padding: var(--s1) var(--s3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.player__step:hover {
+  background: var(--sunken);
+}
+
+.player__row--current button.player__step:hover {
+  background: transparent;
+}
+
+div.player__step {
+  cursor: default;
+}
+
+.player__num {
+  min-width: 1.5em;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.player__name {
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  overflow-wrap: anywhere;
+}
+
+.player__detail {
+  flex-basis: 100%;
+  padding-left: calc(1.5em + var(--s2));
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+
+.player__row--illustration .player__detail {
+  font-family: var(--font-sans);
+}
+
+.player__rule {
+  flex: none;
+  padding-right: var(--s2);
+}
+
+.player__enabled-line {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-small);
+}
+
+.player__enabled-name {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.player__enabled-dot {
+  color: var(--ok);
+}
+
+.player__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.player__show-all {
+  display: none;
+  width: fit-content;
+  min-height: 44px;
+  font-size: var(--t-ui);
+}
+
+/* Under 600px the list folds to the current step plus "Show all N steps" (design 4.2). */
+@media (max-width: 599px) {
+  .player__show-all {
+    display: inline-block;
+  }
+
+  .player--replay .player__side[data-expanded="false"] .player__row:not(.player__row--current) {
+    display: none;
+  }
+}
+
+/* Lean verdict box (design 4.4) ----------------------------------------------------------------- */
+
+.player__verdict {
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.player__verdict-head {
+  font-size: var(--t-h3);
+  line-height: 1.35;
+}
+
+.player__verdict--ok .player__verdict-head {
+  color: var(--ok);
+}
+
+.player__verdict--bad {
+  border-color: var(--bad);
+}
+
+.player__verdict--bad .player__verdict-head {
+  color: var(--bad);
+}
+
+.player__verdict p {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-ui);
+}
+
+.player__verdict .player__verdict-foot {
+  color: var(--text-3);
+  font-size: var(--t-small);
+}
+
+@media (max-width: 599px) {
+  .player__verdict {
+    padding: var(--s3);
+  }
+}
+
+.player__verdict .player__verdict-note {
+  color: var(--text-2);
+  font-size: var(--t-small);
+}

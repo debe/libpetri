@@ -1,0 +1,31 @@
+{
+  "title": "A delayed fallback",
+  "group": "Time",
+  "text": "The transition `deliver` (priority 10) needs a `pending` request and a `reply`, while `fallback` (priority -10, `delayed(3000)`) needs only the request. A request with a reply is delivered at once; a request without one waits until `fallback` becomes ready three seconds after it was armed.",
+  "cites": ["TIME-014", "TIME-004", "TIME-012", "EXEC-002", "EXEC-003"],
+  "replay": false,
+  "notReplayed": "timed",
+  "places": ["pending", "reply", "delivered", "fellBack"],
+  "marking": { "pending": 2, "reply": 1 },
+  "transitions": [
+    {
+      "name": "deliver",
+      "priority": 10,
+      "inputs": [
+        { "place": "pending", "kind": "one" },
+        { "place": "reply", "kind": "one" } ],
+      "output": { "type": "place", "place": "delivered" }
+    },
+    {
+      "name": "fallback",
+      "priority": -10,
+      "inputs": [ { "place": "pending", "kind": "one" } ],
+      "output": { "type": "place", "place": "fellBack" },
+      "timing": { "kind": "delayed", "earliestMs": 3000 }
+    }
+  ],
+  "steps": [
+    { "fire": "deliver", "text": "At 0 ms both are armed, but `fallback` is not ready before 3000 ms, so `deliver` takes the first request and the reply. The place `pending` still holds a token in between, so `fallback` keeps its clock." },
+    { "fire": "fallback", "text": "No second reply arrives. At 3000 ms `fallback` is ready and takes the second request." }
+  ]
+}

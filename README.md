@@ -6,6 +6,7 @@
 [![crates.io](https://img.shields.io/crates/v/libpetri)](https://crates.io/crates/libpetri)
 [![PyPI](https://img.shields.io/pypi/v/libpetri)](https://pypi.org/project/libpetri/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Spec](https://img.shields.io/badge/spec-libpetri.org%2Fspec-4338ca)](https://libpetri.org/spec/)
 
 **Model concurrent, time-aware workflows as Petri nets, run them, and check them before they ship.**
 
@@ -205,9 +206,9 @@ A verifier is only useful if its model matches what the runtime does. libpetri b
   <img src="docs/readme/evidence.svg" alt="One specification with 224 requirements feeds independent Java, TypeScript and Rust implementations; Python binds the Rust one. All three send identical SMT-LIB2 scripts to z3. Lean 4 proofs show that the verifier abstraction covers every run and that the precompiled executor refines the reference." width="900">
 </p>
 
-1. **One specification.** [224 requirements](spec/00-index.md) with acceptance criteria define the model, the
-   execution loop, timing, composition, ν-nets and verification. Java, TypeScript and Rust implement it
-   independently, and each runs its own conformance tests. Python binds the Rust engine and tests its binding.
+1. **One specification.** [224 requirements](https://libpetri.org/spec/) with acceptance criteria define the
+   model, the execution loop, timing, composition, ν-nets and verification. Java, TypeScript and Rust implement
+   it independently, and each runs its own conformance tests. Python binds the Rust engine and tests its binding.
 2. **Identical solver input.** The three implementations write byte-identical SMT-LIB2 scripts for every fixture.
    Rust writes the reference copies in [`spec/verification-fixtures/scripts/`](spec/verification-fixtures/scripts/)
    and every language diffs against them in CI.
@@ -230,7 +231,12 @@ say little about the code. The full timed cycle, the asynchronous action plumbin
 yet refined end to end. CI runs `lake build`, rejects `sorry` and `admit`, and checks the headline theorems for
 unexpected axioms. [`lean/README.md`](lean/README.md) has the theorem map and assumptions, and the
 [interactive proof graph](https://libpetri.org/proof-graph/) shows which declarations each proved requirement
-depends on.
+depends on. The [spec site](https://libpetri.org/spec/) shows every requirement with its spec quote, its Lean
+statement and its evidence, next to small example runs that the Lean reference replays step by step.
+
+<p align="center">
+  <a href="https://libpetri.org/spec/"><img src="docs/readme/spec-site.png" alt="The home page of the libpetri spec site. A row of counts shows 224 rules, 138 of them with a Lean block, 22 open defects and 24 situations. Below it, cards for small example nets each show a diagram, a short summary, how many rules the run touches and whether the Lean reference replays it." width="900"></a>
+</p>
 
 ## Where it is used
 
@@ -264,7 +270,8 @@ Petri net.
 
 ## Get started
 
-All four packages follow the [specification](spec/00-index.md). The badges at the top show the current versions.
+All four packages follow the [specification](https://libpetri.org/spec/). The badges at the top show the current
+versions.
 
 | Language | Runtime | Maturity | Install | Guide |
 |---|---|---|---|---|

@@ -1,0 +1,138 @@
+/* selftest.css: styles of selftest.ts. Owner: CI + tests agent. Tokens only (style.css). */
+
+.selftest__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-block: var(--s4);
+}
+
+.selftest__result {
+  display: block;
+  font-size: var(--t-h2);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.selftest__result--ok {
+  color: var(--ok);
+}
+
+.selftest__result--bad {
+  color: var(--bad);
+}
+
+.selftest__again {
+  min-height: 32px;
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-ui);
+  cursor: pointer;
+}
+
+.selftest__again:hover {
+  background: var(--sunken);
+}
+
+.selftest__progress {
+  display: block;
+  width: 100%;
+  max-width: var(--measure);
+  height: 8px;
+  accent-color: var(--accent);
+}
+
+.selftest__progress[hidden] {
+  display: none;
+}
+
+.selftest__groups {
+  display: grid;
+  gap: var(--s3);
+  max-width: var(--measure);
+}
+
+.selftest__group {
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.selftest__group[data-errors]:not([data-errors="0"]) {
+  border-color: var(--bad);
+}
+
+.selftest__group-title {
+  margin: 0;
+  font-size: var(--t-h3);
+}
+
+.selftest__group-count {
+  font-size: var(--t-small);
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.selftest__glyph--ok {
+  color: var(--ok);
+}
+
+.selftest__glyph--bad {
+  color: var(--bad);
+}
+
+.selftest__failures,
+.selftest__passed {
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.selftest__failure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s2);
+  padding: var(--s2);
+  margin-top: var(--s1);
+  border-radius: var(--r-sm);
+  background: var(--bad-bg);
+}
+
+.selftest__name {
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  overflow-wrap: anywhere;
+}
+
+.selftest__message {
+  flex-basis: 100%;
+  font-size: var(--t-small);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.selftest__passes {
+  margin-top: var(--s2);
+  font-size: var(--t-small);
+  color: var(--text-2);
+}
+
+.selftest__passes > summary {
+  cursor: pointer;
+  min-height: 24px;
+}
+
+.selftest__passed {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.selftest__passed > li {
+  padding-block: 2px;
+}

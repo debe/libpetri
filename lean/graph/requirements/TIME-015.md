@@ -19,48 +19,48 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/GlossaryAction.lean"]
-    n6459["Libpetri.Spec.IsUnitToken"]
+    n6460["Libpetri.Spec.IsUnitToken"]
   end
   subgraph g1["Libpetri/Spec/Req/CORE_011.lean"]
     n4323["Libpetri.Spec.CORE_011"]
     n4866["Libpetri.Spec.ClockReadings"]
     n4869["Libpetri.Spec.ClockReadings.wall"]
-    n6094["Libpetri.Spec.FacTok"]
-    n6095["Libpetri.Spec.FacTok.mk"]
-    n6096["Libpetri.Spec.FacTok.stamp"]
-    n6097["Libpetri.Spec.FacTok.val"]
-    n7208["Libpetri.Spec.TokenFactory"]
-    n7209["Libpetri.Spec.TokenFactory.make"]
-    n7210["Libpetri.Spec.TokenFactory.makeAt"]
-    n7212["Libpetri.Spec.TokenFactory.unit"]
-    n8362["Libpetri.Spec.core011_explicit"]
+    n6095["Libpetri.Spec.FacTok"]
+    n6096["Libpetri.Spec.FacTok.mk"]
+    n6097["Libpetri.Spec.FacTok.stamp"]
+    n6098["Libpetri.Spec.FacTok.val"]
+    n7209["Libpetri.Spec.TokenFactory"]
+    n7210["Libpetri.Spec.TokenFactory.make"]
+    n7211["Libpetri.Spec.TokenFactory.makeAt"]
+    n7213["Libpetri.Spec.TokenFactory.unit"]
+    n8363["Libpetri.Spec.core011_explicit"]
   end
   n4323 --> n4869
-  n4323 --> n6095
   n4323 --> n6096
   n4323 --> n6097
-  n4323 --> n6459
-  n4323 --> n7209
+  n4323 --> n6098
+  n4323 --> n6460
   n4323 --> n7210
-  n4323 --> n7212
+  n4323 --> n7211
+  n4323 --> n7213
   n4869 --> n4866
-  n6095 --> n6094
-  n6096 --> n6094
-  n6097 --> n6094
-  n7209 --> n4866
-  n7209 --> n6094
-  n7209 --> n7208
+  n6096 --> n6095
+  n6097 --> n6095
+  n6098 --> n6095
   n7210 --> n4866
-  n7210 --> n6094
-  n7210 --> n7208
-  n7212 --> n4866
-  n7212 --> n6094
-  n7212 --> n7208
-  n8362 --> n4323
+  n7210 --> n6095
+  n7210 --> n7209
+  n7211 --> n4866
+  n7211 --> n6095
+  n7211 --> n7209
+  n7213 --> n4866
+  n7213 --> n6095
+  n7213 --> n7209
+  n8363 --> n4323
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8362 root
+  class n8363 root
 ```
 
 ### `Libpetri.Spec.refTStepW_delay_zero`
@@ -70,7 +70,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n12052["Libpetri.Spec.refTStepW_delay_zero"]
+    n12055["Libpetri.Spec.refTStepW_delay_zero"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -81,11 +81,11 @@ flowchart TD
   c83 --> c28
   c83 --> c54
   c87 --> c83
-  n12052 --> c87
+  n12055 --> c87
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12052 root
+  class n12055 root
   class c0,c28,c54,c83,c87 collapsed
 ```
 
@@ -96,17 +96,17 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n7173["Libpetri.Spec.TReach"]
-    n7737["Libpetri.Spec.clashT_X"]
-    n7738["Libpetri.Spec.clashT_at"]
-    n7742["Libpetri.Spec.clashT_inv"]
-    n7745["Libpetri.Spec.clashT_inv_reach"]
-    n7746["Libpetri.Spec.clashT_inv_step"]
-    n7747["Libpetri.Spec.clashT_m0"]
-    n7748["Libpetri.Spec.clashT_mem"]
-    n7750["Libpetri.Spec.clashT_s0"]
-    n7751["Libpetri.Spec.clashT_u"]
-    n12637["Libpetri.Spec.time015_ac10_coarse_jump"]
+    n7174["Libpetri.Spec.TReach"]
+    n7738["Libpetri.Spec.clashT_X"]
+    n7739["Libpetri.Spec.clashT_at"]
+    n7743["Libpetri.Spec.clashT_inv"]
+    n7746["Libpetri.Spec.clashT_inv_reach"]
+    n7747["Libpetri.Spec.clashT_inv_step"]
+    n7748["Libpetri.Spec.clashT_m0"]
+    n7749["Libpetri.Spec.clashT_mem"]
+    n7751["Libpetri.Spec.clashT_s0"]
+    n7752["Libpetri.Spec.clashT_u"]
+    n12640["Libpetri.Spec.time015_ac10_coarse_jump"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -119,26 +119,26 @@ flowchart TD
   c83 --> c54
   c87 --> c66
   c87 --> c83
-  n7173 --> c87
-  n7737 --> c87
-  n7737 --> n7751
-  n7738 --> n7750
-  n7742 --> c87
-  n7742 --> n7747
-  n7745 --> n7173
-  n7745 --> n7746
-  n7746 --> n7742
-  n7746 --> n7748
-  n7748 --> n7737
-  n7750 --> n7737
-  n7750 --> n7747
-  n7751 --> c83
-  n12637 --> n7738
-  n12637 --> n7745
+  n7174 --> c87
+  n7738 --> c87
+  n7738 --> n7752
+  n7739 --> n7751
+  n7743 --> c87
+  n7743 --> n7748
+  n7746 --> n7174
+  n7746 --> n7747
+  n7747 --> n7743
+  n7747 --> n7749
+  n7749 --> n7738
+  n7751 --> n7738
+  n7751 --> n7748
+  n7752 --> c83
+  n12640 --> n7739
+  n12640 --> n7746
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12637 root
+  class n12640 root
   class c0,c28,c54,c66,c83,c87 collapsed
 ```
 
@@ -150,7 +150,7 @@ flowchart TD
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_015.lean"]
     n3938["Libpetri.Spec.AfterWait"]
-    n12638["Libpetri.Spec.time015_ac4_of_time010"]
+    n12641["Libpetri.Spec.time015_ac4_of_time010"]
   end
   c0["📁 Libpetri/Basic.lean (6 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
@@ -171,12 +171,12 @@ flowchart TD
   c249 --> c114
   c249 --> c126
   n3938 --> c87
-  n12638 --> c249
-  n12638 --> n3938
+  n12641 --> c249
+  n12641 --> n3938
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12638 root
+  class n12641 root
   class c0,c54,c66,c83,c87,c114,c115,c126,c249 collapsed
 ```
 
@@ -187,7 +187,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_015.lean"]
-    n12639["Libpetri.Spec.time015_ac6_reap_strict"]
+    n12642["Libpetri.Spec.time015_ac6_reap_strict"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -205,11 +205,11 @@ flowchart TD
   c115 --> c83
   c126 --> c87
   c126 --> c115
-  n12639 --> c126
+  n12642 --> c126
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12639 root
+  class n12642 root
   class c0,c28,c54,c66,c83,c87,c115,c126 collapsed
 ```
 

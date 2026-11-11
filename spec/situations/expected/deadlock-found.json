@@ -1,0 +1,11 @@
+{
+  "slug": "deadlock-found",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"jobs": 2, "lockA": 1, "lockB": 1},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "grabA", "branch": 0, "fired": true, "marking": {"holdsA": 1, "jobs": 1, "lockB": 1} },
+    { "index": 1, "fire": "grabB", "branch": 0, "fired": true, "marking": {"holdsA": 1, "holdsB": 1} },
+    { "index": 2, "fire": "finishA", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "lockB", "arc": {"kind": "one"}, "need": 1, "have": 0}, "requirement": "IO-001", "message": "'finishA' is not enabled: input place 'lockB' holds 0 tokens, its One arc needs 1" }
+  ]
+}

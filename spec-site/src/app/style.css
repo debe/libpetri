@@ -1,0 +1,760 @@
+/*
+ * Base stylesheet: design tokens (design.md section 2), reset, typography, the shell, overlays,
+ * drawer and shared components. View styles live in src/app/css/<view>.css, concatenated after
+ * this file in file-name order.
+ *
+ * Conventions: BEM-ish classes (.block, .block__element, .block--modifier), one block per
+ * module; colours, sizes and durations only through the tokens below; dark values under
+ * @media (prefers-color-scheme: dark) for :root:not([data-theme="light"]) and again under
+ * :root[data-theme="dark"]. Owner of this file: skeleton (tokens) and the design fixup.
+ */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --sunken: #eef1f4;
+  --border: #d0d7de;
+  --border-strong: #8c959f;
+  --text: #1f2328;
+  --text-2: #57606a;
+  --text-3: #656d76;
+  --accent: #4338ca;
+  --accent-weak: #eef2ff;
+  --on-accent: #ffffff;
+  --focus: #4338ca;
+  --paper: #ffffff;
+  --paper-border: #d0d7de;
+  --shadow: 0 1px 2px rgb(31 35 40 / 0.06), 0 3px 8px rgb(31 35 40 / 0.06);
+  --backdrop: rgb(0 0 0 / 0.32);
+
+  --ok: #157530;
+  --ok-bg: #dafbe1;
+  --bad: #c4202b;
+  --bad-bg: #ffebe9;
+  --mutant: #7a47d6;
+  --mutant-bg: #f3eeff;
+  --nonvac: #0d6e66;
+  --nonvac-bg: #d5f5f1;
+  --conflict: #b0306f;
+  --conflict-bg: #ffeff7;
+  --consistent: #0860c9;
+  --consistent-bg: #ddf4ff;
+  --open: #875a00;
+  --open-bg: #fff8c5;
+  --defect: #a14f00;
+  --defect-bg: #fff1e5;
+  --none: var(--text-3);
+  --none-bg: var(--sunken);
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --t-display: 32px;
+  --t-h1: 24px;
+  --t-h2: 18px;
+  --t-h3: 15px;
+  --t-body: 15px;
+  --t-ui: 14px;
+  --t-small: 12.5px;
+  --t-mono: 13px;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+  --measure: 72ch;
+  --header-h: 56px;
+
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 420ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --surface: #161b22;
+    --sunken: #1f2630;
+    --border: #30363d;
+    --border-strong: #6e7681;
+    --text: #e6edf3;
+    --text-2: #9da7b3;
+    --text-3: #8b949e;
+    --accent: #a5b4fc;
+    --accent-weak: #1e2147;
+    --on-accent: #0d1117;
+    --focus: #a5b4fc;
+    --paper-border: #3d444d;
+    --shadow: 0 0 0 1px #30363d, 0 6px 16px rgb(0 0 0 / 0.4);
+    --backdrop: rgb(0 0 0 / 0.55);
+    --ok: #3fb950;
+    --ok-bg: #12261e;
+    --bad: #ff7b72;
+    --bad-bg: #2d1517;
+    --mutant: #d2a8ff;
+    --mutant-bg: #251a3a;
+    --nonvac: #2dd4bf;
+    --nonvac-bg: #0f2a28;
+    --conflict: #f778ba;
+    --conflict-bg: #2d1520;
+    --consistent: #79c0ff;
+    --consistent-bg: #0f2238;
+    --open: #e3b341;
+    --open-bg: #2b2210;
+    --defect: #f0883e;
+    --defect-bg: #2d1e10;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --surface: #161b22;
+  --sunken: #1f2630;
+  --border: #30363d;
+  --border-strong: #6e7681;
+  --text: #e6edf3;
+  --text-2: #9da7b3;
+  --text-3: #8b949e;
+  --accent: #a5b4fc;
+  --accent-weak: #1e2147;
+  --on-accent: #0d1117;
+  --focus: #a5b4fc;
+  --paper-border: #3d444d;
+  --shadow: 0 0 0 1px #30363d, 0 6px 16px rgb(0 0 0 / 0.4);
+  --backdrop: rgb(0 0 0 / 0.55);
+  --ok: #3fb950;
+  --ok-bg: #12261e;
+  --bad: #ff7b72;
+  --bad-bg: #2d1517;
+  --mutant: #d2a8ff;
+  --mutant-bg: #251a3a;
+  --nonvac: #2dd4bf;
+  --nonvac-bg: #0f2a28;
+  --conflict: #f778ba;
+  --conflict-bg: #2d1520;
+  --consistent: #79c0ff;
+  --consistent-bg: #0f2238;
+  --open: #e3b341;
+  --open-bg: #2b2210;
+  --defect: #f0883e;
+  --defect-bg: #2d1e10;
+}
+
+@media (max-width: 599px) {
+  :root {
+    --t-display: 24px;
+    --t-h1: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    /* none, not a tiny duration: nothing listens for transitionend, and thousands of 0.01ms
+       transitions on the conformance table make every layout change start real animations. */
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Reset and base ----------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: 1.6;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Links inside running text need more than colour (WCAG 1.4.1); ID links keep the mono style. */
+p a:not(.req-id),
+li a:not(.req-id),
+.shell__footer a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+}
+
+/* Long paths and theorem names in running text break instead of widening the page at 400px. */
+:not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A requirement ID anywhere: mono, tabular, never wrapped (design 2.3, 3.1). */
+.req-id {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 0.35em;
+  margin-right: 0.25em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--text);
+  font-size: var(--t-small);
+  text-align: center;
+}
+
+/* Shell ---------------------------------------------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  left: var(--s4);
+  top: -4rem;
+  padding: var(--s2) var(--s3);
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--r-md);
+  z-index: 50;
+}
+
+.skip-link:focus {
+  top: var(--s2);
+}
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  min-height: var(--header-h);
+  padding: 0 var(--s4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.shell__menu {
+  display: none;
+}
+
+.shell__home {
+  display: none;
+  font-size: var(--t-ui);
+  color: var(--text-2);
+}
+
+.shell__brand {
+  font-size: 17px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.shell__brand-name {
+  font-weight: 700;
+}
+
+.shell__brand-sub {
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.shell__nav {
+  display: flex;
+  gap: var(--s4);
+  align-self: stretch;
+}
+
+.shell__link {
+  display: flex;
+  align-items: center;
+  font-size: var(--t-ui);
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+}
+
+.shell__link:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.shell__link[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.shell__tools {
+  margin-left: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.shell__search {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  width: 256px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 var(--s2) 0 var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+
+/* One line: the label shortens with an ellipsis rather than wrapping when the header is tight. */
+.shell__search-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.shell__search-icon {
+  flex: none;
+}
+
+/* The menu sheet's extras exist only on phones. */
+.shell__menu-extra {
+  display: none;
+}
+
+/* A touch screen has no "/" key to press: the hint goes. */
+@media (pointer: coarse) {
+  .shell__search-key {
+    display: none;
+  }
+}
+
+.lean-chip {
+  padding: 2px var(--s3);
+  border-radius: var(--r-pill);
+  background: var(--sunken);
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.shell__theme,
+.shell__menu {
+  min-width: 32px;
+  min-height: 32px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.shell__theme {
+  display: inline-grid;
+}
+
+.shell__main {
+  flex: 1;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--s5) var(--s4) var(--s7);
+}
+
+.shell__main:focus {
+  outline: none;
+}
+
+.shell__footer {
+  padding: var(--s4);
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (min-width: 1100px) {
+  .shell__home {
+    display: inline;
+  }
+}
+
+@media (max-width: 1099px) {
+  .lean-chip {
+    display: none;
+  }
+}
+
+@media (max-width: 599px) {
+  .shell__header {
+    flex-wrap: wrap;
+    gap: var(--s2);
+  }
+  .shell__menu {
+    display: inline-grid;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .shell__theme {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .shell__nav {
+    display: none;
+    order: 10;
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 0;
+    padding-bottom: var(--s2);
+  }
+  .shell--menu-open .shell__nav {
+    display: flex;
+  }
+  .shell__link {
+    min-height: 44px;
+    border-bottom: 0;
+    border-left: 2px solid transparent;
+    padding-left: var(--s2);
+  }
+  .shell__link[aria-current="page"] {
+    border-left-color: var(--accent);
+  }
+  .shell__search {
+    width: 44px;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+  .shell__search-text,
+  .shell__search-key {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .shell__search-icon {
+    width: 20px;
+    height: 20px;
+    color: var(--text-2);
+  }
+  .shell__menu {
+    font-size: 20px;
+  }
+  .shell--menu-open .shell__menu-extra {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s2);
+    margin-top: var(--s1);
+    padding-top: var(--s2);
+    border-top: 1px solid var(--border);
+  }
+  .shell__menu-extra .lean-chip {
+    display: inline-block;
+    white-space: normal;
+  }
+}
+
+/* Views: shared frame ------------------------------------------------------------------------ */
+
+.view__title {
+  font-size: var(--t-h1);
+  line-height: 1.25;
+  font-weight: 650;
+  margin-bottom: var(--s4);
+}
+
+.view__title:focus {
+  outline: none;
+}
+
+.view__lede {
+  max-width: 64ch;
+  color: var(--text-2);
+}
+
+.view__note {
+  color: var(--text-2);
+}
+
+.view--error {
+  padding: var(--s4);
+  border-left: 3px solid var(--bad);
+  background: var(--bad-bg);
+  border-radius: var(--r-md);
+}
+
+.view__error {
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
+.noscript {
+  padding: var(--s4);
+}
+
+/* Overlays (overlay.ts): search, help, drawer ---------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--backdrop);
+}
+
+.overlay > [role="dialog"] {
+  position: absolute;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+.overlay > [role="dialog"]:focus {
+  outline: none;
+}
+
+.overlay--search > .search,
+.overlay--help > .help {
+  left: 50%;
+  top: 12vh;
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 2 * var(--s4)));
+  max-height: 76vh;
+  border-radius: var(--r-lg);
+  padding: var(--s4);
+}
+
+.overlay--help > .help {
+  width: min(560px, calc(100vw - 2 * var(--s4)));
+}
+
+.overlay--drawer > .drawer {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100vw);
+  border-radius: var(--r-lg) 0 0 var(--r-lg);
+}
+
+@media (max-width: 599px) {
+  .overlay--search > .search,
+  .overlay--help > .help {
+    inset: 0;
+    transform: none;
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+  .overlay--drawer > .drawer {
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-height: 85vh;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+  }
+}
+
+.drawer__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer__title {
+  font-size: var(--t-h2);
+}
+
+.drawer__close {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.drawer__body {
+  padding: var(--s4);
+}
+
+.search__input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+}
+
+.help__title {
+  font-size: var(--t-h2);
+  margin-bottom: var(--s3);
+}
+
+.help__keys {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s2) var(--s4);
+  font-size: var(--t-ui);
+}
+
+.help__keys dd {
+  margin: 0;
+}
+
+/* Key chord toast (keyboard.ts) --------------------------------------------------------------- */
+
+.key-toast {
+  position: fixed;
+  left: var(--s4);
+  bottom: var(--s4);
+  z-index: 30;
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-md);
+  background: var(--text);
+  color: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+/* Shared components (ui.ts) ------------------------------------------------------------------ */
+
+.req-id--removed {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.req-id--unknown {
+  color: var(--bad);
+  text-decoration: underline dotted;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--t-small);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.badge--ok { color: var(--ok); background: var(--ok-bg); }
+.badge--bad { color: var(--bad); background: var(--bad-bg); }
+.badge--mutant { color: var(--mutant); background: var(--mutant-bg); }
+.badge--nonvac { color: var(--nonvac); background: var(--nonvac-bg); }
+.badge--conflict { color: var(--conflict); background: var(--conflict-bg); }
+.badge--consistent { color: var(--consistent); background: var(--consistent-bg); }
+.badge--open { color: var(--open); background: var(--open-bg); }
+.badge--defect { color: var(--defect); background: var(--defect-bg); }
+.badge--none { color: var(--none); background: var(--none-bg); }

@@ -1,0 +1,31 @@
+{
+  "name": "libpetri-spec-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generator and browser app for the libpetri spec site (docs/spec/index.html).",
+  "scripts": {
+    "build": "tsx src/gen/main.ts",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p src/app/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@viz-js/viz": "3.30.0",
+    "libpetri": "file:../typescript"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^26.4.1",
+    "esbuild": "0.28.2",
+    "happy-dom": "^20.14.0",
+    "tsx": "^4.22.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  },
+  "overrides": {
+    "playwright-core": "1.63.0"
+  }
+}

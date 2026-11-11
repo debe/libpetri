@@ -1,0 +1,46 @@
+{
+  "title": "Joining by order id",
+  "group": "Correlation",
+  "text": "The transition `fork` mints a fresh name for each `order` and writes it into both tokens it produces, and `ship` has a match on `paid` and `picked`, so it joins a payment and a pick only when they carry the same name. Without the match, two orders in flight could be shipped with each other's payment.",
+  "cites": ["NU-001", "NU-010", "NU-020", "NU-022", "IO-011", "CONC-002"],
+  "replay": false,
+  "notReplayed": "nu-net",
+  "places": ["order", "payReq", "pickReq", "paid", "picked", "shipped"],
+  "marking": { "order": 2 },
+  "transitions": [
+    {
+      "name": "fork",
+      "inputs": [ { "place": "order", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "payReq" },
+        { "type": "place", "place": "pickReq" } ] }
+    },
+    {
+      "name": "pay",
+      "inputs": [ { "place": "payReq", "kind": "one" } ],
+      "output": { "type": "place", "place": "paid" }
+    },
+    {
+      "name": "pick",
+      "inputs": [ { "place": "pickReq", "kind": "one" } ],
+      "output": { "type": "place", "place": "picked" }
+    },
+    {
+      "name": "ship",
+      "inputs": [
+        { "place": "paid", "kind": "one" },
+        { "place": "picked", "kind": "one" } ],
+      "output": { "type": "place", "place": "shipped" }
+    }
+  ],
+  "steps": [
+    { "fire": "fork", "text": "The first order gets the fresh name A: one request in `payReq` and one in `pickReq`, both carrying A." },
+    { "fire": "fork", "text": "The second order gets B. Minted names never repeat within a run." },
+    { "fire": "pay", "text": "The payment of A completes: `paid` holds A." },
+    { "fire": "pick", "text": "Actions run concurrently, and the pick of B completes before the pick of A: `picked` holds B. Both places are marked, yet no name is in both, so `ship` is not enabled." },
+    { "fire": "pick", "text": "The pick of A completes. A is now in `paid` and in `picked`." },
+    { "fire": "ship", "text": "The transition `ship` joins the two A tokens. Had two names been eligible, it would take the one with the oldest token, ties broken by name, the same in every language." },
+    { "fire": "pay", "text": "The payment of B completes." },
+    { "fire": "ship", "text": "The transition `ship` joins the two B tokens. Every order shipped with its own payment." }
+  ]
+}

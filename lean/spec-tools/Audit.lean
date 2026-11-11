@@ -93,6 +93,7 @@ import Libpetri.Reference.Replay
 import Libpetri.Reference.Search
 import Libpetri.Reference.Semantics
 import Libpetri.Reference.Sha256
+import Libpetri.Reference.Situation
 import Libpetri.Reference.Snapshot
 import Libpetri.Reference.Step
 import Libpetri.Reference.Subscriptions

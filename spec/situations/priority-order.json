@@ -1,0 +1,27 @@
+{
+  "title": "Priority decides who goes first",
+  "group": "Firing",
+  "text": "The transitions `escalate` (priority 10) and `file` (priority 0) compete for the same tickets, and the executor always starts the ready transition with the highest priority first. Priority is not fairness: while `escalate` stays enabled it takes every ticket, and `file` never fires.",
+  "cites": ["EXEC-002", "EXEC-003", "CORE-020", "CONC-023", "VER-004"],
+  "places": ["ticket", "escalated", "filed"],
+  "marking": { "ticket": 2 },
+  "transitions": [
+    {
+      "name": "escalate",
+      "priority": 10,
+      "inputs": [ { "place": "ticket", "kind": "one" } ],
+      "output": { "type": "place", "place": "escalated" }
+    },
+    {
+      "name": "file",
+      "priority": 0,
+      "inputs": [ { "place": "ticket", "kind": "one" } ],
+      "output": { "type": "place", "place": "filed" }
+    }
+  ],
+  "steps": [
+    { "fire": "escalate", "text": "Both are ready. The transition `escalate` has the higher priority, so it takes the first `ticket`." },
+    { "fire": "escalate", "text": "Both are ready again, and `escalate` wins again." },
+    { "fire": "file", "text": "No ticket is left, so `file` is blocked: its input place `ticket` is empty. The Lean replay uses the untimed rule, where priority plays no part: it checks that steps 1 and 2 may fire, not that the executor picks `escalate`.", "expect": "blocked" }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "slug": "timeout-forwards-input",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"jobs": 4},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "process", "branch": 0, "fired": true, "marking": {"jobs": 2, "results": 1} },
+    { "index": 1, "fire": "process", "timeout": true, "branch": 0, "fired": true, "marking": {"results": 1, "retry": 2} },
+    { "index": 2, "fire": "process", "timeout": true, "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "jobs", "arc": {"kind": "exactly", "n": 2}, "need": 2, "have": 0}, "requirement": "IO-002", "message": "'process' is not enabled: input place 'jobs' holds 0 tokens, its Exactly(2) arc needs 2" }
+  ]
+}

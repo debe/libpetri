@@ -1,0 +1,24 @@
+{
+  "title": "Two transitions compete for one token",
+  "group": "Firing",
+  "text": "The transitions `left` and `right` both take one token from `offer`. With one token, both are enabled, but only one of them can fire: once `left` has consumed the token, the input place of `right` is empty and `right` is no longer enabled.",
+  "cites": ["CORE-022", "CORE-030", "IO-001"],
+  "places": ["offer", "leftDone", "rightDone"],
+  "marking": { "offer": 1 },
+  "transitions": [
+    {
+      "name": "left",
+      "inputs": [ { "place": "offer", "kind": "one" } ],
+      "output": { "type": "place", "place": "leftDone" }
+    },
+    {
+      "name": "right",
+      "inputs": [ { "place": "offer", "kind": "one" } ],
+      "output": { "type": "place", "place": "rightDone" }
+    }
+  ],
+  "steps": [
+    { "fire": "left", "text": "The transition `left` consumes the only token." },
+    { "fire": "right", "text": "The place `offer` is empty, so `right` cannot fire.", "expect": "blocked" }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "title": "What a run records",
+  "group": "Running",
+  "text": "Every step of a run is written to the event store as an immutable event: the run starting and ending, each transition being enabled, started and completed, and each token removed and added. An in-memory store keeps them in order for tests and debugging; the noop store keeps nothing and costs nothing.",
+  "cites": ["EVT-001", "EVT-002", "EVT-003", "EVT-004", "EVT-006", "EVT-007", "EVT-011", "EVT-012", "EVT-020", "EVT-021", "EVT-022", "CORE-050", "CORE-053", "CORE-060", "CORE-062", "CORE-072", "EXEC-040", "EXEC-041"],
+  "places": ["request", "draft", "reply"],
+  "marking": { "request": 1 },
+  "transitions": [
+    {
+      "name": "think",
+      "inputs": [ { "place": "request", "kind": "one" } ],
+      "output": { "type": "place", "place": "draft" }
+    },
+    {
+      "name": "answer",
+      "inputs": [ { "place": "draft", "kind": "one" } ],
+      "output": { "type": "place", "place": "reply" }
+    }
+  ],
+  "steps": [
+    { "fire": "think", "text": "Before this step: `ExecutionStarted`, then `TokenAdded` for the initial `request` and `TransitionEnabled` for `think`. The step: `TokenRemoved(request)`, `TransitionStarted(think)` with the consumed token, then `TokenAdded(draft)` and `TransitionCompleted(think)`. The action of `think` got the request through `ctx.input(request)` and wrote the draft with `ctx.output(draft, value)`." },
+    { "fire": "answer", "text": "`TransitionEnabled(answer)`, `TokenRemoved(draft)`, `TransitionStarted(answer)`, `TokenAdded(reply)`, `TransitionCompleted(answer)`. The transition `answer` uses the built-in transform action: its function turns the draft into a reply, which goes to the output place of `answer`. Nothing is enabled or in flight now, so the run ends: `ExecutionCompleted`, and the result is the final marking." }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "and-fork-join",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"order": 2},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "split", "branch": 0, "fired": true, "marking": {"invoice": 1, "order": 1, "pack": 1} },
+    { "index": 1, "fire": "ship", "branch": 0, "fired": true, "marking": {"order": 1, "shipped": 1} },
+    { "index": 2, "fire": "split", "branch": 0, "fired": true, "marking": {"invoice": 1, "pack": 1, "shipped": 1} },
+    { "index": 3, "fire": "ship", "branch": 0, "fired": true, "marking": {"shipped": 2} },
+    { "index": 4, "fire": "ship", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "pack", "arc": {"kind": "one"}, "need": 1, "have": 0}, "requirement": "IO-001", "message": "'ship' is not enabled: input place 'pack' holds 0 tokens, its One arc needs 1" }
+  ]
+}

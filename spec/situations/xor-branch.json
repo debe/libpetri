@@ -1,0 +1,24 @@
+{
+  "title": "The action picks one Xor branch",
+  "group": "Outputs",
+  "text": "The transition `triage` has the output spec `Xor(fast, And(review, log))`. Its branches are numbered as the branch enumeration lists them: branch 0 is `{fast}`, branch 1 is `{review, log}`. Each firing deposits one token in every place of the branch it takes. There is no branch 2.",
+  "cites": ["IO-011", "IO-012", "IO-016"],
+  "places": ["ticket", "fast", "review", "log"],
+  "marking": { "ticket": 3 },
+  "transitions": [
+    {
+      "name": "triage",
+      "inputs": [ { "place": "ticket", "kind": "one" } ],
+      "output": { "type": "xor", "children": [
+        { "type": "place", "place": "fast" },
+        { "type": "and", "children": [
+          { "type": "place", "place": "review" },
+          { "type": "place", "place": "log" } ] } ] }
+    }
+  ],
+  "steps": [
+    { "fire": "triage", "branch": 0, "text": "Branch 0: one token to `fast`." },
+    { "fire": "triage", "branch": 1, "text": "Branch 1: one token each to `review` and `log`." },
+    { "fire": "triage", "branch": 2, "text": "The spec has two branches, so branch 2 does not exist.", "expect": "blocked" }
+  ]
+}

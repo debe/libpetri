@@ -1,0 +1,25 @@
+{
+  "title": "A failed action loses its inputs",
+  "group": "Running",
+  "text": "The transition `call` takes a `request` and the one `slot`, and returns the slot when its action succeeds. When the action throws, the executor emits `TransitionFailed` and deposits nothing, and there is no rollback: the consumed slot is gone, so every later request waits forever.",
+  "cites": ["EXEC-030", "EXEC-031", "EVT-008", "EXEC-020", "EXEC-021", "IO-015"],
+  "replay": false,
+  "notReplayed": "environment",
+  "places": ["request", "slot", "reply"],
+  "marking": { "request": 3, "slot": 1 },
+  "transitions": [
+    {
+      "name": "call",
+      "inputs": [
+        { "place": "request", "kind": "one" },
+        { "place": "slot", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "reply" },
+        { "type": "place", "place": "slot" } ] }
+    }
+  ],
+  "steps": [
+    { "fire": "call", "text": "Requests arrive through `inject()`. The action succeeds: `reply` gets a token and the slot comes back." },
+    { "fire": "call", "text": "The action throws. The request and the slot were consumed when the firing started; nothing is deposited, and the third request can never fire `call`. A firing also fails when output validation rejects what the action wrote. To keep the slot, catch the error in the action and route it to an `Xor` branch that returns the slot." }
+  ]
+}

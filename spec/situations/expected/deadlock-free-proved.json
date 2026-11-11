@@ -1,0 +1,14 @@
+{
+  "slug": "deadlock-free-proved",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"jobs": 2, "lockA": 1, "lockB": 1},
+  "complete": true,
+  "steps": [
+    { "index": 0, "fire": "takeA", "branch": 0, "fired": true, "marking": {"holdsA": 1, "jobs": 1, "lockB": 1} },
+    { "index": 1, "fire": "takeB", "branch": 0, "fired": true, "marking": {"holdsBoth": 1, "jobs": 1} },
+    { "index": 2, "fire": "finish", "branch": 0, "fired": true, "marking": {"done": 1, "jobs": 1, "lockA": 1, "lockB": 1} },
+    { "index": 3, "fire": "takeA", "branch": 0, "fired": true, "marking": {"done": 1, "holdsA": 1, "lockB": 1} },
+    { "index": 4, "fire": "takeB", "branch": 0, "fired": true, "marking": {"done": 1, "holdsBoth": 1} },
+    { "index": 5, "fire": "finish", "branch": 0, "fired": true, "marking": {"done": 2, "lockA": 1, "lockB": 1} }
+  ]
+}

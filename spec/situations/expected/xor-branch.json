@@ -1,0 +1,11 @@
+{
+  "slug": "xor-branch",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"ticket": 3},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "triage", "branch": 0, "fired": true, "marking": {"fast": 1, "ticket": 2} },
+    { "index": 1, "fire": "triage", "branch": 1, "fired": true, "marking": {"fast": 1, "log": 1, "review": 1, "ticket": 1} },
+    { "index": 2, "fire": "triage", "branch": 2, "blocked": true, "reason": {"kind": "noSuchBranch", "branch": 2}, "requirement": "IO-016", "message": "'triage' is enabled but its output spec has no branch 2" }
+  ]
+}

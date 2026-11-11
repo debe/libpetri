@@ -1,0 +1,52 @@
+{
+  "title": "The verifier finds a deadlock",
+  "group": "Verification",
+  "text": "Two workers each need `lockA` and `lockB`, but `grabA` takes `lockA` first and `grabB` takes `lockB` first. Asked whether the net is deadlock free with `lockA`, `lockB` and `done` as sink places, the verifier enumerates the 8 reachable state classes and answers `Violated` with the trace `grabA`, `grabB`. The steps below are that trace, replayed by the Lean reference.",
+  "cites": ["VER-002", "VER-003", "VER-017", "VER-024", "IO-005"],
+  "places": ["jobs", "lockA", "lockB", "holdsA", "holdsB", "done"],
+  "marking": { "jobs": 2, "lockA": 1, "lockB": 1 },
+  "transitions": [
+    {
+      "name": "grabA",
+      "inputs": [
+        { "place": "jobs", "kind": "one" },
+        { "place": "lockA", "kind": "one" } ],
+      "output": { "type": "place", "place": "holdsA" }
+    },
+    {
+      "name": "grabB",
+      "inputs": [
+        { "place": "jobs", "kind": "one" },
+        { "place": "lockB", "kind": "one" } ],
+      "output": { "type": "place", "place": "holdsB" }
+    },
+    {
+      "name": "finishA",
+      "inputs": [
+        { "place": "holdsA", "kind": "one" },
+        { "place": "lockB", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "lockA" },
+        { "type": "place", "place": "lockB" },
+        { "type": "place", "place": "done" } ] }
+    },
+    {
+      "name": "finishB",
+      "inputs": [
+        { "place": "holdsB", "kind": "one" },
+        { "place": "lockA", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "lockA" },
+        { "type": "place", "place": "lockB" },
+        { "type": "place", "place": "done" } ] }
+    }
+  ],
+  "properties": [
+    { "id": "deadlock", "type": "deadlock-free", "sinks": ["lockA", "lockB", "done"] }
+  ],
+  "steps": [
+    { "fire": "grabA", "text": "The first worker takes `lockA`." },
+    { "fire": "grabB", "text": "The second worker takes `lockB`. This is the end of the verifier's trace." },
+    { "fire": "finishA", "text": "The transition `finishA` needs `lockB`, which the second worker holds; `finishB` needs `lockA`, which the first holds. Nothing is enabled, and tokens rest in `holdsA` and `holdsB`, which are not sinks: a deadlock.", "expect": "blocked" }
+  ]
+}

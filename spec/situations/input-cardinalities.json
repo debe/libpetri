@@ -1,0 +1,31 @@
+{
+  "title": "Exactly, all and at least",
+  "group": "Firing",
+  "text": "An input arc states how many tokens a transition needs and how many it takes: `exactly(2)` needs and takes two, `all` needs one and takes every token, `atLeast(3)` needs three and then takes every token. Tokens are taken oldest first.",
+  "cites": ["IO-002", "IO-003", "IO-004", "IO-007", "EXEC-010", "CORE-013", "EXP-006"],
+  "places": ["orders", "returns", "pairs", "swept", "batches"],
+  "marking": { "orders": 6, "returns": 3 },
+  "transitions": [
+    {
+      "name": "pair",
+      "inputs": [ { "place": "orders", "kind": "exactly", "n": 2 } ],
+      "output": { "type": "place", "place": "pairs" }
+    },
+    {
+      "name": "sweep",
+      "inputs": [ { "place": "returns", "kind": "all" } ],
+      "output": { "type": "place", "place": "swept" }
+    },
+    {
+      "name": "batch",
+      "inputs": [ { "place": "orders", "kind": "atLeast", "n": 3 } ],
+      "output": { "type": "place", "place": "batches" }
+    }
+  ],
+  "steps": [
+    { "fire": "pair", "text": "The arc `exactly(2)` of `pair` takes the two oldest `orders`. Four are left." },
+    { "fire": "sweep", "text": "The arc `all` of `sweep` drains `returns`: three tokens in one firing." },
+    { "fire": "batch", "text": "Four orders meet `atLeast(3)`, and the firing of `batch` takes all four." },
+    { "fire": "pair", "text": "The place `orders` is empty, and `exactly(2)` needs two.", "expect": "blocked" }
+  ]
+}

@@ -9,48 +9,48 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/GlossaryAction.lean"]
-    n6459["Libpetri.Spec.IsUnitToken"]
+    n6460["Libpetri.Spec.IsUnitToken"]
   end
   subgraph g1["Libpetri/Spec/Req/CORE_011.lean"]
     n4323["Libpetri.Spec.CORE_011"]
     n4866["Libpetri.Spec.ClockReadings"]
     n4869["Libpetri.Spec.ClockReadings.wall"]
-    n6094["Libpetri.Spec.FacTok"]
-    n6095["Libpetri.Spec.FacTok.mk"]
-    n6096["Libpetri.Spec.FacTok.stamp"]
-    n6097["Libpetri.Spec.FacTok.val"]
-    n7208["Libpetri.Spec.TokenFactory"]
-    n7209["Libpetri.Spec.TokenFactory.make"]
-    n7210["Libpetri.Spec.TokenFactory.makeAt"]
-    n7212["Libpetri.Spec.TokenFactory.unit"]
-    n8377["Libpetri.Spec.core011_unit_isUnit"]
+    n6095["Libpetri.Spec.FacTok"]
+    n6096["Libpetri.Spec.FacTok.mk"]
+    n6097["Libpetri.Spec.FacTok.stamp"]
+    n6098["Libpetri.Spec.FacTok.val"]
+    n7209["Libpetri.Spec.TokenFactory"]
+    n7210["Libpetri.Spec.TokenFactory.make"]
+    n7211["Libpetri.Spec.TokenFactory.makeAt"]
+    n7213["Libpetri.Spec.TokenFactory.unit"]
+    n8378["Libpetri.Spec.core011_unit_isUnit"]
   end
   n4323 --> n4869
-  n4323 --> n6095
   n4323 --> n6096
   n4323 --> n6097
-  n4323 --> n6459
-  n4323 --> n7209
+  n4323 --> n6098
+  n4323 --> n6460
   n4323 --> n7210
-  n4323 --> n7212
+  n4323 --> n7211
+  n4323 --> n7213
   n4869 --> n4866
-  n6095 --> n6094
-  n6096 --> n6094
-  n6097 --> n6094
-  n7209 --> n4866
-  n7209 --> n6094
-  n7209 --> n7208
+  n6096 --> n6095
+  n6097 --> n6095
+  n6098 --> n6095
   n7210 --> n4866
-  n7210 --> n6094
-  n7210 --> n7208
-  n7212 --> n4866
-  n7212 --> n6094
-  n7212 --> n7208
-  n8377 --> n4323
+  n7210 --> n6095
+  n7210 --> n7209
+  n7211 --> n4866
+  n7211 --> n6095
+  n7211 --> n7209
+  n7213 --> n4866
+  n7213 --> n6095
+  n7213 --> n7209
+  n8378 --> n4323
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8377 root
+  class n8378 root
 ```
 
 Axioms used:

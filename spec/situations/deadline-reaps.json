@@ -1,0 +1,29 @@
+{
+  "title": "A missed deadline is reaped",
+  "group": "Time",
+  "text": "The transition `answer` has `deadline(500)`: if the executor falls behind and `answer` is still armed 505 ms after it was armed (500 ms plus the default 5 ms tolerance), the executor reaps it instead of firing it late. A reaped transition keeps its input tokens and stays quiet until a firing writes one of its places, here `reopen` at 2000 ms.",
+  "cites": ["TIME-003", "TIME-006", "TIME-013", "EVT-009", "VER-002"],
+  "replay": false,
+  "notReplayed": "timed",
+  "places": ["ticket", "reminder", "answered"],
+  "marking": { "ticket": 1, "reminder": 1 },
+  "transitions": [
+    {
+      "name": "answer",
+      "inputs": [ { "place": "ticket", "kind": "one" } ],
+      "output": { "type": "place", "place": "answered" },
+      "timing": { "kind": "deadline", "latestMs": 500 }
+    },
+    {
+      "name": "reopen",
+      "inputs": [ { "place": "reminder", "kind": "one" } ],
+      "output": { "type": "place", "place": "ticket" },
+      "timing": { "kind": "exact", "earliestMs": 2000 }
+    }
+  ],
+  "steps": [
+    { "fire": "reopen", "text": "A blocking action held the executor past 505 ms, so `answer` was reaped: no firing, a `TransitionTimedOut` event, and the `ticket` stays. The transition `reopen` has `exact(2000)`, which is never reaped: it fires at 2000 ms, or as soon after as it can." },
+    { "fire": "answer", "text": "The transition `reopen` wrote `ticket`, so `answer` is armed again with a fresh clock and fires within its deadline, taking the older ticket first." },
+    { "fire": "answer", "text": "It fires again for the second ticket. Had the executor stayed behind, `answer` would rest reaped with a ticket left, which is why verification counts a marking that enables only reapable transitions as quiescent." }
+  ]
+}

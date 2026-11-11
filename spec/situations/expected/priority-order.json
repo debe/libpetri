@@ -1,0 +1,11 @@
+{
+  "slug": "priority-order",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"ticket": 2},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "escalate", "branch": 0, "fired": true, "marking": {"escalated": 1, "ticket": 1} },
+    { "index": 1, "fire": "escalate", "branch": 0, "fired": true, "marking": {"escalated": 2} },
+    { "index": 2, "fire": "file", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "ticket", "arc": {"kind": "one"}, "need": 1, "have": 0}, "requirement": "IO-001", "message": "'file' is not enabled: input place 'ticket' holds 0 tokens, its One arc needs 1" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "slug": "read-arc-keeps-token",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"config": 1, "job": 2},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "serve", "branch": 0, "fired": true, "marking": {"config": 1, "job": 1, "served": 1} },
+    { "index": 1, "fire": "audit", "branch": 0, "fired": true, "marking": {"audited": 1, "config": 1, "job": 1} },
+    { "index": 2, "fire": "retire", "branch": 0, "fired": true, "marking": {"audited": 1, "job": 1} },
+    { "index": 3, "fire": "serve", "branch": 0, "blocked": true, "reason": {"kind": "readEmpty", "place": "config"}, "requirement": "CORE-032", "message": "'serve' is not enabled: read place 'config' is empty" }
+  ]
+}

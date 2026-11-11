@@ -22,7 +22,7 @@ flowchart TD
     n3683["Libpetri.Reference.refPlacesByNameType_same"]
   end
   subgraph g1["Libpetri/Spec/ConsistencyStructure.lean"]
-    n8292["Libpetri.Spec.core001_place"]
+    n8293["Libpetri.Spec.core001_place"]
   end
   subgraph g2["Libpetri/Spec/Req/CORE_002.lean"]
     n4273["Libpetri.Spec.CORE_002"]
@@ -48,12 +48,12 @@ flowchart TD
   n4274 --> n4273
   n4275 --> n3683
   n4275 --> n4273
-  n8292 --> n4274
-  n8292 --> n4275
+  n8293 --> n4274
+  n8293 --> n4275
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8292 root
+  class n8293 root
 ```
 
 Axioms used:

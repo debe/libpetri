@@ -1,0 +1,10 @@
+{
+  "slug": "run-events",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"request": 1},
+  "complete": true,
+  "steps": [
+    { "index": 0, "fire": "think", "branch": 0, "fired": true, "marking": {"draft": 1} },
+    { "index": 1, "fire": "answer", "branch": 0, "fired": true, "marking": {"reply": 1} }
+  ]
+}

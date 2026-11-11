@@ -1,0 +1,548 @@
+/* conf.css: the conformance matrix (conf.ts, design 6). Owner: conf + graph agent. Tokens only. */
+
+.view--conf {
+  --conf-head: 44px;
+}
+
+/* Column summaries ---------------------------------------------------------------------------- */
+
+.conf__summaries {
+  list-style: none;
+  margin: var(--s5) 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--s3);
+}
+
+.conf__summary {
+  padding: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.conf__summary-name {
+  font-size: var(--t-h3);
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.conf__summary-text {
+  margin-top: var(--s1);
+  color: var(--text-2);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.conf__summary-note {
+  margin-top: var(--s2);
+  color: var(--text-3);
+  font-size: var(--t-small);
+}
+
+.conf__bar,
+.conf__col-bar {
+  display: flex;
+  overflow: hidden;
+  background: var(--sunken);
+  border-radius: var(--r-pill);
+}
+
+.conf__bar {
+  height: 6px;
+  margin-top: var(--s2);
+}
+
+.conf__col-bar {
+  height: 3px;
+  margin: var(--s1) auto 0;
+  max-width: 48px;
+}
+
+.conf__seg {
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+.conf__seg--ok { background: var(--ok); }
+.conf__seg--defect { background: var(--defect); }
+.conf__seg--consistent { background: var(--consistent); }
+.conf__seg--none { background: var(--border); }
+
+/* Toolbar ------------------------------------------------------------------------------------- */
+
+.conf__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin-bottom: var(--s4);
+}
+
+.conf__filter {
+  width: min(280px, 100%);
+  min-height: 36px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-ui);
+}
+
+.conf__chips,
+.conf__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.conf__kinds {
+  flex-basis: 100%;
+}
+
+.conf__kinds-label {
+  color: var(--text-2);
+  font-size: var(--t-small);
+  font-weight: 500;
+  margin-right: var(--s1);
+}
+
+.conf__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 32px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.conf__chip:hover {
+  background: var(--sunken);
+}
+
+.conf__chip[aria-pressed="true"] {
+  background: var(--accent-weak);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conf__chip-check {
+  display: none;
+}
+
+.conf__chip[aria-pressed="true"] .conf__chip-check {
+  display: inline;
+}
+
+.conf__chip-count {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.conf__chip[aria-pressed="true"] .conf__chip-count {
+  color: inherit;
+}
+
+.conf__kind-letter {
+  font-family: var(--font-mono);
+}
+
+.conf__clear {
+  min-height: 32px;
+  padding: 0 var(--s2);
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.conf__status {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: var(--t-small);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Table --------------------------------------------------------------------------------------- */
+
+/* Capped width: at 1440px a full-width Title column would put the status cells 600px or more
+   from the ID they belong to. */
+.conf__table {
+  width: 100%;
+  max-width: 1120px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--t-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.conf__table thead th {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 3;
+  height: var(--conf-head);
+  padding: var(--s2);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: var(--t-small);
+  font-weight: 600;
+  text-align: center;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.conf__table thead th:first-child {
+  border-top-left-radius: var(--r-md);
+}
+
+.conf__table thead th:last-child {
+  border-top-right-radius: var(--r-md);
+}
+
+.conf__table thead .conf__col--id,
+.conf__table thead .conf__col--title {
+  text-align: left;
+}
+
+.conf__col-abbr {
+  display: none;
+  text-decoration: none;
+}
+
+.conf__note {
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+.conf__band-head {
+  position: sticky;
+  top: calc(var(--header-h) + var(--conf-head));
+  z-index: 2;
+  padding: 0;
+  background: var(--sunken);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.conf__band-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--s3);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-ui);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conf__band-btn:hover .conf__band-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.conf__band-caret {
+  display: inline-block;
+  color: var(--text-2);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.conf__band-btn[aria-expanded="true"] .conf__band-caret {
+  transform: rotate(90deg);
+}
+
+.conf__band-meta {
+  color: var(--text-2);
+  font-weight: 400;
+  white-space: pre;
+}
+
+.conf__row > * {
+  height: 36px;
+  padding: 0 var(--s2);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.conf__row:nth-child(odd) > * {
+  background: color-mix(in srgb, var(--sunken) 50%, var(--surface));
+}
+
+.conf__row:hover > * {
+  background: var(--sunken);
+}
+
+.conf__band:last-child .conf__row:last-child > * {
+  border-bottom: 0;
+}
+
+.conf__id {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-left: var(--s3);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.conf__subtitle {
+  display: none;
+}
+
+.conf__title {
+  color: var(--text);
+}
+
+.conf__kind {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: var(--s1);
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  vertical-align: 1px;
+}
+
+.conf__cell {
+  width: 76px;
+  text-align: center;
+}
+
+.conf__cell-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.conf__cell-btn:hover {
+  background: var(--accent-weak);
+}
+
+.conf__cell--ok { color: var(--ok); }
+.conf__cell--defect { color: var(--defect); }
+.conf__cell--consistent { color: var(--consistent); }
+.conf__cell--none { color: var(--text-3); }
+
+.conf__glyph {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.conf__cell-text {
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  font-weight: 500;
+}
+
+.conf__cell-under {
+  color: var(--text-3);
+  font-size: var(--t-small);
+  line-height: 1;
+}
+
+.conf__gap-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.conf__gap-label {
+  color: var(--text-2);
+  font-size: var(--t-small);
+  font-weight: 500;
+}
+
+.conf__gap {
+  min-height: 32px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-small);
+}
+
+.conf__honest {
+  margin-top: var(--s3);
+  color: var(--text-3);
+  font-size: var(--t-small);
+}
+
+.conf__empty {
+  padding: var(--s6) var(--s4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  text-align: center;
+}
+
+.conf__empty .conf__clear {
+  margin-top: var(--s2);
+}
+
+/* Cell drawer ---------------------------------------------------------------------------------- */
+
+.conf__details {
+  overflow-wrap: anywhere;
+}
+
+.conf__details > * + * {
+  margin-top: var(--s3);
+}
+
+.conf__d-head {
+  margin-top: var(--s5);
+  font-size: var(--t-h3);
+}
+
+.conf__d-list,
+.conf__d-defects {
+  list-style: none;
+  padding: 0;
+}
+
+.conf__d-list > li + li,
+.conf__d-defects > li + li {
+  margin-top: var(--s3);
+}
+
+.conf__d-path,
+.conf__d-decl,
+.conf__d-thm {
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  overflow-wrap: anywhere;
+}
+
+.conf__d-meta,
+.conf__d-honest,
+.conf__d-note {
+  color: var(--text-3);
+  font-size: var(--t-small);
+}
+
+.conf__d-text {
+  margin-top: var(--s2);
+  font-size: var(--t-ui);
+}
+
+.conf__d-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border);
+}
+
+/* Narrow: ID + five glyph columns (design 6, 400px) -------------------------------------------- */
+
+@media (max-width: 599px) {
+  .conf__summaries {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s2);
+    margin: var(--s4) 0;
+  }
+  .conf__summary {
+    padding: var(--s2) var(--s3);
+  }
+  .conf__summary:last-child {
+    grid-column: 1 / -1;
+  }
+  .conf__status {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+  .conf__filter {
+    width: 100%;
+    min-height: 44px;
+  }
+  .conf__col--title,
+  .conf__title,
+  .conf__col-full,
+  .conf__col-bar {
+    display: none;
+  }
+  .conf__col-abbr {
+    display: inline;
+  }
+  .conf__id {
+    width: 88px;
+    max-width: 120px;
+    padding-left: var(--s2);
+    white-space: normal;
+  }
+  .conf__subtitle {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    color: var(--text-2);
+    font-size: var(--t-small);
+    line-height: 1.3;
+  }
+  .conf__row > * {
+    padding: var(--s1) 2px;
+  }
+  .conf__cell {
+    width: 40px;
+  }
+  .conf__cell-btn {
+    padding: 0 2px;
+    min-width: 36px;
+    min-height: 36px;
+    flex-direction: column;
+    gap: 0;
+  }
+  .conf__cell-text {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 359px) {
+  .conf__scroll {
+    overflow-x: auto;
+  }
+}

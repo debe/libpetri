@@ -1,0 +1,30 @@
+{
+  "title": "A reset arc clears a place",
+  "group": "Firing",
+  "text": "The transition `restart` drains every token from `pending` and puts back the one token it deposits there, so `pending` ends holding exactly that token. A reset arc never blocks its transition: `restart` also fires when `pending` is already empty.",
+  "cites": ["CORE-034", "CORE-036", "EXEC-013", "EXP-013"],
+  "places": ["pending", "restartReq", "done", "log"],
+  "marking": { "pending": 3, "restartReq": 2 },
+  "transitions": [
+    {
+      "name": "work",
+      "inputs": [ { "place": "pending", "kind": "one" } ],
+      "output": { "type": "place", "place": "done" }
+    },
+    {
+      "name": "restart",
+      "inputs": [ { "place": "restartReq", "kind": "one" } ],
+      "resets": ["pending"],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "pending" },
+        { "type": "place", "place": "log" } ] }
+    }
+  ],
+  "steps": [
+    { "fire": "work", "text": "The transition `work` takes one of the three `pending` tokens." },
+    { "fire": "restart", "text": "The transition `restart` drains both remaining tokens and deposits one: `pending` holds 1." },
+    { "fire": "work", "text": "The transition `work` takes that token. The place `pending` is empty." },
+    { "fire": "restart", "text": "The place `pending` is empty, and `restart` fires anyway: the reset arc is not a precondition." },
+    { "fire": "restart", "text": "No restart request is left in `restartReq`, so the input arc blocks `restart`.", "expect": "blocked" }
+  ]
+}

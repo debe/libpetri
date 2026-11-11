@@ -1,0 +1,28 @@
+{
+  "title": "Drain finishes, close stops",
+  "group": "Running",
+  "text": "After `drain()`, the executor rejects new injections but injects the events already queued, lets running actions finish and ends once quiet. `close()` rejects new injections too, but an event still queued when the executor takes the close is never injected, and the run ends as soon as no action is in flight.",
+  "cites": ["ENV-006", "ENV-011", "ENV-013", "EXEC-040", "EXEC-041", "EVT-003"],
+  "replay": false,
+  "notReplayed": "environment",
+  "places": ["order", "packed", "shipped"],
+  "marking": { "order": 1 },
+  "transitions": [
+    {
+      "name": "pack",
+      "inputs": [ { "place": "order", "kind": "one" } ],
+      "output": { "type": "place", "place": "packed" }
+    },
+    {
+      "name": "ship",
+      "inputs": [ { "place": "packed", "kind": "one" } ],
+      "output": { "type": "place", "place": "shipped" }
+    }
+  ],
+  "steps": [
+    { "fire": "pack", "text": "The place `order` is an environment place. One order is in the marking, a second is still queued, and the host calls `drain()`. A third `inject()` now returns `false`." },
+    { "fire": "ship", "text": "Draining changes nothing in the cycle: the action of `pack` finishes and `ship` fires." },
+    { "fire": "pack", "text": "The queued order is injected, as `drain()` promises. Had the host called `close()` instead, Java and TypeScript would drop this order and complete its `inject()` with `false`; in Rust and Python the close travels behind the events sent before it, so the order is still injected." },
+    { "fire": "ship", "text": "Nothing is armed, in flight or queued. The drained executor ends the run, emits `ExecutionCompleted` and reports why it stopped." }
+  ]
+}

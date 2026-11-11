@@ -1,0 +1,9 @@
+{
+  // Browser side: the app plus the shared model and decoder, with no Node types, so a Node API in the app is a type error.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["./**/*.ts", "../model.ts", "../decode.ts", "../decode-site.ts"]
+}

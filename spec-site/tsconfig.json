@@ -1,0 +1,10 @@
+{
+  // Node side: generator, tests, e2e, configs. DOM lib is on so tests can import app modules; src/app/tsconfig.json re-checks the app without Node types.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "*.config.ts"],
+  "exclude": ["node_modules"]
+}

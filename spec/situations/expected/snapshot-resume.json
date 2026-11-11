@@ -1,0 +1,12 @@
+{
+  "slug": "snapshot-resume",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"inbox": 2},
+  "complete": true,
+  "steps": [
+    { "index": 0, "fire": "draft", "branch": 0, "fired": true, "marking": {"drafted": 1, "inbox": 1} },
+    { "index": 1, "fire": "send", "branch": 0, "fired": true, "marking": {"inbox": 1, "sent": 1} },
+    { "index": 2, "fire": "draft", "branch": 0, "fired": true, "marking": {"drafted": 1, "sent": 1} },
+    { "index": 3, "fire": "send", "branch": 0, "fired": true, "marking": {"sent": 2} }
+  ]
+}

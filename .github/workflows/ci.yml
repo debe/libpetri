@@ -76,6 +76,57 @@ jobs:
       - run: npm test
         working-directory: debug-ui
 
+  # The public spec site (libpetri.org/spec/): spec-site/ generates docs/spec/index.html from
+  # spec/, lean/report/ and spec/situations/, and refreshes the counts on docs/index.html.
+  spec-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # spec-site resolves `libpetri` to typescript/dist (the diagrams come from its exporter).
+      - name: Build the libpetri package the site links against
+        working-directory: typescript
+        run: |
+          npm ci
+          npm run build
+      - run: npm ci
+        working-directory: spec-site
+      - run: npm run check
+        working-directory: spec-site
+      - run: npm test
+        working-directory: spec-site
+      - run: npm run build
+        working-directory: spec-site
+      # The committed pages must equal a rebuild from the committed sources and Lean reports.
+      - name: Spec site is up to date
+        run: |
+          git diff --exit-code -- docs/spec docs/index.html docs/404.html
+          test -z "$(git status --porcelain -- docs/spec docs/index.html docs/404.html)"
+      # Same apt workaround as the viewer job below.
+      - name: Install Chromium for the browser tests
+        working-directory: spec-site
+        run: |
+          lists=$(grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ 2>/dev/null || true)
+          if [ -n "$lists" ]; then sudo rm -f $lists; fi
+          npx playwright install --with-deps chromium
+      # Every route, the page's own #/selftest (0 errors), axe in both themes, and screenshots
+      # at desktop width and 400px into spec-site/test-results/screenshots/.
+      - run: npm run e2e
+        working-directory: spec-site
+      - name: Upload screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spec-site-screenshots
+          path: |
+            spec-site/test-results/
+            spec-site/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -318,6 +369,10 @@ jobs:
           #print axioms Libpetri.Reference.verdict_violated_run
           #print axioms Libpetri.Reference.replayViolates_iff
           #print axioms Libpetri.Reference.Link.step_alpha_iff
+          #print axioms Libpetri.Reference.stepOnce_ok
+          #print axioms Libpetri.Reference.stepOnce_blocked
+          #print axioms Libpetri.Reference.replaySituation_sound
+          #print axioms Libpetri.Reference.Replays.run
           #print axioms Libpetri.Novel.Dbm.closed_permD
           #print axioms Libpetri.Novel.Commoner.commoner
           #print axioms Libpetri.Novel.Commoner.ordinary_is_necessary
@@ -853,6 +908,9 @@ jobs:
           python-version: "3.12"
       - name: Expected verdicts are fresh (re-derived by the Lean reference)
         run: python3 scripts/conformance-corpus.py --check
+      # spec/situations/expected/ (the spec site's step replays) is re-derived the same way.
+      - name: Situation replays are fresh (re-derived by the Lean reference)
+        run: python3 scripts/situations.py --check
       - run: python3 scripts/conformance-replay.py --lang rust
       - run: python3 scripts/conformance-replay.py --lang java
       - name: TypeScript dependencies

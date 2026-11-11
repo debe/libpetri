@@ -1,0 +1,25 @@
+{
+  "title": "Tokens injected from outside",
+  "group": "Running",
+  "text": "The place `request` is an environment place: the host calls `inject()` from any thread, and the token enters the marking in the event step of the next cycle. Because an environment place is registered, the executor does not stop when nothing is enabled; it waits for the next injection.",
+  "cites": ["ENV-001", "ENV-002", "ENV-003", "ENV-004", "ENV-005", "ENV-010", "ENV-012", "CONC-001", "CONC-010", "EXEC-001"],
+  "replay": false,
+  "notReplayed": "environment",
+  "places": ["request", "worker", "reply"],
+  "marking": { "worker": 1 },
+  "transitions": [
+    {
+      "name": "serve",
+      "inputs": [
+        { "place": "request", "kind": "one" },
+        { "place": "worker", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "reply" },
+        { "type": "place", "place": "worker" } ] }
+    }
+  ],
+  "steps": [
+    { "fire": "serve", "text": "The net starts quiet and the executor waits. `inject()` queues a request and wakes it; the event step adds the token, and `serve` fires. Only the orchestrator ever changes the marking; `inject()` just queues." },
+    { "fire": "serve", "text": "The net is quiet again, and the executor keeps waiting rather than ending the run. A second `inject()` wakes it and `serve` fires again." }
+  ]
+}

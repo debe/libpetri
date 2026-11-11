@@ -1,0 +1,36 @@
+{
+  "title": "How a net is drawn",
+  "group": "Export",
+  "text": "Every diagram on this site comes from libpetri's own DOT export, with the styles of `spec/petri-net-styles.json`: places are circles, transitions are boxes, and each arc kind has its own colour, line and arrowhead. This net uses each drawing rule once: cardinality labels, read and inhibitor arcs, `Xor` and `And` junctions, a combined reset and output edge, and timing and priority on the transition label.",
+  "cites": ["EXP-001", "EXP-002", "EXP-003", "EXP-004", "EXP-005", "EXP-006", "EXP-007", "EXP-008", "EXP-012", "EXP-013", "EXP-014", "EXP-017", "IO-017"],
+  "replay": false,
+  "notReplayed": "export",
+  "places": ["inbox", "config", "paused", "archive", "review", "log"],
+  "marking": { "inbox": 4, "config": 1 },
+  "transitions": [
+    {
+      "name": "triage",
+      "priority": 5,
+      "timing": { "kind": "window", "earliestMs": 0, "latestMs": 500 },
+      "inputs": [ { "place": "inbox", "kind": "exactly", "n": 2 } ],
+      "reads": ["config"],
+      "inhibitors": ["paused"],
+      "output": { "type": "xor", "children": [
+        { "type": "place", "place": "archive" },
+        { "type": "and", "children": [
+          { "type": "place", "place": "review" },
+          { "type": "place", "place": "log" } ] } ] }
+    },
+    {
+      "name": "flush",
+      "inputs": [ { "place": "review", "kind": "all" } ],
+      "resets": ["log"],
+      "output": { "type": "place", "place": "log" }
+    },
+    {
+      "name": "compact",
+      "inputs": [ { "place": "archive", "kind": "atLeast", "n": 3 } ],
+      "output": { "type": "place", "place": "paused" }
+    }
+  ]
+}

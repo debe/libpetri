@@ -1,0 +1,28 @@
+{
+  "title": "Too early, then ready",
+  "group": "Time",
+  "text": "The transition `send` has `window(200, 1000)`: its clock starts when it is enabled, it may not fire before 200 ms, and it must fire by 1000 ms. The transition `archive` has `delayed(5000)` and no deadline, so it waits five seconds after `sent` is marked and then fires whenever the executor gets to it.",
+  "cites": ["TIME-001", "TIME-004", "TIME-005", "TIME-010", "CONC-024", "EXP-007"],
+  "replay": false,
+  "notReplayed": "timed",
+  "places": ["draft", "sent", "archived"],
+  "marking": { "draft": 1 },
+  "transitions": [
+    {
+      "name": "send",
+      "inputs": [ { "place": "draft", "kind": "one" } ],
+      "output": { "type": "place", "place": "sent" },
+      "timing": { "kind": "window", "earliestMs": 200, "latestMs": 1000 }
+    },
+    {
+      "name": "archive",
+      "inputs": [ { "place": "sent", "kind": "one" } ],
+      "output": { "type": "place", "place": "archived" },
+      "timing": { "kind": "delayed", "earliestMs": 5000 }
+    }
+  ],
+  "steps": [
+    { "fire": "send", "text": "The transition `send` is enabled at 0 ms, so its clock starts then. At 100 ms it is armed but too early; at 200 ms its window opens and it fires." },
+    { "fire": "archive", "text": "The place `sent` is marked at 200 ms, which arms `archive`. It fires at 5200 ms, five seconds later." }
+  ]
+}

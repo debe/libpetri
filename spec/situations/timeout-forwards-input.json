@@ -1,0 +1,23 @@
+{
+  "title": "A timeout hands the input on",
+  "group": "Outputs",
+  "text": "The transition `process` has the output spec `Xor(results, Timeout(500 ms, ForwardInput(jobs, retry)))`: when its action finishes in time it writes `results`, and when the 500 ms budget runs out first the executor abandons the firing and moves the consumed `jobs` to `retry`. The forward keeps every consumed token, so `exactly(2)` puts two tokens in `retry`, not one.",
+  "cites": ["IO-012", "IO-013", "IO-014", "IO-016", "EXEC-022", "EVT-010"],
+  "places": ["jobs", "results", "retry"],
+  "marking": { "jobs": 4 },
+  "transitions": [
+    {
+      "name": "process",
+      "inputs": [ { "place": "jobs", "kind": "exactly", "n": 2 } ],
+      "output": { "type": "xor", "children": [
+        { "type": "place", "place": "results" },
+        { "type": "timeout", "afterMs": 500,
+          "child": { "type": "forward", "from": "jobs", "to": "retry" } } ] }
+    }
+  ],
+  "steps": [
+    { "fire": "process", "text": "The action finishes within 500 ms and writes `results`." },
+    { "fire": "process", "timeout": true, "text": "The action is still running at 500 ms. The firing ends with the timeout outcome: both consumed jobs go to `retry`, and `ActionTimedOut` is emitted." },
+    { "fire": "process", "timeout": true, "text": "The place `jobs` is empty: two jobs ended in `results` and two wait in `retry`, so `exactly(2)` cannot fire again.", "expect": "blocked" }
+  ]
+}

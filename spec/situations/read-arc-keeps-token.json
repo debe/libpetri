@@ -1,0 +1,32 @@
+{
+  "title": "A read arc looks without taking",
+  "group": "Firing",
+  "text": "The transitions `serve` and `audit` both read `config`: each firing needs a token there but leaves it in place, so one token can enable many firings and two readers at once. Once `retire` consumes `config`, `serve` is not enabled, though a `job` still waits.",
+  "cites": ["CORE-032", "CORE-033", "CORE-036", "EXEC-012", "CORE-061", "CORE-051", "CORE-043"],
+  "places": ["config", "job", "served", "audited"],
+  "marking": { "config": 1, "job": 2 },
+  "transitions": [
+    {
+      "name": "serve",
+      "inputs": [ { "place": "job", "kind": "one" } ],
+      "reads": ["config"],
+      "output": { "type": "place", "place": "served" }
+    },
+    {
+      "name": "audit",
+      "inputs": [ { "place": "served", "kind": "one" } ],
+      "reads": ["config"],
+      "output": { "type": "place", "place": "audited" }
+    },
+    {
+      "name": "retire",
+      "inputs": [ { "place": "config", "kind": "one" } ]
+    }
+  ],
+  "steps": [
+    { "fire": "serve", "text": "The transition `serve` takes a `job` and reads `config`. The place `config` still holds its token." },
+    { "fire": "audit", "text": "The transition `audit` reads the same `config` token. Both readers were enabled at once, and each action got the token's value through `ctx.read(config)`." },
+    { "fire": "retire", "text": "The transition `retire` has an input arc on `config`, so it does consume the token. It has no output spec and the built-in passthrough action, which produces nothing; a transition with an output spec could not use passthrough." },
+    { "fire": "serve", "text": "A job waits, but the read place `config` is empty.", "expect": "blocked" }
+  ]
+}

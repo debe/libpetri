@@ -64,7 +64,7 @@
 <g id="edge4" class="edge">
 <title>rust&#45;&gt;py</title>
 <path fill="none" stroke="#57606a" stroke-dasharray="5,2" d="M187.94,-71.77C187.94,-60.99 187.94,-47.37 187.94,-36.54"/>
-<text xml:space="preserve" text-anchor="middle" x="178.94" y="-51" font-family="Helvetica,Arial,sans-serif" font-size="10.00"> binds</text>
+<text stroke="white" stroke-width="4" stroke-linejoin="round" paint-order="stroke" xml:space="preserve" text-anchor="middle" x="178.94" y="-51" font-family="Helvetica,Arial,sans-serif" font-size="10.00">binds</text>
 </g>
 <g id="edge7" class="edge">
 <title>rust&#45;&gt;smt</title>
@@ -90,15 +90,15 @@
 <title>smt&#45;&gt;lean</title>
 <path fill="none" stroke="#6d28d9" stroke-dasharray="5,2" d="M415.45,-133.67C415.45,-114.06 415.45,-88.53 415.45,-71.49"/>
 <polygon fill="#6d28d9" stroke="#6d28d9" points="413,-133.42 415.45,-140.42 417.9,-133.42 413,-133.42"/>
-<text xml:space="preserve" text-anchor="middle" x="400.45" y="-109.78" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9"> verifier abstraction</text>
-<text xml:space="preserve" text-anchor="middle" x="400.45" y="-97.78" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9"> covers every run</text>
+<text stroke="white" stroke-width="4" stroke-linejoin="round" paint-order="stroke" xml:space="preserve" text-anchor="middle" x="400.45" y="-109.78" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9">verifier abstraction</text>
+<text stroke="white" stroke-width="4" stroke-linejoin="round" paint-order="stroke" xml:space="preserve" text-anchor="middle" x="400.45" y="-97.78" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9">covers every run</text>
 </g>
 <g id="edge9" class="edge">
 <title>lean&#45;&gt;rust</title>
 <path fill="none" stroke="#6d28d9" stroke-dasharray="5,2" d="M370.3,-52.73C336.31,-53.4 288.4,-56.29 247.54,-66 243.73,-66.91 239.84,-68.02 235.98,-69.28"/>
 <polygon fill="#6d28d9" stroke="#6d28d9" points="235.34,-66.91 229.53,-71.52 236.95,-71.53 235.34,-66.91"/>
-<text xml:space="preserve" text-anchor="middle" x="290.99" y="-81" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9">precompiled executor</text>
-<text xml:space="preserve" text-anchor="middle" x="290.99" y="-69" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9">refines the reference</text>
+<text stroke="white" stroke-width="4" stroke-linejoin="round" paint-order="stroke" xml:space="preserve" text-anchor="middle" x="290.99" y="-81" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9">precompiled executor</text>
+<text stroke="white" stroke-width="4" stroke-linejoin="round" paint-order="stroke" xml:space="preserve" text-anchor="middle" x="290.99" y="-69" font-family="Helvetica,Arial,sans-serif" font-size="10.00" fill="#6d28d9">refines the reference</text>
 </g>
 </g>
 </svg>

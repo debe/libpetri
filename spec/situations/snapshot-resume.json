@@ -1,0 +1,26 @@
+{
+  "title": "Pause, then resume from a snapshot",
+  "group": "Running",
+  "text": "A snapshot of the marking keeps every token with its value and creation time, in FIFO order, and restoring it as the initial marking of a new execution resumes the work where it stopped. The Lean replay plays both runs as one sequence, which is sound because the restored marking holds exactly the tokens of the snapshot.",
+  "cites": ["CORE-073", "ENV-014", "CORE-072", "CORE-070", "CORE-010", "CORE-013"],
+  "places": ["inbox", "drafted", "sent"],
+  "marking": { "inbox": 2 },
+  "transitions": [
+    {
+      "name": "draft",
+      "inputs": [ { "place": "inbox", "kind": "one" } ],
+      "output": { "type": "place", "place": "drafted" }
+    },
+    {
+      "name": "send",
+      "inputs": [ { "place": "drafted", "kind": "one" } ],
+      "output": { "type": "place", "place": "sent" }
+    }
+  ],
+  "steps": [
+    { "fire": "draft", "text": "The first message is drafted by `draft`." },
+    { "fire": "send", "text": "It is sent by `send`. The host takes a snapshot: a copy of the marking, taken without stopping the run. Then the process stops." },
+    { "fire": "draft", "text": "A new execution starts with the snapshot as its initial marking. The waiting message keeps its value and its original creation time." },
+    { "fire": "send", "text": "The second message is sent: nothing was lost or done twice." }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "title": "Activity restarts the idle clock",
+  "group": "Time",
+  "text": "The transition `expire` has `delayed(30000)` and needs the `session` token, and `touch` takes that token and puts it back whenever there is `activity`. Between the two halves of the firing of `touch` the place `session` is empty, so `expire` loses its clock and starts a fresh one: the 30 seconds count from the last activity.",
+  "cites": ["TIME-002", "TIME-010", "TIME-011", "TIME-012", "EVT-004", "EVT-005"],
+  "replay": false,
+  "notReplayed": "timed",
+  "places": ["session", "typing", "activity", "expired"],
+  "marking": { "session": 1, "typing": 1 },
+  "transitions": [
+    {
+      "name": "type",
+      "inputs": [ { "place": "typing", "kind": "one" } ],
+      "output": { "type": "place", "place": "activity" },
+      "timing": { "kind": "delayed", "earliestMs": 10000 }
+    },
+    {
+      "name": "touch",
+      "inputs": [
+        { "place": "activity", "kind": "one" },
+        { "place": "session", "kind": "one" } ],
+      "output": { "type": "place", "place": "session" }
+    },
+    {
+      "name": "expire",
+      "inputs": [ { "place": "session", "kind": "one" } ],
+      "output": { "type": "place", "place": "expired" },
+      "timing": { "kind": "delayed", "earliestMs": 30000 }
+    }
+  ],
+  "steps": [
+    { "fire": "type", "text": "At 10 s the user types. The transition `expire` has been armed since 0 ms and has 20 s to go." },
+    { "fire": "touch", "text": "The transition `touch` takes `session` and puts it back in one firing. `expire` is not enabled in between, so it loses its clock; it is enabled again at once and its clock restarts at 10 s (`TransitionClockRestarted`)." },
+    { "fire": "expire", "text": "No more activity: `expire` fires at 40 s, 30 s after the restart, not at 30 s." }
+  ]
+}

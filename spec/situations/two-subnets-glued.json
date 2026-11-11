@@ -1,0 +1,39 @@
+{
+  "title": "Two subnets glued at a port",
+  "group": "Composition",
+  "text": "One subnet with an input port `IN`, an internal place `mid` and an output port `OUT` is instantiated twice, as `a` and `b`, and composed so the `OUT` of `a` and the `IN` of `b` are the same place, `handoff`. Composition renames each instance's places and transitions with its prefix and leaves a flat net, so the Lean reference replays it like any other net and the diagram groups each instance in a cluster.",
+  "cites": ["MOD-001", "MOD-003", "MOD-010", "MOD-012", "MOD-020", "MOD-023", "MOD-040", "EXP-016", "EXP-017", "MOD-050"],
+  "places": ["source", "a/mid", "handoff", "b/mid", "sink"],
+  "marking": { "source": 1 },
+  "transitions": [
+    {
+      "name": "a/run",
+      "inputs": [ { "place": "source", "kind": "one" } ],
+      "output": { "type": "place", "place": "a/mid" }
+    },
+    {
+      "name": "a/finish",
+      "inputs": [ { "place": "a/mid", "kind": "one" } ],
+      "output": { "type": "place", "place": "handoff" }
+    },
+    {
+      "name": "b/run",
+      "inputs": [ { "place": "handoff", "kind": "one" } ],
+      "output": { "type": "place", "place": "b/mid" }
+    },
+    {
+      "name": "b/finish",
+      "inputs": [ { "place": "b/mid", "kind": "one" } ],
+      "output": { "type": "place", "place": "sink" }
+    }
+  ],
+  "properties": [
+    { "id": "ends", "type": "deadlock-free", "sinks": ["sink"] }
+  ],
+  "steps": [
+    { "fire": "a/run", "text": "The `IN` port of `a` is bound to `source`. The transition `a/run` moves the token into the own place `a/mid` of `a`." },
+    { "fire": "a/finish", "text": "The `OUT` port of `a` is `handoff`, which is also the `IN` port of `b`." },
+    { "fire": "b/run", "text": "The place `b/mid` is a different place from `a/mid`: each instance keeps its own state." },
+    { "fire": "b/finish", "text": "The `OUT` port of `b` is bound to `sink`. The run ends there. The verifier reads the composed net as a flat net too: deadlock free with `sink` as the only sink place is `Proven`." }
+  ]
+}

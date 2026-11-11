@@ -1,0 +1,218 @@
+/* help.css: styles of help.ts (design 8.3), the keyboard and reading help overlay.
+   Base rules for .help__title and .help__keys are in style.css. Tokens only. */
+
+.overlay--help > .help {
+  padding: 0;
+}
+
+.help__inner {
+  padding: 0 var(--s4) var(--s5);
+}
+
+.help__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: 0 calc(-1 * var(--s4));
+  padding: var(--s2) var(--s4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.help__heading {
+  margin: 0;
+  font-size: var(--t-h3);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.help__close {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.help__close:hover {
+  background: var(--sunken);
+}
+
+.help__toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding: var(--s3) 0;
+}
+
+.help__toc-link {
+  min-height: 32px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+
+.help__toc-link:hover {
+  background: var(--sunken);
+  color: var(--text);
+}
+
+.help__section {
+  padding-top: var(--s4);
+  scroll-margin-top: 64px;
+}
+
+.help__section + .help__section {
+  margin-top: var(--s4);
+  border-top: 1px solid var(--border);
+}
+
+.help__title {
+  scroll-margin-top: 64px;
+}
+
+.help__title:focus {
+  outline: none;
+}
+
+.help__title:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.help__subtitle {
+  margin: var(--s4) 0 var(--s2);
+  font-size: var(--t-h3);
+  font-weight: 600;
+}
+
+.help__note,
+.help__prose {
+  margin: var(--s3) 0;
+  font-size: var(--t-ui);
+  color: var(--text-2);
+}
+
+.help__prose {
+  color: var(--text);
+}
+
+.help__table {
+  width: 100%;
+  margin: var(--s4) 0 0;
+  border-collapse: collapse;
+  font-size: var(--t-ui);
+  line-height: 1.45;
+}
+
+.help__caption {
+  margin-bottom: var(--s2);
+  font-size: var(--t-h3);
+  font-weight: 600;
+  text-align: left;
+}
+
+.help__table th,
+.help__table td {
+  padding: var(--s1) var(--s2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.help__table thead th {
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.help__table tbody th {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.help__table code {
+  overflow-wrap: anywhere;
+}
+
+.help__code {
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+}
+
+.help__glyphs {
+  display: grid;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-ui);
+}
+
+.help__glyph-row {
+  display: grid;
+  grid-template-columns: 2.2em max-content 1fr;
+  gap: var(--s2);
+  align-items: baseline;
+}
+
+.help__glyph,
+.help__kind {
+  text-align: center;
+  font-weight: 600;
+}
+
+.help__kind {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.help__glyph-word {
+  font-weight: 500;
+}
+
+.help__glyph-explain {
+  color: var(--text-2);
+}
+
+.help__glyph--ok { color: var(--ok); }
+.help__glyph--bad { color: var(--bad); }
+.help__glyph--mutant { color: var(--mutant); }
+.help__glyph--nonvac { color: var(--nonvac); }
+.help__glyph--conflict { color: var(--conflict); }
+.help__glyph--consistent { color: var(--consistent); }
+.help__glyph--open { color: var(--open); }
+.help__glyph--defect { color: var(--defect); }
+.help__glyph--none { color: var(--none); }
+
+@media (max-width: 599px) {
+  .help__glyph-row {
+    grid-template-columns: 2.2em 1fr;
+  }
+  .help__glyph-explain {
+    grid-column: 2;
+  }
+  .help__table tbody th {
+    white-space: normal;
+  }
+}

@@ -120,20 +120,20 @@ flowchart TD
   f111["Libpetri/Spec/ConsistencyTime.lean (4)"]
   f112["Libpetri/Spec/ConsistencyVer.lean (2)"]
   f113["Libpetri/Spec/Core.lean (16)"]
-  f114["Libpetri/Spec/Ears.lean (74)"]
+  f114["Libpetri/Spec/Ears.lean (73)"]
   f115["Libpetri/Spec/Glossary.lean (102)"]
   f116["Libpetri/Spec/GlossaryAction.lean (28)"]
   f117["Libpetri/Spec/GlossaryBuild.lean (19)"]
   f118["Libpetri/Spec/GlossaryContext.lean (19)"]
   f119["Libpetri/Spec/GlossaryEnable.lean (12)"]
-  f120["Libpetri/Spec/GlossaryExec.lean (201)"]
+  f120["Libpetri/Spec/GlossaryExec.lean (202)"]
   f121["Libpetri/Spec/GlossaryExport.lean (200)"]
   f122["Libpetri/Spec/GlossaryExportCluster.lean (32)"]
   f123["Libpetri/Spec/GlossaryNuVer.lean (23)"]
   f124["Libpetri/Spec/GlossaryQueue.lean (41)"]
   f125["Libpetri/Spec/GlossaryStore.lean (30)"]
   f126["Libpetri/Spec/GlossaryTime.lean (68)"]
-  f127["Libpetri/Spec/Registry.lean (83)"]
+  f127["Libpetri/Spec/Registry.lean (86)"]
   f128["Libpetri/Spec/Req/CONC_001.lean (73)"]
   f129["Libpetri/Spec/Req/CONC_002.lean (69)"]
   f130["Libpetri/Spec/Req/CONC_003.lean (68)"]
@@ -386,7 +386,6 @@ flowchart TD
   f73 --> f82
   f73 --> f85
   f74 --> f120
-  f74 --> f126
   f75 --> f20
   f75 --> f29
   f75 --> f32
@@ -431,6 +430,7 @@ flowchart TD
   f101 --> f228
   f101 --> f229
   f101 --> f230
+  f101 --> f233
   f102 --> f200
   f103 --> f208
   f103 --> f209
@@ -444,7 +444,6 @@ flowchart TD
   f103 --> f230
   f103 --> f231
   f103 --> f232
-  f104 --> f126
   f104 --> f194
   f105 --> f113
   f105 --> f149
@@ -465,6 +464,7 @@ flowchart TD
   f105 --> f230
   f105 --> f231
   f105 --> f232
+  f105 --> f233
   f105 --> f234
   f106 --> f184
   f106 --> f187
@@ -578,7 +578,7 @@ flowchart TD
   f112 --> f265
   f112 --> f266
   f113 --> f114
-  f114 --> f120
+  f113 --> f115
   f115 --> f80
   f116 --> f71
   f116 --> f124
@@ -586,8 +586,6 @@ flowchart TD
   f117 --> f71
   f118 --> f116
   f119 --> f115
-  f120 --> f87
-  f120 --> f126
   f120 --> f194
   f120 --> f233
   f121 --> f5
@@ -598,6 +596,7 @@ flowchart TD
   f124 --> f115
   f126 --> f87
   f126 --> f114
+  f126 --> f115
   f128 --> f74
   f129 --> f74
   f130 --> f74
@@ -613,6 +612,7 @@ flowchart TD
   f137 --> f170
   f138 --> f124
   f139 --> f194
+  f140 --> f194
   f140 --> f243
   f141 --> f88
   f141 --> f124
@@ -628,17 +628,25 @@ flowchart TD
   f147 --> f117
   f148 --> f147
   f149 --> f114
+  f149 --> f115
   f150 --> f114
+  f150 --> f115
   f151 --> f114
+  f151 --> f115
   f152 --> f114
+  f152 --> f115
   f153 --> f114
+  f153 --> f115
   f154 --> f114
+  f154 --> f115
   f155 --> f114
+  f155 --> f115
   f156 --> f115
   f157 --> f117
   f158 --> f71
   f159 --> f71
   f160 --> f71
+  f160 --> f233
   f161 --> f116
   f162 --> f147
   f162 --> f161
@@ -658,7 +666,6 @@ flowchart TD
   f169 --> f167
   f169 --> f168
   f170 --> f124
-  f171 --> f114
   f171 --> f124
   f171 --> f126
   f172 --> f84
@@ -686,7 +693,6 @@ flowchart TD
   f191 --> f86
   f192 --> f81
   f193 --> f74
-  f194 --> f87
   f194 --> f92
   f194 --> f126
   f195 --> f74
@@ -723,16 +729,26 @@ flowchart TD
   f220 --> f219
   f221 --> f77
   f222 --> f114
+  f222 --> f115
   f223 --> f114
+  f223 --> f115
   f224 --> f114
+  f224 --> f115
   f225 --> f114
+  f225 --> f115
   f226 --> f114
+  f226 --> f115
   f227 --> f115
   f228 --> f114
+  f228 --> f115
   f229 --> f114
+  f229 --> f115
   f230 --> f114
+  f230 --> f115
   f231 --> f114
+  f231 --> f115
   f232 --> f114
+  f232 --> f115
   f233 --> f115
   f234 --> f115
   f235 --> f234
@@ -746,17 +762,13 @@ flowchart TD
   f241 --> f72
   f242 --> f119
   f243 --> f126
-  f244 --> f114
   f244 --> f126
-  f245 --> f114
   f245 --> f126
   f246 --> f249
   f247 --> f249
   f248 --> f249
-  f249 --> f114
   f249 --> f126
   f250 --> f249
-  f251 --> f114
   f251 --> f126
   f252 --> f249
   f253 --> f74

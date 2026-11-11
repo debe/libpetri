@@ -16,10 +16,10 @@ flowchart TD
     n3920["Libpetri.SchedKey.lt"]
     n3921["🔒 Libpetri.SchedKey.lt_asymm"]
     n3925["Libpetri.SchedKey.prio"]
-    n13200["🔒 Libpetri.collect_ready_general_refines"]
-    n13261["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n13337["🔒 Libpetri.levelBlocks_sorted"]
-    n13362["🔒 Libpetri.pairwise_imp_mem"]
+    n13203["🔒 Libpetri.collect_ready_general_refines"]
+    n13264["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n13340["🔒 Libpetri.levelBlocks_sorted"]
+    n13365["🔒 Libpetri.pairwise_imp_mem"]
   end
   n142 --> n3918
   n145 --> n142
@@ -30,17 +30,17 @@ flowchart TD
   n3920 --> n3925
   n3921 --> n3920
   n3925 --> n3918
-  n13200 --> n13261
-  n13200 --> n13337
-  n13261 --> n3921
-  n13337 --> n145
-  n13337 --> n3920
-  n13337 --> n13362
+  n13203 --> n13264
+  n13203 --> n13340
+  n13264 --> n3921
+  n13340 --> n145
+  n13340 --> n3920
+  n13340 --> n13365
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13200 root
-  class n3921,n13200,n13261,n13337,n13362 locked
+  class n13203 root
+  class n3921,n13203,n13264,n13340,n13365 locked
 ```
 
 Axioms used:

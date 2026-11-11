@@ -21,8 +21,8 @@ flowchart TD
     n4918["Libpetri.Spec.ConsumeOut.mk"]
     n4920["Libpetri.Spec.ConsumeOut.store"]
     n4921["Libpetri.Spec.ConsumeProgram"]
-    n8182["Libpetri.Spec.conc021_program"]
-    n11857["Libpetri.Spec.refConsume"]
+    n8183["Libpetri.Spec.conc021_program"]
+    n11860["Libpetri.Spec.refConsume"]
   end
   c0["📁 Libpetri/Basic.lean (14 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (8 declarations, collapsed)"]
@@ -49,16 +49,16 @@ flowchart TD
   n4920 --> n4916
   n4921 --> c124
   n4921 --> n4916
-  n8182 --> n4917
-  n8182 --> n4920
-  n8182 --> n11857
-  n11857 --> c2
-  n11857 --> n4918
-  n11857 --> n4921
+  n8183 --> n4917
+  n8183 --> n4920
+  n8183 --> n11860
+  n11860 --> c2
+  n11860 --> n4918
+  n11860 --> n4921
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8182 root
+  class n8183 root
   class c0,c1,c2,c3,c80,c94,c95,c97,c124 collapsed
 ```
 
@@ -69,23 +69,23 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Refinement.lean"]
-    n13216["🔒 Libpetri.consume_marking_rel"]
-    n13241["🔒 Libpetri.disable_rel"]
-    n13283["🔒 Libpetri.fireConsume_rel"]
-    n13291["🔒 Libpetri.foldFire_rel"]
-    n13303["🔒 Libpetri.inputs_bag_rel"]
-    n13329["Libpetri.iterate"]
-    n13365["🔒 Libpetri.pcCycle_rel"]
-    n13367["🔒 Libpetri.pcFire_rel"]
-    n13375["🔒 Libpetri.postFire_rel"]
-    n13384["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
-    n13390["🔒 Libpetri.produceMany_rel"]
-    n13393["🔒 Libpetri.produceOne_rel"]
-    n13400["🔒 Libpetri.reads_bag_rel"]
-    n13405["🔒 Libpetri.recheck_rel"]
-    n13435["🔒 Libpetri.specAt_none"]
-    n13436["🔒 Libpetri.specAt_some_mem"]
-    n13477["🔒 Libpetri.updateEnablement_rel"]
+    n13219["🔒 Libpetri.consume_marking_rel"]
+    n13244["🔒 Libpetri.disable_rel"]
+    n13286["🔒 Libpetri.fireConsume_rel"]
+    n13294["🔒 Libpetri.foldFire_rel"]
+    n13306["🔒 Libpetri.inputs_bag_rel"]
+    n13332["Libpetri.iterate"]
+    n13368["🔒 Libpetri.pcCycle_rel"]
+    n13370["🔒 Libpetri.pcFire_rel"]
+    n13378["🔒 Libpetri.postFire_rel"]
+    n13387["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
+    n13393["🔒 Libpetri.produceMany_rel"]
+    n13396["🔒 Libpetri.produceOne_rel"]
+    n13403["🔒 Libpetri.reads_bag_rel"]
+    n13408["🔒 Libpetri.recheck_rel"]
+    n13438["🔒 Libpetri.specAt_none"]
+    n13439["🔒 Libpetri.specAt_some_mem"]
+    n13480["🔒 Libpetri.updateEnablement_rel"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -107,41 +107,41 @@ flowchart TD
   c94 --> c0
   c94 --> c97
   c95 --> c94
-  n13216 --> c90
-  n13216 --> n13435
-  n13216 --> n13436
-  n13241 --> c90
-  n13283 --> n13216
-  n13291 --> n13241
-  n13291 --> n13367
-  n13291 --> n13405
-  n13303 --> c90
-  n13303 --> n13435
-  n13303 --> n13436
-  n13365 --> n13291
-  n13365 --> n13477
-  n13367 --> n13283
-  n13367 --> n13303
-  n13367 --> n13375
-  n13367 --> n13390
-  n13367 --> n13400
-  n13375 --> c90
-  n13384 --> n13329
-  n13384 --> n13365
-  n13390 --> n13393
-  n13393 --> c90
-  n13400 --> c90
-  n13400 --> n13435
-  n13400 --> n13436
-  n13405 --> c89
-  n13435 --> c0
-  n13436 --> c0
-  n13477 --> c89
+  n13219 --> c90
+  n13219 --> n13438
+  n13219 --> n13439
+  n13244 --> c90
+  n13286 --> n13219
+  n13294 --> n13244
+  n13294 --> n13370
+  n13294 --> n13408
+  n13306 --> c90
+  n13306 --> n13438
+  n13306 --> n13439
+  n13368 --> n13294
+  n13368 --> n13480
+  n13370 --> n13286
+  n13370 --> n13306
+  n13370 --> n13378
+  n13370 --> n13393
+  n13370 --> n13403
+  n13378 --> c90
+  n13387 --> n13332
+  n13387 --> n13368
+  n13393 --> n13396
+  n13396 --> c90
+  n13403 --> c90
+  n13403 --> n13438
+  n13403 --> n13439
+  n13408 --> c89
+  n13438 --> c0
+  n13439 --> c0
+  n13480 --> c89
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13384 root
-  class n13216,n13241,n13283,n13291,n13303,n13365,n13367,n13375,n13384,n13390,n13393,n13400,n13405,n13435,n13436,n13477 locked
+  class n13387 root
+  class n13219,n13244,n13286,n13294,n13306,n13368,n13370,n13378,n13387,n13393,n13396,n13403,n13408,n13438,n13439,n13480 locked
   class c0,c1,c2,c3,c4,c89,c90,c94,c95,c97 collapsed
 ```
 

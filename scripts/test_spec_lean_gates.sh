@@ -21,7 +21,8 @@ all=lean/Libpetri/Spec/All.lean
 spec01=spec/01-core-model.md
 other=lean/Libpetri/Novel/TimedScg.lean   # a non-Spec module no other module imports
 report=lean/spec-tools/Report.lean
-files=("$core" "$all" "$spec01" "$other" "$report")
+router=spec-site/src/app/router.ts        # browser code of the spec site
+files=("$core" "$all" "$spec01" "$other" "$report" "$router")
 
 work="$(mktemp -d)"
 for f in "${files[@]}"; do mkdir -p "$work/$(dirname "$f")"; cp "$repo/$f" "$work/$f"; done
@@ -237,6 +238,18 @@ d[\"theorems\"].append({\"name\": \"planted_claim\", \"module\": \"Libpetri/Soun
 open(p, \"w\").write(json.dumps(d, indent=2, ensure_ascii=False) + \"\\n\")
 '" \
   "planted_claim" "hand-added"
+
+# ---- spec site -----------------------------------------------------------------------------
+
+# 16. A wrong-typed assignment in the site's browser code: `npm run check` (both tsconfigs, as
+#     CI runs it) must fail on it. Needs spec-site/node_modules (npm ci in spec-site).
+if [ -d "$repo/spec-site/node_modules" ]; then
+  expect_caught "type error in spec-site/src/app -> npm run check" '(cd ../spec-site && npm run check)' \
+    'printf "\nexport const plantedTypeError: number = \"planted\";\n" >> ../spec-site/src/app/router.ts' \
+    "src/app/router.ts(" "error TS2322: Type 'string' is not assignable to type 'number'."
+else
+  echo "skipped     type error in spec-site/src/app: spec-site/node_modules is missing (run npm ci in spec-site)"
+fi
 
 # ---- every planted file is back as it was -------------------------------------------------
 restore

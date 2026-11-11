@@ -1,0 +1,12 @@
+{
+  "slug": "proved-without-enumerating",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"lock": 1, "source": 1},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "produce", "branch": 0, "fired": true, "marking": {"lock": 1, "queue": 1, "source": 1} },
+    { "index": 1, "fire": "produce", "branch": 0, "fired": true, "marking": {"lock": 1, "queue": 2, "source": 1} },
+    { "index": 2, "fire": "takeA", "branch": 0, "fired": true, "marking": {"busyA": 1, "queue": 1, "source": 1} },
+    { "index": 3, "fire": "takeB", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "lock", "arc": {"kind": "one"}, "need": 1, "have": 0}, "requirement": "IO-001", "message": "'takeB' is not enabled: input place 'lock' holds 0 tokens, its One arc needs 1" }
+  ]
+}

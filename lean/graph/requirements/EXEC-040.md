@@ -13,19 +13,19 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n7173["Libpetri.Spec.TReach"]
-    n7737["Libpetri.Spec.clashT_X"]
-    n7738["Libpetri.Spec.clashT_at"]
-    n7742["Libpetri.Spec.clashT_inv"]
-    n7743["Libpetri.Spec.clashT_invR"]
-    n7744["Libpetri.Spec.clashT_invR_reach"]
-    n7746["Libpetri.Spec.clashT_inv_step"]
-    n7747["Libpetri.Spec.clashT_m0"]
-    n7748["Libpetri.Spec.clashT_mem"]
-    n7749["Libpetri.Spec.clashT_reaped"]
-    n7750["Libpetri.Spec.clashT_s0"]
-    n7751["Libpetri.Spec.clashT_u"]
-    n10423["Libpetri.Spec.exec040_rest_reaped_enabled"]
+    n7174["Libpetri.Spec.TReach"]
+    n7738["Libpetri.Spec.clashT_X"]
+    n7739["Libpetri.Spec.clashT_at"]
+    n7743["Libpetri.Spec.clashT_inv"]
+    n7744["Libpetri.Spec.clashT_invR"]
+    n7745["Libpetri.Spec.clashT_invR_reach"]
+    n7747["Libpetri.Spec.clashT_inv_step"]
+    n7748["Libpetri.Spec.clashT_m0"]
+    n7749["Libpetri.Spec.clashT_mem"]
+    n7750["Libpetri.Spec.clashT_reaped"]
+    n7751["Libpetri.Spec.clashT_s0"]
+    n7752["Libpetri.Spec.clashT_u"]
+    n10425["Libpetri.Spec.exec040_rest_reaped_enabled"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -43,31 +43,31 @@ flowchart TD
   c115 --> c83
   c126 --> c87
   c126 --> c115
-  n7173 --> c87
-  n7737 --> c87
-  n7737 --> n7751
-  n7738 --> n7750
-  n7742 --> c87
-  n7742 --> n7747
+  n7174 --> c87
+  n7738 --> c87
+  n7738 --> n7752
+  n7739 --> n7751
   n7743 --> c87
-  n7743 --> n7747
-  n7744 --> n7173
-  n7744 --> n7743
-  n7744 --> n7746
-  n7746 --> n7742
-  n7746 --> n7748
-  n7748 --> n7737
+  n7743 --> n7748
+  n7744 --> c87
+  n7744 --> n7748
+  n7745 --> n7174
+  n7745 --> n7744
+  n7745 --> n7747
+  n7747 --> n7743
+  n7747 --> n7749
   n7749 --> n7738
-  n7750 --> n7737
-  n7750 --> n7747
-  n7751 --> c83
-  n10423 --> c126
-  n10423 --> n7744
-  n10423 --> n7749
+  n7750 --> n7739
+  n7751 --> n7738
+  n7751 --> n7748
+  n7752 --> c83
+  n10425 --> c126
+  n10425 --> n7745
+  n10425 --> n7750
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n10423 root
+  class n10425 root
   class c0,c28,c54,c66,c83,c87,c115,c126 collapsed
 ```
 

@@ -1,0 +1,12 @@
+{
+  "slug": "input-cardinalities",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"orders": 6, "returns": 3},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "pair", "branch": 0, "fired": true, "marking": {"orders": 4, "pairs": 1, "returns": 3} },
+    { "index": 1, "fire": "sweep", "branch": 0, "fired": true, "marking": {"orders": 4, "pairs": 1, "swept": 1} },
+    { "index": 2, "fire": "batch", "branch": 0, "fired": true, "marking": {"batches": 1, "pairs": 1, "swept": 1} },
+    { "index": 3, "fire": "pair", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "orders", "arc": {"kind": "exactly", "n": 2}, "need": 2, "have": 0}, "requirement": "IO-002", "message": "'pair' is not enabled: input place 'orders' holds 0 tokens, its Exactly(2) arc needs 2" }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  // Browser side of the landing page: no Node types, so a Node API in the client is a type error.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["./**/*.ts", "../hooks.ts", "../../app/theme.ts"]
+}

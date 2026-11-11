@@ -1,0 +1,12 @@
+{
+  "slug": "inhibitor-blocks",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"job": 3},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "take", "branch": 0, "fired": true, "marking": {"job": 2, "lock": 1} },
+    { "index": 1, "fire": "release", "branch": 0, "fired": true, "marking": {"done": 1, "job": 2} },
+    { "index": 2, "fire": "take", "branch": 0, "fired": true, "marking": {"done": 1, "job": 1, "lock": 1} },
+    { "index": 3, "fire": "take", "branch": 0, "blocked": true, "reason": {"kind": "inhibitorMarked", "place": "lock", "count": 1}, "requirement": "CORE-031", "message": "'take' is not enabled: inhibitor place 'lock' holds 1 token" }
+  ]
+}

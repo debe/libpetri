@@ -1,0 +1,44 @@
+{
+  "title": "The verifier proves deadlock freedom",
+  "group": "Verification",
+  "text": "The same two workers now take the locks in one order: `lockA` first, then `lockB`. The verifier proves deadlock freedom (`lockA`, `lockB` and `done` are sinks) by enumerating all 7 reachable state classes, and proves at most one worker holds both locks without exploring at all, from the linear bound `holdsA + holdsBoth + lockA ≤ 1`.",
+  "cites": ["VER-002", "VER-003", "VER-015", "VER-017", "VER-024"],
+  "places": ["jobs", "lockA", "lockB", "holdsA", "holdsBoth", "done"],
+  "marking": { "jobs": 2, "lockA": 1, "lockB": 1 },
+  "transitions": [
+    {
+      "name": "takeA",
+      "inputs": [
+        { "place": "jobs", "kind": "one" },
+        { "place": "lockA", "kind": "one" } ],
+      "output": { "type": "place", "place": "holdsA" }
+    },
+    {
+      "name": "takeB",
+      "inputs": [
+        { "place": "holdsA", "kind": "one" },
+        { "place": "lockB", "kind": "one" } ],
+      "output": { "type": "place", "place": "holdsBoth" }
+    },
+    {
+      "name": "finish",
+      "inputs": [ { "place": "holdsBoth", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "lockA" },
+        { "type": "place", "place": "lockB" },
+        { "type": "place", "place": "done" } ] }
+    }
+  ],
+  "properties": [
+    { "id": "deadlock", "type": "deadlock-free", "sinks": ["lockA", "lockB", "done"] },
+    { "id": "critical", "type": "place-bound", "place": "holdsBoth", "bound": 1 }
+  ],
+  "steps": [
+    { "fire": "takeA", "text": "The first worker takes `lockA`. The second cannot start: `lockA` is empty." },
+    { "fire": "takeB", "text": "The first worker takes `lockB` as well." },
+    { "fire": "finish", "text": "It finishes and returns both locks." },
+    { "fire": "takeA", "text": "Now the second worker takes `lockA`." },
+    { "fire": "takeB", "text": "And `lockB`." },
+    { "fire": "finish", "text": "Both jobs are done and both locks are back: every token rests in a sink." }
+  ]
+}

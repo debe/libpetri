@@ -1,0 +1,10 @@
+{
+  "slug": "competing-for-one-token",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"offer": 1},
+  "complete": false,
+  "steps": [
+    { "index": 0, "fire": "left", "branch": 0, "fired": true, "marking": {"leftDone": 1} },
+    { "index": 1, "fire": "right", "branch": 0, "blocked": true, "reason": {"kind": "inputShort", "place": "offer", "arc": {"kind": "one"}, "need": 1, "have": 0}, "requirement": "IO-001", "message": "'right' is not enabled: input place 'offer' holds 0 tokens, its One arc needs 1" }
+  ]
+}

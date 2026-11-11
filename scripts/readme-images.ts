@@ -126,6 +126,16 @@ function render(viz: Viz, dot: string): Svg {
   return { body: svg, w: Number(m[1]), h: Number(m[2]) };
 }
 
+/**
+ * Gives every edge label a white halo (stroke painted under the fill), so an edge that runs
+ * through its own label, as the dashed lines of the evidence diagram do, never hides the text.
+ */
+function haloEdgeLabels(frag: Svg): Svg {
+  const body = frag.body.replace(/<g id="[^"]*" class="edge">[\s\S]*?<\/g>/g, edge =>
+    edge.replace(/<text /g, '<text stroke="white" stroke-width="4" stroke-linejoin="round" paint-order="stroke" '));
+  return { ...frag, body };
+}
+
 const CARD_PAD = 14;
 
 /** Places fragments on one white rounded card. Layout: rows of columns. */
@@ -471,12 +481,12 @@ function evidenceDot(total: number): string {
     box('z3', 'z3', '#e7f5ec', '#1a7f37'),
     box('lean', 'Lean 4 proofs', '#f3e8ff', '#6d28d9'),
     '  spec -> java; spec -> ts; spec -> rust;',
-    '  rust -> py [style=dashed, arrowhead=none, label=" binds"];',
+    '  rust -> py [style=dashed, arrowhead=none, label="binds"];',
     '  { rank=same; java; ts; rust; py; }',
     '  java -> smt; ts -> smt; rust -> smt;',
     '  smt -> z3;',
     `  lean -> rust [${lean}, label="precompiled executor\\nrefines the reference"];`,
-    `  smt -> lean [${lean}, dir=back, label=" verifier abstraction\\n covers every run"];`,
+    `  smt -> lean [${lean}, dir=back, label="verifier abstraction\\ncovers every run"];`,
     '  { rank=same; smt -> lean [style=invis, minlen=2]; }',
     '}',
   ].join('\n');
@@ -621,7 +631,7 @@ async function main(): Promise<void> {
     ))],
   ], 4));
 
-  files.set('evidence.svg', card([[render(viz, evidenceDot(specTotal()))]]));
+  files.set('evidence.svg', card([[haloEdgeLabels(render(viz, evidenceDot(specTotal())))]]));
 
   mkdirSync(outDir, { recursive: true });
   for (const [name, content] of [...files].sort(([a], [b]) => a.localeCompare(b))) {

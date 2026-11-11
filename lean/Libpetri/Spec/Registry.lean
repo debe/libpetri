@@ -550,6 +550,10 @@ def docOf (n : Name) : CommandElabM String := do
   let d := (← findDocString? (← getEnv) n).getD ""
   return (((d.splitOn "\n\n").headD "").trimAscii.toString).replace "\n" " "
 
+/-- The whole docstring, trimmed, its line breaks kept; empty when there is none. -/
+def fullDocOf (n : Name) : CommandElabM String := do
+  return ((← findDocString? (← getEnv) n).getD "").trimAscii.toString
+
 /-- Display order of evidence roles. -/
 def roleRank (r : String) : Nat := roles.idxOf r
 
@@ -569,6 +573,8 @@ structure EvRow where
   module : Name
   /-- First paragraph of the theorem's docstring. -/
   doc : String
+  /-- The theorem's whole docstring (`fullDocOf`), for the JSON report. -/
+  fullDoc : String
   /-- The theorem's pretty-printed statement. -/
   stmt : String
 
@@ -594,7 +600,7 @@ def rows : CommandElabM (Array Row) := do
         (a.role == b.role && a.thm.toString < b.thm.toString)
     let ev ← mine.mapM fun v => return {
       role := v.role, thm := v.thm, module := v.module,
-      doc := ← docOf v.thm, stmt := ← statementOf v.thm : EvRow }
+      doc := ← docOf v.thm, fullDoc := ← fullDocOf v.thm, stmt := ← statementOf v.thm : EvRow }
     return { e, stmt := ← statementOf e.decl, ev }
 
 /-- The citations, sorted by ID, then theorem, then fragment. -/
@@ -691,9 +697,15 @@ def renderMd (rs : Array Row) (cs : Array Evidence) : String := Id.run do
       out := out ++ s!"| {c.id} | {mdCell c.fragment} | `{c.thm}` | {c.module} |\n"
   return out
 
-/-- Machine-readable form, read by the CI gates:
-`{"title", "requirements": [block with "hash" and "evidence"], "citations": [...]}`. -/
-def renderJson (rs : Array Row) (cs : Array Evidence) : Json :=
+/-- The `("doc", d)` field of an evidence or citation entry, left out when `d` is empty. -/
+def docField (d : String) : List (String × Json) :=
+  if d.isEmpty then [] else [("doc", Json.str d)]
+
+/-- Machine-readable form, read by the CI gates and the spec site:
+`{"title", "requirements": [block with "hash" and "evidence"], "citations": [...]}`. Every
+evidence entry and citation carries its theorem's whole docstring as `"doc"` (`fullDocOf`),
+left out when the theorem has none; `cs` pairs each citation with that docstring. -/
+def renderJson (rs : Array Row) (cs : Array (Evidence × String)) : Json :=
   Json.mkObj [
     ("title", "libpetri requirements"),
     ("requirements", Json.arr <| rs.map fun r => Json.mkObj [
@@ -703,11 +715,12 @@ def renderJson (rs : Array Row) (cs : Array Evidence) : Json :=
       ("reading", toJson r.e.reading), ("assumes", toJson r.e.assumes),
       ("signoff", r.e.signoff), ("hash", r.e.hash), ("statement", r.stmt),
       ("evidence", Json.arr <| r.ev.map fun v =>
-        Json.mkObj [("role", v.role), ("theorem", v.thm.toString),
-          ("module", v.module.toString)])]),
-    ("citations", Json.arr <| cs.map fun c => Json.mkObj [
-      ("role", "cites"), ("id", c.id), ("fragment", c.fragment),
-      ("theorem", c.thm.toString), ("module", c.module.toString)])]
+        Json.mkObj ([("role", Json.str v.role), ("theorem", Json.str v.thm.toString),
+          ("module", Json.str v.module.toString)] ++ docField v.fullDoc))]),
+    ("citations", Json.arr <| cs.map fun (c, d) => Json.mkObj ([
+      ("role", Json.str "cites"), ("id", Json.str c.id), ("fragment", Json.str c.fragment),
+      ("theorem", Json.str c.thm.toString), ("module", Json.str c.module.toString)] ++
+      docField d))]
 
 /-- `#write_requirements_report "dir"` writes `requirements.md` and `requirements.json` into
 `dir`. -/
@@ -717,7 +730,8 @@ elab "#write_requirements_report " dir:str : command => do
   let dir : System.FilePath := dir.getString
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / "requirements.md") (renderMd rs cs)
-  IO.FS.writeFile (dir / "requirements.json") ((renderJson rs cs).pretty ++ "\n")
+  let cds ← cs.mapM fun c => return (c, ← fullDocOf c.thm)
+  IO.FS.writeFile (dir / "requirements.json") ((renderJson rs cds).pretty ++ "\n")
   logInfo m!"wrote {rs.size} requirement blocks and {cs.size} citations to {dir}"
 
 /-! ## Axiom audit run by CI -/

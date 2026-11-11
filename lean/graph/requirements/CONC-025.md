@@ -13,12 +13,12 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CONC_025.lean"]
-    n6512["Libpetri.Spec.Materialiser"]
-    n6514["Libpetri.Spec.Materialiser.mat"]
-    n6515["Libpetri.Spec.Materialiser.mk"]
-    n6518["Libpetri.Spec.Materialiser.σ"]
-    n8267["Libpetri.Spec.conc025_matches_bitmap"]
-    n11977["Libpetri.Spec.refMaterialiser"]
+    n6513["Libpetri.Spec.Materialiser"]
+    n6515["Libpetri.Spec.Materialiser.mat"]
+    n6516["Libpetri.Spec.Materialiser.mk"]
+    n6519["Libpetri.Spec.Materialiser.σ"]
+    n8268["Libpetri.Spec.conc025_matches_bitmap"]
+    n11980["Libpetri.Spec.refMaterialiser"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -46,19 +46,19 @@ flowchart TD
   c95 --> c94
   c124 --> c80
   c124 --> c95
-  n6512 --> c124
-  n6514 --> n6518
-  n6515 --> n6512
-  n6518 --> n6512
-  n8267 --> c88
-  n8267 --> n6514
-  n8267 --> n11977
-  n11977 --> c90
-  n11977 --> n6515
+  n6513 --> c124
+  n6515 --> n6519
+  n6516 --> n6513
+  n6519 --> n6513
+  n8268 --> c88
+  n8268 --> n6515
+  n8268 --> n11980
+  n11980 --> c90
+  n11980 --> n6516
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8267 root
+  class n8268 root
   class c0,c1,c2,c3,c4,c80,c88,c89,c90,c94,c95,c97,c124 collapsed
 ```
 

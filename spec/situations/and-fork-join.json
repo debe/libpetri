@@ -1,0 +1,31 @@
+{
+  "title": "And deposits in every place",
+  "group": "Outputs",
+  "text": "The transition `split` has the output spec `And(pack, invoice)`, so every firing puts one token in each of the two places. Then `ship` joins them again: its inputs are AND-joined, so it needs a token in `pack` and one in `invoice`.",
+  "cites": ["IO-010", "IO-011", "IO-005", "IO-017", "CORE-035", "CORE-052", "EXEC-020", "EXP-012"],
+  "places": ["order", "pack", "invoice", "shipped"],
+  "marking": { "order": 2 },
+  "transitions": [
+    {
+      "name": "split",
+      "inputs": [ { "place": "order", "kind": "one" } ],
+      "output": { "type": "and", "children": [
+        { "type": "place", "place": "pack" },
+        { "type": "place", "place": "invoice" } ] }
+    },
+    {
+      "name": "ship",
+      "inputs": [
+        { "place": "pack", "kind": "one" },
+        { "place": "invoice", "kind": "one" } ],
+      "output": { "type": "place", "place": "shipped" }
+    }
+  ],
+  "steps": [
+    { "fire": "split", "text": "One `order` becomes a token in `pack` and a token in `invoice`. The built-in fork action copies the order's value into both." },
+    { "fire": "ship", "text": "Both inputs of `ship` are marked, so it joins them." },
+    { "fire": "split", "text": "The second order forks the same way." },
+    { "fire": "ship", "text": "The second shipment." },
+    { "fire": "ship", "text": "The places `pack` and `invoice` are empty: nothing is left to join.", "expect": "blocked" }
+  ]
+}

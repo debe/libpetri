@@ -1,0 +1,12 @@
+{
+  "slug": "two-subnets-glued",
+  "reference": "1a0c0e381f90cdeb478579acd8ffbbeda049f286afb14acbbc1a1bbbbd75653d",
+  "initial": {"source": 1},
+  "complete": true,
+  "steps": [
+    { "index": 0, "fire": "a/run", "branch": 0, "fired": true, "marking": {"a/mid": 1} },
+    { "index": 1, "fire": "a/finish", "branch": 0, "fired": true, "marking": {"handoff": 1} },
+    { "index": 2, "fire": "b/run", "branch": 0, "fired": true, "marking": {"b/mid": 1} },
+    { "index": 3, "fire": "b/finish", "branch": 0, "fired": true, "marking": {"sink": 1} }
+  ]
+}
