@@ -6,6 +6,7 @@ verifier requirements and the verifier's bounded runs use. It is not numbered an
 requirements; each entry cites the requirements that define the term. The Lean counterpart is
 `lean/Libpetri/Spec/Glossary.lean` for the firing terms, `lean/Libpetri/Spec/GlossaryTime.lean`
 for the timing terms, `lean/Libpetri/Spec/GlossaryQueue.lean` for the execution terms,
+`lean/Libpetri/Spec/GlossaryAction.lean` for the action terms,
 `lean/Libpetri/Spec/GlossaryEnable.lean` for the enablement-check terms and
 `lean/Libpetri/Spec/GlossaryNuVer.lean` for the ν verification terms, whose docstrings quote
 these entries.
@@ -252,6 +253,16 @@ A place the net does not declare: no transition of the net has an arc on it or n
 output spec. Its tokens are retained in the marking, inert, since no arc can reference them
 [CORE-072].
 
+### Action
+
+What a transition runs when it fires: it receives a transition context holding the tokens the
+firing consumed and the tokens its read arcs read, and it either completes with output tokens,
+written through the context or returned, or fails [CORE-050], [EXEC-030]. A firing that ends
+with the completion of its action deposits exactly those tokens [CORE-050], [EXEC-020]; a firing
+that ends with its timeout outcome deposits none of them [IO-013], except tokens the action
+already published with ctx.flush() (Rust, Python; [IO-015]). The built-in passthrough action
+completes with no token and is recognised by identity [CORE-051].
+
 ### Admitted completion
 
 A completion is an action that returned normally [EXEC-020]. The executor admits it when it
@@ -260,6 +271,18 @@ processes it, in step 1 of a cycle or, for a synchronous action, inside the firi
 [EXEC-022], that a stop on a terminal place abandoned [EXEC-042] or that an immediate
 termination abandoned [ENV-015]. Only an admitted completion deposits, and only when output
 validation, if enabled [CONC-026], does not reject its produced set [EXEC-020], [EXEC-021].
+
+### Environment place
+
+A place a host injects tokens into from outside the executor: a marker wrapper around a regular
+place, whose name and token type stay accessible [ENV-001]. The environment places of a run are
+registered with the executor when it is built, and no step of the run adds or removes one
+[ENV-002]. An executor whose inject takes an environment-place handle (Java, TypeScript)
+answers an injection into any other place with an error; one whose inject takes a place name
+(Rust, Python) deposits into the place the name resolves to, and its host injects only into
+environment places [ENV-002]. A run with environment places waits at quiescence for injections
+instead of finishing [ENV-010]. A place may be an environment place and a port at once; its
+registration then applies to the place after composition [ENV-001].
 
 ---
 

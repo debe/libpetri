@@ -22,68 +22,68 @@ flowchart TD
     n2445["Libpetri.Novel.TimedScg.Timing.immediate"]
   end
   subgraph g1["Libpetri/Sched.lean"]
-    n3287["Libpetri.SchedKey"]
-    n3288["Libpetri.SchedKey.clock"]
-    n3289["Libpetri.SchedKey.lt"]
-    n3290["🔒 Libpetri.SchedKey.lt_asymm"]
-    n3293["Libpetri.SchedKey.mk"]
-    n3294["Libpetri.SchedKey.prio"]
-    n7874["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n3918["Libpetri.SchedKey"]
+    n3919["Libpetri.SchedKey.clock"]
+    n3920["Libpetri.SchedKey.lt"]
+    n3921["🔒 Libpetri.SchedKey.lt_asymm"]
+    n3924["Libpetri.SchedKey.mk"]
+    n3925["Libpetri.SchedKey.prio"]
+    n13261["🔒 Libpetri.eq_of_perm_of_sorted"]
   end
   subgraph g2["Libpetri/Spec/Req/EXEC_002.lean"]
-    n3844["Libpetri.Spec.EXEC_002"]
-    n3863["Libpetri.Spec.EXEC_002_unique"]
-    n4681["Libpetri.Spec.ReadyIn"]
-    n4682["Libpetri.Spec.ReadyIn.FastPath"]
-    n4683["Libpetri.Spec.ReadyIn.clock"]
-    n4685["Libpetri.Spec.ReadyIn.key"]
-    n4688["Libpetri.Spec.ReadyIn.n"]
-    n4693["Libpetri.Spec.ReadyIn.prio"]
-    n4694["Libpetri.Spec.ReadyIn.ready"]
-    n4695["Libpetri.Spec.ReadyIn.readyList"]
-    n4698["Libpetri.Spec.ReadyIn.tieLt"]
-    n4699["Libpetri.Spec.ReadyIn.timing"]
-    n4700["Libpetri.Spec.ReadyOrder"]
+    n5259["Libpetri.Spec.EXEC_002"]
+    n5283["Libpetri.Spec.EXEC_002_unique"]
+    n6838["Libpetri.Spec.ReadyIn"]
+    n6839["Libpetri.Spec.ReadyIn.FastPath"]
+    n6840["Libpetri.Spec.ReadyIn.clock"]
+    n6842["Libpetri.Spec.ReadyIn.key"]
+    n6845["Libpetri.Spec.ReadyIn.n"]
+    n6851["Libpetri.Spec.ReadyIn.prio"]
+    n6852["Libpetri.Spec.ReadyIn.ready"]
+    n6853["Libpetri.Spec.ReadyIn.readyList"]
+    n6856["Libpetri.Spec.ReadyIn.tieLt"]
+    n6857["Libpetri.Spec.ReadyIn.timing"]
+    n6858["Libpetri.Spec.ReadyOrder"]
   end
   n2445 --> n2432
-  n3288 --> n3287
-  n3289 --> n3288
-  n3289 --> n3294
-  n3290 --> n3289
-  n3293 --> n3287
-  n3294 --> n3287
-  n3844 --> n3289
-  n3844 --> n4682
-  n3844 --> n4685
-  n3844 --> n4695
-  n3844 --> n4698
-  n3844 --> n4700
-  n3863 --> n3844
-  n3863 --> n7874
-  n4682 --> n2445
-  n4682 --> n4688
-  n4682 --> n4693
-  n4682 --> n4699
-  n4683 --> n4681
-  n4685 --> n3293
-  n4685 --> n4683
-  n4685 --> n4693
-  n4688 --> n4681
-  n4693 --> n4681
-  n4694 --> n4681
-  n4695 --> n4688
-  n4695 --> n4694
-  n4698 --> n4683
-  n4698 --> n4693
-  n4699 --> n2432
-  n4699 --> n4681
-  n4700 --> n4681
-  n7874 --> n3290
+  n3919 --> n3918
+  n3920 --> n3919
+  n3920 --> n3925
+  n3921 --> n3920
+  n3924 --> n3918
+  n3925 --> n3918
+  n5259 --> n3920
+  n5259 --> n6839
+  n5259 --> n6842
+  n5259 --> n6853
+  n5259 --> n6856
+  n5259 --> n6858
+  n5283 --> n5259
+  n5283 --> n13261
+  n6839 --> n2445
+  n6839 --> n6845
+  n6839 --> n6851
+  n6839 --> n6857
+  n6840 --> n6838
+  n6842 --> n3924
+  n6842 --> n6840
+  n6842 --> n6851
+  n6845 --> n6838
+  n6851 --> n6838
+  n6852 --> n6838
+  n6853 --> n6845
+  n6853 --> n6852
+  n6856 --> n6840
+  n6856 --> n6851
+  n6857 --> n2432
+  n6857 --> n6838
+  n6858 --> n6838
+  n13261 --> n3921
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n3863 root
-  class n3290,n7874 locked
+  class n5283 root
+  class n3921,n13261 locked
 ```
 
 ### `Libpetri.Spec.TIME_014_bullet2_order_conflicts_EXEC_002`
@@ -93,70 +93,70 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n4893["Libpetri.Spec.TIME_014_bullet2_order"]
-    n4894["Libpetri.Spec.TIME_014_bullet2_order_conflicts_EXEC_002"]
-    n5318["Libpetri.Spec.clash014_I"]
-    n5321["Libpetri.Spec.clash014_X"]
-    n5322["Libpetri.Spec.clash014_a"]
-    n5324["Libpetri.Spec.clash014_b"]
-    n5326["Libpetri.Spec.clash014_g"]
-    n5327["Libpetri.Spec.clash014_general"]
-    n5328["Libpetri.Spec.clash014_m'"]
-    n5329["Libpetri.Spec.clash014_reached"]
-    n5330["Libpetri.Spec.clash014_s"]
-    n5331["Libpetri.Spec.clash014_s0"]
-    n5332["Libpetri.Spec.clash014_s5"]
-    n5334["Libpetri.Spec.clash014_timing"]
+    n7134["Libpetri.Spec.TIME_014_bullet2_order"]
+    n7135["Libpetri.Spec.TIME_014_bullet2_order_conflicts_EXEC_002"]
+    n7658["Libpetri.Spec.clash014_I"]
+    n7661["Libpetri.Spec.clash014_X"]
+    n7662["Libpetri.Spec.clash014_a"]
+    n7664["Libpetri.Spec.clash014_b"]
+    n7666["Libpetri.Spec.clash014_g"]
+    n7667["Libpetri.Spec.clash014_general"]
+    n7668["Libpetri.Spec.clash014_m'"]
+    n7669["Libpetri.Spec.clash014_reached"]
+    n7670["Libpetri.Spec.clash014_s"]
+    n7671["Libpetri.Spec.clash014_s0"]
+    n7672["Libpetri.Spec.clash014_s5"]
+    n7674["Libpetri.Spec.clash014_timing"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (16 declarations, collapsed)"]
   c66["📁 Libpetri/Novel/TimedScg/Timing.lean (12 declarations, collapsed)"]
-  c78["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
-  c80["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
-  c85["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
-  c91["📁 Libpetri/Sched.lean (7 declarations, collapsed)"]
-  c105["📁 Libpetri/Spec/Glossary.lean (3 declarations, collapsed)"]
-  c112["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c136["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c83["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
+  c87["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
+  c92["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
+  c98["📁 Libpetri/Sched.lean (7 declarations, collapsed)"]
+  c115["📁 Libpetri/Spec/Glossary.lean (3 declarations, collapsed)"]
+  c126["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c194["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
-  c78 --> c28
-  c78 --> c54
-  c80 --> c66
-  c80 --> c78
-  c85 --> c91
-  c105 --> c78
-  c112 --> c80
-  c112 --> c105
-  c136 --> c91
-  c136 --> c112
-  n4893 --> c136
-  n4894 --> c85
-  n4894 --> n4893
-  n4894 --> n5327
-  n5318 --> c136
-  n5318 --> n5330
-  n5321 --> c80
-  n5321 --> n5322
-  n5321 --> n5324
-  n5321 --> n5326
-  n5321 --> n5334
-  n5322 --> c78
-  n5324 --> c78
-  n5326 --> c78
-  n5327 --> n5329
-  n5328 --> n5332
-  n5329 --> n5318
-  n5330 --> n5328
-  n5331 --> n5321
-  n5332 --> n5331
-  n5334 --> c66
-  n5334 --> c78
+  c83 --> c28
+  c83 --> c54
+  c87 --> c66
+  c87 --> c83
+  c92 --> c98
+  c115 --> c83
+  c126 --> c87
+  c126 --> c115
+  c194 --> c98
+  c194 --> c126
+  n7134 --> c194
+  n7135 --> c92
+  n7135 --> n7134
+  n7135 --> n7667
+  n7658 --> c194
+  n7658 --> n7670
+  n7661 --> c87
+  n7661 --> n7662
+  n7661 --> n7664
+  n7661 --> n7666
+  n7661 --> n7674
+  n7662 --> c83
+  n7664 --> c83
+  n7666 --> c83
+  n7667 --> n7669
+  n7668 --> n7672
+  n7669 --> n7658
+  n7670 --> n7668
+  n7671 --> n7661
+  n7672 --> n7671
+  n7674 --> c66
+  n7674 --> c83
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4894 root
-  class c0,c28,c54,c66,c78,c80,c85,c91,c105,c112,c136 collapsed
+  class n7135 root
+  class c0,c28,c54,c66,c83,c87,c92,c98,c115,c126,c194 collapsed
 ```
 
 ### `Libpetri.collect_ready_general_refines`
@@ -168,36 +168,36 @@ flowchart TD
   subgraph g0["Libpetri/Sched.lean"]
     n142["Libpetri.LevelBlocks"]
     n145["Libpetri.LevelBlocks.mk"]
-    n3287["Libpetri.SchedKey"]
-    n3288["Libpetri.SchedKey.clock"]
-    n3289["Libpetri.SchedKey.lt"]
-    n3290["🔒 Libpetri.SchedKey.lt_asymm"]
-    n3294["Libpetri.SchedKey.prio"]
-    n7813["🔒 Libpetri.collect_ready_general_refines"]
-    n7874["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n7950["🔒 Libpetri.levelBlocks_sorted"]
-    n7975["🔒 Libpetri.pairwise_imp_mem"]
+    n3918["Libpetri.SchedKey"]
+    n3919["Libpetri.SchedKey.clock"]
+    n3920["Libpetri.SchedKey.lt"]
+    n3921["🔒 Libpetri.SchedKey.lt_asymm"]
+    n3925["Libpetri.SchedKey.prio"]
+    n13200["🔒 Libpetri.collect_ready_general_refines"]
+    n13261["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n13337["🔒 Libpetri.levelBlocks_sorted"]
+    n13362["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n142 --> n3287
+  n142 --> n3918
   n145 --> n142
-  n145 --> n3288
-  n145 --> n3294
-  n3288 --> n3287
-  n3289 --> n3288
-  n3289 --> n3294
-  n3290 --> n3289
-  n3294 --> n3287
-  n7813 --> n7874
-  n7813 --> n7950
-  n7874 --> n3290
-  n7950 --> n145
-  n7950 --> n3289
-  n7950 --> n7975
+  n145 --> n3919
+  n145 --> n3925
+  n3919 --> n3918
+  n3920 --> n3919
+  n3920 --> n3925
+  n3921 --> n3920
+  n3925 --> n3918
+  n13200 --> n13261
+  n13200 --> n13337
+  n13261 --> n3921
+  n13337 --> n145
+  n13337 --> n3920
+  n13337 --> n13362
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n7813 root
-  class n3290,n7813,n7874,n7950,n7975 locked
+  class n13200 root
+  class n3921,n13200,n13261,n13337,n13362 locked
 ```
 
 ### `Libpetri.tid_order_diverges`
@@ -208,28 +208,28 @@ flowchart TD
 flowchart TD
   subgraph g0["Libpetri/RetrodictExec.lean"]
     n140["Libpetri.Ka"]
-    n8073["🔒 Libpetri.tid_order_diverges"]
+    n13460["🔒 Libpetri.tid_order_diverges"]
   end
   subgraph g1["Libpetri/Sched.lean"]
-    n3287["Libpetri.SchedKey"]
-    n3288["Libpetri.SchedKey.clock"]
-    n3289["Libpetri.SchedKey.lt"]
-    n3293["Libpetri.SchedKey.mk"]
-    n3294["Libpetri.SchedKey.prio"]
+    n3918["Libpetri.SchedKey"]
+    n3919["Libpetri.SchedKey.clock"]
+    n3920["Libpetri.SchedKey.lt"]
+    n3924["Libpetri.SchedKey.mk"]
+    n3925["Libpetri.SchedKey.prio"]
   end
-  n140 --> n3293
-  n3288 --> n3287
-  n3289 --> n3288
-  n3289 --> n3294
-  n3293 --> n3287
-  n3294 --> n3287
-  n8073 --> n140
-  n8073 --> n3289
+  n140 --> n3924
+  n3919 --> n3918
+  n3920 --> n3919
+  n3920 --> n3925
+  n3924 --> n3918
+  n3925 --> n3918
+  n13460 --> n140
+  n13460 --> n3920
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8073 root
-  class n8073 locked
+  class n13460 root
+  class n13460 locked
 ```
 
 Axioms used:

@@ -183,4 +183,81 @@ theorem built_timing_valid [DecidableEq N] [ToString N]
   | none => exact trivial
   | some d => exact (refNetBuild_trans_ok h d (List.mem_of_find?_eq_some hf)).2
 
+/-! ## Binding keeps the D10 assumption -/
+
+/-- Binding keeps the transition names, so a bound net meets the D10 assumption exactly when the
+net does. -/
+theorem refBind_netNamesDistinct (b : BuiltNet N A) (r : String → Option (Act A)) :
+    NetNamesDistinct (refBind b r) ↔ NetNamesDistinct b := by
+  unfold NetNamesDistinct
+  rw [refBind_trans, List.map_map]
+  rfl
+
+/-! ## Built nets declare their arc places (the `ArcsDeclared` bridge) -/
+
+/-- **Bridge to the soundness theorems' `hDecl`.** A `Seam` net whose places are a built net's
+places and whose rows are transitions of the built net, each depositing only into places its
+output specification names (any branch expansion: `Out.branches`, `Out.timeoutDeposits`, or no
+deposit), declares every arc: `ArcsDeclared` holds of every net the reference net builder builds
+([CORE-040], ruling D32). This discharges the `hDecl` hypothesis of `postfix_proven_sound`,
+`postfix_deadlock_sound` and `phase_postfix_deadlock_sound` for builder-built nets. -/
+theorem refNetBuild_arcsDeclared [DecidableEq N] {B : TBuilder N A} {inp : NetIn B}
+    {b : BuiltNet N A} (h : refNetBuild inp = .ok b) (net : NNet N) (hp : net.places = b.places)
+    (hrows : ∀ ft ∈ net.transitions, ∃ d ∈ b.trans, ft.1 = d.core ∧
+      ∀ p ∈ ft.2, ∃ o, d.out = some o ∧ p ∈ outPlaces o) :
+    ArcsDeclared net := by
+  intro ft hft n hn
+  obtain ⟨d, hd, hc, hdep⟩ := hrows ft hft
+  rw [hp]
+  apply refNetBuild_arcs_declared h d hd
+  unfold arcNames at hn
+  rw [hc] at hn
+  unfold TransDef.namedPlaces
+  simp only [List.mem_append] at hn ⊢
+  rcases hn with (((h1 | h1) | h1) | h1) | h1
+  · exact .inl (.inl (.inl (.inl h1)))
+  · exact .inl (.inl (.inl (.inr h1)))
+  · exact .inl (.inl (.inr h1))
+  · exact .inl (.inr h1)
+  · obtain ⟨o, ho, hpo⟩ := hdep n h1
+    exact .inr (by rw [ho]; exact hpo)
+
+/-- The arc view of a built net as a `Seam` net (no deposits; equal to `Link.toNNet b.toNet` by
+`BuiltNet.toNNet_eq_link` in Spec/ConsistencyStructure.lean, which imports both). -/
+def _root_.Libpetri.Reference.BuiltNet.toNNet (b : BuiltNet N A) : NNet N :=
+  ⟨b.places, b.trans.map fun d => (d.core, [])⟩
+
+/-- The branch-expanded view of a built net as a `Seam` net: one row per output branch
+(`Out.branches`), one row with no deposit for a transition with no output specification. -/
+def _root_.Libpetri.Reference.BuiltNet.toNNetB (b : BuiltNet N A) : NNet N :=
+  ⟨b.places, b.trans.flatMap fun d =>
+    match d.out with
+    | none => [(d.core, [])]
+    | some o => o.branches.map fun br => (d.core, br)⟩
+
+/-- A net the reference net builder builds declares every arc, in its arc view. -/
+theorem refNetBuild_arcsDeclared_toNNet [DecidableEq N] {B : TBuilder N A} {inp : NetIn B}
+    {b : BuiltNet N A} (h : refNetBuild inp = .ok b) : ArcsDeclared b.toNNet := by
+  refine refNetBuild_arcsDeclared h _ rfl fun ft hft => ?_
+  simp only [BuiltNet.toNNet, List.mem_map] at hft
+  obtain ⟨d, hd, rfl⟩ := hft
+  exact ⟨d, hd, rfl, fun p hp => absurd hp List.not_mem_nil⟩
+
+/-- A net the reference net builder builds declares every arc, in its branch-expanded view. -/
+theorem refNetBuild_arcsDeclared_toNNetB [DecidableEq N] {B : TBuilder N A} {inp : NetIn B}
+    {b : BuiltNet N A} (h : refNetBuild inp = .ok b) : ArcsDeclared b.toNNetB := by
+  refine refNetBuild_arcsDeclared h _ rfl fun ft hft => ?_
+  simp only [BuiltNet.toNNetB, List.mem_flatMap] at hft
+  obtain ⟨d, hd, hft⟩ := hft
+  refine ⟨d, hd, ?_⟩
+  cases ho : d.out with
+  | none =>
+    rw [ho] at hft
+    rw [List.mem_singleton.1 hft]
+    exact ⟨rfl, fun p hp => absurd hp List.not_mem_nil⟩
+  | some o =>
+    rw [ho] at hft
+    obtain ⟨br, hbr, rfl⟩ := List.mem_map.1 hft
+    exact ⟨rfl, fun p hp => ⟨o, rfl, outPlaces_of_branch o br hbr p hp⟩⟩
+
 end Libpetri.Spec

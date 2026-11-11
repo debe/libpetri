@@ -24,7 +24,9 @@ when another label gets its rule.
   resolution). `Cfg.WF` is the build-time well-formedness a link lemma takes as a premise; it is
   never part of the executor relation.
 * `XSt`: the executor state: the queue marking, two clock readings (`now`, the host's present,
-  and `cyc`, the reading of the cycle's enablement update), a clock status per transition name,
+  and `cyc`, the cycle reading: the enablement update's, which stamps what it newly arms, until
+  the deadline step replaces it by a reading of its own, never earlier), a clock status per
+  transition name,
   the firings in flight, the completion, publication and event queues, the lifecycle mode, the
   loop phase and the current pass.
 * `XLbl`: one label per executor step of [EXEC-001], plus the outside steps (time passing, an
@@ -38,6 +40,16 @@ when another label gets its rule.
 The coverage conditions (`ExecCovers`) and the agreement with the shared output validator
 (`ValidatedBy`) are used only in the consistency theorem (`ConsistencyExec.lean`), never in a
 requirement block.
+
+**Convention: blocks state safety, offers are coverage** (user decision on review finding
+W5-SR-5). That a step exists ("the executor has a step ...", an `∃ s'` over the executor) is
+never a line of a requirement block; every block over `XRel` states safety only, so a
+sub-relation of a satisfying executor satisfies it too and a refinement argument carries every
+block over. Each offer a block's markdown demands is a clause of the consistency theorem's
+`ExecCoversW5`, defined next to the block and named after it (`Env002Covers`, `Env011Covers`,
+`Exec042Covers`, ...), with a reference proof. Where a markdown sentence itself demands an answer
+or an acceptance, the block quotes the sentence whole, its lines state the safety half, and its
+assumes says that the existence half is that clause ("its offers are in ExecCoversW5.<clause>").
 -/
 
 namespace Libpetri.Spec
@@ -100,7 +112,17 @@ inductive Mode where
   | draining
   /-- Closed: refusing injections, discarding queued ones. -/
   | closed
+  /-- Stopped by an immediate termination ([ENV-015], Java): refusing injections, the queued
+  ones discarded, the loop ending at the end of its current cycle without waiting for the
+  firings in flight. -/
+  | stopped
   deriving DecidableEq, Repr
+
+/-- The mode refuses injections and ends the run once nothing is in flight: closed, or stopped
+([ENV-013], [ENV-015]). -/
+def Mode.closing : Mode → Bool
+  | .closed | .stopped => true
+  | _ => false
 
 /-- Why a run finished ([EXEC-041]). -/
 inductive Cause where
@@ -110,6 +132,9 @@ inductive Cause where
   | terminal
   /-- Closed, with nothing in flight ([ENV-013]). -/
   | closed
+  /-- Stopped by an immediate termination at the end of its cycle, firings in flight abandoned
+  ([ENV-015]). -/
+  | stopped
   deriving DecidableEq, Repr
 
 /-- Where the orchestrator loop is ([EXEC-001]). Each phase is entered by the step that ends the
@@ -139,7 +164,7 @@ inductive Phase where
 inductive Reply where
   /-- Queued for injection. -/
   | accepted
-  /-- Refused: the executor is draining, closed or done. -/
+  /-- Refused: the executor is draining, closed, stopped or done. -/
   | refused
   /-- Not an environment place. -/
   | error
@@ -189,8 +214,9 @@ structure XSt (N T : Type) where
   M       : QMarking N T
   /-- The host's present reading of the firing clock. -/
   now     : Nat
-  /-- The reading taken by the cycle's enablement update; steps 4 and 5 and the park decision
-  judge at it (R-EXEC-3). -/
+  /-- The cycle reading: the reading the enablement update takes (the stamp of what it newly
+  arms), replaced by the deadline step's own reading, never an earlier one (`atDeadline`, ruling
+  D61 (c)); steps 4 and 5 and the park decision judge at the deadline step's reading. -/
   cyc     : Nat
   /-- The clock status by transition name. -/
   st      : String → Status
@@ -278,11 +304,13 @@ inductive XLbl (N T : Type) where
   | drain
   /-- Outside: a caller closes the executor. -/
   | close
+  /-- Outside: a caller terminates the executor immediately ([ENV-015], Java). -/
+  | terminateNow
 
 /-- The outside steps ([CONC-001]): the steps the orchestrator does not take. -/
 def XLbl.outside {N T : Type} : XLbl N T → Bool
   | .delay _ | .write _ _ _ | .flush _ | .ret _ _ | .expire _ _ | .request _ _ _ | .drain
-  | .close => true
+  | .close | .terminateNow => true
   | _ => false
 
 /-- An executor: `E C s l s'` says that, under configuration `C`, the step labelled `l` leads
@@ -323,6 +351,12 @@ the park decision judge, `viewAt s s.now` the host's present. -/
 def viewAt (s : XSt N T) (r : Nat) : TSt N :=
   ⟨qCount s.M, r, fun n => stampOf (s.st n)⟩
 
+/-- The state the deadline step judges (ruling D61 (c)): the cycle reading moved to the host's
+present reading, or kept when the present is earlier (a later reading is never earlier). The
+update's reading, which stamps what it newly arms, is the cycle reading before it; from the
+deadline step on, the firing pass and the park decision judge at this one. -/
+def atDeadline (s : XSt N T) : XSt N T := { s with cyc := max s.cyc s.now }
+
 /-- A firing of the transition named `n` is in flight. -/
 def inFlightN (s : XSt N T) (n : String) : Bool := s.fl.any (·.t.core.name == n)
 
@@ -351,10 +385,12 @@ def isExecPhase : Phase → Bool
   | _ => true
 
 /-- May a queued outcome of `f` be settled in the current phase: in step 1, on the wake of the
-wait (R-EXEC-9), or inside the pass for a synchronous firing (NR-2: "may", never "must"). -/
+wait (R-EXEC-9), or inside the pass for a synchronous firing (NR-2: "may", never "must"). After an
+immediate termination no later step 1 and no wait settles anything ([ENV-015]: results are
+discarded); the pass under way still settles its synchronous firing, as it waits for it. -/
 def settleOk (s : XSt N T) (f : Firing N T) : Bool :=
   match s.phase with
-  | .completions | .await => true
+  | .completions | .await => s.mode != .stopped
   | .pass => f.sync
   | _ => false
 
@@ -527,10 +563,216 @@ def ValidatedBy (E : XRel N T) (V : OutputValidator N) : Prop :=
 
 /-- **Executor coverage** (consistency theorem only; wave 0 part): the host clock can always
 advance, and every firing in flight whose outcome is not set can return, normally or with an
-error. The empty relation fails it (`exec_coverage_excludes_empty`). Later waves add `expire`,
-the head of every non-empty order, `finish` at each rest test and the scenario run. -/
+error. The empty relation fails it (`exec_coverage_excludes_empty`). The existence halves of
+wave W5 are the separate conjunct `ExecCoversW5` (`ConsistencyExec.lean`; the convention above):
+the answers to injection requests (`Env002Covers`, `Env006Covers`, `Env010Covers`), the injection
+of a queued event (`Env003Covers`, `Env010Covers`), the way out of the wait (`Env005Covers`,
+`Conc010Covers`, `Env010Covers`), the outcome of a run-budget expiry (`Env016Covers`, over the
+expiry handling), `expire` and the
+timeout deposit (`Exec022Covers`), `begin` from a test with a firing in flight and `start` or
+`lose` for the head of every non-empty order (`conc002Covers`), and `finish` at each rest test
+(`Exec040Covers`, `Env011Covers`, `Env013Covers`), at a marked terminal place (`Exec042Covers`)
+and after a stop (`Env015Covers`). The scenario run of the design is no coverage clause: each
+block's nonvacuous evidence runs the reference on its own scenario. -/
 def ExecCovers (E : XRel N T) : Prop :=
   (∀ C s δ, ∃ s', E C s (.delay δ) s') ∧
   (∀ C s i f ok, s.fl.find? (·.id == i) = some f → f.out = none → ∃ s', E C s (.ret i ok) s')
+
+
+/-! ## Derived terms of the wave 1 rules (injection, snapshot, lifecycle, wait) -/
+
+/-- The answer to an injection request into `p` in state `s` ([ENV-002], [ENV-006], rulings D44
+(a) and D89 (a)): `error` when `p` is not an environment place (the Java and TypeScript reading;
+Rust and Python deposit into any place, an assumption of their own); `refused` when the executor
+is draining, closed, stopped or finished; `accepted` otherwise. -/
+def replyFor [DecidableEq N] (C : Cfg N T) (s : XSt N T) (p : N) : Reply :=
+  if p ∉ C.envs then .error
+  else if s.mode = .open && isExecPhase s.phase then .accepted else .refused
+
+/-- The answer to a snapshot request ([ENV-014]): none once the executor drains, closes or
+stops; otherwise whether work is in flight, a firing in flight or an injection queued (ruling D43
+(a)). The marking the answer carries is the state's own `M`. -/
+def snapAnswer (s : XSt N T) : Option Bool :=
+  if s.mode = .open then some (!s.fl.isEmpty || !s.eq.isEmpty) else none
+
+/-- The smaller of two optional waits; `none` is no wait. -/
+def optMin : Option Nat → Option Nat → Option Nat
+  | some a, some b => some (min a b)
+  | some a, none => some a
+  | none, b => b
+
+/-- The wait, from the cycle reading, until armed transition `u`'s next timing boundary
+([CONC-010], ruling D13 (a)): its earliest bound while it is not reached, and for a reapable
+transition the reading at which it becomes expired. `none` when `u` is not armed or no boundary
+is ahead. -/
+def boundaryOf (C : Cfg N T) (s : XSt N T) (u : Trans N) : Option Nat :=
+  let v := viewAt s s.cyc
+  if v.armed u then
+    let el := v.elapsed u
+    let tm := C.X.timing u
+    optMin (if el < tm.earliest then some (tm.earliest - el) else none)
+      (if tm.reapable && decide (el ≤ tm.latest + C.X.tol)
+       then some (tm.latest + C.X.tol + 1 - el) else none)
+  else none
+
+/-- The wait until the nearest timing boundary of any transition of the net, from the cycle
+reading (design R8: the park decision judges at the reading of the cycle's update). -/
+def nextBoundary (C : Cfg N T) (s : XSt N T) : Option Nat :=
+  C.X.net.transitions.foldr (fun u acc => optMin (boundaryOf C s u) acc) none
+
+/-- A park timer `tmr` the wait may set ([CONC-010] AC3): with a boundary ahead, a timer no later
+than it plus the timer resolution; with none ahead, any timer or none (Rust re-checks after
+60 s). -/
+def timerOk (C : Cfg N T) (s : XSt N T) (tmr : Option Nat) : Bool :=
+  match nextBoundary C s, tmr with
+  | some b, some x => decide (x ≤ b + C.res)
+  | some _, none => false
+  | none, _ => true
+
+/-- No transition is Ready or Expired at the cycle reading: nothing the loop could act on
+without new work ([CONC-010] line 1, design R8). -/
+def nothingDue [DecidableEq N] (C : Cfg N T) (s : XSt N T) : Bool :=
+  C.X.net.transitions.all fun u =>
+    !(decide (Ready C.X (viewAt s s.cyc) u) || tExpired C.X (viewAt s s.cyc) u)
+
+/-! ## Glossary terms of the executor state -/
+
+/-- **Glossary: Armed**, in the executor state. "A transition is armed when it is enabled and
+holds a clock: a stamp, the firing-clock reading taken by the enablement update that most
+recently newly armed it [TIME-010]."
+
+`u` is enabled at the marking and its name holds an armed status. -/
+def ArmedE (s : XSt N T) (u : Trans N) : Prop := armedB s u = true
+
+/-- **Glossary: Reaped**, in the executor state. "A reaped transition keeps its tokens and stays
+enabled but not armed, and does not fire, until a firing or an injected token writes one of its
+arc places; it is then newly armed if it is enabled [TIME-013]."
+
+`u`'s name holds the reaped status (the write that ends it is `unreap`, ruling D6). -/
+def ReapedE (s : XSt N T) (u : Trans N) : Prop := s.st u.core.name = .reaped
+
+/-- No terminal place is marked ([EXEC-042]): the loop may go on. -/
+def Live (C : Cfg N T) (s : XSt N T) : Prop := liveB C s = true
+
+/-- Rest at the termination test (ruling D13 (a), R-EXEC-10): nothing armed, nothing in flight,
+nothing queued. -/
+def Rest (C : Cfg N T) (s : XSt N T) : Prop := restB C s = true
+
+/-- A firing of the transition named `n` is in flight. -/
+def InFlight (s : XSt N T) (n : String) : Prop := inFlightN s n = true
+
+instance (s : XSt N T) (u : Trans N) : Decidable (ArmedE s u) :=
+  inferInstanceAs (Decidable (_ = true))
+instance (s : XSt N T) (u : Trans N) : Decidable (ReapedE s u) :=
+  inferInstanceAs (Decidable (_ = _))
+instance (C : Cfg N T) (s : XSt N T) : Decidable (Live C s) :=
+  inferInstanceAs (Decidable (_ = true))
+instance (C : Cfg N T) (s : XSt N T) : Decidable (Rest C s) :=
+  inferInstanceAs (Decidable (_ = true))
+instance (s : XSt N T) (n : String) : Decidable (InFlight s n) :=
+  inferInstanceAs (Decidable (_ = true))
+
+/-! ## Runs -/
+
+/-- One step of a run: source state, label, target state. -/
+abbrev XStep (N T : Type) := XSt N T × XLbl N T × XSt N T
+
+/-- A run of executor `E` under `C` from `s0`: consecutive steps, each one of `E`. The trace
+forms of Ears (`after T, until G, never B` and the others) read such a list. -/
+def XRun (E : XRel N T) (C : Cfg N T) : XSt N T → List (XStep N T) → Prop
+  | _, [] => True
+  | s, st :: rest => st.1 = s ∧ E C st.1 st.2.1 st.2.2 ∧ XRun E C st.2.2 rest
+
+/-- The state a run from `s0` ends in. -/
+def XRun.last (s0 : XSt N T) (tr : List (XStep N T)) : XSt N T :=
+  (tr.getLast?.map (·.2.2)).getD s0
+
+/-- **Ideal run** (the kind A assumption of the liveness lines, design R-EXEC liveness): a run of
+`E` from `s0` that reaches its finish. On a finite run "eventually" reads "before the finish":
+every action in flight returned or expired, every queued item was processed, unless the finish
+abandoned it (a terminal place, an immediate termination). A net that never finishes has no
+ideal run, so a liveness line over ideal runs says nothing about it; a block pairs it with a
+decided ideal run of its example (nonvacuous evidence). -/
+def IdealRun (E : XRel N T) (C : Cfg N T) (s0 : XSt N T) (tr : List (XStep N T)) : Prop :=
+  XRun E C s0 tr ∧ isExecPhase (XRun.last s0 tr).phase = false
+
+/-! ## Shared step vocabulary
+
+Predicates on labels, steps and states that several executor blocks read. They live here once
+so that the blocks judge one write, one deposit label, one update and one accepted ticket. -/
+
+section StepVocabulary
+
+variable {N T : Type}
+
+/-- The label's step may change the token queues: a start (it consumes) and the four deposits (a
+returned emission, a timeout outcome, a flushed batch, an injected event). [CONC-001]'s marking
+frame and [CONC-005]'s write companion read it. -/
+def startOrDeposit : XLbl N T → Bool
+  | .start _ _ | .commit _ | .tdeposit _ | .publish _ | .inject _ => true
+  | _ => false
+
+/-- **Glossary: Write**, at the grain of the executor. "A firing writes a place when it consumes
+from it, deposits into it or drains it through a reset arc. Draining a reset place that is already
+empty counts as a write. An injected token writes the place it lands in [ENV-003]."
+
+The places a step labelled `l` from state `s` writes: a start consumes from the input places and
+drains the reset places of the head of the pass's order; a commit or a timeout deposit deposits the
+emission of its firing; a publication deposits the oldest queued batch; an injection deposits its
+token into the place of the oldest queued event. No other step writes. -/
+def cycWrites (s : XSt N T) : XLbl N T → List N
+  | .start _ _ =>
+    match s.order with
+    | t :: _ => inPlaces t ++ t.core.resets
+    | [] => []
+  | .commit i =>
+    match s.fl.find? (·.id == i) with
+    | some f =>
+      match f.out with
+      | some (.ok e) => e.map Prod.fst
+      | _ => []
+    | none => []
+  | .tdeposit i =>
+    match s.fl.find? (·.id == i) with
+    | some f =>
+      match f.out with
+      | some (.timedOut e) => e.map Prod.fst
+      | _ => []
+    | none => []
+  | .publish _ =>
+    match s.pq with
+    | (_, b) :: _ => b.map Prod.fst
+    | [] => []
+  | .inject _ =>
+    match s.eq with
+    | (_, p, _) :: _ => [p]
+    | [] => []
+  | _ => []
+
+/-- The step is the enablement update (step 3 of [EXEC-001]). -/
+def isUpdate (e : XStep N T) : Bool :=
+  match e.2.1 with
+  | .update => true
+  | _ => false
+
+/-- The step starts a transition (step 5 of [EXEC-001]). -/
+def isStart (e : XStep N T) : Bool :=
+  match e.2.1 with
+  | .start _ _ => true
+  | _ => false
+
+/-- The step accepts an injection request with ticket `k`: a request answered `accepted` from a
+state whose next identity is `k` (the ticket an accepted request takes, `XSt.nextId`). -/
+def acceptsTicket (k : Nat) (e : XStep N T) : Bool :=
+  match e.2.1 with
+  | .request _ _ r => r == .accepted && e.1.nextId == k
+  | _ => false
+
+/-- Every firing in flight has an identity the supply has already handed out (`XSt.nextId`): true
+when nothing is in flight, and kept by every reference step, so a later start never reuses an
+identity ([EXEC-022], [EXEC-031]). -/
+def IdsIssued (s : XSt N T) : Prop := ∀ f ∈ s.fl, f.id < s.nextId
+
+end StepVocabulary
 
 end Libpetri.Spec

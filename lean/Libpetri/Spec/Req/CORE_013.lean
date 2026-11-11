@@ -114,7 +114,7 @@ theorem core013_of_EXEC {N T : Type} [DecidableEq N] {Q : QFireRel N T}
   · obtain ⟨base, happ, hkeep, -⟩ := h20 t M δ e M' hq
     rw [← hkeep p hi hr]
     exact happ p
-  · exact ⟨_, h10.2 t δ e p hp M M' hq, fun hr => core013_input_queue h10 h20 hq hp hr⟩
+  · exact ⟨_, h10.2.1 t δ e p hp M M' hq, fun hr => core013_input_queue h10 h20 hq hp hr⟩
 
 /-! ### The reference -/
 

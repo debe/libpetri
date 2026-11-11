@@ -1222,6 +1222,116 @@
       ]
     },
     {
+      "name": "clashExec_closeKeepsStarting",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "ENV-013",
+          "fragment": "a closed executor keeps starting ready transitions while a firing is in flight (ruling D85 (a)): on the reference executor a close lands while an asynchronous firing is in flight, and the next cycle begins its pass and starts a Delayed(5) transition, so close alone does not bound the run"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_closedRest_bothCauses",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "EXEC-041",
+          "fragment": "when close() lands on a run at rest, either cause may be reported (ruling D53 (c)): at the closed rest of the reference both the quiescent finish and the closed finish are steps"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_env003_conflict",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "ENV-003",
+          "fragment": "AC3 holds unless the executor is closed or stops on a terminal place first: the reference never injects once closing (the ENV-013 discard line), and an ideal run accepts an event, is closed, discards the event and finishes closed, so the unconditional reading fails"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_env004_ambiguity",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "ENV-004",
+          "fragment": "'closed or draining' is tested when inject() is called, not when the event is processed: the reference accepts only while open, and injects an event accepted before a drain while it drains (ENV-011), so the processing-time reading fails"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_env010_guard",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "ENV-010",
+          "fragment": "an executor with environment places does not terminate at quiescence while it can still accept an injection (ruling D73 (a)): the reference finishes only once it is draining, closed or stopped or a terminal place is marked, and after a drain an executor with an environment place finishes quiescent, so the unconditional reading fails"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_naiveLine1",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "EXEC-001",
+          "fragment": "line 1 reads 'since the last deposit made outside a firing pass' (ruling D70 (a), design NR-3): on the reference run runPass a synchronous firing is admitted inside its pass and a later transition of the same pass starts with no enablement update in between, so the literal reading over every deposit fails while the ruled reading holds on that run"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_parkAtCycle",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "CONC-010",
+          "fragment": "the park decision judges at the cycle reading, not the present one (ruling D61 (c), design NR-5): the reference parks with a timer at the next boundary of the cycle reading while a Delayed(3) transition is already Ready at the host's present reading, as Rust parks on cycle_now"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_quiescentArmed",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "ENV-010",
+          "fragment": "quiescence reads 'no transition armed', not 'enabled' (ruling D5, glossary Rest): on the reference executor a Window(3, 5) transition reaped at reading 6 keeps its token and stays enabled, and the run finishes quiescent, while no run finishes quiescent with a transition armed"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_strictOrder",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "EXEC-001",
+          "fragment": "AC1 does not fix a strict order of labels per cycle (ruling D70 (a), R-EXEC-9): on the reference run in which the parked wait is woken by an accepted request, the wait injects the event itself, before the next cycle's completions, and the next enablement update still comes before any start"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_timeoutValidated_conflict",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "EXEC-021",
+          "fragment": "the timeout outcome is not validated against the output spec (ruling D24 (a)): no executor satisfies the block and also fails a timed-out firing of And(1, Timeout(d, 2)) whose outcome 2 the join-relay check accepts and output validation rejects, which is what the Java and TypeScript executors do (a recorded executor defect)"
+        }
+      ]
+    },
+    {
+      "name": "clashExec_twoReadings",
+      "module": "Libpetri/Spec/ClashesExec.lean",
+      "specIds": [
+        {
+          "id": "TIME-013",
+          "fragment": "expiry is judged at the reading of the deadline step (ruling D61 (c), R-EXEC-3): on the reference executor a Window(3, 5) transition, not expired at the cycle reading 4, starts after the host clock has reached 7, past latest plus tolerance; Java takes such later readings in its firing step"
+        }
+      ]
+    },
+    {
       "name": "TIME_014_bullet2_order_conflicts_EXEC_002",
       "module": "Libpetri/Spec/ClashesTime.lean",
       "specIds": [
@@ -1262,12 +1372,42 @@
       ]
     },
     {
+      "name": "core001_place",
+      "module": "Libpetri/Spec/ConsistencyStructure.lean",
+      "specIds": [
+        {
+          "id": "CORE-001",
+          "fragment": "Each place has a string name and an associated token value type."
+        }
+      ]
+    },
+    {
       "name": "CONC_004_reference",
       "module": "Libpetri/Spec/Req/CONC_004.lean",
       "specIds": [
         {
           "id": "PERF-002",
           "fragment": "what the O(W) enablement check returns: the presence check of a transition passes on a bitmap exactly when every needs-mask bit is set and no inhibitor-mask bit is set"
+        }
+      ]
+    },
+    {
+      "name": "conc007_presence_iff",
+      "module": "Libpetri/Spec/Req/CONC_007.lean",
+      "specIds": [
+        {
+          "id": "CONC-004",
+          "fragment": "the presence check on the compiled masks, over the bitmap indexed by place ID, passes exactly when every needs-mask bit is set and no inhibitor-mask bit is set"
+        }
+      ]
+    },
+    {
+      "name": "conc010_covers_sleepyWait",
+      "module": "Libpetri/Spec/Req/CONC_010.lean",
+      "specIds": [
+        {
+          "id": "CONC-010",
+          "fragment": "the executor shall end any block of its wait at once and be ready to leave the wait for the start of its loop without waiting for a timer: an executor whose wait can be left only when its sleep is over meets every line of the block and fails its coverage clause Conc010Covers in ExecCoversW5"
         }
       ]
     },
@@ -1328,6 +1468,26 @@
         {
           "id": "CORE-010",
           "fragment": "lines 1 to 5, under ruling D15: every queue firing relation that satisfies EXEC-010, EXEC-012, EXEC-013 and EXEC-020 keeps every token it neither consumed nor cleared, keeps, delivers and reads only tokens the place held, without extra copies, or deposits emitted ones"
+        }
+      ]
+    },
+    {
+      "name": "core011_explicit",
+      "module": "Libpetri/Spec/Req/CORE_011.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "an implementation MUST therefore offer construction of a token at an explicit timestamp ([CORE-011]) so a host can keep those replay-safe without one"
+        }
+      ]
+    },
+    {
+      "name": "core011_unit_isUnit",
+      "module": "Libpetri/Spec/Req/CORE_011.lean",
+      "specIds": [
+        {
+          "id": "CORE-012",
+          "fragment": "A unit token is a special token with no meaningful payload value, used for pure control flow signaling. The engine provides a canonical way to create unit tokens."
         }
       ]
     },
@@ -1412,12 +1572,282 @@
       ]
     },
     {
+      "name": "core073T_initArms",
+      "module": "Libpetri/Spec/Req/CORE_073.lean",
+      "specIds": [
+        {
+          "id": "TIME-011",
+          "fragment": "a restore restarts every clock (CORE-073): under CORE-073 (T), every transition of the net that the restored marking enables is armed in the resumed state with that state's own clock reading as its stamp, so no stamp from before the restore survives"
+        }
+      ]
+    },
+    {
+      "name": "env002_covers_noAnswer",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-002",
+          "fragment": "the executor shall answer an injection into a place that is not a registered environment place with an error in every state of the run: an executor with no request step for an unregistered place meets every line of the block and fails its coverage clause Env002Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env002_covers_refuseRegistered",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-002",
+          "fragment": "while the run has not finished and the executor is not draining, closed or stopped, the executor shall accept an injection into a registered environment place: an executor that refuses every registered place meets every line of the block and fails its coverage clause Env002Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env002_error_iff",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-002",
+          "fragment": "The set of registered environment places is fixed when the executor is built; no step of a run adds or removes one."
+        }
+      ]
+    },
+    {
+      "name": "env002_host_transfer",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-002",
+          "fragment": "Where inject takes a place name (Rust, Python), the host injects only into registered environment places."
+        }
+      ]
+    },
+    {
+      "name": "env002_only_registered_accept",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-002",
+          "fragment": "AC2: Where inject takes an environment-place handle (Java, TypeScript), only registered environment places accept injections."
+        }
+      ]
+    },
+    {
+      "name": "env002_registration_fixed",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-001",
+          "fragment": "AC3: Environment places are registered with the executor at construction time."
+        }
+      ]
+    },
+    {
+      "name": "env003_covers_noInject",
+      "module": "Libpetri/Spec/Req/ENV_003.lean",
+      "specIds": [
+        {
+          "id": "ENV-003",
+          "fragment": "while the orchestrator is in the external-events step of a cycle, no terminal place is marked, the executor is neither closed nor terminated immediately and its queue of accepted events is not empty, the orchestrator shall inject the oldest entry: an executor whose step 2 never injects meets every line of the block and fails its coverage clause Env003Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env005_covers_unsignalled",
+      "module": "Libpetri/Spec/Req/ENV_005.lean",
+      "specIds": [
+        {
+          "id": "ENV-005",
+          "fragment": "While an accepted injection is queued and the executor is in its wait with no terminal place marked, the executor shall be able to leave the wait at once, by waking up or by taking a queued injection from the queue, without waiting for a timer: an executor whose inject() never signals the wait meets every line of the block and fails its coverage clause Env005Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env006_covers_hang",
+      "module": "Libpetri/Spec/Req/ENV_006.lean",
+      "specIds": [
+        {
+          "id": "ENV-006",
+          "fragment": "If inject() is called while the executor is draining, closed or stopped, or after the run has finished, then it shall return an error or false: an executor with no request step in such a state meets every line of the block and fails its coverage clause Env006Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env010_covers_hold",
+      "module": "Libpetri/Spec/Req/ENV_010.lean",
+      "specIds": [
+        {
+          "id": "ENV-010",
+          "fragment": "when the loop reaches its termination test, the executor shall go on to its firing pass: an executor that holds at its test with only queued injections to do meets every line of the block and fails its coverage clause Env010Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env010_covers_muteWait",
+      "module": "Libpetri/Spec/Req/ENV_010.lean",
+      "specIds": [
+        {
+          "id": "ENV-010",
+          "fragment": "when a caller asks to inject a token into a registered environment place, the executor shall answer the request and shall accept the injection: a wait that answers no request while parked meets every line of the block and fails its coverage clause Env010Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env010_covers_noInject",
+      "module": "Libpetri/Spec/Req/ENV_010.lean",
+      "specIds": [
+        {
+          "id": "ENV-010",
+          "fragment": "when an accepted injection is queued, the executor shall inject the oldest queued injection in its event step: an executor whose step 2 never injects meets every line of the block and fails its coverage clause Env010Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env010_covers_stuckWait",
+      "module": "Libpetri/Spec/Req/ENV_010.lean",
+      "specIds": [
+        {
+          "id": "ENV-010",
+          "fragment": "when an accepted injection is queued, the executor shall leave its wait: a wait that an arrival does not end meets every line of the block and fails its coverage clause Env010Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env014_snapshot_frame",
+      "module": "Libpetri/Spec/Req/ENV_014.lean",
+      "specIds": [
+        {
+          "id": "CORE-071",
+          "fragment": "It MUST NOT mutate ... the live marking (the snapshot answer of [ENV-014])"
+        }
+      ]
+    },
+    {
+      "name": "env016_covers_unhandled",
+      "module": "Libpetri/Spec/Req/ENV_016.lean",
+      "specIds": [
+        {
+          "id": "ENV-016",
+          "fragment": "when the caller's timeout expires while the loop is running, the implementation shall act on the expiry under the policy the caller chose: an expiry handler that never runs meets every line of the block and fails its coverage clause Env016Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "evt020_sink_disabled",
+      "module": "Libpetri/Spec/Req/EVT_020.lean",
+      "specIds": [
+        {
+          "id": "EVT-020",
+          "fragment": "AC3: an executor appends nothing to a store that reports itself not enabled, so such a store shows no emitted event (glossary storeSink)"
+        }
+      ]
+    },
+    {
+      "name": "exec001_dirty_set_exact",
+      "module": "Libpetri/Spec/Req/EXEC_001.lean",
+      "specIds": [
+        {
+          "id": "EXEC-001",
+          "fragment": "step 3's permission 'Only transitions affected by token changes need re-evaluation': after the dirty scan every enabled bit equals canEnable, so re-evaluating only the dirty transitions gives the enablement a full re-evaluation gives (the reference update); bit granularity, untimed enablement"
+        }
+      ]
+    },
+    {
       "name": "EXEC_002_unique",
       "module": "Libpetri/Spec/Req/EXEC_002.lean",
       "specIds": [
         {
           "id": "EXEC-002",
           "fragment": "AC4, general path only: two ready orders that satisfy the block (a permutation of the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC) are equal on every input outside the all-immediate fast path; on the fast path they agree on the ready set and on ties of priority and stamp only (D14 open)"
+        }
+      ]
+    },
+    {
+      "name": "EXP_002_draws_EXP_008",
+      "module": "Libpetri/Spec/Req/EXP_002.lean",
+      "specIds": [
+        {
+          "id": "EXP-008",
+          "fragment": "AC1 and AC2: start and end places are drawn with their own rows, visually distinct from other places"
+        }
+      ]
+    },
+    {
+      "name": "EXP_002_place_rows",
+      "module": "Libpetri/Spec/Req/EXP_002.lean",
+      "specIds": [
+        {
+          "id": "EXP-002",
+          "fragment": "Places: circles, ellipses, or stadium-shaped nodes; places are visually distinguishable from transitions (AC1)"
+        }
+      ]
+    },
+    {
+      "name": "EXP_004_distinguishable",
+      "module": "Libpetri/Spec/Req/EXP_004.lean",
+      "specIds": [
+        {
+          "id": "EXP-004",
+          "fragment": "AC1 and the sentence defining visually distinct: for every exporter that meets the block, two drawn edges whose arc types are two different ones of input, output, inhibitor, read and reset differ in drawn direction or in the colour, line style, arrowhead or pen width of their row (dashed override included), without reading a label"
+        }
+      ]
+    },
+    {
+      "name": "EXP_007_default",
+      "module": "Libpetri/Spec/Req/EXP_007.lean",
+      "specIds": [
+        {
+          "id": "EXP-007",
+          "fragment": "The default configuration names the top-to-bottom layout direction and shows timing and priority."
+        }
+      ]
+    },
+    {
+      "name": "EXP_014_ac1",
+      "module": "Libpetri/Spec/Req/EXP_014.lean",
+      "specIds": [
+        {
+          "id": "EXP-014",
+          "fragment": "AC1: all junction IDs match the regex j_[A-Za-z0-9_]+__(xor|and)_[0-9]+, for every exporter meeting EXP-014, for every junction of a transition whose name is not empty and holds only ASCII characters"
+        }
+      ]
+    },
+    {
+      "name": "EXP_014_guarantee1",
+      "module": "Libpetri/Spec/Req/EXP_014.lean",
+      "specIds": [
+        {
+          "id": "EXP-014",
+          "fragment": "guarantee 1: junction IDs do not collide with place IDs (p_…) or transition IDs (t_…), on the reference exporter for every cluster stage, configuration and net, whatever the names"
+        }
+      ]
+    },
+    {
+      "name": "EXP_016_ac2",
+      "module": "Libpetri/Spec/Req/EXP_016.lean",
+      "specIds": [
+        {
+          "id": "EXP-016",
+          "fragment": "AC2: each cluster block contains, directly or through the cluster blocks nested in it, exactly the places and transitions whose cluster key is the cluster's key or begins with it followed by /, and the junction nodes of those transitions, for every exporter meeting EXP-016"
+        }
+      ]
+    },
+    {
+      "name": "EXP_016_ac4",
+      "module": "Libpetri/Spec/Req/EXP_016.lean",
+      "specIds": [
+        {
+          "id": "EXP-016",
+          "fragment": "AC4: a net with no / in any node name and no membership metadata produces no cluster subgraphs, for every exporter meeting EXP-016"
+        }
+      ]
+    },
+    {
+      "name": "EXP_016_ac5",
+      "module": "Libpetri/Spec/Req/EXP_016.lean",
+      "specIds": [
+        {
+          "id": "EXP-016",
+          "fragment": "AC5: cluster IDs match the regex cluster_[A-Za-z0-9_]+, for every exporter meeting EXP-016, for every cluster whose key is not empty"
         }
       ]
     },
@@ -1726,6 +2156,16 @@
         {
           "id": "EXEC-013",
           "fragment": "AC3 in TIME-012's form: a reset drain in the intermediate marking disarms an input transition it disables, which is newly armed with a fresh clock when the firing re-enables it; a transition the drain leaves enabled keeps its clock"
+        }
+      ]
+    },
+    {
+      "name": "TIME_014_twoReadings",
+      "module": "Libpetri/Spec/Req/TIME_014.lean",
+      "specIds": [
+        {
+          "id": "TIME-014",
+          "fragment": "the reading the pass judges at is the deadline step's reading, not earlier than the update's (ruling D61 (c)): on the reference executor an update at reading 0 arms a Delayed(3000) transition, the deadline step of the same cycle runs at 3000, and the pass starts the transition in the cycle that armed it, as an executor with a second reading after its update (TypeScript) does"
         }
       ]
     },

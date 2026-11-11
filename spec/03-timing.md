@@ -265,6 +265,12 @@ The executor arms transitions in the enablement update of a cycle ([EXEC-001] st
 
 *While* a transition is not armed, the transition *shall not* fire.
 
+The executor *shall not* arm a transition or give an armed transition a different stamp in any step other than an enablement update ([EXEC-001] step 3); another step may only take a stamp away ([TIME-012], [TIME-013]).
+
+*When* the executor runs the enablement update of a cycle ([EXEC-001] step 3), it *shall* take the current reading of the firing clock, and the deadline step of that cycle ([EXEC-001] step 4) *shall* judge expiry at that reading or at a later reading it takes itself.
+
+The firing pass and the decision to wait of a cycle *shall* judge elapsed time at the reading of its deadline step, and no other step of the cycle *shall* take a new reading for these judgements.
+
 Armed is not the marking-level Enabled of [CORE-022]. A transition can be enabled without being armed: a reaped transition ([TIME-013]) is enabled until one of its arc places is written, but holds no clock and does not fire.
 
 The timing requirements identify a transition by its name: a stamp, and whether a transition is reaped, are kept per name. They assume that the transitions of one net have pairwise distinct names. Two transition instances that share a name are distinct under [CORE-021], and a net holding both is outside [TIME-010]–[TIME-015].
@@ -313,6 +319,10 @@ A firing of transition `t` has two halves: its inputs are consumed and its reset
 
 *If* the enablement recheck of a firing pass finds a transition disabled ([EXEC-003] AC3), *then* the transition *shall* lose its clock, even when a same-pass deposit keeps it enabled in the live marking.
 
+*When* a firing pass starts a transition `t`, each other armed transition that is not enabled in the intermediate marking of `t` *shall* lose its clock at the next enablement update ([EXEC-001] step 3), even when a deposit before that update refills its places, and that update *shall* stamp it with the reading the update takes if it is enabled ([TIME-010]), after which its clock runs from that stamp.
+
+Until that update the transition keeps its old stamp, so it can still start later in the same pass on that stamp if the recheck finds it enabled; this needs an inhibitor arc, because without one a transition that is not enabled in the intermediate marking of `t` is not enabled in the pass-visible marking at a later start either.
+
 - Removing tokens disables a transition only through input arcs, read arcs, cardinality requirements and ν-join bindings, never through inhibitor arcs.
 - A reset arc drains its place, so every armed transition with a read arc on a reset place, or an input arc on it whose required count is positive, starts a fresh clock when it is enabled again, unless a same-pass deposit that the reset does not take ([EXEC-003] AC5) keeps it enabled in the intermediate marking.
 - Surplus tokens keep the clock. If `P` holds two tokens, `t` takes one and `t'` needs one, `t'` stays enabled in the intermediate marking and its clock continues.
@@ -348,9 +358,13 @@ A transition with a **hard deadline** (`Deadline` / `Window`) is **reapable**. W
 
 The executor *shall not* reap a transition that is not reapable.
 
+The deadline step *shall* judge expiry at its reading of the firing clock ([TIME-010]), and it *shall not* reap a transition that is not expired at that reading or change the marking.
+
 *While* a transition is reaped, the transition *shall not* fire.
 
 *When* a firing or an injected token writes one of a reaped transition's arc places (an input, read, inhibitor or reset place) and the transition is enabled afterwards, the transition *shall* be newly armed with a fresh clock ([TIME-010]).
+
+*While* a transition is reaped, an enablement update *shall* leave it reaped, and only a firing or an injected token that writes one of its arc places *shall* end its reaped state.
 
 A firing writes a place when it consumes from it, deposits into it or drains it through a reset arc; draining a reset place that is already empty counts as a write. The tolerance is the `deadlineTolerance` / `deadline_tolerance_ms` option, and with tolerance `0` a reapable transition is reaped on the first cycle whose elapsed time is strictly greater than its latest bound.
 
@@ -385,18 +399,18 @@ take no time ([VER-004] AC3).
 
 When multiple transitions compete for the same tokens, timing interacts with priority:
 - Higher priority transitions are preferred.
-- Among equal priority, Immediate transitions fire before Delayed ones (since Delayed transitions are not ready until their earliest bound).
-- A Delayed transition with low priority can serve as a fallback when the high-priority immediate transition fires first.
+- Before its earliest bound a Delayed transition is not ready, so a ready Immediate transition competing for the same tokens takes them first whatever their priorities; once both are ready, the order of [EXEC-002] applies (among equal priority, the one armed first comes first).
+- A Delayed transition with low priority can serve as a fallback: while it stays armed, it fires in the first cycle at or after its earliest bound in which the high-priority Immediate transition is not ready to take the tokens.
 
 *While* several ready transitions compete for the same tokens, the executor *shall* fire them in the order of [EXEC-002], so the transition with the highest priority takes the tokens first ([EXEC-003]).
 
 *While* a `Delayed` transition is armed and its elapsed time is less than its earliest bound, it *shall not* fire, so a ready transition competing for the same tokens takes them first whatever their priorities ([TIME-004]).
 
 **Acceptance Criteria:**
-1. Two transitions on same input: T1 (P=10, Immediate) and T2 (P=-10, Delayed(3s)); T1 fires first.
-2. If T1 does not fire within 3s, T2 becomes ready and fires.
+1. Two transitions on same input: T1 (P=10, Immediate) and T2 (P=-10, Delayed(3s)); T1 also needs an event token in a second input place, which holds one; T1 fires first.
+2. If T1's event place stays empty for 3s, T1 is not enabled: T2 is armed at once, becomes ready when its elapsed time reaches 3s, and fires.
 
-**Depends on:** [EXEC-003]
+**Depends on:** [EXEC-002], [EXEC-003]
 **Test derivation:** Event-driven workflow pattern: PrimaryAction (P=10, immediate) vs FallbackAction (P=-10, 3s delay).
 
 ---

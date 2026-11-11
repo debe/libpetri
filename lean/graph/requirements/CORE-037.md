@@ -18,29 +18,29 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
-    n3795["Libpetri.Spec.ConnectedPlace"]
-    n3825["Libpetri.Spec.DeadPlace"]
-    n5834["Libpetri.Spec.core037_deadInhibitor_never_blocks"]
-    n5837["Libpetri.Spec.core037_dead_stays_empty"]
+    n4915["Libpetri.Spec.ConnectedPlace"]
+    n4953["Libpetri.Spec.DeadPlace"]
+    n8606["Libpetri.Spec.core037_deadInhibitor_never_blocks"]
+    n8609["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (15 declarations, collapsed)"]
-  c78["📁 Libpetri/Reference/Semantics.lean (23 declarations, collapsed)"]
-  c105["📁 Libpetri/Spec/Glossary.lean (17 declarations, collapsed)"]
+  c83["📁 Libpetri/Reference/Semantics.lean (23 declarations, collapsed)"]
+  c115["📁 Libpetri/Spec/Glossary.lean (17 declarations, collapsed)"]
   c54 --> c0
-  c78 --> c28
-  c78 --> c54
-  c105 --> c78
-  n3795 --> c105
-  n3825 --> n3795
-  n5834 --> n5837
-  n5837 --> n3825
+  c83 --> c28
+  c83 --> c54
+  c115 --> c83
+  n4915 --> c115
+  n4953 --> n4915
+  n8606 --> n8609
+  n8609 --> n4953
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5834 root
-  class c0,c28,c54,c78,c105 collapsed
+  class n8606 root
+  class c0,c28,c54,c83,c115 collapsed
 ```
 
 ### `Libpetri.Spec.core037_deadRead_never_enabled`
@@ -50,29 +50,29 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
-    n3795["Libpetri.Spec.ConnectedPlace"]
-    n3825["Libpetri.Spec.DeadPlace"]
-    n5835["Libpetri.Spec.core037_deadRead_never_enabled"]
-    n5837["Libpetri.Spec.core037_dead_stays_empty"]
+    n4915["Libpetri.Spec.ConnectedPlace"]
+    n4953["Libpetri.Spec.DeadPlace"]
+    n8607["Libpetri.Spec.core037_deadRead_never_enabled"]
+    n8609["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
-  c78["📁 Libpetri/Reference/Semantics.lean (21 declarations, collapsed)"]
-  c105["📁 Libpetri/Spec/Glossary.lean (17 declarations, collapsed)"]
+  c83["📁 Libpetri/Reference/Semantics.lean (21 declarations, collapsed)"]
+  c115["📁 Libpetri/Spec/Glossary.lean (17 declarations, collapsed)"]
   c54 --> c0
-  c78 --> c28
-  c78 --> c54
-  c105 --> c78
-  n3795 --> c105
-  n3825 --> n3795
-  n5835 --> n5837
-  n5837 --> n3825
+  c83 --> c28
+  c83 --> c54
+  c115 --> c83
+  n4915 --> c115
+  n4953 --> n4915
+  n8607 --> n8609
+  n8609 --> n4953
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5835 root
-  class c0,c28,c54,c78,c105 collapsed
+  class n8607 root
+  class c0,c28,c54,c83,c115 collapsed
 ```
 
 ### `Libpetri.Spec.core037_deadReset_clears_nothing`
@@ -82,29 +82,29 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
-    n3795["Libpetri.Spec.ConnectedPlace"]
-    n3825["Libpetri.Spec.DeadPlace"]
-    n5836["Libpetri.Spec.core037_deadReset_clears_nothing"]
-    n5837["Libpetri.Spec.core037_dead_stays_empty"]
+    n4915["Libpetri.Spec.ConnectedPlace"]
+    n4953["Libpetri.Spec.DeadPlace"]
+    n8608["Libpetri.Spec.core037_deadReset_clears_nothing"]
+    n8609["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
-  c78["📁 Libpetri/Reference/Semantics.lean (21 declarations, collapsed)"]
-  c105["📁 Libpetri/Spec/Glossary.lean (15 declarations, collapsed)"]
+  c83["📁 Libpetri/Reference/Semantics.lean (21 declarations, collapsed)"]
+  c115["📁 Libpetri/Spec/Glossary.lean (15 declarations, collapsed)"]
   c54 --> c0
-  c78 --> c28
-  c78 --> c54
-  c105 --> c78
-  n3795 --> c105
-  n3825 --> n3795
-  n5836 --> n5837
-  n5837 --> n3825
+  c83 --> c28
+  c83 --> c54
+  c115 --> c83
+  n4915 --> c115
+  n4953 --> n4915
+  n8608 --> n8609
+  n8609 --> n4953
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5836 root
-  class c0,c28,c54,c78,c105 collapsed
+  class n8608 root
+  class c0,c28,c54,c83,c115 collapsed
 ```
 
 ### `Libpetri.Spec.core037_dead_stays_empty`
@@ -114,27 +114,27 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
-    n3795["Libpetri.Spec.ConnectedPlace"]
-    n3825["Libpetri.Spec.DeadPlace"]
-    n5837["Libpetri.Spec.core037_dead_stays_empty"]
+    n4915["Libpetri.Spec.ConnectedPlace"]
+    n4953["Libpetri.Spec.DeadPlace"]
+    n8609["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
-  c78["📁 Libpetri/Reference/Semantics.lean (21 declarations, collapsed)"]
-  c105["📁 Libpetri/Spec/Glossary.lean (15 declarations, collapsed)"]
+  c83["📁 Libpetri/Reference/Semantics.lean (21 declarations, collapsed)"]
+  c115["📁 Libpetri/Spec/Glossary.lean (15 declarations, collapsed)"]
   c54 --> c0
-  c78 --> c28
-  c78 --> c54
-  c105 --> c78
-  n3795 --> c105
-  n3825 --> n3795
-  n5837 --> n3825
+  c83 --> c28
+  c83 --> c54
+  c115 --> c83
+  n4915 --> c115
+  n4953 --> n4915
+  n8609 --> n4953
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5837 root
-  class c0,c28,c54,c78,c105 collapsed
+  class n8609 root
+  class c0,c28,c54,c83,c115 collapsed
 ```
 
 Axioms used:

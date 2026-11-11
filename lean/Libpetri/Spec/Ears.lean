@@ -13,9 +13,14 @@ Syntax), each with a readable notation. There are two families.
 |---|---|---|
 | `when T, shall R` | every `T` is followed (at it or later) by an `R` | event-driven |
 | `after T, never B` | once a `T` has happened, no later event is a `B` | unwanted behaviour |
+| `after T, until G, never B` | after each `T`, no `B` before the next `G` | unwanted behaviour, bounded |
 | `until G, never B` | no `B` happens before the first `G` | state-driven ("while not G") |
 | `at-most-once P` | at most one event is a `P` | ubiquitous |
 | `occurs P` | some event is a `P` | (used in assumptions) |
+
+*Run forms.* A liveness requirement ("every accepted event is eventually injected") is stated on
+the runs an assumption calls ideal (`on-ideal-runs I, shall P`: every trace `I` admits satisfies
+`P`); the assumption is a kind A line of the block, and a block pairs it with a witness run.
 
 *State forms.* Most firing requirements talk about one step `s ⟶ s'` (a relation
 `R : σ → σ → Prop`, for example "transition `t` fires from marking `m` to `m'`") and a property
@@ -43,7 +48,7 @@ states and are plain `Prop`s; they are decidable only when the state space is fi
 
 All notations are `scoped` to `Libpetri.Spec`: they are active inside `namespace Libpetri.Spec`
 or after `open Libpetri.Spec`, and they reserve the words `after`, `until`, `never`, `shall`,
-`occurs`, `on` and `at-most-once` only there.
+`occurs`, `on`, `at-most-once` and `on-ideal-runs` only there.
 -/
 
 namespace Libpetri.Spec
@@ -118,6 +123,16 @@ def whenShall (trig resp : σ → Bool) : Watch σ Bool where
   next owed e := (owed || trig e) && !resp e
   final owed := !owed
 
+/-- Memory: is a `bad` forbidden now? A `trig` forbids it, the next `go` after that `trig` lifts
+the ban. An event that is both a `go` and a `trig` lifts the old ban and starts a new one (the `go`
+is not after the `trig`). Check: no `bad` while the ban stands; the `trig` itself is not checked
+against its own ban, as in `afterNever`. -/
+def afterUntilNever (trig go bad : σ → Bool) : Watch σ Bool where
+  init := false
+  ok banned e := !(banned && bad e)
+  next banned e := (banned && !go e) || trig e
+  final _ := true
+
 /-- EARS unwanted behaviour: "If `trig`, then afterwards the system shall not `bad`." -/
 def AfterNever (trig bad : σ → Bool) (tr : List σ) : Prop := (afterNever trig bad).Holds tr
 
@@ -126,6 +141,11 @@ def UntilNever (go bad : σ → Bool) (tr : List σ) : Prop := (untilNever go ba
 
 /-- EARS event-driven: "When `trig`, the system shall `resp` (now or later)." -/
 def WhenShall (trig resp : σ → Bool) (tr : List σ) : Prop := (whenShall trig resp).Holds tr
+
+/-- EARS unwanted behaviour, bounded: "If `trig`, then the system shall not `bad` until `go`."
+After each `trig`, no `bad` happens before the next `go`. -/
+def AfterUntilNever (trig go bad : σ → Bool) (tr : List σ) : Prop :=
+  (afterUntilNever trig go bad).Holds tr
 
 /-- Ubiquitous: at most one event satisfies `p`. -/
 def AtMostOnce (p : σ → Bool) (tr : List σ) : Prop := AfterNever p p tr
@@ -136,6 +156,8 @@ def Occurs (p : σ → Bool) (tr : List σ) : Prop := tr.any p = true
 instance {trig bad : σ → Bool} {tr : List σ} : Decidable (AfterNever trig bad tr) :=
   inferInstanceAs (Decidable (Watch.Holds ..))
 instance {go bad : σ → Bool} {tr : List σ} : Decidable (UntilNever go bad tr) :=
+  inferInstanceAs (Decidable (Watch.Holds ..))
+instance {trig go bad : σ → Bool} {tr : List σ} : Decidable (AfterUntilNever trig go bad tr) :=
   inferInstanceAs (Decidable (Watch.Holds ..))
 instance {trig resp : σ → Bool} {tr : List σ} : Decidable (WhenShall trig resp tr) :=
   inferInstanceAs (Decidable (Watch.Holds ..))
@@ -175,6 +197,50 @@ theorem untilNever_scan_of_absent {go bad : σ → Bool} :
       Bool.true_and]
     exact untilNever_scan_of_absent _ fun x hx => h x (List.mem_cons_of_mem _ hx)
 
+/-- If no event is `bad`, `after T, until G, never B` holds from any memory. -/
+theorem afterUntilNever_scan_of_absent {trig go bad : σ → Bool} :
+    ∀ {tr : List σ} (a : Bool), (∀ e ∈ tr, bad e = false) →
+      (afterUntilNever trig go bad).scan a tr = true
+  | [], _, _ => rfl
+  | e :: rest, a, h => by
+    simp only [Watch.scan, afterUntilNever, h e (List.mem_cons_self ..), Bool.and_false,
+      Bool.not_false, Bool.true_and]
+    exact afterUntilNever_scan_of_absent _ fun x hx => h x (List.mem_cons_of_mem _ hx)
+
+/-- Without a `go`, the ban never lifts: `after T, until G, never B` is `after T, never B`. -/
+theorem afterUntilNever_no_go (trig bad : σ → Bool) :
+    afterUntilNever trig (fun _ => false) bad = afterNever trig bad := by
+  simp [afterUntilNever, afterNever]
+
+/-- `after T, until G, never B` is monotone: fewer triggers, more lifts and fewer bad events
+keep it. -/
+theorem afterUntilNever_scan_mono {trig go bad trig' go' bad' : σ → Bool}
+    (ht : ∀ e, trig' e = true → trig e = true) (hg : ∀ e, go e = true → go' e = true)
+    (hb : ∀ e, bad' e = true → bad e = true) :
+    ∀ (tr : List σ) (a a' : Bool), (a' = true → a = true) →
+      (afterUntilNever trig go bad).scan a tr = true →
+      (afterUntilNever trig' go' bad').scan a' tr = true
+  | [], _, _, _, _ => rfl
+  | e :: rest, a, a', ha, h => by
+    simp only [Watch.scan, afterUntilNever, Bool.and_eq_true, Bool.not_eq_true'] at h ⊢
+    refine ⟨?_, afterUntilNever_scan_mono ht hg hb rest _ _ ?_ h.2⟩
+    · cases ha' : a' <;> cases hb' : bad' e <;> simp_all
+    · intro h'
+      simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true'] at h' ⊢
+      rcases h' with ⟨h1, h2⟩ | h1
+      · refine Or.inl ⟨ha h1, ?_⟩
+        cases hge : go e
+        · rfl
+        · simp [hg e hge] at h2
+      · exact Or.inr (ht e h1)
+
+/-- `after T, until G, never B` is monotone in its three event predicates. -/
+theorem AfterUntilNever.mono {trig go bad trig' go' bad' : σ → Bool}
+    (ht : ∀ e, trig' e = true → trig e = true) (hg : ∀ e, go e = true → go' e = true)
+    (hb : ∀ e, bad' e = true → bad e = true) {tr : List σ}
+    (h : AfterUntilNever trig go bad tr) : AfterUntilNever trig' go' bad' tr :=
+  afterUntilNever_scan_mono ht hg hb tr false false (fun h => h) h
+
 /-- If no event is a `trig`, `when T, shall R` holds when nothing is owed yet. -/
 theorem whenShall_scan_of_absent {trig resp : σ → Bool} :
     ∀ {tr : List σ}, (∀ e ∈ tr, trig e = false) → (whenShall trig resp).scan false tr = true
@@ -183,6 +249,27 @@ theorem whenShall_scan_of_absent {trig resp : σ → Bool} :
     simp only [Watch.scan, whenShall, h e (List.mem_cons_self ..), Bool.or_false, Bool.false_and,
       Bool.true_and]
     exact whenShall_scan_of_absent fun x hx => h x (List.mem_cons_of_mem _ hx)
+
+/-! ## Run forms (liveness under an assumption) -/
+
+/-- Kind A liveness over finite runs: `P` holds of every trace the assumption `Ideal` admits (for
+the executor, `IdealRun` of `GlossaryExec`: the runs that reach their finish). An `Ideal` that
+admits no trace makes every `OnIdealRuns` true (`onIdealRuns_of_none`), so a block pairs it with a
+witness ideal run (nonvacuous evidence). -/
+def OnIdealRuns (Ideal : List σ → Prop) (P : List σ → Prop) : Prop := ∀ tr, Ideal tr → P tr
+
+/-- `OnIdealRuns` is antitone in the assumption and monotone in the property. -/
+theorem OnIdealRuns.mono {I I' P P' : List σ → Prop} (hI : ∀ tr, I' tr → I tr)
+    (hP : ∀ tr, P tr → P' tr) (h : OnIdealRuns I P) : OnIdealRuns I' P' :=
+  fun tr hi => hP tr (h tr (hI tr hi))
+
+/-- A property of every trace holds on the ideal runs. -/
+theorem OnIdealRuns.of_forall {I P : List σ → Prop} (h : ∀ tr, P tr) : OnIdealRuns I P :=
+  fun tr _ => h tr
+
+/-- An assumption that admits no run makes every `OnIdealRuns` true. -/
+theorem onIdealRuns_of_none {I P : List σ → Prop} (h : ∀ tr, ¬ I tr) : OnIdealRuns I P :=
+  fun tr hi => absurd hi (h tr)
 
 /-! ## State forms over single steps -/
 
@@ -254,6 +341,8 @@ theorem whileNever_of_false {P : σ → Prop} {R : σ → σ → Prop} (h : ∀ 
 
 /-- `after T, never B`: once a `T` happened, no later event is a `B`. -/
 scoped notation:max "after " trig ", " "never " bad => AfterNever trig bad
+/-- `after T, until G, never B`: after each `T`, no `B` before the next `G`. -/
+scoped notation:max "after " trig ", " "until " go ", " "never " bad => AfterUntilNever trig go bad
 /-- `until G, never B`: no `B` before the first `G`. -/
 scoped notation:max "until " go ", " "never " bad => UntilNever go bad
 /-- `when T, shall R`: every `T` is followed, at it or later, by an `R`. -/
@@ -266,6 +355,8 @@ scoped notation:max "occurs " p => Occurs p
 scoped notation:max "while " P ", " "never " R => WhileNever P R
 /-- `on R, shall Q`: every `R` step from `s` to `s'` satisfies `Q s s'`. -/
 scoped notation:max "on " R ", " "shall " Q => StepShall R Q
+/-- `on-ideal-runs I, shall P`: every trace the assumption `I` admits satisfies `P`. -/
+scoped notation:max "on-ideal-runs " I ", " "shall " P => OnIdealRuns I P
 
 /-! ## Sanity checks of the notations -/
 
@@ -288,6 +379,17 @@ example : ¬ (when isStart, shall isStop) [.stop, .start] := by decide
 example : (at-most-once isStart) [.start, .tick] := by decide
 example : ¬ (at-most-once isStart) [.start, .start] := by decide
 example : (occurs isTick) [.start, .tick] := by decide
+example : (after isStart, until isStop, never isTick) [.start, .stop, .tick] := by decide
+example : ¬ (after isStart, until isStop, never isTick) [.start, .tick, .stop] := by decide
+example : ¬ (after isStart, until isStop, never isTick) [.start, .stop, .start, .tick] := by decide
+example : (after isStart, until isStop, never isTick) [.tick, .start, .stop] := by decide
+/- `after T, never B` still parses next to `after T, until G, never B`. -/
+example : (after isStop, never isTick) [.tick, .stop] := by decide
+example : (on-ideal-runs (fun tr : List Ev => tr.length ≤ 1), shall
+    (fun tr => (at-most-once isStart) tr)) := fun tr h => by
+  match tr, h with
+  | [], _ => decide
+  | [e], _ => cases e <;> decide
 
 /-- A counter that only increments: it never steps from a state above 2. -/
 private def incBelow3 (n n' : Nat) : Prop := n < 3 ∧ n' = n + 1
@@ -301,6 +403,8 @@ example : on incBelow3, shall (fun n n' => n < n') :=
 example (P : Nat → Prop) (R : Nat → Nat → Prop) :
     (while P, never R) = WhileNever P R := rfl
 example (R Q : Nat → Nat → Prop) : (on R, shall Q) = StepShall R Q := rfl
+example (t g b : Nat → Bool) : (after t, until g, never b) = AfterUntilNever t g b := rfl
+example (I P : List Nat → Prop) : (on-ideal-runs I, shall P) = OnIdealRuns I P := rfl
 
 /- With the notations open, the `do`-notation `while` loop still parses. -/
 private def countdown (n : Nat) : Nat := Id.run do

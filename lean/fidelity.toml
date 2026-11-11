@@ -219,6 +219,49 @@ file = "rust/libpetri-runtime/src/executor_core/executor.rs"
 fn = "run_sync"
 lean = ["Libpetri/Refinement.lean", "Libpetri/Novel/TerminalRewrite.lean", "Libpetri/Novel/ReapingVsUntimed.lean", "Libpetri/Novel/ReapAware.lean", "Libpetri/Novel/SiphonSearch.lean"]
 
+# The settle steps of the executor model (`commitStep`, `failStep`, `tdepositStep`, `failCause`,
+# `validIn`): validation reads the returned outputs and the flushed places, the timeout path skips
+# validation and still runs the relay check, a rejection deposits nothing (ruling D24 (a)).
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "handle_completion"
+lean = ["Libpetri/Reference/Exec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "output_conforms"
+lean = ["Libpetri/Reference/Exec.lean", "Libpetri/Spec/GlossaryExec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "relay_check"
+lean = ["Libpetri/Reference/Exec.lean"]
+
+# ---- rust/libpetri-runtime/src/executor_handle.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_handle.rs"
+fn = "inject"
+lean = ["Libpetri/Reference/Exec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_handle.rs"
+fn = "drain"
+lean = ["Libpetri/Reference/Exec.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_handle.rs"
+fn = "close"
+lean = ["Libpetri/Reference/Exec.lean"]
+
+# ---- rust/libpetri-runtime/src/executor.rs ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor.rs"
+fn = "new"
+lean = ["Libpetri/Spec/Req/ENV_002.lean", "Libpetri/Spec/Req/ENV_010.lean"]
+
 # ---- rust/libpetri-runtime/src/executor_core/output.rs ----
 
 [[pin]]
@@ -1360,3 +1403,408 @@ lean = ["Libpetri/Novel/TerminalRewrite.lean"]
 file = "rust/libpetri-verification/src/open_net/verify_open_net.rs"
 fn = "verify_open_net"
 lean = ["Libpetri/Novel/InFlight.lean", "Libpetri/Novel/ReapAware.lean"]
+
+# ---- rust/libpetri-export/src/mapper.rs ----
+# The reference exporter of the EXP blocks (wave W4). Each item was re-read against
+# Reference/Export.lean (2026-11-11). Two divergences are recorded rulings, not model
+# errors: `sanitize` keeps Unicode letters (`is_alphanumeric`) where the model's
+# `sanitize` is ASCII-only (D46 (a), implementation-defined outside EXP-014's name
+# assumption), and `analyze_places` counts no read arc as outgoing where
+# `refPlaceCategory` does (D51 (a), the read-only place left open in EXP-008).
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "sanitize"
+lean = ["Libpetri/Spec/GlossaryExport.lean"]
+
+# `refExportWith`: place nodes (empty label, raw name as xlabel), transition nodes, then
+# per transition its input edges, output side, inhibitor, read and standalone reset edges.
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "map_to_graph"
+lean = ["Libpetri/Reference/Export.lean", "Libpetri/Spec/Req/EXP_001.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "cluster_key_of"
+lean = ["Libpetri/Reference/ExportCluster.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "analyze_places"
+lean = ["Libpetri/Spec/Req/EXP_008.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "place_category"
+lean = ["Libpetri/Spec/Req/EXP_008.lean", "Libpetri/Reference/Export.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "transition_label"
+lean = ["Libpetri/Reference/Export.lean", "Libpetri/Spec/Req/EXP_007.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "input_label"
+lean = ["Libpetri/Spec/Req/EXP_006.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "match_aware_input_label"
+lean = ["Libpetri/Reference/Export.lean", "Libpetri/Spec/Req/EXP_018.lean"]
+
+# `refEmitOut` / `refEmitOutL` / `refLeafEdge` / `refJunctionEdge` / `refInferBranchLabel`.
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "emit_output"
+lean = ["Libpetri/Reference/Export.lean", "Libpetri/Spec/Req/EXP_012.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "emit_group"
+lean = ["Libpetri/Reference/Export.lean", "Libpetri/Spec/Req/EXP_012.lean", "Libpetri/Spec/Req/EXP_014.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "push_leaf_edge"
+lean = ["Libpetri/Reference/Export.lean", "Libpetri/Spec/Req/EXP_013.lean"]
+
+[[pin]]
+file = "rust/libpetri-export/src/mapper.rs"
+fn = "infer_branch_label"
+lean = ["Libpetri/Reference/Export.lean"]
+
+# ---- rust/libpetri-event/src/event_store.rs (wave W6: the store tier) ----
+
+[[pin]]
+file = "rust/libpetri-event/src/event_store.rs"
+fn = "EventStore"
+lean = ["Libpetri/Spec/GlossaryStore.lean", "Libpetri/Spec/Req/EVT_020.lean"]
+
+[[pin]]
+file = "rust/libpetri-event/src/event_store.rs"
+fn = "InMemoryEventStore"
+lean = ["Libpetri/Spec/GlossaryStore.lean", "Libpetri/Spec/Req/EVT_021.lean", "Libpetri/Spec/Req/EVT_030.lean"]
+
+[[pin]]
+file = "rust/libpetri-event/src/event_store.rs"
+fn = "NoopEventStore"
+lean = ["Libpetri/Spec/GlossaryStore.lean", "Libpetri/Spec/Req/EVT_022.lean"]
+
+# ---- rust/libpetri-event/src/net_event.rs ----
+
+[[pin]]
+file = "rust/libpetri-event/src/net_event.rs"
+fn = "transition_name"
+lean = ["Libpetri/Spec/Req/EVT_030.lean"]
+
+[[pin]]
+file = "rust/libpetri-event/src/net_event.rs"
+fn = "place_name"
+lean = ["Libpetri/Spec/Req/EVT_030.lean"]
+
+[[pin]]
+file = "rust/libpetri-event/src/net_event.rs"
+fn = "is_failure"
+lean = ["Libpetri/Spec/Req/EVT_023.lean", "Libpetri/Spec/Req/EVT_030.lean"]
+
+# ---- rust/libpetri-debug/src/debug_event_store.rs ----
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_event_store.rs"
+fn = "append"
+lean = ["Libpetri/Spec/GlossaryStore.lean", "Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_024.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_event_store.rs"
+fn = "events"
+lean = ["Libpetri/Spec/GlossaryStore.lean", "Libpetri/Spec/Req/EVT_024.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_event_store.rs"
+fn = "subscribe"
+lean = ["Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_024.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_event_store.rs"
+fn = "cancel"
+lean = ["Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_024.lean"]
+
+# ---- rust/libpetri-debug/src/archive/ ----
+
+[[pin]]
+file = "rust/libpetri-debug/src/archive/session_archive_writer.rs"
+fn = "write_v1"
+lean = ["Libpetri/Reference/Archive.lean", "Libpetri/Spec/Req/EVT_025.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/archive/session_archive_writer.rs"
+fn = "write_v2"
+lean = ["Libpetri/Reference/Archive.lean", "Libpetri/Spec/Req/EVT_025.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/archive/session_archive_writer.rs"
+fn = "write_v3"
+lean = ["Libpetri/Reference/Archive.lean", "Libpetri/Spec/Req/EVT_025.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/archive/session_archive_writer.rs"
+fn = "write_framed"
+lean = ["Libpetri/Reference/Archive.lean", "Libpetri/Spec/Req/EVT_025.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/archive/session_archive_reader.rs"
+fn = "parse_header"
+lean = ["Libpetri/Reference/Archive.lean", "Libpetri/Spec/Req/EVT_025.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/archive/session_archive_reader.rs"
+fn = "read_full"
+lean = ["Libpetri/Reference/Archive.lean", "Libpetri/Spec/Req/EVT_025.lean"]
+
+# ---- rust/libpetri-debug/src/marking_cache.rs and its caller ----
+
+[[pin]]
+file = "rust/libpetri-debug/src/marking_cache.rs"
+fn = "compute_at"
+lean = ["Libpetri/Reference/Replay.lean", "Libpetri/Spec/Req/EVT_032.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/marking_cache.rs"
+fn = "ensure_cached_up_to"
+lean = ["Libpetri/Reference/Replay.lean", "Libpetri/Spec/Req/EVT_032.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/marking_cache.rs"
+fn = "replay_delta"
+lean = ["Libpetri/Reference/Replay.lean", "Libpetri/Spec/Req/EVT_032.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/marking_cache.rs"
+fn = "apply_events"
+lean = ["Libpetri/Reference/Replay.lean", "Libpetri/Spec/Req/EVT_032.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/marking_cache.rs"
+fn = "invalidate"
+lean = ["Libpetri/Reference/Replay.lean", "Libpetri/Spec/Req/EVT_032.lean"]
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_protocol_handler.rs"
+fn = "compute_state_at"
+lean = ["Libpetri/Spec/Req/EVT_032.lean"]
+
+# ---- rust/libpetri-py/src/ (the Python binding's store, subscriptions, archive, cache) ----
+
+[[pin]]
+file = "rust/libpetri-py/src/events.rs"
+fn = "push"
+lean = ["Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_031.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/events.rs"
+fn = "matches"
+lean = ["Libpetri/Spec/Req/EVT_030.lean", "Libpetri/Spec/Req/EVT_031.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/events.rs"
+fn = "subscribe"
+lean = ["Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_031.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/events.rs"
+fn = "__anext__"
+lean = ["Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_031.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/events.rs"
+fn = "close"
+lean = ["Libpetri/Reference/Subscriptions.lean", "Libpetri/Spec/Req/EVT_031.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/events.rs"
+fn = "filter_payload"
+lean = ["Libpetri/Spec/Req/EVT_020.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/archive.rs"
+fn = "write_from_store"
+lean = ["Libpetri/Spec/Req/EVT_025.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/marking_cache.rs"
+fn = "compute_at"
+lean = ["Libpetri/Spec/Req/EVT_032.lean"]
+
+# ---- W2/W3 integration: builder, place identity, context, built-in actions, compiled masks ----
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "map_transitions"
+lean = ["Libpetri/Spec/Req/CORE_040.lean", "Libpetri/Spec/Req/CORE_042.lean", "Libpetri/Spec/Req/CONC_007.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "bind_actions"
+lean = ["Libpetri/Reference/Build.lean", "Libpetri/Spec/Req/CORE_042.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "bind_actions_with_resolver"
+lean = ["Libpetri/Reference/Build.lean", "Libpetri/Spec/Req/CORE_042.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "terminal"
+lean = ["Libpetri/Spec/Req/CORE_040.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "transition"
+lean = ["Libpetri/Reference/Build.lean", "Libpetri/Spec/Req/CORE_040.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "build"
+lean = ["Libpetri/Reference/Build.lean", "Libpetri/Spec/Req/CORE_041.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/petri_net.rs"
+fn = "require_output_producing_actions"
+lean = ["Libpetri/Spec/Req/CORE_043.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/place.rs"
+fn = "Place"
+lean = ["Libpetri/Reference/Build.lean", "Libpetri/Spec/Req/CORE_002.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "input"
+lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "inputs"
+lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "read"
+lean = ["Libpetri/Spec/Req/CORE_061.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "reads"
+lean = ["Libpetri/Spec/Req/CORE_061.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "require_output"
+lean = ["Libpetri/Spec/Req/CORE_062.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "output_many"
+lean = ["Libpetri/Spec/Req/CORE_053.lean", "Libpetri/Spec/Req/CORE_062.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/action.rs"
+fn = "passthrough"
+lean = ["Libpetri/Spec/Req/CORE_051.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/action.rs"
+fn = "is_passthrough"
+lean = ["Libpetri/Spec/Req/CORE_051.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/action.rs"
+fn = "Passthrough"
+lean = ["Libpetri/Spec/Req/CORE_051.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/action.rs"
+fn = "Fork"
+lean = ["Libpetri/Spec/Req/CORE_052.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/action.rs"
+fn = "Produce"
+lean = ["Libpetri/Spec/Req/CORE_054.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap.rs"
+fn = "contains_all"
+lean = ["Libpetri/Spec/Req/CONC_007.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/bitmap.rs"
+fn = "scalar_contains_all"
+lean = ["Libpetri/Spec/Req/CONC_007.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "input"
+lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "inputs"
+lean = ["Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "read"
+lean = ["Libpetri/Spec/Req/CORE_061.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "reads"
+lean = ["Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "require_output"
+lean = ["Libpetri/Spec/Req/CORE_062.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "resolve_lookup_key"
+lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_061.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "from_transition_context"
+lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_061.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/model.rs"
+fn = "PyPlace"
+lean = ["Libpetri/Spec/Req/CORE_002.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/model.rs"
+fn = "PyTransition"
+lean = ["Libpetri/Spec/Req/CORE_021.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/model.rs"
+fn = "transitions"
+lean = ["Libpetri/Spec/Req/CORE_021.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/model.rs"
+fn = "PyBuiltinAction"
+lean = ["Libpetri/Spec/Req/CORE_051.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/model.rs"
+fn = "resolve_py_action"
+lean = ["Libpetri/Spec/Req/CORE_051.lean"]
+
+[[pin]]
+file = "rust/libpetri-py/src/model.rs"
+fn = "build"
+lean = ["Libpetri/Spec/Req/CORE_041.lean", "Libpetri/Spec/Req/CORE_051.lean"]

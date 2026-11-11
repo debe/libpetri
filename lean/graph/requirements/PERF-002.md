@@ -26,32 +26,32 @@ flowchart TD
     n1959["Libpetri.Novel.Seam.NTransition.reads"]
   end
   subgraph g2["Libpetri/Reference/Semantics.lean"]
-    n3064["Libpetri.Reference.Trans"]
-    n3065["Libpetri.Reference.Trans.core"]
+    n3226["Libpetri.Reference.Trans"]
+    n3227["Libpetri.Reference.Trans.core"]
   end
   subgraph g3["Libpetri/Spec/Glossary.lean"]
-    n3808["Libpetri.Spec.CountMarking"]
-    n4398["Libpetri.Spec.InhibitorArc"]
-    n4425["Libpetri.Spec.Marked"]
-    n4679["Libpetri.Spec.ReadArc"]
-    n6195["Libpetri.Spec.inPlaces"]
-    n6244["Libpetri.Spec.instDecidableMarked"]
-    n6919["Libpetri.Spec.requiredCount"]
+    n4929["Libpetri.Spec.CountMarking"]
+    n6447["Libpetri.Spec.InhibitorArc"]
+    n6499["Libpetri.Spec.Marked"]
+    n6835["Libpetri.Spec.ReadArc"]
+    n11003["Libpetri.Spec.inPlaces"]
+    n11094["Libpetri.Spec.instDecidableMarked"]
+    n12118["Libpetri.Spec.requiredCount"]
   end
   subgraph g4["Libpetri/Spec/GlossaryEnable.lean"]
-    n3982["Libpetri.Spec.EnableCheck"]
-    n3985["Libpetri.Spec.EnableCheck.mk"]
-    n3986["Libpetri.Spec.EnableCheck.presence"]
-    n4399["Libpetri.Spec.InhibitorMask"]
-    n4436["Libpetri.Spec.MaskCheck"]
-    n4594["Libpetri.Spec.NeedsMask"]
-    n6776["Libpetri.Spec.presenceOf"]
+    n5736["Libpetri.Spec.EnableCheck"]
+    n5739["Libpetri.Spec.EnableCheck.mk"]
+    n5740["Libpetri.Spec.EnableCheck.presence"]
+    n6448["Libpetri.Spec.InhibitorMask"]
+    n6510["Libpetri.Spec.MaskCheck"]
+    n6670["Libpetri.Spec.NeedsMask"]
+    n11788["Libpetri.Spec.presenceOf"]
   end
   subgraph g5["Libpetri/Spec/Req/CONC_004.lean"]
-    n3351["Libpetri.Spec.CONC_004"]
-    n3359["Libpetri.Spec.CONC_004_reference"]
-    n6817["Libpetri.Spec.refEnableCheck"]
-    n6821["Libpetri.Spec.refEnableCheck_presence"]
+    n4089["Libpetri.Spec.CONC_004"]
+    n4097["Libpetri.Spec.CONC_004_reference"]
+    n11888["Libpetri.Spec.refEnableCheck"]
+    n11892["Libpetri.Spec.refEnableCheck_presence"]
   end
   n9 --> n8
   n10 --> n8
@@ -68,47 +68,47 @@ flowchart TD
   n1956 --> n1936
   n1956 --> n1954
   n1959 --> n1954
-  n3065 --> n1954
-  n3065 --> n3064
-  n3351 --> n3986
-  n3351 --> n4436
-  n3359 --> n3351
-  n3359 --> n6821
-  n3985 --> n3064
-  n3985 --> n3808
-  n3985 --> n3982
-  n3986 --> n3064
-  n3986 --> n3982
-  n4398 --> n1955
-  n4398 --> n3065
-  n4399 --> n4398
-  n4425 --> n3808
-  n4436 --> n4399
-  n4436 --> n4594
-  n4594 --> n4679
-  n4594 --> n6195
-  n4679 --> n1959
-  n4679 --> n3065
-  n6195 --> n1939
-  n6195 --> n1956
-  n6195 --> n3065
-  n6244 --> n4425
-  n6776 --> n6244
-  n6817 --> n1937
-  n6817 --> n1955
-  n6817 --> n1959
-  n6817 --> n3985
-  n6817 --> n6195
-  n6817 --> n6776
-  n6817 --> n6919
-  n6821 --> n3986
-  n6821 --> n4436
-  n6821 --> n6817
-  n6919 --> n14
+  n3227 --> n1954
+  n3227 --> n3226
+  n4089 --> n5740
+  n4089 --> n6510
+  n4097 --> n4089
+  n4097 --> n11892
+  n5739 --> n3226
+  n5739 --> n4929
+  n5739 --> n5736
+  n5740 --> n3226
+  n5740 --> n5736
+  n6447 --> n1955
+  n6447 --> n3227
+  n6448 --> n6447
+  n6499 --> n4929
+  n6510 --> n6448
+  n6510 --> n6670
+  n6670 --> n6835
+  n6670 --> n11003
+  n6835 --> n1959
+  n6835 --> n3227
+  n11003 --> n1939
+  n11003 --> n1956
+  n11003 --> n3227
+  n11094 --> n6499
+  n11788 --> n11094
+  n11888 --> n1937
+  n11888 --> n1955
+  n11888 --> n1959
+  n11888 --> n5739
+  n11888 --> n11003
+  n11888 --> n11788
+  n11888 --> n12118
+  n11892 --> n5740
+  n11892 --> n6510
+  n11892 --> n11888
+  n12118 --> n14
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n3359 root
+  class n4097 root
 ```
 
 Axioms used:

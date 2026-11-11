@@ -150,6 +150,7 @@ requirement EXEC_012
   quote "When a transition fires, read arc values are provided to the action without consuming the tokens."
         "The oldest token in the read place is peeked."
         "*When* a transition fires, its action *shall* receive, for each of its read places, the oldest token the place holds."
+        "*When* a transition fires, its action *shall* receive read tokens only from the read places of the transition."
         "*When* a transition fires, each of its read places that is not one of its reset places *shall* end the firing holding the tokens it held before the firing, in the same queue order, followed by the tokens the firing deposits there."
         "*If* a transition declares an input arc and a read arc on the same place, *then* building the transition *shall* fail with"
         "The message is the same, byte for byte, in every implementation."
@@ -162,13 +163,15 @@ requirement EXEC_012
           "every transition with an input arc and a read arc on one place fails to build;"
           "every transition whose input places are distinct and whose input arcs each require at least one token, and whose first read arc on an input place, in declaration order, is on p, fails to build with the message msgInputRead t p;"
           "no transition whose input places are not distinct, or one of whose input arcs requires fewer than one token, fails to build with this message, for any place;"
-          "no transition with no input arc and read arc on one place fails to build with this message, for any place."
+          "no transition with no input arc and read arc on one place fails to build with this message, for any place;"
+          "for every transition t, every place p that is not a read place of t, every δ and every e, no firing of t that delivers δ and emits e delivers a read token at p."
   assumes "The model is the pair (Build, Q). Build is the transition builder, read as the message building a transition fails with, none when it builds; the witness is the reference builder refBuild (glossary: Build-time checks), which runs the [IO-002]/[IO-004] count checks (stand-in message msgCount) and the D15 check after its CORE-030 check and before its output-spec checks; it is the builder of the CORE and IO blocks too. Q is a queue firing relation (glossary: Queue order; QFireRel in GlossaryQueue.lean): a firing of t from the queue marking M, the head of each queue the oldest token, that delivers δ (the consumed input tokens and the read tokens, per place) to the action, whose action emits e (places and tokens, in emission order), and that leaves M'. The witness is the reference queue firing RefQFire. Timing and priority play no part."
           "Ruling D17: a Q step is a firing whose completion the executor admits and whose produced tokens pass output validation ([EXEC-020], [EXEC-021]), so e is what the firing deposits. A firing whose completion is not admitted (its timeout outcome [EXEC-022], a stop on a terminal place [EXEC-042], an immediate termination [ENV-015]) or whose output validation fails ([EXEC-021], TransitionFailed) is not a Q step, and line 2 says nothing about it; what such a firing leaves in its read places (the queue, plus the tokens [IO-015] already published) is [EXEC-020]'s and [EXEC-021]'s. The witness RefQFire has only admitted, validated firings (deposit ... = some (e.map fst))."
           "Firings are atomic: line 2 is the firing's own effect on p, with no other firing consuming from p or depositing to p between the firing's start and its completion. In the runtimes an action can be in flight while other firings consume from a shared read place or deposit to it first ([EXEC-003]; ruling D7, live intermediate marking), so the second shall sentence read of the whole interval does not hold of them; which of the two the sentence means is not ruled and is not encoded."
           "Ruling D15: the third shall sentence is lines 3 to 6. The firing lines (1 and 2) speak only of transitions with no input arc and read arc on one place (NoInputRead), because line 3 rejects every other transition when it is built, so no executor holds one. On those transitions the queue of a read place after input consumption is its queue before the firing (exec012_head_postInput), so the read sees the head 'after input consumption' ([EXEC-013] AC4) and 'the oldest token the place holds' at once; and draining a reset place comes after the peek, so a read and a reset on one place deliver the pre-drain head (line 1 reads M, before the drain; [EXEC-013])."
           "Line 1 reads 'receive, for each of its read places, the oldest token the place holds' as: every token the firing delivers at the read place is the head of its queue, the first is the head, and a single read arc on p delivers at most one token there, so a marked p with one read arc delivers exactly its head (a firing that hands the head over twice is killed as EXEC_012_mutant_noCount). How many copies a transition that declares two read arcs on one place gets is not fixed by the sentence, so for it the line constrains only which token they are. That a firing needs its read places marked is [CORE-032]'s and [CORE-022]'s; on an unmarked read place line 1 forbids a delivered token (its head is none)."
           "Line 2 is the second shall sentence and 'without consuming the tokens': the read place keeps its queue, identity and order, and the firing's deposits there follow at the tail ([EXEC-020]). A read place that is also a reset place is drained ([EXEC-013], [CORE-034]) and is excluded, as the sentence says. Keeping only the count (a firing that reorders the read place) is killed as EXEC_012_mutant_countOnly, and a read that consumes the head as EXEC_012_mutant_readConsumes."
+          "Line 7 is the third shall sentence, the counterpart of line 1 at every other place: the action receives no read token from a place that is not a read place of the transition, an input, reset, inhibitor or output place included. CORE-063 cites it for its sentence that an executor hands an action read tokens only from the read places of its transition, and with EXEC-010's line 3 it gives CORE-061's delivery by arcs (core061_byArcs_of). All runtimes meet it: Rust collects the read tokens from the transition's read arcs only, into a map of its own (consume_for_firing, rust/libpetri-runtime/src/bitmap_backend.rs, and peek_reads over the read opcodes in precompiled_backend.rs); Java and TypeScript peek the head of each read arc's place in fireTransition (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java, typescript/src/runtime/bitmap-net-executor.ts, and the read opcodes of the precompiled executors); the Python binding copies only the read places Rust delivered (rust/libpetri-py/src/action.rs). An executor that hands the consumed tokens over as read tokens too breaks line 7 (EXEC_012_forbids_mergedReads)."
           "Lines 4 to 6 are the check order and the named place. The message is msgInputRead, the fenced message with <t> the transition's name and <p> the place; exec012_msg pins the template byte for byte, and how an implementation renders <t> and <p> follows its sibling build messages (ruling D15: Java may differ only there). Line 4 names the first read arc, in declaration order, whose place is an input place (firstInputRead), when the input-arc checks that run before it pass: distinct input places ([CORE-030], InputsDistinct) and input arcs that each require at least one token ([IO-002] AC1, [IO-004] AC1; InputCountsPositive). Line 5 is 'after every input-arc check': a transition that fails one of them fails with that check's message, not this one (two input arcs on one place: the [CORE-030] stand-in, EXEC_012_forbids_early; an exactly(0) input arc: the count stand-in, EXEC_012_forbids_beforeCounts). Line 6 says the message names only an input-and-read pair: a builder that also rejects a read and a reset on one place with it is forbidden as EXEC_012_forbids_readReset."
           "'Before the output-spec checks' is encoded by line 4, which asks for this message whatever the output spec, so a transition that also breaks an output-spec check fails with this message (EXEC_012_before_output). 'Before the timing check ([TIME-001])' is quoted but not encoded: the transition of this model carries no timing (timing is TimedNet's, and TIME-001's builder is a separate contract over timings), so this builder never runs that check, and nothing here tells the order against it apart."
           "'The same place' is equality on N, read as the implementation's own Place identity ([CORE-002]): N is abstract with decidable equality (the place name in TypeScript and Rust, name and type in Java), and ToString N renders the place's name in the message. 'On every construction path' (channel merge [MOD-021], instantiation [MOD-020], fusion [MOD-061]) is not encoded: Build reads one transition definition, and the construction paths that reach it are the composition model's."
@@ -188,12 +191,14 @@ requirement EXEC_012
       (∀ (t : Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)), NoInputRead t →
         ReadArc t p → ¬ ResetArc t p →
         on (fun M M' => Q t M δ e M'), shall (fun M M' => AppendedAtTail M M' e p)) ∧
-      (∀ t : Trans N, ¬ NoInputRead t → Build t ≠ none) ∧
-      (∀ (t : Trans N) (p : N), InputsDistinct t → InputCountsPositive t →
-        firstInputRead t = some p → Build t = some (msgInputRead t p)) ∧
-      (∀ (t : Trans N) (p : N), ¬ InputsDistinct t ∨ ¬ InputCountsPositive t →
-        Build t ≠ some (msgInputRead t p)) ∧
-      (∀ (t : Trans N) (p : N), NoInputRead t → Build t ≠ some (msgInputRead t p))
+      ((∀ t : Trans N, ¬ NoInputRead t → Build t ≠ none) ∧
+        (∀ (t : Trans N) (p : N), InputsDistinct t → InputCountsPositive t →
+          firstInputRead t = some p → Build t = some (msgInputRead t p)) ∧
+        (∀ (t : Trans N) (p : N), ¬ InputsDistinct t ∨ ¬ InputCountsPositive t →
+          Build t ≠ some (msgInputRead t p)) ∧
+        (∀ (t : Trans N) (p : N), NoInputRead t → Build t ≠ some (msgInputRead t p))) ∧
+      (∀ (t : Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)), ¬ ReadArc t p →
+        on (fun M M' => Q t M δ e M'), shall (fun _ _ => δ.reads p = []))
 
 /- The pinned readable form of EXEC-012: a change to the formula shows up as a diff here. -/
 /--
@@ -209,12 +214,15 @@ fun {N T} [DecidableEq N] [ToString N] Build Q =>
     (∀ (t : Reference.Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)),
         NoInputRead t →
           ReadArc t p → ¬ResetArc t p → on fun M M' => Q t M δ e M', shall fun M M' => AppendedAtTail M M' e p) ∧
-      (∀ (t : Reference.Trans N), ¬NoInputRead t → Build t ≠ none) ∧
-        (∀ (t : Reference.Trans N) (p : N),
-            InputsDistinct t → InputCountsPositive t → firstInputRead t = some p → Build t = some (msgInputRead t p)) ∧
+      ((∀ (t : Reference.Trans N), ¬NoInputRead t → Build t ≠ none) ∧
           (∀ (t : Reference.Trans N) (p : N),
-              ¬InputsDistinct t ∨ ¬InputCountsPositive t → Build t ≠ some (msgInputRead t p)) ∧
-            ∀ (t : Reference.Trans N) (p : N), NoInputRead t → Build t ≠ some (msgInputRead t p)
+              InputsDistinct t →
+                InputCountsPositive t → firstInputRead t = some p → Build t = some (msgInputRead t p)) ∧
+            (∀ (t : Reference.Trans N) (p : N),
+                ¬InputsDistinct t ∨ ¬InputCountsPositive t → Build t ≠ some (msgInputRead t p)) ∧
+              ∀ (t : Reference.Trans N) (p : N), NoInputRead t → Build t ≠ some (msgInputRead t p)) ∧
+        ∀ (t : Reference.Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)),
+          ¬ReadArc t p → on fun M M' => Q t M δ e M', shall fun x x_1 => δ.reads p = []
 -/
 #guard_msgs in #print EXEC_012
 
@@ -246,10 +254,24 @@ def exec012_buildLines [ToString N] (Build : Trans N → Option String) : Prop :
     Build t ≠ some (msgInputRead t p)) ∧
   (∀ (t : Trans N) (p : N), NoInputRead t → Build t ≠ some (msgInputRead t p))
 
-/-- EXEC-012 is its three parts. -/
+/-- Line 7 of EXEC-012 for the relation `Q`: no read token from a place that is not a read
+place. -/
+def exec012_line7 (Q : QFireRel N T) : Prop :=
+  ∀ (t : Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)), ¬ ReadArc t p →
+    on (fun M M' => Q t M δ e M'), shall (fun _ _ => δ.reads p = [])
+
+/-- EXEC-012 is its four parts. -/
 theorem exec012_iff [ToString N] (Build : Trans N → Option String) (Q : QFireRel N T) :
-    EXEC_012 Build Q ↔ exec012_line1 Q ∧ exec012_line2 Q ∧ exec012_buildLines Build :=
+    EXEC_012 Build Q ↔
+      exec012_line1 Q ∧ exec012_line2 Q ∧ exec012_buildLines Build ∧ exec012_line7 Q :=
   Iff.rfl
+
+/-- Line 7 holds of every relation that delivers the reference reads, or the reference reads
+repeated: the reference delivers no read token off the read places (`qDelivered_reads_off`). -/
+theorem exec012_line7_of {Q : QFireRel N T}
+    (hQ : ∀ t M δ e M', Q t M δ e M' → ∀ p, ¬ ReadArc t p → δ.reads p = []) :
+    exec012_line7 Q :=
+  fun t p δ e hp M M' h => hQ t M δ e M' h p hp
 
 omit [DecidableEq N] in
 /-- One head per read arc, as the reference delivers it: the first is the head, every token is
@@ -336,12 +358,16 @@ one place is the head before the firing (`exec012_head_postInput`), one copy per
 is not a reset place keeps its queue (line 2, `refQFire_read_kept`); and `refBuild` rejects
 every transition with an input arc and a read arc on one place, with the D15 message after the
 [CORE-030] and count checks and before the output-spec checks, and never with that message
-otherwise (lines 3 to 6). -/
+otherwise (lines 3 to 6); it delivers no read token off the read places
+(`qDelivered_reads_off`, line 7). -/
 @[evidence holds EXEC_012]
 theorem EXEC_012_reference {N T : Type} [DecidableEq N] [ToString N] :
     EXEC_012 refBuild (RefQFire (N := N) (T := T)) :=
   ⟨exec012_line1_of (fun _ _ _ _ _ h => h.2.2.1),
-    fun _ _ _ _ hw hp hr _ _ h => refQFire_read_kept hw h hp hr, refBuild_lines⟩
+    fun _ _ _ _ hw hp hr _ _ h => refQFire_read_kept hw h hp hr, refBuild_lines,
+    exec012_line7_of fun t M δ e M' h p hp => by
+      obtain ⟨-, -, rfl, -⟩ := h
+      exact qDelivered_reads_off M t hp⟩
 
 /-! ### Examples -/
 
@@ -444,7 +470,7 @@ theorem EXEC_012_before_output :
 @[evidence forbids EXEC_012]
 theorem EXEC_012_forbids_noCheck :
     ¬ EXEC_012 exec012_buildNoCheck (RefQFire (N := Nat) (T := Nat)) :=
-  fun h => h.2.2.1 (exec012_ir .one) (by decide) rfl
+  fun h => h.2.2.1.1 (exec012_ir .one) (by decide) rfl
 
 /-- A builder that names the place of the **last** read arc on an input place. -/
 def exec012_buildLast (t : Trans Nat) : Option String :=
@@ -459,7 +485,7 @@ transition it names `a`, not `b`. -/
 @[evidence forbids EXEC_012]
 theorem EXEC_012_forbids_last : ¬ EXEC_012 exec012_buildLast (RefQFire (N := Nat) (T := Nat)) := by
   intro h
-  have := h.2.2.2.1 exec012_ab 1 (by decide) (by decide) rfl
+  have := h.2.2.1.2.1 exec012_ab 1 (by decide) (by decide) rfl
   revert this
   decide
 
@@ -474,7 +500,7 @@ second transition it fails with this message instead of [CORE-030]'s. -/
 @[evidence forbids EXEC_012]
 theorem EXEC_012_forbids_early :
     ¬ EXEC_012 exec012_buildEarly (RefQFire (N := Nat) (T := Nat)) :=
-  fun h => h.2.2.2.2.1 exec012_dup 0 (.inl (by decide)) rfl
+  fun h => h.2.2.1.2.2.1 exec012_dup 0 (.inl (by decide)) rfl
 
 /-- A builder that runs the D15 check **before** the [IO-002]/[IO-004] count checks. -/
 def exec012_buildBeforeCounts (t : Trans Nat) : Option String :=
@@ -490,7 +516,7 @@ check's. -/
 @[evidence forbids EXEC_012]
 theorem EXEC_012_forbids_beforeCounts :
     ¬ EXEC_012 exec012_buildBeforeCounts (RefQFire (N := Nat) (T := Nat)) :=
-  fun h => h.2.2.2.2.1 (exec012_ir (.exactly 0)) 0 (.inr (by decide)) rfl
+  fun h => h.2.2.1.2.2.1 (exec012_ir (.exactly 0)) 0 (.inr (by decide)) rfl
 
 /-- A transition with a read arc and a reset arc on place `0` and no input arc (AC4). -/
 def exec012_rr : Trans Nat := exec012_mk [] [0] [0] none
@@ -511,7 +537,7 @@ it. -/
 @[evidence forbids EXEC_012]
 theorem EXEC_012_forbids_readReset :
     ¬ EXEC_012 exec012_buildReadReset (RefQFire (N := Nat) (T := Nat)) :=
-  fun h => h.2.2.2.2.2 exec012_rr 0 (by decide) rfl
+  fun h => h.2.2.1.2.2.2 exec012_rr 0 (by decide) rfl
 
 /-! ### Mutants: each changes one reading, and a pair tells it apart from EXEC-012 -/
 
@@ -544,7 +570,7 @@ theorem EXEC_012_mutant_preFixReads_killed :
     EXEC_012_mutant_preFixReads exec012_buildNoCheck (exec012_preFixQ (N := Nat) (T := Nat)) ∧
       ¬ EXEC_012 exec012_buildNoCheck (exec012_preFixQ (N := Nat) (T := Nat)) := by
   refine ⟨⟨fun t p δ e hp M M' h => ?_, fun t p δ e hw hp hr M M' h => ?_, fun _ h => h⟩,
-    fun h => h.2.2.1 (exec012_ir .one) (by decide) rfl⟩
+    fun h => h.2.2.1.1 (exec012_ir .one) (by decide) rfl⟩
   · rw [h.2.2.1]
     show (qReadsBag M t.core.reads p).head? = Head M p ∧
       (∀ y ∈ qReadsBag M t.core.reads p, Head M p = some y) ∧
@@ -570,7 +596,7 @@ def EXEC_012_mutant_readConsumes [ToString N] (Build : Trans N → Option String
   (∀ (t : Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)), NoInputRead t →
     ReadArc t p → ¬ ResetArc t p →
     on (fun M M' => Q t M δ e M'), shall (fun M M' => M' p = (M p).drop 1 ++ EmittedTo e p)) ∧
-  exec012_buildLines Build
+  exec012_buildLines Build ∧ exec012_line7 Q
 
 /-- The consuming read kills the mutant: it satisfies it, but `exec012_t` fired from
 `exec012_M` leaves only `21` of the read place's `20, 21`, where EXEC-012 keeps both. -/
@@ -579,7 +605,9 @@ theorem EXEC_012_mutant_readConsumes_killed :
     EXEC_012_mutant_readConsumes refBuild (exec012_consumeQ (N := Nat) (T := Nat)) ∧
       ¬ EXEC_012 refBuild (exec012_consumeQ (N := Nat) (T := Nat)) := by
   refine ⟨⟨exec012_line1_of (fun _ _ _ _ _ h => h.2.2.1),
-    fun t p δ e hw hp hr M M' h => ?_, refBuild_lines⟩, fun h => ?_⟩
+    fun t p δ e hw hp hr M M' h => ?_, refBuild_lines,
+    exec012_line7_of fun _ M _ _ _ h p hp => by
+      rw [h.2.2.1]; exact qDelivered_reads_off M _ hp⟩, fun h => ?_⟩
   · dsimp only at h ⊢
     rw [h.2.2.2, qAppend_apply]
     have hc : qConsume M t p = M p := by
@@ -611,7 +639,7 @@ def EXEC_012_mutant_countOnly [ToString N] (Build : Trans N → Option String)
     ReadArc t p → ¬ ResetArc t p →
     on (fun M M' => Q t M δ e M'), shall (fun M M' =>
       (M' p).length = (M p).length + (EmittedTo e p).length)) ∧
-  exec012_buildLines Build
+  exec012_buildLines Build ∧ exec012_line7 Q
 
 /-- The reversing firing kills the count-only mutant: it keeps every count, but `exec012_t` fired
 from `exec012_M` leaves `21, 20` in the read place, where EXEC-012 keeps the queue order
@@ -621,7 +649,9 @@ theorem EXEC_012_mutant_countOnly_killed :
     EXEC_012_mutant_countOnly refBuild (exec012_reverseQ (N := Nat) (T := Nat)) ∧
       ¬ EXEC_012 refBuild (exec012_reverseQ (N := Nat) (T := Nat)) := by
   refine ⟨⟨exec012_line1_of (fun _ _ _ _ _ h => h.2.2.1),
-    fun t p δ e hw hp hr M M' h => ?_, refBuild_lines⟩, fun h => ?_⟩
+    fun t p δ e hw hp hr M M' h => ?_, refBuild_lines,
+    exec012_line7_of fun _ M _ _ _ h p hp => by
+      rw [h.2.2.1]; exact qDelivered_reads_off M _ hp⟩, fun h => ?_⟩
   · dsimp only at h ⊢
     rw [h.2.2.2, qAppend_apply]
     have hc : qConsume M t p = M p := by
@@ -649,7 +679,7 @@ def EXEC_012_mutant_noCount [ToString N] (Build : Trans N → Option String)
   (∀ (t : Trans N) (p : N) (δ : Delivered N T) (e : List (N × T)), NoInputRead t →
     ReadArc t p → on (fun M M' => Q t M δ e M'), shall (fun M _ =>
       (δ.reads p).head? = Head M p ∧ ∀ y ∈ δ.reads p, Head M p = some y)) ∧
-  exec012_line2 Q ∧ exec012_buildLines Build
+  exec012_line2 Q ∧ exec012_buildLines Build ∧ exec012_line7 Q
 
 /-- The doubling firing kills the mutant: every token it delivers is the head, but `exec012_t`,
 with one read arc on place `1`, gets `20, 20` from `exec012_M` where EXEC-012 hands over one
@@ -659,7 +689,10 @@ theorem EXEC_012_mutant_noCount_killed :
     EXEC_012_mutant_noCount refBuild (exec012_doubleQ (N := Nat) (T := Nat)) ∧
       ¬ EXEC_012 refBuild (exec012_doubleQ (N := Nat) (T := Nat)) := by
   refine ⟨⟨fun t p δ e hw hp M M' h => ?_, fun t p δ e hw hp hr M M' h => ?_,
-    refBuild_lines⟩, fun h => ?_⟩
+    refBuild_lines, exec012_line7_of fun _ M _ _ _ h p hp => by
+      rw [h.2.2.1]
+      show qReads M _ p ++ qReads M _ p = []
+      rw [show qReads M _ p = [] from qDelivered_reads_off M _ hp]; rfl⟩, fun h => ?_⟩
   · rw [h.2.2.1]
     show (qReads M t p ++ qReads M t p).head? = Head M p ∧
       ∀ y ∈ qReads M t p ++ qReads M t p, Head M p = some y
@@ -678,5 +711,35 @@ theorem EXEC_012_mutant_noCount_killed :
     decide
 
 end Mutants
+
+/-! ### Line 7: read tokens only from read places -/
+
+/-- An executor that hands the consumed tokens over as read tokens too: the reference firing, with
+the consumed tokens added to the read ones at every place (Java's and TypeScript's shared
+`rawInput` without the read gate). -/
+def exec012_mergedReads : QFireRel Nat Nat := fun t M δ e M' =>
+  ∃ δ₀, RefQFire t M δ₀ e M' ∧ δ = ⟨δ₀.inputs, fun p => δ₀.reads p ++ δ₀.inputs p⟩
+
+/-- ✗ Handing the consumed tokens over as read tokens violates EXEC-012 (line 7): firing
+`exec012_t` from `exec012_M` delivers `10` as a read token from the input place `0`, which is not
+a read place. -/
+@[evidence forbids EXEC_012]
+theorem EXEC_012_forbids_mergedReads : ¬ EXEC_012 refBuild exec012_mergedReads := by
+  intro h
+  have := h.2.2.2 exec012_t 0 _ exec012_e (by decide) exec012_M
+    (qFire exec012_M exec012_t exec012_e) ⟨_, ⟨by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩, rfl⟩
+  revert this
+  decide
+
+/-- Line 7 on the reference: firing `exec012_t` from `exec012_M` delivers the read token `20` at
+the read place `1` and no read token at the input place `0`, from which it consumes `10`. -/
+@[evidence nonvacuous EXEC_012]
+theorem EXEC_012_nonvacuous_offReads :
+    ¬ ReadArc exec012_t 0 ∧ (qDelivered exec012_M exec012_t).reads 0 = [] ∧
+      (qDelivered exec012_M exec012_t).inputs 0 = [10] ∧
+      (qDelivered exec012_M exec012_t).reads 1 = [20] ∧
+      RefQFire exec012_t exec012_M (qDelivered exec012_M exec012_t) exec012_e
+        (qFire exec012_M exec012_t exec012_e) :=
+  ⟨by decide, by decide, by decide, by decide, ⟨by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩⟩
 
 end Libpetri.Spec

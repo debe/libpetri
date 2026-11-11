@@ -80,7 +80,12 @@ through an inhibitor arc never write [TIME-013]."
 
 `Writes t d p`: the firing of `t` with deposit `d` writes `p`. "Consumes from it" is read as "has
 an input arc on it", as the runtimes mark every input place of a fired transition dirty. The
-timed step of Phase 1 has no injection, so the injection clause is not modelled here. -/
+timed step of Phase 1 has no injection, so the injection clause is not modelled here. The
+executor model has it: `cycWrites` (`Spec/Req/TIME_cycle.lean`) is this term at the grain of the
+executor, where a start writes the input and reset places of its transition, a commit, a timeout
+deposit or a publication the places it deposits into, and an injection the place its token lands
+in; the reference executor ends a reaped state on each of them (`unreap`, ruling D6), and
+TIME-013's companion block states it. -/
 def Writes (t : Trans N) (d : List N) (p : N) : Prop :=
   p ∈ inPlaces t ∨ ResetArc t p ∨ Produced d p
 

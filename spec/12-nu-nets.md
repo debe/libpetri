@@ -1192,7 +1192,7 @@ AC5 on Fig. 12(c) under BASE, and the existing key fixtures for AC7.
   `MatchSpec::relays()`.
 - Python: `match_spec(keys=[(c1, fn), (d1, fn)], relay_to=[(p5, fn)])`; the projection is a Python
   callable, evaluated under the GIL like a key.
-- Export MAY decorate a relay edge like a match input ([EXP-018]); nothing requires it.
+- Export draws the output edge to a relay target as a plain output edge; only the input edges of match keys are decorated ([EXP-018]).
 
 **Fixtures.** The relay nets used for the cross-language script parity ([VER-013] AC1) live in
 `spec/verification-fixtures/nu-relay-fixtures.json`, given inline as rows (transition, inputs,

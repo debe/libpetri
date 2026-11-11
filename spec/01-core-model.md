@@ -25,17 +25,24 @@ A place is a named, typed container that holds tokens. Each place has a string n
 #### CORE-002: Place Identity
 
 **Priority:** MUST
+**Kind:** F
 
-Two places are considered equal if and only if they have the same identity. Identity semantics are implementation-defined (structural equality by name+type, or reference/ID-based equality), but must be consistent within a single implementation.
+Two places are the same place exactly when they have the same identity, and an implementation takes a place's identity from its name, or from its name and its token type. It does so the same way throughout the implementation, and never from the object that represents the place. TypeScript, Rust and Python identify a place by its name. Java identifies a place by its name and its token type; a Java place records its token type as a run-time class, so the type arguments of a generic type are not part of it. In TypeScript and Python the language's own equality of place objects is not this identity: two place objects created separately with one name are two objects and one place.
+
+Two places that are the same place *shall* have the same name.
+
+Two places with the same name and the same token type *shall* be the same place.
+
+An implementation *shall* identify a place either by its name, so that two places with the same name are the same place, or by its name and its token type, so that two places that are the same place have the same token type.
 
 **Acceptance Criteria:**
-1. A place is equal to itself.
-2. Two independently constructed places with different names are never equal.
+1. A place is the same place as itself.
+2. Two independently constructed places with different names are never the same place.
 3. Place identity is stable across the lifetime of a net.
 
-**Note:** The naming convention used by modular composition (`prefix/originalName` per [MOD-010]) means that the *same* logical body place, instantiated under two different prefixes, yields two distinct places by this identity rule — which is exactly what per-instance state isolation per [MOD-012] requires.
+**Note:** The naming convention used by modular composition (`prefix/originalName` per [MOD-010]) means that the *same* logical body place, instantiated under two different prefixes, yields two distinct places by this identity rule, which is exactly what per-instance state isolation per [MOD-012] requires.
 
-**Test derivation:** Create two places with different names; verify inequality. Create one place and reference it twice; verify equality.
+**Test derivation:** Create two places with different names; verify they are different places. Create one place and reference it twice; verify it is the same place. Create two places separately with the same name and token type and build a net whose transitions use both; verify the engine treats them as one place (the compiled net holds one place of that name). Create two places with the same name and different token types; verify the engine treats them as one place in TypeScript, Rust and Python and as two places in Java.
 
 ---
 
@@ -87,14 +94,24 @@ A token is an immutable value object consisting of a typed payload value and a c
 #### CORE-011: Token Creation
 
 **Priority:** MUST
+**Kind:** F
 
-Tokens are created via a factory that captures the current time as the creation timestamp.
+A host creates a token through a factory; a Python host passes values instead, and the Rust runtime it binds creates their tokens. The default factory stamps the token with the current reading of the host's wall clock. It is called from host code, which no executor's clock reaches, so a clock injected into an executor ([TIME-015]) does not change what it stamps. A second factory takes the timestamp as an argument and keeps it as given, without clamping or rounding it, so that a host can create a token that is the same on every replay or restore one from a snapshot ([CORE-073]); this is the construction at an explicit timestamp that [TIME-015] requires. A helper that seeds a token from a clock's reading is this second factory applied to that reading. The canonical unit token ([CORE-012]) carries the timestamp 0, the start of the epoch. A token the executor creates (an action output written as a value, a token injected as a raw value, the unit token of a timeout outcome) is not made by these factories: it is stamped from the executor's epoch clock ([TIME-015] AC13), and a forwarded token keeps its timestamp ([IO-014]). A token an action builds itself through a factory and outputs as a token (Java, TypeScript) keeps that factory's stamp.
+
+*When* a host creates a token from a value through the default factory, the token *shall* hold that value and carry the reading of the host's wall clock at the call as its creation timestamp, whatever clock an executor runs on ([TIME-015]).
+
+*When* a host creates a token from a value and a timestamp through the explicit-timestamp factory, the token *shall* hold that value and carry that timestamp, whatever the clocks read at the call.
+
+*When* a host creates the canonical unit token, the token *shall* hold no value and carry the timestamp 0, whatever the clocks read at the call.
 
 **Acceptance Criteria:**
-1. Creating a token records the current time.
-2. Two tokens created sequentially have non-decreasing timestamps.
+1. Creating a token through the default factory yields a token that holds the given value and records the current reading of the host's wall clock.
+2. While the host's wall clock does not go back, two tokens created one after the other through the default factory have non-decreasing timestamps.
+3. A token created at an explicit timestamp holds the given value and carries that timestamp unchanged, also when the timestamp lies before the epoch or is finer than a millisecond and the implementation's timestamp type can hold it.
+4. The canonical unit token holds no value and carries the timestamp 0.
+5. While an executor runs on an injected clock, a token created through the default factory carries the reading of the host's wall clock, not the injected clock's.
 
-**Test derivation:** Create two tokens in sequence; verify second timestamp >= first.
+**Test derivation:** Read the host's wall clock, create a token through the default factory and read the wall clock again; verify that the token holds the given value and that its timestamp lies between the two readings. Create two tokens in sequence through the default factory; verify second timestamp >= first. Repeat the first step while an executor runs on an injected clock that reads far from the wall clock; verify that the timestamp still lies between the two wall-clock readings. Create tokens at explicit timestamps, including one before the epoch and one finer than a millisecond where the timestamp type can hold them, and the canonical unit token; verify that each token holds its value (no value for the unit token) and carries its timestamp unchanged (0 for the unit token).
 
 ---
 
@@ -170,8 +187,13 @@ Building a transition that has no match specification ([NU-020]) *shall* succeed
 #### CORE-021: Transition Identity
 
 **Priority:** MUST
+**Kind:** F
 
-Each transition instance has a unique identity. Two transition instances are never equal, even if they share the same name.
+Each transition instance, the result of one build call, has a unique identity. Two transitions built by separate build calls are never equal, even if they share the same name. A copy of a built transition (a Rust clone) is the same instance and is equal to it.
+
+*When* two transitions are built by separate build calls, the two built transitions *shall not* be equal, even if they share the same name or were given the same definition.
+
+Every built transition *shall* be equal to itself.
 
 **Acceptance Criteria:**
 1. Two transitions built with the same name are not equal (identity-based, not name-based).
@@ -507,13 +529,26 @@ by another transition's XOR branch (no warning).
 #### CORE-040: Net Builder
 
 **Priority:** MUST
+**Kind:** F
 
 A Petri net is constructed via a builder pattern. The builder accepts places and transitions and produces an immutable net definition.
+
+The sentences below concern a net builder used without composition ([MOD-020], [MOD-025], [MOD-027]) and without fusion sets ([MOD-060], [MOD-061]), which rewrite arcs, drop places or reject at build under their own requirements.
+
+*When* a net is built from transitions, each added once, whose names are pairwise distinct ([TIME-010]), the net *shall* hold exactly the added transitions, in the order they were added, which is the declaration order of its transitions.
+
+*When* a net is built, every declared place, every declared terminal place ([EXEC-042]), every place that an input, inhibitor, read or reset arc of an added transition names and every place in the `allPlaces` set of the output specification of an added transition ([IO-017]) *shall* be a place of the net.
+
+*When* a net is built, the net *shall not* hold any other place, and *shall not* hold a place twice ([CORE-002]).
+
+Building a net that declares no terminal place ([EXEC-042]) *shall* succeed.
+
+Which nets that declare terminal places build, and which terminal places a built net holds, are stated by [EXEC-042].
 
 **Acceptance Criteria:**
 1. Builder can add places and transitions.
 2. `build()` produces an immutable net.
-3. Places referenced by transitions are auto-collected (implementations that auto-collect from arcs SHOULD do so).
+3. Places referenced by transitions are auto-collected from arcs of all five kinds: input, inhibitor, read, reset and the output specification.
 
 **Test derivation:** Build a net with transitions; verify all places from arcs are present in the net.
 
@@ -522,13 +557,19 @@ A Petri net is constructed via a builder pattern. The builder accepts places and
 #### CORE-041: Net Immutability
 
 **Priority:** MUST
+**Kind:** B
 
 After construction, a Petri net definition is immutable. The set of places, transitions, and their connections cannot be modified.
+
+*When* the build call of a net builder used as [CORE-040] describes is made, the call *shall* give the net that [CORE-040] describes, or report the rejection that [EXEC-042] describes, for all the places, transitions and terminal places added to that builder before the call, including those added before an earlier build call.
+
+*When* a net builder used as [CORE-040] describes has built a net and is used again, to add places, transitions or terminal places or to build again, the net it built *shall* keep the places, transitions and terminal places it had when it was built.
 
 **Acceptance Criteria:**
 1. No mutation methods exist on the constructed net.
 2. Collections returned by the net are unmodifiable or copies.
 
+**Depends on:** [CORE-040], [EXEC-042]
 **Test derivation:** Build a net; verify no mutation API exists.
 
 ---
@@ -536,8 +577,23 @@ After construction, a Petri net definition is immutable. The set of places, tran
 #### CORE-042: Action Binding Separation
 
 **Priority:** MUST
+**Kind:** F
 
 The net's static structure (places, transitions, arcs, timing, priority) MUST be separable from the runtime behavior (actions). A `bindActions()` operation takes a structure and a mapping of transition names to actions, producing a new net with actions bound.
+
+*When* actions are bound to a net, in either form, the new net *shall* have the name, the places and the terminal places of the original net and, for each transition of the original net, in the same order, a transition with the same name, arcs, output specification, timing and priority.
+
+*When* actions are bound with a resolver that returns an action for a transition's name, the transition *shall* carry that action in the new net.
+
+*When* actions are bound with a resolver that returns no action (`null`/`None`) for a transition's name, the transition *shall* carry in the new net the action it carried before.
+
+*When* actions are bound with a mapping that maps a transition's name to an action, the transition *shall* carry that action in the new net.
+
+*When* actions are bound with a mapping whose values are actions and that does not map a transition's name, the transition *shall* carry in the new net either the passthrough action or the action it carried before, and an implementation makes the same one of these two choices for every transition, every net and every mapping, so a transition that carried passthrough still carries passthrough.
+
+*When* actions are bound to a net, in either form, a transition that has a match specification ([NU-020]) *shall* have the same match specification in the new net.
+
+Binding actions to a net *shall* return a new net for every net and every resolver or mapping, and *shall* leave the original net unchanged.
 
 **Acceptance Criteria:**
 1. A net can be created with no actions (all transitions use passthrough).
@@ -545,12 +601,14 @@ The net's static structure (places, transitions, arcs, timing, priority) MUST be
 3. The original net is not modified.
 4. Unbound transitions retain the passthrough action.
 
-Binding is lazy and total — it never rejects, so a partially bound net is a legitimate intermediate
+Binding is lazy and total: it never rejects, so a partially bound net is a legitimate intermediate
 value and an action MAY be bound after instantiation ([MOD-031] AC7); the declared structure is
 reconciled against the bound behaviour at compile time ([CORE-043]). **Divergence:** the map form
 substitutes passthrough for every transition the map omits in Java and TypeScript (so a second call
 clobbers the first's bindings) but leaves them untouched in Rust; only the resolver form, where a
 `null`/`None` result defers a transition, binds in stages identically across implementations.
+In Java a mapping may hold a name with a `null` value, and the map form then defers that transition
+as the resolver form does; TypeScript substitutes passthrough for a `null` or `undefined` value.
 
 The same operation exists on a subnet definition ([MOD-051]): `SubnetDef.bindActions` takes the
 same argument forms, keyed by the definition's unprefixed transition names, treats unnamed
@@ -563,6 +621,7 @@ transitions exactly as the net-level form does in the same language, and returns
 #### CORE-043: Output-Declaring Transitions Must Produce
 
 **Priority:** MUST
+**Kind:** F
 
 A transition that declares an output spec MUST NOT carry the built-in passthrough action
 ([CORE-051]) in a net submitted for execution: compiling *or verifying* such a net MUST fail.
@@ -573,16 +632,24 @@ binding on a subnet definition ([MOD-051]), per-instance binding ([MOD-030]) and
 
 Such a transition can never fire usefully: passthrough produces no tokens while [IO-015] requires
 every declared branch, so each firing consumes its input and the declared output never arrives.
-Verification does not compensate — state-class and SMT analysis read production from the `Arc.Out`
+Verification does not compensate: state-class and SMT analysis read production from the `Arc.Out`
 spec, never from the bound action. The rule is unconditional: under an opt-out from per-firing
 output validation the firing may succeed, but the net stays structurally incoherent.
 
+*If* a net holds a transition that declares an output spec, a `Timeout`-only spec included, and carries the built-in passthrough action ([CORE-051]), whether bound explicitly, carried because a `bindActions` mapping omitted it ([CORE-042]), or left in place as the builder default, *then* compiling the net *shall* fail with an error that names the first such transition in declaration order.
+
+*If* no transition of a net both declares an output spec and carries the built-in passthrough action, *then* compiling the net *shall not* fail under this requirement.
+
+*If* a transition declares no output spec, or carries an action other than the built-in passthrough, a `fork()` action ([CORE-052]) or a hand-written action that produces nothing included, *then* compiling the net *shall not* fail under this requirement naming that transition.
+
+*When* a net is submitted to a verification entry point (state-class graph or SMT), under any property and option the entry point accepts, the entry point *shall* fail under this requirement exactly when compiling the submitted net does, with an error that names the same transition.
+
 **Acceptance Criteria:**
-1. Compiling a net errors when a transition with a non-empty output spec carries passthrough — bound explicitly, substituted because a `bindActions` mapping omitted it, or left in place as the builder default — including a `Timeout`-only spec, whose executor-produced `ForwardInput` branch ([IO-014]) passthrough can never reach.
-2. The error names the offending transition.
+1. Compiling a net errors when a transition with a non-empty output spec carries passthrough (bound explicitly, carried because a `bindActions` mapping omitted it, or left in place as the builder default), including a `Timeout`-only spec, whose executor-produced `ForwardInput` branch ([IO-014]) passthrough can never reach.
+2. The error names the offending transition, the first one in declaration order when there are several.
 3. Submitting the same net to a verification entry point (state-class graph or SMT) fails the same way, so verification cannot green-light a net that will not compile.
 4. A transition that declares no output spec (a sink) may carry passthrough; [CORE-042] is untouched.
-5. The built-in is recognised by identity, so a hand-written action that happens to produce nothing is not claimed — that stays [IO-015]'s business at run time.
+5. The built-in is recognised by identity, so a hand-written action that happens to produce nothing is not claimed; that stays [IO-015]'s business at run time.
 
 **Test derivation:** Compile a net whose transition declares `Out.place(P)` and carries the builder default, then with passthrough bound explicitly, then omitted from a `bindActions` mapping, then declaring `Out.timeout(d, Out.forwardInput(P, Q))`; verify each is rejected naming the transition, and that a sink, a `fork()`-bound transition and a hand-written no-op all compile.
 Verify the same rejection at the state-class-graph and SMT entry points.
@@ -594,8 +661,15 @@ Verify the same rejection at the state-class-graph and SMT entry points.
 #### CORE-050: Transition Action
 
 **Priority:** MUST
+**Kind:** B
 
 A transition action is an asynchronous function that receives a transition context and produces output tokens. The action signature returns a future/promise that resolves when the action completes.
+
+*When* a transition fires, its action *shall* receive a transition context holding the tokens the firing consumed from each input place and the tokens its read arcs read ([EXEC-010], [EXEC-012]).
+
+*When* a firing ends with the completion of its action, the firing *shall* deposit exactly the output tokens the action completed with, whether the action wrote them through the context or returned them.
+
+*If* the executor admits the completion of a firing's action ([EXEC-020]), the transition has no match specification ([NU-020]) and the output tokens fill one output branch ([IO-015]), *then* the firing *shall* end with that completion.
 
 **Acceptance Criteria:**
 1. Action receives a context with consumed input tokens and read token values.
@@ -609,12 +683,21 @@ A transition action is an asynchronous function that receives a transition conte
 #### CORE-051: Passthrough Action
 
 **Priority:** MUST
+**Kind:** F
 
 A built-in passthrough action that consumes input tokens and produces no output tokens. This is the default action for transitions without explicitly bound actions.
 
-The built-in MUST be recognisable by identity — a stable singleton rather than a fresh closure per
-call — so that [CORE-043] can reject a net pairing it with a declared output spec without claiming
+The built-in MUST be recognisable by identity, a stable singleton rather than a fresh closure per
+call, so that [CORE-043] can reject a net pairing it with a declared output spec without claiming
 a user-supplied action that happens to produce nothing.
+
+*When* a transition fires under the built-in passthrough action, the action *shall* complete with no output token and *shall not* fail.
+
+The identity predicate *shall* accept the built-in passthrough action and reject every other action, including `fork()` ([CORE-052]) and a hand-written action that produces no token.
+
+*When* a transition is built without an action, the built transition *shall* carry the built-in passthrough action.
+
+Every retrieval of the built-in passthrough action *shall* yield the same instance, which the identity predicate accepts.
 
 **Acceptance Criteria:**
 1. Passthrough action completes immediately.
@@ -628,13 +711,25 @@ a user-supplied action that happens to produce nothing.
 #### CORE-052: Fork Action
 
 **Priority:** SHOULD
+**Kind:** F
 
 A built-in fork action that copies a single input token value to all declared output places.
 
+*When* the fork action runs for a transition with exactly one input place and the firing consumed exactly one token from that place, the action *shall* complete with one token carrying that token's value in every place the output spec names and with no token in any other place.
+
+*If* the transition does not have exactly one input place, *then* the fork action *shall* fail.
+
+*When* the firing consumed two or more tokens from the single input place, the fork action *shall* either fail or complete with one token carrying the oldest consumed token's value in every place the output spec names and with no token in any other place.
+
+**Divergence:** when the firing consumed two or more tokens from the single input place, the fork action copies the oldest consumed token to every output place in Java, Rust and Python and fails in TypeScript.
+
+**Note:** The fork action writes every place the output spec names, so on an output spec `Xor(a, b)` with two different places it writes both, and an executor with output validation enabled rejects its completion ([IO-015], [EXEC-021]).
+
 **Acceptance Criteria:**
 1. Requires exactly one input place.
-2. Produces the input value to all output places.
-3. Throws/errors if more than one input place is declared.
+2. Produces exactly one token carrying the input value in each output place, and no token in any other place.
+3. Throws/errors if the transition does not declare exactly one input place (none, or more than one).
+4. When the firing consumed two or more tokens from the single input place, either fails or produces the oldest consumed token's value as in criterion 2.
 
 **Test derivation:** Fork action with 1 input and 3 outputs; verify all 3 receive the same value.
 
@@ -643,8 +738,15 @@ A built-in fork action that copies a single input token value to all declared ou
 #### CORE-053: Transform Action
 
 **Priority:** SHOULD
+**Kind:** F
 
 A built-in transform action that applies a user-provided function to the context, then copies the result to all output places.
+
+*When* a transition fires under the transform action, the action *shall* call its function with the transition context of that firing, and *shall* complete or fail with the outcome of one such call.
+
+*When* the function returns a value, the transform action *shall* complete with the output tokens the function wrote through the context, followed in every place the output spec names by one token carrying that value.
+
+**Note:** The places the output spec names include every branch of an `Xor` and the child of a `Timeout`, and the transform action puts one copy in each. On an output spec with an `Xor`, that completion fills more than one branch, so output validation ([IO-015]) rejects it.
 
 **Acceptance Criteria:**
 1. Function receives the transition context.
@@ -657,8 +759,13 @@ A built-in transform action that applies a user-provided function to the context
 #### CORE-054: Produce Action
 
 **Priority:** SHOULD
+**Kind:** F
 
 A built-in action that produces a fixed value to a specified output place.
+
+*When* the built-in produce action of a place and a value runs on a transition whose output spec names that place, the action *shall* complete with exactly one output token, which carries that value and goes to that place, and with no output token in any other place.
+
+*If* the built-in produce action of a place and a value runs on a transition whose output spec does not name that place, *then* the action *shall* fail.
 
 **Acceptance Criteria:**
 1. The specified place receives a token with the fixed value.
@@ -672,8 +779,19 @@ A built-in action that produces a fixed value to a specified output place.
 #### CORE-060: Context Input Access
 
 **Priority:** MUST
+**Kind:** F
 
 The transition context provides access to consumed input token values. Actions can retrieve single values or lists of values from declared input places.
+
+*When* an action calls `inputs(place)` on an input place of its transition, the call *shall* return the values of the tokens the firing consumed from that place, in the order the firing consumed them ([EXEC-010]).
+
+*When* an action calls `input(place)` on an input place from which the firing consumed exactly one token, the call *shall* return the value of that token.
+
+*Where* the transition context gives access to tokens (Java, TypeScript), *when* an action calls `inputToken(place)` on an input place from which the firing consumed exactly one token, the call *shall* return that token, with its creation timestamp.
+
+*If* an action calls `inputs(place)`, `input(place)` or `inputToken(place)` (where it exists) on a place that does not resolve to an input place of its transition ([MOD-031]), *then* the call *shall* report an error ([CORE-063]).
+
+What `input(place)` and `inputToken(place)` return when the firing consumed more than one token from the place is not specified; an action reads a batch with `inputs(place)`.
 
 **Acceptance Criteria:**
 1. `input(place)` returns the single consumed value.
@@ -681,7 +799,7 @@ The transition context provides access to consumed input token values. Actions c
 3. `inputToken(place)` returns the token with metadata (including timestamp).
 4. Accessing an undeclared input place results in an error.
 
-**Depends on:** [CORE-050]
+**Depends on:** [CORE-050], [EXEC-010]
 **Test derivation:** Fire transition consuming 3 tokens; verify `inputs()` returns 3 values.
 
 ---
@@ -689,14 +807,21 @@ The transition context provides access to consumed input token values. Actions c
 #### CORE-061: Context Read Access
 
 **Priority:** MUST
+**Kind:** F
 
 The transition context provides access to read (non-consumed) token values from declared read places.
+
+*When* an action calls `read(place)` on a read place of its transition, the call *shall* return the value of the token the read arc read from that place, the oldest token the place holds ([EXEC-012]).
+
+The call consumes nothing: by [EXEC-012] the firing leaves the read token in the place, unless the transition also has a reset arc there, which drains the place ([EXEC-013]).
+
+*If* an action calls `read(place)` on a place that does not resolve to a read place of its transition ([MOD-031]), *then* the call *shall* report an error, also when the place is an input place of the transition.
 
 **Acceptance Criteria:**
 1. `read(place)` returns the read value without consuming it.
 2. Accessing an undeclared read place results in an error.
 
-**Depends on:** [CORE-032]
+**Depends on:** [CORE-032], [EXEC-012], [EXEC-013]
 **Test derivation:** Fire transition with read arc; verify `read()` returns value; verify token still in place.
 
 ---
@@ -704,17 +829,28 @@ The transition context provides access to read (non-consumed) token values from 
 #### CORE-062: Context Output Access
 
 **Priority:** MUST
+**Kind:** F
 
-The transition context provides a way for actions to declare output tokens for production, supporting both single-token and bulk-token forms on the same method.
+The transition context provides a way for actions to declare output tokens for production, in a single-token form and a bulk-token form.
+
+*When* an action calls `output(place, value)` on an output place of its transition, the call *shall* declare one token carrying `value` on that place, after every token the action declared before.
+
+*When* an action calls the bulk form with a sequence of values on an output place of its transition, the call *shall* declare one token per value on that place, in the order of the sequence, after every token the action declared before.
+
+*When* an action calls the bulk form with no values on an output place of its transition, the call *shall* declare no token and return successfully.
+
+*If* an action calls `output(place, value)` or the bulk form on a place that does not resolve to an output place of its transition ([MOD-031]), *then* the call *shall* report an error and declare no token, also when it passes no values ([CORE-063]).
+
+These four sentences do not govern an output call made after the firing has ended with the timeout outcome ([IO-013]); such a call declares no token that the firing deposits.
 
 **Acceptance Criteria:**
 1. `output(place, value)` declares a single token to produce on the given output place.
-2. A bulk form accepting multiple values for the same output place in one call is available and produces one token per value in iteration order. Language shapes: Java varargs `output(Place<T>, T...)` plus `output(Place<T>, Iterable<? extends T>)`; TypeScript rest parameters `output<T>(place, ...values: T[])`; Rust `output_many<T>(place_name, impl IntoIterator<Item = T>)`.
+2. A bulk form accepting multiple values for the same output place in one call is available and produces one token per value in iteration order. Language shapes: Java varargs `output(Place<T>, T...)` plus `output(Place<T>, Iterable<? extends T>)`; TypeScript rest parameters `output<T>(place, ...values: T[])`; Rust `output_many<T>(place_name, impl IntoIterator<Item = T>)`; Python `output_many(place_name, values)` over any iterable.
 3. The bulk form validates the output place exactly once and reports an error **before** appending any tokens if the place is not declared, so undeclared-place errors do not leave partial output behind.
-4. An empty bulk call (zero values) is a no-op and returns successfully.
+4. An empty bulk call (zero values) on a declared output place is a no-op and returns successfully.
 5. Producing to an undeclared output place results in an error.
 
-**Depends on:** [CORE-035]
+**Depends on:** [CORE-035], [IO-013], [IO-017]
 **Test derivation:** Action calls `output(place, value)`; verify token appears in place after firing. Bulk form: action calls the bulk overload with three values; verify all three tokens appear in order. Bulk-undeclared: call bulk overload with a foreign place; verify error raised and no tokens appended.
 
 ---
@@ -722,14 +858,28 @@ The transition context provides a way for actions to declare output tokens for p
 #### CORE-063: Context Structure Enforcement
 
 **Priority:** MUST
+**Kind:** F
 
 The transition context enforces that actions can only access places declared in the transition's structure. Attempting to access an undeclared place (input, read, or output) results in an error.
+
+*If* an action calls an input accessor (`inputs(place)`, `input(place)` or, where it exists, `inputToken(place)`) on a place that does not resolve to an input place of its transition ([MOD-031]), *then* the call *shall* report an error.
+
+*If* an action calls `read(place)` on a place that does not resolve to a read place of its transition ([MOD-031]), *then* the call *shall* report an error, also when the place is an input place of the transition.
+
+*If* an action calls `output(place, ...)`, in its single or its bulk form, on a place that does not resolve to an output place of its transition ([MOD-031]), *then* the call *shall* report an error and declare no token, also when it passes no values.
+
+Every executor hands an action consumed tokens only from the input places of its transition ([EXEC-010]) and read tokens only from its read places ([EXEC-012]).
+
+The plural accessors some languages add, such as `reads(place)` and Java's `inputTokens(place)`, are not named by these rules; each implementation guards them with the check of the singular accessor of the same kind.
+
+These rules govern the calls an action makes through its transition context; a token that reaches the executor without passing through the context is the subject of [CORE-072] AC3.
 
 **Acceptance Criteria:**
 1. Accessing undeclared input → error.
 2. Accessing undeclared read → error.
 3. Producing to undeclared output → error.
 
+**Depends on:** [CORE-060], [CORE-061], [CORE-062]
 **Test derivation:** Create context with restricted place sets; attempt out-of-bounds access; verify errors.
 
 ---
@@ -813,7 +963,11 @@ An executor can be initialized with an initial marking that pre-populates places
    marking (inert — no arc can reference them — but never silently dropped).
    This holds for every backend regardless of its internal token storage; the
    same retention applies to any token reaching a backend for an uncompiled
-   place through production or injection seams. Verification models such a place
+   place through production or injection seams. A transition context never
+   produces to such a place, because an output call on a place the transition does
+   not declare as an output reports an error ([CORE-063]); the production seam is
+   reached only by a token that bypasses the context, such as the internal raw
+   output collector (`rawOutput()`) of Java and TypeScript. Verification models such a place
    the same way, as a place with no arcs whose tokens stay ([VER-001]).
 4. An implementation SHOULD surface the first write to an undeclared place as an
    observable diagnostic, emitted as the existing log-message event ([EVT-013]) —
@@ -833,10 +987,31 @@ An executor can be initialized with an initial marking that pre-populates places
 #### CORE-073: Marking Snapshot and Restore
 
 **Priority:** MUST
+**Kind:** F
 
 A marking can be captured as a structured snapshot that preserves, for every token, both its
 value and its `created_at` timestamp, and restored as the initial marking of a new execution
 (a "resume").
+
+*When* a snapshot of a marking is restored, the restored marking *shall* hold on every place exactly the tokens the marking held there, in the same FIFO order, each token unchanged in its value and its `created_at`.
+
+A snapshot an implementation returns to the host *shall* list its places in strictly ascending code-point order of the place name and *shall not* list a place that holds no token.
+
+*When* a snapshot whose place names are pairwise distinct is restored, the restored marking *shall* hold on each place the snapshot names exactly the tokens of that place's entry, in their order, whatever the place name and whether or not the receiving net declares the place.
+
+*When* a snapshot whose place names are pairwise distinct is restored, the restored marking *shall* hold no token on a place the snapshot does not name.
+
+*If* an executor is constructed with a restored marking together with an explicit initial marking that holds a token, *then* the construction *shall* fail with an error to the caller, and the executor *shall not* merge the two markings or keep either one.
+
+*When* an executor is constructed with a restored marking together with an explicit initial marking that names no place, the executor's initial marking *shall* be the restored marking.
+
+*When* an executor is constructed with a restored marking together with an explicit initial marking that holds no token and the construction succeeds, the executor's initial marking *shall* be the restored marking.
+
+*When* a restored marking seeds a new executor, each restored token *shall* keep its value and its `created_at`, whatever the executor's epoch clock ([TIME-015]).
+
+*When* a restored marking seeds a new executor, that executor's initial marking *shall* hold on every place the token count the restored marking holds there, whether or not the net declares the place ([CORE-072]).
+
+*When* execution resumes from a restored marking, each transition of the net that the restored marking enables *shall* be armed with the firing clock's reading at that moment as its stamp, so that its elapsed time starts at 0 whatever the `created_at` of the restored tokens ([TIME-010]).
 
 **The snapshot form is normative, because four implementations inventing four shapes is the whole
 problem this requirement exists to prevent.** A snapshot is a mapping from **place name** to an
@@ -897,10 +1072,15 @@ fail a run over it. Whether such a net may be *built* at all is [MOD-024]'s ques
 changed here.
 
 **A restore and an initial marking are two descriptions of one thing.** Where an executor accepts
-both a restored marking and an explicit initial marking, supplying both MUST be **rejected** rather
-than resolved. Merging them invents a state neither caller described; preferring either silently
+both a restored marking and an explicit initial marking, supplying a restored marking together with
+an explicit initial marking that holds a token MUST be **rejected** rather than resolved. Merging them invents a state neither caller described; preferring either silently
 discards the other's tokens, and the caller who supplied the discarded one has no way to find out.
-Rejecting costs one error at construction and removes a class of silent loss.
+Rejecting costs one error at construction and removes a class of silent loss. An explicit initial
+marking that names no place describes nothing and is accepted alongside a restore; whether one that
+names places but holds no token is rejected as well is left to the implementation, but one that is
+accepted seeds the restored marking, since it holds no token to keep. An executor whose only
+initial marking is the restored marking itself has no second input, and the rule does not apply
+to it.
 
 **Place order is not semantic, but it MUST be canonical.** The form is a *mapping*, so a restore
 MUST NOT depend on the order places appear in. But a host persists a snapshot, and the moment it
@@ -986,7 +1166,8 @@ seeds a new execution with every clock at zero — a different initial state, no
 class of the original graph — so a timed property proved for the original run says nothing about
 the resumed one. Re-verifying with the restored marking as the initial marking covers the resumed
 segment exactly. An untimed proof ([VER-004]) is unaffected: it is clock-blind, and a restored
-marking that came from a real run is reachable by construction. That last clause does not hold for
+marking that came from a real run, taken at a moment with no work in flight ([ENV-014]), is
+reachable by construction. That last clause does not hold for
 a hand-authored marking no run produced.
 
 **Acceptance Criteria:**
@@ -994,8 +1175,9 @@ a hand-authored marking no run produced.
 2. A restored marking pre-populates places exactly like any other initial marking ([CORE-072]).
 3. A `Delayed` / `Window` transition enabled by restored tokens waits its full interval measured
    from the resuming executor's enablement, regardless of how old the tokens' `created_at` is.
-4. A `Deadline(d)` transition enabled by restored tokens is reaped `d` after the **resuming**
-   executor's enablement, not `d` after the original enablement: the original hard bound does
+4. A `Deadline(d)` transition enabled by restored tokens is reaped once its elapsed time, measured
+   from the stamp the **resuming** executor gave it, is strictly greater than `d` plus the deadline
+   tolerance ([TIME-013]), not measured from the original enablement: the original hard bound does
    not survive the restore, and no `TransitionTimedOut` is emitted for the elapsed original
    budget.
 5. Restoring the same marking repeatedly at an interval shorter than `d` never fires its
@@ -1016,16 +1198,19 @@ a hand-authored marking no run produced.
     the name had to be resolved against the receiving net. Where that resolution is ambiguous
     because two of the places share one name, the snapshot and the restore are rejected to the
     caller rather than resolved in favour of either.
-11. **Both is an error.** Constructing an executor with a restored marking *and* a non-empty
-    explicit initial marking is rejected, not merged and not silently resolved in favour of either.
+11. **Both is an error.** Constructing an executor with a restored marking *and* an explicit
+    initial marking that holds a token is rejected, not merged and not silently resolved in favour
+    of either; an explicit initial marking that names no place is accepted, and an executor
+    constructed with a restore always starts from the restored marking.
 12. **Canonical place order where the medium is ordered.** Snapshotting the same marking twice
     yields the same place order; a restore is unaffected by presenting the places in any other
     order; and the order is ascending code-point order of the place name, so two implementations
     snapshotting the same marking agree key for key — including for a place name above U+FFFF,
     which is where a UTF-16 sort diverges.
 
-**Depends on:** [CORE-010], [CORE-011], [CORE-013], [CORE-072], [TIME-010], [TIME-011], [TIME-015],
-[EVT-009], [IO-013], [MOD-024], [VER-004], [VER-010], [VER-013]
+**Depends on:** [CORE-010], [CORE-011], [CORE-013], [CORE-072], [TIME-010], [TIME-011], [TIME-013],
+[TIME-015], [ENV-014], [EVT-009], [EVT-014], [EVT-025], [IO-013], [MOD-024], [NU-022], [VER-004],
+[VER-010], [VER-013]
 **Implementation status:** Implemented in all four. **Java** (`Marking.snapshot()` /
 `fromSnapshot(snapshot, places)`, the second argument forced by [MOD-024] structural place
 equality; two same-named places are rejected by `fromSnapshot`, by the executor's `snapshot()` and

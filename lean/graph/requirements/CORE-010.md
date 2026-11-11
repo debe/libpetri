@@ -13,47 +13,47 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_010.lean"]
-    n3496["Libpetri.Spec.CORE_010"]
-    n3515["Libpetri.Spec.CORE_010_of_EXEC"]
+    n4302["Libpetri.Spec.CORE_010"]
+    n4321["Libpetri.Spec.CORE_010_of_EXEC"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
-  c76["📁 Libpetri/Reference/Queue.lean (7 declarations, collapsed)"]
-  c78["📁 Libpetri/Reference/Semantics.lean (15 declarations, collapsed)"]
-  c104["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
-  c105["📁 Libpetri/Spec/Glossary.lean (12 declarations, collapsed)"]
-  c111["📁 Libpetri/Spec/GlossaryQueue.lean (8 declarations, collapsed)"]
-  c137["📁 Libpetri/Spec/Req/EXEC_010.lean (1 declarations, collapsed)"]
-  c138["📁 Libpetri/Spec/Req/EXEC_012.lean (1 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/Req/EXEC_013.lean (1 declarations, collapsed)"]
-  c140["📁 Libpetri/Spec/Req/EXEC_020.lean (1 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Queue.lean (7 declarations, collapsed)"]
+  c83["📁 Libpetri/Reference/Semantics.lean (15 declarations, collapsed)"]
+  c114["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
+  c115["📁 Libpetri/Spec/Glossary.lean (12 declarations, collapsed)"]
+  c124["📁 Libpetri/Spec/GlossaryQueue.lean (8 declarations, collapsed)"]
+  c196["📁 Libpetri/Spec/Req/EXEC_010.lean (1 declarations, collapsed)"]
+  c197["📁 Libpetri/Spec/Req/EXEC_012.lean (1 declarations, collapsed)"]
+  c198["📁 Libpetri/Spec/Req/EXEC_013.lean (1 declarations, collapsed)"]
+  c199["📁 Libpetri/Spec/Req/EXEC_020.lean (1 declarations, collapsed)"]
   c54 --> c0
-  c76 --> c78
-  c78 --> c28
-  c78 --> c54
-  c105 --> c78
-  c111 --> c76
-  c111 --> c105
-  c137 --> c104
-  c137 --> c111
-  c138 --> c104
-  c138 --> c111
-  c139 --> c104
-  c139 --> c111
-  c140 --> c111
-  n3496 --> c104
-  n3496 --> c111
-  n3515 --> c137
-  n3515 --> c138
-  n3515 --> c139
-  n3515 --> c140
-  n3515 --> n3496
+  c80 --> c83
+  c83 --> c28
+  c83 --> c54
+  c115 --> c83
+  c124 --> c80
+  c124 --> c115
+  c196 --> c114
+  c196 --> c124
+  c197 --> c114
+  c197 --> c124
+  c198 --> c114
+  c198 --> c124
+  c199 --> c124
+  n4302 --> c114
+  n4302 --> c124
+  n4321 --> c196
+  n4321 --> c197
+  n4321 --> c198
+  n4321 --> c199
+  n4321 --> n4302
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n3515 root
-  class c0,c28,c54,c76,c78,c104,c105,c111,c137,c138,c139,c140 collapsed
+  class n4321 root
+  class c0,c28,c54,c80,c83,c114,c115,c124,c196,c197,c198,c199 collapsed
 ```
 
 Axioms used:

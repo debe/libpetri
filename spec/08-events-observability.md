@@ -309,32 +309,48 @@ the implementation's default map is randomised per process — and compare the o
 #### EVT-020: EventStore Interface
 
 **Priority:** MUST
+**Kind:** F
 
 The event store provides:
 - `append(event)` — thread-safe event addition
-- `events()` — snapshot of all events
+- `events()` — a subsequence of the appended events, in append order
 - `isEnabled()` — whether event capture is active
+
+The list `events()` returns *shall* be a subsequence of the events appended to the store: only appended events, in the order they were appended, each append at most once. A store that keeps token payloads only for some places (the Python binding's `capture_tokens` filter) is compared with the appended events after the same payloads are removed from them. Which appended events the list leaves out, and whether it is a copy or a live view of the store, is up to each store ([EVT-021], [EVT-022], [EVT-024]).
+
+Events reach a store through the executor, which appends them only while the store reports itself as enabled (`isEnabled()` returns true; in Rust, the store type's `ENABLED` constant is true).
 
 **Acceptance Criteria:**
 1. append() is safe to call from any thread.
-2. events() returns a consistent snapshot.
-3. isEnabled() controls whether the executor creates event objects.
+2. events() returns a subsequence of the appended events, in append order; whether that list is a copy or a live view is not specified.
+3. isEnabled() controls whether the executor appends events to the store.
 
-**Test derivation:** Append events from multiple threads; verify events() returns all of them.
+**Test derivation:** Append events from multiple threads; verify events() returns only appended events, each at most once, in the order the appends took effect (on the in-memory store, all of them, [EVT-021]).
 
 ---
 
 #### EVT-021: InMemoryEventStore
 
 **Priority:** MUST
+**Kind:** F
 
-A thread-safe in-memory event store that retains all events in chronological order.
+A thread-safe in-memory event store that retains all events in the order they were appended.
+
+A new in-memory event store *shall* return no event from `events()`.
+
+*When* an event is appended to the in-memory event store, a call of `events()` made right after the append *shall* return the events that a call made right before the append returns, with that event added at the end.
+
+*Where* the in-memory event store provides `clear()`, a call of `events()` made right after `clear()` *shall* return no event.
+
+The in-memory event store *shall* report itself as enabled, so that an executor appends every event it emits to it (see [EVT-020]): `isEnabled()` returns true in Java and TypeScript, the store type's `ENABLED` constant is true in Rust, and the Python binding's store is written through a Rust store whose `ENABLED` constant is true.
+
+A call of `events()` changes nothing that a later call of `events()` returns, so the sentences above speak of what a call returns after the appends and clears made so far.
 
 **Acceptance Criteria:**
 1. Events are stored in insertion order.
 2. Thread-safe append (concurrent callers do not lose events).
-3. events() returns a snapshot copy (not a live reference).
-4. Provides clear() for test reuse.
+3. events() returns the events appended since the last clear() (every appended event where the store has no clear()), in the order they were appended; what a returned list shows after later operations, whether it is a copy or a live view, is not specified.
+4. Where the store provides clear() (TypeScript; in Java only on the package-private InMemoryEventStore class, which EventStore.inMemory() returns as the EventStore interface), clear() empties it for test reuse.
 
 **Test derivation:** Append 100 events; verify events() returns 100 in order.
 
@@ -343,8 +359,15 @@ A thread-safe in-memory event store that retains all events in chronological ord
 #### EVT-022: NoopEventStore
 
 **Priority:** MUST
+**Kind:** F
 
 A zero-cost event store that discards all events. When used, the executor skips event object creation entirely.
+
+The noop event store *shall* return no event from `events()`, whatever was appended to it, and the list it returns *shall* stay empty whatever is appended to it later.
+
+*When* an event is appended to the noop event store, the store *shall* discard it.
+
+The noop event store *shall* report itself as not enabled (`isEnabled()` returns false; in Rust, the store type's `ENABLED` constant is false).
 
 **Acceptance Criteria:**
 1. append() is a no-op.
@@ -359,20 +382,39 @@ A zero-cost event store that discards all events. When used, the executor skips 
 #### EVT-023: LoggingEventStore
 
 **Priority:** SHOULD
+**Kind:** F
 
 An event store decorator that logs events to the platform's logging framework at appropriate levels before delegating to a wrapped store.
 
+*When* an event is appended to the logging event store, the store *shall* log the event once, at the level of the event's kind, *shall* then pass the event once to the wrapped store, and *shall* log no other record and pass no other event, whatever store it wraps.
+
+The logging event store *shall* make the logging call of an event whenever the logging framework has the call's level enabled, and *may* skip the call when the framework has that level disabled.
+
+The logging event store *shall* log TransitionFailed, TransitionTimedOut and ActionTimedOut events at WARN level.
+
+The logging event store *shall* log ExecutionStarted and ExecutionCompleted events at INFO level.
+
+The logging event store *shall* log TransitionEnabled, TransitionClockRestarted, TransitionStarted and TransitionCompleted events at DEBUG level.
+
+The logging event store *shall* log TokenAdded, TokenRemoved, MarkingSnapshot and LogMessage events at TRACE level.
+
+The logging event store *shall* return from `events()` what the wrapped store returns.
+
+The logging event store *shall* report itself as enabled, whatever the wrapped store reports (`isEnabled()` returns true).
+
 **Acceptance Criteria:**
-1. Failure events logged at WARN level.
-2. Lifecycle events logged at INFO level.
-3. Transition events logged at DEBUG level.
-4. Token events logged at TRACE level.
-5. Delegates to wrapped store after logging.
+1. Failure events (TransitionFailed, TransitionTimedOut, ActionTimedOut) logged at WARN level.
+2. Lifecycle events (ExecutionStarted, ExecutionCompleted) logged at INFO level.
+3. The other transition events (TransitionEnabled, TransitionClockRestarted, TransitionStarted, TransitionCompleted) logged at DEBUG level.
+4. Token events (TokenAdded, TokenRemoved), MarkingSnapshot and LogMessage logged at TRACE level.
+5. Delegates to wrapped store after logging; `events()` returns the wrapped store's events.
+6. Reports itself as enabled whatever store it wraps.
 
 **Implementation notes:**
-- Java: Full implementation with SLF4J
+- Java: Full implementation with `java.lang.System.Logger`
 - TypeScript: Not implemented
 - Rust: Not implemented
+- Python: Not implemented
 
 **Test derivation:** Run net with logging store; verify log output at correct levels.
 
@@ -381,14 +423,27 @@ An event store decorator that logs events to the platform's logging framework at
 #### EVT-024: DebugEventStore
 
 **Priority:** SHOULD
+**Kind:** F
 
 An event store with live tailing support for debug UIs. Supports:
 - Subscriptions (consumers notified of new events)
 - Capacity management (eviction of old events)
 - Session tracking
 
+A debug event store has a capacity: a positive number of events, 10,000 unless the caller gives another. A debug event store is open until its `close()` is called.
+
+*When* events have been appended to a debug event store one after the other, a call of `events()` *shall* return the newest of them, as many as the store's capacity allows, in the order they were appended.
+
+*When* an event is appended to an open debug event store, the append *shall* complete without waiting for any subscriber to receive the event.
+
+Each subscriber of a debug event store *shall* receive only events appended to the store, each at most once and, for appends that do not overlap in time, in the order they were appended. A subscriber may receive an event after the append that added it has returned.
+
+*While* a debug event store is open, a caller *shall* be able to add a further subscriber, whatever subscribers the store already has.
+
+*While* a debug event store is open, each subscriber that has not cancelled its subscription *shall* still be able to receive every event appended since it subscribed, whatever the other subscribers have received.
+
 **Acceptance Criteria:**
-1. Subscribers receive new events in FIFO order.
+1. While the store is open, each subscriber that has not cancelled can receive the events appended since it subscribed, each at most once and, for appends that do not overlap in time, in the order they were appended.
 2. Old events are evicted when capacity is exceeded.
 3. Multiple subscribers can be active simultaneously.
 
@@ -404,6 +459,7 @@ An event store with live tailing support for debug UIs. Supports:
 #### EVT-025: Session Archive Format
 
 **Priority:** SHOULD
+**Kind:** F
 
 Completed debug sessions can be serialized to a length-prefixed compressed archive (LZ4
 for Java, gzip for TypeScript and Rust) for later replay. The archive has a versioned
@@ -412,7 +468,7 @@ header followed by one length-prefixed JSON record per event.
 Three header versions exist; readers MUST accept all three and dispatch into the matching
 sealed variant (`V1`/`V2`/`V3`) so callers can pattern-match on writer guarantees.
 
-**Header format** (identical across languages):
+**Header format** (the same field names and JSON types in every language; the encoding of time values differs, see below):
 
 | Header | First shipped | Adds over previous |
 |---|---|---|
@@ -423,8 +479,13 @@ sealed variant (`V1`/`V2`/`V3`) so callers can pattern-match on writer guarantee
 **Event body format** (per-language, because each implementation serializes its
 own event shape — Java serializes the `NetEvent` record directly, TypeScript and Rust
 serialize a `NetEventInfo` debug-protocol projection). Archive bodies are therefore not
-byte-compatible across languages — only headers are. All languages agree on *semantic*
-content, not wire layout.
+byte-compatible across languages, and neither are whole archives: Java compresses with LZ4 and
+the others with gzip, and every time value (the header's `startTime` and `endTime`, the event and
+token timestamps of the body) is ISO-8601 text in Java and TypeScript and decimal epoch
+milliseconds in Rust and Python. The Rust reader rejects an archive whose event timestamps are
+ISO-8601 text, and the TypeScript reader reads decimal epoch milliseconds as invalid dates, so an
+archive is read correctly only by an implementation of the language that wrote it. All languages
+agree on *semantic* content, not wire layout.
 
 - **Java (v3):** `token: {valueType: <FQN>, v: <structured JSON>, createdAt: <iso>}`.
   Special cases: `{valueType: "void", createdAt}` for unit tokens (no `v`);
@@ -434,8 +495,9 @@ content, not wire layout.
   The `value` string is retained alongside the new optional `structured` field so the
   bundled debug UI keeps rendering without change. `type` is `value.constructor.name`
   (simple name — TypeScript has no portable FQN).
-- **Rust (v3):** `token: {id, type, value, structured?, timestamp}` — wire-identical to
-  TypeScript via a shared `NetEventInfo` camelCase serde contract. `type` is
+- **Rust (v3):** `token: {id, type, value, structured?, timestamp}`, with the field names and
+  JSON shapes of TypeScript via a shared `NetEventInfo` camelCase serde contract; the
+  `timestamp` is decimal epoch milliseconds where TypeScript writes ISO-8601 text. `type` is
   `std::any::type_name::<T>()` at token-erasure time; `structured` is populated by
   [`TokenProjectorRegistry`](../rust/libpetri-debug/src/token_projector_registry.rs)
   when the token's inner `T` is registered, else falls back to
@@ -460,6 +522,20 @@ implementation from identical run data MUST NOT differ ([CORE-073], [EVT-014] AC
 numeric-first key order is arbitrary but fixed, so it satisfies this; a marking copied through a
 per-process-randomised map does not, and an implementation MUST NOT put one on the path to the
 archive or the debug protocol. This asks for no change of archive format.
+
+*Where* an implementation provides session archives, *when* its reader reads a well-formed archive of header version 1, 2 or 3 in its own implementation's format (one whose `eventCount` and metadata are those of its body, as its writer writes them), the reader *shall* return the header variant of that version (`V1`, `V2` or `V3`).
+
+*Where* an implementation provides session archives, *if* its reader reads an archive in its own implementation's format whose header version is not 1, 2 or 3, *then* the reader *shall* reject the archive with the error `Unsupported archive version: <version> (reader supports 1..3)`, which names the version it found and the supported range.
+
+*Where* an implementation provides session archives, *when* its reader accepts a well-formed archive in its own implementation's format, it *shall* return the header's `eventCount` unchanged, the header's session fields and metadata as written, and one event for each record of the body, in body order.
+
+*Where* an implementation provides session archives, *when* its writer writes an archive of a session for header version 1, 2 or 3 (`writeV1`, `writeV2`, or `write` for version 3), the header *shall* carry that version and the session's own header fields.
+
+*Where* an implementation provides session archives, *when* its writer writes an archive, the writer *shall* take one snapshot of the event store, the header's `eventCount` *shall* be the number of events in that snapshot, a V1 header *shall* carry no metadata, the V2 and V3 metadata *shall* be computed from that snapshot, and the body *shall* hold one record for each event of that snapshot, in the order of the snapshot.
+
+*Where* an implementation provides session archives, two archives its writer writes for the same header version from identical run data *shall* be identical.
+
+*Where* an implementation provides session archives, its writer *shall* write an archive of any session for each of the header versions 1, 2 and 3 (`writeV1`, `writeV2`, and `write` for version 3), whatever the session's event store holds.
 
 **Acceptance Criteria:**
 1. Each language's v3-capable writer defaults to emitting v3; `writeV1` / `writeV2` still
@@ -492,17 +568,25 @@ archive or the debug protocol. This asks for no change of archive format.
 
 **Implementation notes:**
 - Java: Full implementation — default writer emits v3, deserializer reconstructs original
-  token types via `Class.forName`.
+  token types via `Class.forName`. Known gap: the V2 and V3 header builds the tags and the
+  metadata histogram with `Map.copyOf`, whose iteration order changes from one JVM to the next,
+  so two JVMs write different headers for the same run data ([runtime-defects.md](runtime-defects.md) RD-17).
 - TypeScript: Full implementation — default writer emits v3, `structured` projection via
   `JSON.parse(JSON.stringify(value))`.
 - Rust: Full implementation — default writer emits v3 via a user-supplied
   `TokenProjectorRegistry`; reader hydrates into a `ReplayedTokenPayload` exposing the
   `structured` JSON without attempting to revive the original `T` (Rust has no
   `Class.forName` equivalent).
+- Python: `write_from_store` writes through the Rust writer. Known gap: it copies the store into
+  a debug store that keeps at most 10,000 events, so a larger store is archived without its
+  oldest events (RD-18). Known gap: it writes version 3 only and offers no `writeV1` or `writeV2`
+  (RD-19). Known gap: for an empty store it takes the start and end times from the wall clock, so
+  two archives of the same empty session differ (RD-20).
 
-**Cross-language replay:** Java → Java reconstructs typed tokens. TypeScript ↔ Rust
-archives are wire-compatible at the event body level (shared `NetEventInfo` contract);
-both preserve `structured` across a round-trip. Java archive bodies use a different shape
+**Cross-language replay:** Java → Java reconstructs typed tokens. TypeScript and Rust
+archive bodies share field names and JSON shapes (shared `NetEventInfo` contract) but not the
+time encoding, so neither reader reads the other's archives correctly; both preserve `structured` across
+a round-trip. Java archive bodies use a different shape
 (`NetEvent` direct serialization) and are not interchangeable at the body level — use
 language-native archives for full-fidelity replay.
 
@@ -535,6 +619,7 @@ could return misleading data, and in Rust because a hostile archive could claim 
 #### EVT-030: Event Filtering
 
 **Priority:** SHOULD
+**Kind:** F
 
 The event store or helper functions support:
 - Filter by event type
@@ -544,13 +629,28 @@ The event store or helper functions support:
 - Filter for failure events
 - Count events, and an event-type histogram (counters)
 
+*Where* an implementation provides a query over the events of an event store, the query without offset and limit *shall* return exactly the events that `events()` returns and that match every filter the query gives, in the order `events()` returns them, for every query whose transition filter does not name the empty name.
+
+A filter by event type *shall* match the events of the given types, a filter by transition name *shall* match the events that carry one of the given transition names, and a filter by place name *shall* match the events that carry one of the given place names.
+
+An event that carries no transition name *shall* match no filter by transition name, and its presence in the store *shall not* change which other events such a filter returns.
+
+*Where* an implementation provides offset and limit on a query, the query *shall* skip the first `offset` matching events and return the first `limit` of the matching events that follow (all of them when no limit is given), so that the page is taken over the filtered result and not over the store.
+
+*Where* an implementation provides `failures()`, it *shall* return exactly the TransitionFailed, TransitionTimedOut and ActionTimedOut events that `events()` returns, in the order `events()` returns them.
+
+*Where* an implementation provides `counters()`, it *shall* name each event type that occurs among the events `events()` returns exactly once, with the number of those events of that type, and *shall* name no other event type.
+
+*Where* an implementation provides a count of events, the count *shall* be the number of events that `events()` returns whose type is one of the given types, or the number of all of them when no type is given.
+
 **Acceptance Criteria:**
 1. `eventsOfType(TransitionCompleted)` returns only completed events.
-2. `transitionEvents("MyTransition")` returns all events for that transition.
+2. `transitionEvents("MyTransition")` returns all events that carry that transition name, also when the store holds events that carry no transition name.
 3. Place filtering returns only token events for the named place(s); offset/limit page the result.
 4. `failures()` returns TransitionFailed, TransitionTimedOut, and ActionTimedOut events.
 5. `counters()` returns a `{eventType: count}` histogram whose values sum to the total event count.
 
+**Implementation status:** the helpers differ per language. Filter by type: Java and TypeScript (`eventsOfType`), Python (`events(types=...)`); the Rust store has none. Filter by transition name: Java and TypeScript (`transitionEvents`), Rust (`transition_events`), Python (`events(transitions=...)`). Filter by place name, offset/limit and `counters()`: Python only. Count: all four count every event (`size()` in Java, TypeScript and Rust, `len()` in Python), and Python also counts by type (`count(types=...)`). `failures()`: all four. Every implementation marks the missing transition name of an engine diagnostic at the initial-marking seam by the empty name, so a filter for the empty name returns those diagnostics; such a filter is outside this requirement. Java's `transitionEvents` throws on a store that holds a log message with no transition name (an engine diagnostic of an interrupted run); this is a known gap in Java.
 **Test derivation:** Run net with mixed events; verify each filter, pagination, and the counters
 histogram return correct subsets / totals.
 
@@ -561,30 +661,47 @@ histogram return correct subsets / totals.
 #### EVT-031: EventStore Live Subscriptions
 
 **Priority:** SHOULD
+**Kind:** B
 
-An event store may expose a live subscription that streams events as they are appended — distinct
+An event store may expose a live subscription that streams events as they are appended, distinct
 from the post-hoc snapshot reads of [EVT-020]. A subscription:
 - delivers only events matching its server-side filters (by type, transition, and place);
-- is forward-only — events appended **before** the subscription was created are not replayed;
+- is forward-only: events appended **before** the subscription was created are not replayed;
 - batches delivery by a caller-chosen `batch_size` and `batch_timeout_ms` (a `batch_size = 1`,
   `batch_timeout_ms = 0` "unary" mode delivers one event at a time for low latency);
-- is bounded — it uses a finite channel capacity with a documented back-pressure / drop policy;
-- terminates cleanly on explicit close or when the store is dropped.
+- is bounded: it uses a finite channel capacity, and an append of a matching event that finds the channel full ends that subscription instead of waiting for room;
+- terminates cleanly on explicit close, when the store is dropped, or when its channel overflows.
 
 This differs from [EVT-024] (DebugEventStore live tailing for debug UIs): EVT-031 governs
 subscriptions over the ordinary observability store, with server-side filtering and batching.
+
+*Where* an event store provides live subscriptions, the events a subscription has received at any point, taken over all its batches in the order it received them, *shall* be events that match its filters and were appended to the store after the subscription was created and before that point, in append order, each at most once.
+
+Each batch a subscription receives *shall* hold at least one event and at most `batch_size` events, so that with `batch_size = 1` it receives one event per batch.
+
+Each subscription *shall* have a finite channel capacity.
+
+*When* a receive has taken the first event of its batch, it *shall* add further events until the batch holds `batch_size` events, `batch_timeout_ms` have elapsed since it took that first event, or no further event can arrive, and *shall* then return the batch; with `batch_timeout_ms = 0` it *shall* add only the events already in the channel.
+
+*When* an append of an event that matches the filters of a subscription finds its channel full, the store *shall* end that subscription: the subscription *shall* receive no event appended from then on, and, if none of its receives is pending at that append, its receives *shall* take the events its channel holds and then report the end of the stream, unless the subscription is closed first.
+
+Until the store is dropped, an append *shall* be accepted at every point; in particular it *shall not* wait for room in the channel of a subscription.
+
+*When* a subscription is closed while none of its receives is pending, it *shall* receive no further event, and its next receive *shall* report the end of the stream.
+
+*When* the store is dropped, the receives of each of its subscriptions that has no receive pending *shall* take the events its channel holds and then report the end of the stream, unless the subscription is closed first.
 
 **Acceptance Criteria:**
 1. A subscriber receives only events matching its filters, in append order.
 2. Events appended before the subscription are not delivered (forward-only).
 3. Unary mode delivers one event per batch; batched mode delivers up to `batch_size`, flushing
    early after `batch_timeout_ms`.
-4. Explicit close ends iteration cleanly; a full channel applies the documented policy.
+4. Explicit close with no receive pending ends iteration cleanly; a full channel ends the subscription: it receives no later event, the append does not wait, and with no receive pending its receives report the end after they have taken the events its channel holds.
 
-**Depends on:** [EVT-020], [EVT-021]
+**Depends on:** [EVT-020], [EVT-021], [EVT-030]
 **Status:** Proposed
 **Implementation status:** Rust binding + Python (`InMemoryEventStore.subscribe(...)`,
-`async for batch in ...`) implemented; Java/TypeScript pending.
+`async for batch in ...`, and `subscribe_stream(...)`, which is `batch_size = 1` without the list wrapper) implemented; Java/TypeScript pending. Python's defaults are `batch_size = 64`, `batch_timeout_ms = 10` and `channel_capacity = 4096`, and a `batch_size` or `channel_capacity` of 0 is rejected with `ValueError`. In Python, `close()` called while a receive is pending does nothing, so the pending receive keeps waiting; this case is outside the requirement. A receive pending when an append finds its channel full is outside the requirement too. The end of the stream is reported the same way after a close, a drop and an overflow.
 **Test derivation:** Run an async net feeding environment events; subscribe with a transition
 filter; verify batched forward-only delivery and clean close.
 
@@ -593,24 +710,39 @@ filter; verify batched forward-only delivery and clean close.
 #### EVT-032: Marking Replay Cache
 
 **Priority:** SHOULD
+**Kind:** F
 
 A replay cache reconstructs execution state at an arbitrary event index from a recorded event
 stream, for debug-protocol seek / step. `compute_at(events, index)` returns a `ComputedState`
 — the marking (token counts per place), enabled transitions, and in-flight transitions — replayed
 from the nearest periodically-cached snapshot rather than from the start of the stream.
 
+*While* every snapshot in the replay cache is at an index no greater than the length of `events` and is the replay of `events` up to that index, `compute_at(events, index)` *shall* return the replay of the first `index` events of `events`, or of all of `events` when `index` is beyond its length.
+
+*When* `compute_at(events, index)` returns, every snapshot it leaves in the replay cache *shall* be at an index no greater than the length of `events` and be the replay of `events` up to that index, provided every snapshot in the cache met both conditions before the call.
+
+The replay of an event stream *shall* start from the empty state (no token in any place, no enabled and no in-flight transition) and apply its events in order, each as follows: a `MarkingSnapshot` sets the token count of every place it carries to the count it carries and of every other place to zero; a `TokenAdded` adds one token to its place; a `TokenRemoved` removes one token from its place, and does nothing if the place has none; a `TransitionEnabled` adds its transition to the enabled transitions; a `TransitionStarted` removes its transition from the enabled transitions and adds it to the in-flight transitions; a `TransitionCompleted`, `TransitionFailed`, `TransitionTimedOut` or `ActionTimedOut` removes its transition from the in-flight transitions; any other event (`ExecutionStarted`, `ExecutionCompleted`, `TransitionClockRestarted`, `LogMessage`) leaves the state unchanged.
+
+The enabled transitions are those with a `TransitionEnabled` event and no later `TransitionStarted` event, so they over-approximate the transitions enabled at that point of the run: a transition whose tokens another firing took, or a reaped transition, stays listed. The in-flight transitions are a set of names, so a transition with two firings in flight at once leaves it when its first firing ends. The replayed token counts include the initial marking only for a stream that reports it: a Java or TypeScript stream reports the initial marking in a `MarkingSnapshot` right after its `ExecutionStarted` event, while a Rust or Python stream reports no initial token. The two transition lists of a `ComputedState` are sets: their order is not specified.
+
 **Acceptance Criteria:**
-1. `compute_at(events, 0)` is the initial/empty state; `compute_at(events, len)` matches the final
-   marking shape.
+1. `compute_at(events, 0)` is the empty state; `compute_at(events, len)` is the replay of the whole
+   stream.
 2. An index beyond the stream length is clamped to the end (no panic).
-3. Repeated calls reuse cached snapshots and return state structurally equal to a from-scratch
-   replay.
+3. Repeated calls on a stream that only grows at its end return state equal to a from-scratch
+   replay: the same token count per place and the same sets of enabled and in-flight transitions,
+   in an unspecified order. A stream that changed otherwise, for example by the eviction of its
+   oldest events ([EVT-024]), needs `invalidate()` before the next call. Reusing cached snapshots
+   is expected for speed only: it does not change the state returned.
 4. The marking in `ComputedState` carries token counts; replayed tokens need not carry value
    payloads (events carry type + structured metadata, not live objects).
 
-**Depends on:** [EVT-021], [CONC-025]
+**Depends on:** [EVT-021], [EVT-004], [EVT-006], [EVT-007], [EVT-008], [EVT-009], [EVT-010], [EVT-011], [EVT-012], [EVT-014]
 **Implementation status:** Implemented in all four: Rust (`libpetri-debug::MarkingCache`), Python
 (`MarkingCache`, `ComputedState`), Java (`org.libpetri.debug.MarkingCache.computeAt`) and
-TypeScript (`MarkingCache.computeAt` in `libpetri/debug`).
+TypeScript (`MarkingCache.computeAt` in `libpetri/debug`). Known gap: Java's `computeAt` does not
+clamp an index beyond the stream length and throws `IndexOutOfBoundsException` (AC2). Known gap:
+no debug protocol handler calls `invalidate()` when its debug store evicts events ([EVT-024]), so a
+seek after an eviction can return a state that is not the replay (AC3).
 **Test derivation:** Record a multi-firing run; `compute_at` at 0, an intermediate index, the end,
 and beyond-end; verify clamping and snapshot reuse.

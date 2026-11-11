@@ -274,4 +274,26 @@ theorem removeFirst_count [DecidableEq N] (M : QueueMarking N T) (p : N) :
     Counts (removeFirst M p).2 p = Counts M p - 1 := by
   simp [Counts, qCount, removeFirst_self]
 
+/-! ## The reference delivery off the arcs ([EXEC-010], [EXEC-012]) -/
+
+/-- A firing reads through its read arcs only: the reference delivery holds no read token at a
+place that is not a read place of the transition. -/
+theorem qDelivered_reads_off [DecidableEq N] (M : QueueMarking N T) (t : Trans N)
+    {p : N} (hp : ¬ ReadArc t p) : (qDelivered M t).reads p = [] := by
+  show qReads M t p = []
+  unfold qReads
+  rw [qReadsBag_apply, List.count_eq_zero.mpr hp]
+  rfl
+
+/-- A firing consumes through its input arcs only: the reference delivery holds no consumed token
+at a place that is not an input place of the transition. -/
+theorem qDelivered_inputs_off [DecidableEq N] (M : QueueMarking N T) (t : Trans N)
+    {p : N} (hi : p ∉ inPlaces t) : (qDelivered M t).inputs p = [] := by
+  have hn : nspecAt t.core p = none := by
+    simp only [nspecAt, List.find?_eq_none, decide_eq_true_eq]
+    intro s hs hp
+    exact hi (List.mem_map.2 ⟨s, hs, hp⟩)
+  show qInputs M t p = []
+  simp [qInputs, qTake, nconsumed, hn]
+
 end Libpetri.Spec

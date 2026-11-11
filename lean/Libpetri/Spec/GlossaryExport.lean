@@ -1,5 +1,6 @@
 import Libpetri.Spec.Glossary
 import Libpetri.Export.Styles
+import Libpetri.Novel.TimedScg.Timing
 
 set_option linter.missingDocs true
 
@@ -11,11 +12,19 @@ it maps a net definition to a typed graph (the runtimes' `graph` module of the R
 `export/graph` layer, before DOT text), so the export model is pure functions, and a requirement
 is a predicate over an abstract function, as EXEC-002 is over an ordering function.
 
-This file holds the emitter half: the n-ary output tree as the runtimes hold it (`OutTree`), the
-graph's node references and edges (`NodeRef`, `XEdge`), the per-transition output emitter
-(`Emitter`), the labels of EXP-012 and the drawing rule of EXP-012 (`OutTree.junctions`,
-`drawOut`), and the projection `OutTree.toOut` onto the firing model's binary `Reference.Out`,
-which ties the diagram to the glossary's output arcs (`outPlaces`, `OutputArc`).
+The emitter half: the n-ary output tree as the runtimes hold it (`OutTree`), the graph's node
+references and edges (`NodeRef`, `XEdge`), the per-transition output emitter (`Emitter`), the
+labels of EXP-012 and the drawing rule of EXP-012 (`OutTree.junctions`, `drawOut`), and the
+projections `OutTree.toOut` and its total form `OutTree.view` onto the firing model's binary
+`Reference.Out`, which tie the diagram to the glossary's output arcs (`outPlaces`, `OutputArc`).
+
+The mapper half: the export view of a net (`ExportTrans`, `ExportNet`, with the firing views
+`ExportTrans.toTrans` and `ExportNet.toNet`), the configuration (`ExportCfg`), the DOT IDs
+(`sanitize`, `nodeId`), the exported graph (`XNode`, `XCluster`, `XGraph`), the `Exporter` and
+`TransLabeller` the blocks quantify over, the correlated input label (`corrLabel`), the output
+side and junctions of one transition in a graph (`XGraph.outEdges`, `XGraph.junctionsOf`), and
+the agreement predicate `ExportAgrees` that makes one exporter, emitter, labellers and place
+classifier describe one mapper.
 
 Visual constants (colours, shapes, pen widths) never appear here: an edge names a style row of
 `Libpetri.Export` (generated from `spec/petri-net-styles.json`), a junction a node category.
@@ -319,5 +328,288 @@ def OutTree.toOutL : List OutTree → Option (List (Out String))
     | some x, some xs => some (x :: xs)
     | _, _ => none
 end
+
+mutual
+/-- **The firing model's view of an output tree, total.** As `OutTree.toOut`, except that a group
+with no child that has a view is dropped instead of making the whole view fail: the places a
+view names are then always the leaf places (`view_places` in `Reference/Export.lean`), and on
+every tree without an empty group it is `toOut` (`view_of_toOut`). No transition that builds has
+an empty group ([IO-011], [IO-012]), so the two differ only on trees no net holds; the total form
+lets the export view of a net (`ExportNet.toNet`) exist for every net the exporter is handed. -/
+def OutTree.view : OutTree → Option (Out String)
+  | .place p => some (.place p)
+  | .forward s d => some (.forward s d)
+  | .timeout _ c => (OutTree.view c).map .timeout
+  | .and cs => nestOpt .and (OutTree.viewL cs)
+  | .xor cs => nestOpt .xor (OutTree.viewL cs)
+/-- `OutTree.view` of every child that has one, in order. -/
+def OutTree.viewL : List OutTree → List (Out String)
+  | [] => []
+  | c :: cs => (OutTree.view c).toList ++ OutTree.viewL cs
+end
+
+/-! ## The export view of a net (the mapper half) -/
+
+open Libpetri.Novel.Seam (NTransition NInSpec)
+open Libpetri.Novel.TimedScg (Timing)
+
+/-- **A transition, as the exporter reads it**: its name and its input (place and cardinality),
+inhibitor, read and reset arcs (`core`, the same record the firing model fires on), its output
+spec as an n-ary tree (`none`: no output spec), its timing ([TIME-001]) and priority, and the
+correlated places of its ν-net match specification ([NU-020]; empty without one). -/
+structure ExportTrans where
+  /-- Name and input, inhibitor, read and reset arcs. -/
+  core   : NTransition String
+  /-- Output spec, if any. -/
+  out    : Option OutTree := none
+  /-- Timing. -/
+  timing : Timing := .immediate
+  /-- Priority. -/
+  prio   : Int := 0
+  /-- The places a ν-net match specification correlates ([NU-020]). -/
+  corr   : List String := []
+
+/-- The transition's name. -/
+def ExportTrans.name (t : ExportTrans) : String := t.core.name
+
+/-- The places the leaves of the output spec name, left to right (`allPlaces` of [IO-017]); empty
+without an output spec. -/
+def ExportTrans.outLeaves (t : ExportTrans) : List String := (t.out.map OutTree.leafPlaces).getD []
+
+/-- Every place an arc of `t` touches: input, output (every leaf place), inhibitor, read and reset
+arcs, in that order. -/
+def ExportTrans.touched (t : ExportTrans) : List String :=
+  t.core.inputs.map (·.place) ++ t.outLeaves ++ t.core.inhibitors ++ t.core.reads ++ t.core.resets
+
+/-- **The firing model's view of a transition** (`toTrans`): the same arcs (`core`), the output
+spec's view (`OutTree.view`), and the reapable bit of its timing, as `TransDef.toTrans` sets it.
+The glossary's arc predicates (`InputArc`, `OutputArc`, `InhibitorArc`, `ReadArc`, `ResetArc`)
+over `t.toTrans` are the arcs the firing relations fire on. -/
+def ExportTrans.toTrans (t : ExportTrans) : Trans String :=
+  ⟨t.core, t.out.bind OutTree.view, t.timing.reapable⟩
+
+/-- **A net, as the exporter reads it**: its declared places (a built net's places, terminal
+places included), its transitions in declaration order, its terminal places ([EXEC-042]) and
+its subnet-membership map ([MOD-026]: the subnet a node name belongs to, if any). -/
+structure ExportNet where
+  /-- Declared places. -/
+  places : List String := []
+  /-- Transitions, in declaration order. -/
+  trans  : List ExportTrans := []
+  /-- Terminal places ([EXEC-042]). -/
+  term   : List String := []
+  /-- Subnet membership ([MOD-026]). -/
+  member : String → Option String := fun _ => none
+
+/-- The firing model's view of the net. -/
+def ExportNet.toNet (X : ExportNet) : Reference.Net String := ⟨X.places, X.trans.map ExportTrans.toTrans⟩
+
+/-- Is `p` a terminal place of `X`? -/
+def ExportNet.isTerm (X : ExportNet) (p : String) : Bool := decide (p ∈ X.term)
+
+/-- Some arc of some transition of `X` touches `p`. -/
+def ExportNet.Touched (X : ExportNet) (p : String) : Prop := ∃ t ∈ X.trans, p ∈ t.touched
+
+/-- The transitions of `X` have pairwise distinct names, and no transition has two input arcs on
+one place ([CORE-030]). Statements that count the nodes of a transition, or that read one input
+edge per input arc, assume it; the exporter keys transition nodes by name. -/
+def ExportNet.Distinct (X : ExportNet) : Prop :=
+  (X.trans.map ExportTrans.name).Nodup ∧ ∀ t ∈ X.trans, (t.core.inputs.map (·.place)).Nodup
+
+/-- The layout direction of a drawing. -/
+inductive RankDir where
+  /-- Top to bottom. -/
+  | TB
+  /-- Left to right. -/
+  | LR
+  /-- Bottom to top. -/
+  | BT
+  /-- Right to left. -/
+  | RL
+  deriving DecidableEq, Repr
+
+/-- Where cluster keys come from ([EXP-016], [MOD-040]). -/
+inductive ClusterSource where
+  /-- Membership metadata, else the instance prefix. -/
+  | auto
+  /-- Membership metadata only. -/
+  | metadata
+  /-- The instance prefix only. -/
+  | «prefix»
+  /-- No clustering. -/
+  | none
+  deriving DecidableEq, Repr
+
+/-- **The export configuration** ([EXP-007]): layout direction, the three show flags, the
+environment places ([ENV-001]; the runtimes take them from the configuration, not from the net)
+and the cluster source. The defaults are the runtimes' defaults. The show-types flag is accepted
+and changes nothing: no mapper draws token types (ruling D41). -/
+structure ExportCfg where
+  /-- Layout direction. -/
+  dir           : RankDir := .TB
+  /-- Show token types (no effect, ruling D41). -/
+  showTypes     : Bool := true
+  /-- Show the timing interval on transitions. -/
+  showIntervals : Bool := true
+  /-- Show a non-zero priority on transitions. -/
+  showPriority  : Bool := true
+  /-- Environment places ([ENV-001]). -/
+  env           : List String := []
+  /-- Cluster source. -/
+  cluster       : ClusterSource := .auto
+
+/-- Is `p` an environment place under `cfg`? -/
+def ExportCfg.isEnv (cfg : ExportCfg) (p : String) : Bool := decide (p ∈ cfg.env)
+
+/-! ## DOT IDs -/
+
+/-- The character `sanitize` keeps or replaces: an ASCII letter, digit or `_` is kept, every other
+character becomes `_` ([EXP-014]; ruling D46: the rule is stated for ASCII names, other
+characters are implementation-defined). -/
+def sanitizeChar (c : Char) : Char := if c.isAlphanum || c == '_' then c else '_'
+
+/-- **Glossary: sanitize** ([EXP-014]): the name with every character outside `[A-Za-z0-9_]`
+replaced by `_`. -/
+def sanitize (s : String) : String := String.ofList (s.toList.map sanitizeChar)
+
+/-- **Glossary: Node ID** ([EXP-014]): `p_<sanitize p>` for a place, `t_<sanitize t>` for a
+transition, `j_<sanitize t>__<kind>_<idx>` for junction `idx` of kind `kind` of `t`. -/
+def nodeId : NodeRef → String
+  | .place p => "p_" ++ sanitize p
+  | .trans t => "t_" ++ sanitize t
+  | .junction t k i => "j_" ++ sanitize t ++ "__" ++ k.tag ++ "_" ++ toString i
+
+/-! ## The exported graph -/
+
+/-- The glyph a junction node of kind `k` is labelled with ([EXP-012]): `✕` for `Xor`, `✚` for
+`And`. A visual constant: statements do not read it. -/
+def JKind.glyph : JKind → String
+  | .xor => "✕"
+  | .and => "✚"
+
+/-- The transition or junction-owning transition a node belongs to: `t` for the node of `t` and
+for every junction of `t`, none for a place. -/
+def NodeRef.owner? : NodeRef → Option String
+  | .trans t => some t
+  | .junction t _ _ => some t
+  | .place _ => none
+
+/-- **Glossary: Node** (of the exported graph): what it stands for (`ref`), its DOT ID, its node
+category (a row of the node table), its label and its external label (`xlabel`). -/
+structure XNode where
+  /-- What the node stands for. -/
+  ref    : NodeRef
+  /-- The DOT ID. -/
+  id     : String
+  /-- The node category (style row). -/
+  cat    : NodeCat
+  /-- The label drawn inside the node. -/
+  label  : String
+  /-- The label drawn beside the node, if any. -/
+  xlabel : Option String
+  deriving DecidableEq, Repr
+
+/-- **Glossary: Cluster** (of the exported graph, [EXP-016]): its key, its DOT ID, its label, the
+key of the cluster it is nested in (none at top level), and the nodes that are its direct
+members. -/
+structure XCluster where
+  /-- The cluster key. -/
+  key     : String
+  /-- The DOT ID. -/
+  id      : String
+  /-- The label. -/
+  label   : String
+  /-- The key of the enclosing cluster, if any. -/
+  parent  : Option String
+  /-- The direct members. -/
+  members : List NodeRef
+  deriving DecidableEq, Repr
+
+/-- **Glossary: Exported graph**: the typed graph a mapper builds before DOT text (the runtimes'
+graph layer): layout direction, the `compound` graph attribute ([EXP-017]), nodes, edges and
+clusters, each list in the order drawn. -/
+structure XGraph where
+  /-- Layout direction. -/
+  dir      : RankDir
+  /-- The `compound` graph attribute. -/
+  compound : Bool
+  /-- Nodes. -/
+  nodes    : List XNode
+  /-- Edges, ghost edges included. -/
+  edges    : List XEdge
+  /-- Clusters. -/
+  clusters : List XCluster
+  deriving DecidableEq, Repr
+
+/-- **An exporter**: the typed graph a configuration and a net are drawn as. It reads no marking
+([EXP-011] AC2). Every export requirement but EXP-005, EXP-006, EXP-007's label line, EXP-008 and
+EXP-012 is a predicate over an exporter. -/
+abbrev Exporter := ExportCfg → ExportNet → XGraph
+
+/-- **A transition labeller** ([EXP-007]): the label of a transition node, from the
+configuration, the transition's name, timing and priority. -/
+abbrev TransLabeller := ExportCfg → String → Timing → Int → String
+
+/-- The label of a correlated input edge ([EXP-018]): `⟨n⟩`, then a space and the cardinality
+label when the arc has one. -/
+def corrLabel (card : Option String) : String :=
+  "⟨n⟩" ++ (match card with | some c => " " ++ c | none => "")
+
+/-- What emitter `Em` draws for the output side of `t`: nothing without an output spec. -/
+def Emitter.ofTrans (Em : Emitter) (t : ExportTrans) : Emitted :=
+  match t.out with
+  | some o => Em t.name t.core.resets o
+  | none => {}
+
+/-- Is `e` on the output side of transition `t`: an edge of arc type `output` or `resetOutput`
+whose source is the node of `t` or a junction of `t`? -/
+def XEdge.outSideOf (t : String) (e : XEdge) : Bool :=
+  e.src.owner? == some t && (e.arc == .output || e.arc == .resetOutput)
+
+/-- The output side of transition `t` in a drawn graph: its edges `XEdge.outSideOf t`, in the
+order drawn. -/
+def XGraph.outEdges (g : XGraph) (t : String) : List XEdge := g.edges.filter (XEdge.outSideOf t)
+
+/-- The (kind, index) of `r` when it is a junction of transition `t`. -/
+def NodeRef.junctionOf (t : String) : NodeRef → Option (JKind × Nat)
+  | .junction t' k i => if t' = t then some (k, i) else none
+  | _ => none
+
+/-- The junction nodes of transition `t` in a drawn graph, as (kind, index), in the order drawn. -/
+def XGraph.junctionsOf (g : XGraph) (t : String) : List (JKind × Nat) :=
+  g.nodes.filterMap fun n => n.ref.junctionOf t
+
+/-- **The export agreement** (`ExportAgrees`). Exporter `E`, output emitter `Em`, cardinality
+labeller `L`, transition labeller `TL` and place classifier `C` (EXP-008's `PlaceClassifier`)
+describe one mapper: on every net whose transition names are distinct and whose transitions have
+at most one input arc per place,
+
+* the output side of each transition, and its junction nodes, are what `Em` draws for it, up to
+  order, and the edges out of each junction node are `Em`'s in `Em`'s order (the order of the
+  children, [EXP-005]);
+* each transition node is labelled by `TL`;
+* each place node has the category `C` gives it, with the configuration's environment places and
+  the net's terminal places;
+* each input edge of a transition carries the label `L` gives its cardinality, prefixed with
+  `⟨n⟩` when the place is correlated ([EXP-018]).
+
+The EXP blocks quantify over different abstract functions; without this predicate each could be
+met by a different function and their conjunction would say nothing about one mapper. -/
+def ExportAgrees (E : Exporter) (Em : Emitter) (L : Card → Option String) (TL : TransLabeller)
+    (C : Reference.Net String → (String → Bool) → (String → Bool) → String → NodeCat) : Prop :=
+  ∀ (cfg : ExportCfg) (X : ExportNet), X.Distinct →
+    (∀ t ∈ X.trans,
+      ((E cfg X).outEdges t.name).Perm (Em.ofTrans t).edges ∧
+      ((E cfg X).junctionsOf t.name).Perm (Em.ofTrans t).junctions ∧
+      ∀ (k : JKind) (i : Nat),
+        ((E cfg X).outEdges t.name).filter (fun e => e.src == .junction t.name k i) =
+          (Em.ofTrans t).edges.filter (fun e => e.src == .junction t.name k i)) ∧
+    (∀ n ∈ (E cfg X).nodes, ∀ t ∈ X.trans, n.ref = .trans t.name →
+      n.label = TL cfg t.name t.timing t.prio) ∧
+    (∀ n ∈ (E cfg X).nodes, ∀ p, n.ref = .place p →
+      n.cat = C X.toNet cfg.isEnv X.isTerm p) ∧
+    (∀ e ∈ (E cfg X).edges, ∀ t ∈ X.trans, ∀ s ∈ t.core.inputs,
+      e.arc = .input → e.src = .place s.place → e.dst = .trans t.name →
+      e.label = if s.place ∈ t.corr then some (corrLabel (L s.card)) else L s.card)
 
 end Libpetri.Spec

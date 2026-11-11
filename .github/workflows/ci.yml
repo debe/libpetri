@@ -577,6 +577,106 @@ jobs:
           #print axioms Libpetri.Spec.joint_core_structure_sketch
           #print axioms Libpetri.Spec.joint_export_sketch
           #print axioms Libpetri.Spec.spec_consistent_exec_sketch
+          #print axioms Libpetri.Reference.refNetBuild_ok_iff
+          #print axioms Libpetri.Reference.refNetBuild_fromBuilder
+          #print axioms Libpetri.Reference.copyBuilder_trace
+          #print axioms Libpetri.Reference.aliasBuilder_unstable
+          #print axioms Libpetri.Reference.refBind_fromBuilder
+          #print axioms Libpetri.Reference.refCompile_eq_some_iff
+          #print axioms Libpetri.Reference.place_identity_divergence
+          #print axioms Libpetri.Reference.refCompileWith_placeId_iff
+          #print axioms Libpetri.Reference.refCompileWith_placeId_inj
+          #print axioms Libpetri.Reference.refCompileWith_mem_affected
+          #print axioms Libpetri.Reference.layoutWords_eq
+          #print axioms Libpetri.Spec.refNetBuild_arcsDeclared
+          #print axioms Libpetri.Spec.refBitmapLayout_maskWords
+          #print axioms Libpetri.Spec.core040_core041_joint_kills_blind
+          #print axioms Libpetri.Spec.refActionFire_iff_choice
+          #print axioms Libpetri.Spec.refQFire_iff_action_or_timeout
+          #print axioms Libpetri.Spec.refQFire_endsBy
+          #print axioms Libpetri.Spec.passthrough_never_offered
+          #print axioms Libpetri.Spec.ctx_deposits_outputs
+          #print axioms Libpetri.Spec.core050_endsBy
+          #print axioms Libpetri.Spec.refFork_throughCtx
+          #print axioms Libpetri.Spec.refTransform_throughCtx
+          #print axioms Libpetri.Reference.restore_snapshot
+          #print axioms Libpetri.Reference.snapshot_eq_iff
+          #print axioms Libpetri.Reference.count_snapshot
+          #print axioms Libpetri.Reference.resume_snapshot
+          #print axioms Libpetri.Reference.refSeed_restore
+          #print axioms Libpetri.Spec.core073_joint_counts
+          #print axioms Libpetri.Spec.structure_default_tag_nil
+          #print axioms Libpetri.Spec.structure_snapshot_counts
+          #print axioms Libpetri.Spec.refEmit_draws
+          #print axioms Libpetri.Spec.refExportWith_agrees
+          #print axioms Libpetri.Spec.ExportTrans.outputArc_iff
+          #print axioms Libpetri.Spec.ExportNet.toNet_viewOf
+          #print axioms Libpetri.Spec.refExport_ghost_iff
+          #print axioms Libpetri.Spec.refExport_nonGhost_flat
+          #print axioms Libpetri.Spec.clashExport_joint
+          #print axioms Libpetri.Spec.clashExport_cluster
+          #print axioms Libpetri.Spec.joint_events_store_sketch
+          #print axioms Libpetri.Spec.failure_sets_agree
+          #print axioms Libpetri.Reference.refSub_received
+          #print axioms Libpetri.Reference.refSub_received_appended
+          #print axioms Libpetri.Reference.refSub_batch
+          #print axioms Libpetri.Reference.refSub_overflow_ends
+          #print axioms Libpetri.Reference.refSub_close_ends
+          #print axioms Libpetri.Reference.refSub_append_enabled
+          #print axioms Libpetri.Reference.refSub_dropped_no_op
+          #print axioms Libpetri.Spec.readWith_replay_of
+          #print axioms Libpetri.Spec.refCall_replays
+          #print axioms Libpetri.Spec.coherentWith_append
+          #print axioms Libpetri.Reference.refArchiveRead_ok
+          #print axioms Libpetri.Reference.refForm_wellFormed
+          #print axioms Libpetri.Reference.refArchive_write_nil
+          #print axioms Libpetri.Reference.invX_xrun
+          #print axioms Libpetri.Reference.invU_boundary
+          #print axioms Libpetri.Reference.invR_step
+          #print axioms Libpetri.Reference.segment_refQFire
+          #print axioms Libpetri.Reference.refQFire_realised
+          #print axioms Libpetri.Reference.atomic_refTStep
+          #print axioms Libpetri.Reference.no_start_while_expired
+          #print axioms Libpetri.Reference.updSt_eq_updDirty
+          #print axioms Libpetri.Reference.reapedE_iff_reaped_reachable
+          #print axioms Libpetri.Reference.init_update_eq_TSt_init
+          #print axioms Libpetri.Reference.count_projection
+          #print axioms Libpetri.Reference.hoist_vis
+          #print axioms Libpetri.Reference.rest_split
+          #print axioms Libpetri.Reference.aRun_verified
+          #print axioms Libpetri.Reference.atomic_rest_sound
+          #print axioms Libpetri.Reference.atomic_restsAt
+          #print axioms Libpetri.Reference.corrected2_witness
+          #print axioms Libpetri.Spec.queueAgrees_ref
+          #print axioms Libpetri.Spec.atomicAgrees_ref
+          #print axioms Libpetri.Spec.refExec_coversW5
+          #print axioms Libpetri.Reference.deadline_reaps
+          #print axioms Libpetri.Spec.env002_ref_covers
+          #print axioms Libpetri.Spec.env003_ref_covers
+          #print axioms Libpetri.Spec.env005_ref_covers
+          #print axioms Libpetri.Spec.env006_ref_covers
+          #print axioms Libpetri.Spec.env010_ref_covers
+          #print axioms Libpetri.Spec.conc010_ref_covers
+          #print axioms Libpetri.Spec.env016_ref_covers
+          #print axioms Libpetri.Spec.qDelivered_inputs_off
+          #print axioms Libpetri.Spec.qDelivered_reads_off
+          #print axioms Libpetri.Spec.core061_byArcs_of
+          #print axioms Libpetri.Spec.evt020_id_iff
+          #print axioms Libpetri.Spec.conc010_env005_lines
+          #print axioms Libpetri.Spec.refExec_timeoutCovers
+          #print axioms Libpetri.Spec.env004_answers_eq_answersTicket
+          #print axioms Libpetri.Spec.clashExec_naiveLine1
+          #print axioms Libpetri.Spec.clashExec_strictOrder
+          #print axioms Libpetri.Spec.clashExec_twoReadings
+          #print axioms Libpetri.Spec.clashExec_parkAtCycle
+          #print axioms Libpetri.Spec.clashExec_timeoutValidated_conflict
+          #print axioms Libpetri.Spec.clashExec_timeoutValidated_sides
+          #print axioms Libpetri.Spec.clashExec_closeKeepsStarting
+          #print axioms Libpetri.Spec.clashExec_env004_ambiguity
+          #print axioms Libpetri.Spec.clashExec_env003_conflict
+          #print axioms Libpetri.Spec.clashExec_quiescentArmed
+          #print axioms Libpetri.Spec.clashExec_env010_guard
+          #print axioms Libpetri.Spec.clashExec_closedRest_bothCauses
           EOF
           if ! lake env lean /tmp/axioms.lean > /tmp/axioms.out 2>&1; then
             cat /tmp/axioms.out
@@ -635,6 +735,18 @@ jobs:
           bash scripts/regen-proof-graph.sh
           git diff --exit-code -- lean/graph docs/proof-graph
           test -z "$(git status --porcelain -- lean/graph docs/proof-graph)"
+      # The style constants of the three runtimes and the Lean node and edge
+      # tables the export blocks read (lean/Libpetri/Export/Styles.lean) are
+      # generated from spec/petri-net-styles.json; regenerating them must be a
+      # no-op, so a hand edit to one copy or a table change without a rerun
+      # fails here. jq is preinstalled on the runner.
+      - name: Style tables are up to date
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/generate-styles.sh
+          styles="rust/libpetri-export/src/styles.rs java/src/main/java/org/libpetri/export/StyleConstants.java typescript/src/export/styles.ts lean/Libpetri/Export/Styles.lean"
+          git diff --exit-code -- $styles
+          test -z "$(git status --porcelain -- $styles)"
       # The alignment checker's own tests run first, so a broken checker
       # cannot pass the alignment step below by accident. unittest takes the
       # file path relative to the repo root, hence the workspace directory.

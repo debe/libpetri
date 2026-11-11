@@ -56,6 +56,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 [glossary.md](glossary.md) defines the terms of the CORE and IO firing semantics. It is unnumbered, holds no requirements and is not counted above.
 
+[runtime-defects.md](runtime-defects.md) is the runtime defect ledger: each place where a runtime breaks a requirement the spec keeps, numbered `RD-NN` until a runtime change fixes it. It is unnumbered, holds no requirements and is not counted above.
+
 ---
 
 ## Alphabetical Cross-Reference Index
@@ -112,10 +114,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | CORE-052 | Fork Action | SHOULD | — |
 | CORE-053 | Transform Action | SHOULD | — |
 | CORE-054 | Produce Action | SHOULD | — |
-| CORE-060 | Context Input Access | MUST | CORE-050 |
-| CORE-061 | Context Read Access | MUST | CORE-032 |
-| CORE-062 | Context Output Access | MUST | CORE-035 |
-| CORE-063 | Context Structure Enforcement | MUST | — |
+| CORE-060 | Context Input Access | MUST | CORE-050, EXEC-010 |
+| CORE-061 | Context Read Access | MUST | CORE-032, EXEC-012, EXEC-013 |
+| CORE-062 | Context Output Access | MUST | CORE-035, IO-013, IO-017 |
+| CORE-063 | Context Structure Enforcement | MUST | CORE-060, CORE-061, CORE-062 |
 | ~~CORE-064~~ | ~~Execution Context Injection~~ (Removed) | — | — |
 | CORE-070 | Marking State | MUST | — |
 | CORE-071 | Marking Thread Safety | MUST | — |
@@ -129,15 +131,15 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-002 | Environment Place Registration | MUST | — |
 | ENV-003 | inject() Thread Safety | MUST | — |
 | ENV-004 | inject() Completion Semantics | MUST | — |
-| ENV-005 | inject() Wake-Up | MUST | CONC-010 |
+| ENV-005 | inject() Wake-Up | MUST | CONC-010, ENV-003, ENV-013, ENV-015, EXEC-001, EXEC-042, TIME-015 |
 | ENV-006 | inject() Rejection on Closed or Draining Executor | MUST | — |
 | ENV-010 | Implicit Long-Running Behavior | MUST | — |
 | ENV-011 | Graceful Drain | MUST | ENV-010 |
 | ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
-| ENV-013 | Immediate Close | MUST | ENV-010 |
+| ENV-013 | Immediate Close | MUST | ENV-010, ENV-004, EXEC-040 |
 | ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-003, ENV-004, ENV-010, EXEC-001, EXEC-031, EXEC-040, CORE-073, TIME-015 |
 | ENV-015 | Immediate Termination | MAY | ENV-013 |
-| ENV-016 | Observable Termination | MAY | ENV-013 |
+| ENV-016 | Observable Termination | MAY | ENV-013, EXEC-041 |
 
 ### EVT — Events & Observability
 | ID | Title | Priority | Depends On |
@@ -163,15 +165,15 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EVT-024 | DebugEventStore | SHOULD | — |
 | EVT-025 | Session Archive Format | SHOULD | — |
 | EVT-030 | Event Filtering | SHOULD | — |
-| EVT-031 | EventStore Live Subscriptions | SHOULD | EVT-020, EVT-021 |
-| EVT-032 | Marking Replay Cache | SHOULD | EVT-021, CONC-025 |
+| EVT-031 | EventStore Live Subscriptions | SHOULD | EVT-020, EVT-021, EVT-030 |
+| EVT-032 | Marking Replay Cache | SHOULD | EVT-021, EVT-004, EVT-006, EVT-007, EVT-008, EVT-009, EVT-010, EVT-011, EVT-012, EVT-014 |
 
 ### EXEC — Execution Model
 | ID | Title | Priority | Depends On |
 |----|-------|----------|------------|
 | EXEC-001 | Orchestrator Loop Steps | MUST | ENV-003 |
 | EXEC-002 | Priority-Based Firing Order | MUST | TIME-010 |
-| EXEC-003 | Competitive Conflict Resolution | MUST | — |
+| EXEC-003 | Competitive Conflict Resolution | MUST | EXEC-001, EXEC-002, EXEC-010, CORE-022 |
 | EXEC-010 | FIFO Token Consumption | MUST | CORE-013, IO-007, NU-020 |
 | ~~EXEC-011~~ | ~~Guarded Token Consumption~~ (Removed) | — | — |
 | EXEC-012 | Read Arc Peek | MUST | CORE-032, CORE-030 |
@@ -205,7 +207,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | EXP-015 | Doc Generator Parity | MUST | EXP-011, EXP-012, EXP-013 |
 | EXP-016 | Subnet Instance Cluster Subgraphs | SHOULD | EXP-001, EXP-014, MOD-010, MOD-040 |
 | EXP-017 | Compound Cluster Layout Hints | SHOULD | EXP-016, EXP-014 |
-| EXP-018 | ν-Match Edge Decoration | SHOULD | EXP-006, NU-020 |
+| EXP-018 | ν-Match Edge Decoration | SHOULD | EXP-006, EXP-017, NU-020 |
 
 ### IO — Input/Output Specifications
 | ID | Title | Priority | Depends On |
@@ -363,7 +365,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | Timeout abandonment | Firing abandoned; pre-timeout output discarded ([IO-013]) | ✓ (context detach) | ✓ (context detach) | ✓ (drops ctx) |
 | Sync action-throw containment | Failing action fails only that firing ([EXEC-030]) | ✓ | ✓ | ✓ |
 | Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | ✓ (draining guard) | ✓ |
-| Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Pending | Pending |
+| Inject into an unregistered place | An error for an inject that takes an environment-place handle; a host of a name-keyed inject injects only into registered environment places ([ENV-002]) | ✓ (failed future) | ✓ (rejects; `injectNoAwait` throws) | Deposited into the named place; registration is the host's ([ENV-002]) |
+| Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Run-timeout policy of [ENV-016] only | Pending |
 | Terminal places | [EXEC-042] (SHOULD) | ✓ | ✓ | ✓ |
 | Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
 | Guard predicates | **Removed** from the model ([IO-006], [EXEC-011]) — no per-token value predicate exists | n/a (never implemented) | n/a (removed) | n/a (removed) |
@@ -410,8 +413,9 @@ surface `terminateNow()` / `awaitTermination()` / run-timeout policy ([ENV-015],
 TypeScript has since matched the failure-containment ([EXEC-030]) and timeout-abandonment
 ([IO-013]) semantics via a context-detach port, and already satisfied inject-after-termination by
 construction — its draining/closed guard makes the hang unreachable. Rust matches the same three.
-The lifecycle surface ([ENV-015]/[ENV-016]) remains Java-only, tracked for a coordinated addition
-to Rust/Python/TypeScript. The table above is the authoritative per-language status.
+The lifecycle surface ([ENV-015]/[ENV-016]) remains Java-only, except the run-timeout policy of
+[ENV-016], which TypeScript also has; the rest is tracked for a coordinated addition to
+Rust/Python/TypeScript. The table above is the authoritative per-language status.
 
 **Compile- and verify-time output conformance (all four).** [CORE-043] — rejecting a net in which
 an output-declaring transition carries the built-in passthrough action — is enforced when the net

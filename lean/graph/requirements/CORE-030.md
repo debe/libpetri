@@ -22,11 +22,11 @@ flowchart TD
     n137["Libpetri.InSpec.mk"]
     n138["Libpetri.InSpec.place"]
     n2720["Libpetri.PlaceId"]
-    n7739["Libpetri.Transition"]
-    n7740["Libpetri.Transition.inhibitors"]
-    n7741["Libpetri.Transition.inputs"]
-    n7742["Libpetri.Transition.mk"]
-    n7745["Libpetri.Transition.reads"]
+    n13126["Libpetri.Transition"]
+    n13127["Libpetri.Transition.inhibitors"]
+    n13128["Libpetri.Transition.inputs"]
+    n13129["Libpetri.Transition.mk"]
+    n13132["Libpetri.Transition.reads"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -36,7 +36,7 @@ flowchart TD
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
     n34["Libpetri.DistinctInputPlaces"]
-    n7804["Libpetri.canEnable"]
+    n13191["Libpetri.canEnable"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -44,19 +44,19 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n7877["Libpetri.execOp"]
-    n7880["Libpetri.execOpsFrom"]
+    n13264["Libpetri.execOp"]
+    n13267["Libpetri.execOpsFrom"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n7738["Libpetri.TokenBag"]
-    n7761["Libpetri.addBag"]
-    n7867["Libpetri.emptyBag"]
-    n7984["Libpetri.popN"]
+    n13125["Libpetri.TokenBag"]
+    n13148["Libpetri.addBag"]
+    n13254["Libpetri.emptyBag"]
+    n13371["Libpetri.popN"]
   end
   subgraph g4["Libpetri/RetrodictExec.lean"]
-    n7806["🔒 Libpetri.canEnable_insufficient_for_totality"]
-    n7851["Libpetri.demoPool"]
-    n8069["Libpetri.tDup"]
+    n13193["🔒 Libpetri.canEnable_insufficient_for_totality"]
+    n13238["Libpetri.demoPool"]
+    n13456["Libpetri.tDup"]
   end
   subgraph g5["Libpetri/Ring/Core.lean"]
     n2727["Libpetri.Pool"]
@@ -74,7 +74,7 @@ flowchart TD
     n2847["Libpetri.Pool.tail"]
   end
   subgraph g6["Libpetri/RingArith.lean"]
-    n8027["Libpetri.ringPos"]
+    n13414["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
@@ -95,16 +95,16 @@ flowchart TD
   n27 --> n22
   n27 --> n2720
   n29 --> n28
-  n29 --> n7738
+  n29 --> n13125
   n30 --> n28
-  n30 --> n7738
+  n30 --> n13125
   n31 --> n28
   n31 --> n2727
-  n31 --> n7738
+  n31 --> n13125
   n32 --> n28
   n32 --> n2727
   n34 --> n138
-  n34 --> n7741
+  n34 --> n13128
   n132 --> n21
   n135 --> n8
   n135 --> n134
@@ -141,58 +141,58 @@ flowchart TD
   n2842 --> n2742
   n2842 --> n2771
   n2842 --> n2795
-  n2842 --> n8027
+  n2842 --> n13414
   n2847 --> n2720
   n2847 --> n2727
-  n7738 --> n21
-  n7738 --> n2720
-  n7740 --> n2720
-  n7740 --> n7739
-  n7741 --> n134
-  n7741 --> n7739
-  n7742 --> n134
-  n7742 --> n2720
-  n7742 --> n7739
-  n7745 --> n2720
-  n7745 --> n7739
-  n7761 --> n7738
-  n7804 --> n14
-  n7804 --> n135
-  n7804 --> n138
-  n7804 --> n2743
-  n7804 --> n7740
-  n7804 --> n7741
-  n7804 --> n7745
-  n7806 --> n34
-  n7806 --> n7804
-  n7806 --> n7851
-  n7806 --> n7867
-  n7806 --> n7880
-  n7806 --> n8069
-  n7851 --> n2793
-  n7867 --> n7738
-  n7877 --> n23
-  n7877 --> n24
-  n7877 --> n25
-  n7877 --> n26
-  n7877 --> n27
-  n7877 --> n29
-  n7877 --> n30
-  n7877 --> n31
-  n7877 --> n32
-  n7877 --> n7761
-  n7877 --> n7984
-  n7880 --> n7877
-  n7984 --> n2748
-  n7984 --> n2823
-  n8069 --> n13
-  n8069 --> n137
-  n8069 --> n7742
+  n13125 --> n21
+  n13125 --> n2720
+  n13127 --> n2720
+  n13127 --> n13126
+  n13128 --> n134
+  n13128 --> n13126
+  n13129 --> n134
+  n13129 --> n2720
+  n13129 --> n13126
+  n13132 --> n2720
+  n13132 --> n13126
+  n13148 --> n13125
+  n13191 --> n14
+  n13191 --> n135
+  n13191 --> n138
+  n13191 --> n2743
+  n13191 --> n13127
+  n13191 --> n13128
+  n13191 --> n13132
+  n13193 --> n34
+  n13193 --> n13191
+  n13193 --> n13238
+  n13193 --> n13254
+  n13193 --> n13267
+  n13193 --> n13456
+  n13238 --> n2793
+  n13254 --> n13125
+  n13264 --> n23
+  n13264 --> n24
+  n13264 --> n25
+  n13264 --> n26
+  n13264 --> n27
+  n13264 --> n29
+  n13264 --> n30
+  n13264 --> n31
+  n13264 --> n32
+  n13264 --> n13148
+  n13264 --> n13371
+  n13267 --> n13264
+  n13371 --> n2748
+  n13371 --> n2823
+  n13456 --> n13
+  n13456 --> n137
+  n13456 --> n13129
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n7806 root
-  class n7806 locked
+  class n13193 root
+  class n13193 locked
 ```
 
 Axioms used:

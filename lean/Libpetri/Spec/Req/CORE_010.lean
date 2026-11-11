@@ -181,7 +181,7 @@ theorem CORE_010_of_EXEC {N T : Type} [DecidableEq N] [ToString N]
     rw [hb', hout p hi hr]
     exact (List.sublist_append_left _ _).subperm
   · have hperm := (h10.1 t δ e p hi hr M M' h).2
-    have hin : δ.inputs p = OldestFirst M p (Consumes t (Counts M) p) := h10.2 t δ e p hi M M' h
+    have hin : δ.inputs p = OldestFirst M p (Consumes t (Counts M) p) := h10.2.1 t δ e p hi M M' h
     rw [hin, OldestFirst]
     have : List.Perm ((M p).take (Consumes t (Counts M) p) ++ M' p)
         ((M p).take (Consumes t (Counts M) p) ++
@@ -189,7 +189,7 @@ theorem CORE_010_of_EXEC {N T : Type} [DecidableEq N] [ToString N]
       hperm.append_left _
     rw [← List.append_assoc, List.take_append_drop] at this
     exact (List.sublist_append_left _ _).subperm.trans this.symm.subperm
-  · rw [h10.2 t δ e p hi M M' h, OldestFirst]
+  · rw [h10.2.1 t δ e p hi M M' h, OldestFirst]
     exact (List.take_sublist _ _).subperm
   · have := (h12.1 t p δ e hw hp M M' h).2.1 x hx
     exact List.mem_of_mem_head? this

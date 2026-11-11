@@ -39,15 +39,17 @@ requirement EXEC_010
         "The number of tokens consumed is determined by the input cardinality's `consumptionCount(available)`."
         "*When* a transition fires, it *shall* consume from each of its input places that is not a correlated input of its match specification ([NU-020]) the oldest tokens the place holds, as many as the consumption count of the input arc."
         "*When* a transition fires, its action *shall* receive the tokens consumed from each input place that is not a correlated input of its match specification in queue order, the oldest first."
+        "*When* a transition fires, its action *shall* receive consumed tokens only from the input places of the transition."
         "A correlated input of a ν-net match specification is the one exception to oldest-first consumption: it takes the matched tokens of the chosen name, oldest first among the tokens of that name, so it can pass over an older token of another name ([NU-020])."
         "Its non-correlated inputs consume as above."
   reading "For every queue firing relation Q:"
           "for every firing of a transition t and every input place p of t that is not a reset place of t: the queue p holds after the firing begins with the tokens of p's queue before the firing after its oldest Consumes tokens, in their queue order, and it holds exactly those tokens and the tokens the action emits to p, in some order;"
-          "for every firing of a transition t and every input place p of t: the tokens delivered to the action from p are the oldest Consumes tokens of p's queue before the firing, in queue order."
+          "for every firing of a transition t and every input place p of t: the tokens delivered to the action from p are the oldest Consumes tokens of p's queue before the firing, in queue order;"
+          "for every firing of a transition t and every place p that is not an input place of t: no consumed token is delivered to the action from p."
   assumes "A firing relates a queue marking before it to the queue marking after it, with what it delivered to the action and the emissions of the action (glossary: Queue order, QueueMarking, Delivered, QFireRel). Consumes t (Counts M) p is the consumption count of t's input arc on p at the token counts of M (glossary: Consumption count, Consume), so 'as many as the consumption count of the input arc' is the length of the prefix both lines name, and the paragraph 'The number of tokens consumed is determined by the input cardinality's consumptionCount(available)' is the same count."
           "Correlated inputs (ruling D16): the transitions of the model (Reference.Trans) carry no ν-net match specification, so every input place is an input that is not a correlated input of a match specification, and the lines quantify over every input place. The exception paragraph is therefore not a line of the formula: how a correlated input consumes (the matched tokens of the chosen name, oldest first among them) is NU-020's, not encoded here; this block makes no claim about a correlated input, and a mutant that consumed a correlated input oldest first would not be killed by it."
           "Line 1 is the first 'shall' sentence. It is stated at every input place that is not a reset place, including a place the action also emits to (a self-loop): the place keeps its tokens after the oldest Consumes ones, in queue order and ahead of every token emitted to it, and gains exactly the tokens emitted to it, so the tokens that left it are the oldest. Keeping the kept tokens ahead (a prefix, not only a subsequence) is what makes the consumed tokens the oldest when token values repeat: a place holding 10, 11, 10 whose action emits 10 back would otherwise pass with 10, 11, 10, the newest 10 consumed, which no count or value check can tell from the oldest 10 consumed and the emission put at the head (killed by EXEC_010_mutant_sublist_killed). That the emitted tokens follow the kept ones agrees with EXEC-020's tail append; the order among the emitted tokens is EXEC-020's, so line 1 fixes them only up to order. A reset place is left to line 2: it ends the firing holding exactly what was deposited there (CORE-034). With nothing emitted to the place, line 1 says the queue before the firing is its oldest Consumes tokens followed by the queue after it (exec010_line1_noEmission). The line is exercised by EXEC_010_nonvacuous; a relation that removes the newest tokens from a self-loop place is killed by EXEC_010_forbids_selfLoopNewest."
-          "Line 2 is the second 'shall' sentence: the action receives, from each input place, the consumed tokens in queue order, the oldest first (OldestFirst, the FIFO prefix). On an input place that is also a reset place line 2 is the only line: the consumed prefix is still the oldest, the rest is drained. Line 2 says nothing about what is delivered from a place that is not an input place; the spec is silent there, and this block makes no claim about it."
+          "Line 2 is the second 'shall' sentence: the action receives, from each input place, the consumed tokens in queue order, the oldest first (OldestFirst, the FIFO prefix). On an input place that is also a reset place line 2 is the only line: the consumed prefix is still the oldest, the rest is drained. Line 3 is the third shall sentence, the counterpart of line 2 at every other place: the action receives no consumed token from a place that is not an input place, a read, reset, inhibitor or output place included. CORE-063 cites it for its sentence that an executor hands an action consumed tokens only from the input places of its transition, and CORE-061's delivery by arcs follows from it with EXEC-012's line 7 (core061_byArcs_of). All runtimes meet it: Rust's consume_for_firing walks the transition's input specs only and keys the consumed tokens by input place (rust/libpetri-runtime/src/bitmap_backend.rs and precompiled_backend.rs), Java and TypeScript fill the consumed tokens from inputSpecs only in fireTransition (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java, typescript/src/runtime/bitmap-net-executor.ts, and the precompiled executors' input opcodes), and drained reset tokens never reach the action. Java and TypeScript keep the consumed and the read tokens in one store (rawInput) and separate them by the context's input gate (CORE-060); an executor that hands the read tokens over as consumed ones too breaks line 3 (EXEC_010_forbids_mergedInputs)."
           "The firing is the atomic firing of the reference: the counts the consumption count reads are the counts at the start of the firing. Same-pass deposits (EXEC-003 AC5: a draining arc ships the pass-start count, not the live one) need the cycle relation of Phase 2 (RefExec) and are deferred to it; consume_faithful (Conservation.lean) states the same FIFO prefix for one firing on the compiled consume program, under the module's assumption that no same-pass deposit is outstanding."
           "A transition with two input arcs on one place is rejected when it is built (CORE-030); the model reads the first arc (nspecAt), as Consumes does."
           "AC1 (tokens A, B, C added in that order; One consumes A), AC2 (Exactly(2) consumes A, B) and AC3 (All consumes A, B, C) are EXEC_010_nonvacuous, with tokens 10, 11, 12 for A, B, C: the reference delivers [10], [10, 11] and [10, 11, 12] and leaves [11, 12], [12] and []."
@@ -61,7 +63,9 @@ requirement EXEC_010
             List.Perm (M' p) ((M p).drop (Consumes t (Counts M) p) ++ EmittedTo e p))) ∧
       (∀ t δ e p, p ∈ inPlaces t →
         on (fun M M' => Q t M δ e M'), shall (fun M _ =>
-          δ.inputs p = OldestFirst M p (Consumes t (Counts M) p)))
+          δ.inputs p = OldestFirst M p (Consumes t (Counts M) p))) ∧
+      (∀ t δ e p, p ∉ inPlaces t →
+        on (fun M M' => Q t M δ e M'), shall (fun _ _ => δ.inputs p = []))
 
 /- The pinned readable form of EXEC-010: a change to the formula shows up as a diff here. -/
 /--
@@ -73,9 +77,11 @@ fun {N T} [DecidableEq N] Q =>
           on fun M M' => Q t M δ e M', shall fun M M' =>
             List.drop (Consumes t (Counts M) p) (M p) <+: M' p ∧
               (M' p).Perm (List.drop (Consumes t (Counts M) p) (M p) ++ EmittedTo e p)) ∧
-    ∀ (t : Reference.Trans N) (δ : Delivered N T) (e : List (N × T)),
-      ∀ p ∈ inPlaces t,
-        on fun M M' => Q t M δ e M', shall fun M x => δ.inputs p = OldestFirst M p (Consumes t (Counts M) p)
+    (∀ (t : Reference.Trans N) (δ : Delivered N T) (e : List (N × T)),
+        ∀ p ∈ inPlaces t,
+          on fun M M' => Q t M δ e M', shall fun M x => δ.inputs p = OldestFirst M p (Consumes t (Counts M) p)) ∧
+      ∀ (t : Reference.Trans N) (δ : Delivered N T) (e : List (N × T)),
+        ∀ p ∉ inPlaces t, on fun M M' => Q t M δ e M', shall fun x x_1 => δ.inputs p = []
 -/
 #guard_msgs in #print EXEC_010
 
@@ -146,11 +152,17 @@ end Lemmas
 
 /-- The reference queue firing satisfies EXEC-010: from each place it delivers the FIFO prefix
 of length `Consumes` (`refQFire_inputs`, line 2), and a place that is not a reset place keeps
-the rest of its queue followed by the tokens emitted to it (`refQFire_apply`, line 1). -/
+the rest of its queue followed by the tokens emitted to it (`refQFire_apply`, line 1); from a
+place that is not an input place it delivers no consumed token (`qDelivered_inputs_off`,
+line 3). -/
 @[evidence holds EXEC_010]
 theorem EXEC_010_reference {N T : Type} [DecidableEq N] :
     EXEC_010 (RefQFire (N := N) (T := T)) := by
-  refine ⟨fun t δ e p _ hr M M' h => ?_, fun t δ e p _ M M' h => refQFire_inputs h p⟩
+  refine ⟨fun t δ e p _ hr M M' h => ?_, fun t δ e p _ M M' h => refQFire_inputs h p,
+    fun t δ e p hp M M' h => ?_⟩
+  rotate_left
+  · obtain ⟨-, -, rfl, -⟩ := h
+    exact qDelivered_inputs_off M t hp
   beta_reduce at h ⊢
   rw [refQFire_apply h p, if_neg hr]
   exact ⟨List.prefix_append _ _, List.Perm.refl _⟩
@@ -207,7 +219,7 @@ the oldest first"): `Exactly(2)` from `[10, 11, 12]` delivers `[11, 10]`. -/
 @[evidence forbids EXEC_010]
 theorem EXEC_010_forbids_reversed : ¬ EXEC_010 (exec010_by (N := Nat) (T := Nat) exec010_revSel) := by
   intro h
-  have := h.2 (qexT (.exactly 2)) _ exec010_e 0 (by decide) _ _
+  have := h.2.1 (qexT (.exactly 2)) _ exec010_e 0 (by decide) _ _
     (exec010_by_fires exec010_revSel (.exactly 2) (by decide))
   exact absurd this (by decide)
 
@@ -290,7 +302,7 @@ theorem EXEC_010_mutant_sublist_killed :
     · have : p = 0 := by simpa [inPlaces, exec010_selfT] using hp
       subst this; decide
   · rcases h with h | ⟨rfl, rfl, rfl, rfl, rfl⟩
-    · exact EXEC_010_reference.2 t δ e p hp M M' h
+    · exact EXEC_010_reference.2.1 t δ e p hp M M' h
     · exact refQFire_inputs (M' := qFire exec010_dupM exec010_selfT [(0, 10)])
         ⟨by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩ p
   · have := h.1 exec010_selfT _ [(0, 10)] 0 (by decide) (by decide) exec010_dupM exec010_dupM
@@ -327,7 +339,7 @@ theorem EXEC_010_mutant_lifo_killed :
     EXEC_010_mutant_lifo (exec010_by (N := Nat) (T := Nat) exec010_lifoSel) ∧
       ¬ EXEC_010 (exec010_by (N := Nat) (T := Nat) exec010_lifoSel) := by
   refine ⟨exec010_lifo_mutant, fun h => ?_⟩
-  have := h.2 (qexT .one) _ exec010_e 0 (by decide) _ _
+  have := h.2.1 (qexT .one) _ exec010_e 0 (by decide) _ _
     (exec010_by_fires exec010_lifoSel .one (by decide))
   exact absurd this (by decide)
 
@@ -388,8 +400,45 @@ theorem EXEC_010_mutant_subset_killed :
     EXEC_010_mutant_subset (exec010_by (N := Nat) (T := Nat) exec010_skipHeadSel) ∧
       ¬ EXEC_010 (exec010_by (N := Nat) (T := Nat) exec010_skipHeadSel) := by
   refine ⟨exec010_skipHead_mutant, fun h => ?_⟩
-  have := h.2 (qexT .one) _ exec010_e 0 (by decide) _ _
+  have := h.2.1 (qexT .one) _ exec010_e 0 (by decide) _ _
     (exec010_by_fires exec010_skipHeadSel .one (by decide))
   exact absurd this (by decide)
+
+/-! ### Line 3: consumed tokens only from input places -/
+
+/-- A transition with an input arc on place `0`, a read arc on place `1` and output place `2`. -/
+def exec010_rt : Trans Nat :=
+  { core := { name := "t", inputs := [⟨0, .one⟩], inhibitors := [], reads := [1], resets := [] },
+    out := some (.place 2) }
+
+/-- Place `0` holds `10`, the read place `1` holds `20`. -/
+def exec010_rM : QueueMarking Nat Nat := fun p => if p = 0 then [10] else if p = 1 then [20] else []
+
+/-- An executor that keeps the consumed and the read tokens in one store and hands the whole
+store over as consumed tokens: the reference firing, with the read tokens added to the consumed
+ones at every place (Java's and TypeScript's shared `rawInput` without the input gate). -/
+def exec010_mergedInputs : QFireRel Nat Nat := fun t M δ e M' =>
+  ∃ δ₀, RefQFire t M δ₀ e M' ∧ δ = ⟨fun p => δ₀.inputs p ++ δ₀.reads p, δ₀.reads⟩
+
+/-- ✗ Handing the read tokens over as consumed tokens violates EXEC-010 (line 3): firing
+`exec010_rt` from `exec010_rM` delivers `20` as a consumed token from the read place `1`, which is
+not an input place. -/
+@[evidence forbids EXEC_010]
+theorem EXEC_010_forbids_mergedInputs : ¬ EXEC_010 exec010_mergedInputs := by
+  intro h
+  have := h.2.2 exec010_rt _ exec010_e 1 (by decide) exec010_rM (qFire exec010_rM exec010_rt exec010_e)
+    ⟨_, ⟨by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩, rfl⟩
+  revert this
+  decide
+
+/-- Line 3 on the reference: firing `exec010_rt` from `exec010_rM` delivers `10` consumed from the
+input place `0`, and no consumed token from the read place `1` or the output place `2`, while the
+read token `20` is delivered as a read. -/
+@[evidence nonvacuous EXEC_010]
+theorem EXEC_010_nonvacuous_offInputs :
+    (∃ δ M', RefQFire exec010_rt exec010_rM δ exec010_e M' ∧ 1 ∉ inPlaces exec010_rt ∧
+      δ.inputs 0 = [10] ∧ δ.inputs 1 = [] ∧ δ.inputs 2 = [] ∧ δ.reads 1 = [20]) :=
+  ⟨qDelivered exec010_rM exec010_rt, qFire exec010_rM exec010_rt exec010_e,
+    ⟨by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩, by decide, by decide, by decide, by decide, by decide⟩
 
 end Libpetri.Spec

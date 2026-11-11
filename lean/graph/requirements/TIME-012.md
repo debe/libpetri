@@ -24,16 +24,16 @@ flowchart TD
     n135["Libpetri.InSpec.card"]
     n138["Libpetri.InSpec.place"]
     n2720["Libpetri.PlaceId"]
-    n7739["Libpetri.Transition"]
-    n7740["Libpetri.Transition.inhibitors"]
-    n7741["Libpetri.Transition.inputs"]
-    n7742["Libpetri.Transition.mk"]
-    n7745["Libpetri.Transition.reads"]
-    n7746["Libpetri.Transition.resets"]
-    n7816["Libpetri.consumeAllAt"]
-    n7868["Libpetri.enabledA"]
-    n7991["Libpetri.pre"]
-    n8046["Libpetri.specAt"]
+    n13126["Libpetri.Transition"]
+    n13127["Libpetri.Transition.inhibitors"]
+    n13128["Libpetri.Transition.inputs"]
+    n13129["Libpetri.Transition.mk"]
+    n13132["Libpetri.Transition.reads"]
+    n13133["Libpetri.Transition.resets"]
+    n13203["Libpetri.consumeAllAt"]
+    n13255["Libpetri.enabledA"]
+    n13378["Libpetri.pre"]
+    n13433["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
     n867["Libpetri.Novel.ForwardDeposit.Deposit"]
@@ -78,24 +78,24 @@ flowchart TD
   n867 --> n2720
   n895 --> n0
   n895 --> n867
-  n895 --> n7746
-  n895 --> n7816
-  n895 --> n7991
+  n895 --> n13133
+  n895 --> n13203
+  n895 --> n13378
   n2417 --> n2426
   n2431 --> n2426
-  n2431 --> n7739
+  n2431 --> n13126
   n2488 --> n2417
   n2488 --> n2431
-  n2488 --> n7868
+  n2488 --> n13255
   n2489 --> n2488
   n2489 --> n2688
   n2490 --> n2488
   n2504 --> n2613
   n2552 --> n0
-  n2552 --> n7746
-  n2552 --> n7816
-  n2552 --> n7991
-  n2604 --> n7742
+  n2552 --> n13133
+  n2552 --> n13203
+  n2552 --> n13378
+  n2604 --> n13129
   n2612 --> n2613
   n2613 --> n895
   n2613 --> n2552
@@ -109,32 +109,32 @@ flowchart TD
   n2688 --> n2417
   n2688 --> n2431
   n2688 --> n2604
-  n7740 --> n2720
-  n7740 --> n7739
-  n7741 --> n134
-  n7741 --> n7739
-  n7742 --> n134
-  n7742 --> n2720
-  n7742 --> n7739
-  n7745 --> n2720
-  n7745 --> n7739
-  n7746 --> n2720
-  n7746 --> n7739
-  n7816 --> n11
-  n7816 --> n135
-  n7816 --> n8046
-  n7868 --> n0
-  n7868 --> n14
-  n7868 --> n135
-  n7868 --> n138
-  n7868 --> n7740
-  n7868 --> n7741
-  n7868 --> n7745
-  n7991 --> n14
-  n7991 --> n135
-  n7991 --> n8046
-  n8046 --> n138
-  n8046 --> n7741
+  n13127 --> n2720
+  n13127 --> n13126
+  n13128 --> n134
+  n13128 --> n13126
+  n13129 --> n134
+  n13129 --> n2720
+  n13129 --> n13126
+  n13132 --> n2720
+  n13132 --> n13126
+  n13133 --> n2720
+  n13133 --> n13126
+  n13203 --> n11
+  n13203 --> n135
+  n13203 --> n13433
+  n13255 --> n0
+  n13255 --> n14
+  n13255 --> n135
+  n13255 --> n138
+  n13255 --> n13127
+  n13255 --> n13128
+  n13255 --> n13132
+  n13378 --> n14
+  n13378 --> n135
+  n13378 --> n13433
+  n13433 --> n138
+  n13433 --> n13128
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
