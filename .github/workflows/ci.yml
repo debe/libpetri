@@ -257,10 +257,14 @@ jobs:
           find Libpetri -name '*.lean' | sed 's/\.lean$//; s#/#.#g' | LC_ALL=C sort \
             | awk 'prev == "" || index($0, prev ".") != 1 { print; prev = $0 }' > /tmp/lc-modules
           test -s /tmp/lc-modules
-          # One process per prefix, four at a time: each loads its imports (about
-          # 1.5 GB peak), so the cap keeps a local run within memory; one by one
-          # the 303 prefixes took over 12 min on the runner.
-          xargs -P 4 -n 1 lake env leanchecker < /tmp/lc-modules
+          # One process per prefix. Libpetri.Reference and the Mathlib-importing
+          # Libpetri.Novel prefixes peak at 4 to 37 GB of resident memory (mostly
+          # mapped .olean files), so they run one at a time; every other prefix peaks
+          # under 3 GB and runs three at a time. All serial took about 15 min.
+          grep -E '^Libpetri\.(Reference|Novel)(\.|$)' /tmp/lc-modules > /tmp/lc-heavy || true
+          grep -vE '^Libpetri\.(Reference|Novel)(\.|$)' /tmp/lc-modules > /tmp/lc-light
+          xargs -n 1 lake env leanchecker < /tmp/lc-heavy
+          xargs -P 3 -n 1 lake env leanchecker < /tmp/lc-light
           echo "leanchecker: replayed $(wc -l < /tmp/lc-modules) module prefixes"
       # A `sorry` still builds (with a warning), so the build alone is not a
       # gate. Both checks below are: grep catches the source text, and
