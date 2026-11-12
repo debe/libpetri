@@ -123,6 +123,17 @@
   z-index: 10;
 }
 
+/* With the search box the controls no longer fit beside the subnet sidebar
+ * on a narrow diagram: wrap onto a second row instead of covering it. */
+.libpetri-viewer .diagram-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.libpetri-viewer:has(> .libpetri-sidebar) .diagram-controls {
+  left: 258px;
+}
+
 .petrinet-diagram .diagram-btn,
 .libpetri-viewer .diagram-btn {
   padding: 6px 10px;

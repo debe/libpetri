@@ -338,8 +338,9 @@ export async function mount(
       ? -1
       : kept >= 0 ? kept : Math.min(Math.max(preferredIndex, 0), searchMatches.length - 1);
     applySearchMarks(svg, searchMatches, searchIndex);
-    if (searchMatches.length === 0) releaseSearchHighlight();
-    else if (focus) focusCurrentMatch();
+    // The hit the search highlighted is gone (new query, collapsed, hidden).
+    if (kept < 0) releaseSearchHighlight();
+    if (focus) focusCurrentMatch();
     updateSearchUi();
   }
 

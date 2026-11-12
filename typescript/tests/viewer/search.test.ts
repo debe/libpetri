@@ -179,15 +179,46 @@ describe('viewer handle: search', () => {
     expect(handle.highlightedNodeId).toBe('p_Budget');
   });
 
+  // Put the order nodes into clusters so setVisibility hides them for real.
+  function cluster(handle: { svg: SVGSVGElement }, instances: Record<string, string>): void {
+    for (const [id, inst] of Object.entries(instances)) {
+      handle.svg.querySelector(`g.node[data-id="${id}"]`)!.setAttribute('data-instance', inst);
+    }
+  }
+
   it('a hit hidden by setVisibility drops out of the hit list', async () => {
     const handle = await mount('digraph G {}', container);
+    cluster(handle, { p_OrderPending: 'a', t_PlaceOrder: 'a', p_OrderDone: 'b' });
     handle.search('order');
-    handle.svg.querySelector('g.node[data-id="p_OrderDone"]')!.classList.add('is-hidden');
-    handle.setVisibility({ visibleClusters: new Set(), includeSharedPlaces: true });
+    handle.setVisibility({ visibleClusters: new Set(['a']), includeSharedPlaces: true });
     const done = handle.svg.querySelector('g.node[data-id="p_OrderDone"]')!;
     expect(done.classList.contains('is-hidden')).toBe(true);
     expect(done.classList.contains('is-search-match')).toBe(false);
-    expect(handle.searchState.count).toBeLessThan(3);
+    expect(handle.searchState).toEqual({ query: 'order', index: 0, count: 2 });
+    expect(handle.svg.querySelectorAll('.is-search-match')).toHaveLength(2);
+    // The current hit is still a hit, so its highlight stays.
+    expect(handle.highlightedNodeId).toBe('p_OrderPending');
+  });
+
+  it('the current hit dropping out releases the highlight the search set', async () => {
+    const handle = await mount('digraph G {}', container);
+    cluster(handle, { p_OrderPending: 'b', t_PlaceOrder: 'a', p_OrderDone: 'a' });
+    handle.search('order');
+    expect(handle.highlightedNodeId).toBe('p_OrderPending');
+    handle.setVisibility({ visibleClusters: new Set(['a']), includeSharedPlaces: true });
+    expect(handle.searchState).toEqual({ query: 'order', index: 0, count: 2 });
+    expect(handle.svg.querySelector('.is-search-current')!.getAttribute('data-id'))
+      .toBe('t_PlaceOrder');
+    expect(handle.highlightedNodeId).toBeNull();
+  });
+
+  it('a highlight the user clicked survives the current hit dropping out', async () => {
+    const handle = await mount('digraph G {}', container);
+    cluster(handle, { p_OrderPending: 'b', t_PlaceOrder: 'a', p_OrderDone: 'a', p_Budget: 'a' });
+    handle.search('order');
+    handle.highlight('p_Budget');
+    handle.setVisibility({ visibleClusters: new Set(['a']), includeSharedPlaces: true });
+    expect(handle.highlightedNodeId).toBe('p_Budget');
   });
 
   it('the search survives a re-mount', async () => {
@@ -233,5 +264,23 @@ describe('viewer handle: search', () => {
     container.addEventListener('keydown', () => { reached = true; });
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     expect(reached).toBe(false);
+  });
+
+  it('`/` and Ctrl/Cmd+F on the diagram jump into the search box', async () => {
+    await mount('digraph G {}', container, { chrome: true });
+    const input = container.querySelector<HTMLInputElement>('.diagram-search-input')!;
+    for (const init of [{ key: '/' }, { key: 'f', ctrlKey: true }, { key: 'F', metaKey: true }]) {
+      input.blur();
+      const ev = new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true });
+      container.dispatchEvent(ev);
+      expect(document.activeElement).toBe(input);
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    // A plain `f` is not a shortcut.
+    input.blur();
+    const plain = new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true });
+    container.dispatchEvent(plain);
+    expect(document.activeElement).not.toBe(input);
+    expect(plain.defaultPrevented).toBe(false);
   });
 });
