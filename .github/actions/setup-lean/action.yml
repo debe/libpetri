@@ -1,0 +1,46 @@
+# The Lean toolchain and the Mathlib closure lean/ imports, for every job that
+# builds or reads lean/. Mathlib is never built here, and never fetched whole:
+# lean-ci-deps.sh shallow-clones the manifest packages and pulls only the
+# cached oleans of the Mathlib modules lean/ imports (~80 MB compressed, not
+# ~6.4 GB). lean/.lake/build, the Libpetri build itself, is cached by the
+# jobs under the key this action computes (see lean-build in ci.yml).
+name: Set up Lean
+description: Install elan, fetch the Mathlib closure lean/ imports, compute the build cache key.
+
+outputs:
+  build-key:
+    description: Cache key of lean/.lake/build for this checkout
+    value: ${{ steps.key.outputs.key }}
+  build-key-prefix:
+    description: The key without the source hash, to restore the newest build with the same toolchain, manifest and lakefile
+    value: ${{ steps.key.outputs.prefix }}
+
+runs:
+  using: composite
+  steps:
+    # The toolchain, the manifest, the lakefile and every .lean source under
+    # lean/ (computed before the packages land in lean/.lake).
+    - name: Build cache key
+      id: key
+      shell: bash
+      run: |
+        prefix="lean-build-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json', 'lean/lakefile.toml') }}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix${{ hashFiles('lean/**/*.lean', '!lean/.lake/**') }}" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ~/.elan
+        key: elan-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
+    - name: Install elan
+      shell: bash
+      run: |
+        curl -fsSL https://elan.lean-lang.org/elan-init.sh \
+          | sh -s -- -y --default-toolchain none
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/mathlib
+        key: mathlib-${{ runner.os }}-${{ hashFiles('lean/lake-manifest.json') }}
+    - name: Fetch Lean dependencies (imported Mathlib closure only)
+      shell: bash
+      run: bash scripts/lean-ci-deps.sh

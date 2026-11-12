@@ -197,66 +197,70 @@ jobs:
 
   # Machine-checked soundness (lean/): the verifier's untimed abstraction and
   # the precompiled executor's hot loop (flat-pool token conservation + the
-  # Bitmap/Precompiled backend refinement).
-  # Proof-only: no implementation code depends on this, so the job stands alone.
-  # Libpetri/Novel/ imports Mathlib; only the cached oleans of the imported
-  # closure are fetched (step below), so nothing from Mathlib is compiled.
-  lean:
+  # Bitmap/Precompiled backend refinement). Three jobs: lean-build builds it,
+  # lean runs the gates over the build, lean-kernel replays it through the
+  # kernel. Libpetri/Novel/ imports Mathlib; setup-lean fetches only the cached
+  # oleans of the imported closure, so nothing from Mathlib is compiled.
+  #
+  # lean-build builds lean/ (Libpetri, proofgraph, ProofGraphFixture, reference) once
+  # per run; `lean`, the `lean-kernel` shards and `conformance` restore the
+  # result from the cache instead of building it again.
+  #
+  # The key is the toolchain, the manifest, the lakefile and every .lean
+  # source under lean/. On a miss the build starts from the newest entry with
+  # the same toolchain, manifest and lakefile, and Lake rebuilds only the
+  # modules whose sources or imports changed: it decides from the input
+  # hashes in its .trace files, not from timestamps. No module of these
+  # targets reads a file while it elaborates, so the .lean sources are all
+  # the inputs the build has. The kernel replay in lean-kernel re-checks every
+  # declaration of the restored oleans, so a cached olean is never trusted on
+  # its own.
+  #
+  # A pull request run reads the caches main saved but writes only to its own
+  # scope, so it can never replace the build main restores.
+  lean-build:
     runs-on: ubuntu-latest
-    # 25, not 15: the leanchecker kernel replay below re-checks every Libpetri
-    # declaration, ~100 s wall pinned to 4 cores locally (likely 2-4 min on a
-    # 4-vCPU runner), on top of the build and the other gates.
     timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-lean
+        id: lean
+      - uses: actions/cache/restore@v6
+        id: restore
+        with:
+          path: lean/.lake/build
+          key: ${{ steps.lean.outputs.build-key }}
+          restore-keys: ${{ steps.lean.outputs.build-key-prefix }}
+      - name: lake build
+        working-directory: lean
+        run: lake build
+      - if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: lean/.lake/build
+          key: ${{ steps.lean.outputs.build-key }}
+
+  # Every gate over the built Lean development except the kernel replay,
+  # which runs sharded in lean-kernel.
+  lean:
+    needs: lean-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: lean
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v6
+      - uses: ./.github/actions/setup-lean
+        id: lean
+      - uses: actions/cache/restore@v6
         with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
-      - name: Install elan
-        run: |
-          curl -fsSL https://elan.lean-lang.org/elan-init.sh \
-            | sh -s -- -y --default-toolchain none
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-      # Mathlib is never built here, and never fetched whole: the script
-      # shallow-clones the manifest packages and pulls only the cached oleans
-      # of the Mathlib modules lean/ imports (~80 MB compressed, not ~6.4 GB).
-      - uses: actions/cache@v6
-        with:
-          path: ~/.cache/mathlib
-          key: mathlib-${{ runner.os }}-${{ hashFiles('lean/lake-manifest.json') }}
-      - name: Fetch Lean dependencies (imported Mathlib closure only)
-        run: bash ../scripts/lean-ci-deps.sh
+          path: lean/.lake/build
+          key: ${{ steps.lean.outputs.build-key }}
+          fail-on-cache-miss: true
+      # A no-op on the restored build. If Lake ever did rebuild here, the
+      # gates below would still read a correct build, only later.
       - run: lake build
-      # Replays every declaration of every built Libpetri.* module through the
-      # kernel, starting from the environment its imports produce. Catches
-      # "environment hacking": a declaration that reached the .olean without
-      # the kernel accepting it (skipKernelTC, addDeclWithoutChecking, a
-      # tampered olean). `#print axioms` cannot: a planted
-      # `theorem : False := True.intro` added under skipKernelTC reports "does
-      # not depend on any axioms", and leanchecker rejects it with a kernel
-      # type mismatch. `leanchecker` ships with the toolchain; it exits
-      # non-zero on a rejected declaration or a name with no oleans.
-      #
-      # Not `lake env leanchecker Libpetri` in one call: that starts one task
-      # per module, each with its own imported environment, and peaked at
-      # 28 GB RSS (the runner has 16 GB). An argument is a module *prefix*, so
-      # the awk keeps only names that no earlier kept name is a prefix of
-      # (LC_ALL=C sort puts A.B right after A) and each module is replayed
-      # once; one call per prefix peaks at ~7.5 GB (Libpetri.Reference, 10
-      # modules) and took ~100 s pinned to 4 cores. The root Libpetri.lean
-      # only imports and declares nothing.
-      - name: Kernel replay of every Libpetri module (leanchecker)
-        shell: bash
-        run: |
-          find Libpetri -name '*.lean' | sed 's/\.lean$//; s#/#.#g' | LC_ALL=C sort \
-            | awk 'prev == "" || index($0, prev ".") != 1 { print; prev = $0 }' > /tmp/lc-modules
-          test -s /tmp/lc-modules
-          xargs -n 1 lake env leanchecker < /tmp/lc-modules
-          echo "leanchecker: replayed $(wc -l < /tmp/lc-modules) module prefixes"
       # A `sorry` still builds (with a warning), so the build alone is not a
       # gate. Both checks below are: grep catches the source text, and
       # `#print axioms` catches anything that reached a theorem by any route
@@ -855,9 +859,66 @@ jobs:
         shell: bash
         run: bash ../scripts/test_spec_lean_gates.sh
 
-  # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
-  # Graphviz-WASM must instantiate + render, and the committed assets must be
-  # the reproducible output of the locked toolchain (no silent dep drift).
+  # Replays every declaration of every built Libpetri.* module through the
+  # kernel, starting from the environment its imports produce. Catches
+  # "environment hacking": a declaration that reached the .olean without the
+  # kernel accepting it (skipKernelTC, addDeclWithoutChecking, a tampered or
+  # stale cached olean). `#print axioms` cannot: a planted
+  # `theorem : False := True.intro` added under skipKernelTC reports "does not
+  # depend on any axioms", and leanchecker rejects it with a kernel type
+  # mismatch. `leanchecker` ships with the toolchain; it exits non-zero on a
+  # rejected declaration or a name with no oleans.
+  #
+  # Not `lake env leanchecker Libpetri` in one call: that starts one task per
+  # module, each with its own imported environment, and peaked at 28 GB RSS
+  # (the runner has 16 GB). An argument is a module *prefix*, so the awk keeps
+  # only names that no earlier kept name is a prefix of (LC_ALL=C sort puts
+  # A.B right after A) and each module is replayed once. The root
+  # Libpetri.lean only imports and declares nothing.
+  #
+  # Each call pays a few seconds to load its imported environment, so the
+  # ~210 calls took ~10 min in one job. The shards split them round-robin;
+  # every shard computes the same list, so together they replay all of it.
+  # A shard logs each prefix's time, slowest first, to rebalance by.
+  lean-kernel:
+    needs: lean-build
+    name: lean-kernel (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: lean
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-lean
+        id: lean
+      - uses: actions/cache/restore@v6
+        with:
+          path: lean/.lake/build
+          key: ${{ steps.lean.outputs.build-key }}
+          fail-on-cache-miss: true
+      - name: Kernel replay of this shard's Libpetri modules (leanchecker)
+        shell: bash
+        run: |
+          find Libpetri -name '*.lean' | sed 's/\.lean$//; s#/#.#g' | LC_ALL=C sort \
+            | awk 'prev == "" || index($0, prev ".") != 1 { print; prev = $0 }' > /tmp/lc-all
+          test -s /tmp/lc-all
+          awk -v shard=${{ matrix.shard }} '(NR - 1) % 4 == shard - 1' /tmp/lc-all > /tmp/lc-modules
+          test -s /tmp/lc-modules
+          : > /tmp/lc-times
+          while read -r mod; do
+            start=$EPOCHREALTIME
+            lake env leanchecker "$mod" < /dev/null
+            awk -v a="$start" -v b="$EPOCHREALTIME" -v m="$mod" \
+              'BEGIN { printf "%7.1f s  %s\n", b - a, m }' >> /tmp/lc-times
+          done < /tmp/lc-modules
+          sort -rn /tmp/lc-times | head -15
+          echo "leanchecker: replayed $(wc -l < /tmp/lc-modules) of $(wc -l < /tmp/lc-all) module prefixes"
+
   # Conformance against the verified Lean reference (spec/verification-fixtures/conformance/):
   # the Lean binary re-derives every expected verdict (freshness), then each language's verifier
   # runs the corpus on every route and must never contradict the reference, and every Violated
@@ -870,22 +931,16 @@ jobs:
       LIBPETRI_CONFORMANCE_REQUIRE: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v6
+      - uses: ./.github/actions/setup-lean
+        id: lean
+      # Starts at once instead of waiting for lean-build: restores the newest
+      # build cache (the exact one when this run's lean-build already saved
+      # it) and lets Lake build whatever changed since.
+      - uses: actions/cache/restore@v6
         with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
-      - name: Install elan
-        run: |
-          curl -fsSL https://elan.lean-lang.org/elan-init.sh \
-            | sh -s -- -y --default-toolchain none
-          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-      - uses: actions/cache@v6
-        with:
-          path: ~/.cache/mathlib
-          key: mathlib-${{ runner.os }}-${{ hashFiles('lean/lake-manifest.json') }}
-      - name: Fetch Lean dependencies (imported Mathlib closure only)
-        working-directory: lean
-        run: bash ../scripts/lean-ci-deps.sh
+          path: lean/.lake/build
+          key: ${{ steps.lean.outputs.build-key }}
+          restore-keys: ${{ steps.lean.outputs.build-key-prefix }}
       - name: Build the Lean reference
         working-directory: lean
         run: lake build reference
@@ -926,6 +981,9 @@ jobs:
           python -m pip install dist/libpetri-*.whl
       - run: python3 scripts/conformance-replay.py --lang py
 
+  # Guards the doc-generator viewer bundle (petrinet-diagrams.js): the baked
+  # Graphviz-WASM must instantiate + render, and the committed assets must be
+  # the reproducible output of the locked toolchain (no silent dep drift).
   viewer:
     runs-on: ubuntu-latest
     timeout-minutes: 10
