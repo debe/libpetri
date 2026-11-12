@@ -33,9 +33,11 @@ Toolchain is pinned in `lean-toolchain` (Lean 4.32.2), and Mathlib in `lakefile.
 matching tag. Mathlib replaces hand-rolled machinery (`Relation.ReflTransGen`, `Finset.sum`,
 sortedness lemmas) and carries the proofs under `Libpetri/Novel/`. Import individual Mathlib
 modules, never `Mathlib` as a whole: CI fetches only the cached oleans of the imported modules
-(`scripts/lean-ci-deps.sh`) and never builds Mathlib. CI then runs `lake build`, a
-`sorry`/`admit` grep, a `#print axioms` check on the headline theorems, and the proof-graph
-freshness check.
+(`scripts/lean-ci-deps.sh`) and never builds Mathlib. CI runs `lake build` once per run, starting
+from the cached build of the newest commit with the same toolchain, so only changed modules and
+their dependents recompile. On that build it runs a `sorry`/`admit` grep, a `#print axioms` check
+on the headline theorems, the proof-graph freshness check, and a kernel replay of every module
+(`leanchecker`, in four parallel shards).
 
 ## Proof-dependency graph
 

@@ -1,0 +1,82 @@
+# The Lean toolchain and the Mathlib closure lean/ imports, for every job that
+# builds or reads lean/. Mathlib is never built here, and never fetched whole:
+# lean-ci-deps.sh shallow-clones the manifest packages and pulls only the
+# cached oleans of the Mathlib modules lean/ imports (~80 MB compressed, not
+# ~6.4 GB).
+#
+# It then restores the cached build (see lean-build in ci.yml): Libpetri's own
+# lean/.lake/build, and the ir/ directories of the packages, which hold the C
+# objects of every dependency module the proofgraph and reference executables
+# link. The Mathlib cache ships oleans only, so without them each job
+# recompiled ~1000 C objects.
+name: Set up Lean
+description: Install elan, fetch the Mathlib closure lean/ imports, restore the cached build.
+
+inputs:
+  build-cache:
+    description: >-
+      Which cached build to restore: `newest` (this checkout's, else the newest
+      with the same toolchain, manifest and lakefile; Lake rebuilds the rest),
+      `exact` (this checkout's, failing when there is none) or `none`.
+    required: false
+    default: none
+
+outputs:
+  build-key:
+    description: Cache key of the build for this checkout
+    value: ${{ steps.key.outputs.key }}
+  build-cache-hit:
+    description: "'true' when the build of exactly this checkout was restored"
+    value: ${{ steps.newest.outputs.cache-hit || steps.exact.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    # The toolchain, the manifest, the lakefile and every .lean source under
+    # lean/ (computed before the packages land in lean/.lake).
+    - name: Build cache key
+      id: key
+      shell: bash
+      run: |
+        prefix="lean-build-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json', 'lean/lakefile.toml') }}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${{ hashFiles('lean/**/*.lean', '!lean/.lake/**') }}" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ~/.elan
+        key: elan-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
+    - name: Install elan
+      shell: bash
+      run: |
+        curl -fsSL https://elan.lean-lang.org/elan-init.sh \
+          | sh -s -- -y --default-toolchain none
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/mathlib
+        key: mathlib-${{ runner.os }}-${{ hashFiles('lean/lake-manifest.json') }}
+    - name: Fetch Lean dependencies (imported Mathlib closure only)
+      shell: bash
+      run: bash scripts/lean-ci-deps.sh
+    # After the fetch, never before: lean-ci-deps.sh re-clones a package
+    # directory whose HEAD is not the manifest's, and a restored ir/ tree
+    # without its package checkout would be wiped by that. The path list must
+    # stay identical to the save in lean-build (it is part of the cache version).
+    - if: inputs.build-cache == 'newest'
+      id: newest
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          lean/.lake/build
+          lean/.lake/packages/*/.lake/build/ir
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.prefix }}
+    - if: inputs.build-cache == 'exact'
+      id: exact
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          lean/.lake/build
+          lean/.lake/packages/*/.lake/build/ir
+        key: ${{ steps.key.outputs.key }}
+        fail-on-cache-miss: true
