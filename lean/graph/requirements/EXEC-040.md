@@ -13,62 +13,62 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n7174["Libpetri.Spec.TReach"]
-    n7738["Libpetri.Spec.clashT_X"]
-    n7739["Libpetri.Spec.clashT_at"]
-    n7743["Libpetri.Spec.clashT_inv"]
-    n7744["Libpetri.Spec.clashT_invR"]
-    n7745["Libpetri.Spec.clashT_invR_reach"]
-    n7747["Libpetri.Spec.clashT_inv_step"]
-    n7748["Libpetri.Spec.clashT_m0"]
-    n7749["Libpetri.Spec.clashT_mem"]
-    n7750["Libpetri.Spec.clashT_reaped"]
-    n7751["Libpetri.Spec.clashT_s0"]
-    n7752["Libpetri.Spec.clashT_u"]
-    n10425["Libpetri.Spec.exec040_rest_reaped_enabled"]
+    n10213["Libpetri.Spec.TReach"]
+    n12386["Libpetri.Spec.clashT_X"]
+    n12387["Libpetri.Spec.clashT_at"]
+    n12391["Libpetri.Spec.clashT_inv"]
+    n12392["Libpetri.Spec.clashT_invR"]
+    n12393["Libpetri.Spec.clashT_invR_reach"]
+    n12395["Libpetri.Spec.clashT_inv_step"]
+    n12396["Libpetri.Spec.clashT_m0"]
+    n12397["Libpetri.Spec.clashT_mem"]
+    n12398["Libpetri.Spec.clashT_reaped"]
+    n12399["Libpetri.Spec.clashT_s0"]
+    n12400["Libpetri.Spec.clashT_u"]
+    n16074["Libpetri.Spec.exec040_rest_reaped_enabled"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (16 declarations, collapsed)"]
   c66["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
-  c83["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
-  c87["📁 Libpetri/Reference/Timed.lean (37 declarations, collapsed)"]
-  c115["📁 Libpetri/Spec/Glossary.lean (5 declarations, collapsed)"]
-  c126["📁 Libpetri/Spec/GlossaryTime.lean (14 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (20 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (37 declarations, collapsed)"]
+  c132["📁 Libpetri/Spec/Glossary.lean (5 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (14 declarations, collapsed)"]
   c54 --> c0
-  c83 --> c28
-  c83 --> c54
-  c87 --> c66
-  c87 --> c83
-  c115 --> c83
-  c126 --> c87
-  c126 --> c115
-  n7174 --> c87
-  n7738 --> c87
-  n7738 --> n7752
-  n7739 --> n7751
-  n7743 --> c87
-  n7743 --> n7748
-  n7744 --> c87
-  n7744 --> n7748
-  n7745 --> n7174
-  n7745 --> n7744
-  n7745 --> n7747
-  n7747 --> n7743
-  n7747 --> n7749
-  n7749 --> n7738
-  n7750 --> n7739
-  n7751 --> n7738
-  n7751 --> n7748
-  n7752 --> c83
-  n10425 --> c126
-  n10425 --> n7745
-  n10425 --> n7750
+  c94 --> c28
+  c94 --> c54
+  c98 --> c66
+  c98 --> c94
+  c132 --> c94
+  c146 --> c98
+  c146 --> c132
+  n10213 --> c98
+  n12386 --> c98
+  n12386 --> n12400
+  n12387 --> n12399
+  n12391 --> c98
+  n12391 --> n12396
+  n12392 --> c98
+  n12392 --> n12396
+  n12393 --> n10213
+  n12393 --> n12392
+  n12393 --> n12395
+  n12395 --> n12391
+  n12395 --> n12397
+  n12397 --> n12386
+  n12398 --> n12387
+  n12399 --> n12386
+  n12399 --> n12396
+  n12400 --> c94
+  n16074 --> c146
+  n16074 --> n12393
+  n16074 --> n12398
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n10425 root
-  class c0,c28,c54,c66,c83,c87,c115,c126 collapsed
+  class n16074 root
+  class c0,c28,c54,c66,c94,c98,c132,c146 collapsed
 ```
 
 Axioms used:

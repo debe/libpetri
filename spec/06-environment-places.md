@@ -9,6 +9,7 @@ This document specifies external event injection via environment places, implici
 #### ENV-001: Environment Place Wrapper
 
 **Priority:** MUST
+**Kind:** N
 
 An environment place is a marker wrapper around a regular place that designates it as an external event injection point. Tokens can be injected into environment places from outside the executor.
 
@@ -274,15 +275,22 @@ For executors without environment places, a drain does not change when the execu
 #### ENV-012: Event-Driven Workflow Pattern
 
 **Priority:** SHOULD
+**Kind:** Q
 
 The engine supports event-driven workflow patterns where ~10 environment places represent external event sources (activity signals, data streams, tool requests, state changes, etc.) and the executor runs indefinitely, processing events as they arrive.
+
+This requirement adds no behaviour of its own. What the executor does with each injection is stated by [ENV-002], [ENV-003], [ENV-004] and [ENV-010], and how an injected token gets the transitions it enables armed is stated by [EXEC-001] step 3, [CONC-002], [CONC-005], [TIME-010] and [TIME-013]. None of them depends on how many environment places are registered. The sentence below restates them for many sources, and no requirement block of its own quotes it.
+
+*While* ten or more environment places are registered and the executor is open and running with no terminal place marked, the executor *shall* accept an injection into any of them as [ENV-010] requires, queue and inject it as [ENV-003] and [ENV-004] require for a single environment place, and *shall* arm the transitions the injected token enables as [EXEC-001] step 3, [CONC-002], [CONC-005], [TIME-010] and [TIME-013] require.
+
+The number ten and the concurrency of AC2 are quality targets for tests to check; what concurrent callers of `inject()` get is [ENV-003]'s subject.
 
 **Acceptance Criteria:**
 1. 10+ environment places can be registered simultaneously.
 2. Injection from multiple concurrent sources works correctly.
 3. The net reacts to each injection by enabling relevant transitions.
 
-**Depends on:** [ENV-001], [ENV-002], [ENV-010]
+**Depends on:** [ENV-001], [ENV-002], [ENV-003], [ENV-004], [ENV-010], [EXEC-001], [CONC-002], [CONC-005], [TIME-010], [TIME-013]
 **Test derivation:** Build a net with 10 environment places; inject events from multiple sources; verify correct transition firing.
 
 ---
@@ -578,6 +586,22 @@ has finished its termination bookkeeping (pending `inject()` futures completed, 
 emitted), returning whether termination was observed within the timeout. It returns promptly when the
 loop was never started, and it MUST NOT itself be defeated by a failure in that bookkeeping (for
 example a throwing event store).
+
+*Where* an implementation provides `awaitTermination`, *when* it is called on an executor whose loop was never started, the implementation *shall* answer true at once, without waiting for the timeout.
+
+*Where* an implementation provides `awaitTermination`, *when* it is called on an executor whose loop has started, the implementation *shall* wait until the loop has finished its termination bookkeeping or the timeout has expired, whichever comes first.
+
+*Where* an implementation provides `awaitTermination`, *when* its wait ends while the loop is still running, the implementation *shall* answer false.
+
+*Where* an implementation provides `awaitTermination`, the implementation *shall not* answer true for a run before the loop has taken the step that ends the run and, in that step, answered every accepted `inject()` still pending.
+
+*Where* an implementation provides `awaitTermination`, the implementation *shall not* answer true for a run while the emission of `ExecutionCompleted` ([EVT-003]) for that run is still to come.
+
+*Where* an implementation provides `awaitTermination`, *when* its wait ends after the loop has finished, the implementation *shall* answer true, even if a part of the termination bookkeeping failed, such as an event store that throws when the termination events are appended.
+
+*Where* an implementation provides `awaitTermination`, a failure in the termination bookkeeping *shall not* keep the call from returning its answer.
+
+These sentences on `awaitTermination` concern the first run of an executor; whether an executor may be run again, and what `awaitTermination` answers then, is not specified.
 
 Independently, run-with-timeout (`run(timeout)`, whose timeout is the caller's run budget named in
 [EXEC-041]; its expiry fails the caller's wait and does not by itself end the run) MAY expose a

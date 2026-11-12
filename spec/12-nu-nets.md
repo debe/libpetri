@@ -28,6 +28,13 @@ its firing consumes, *shall* depend on the names its keys project only through n
 **equality** and, for the tie-break of [NU-020], the name order. The name order
 exists solely for that tie-break and carries no domain meaning.
 
+*When* a matched transition fires with a chosen name, and a one-to-one renaming of
+names makes the renamed chosen name the chosen name ([NU-020], [NU-022]) of the same
+transition with every name its keys and relay targets project renamed, at the same
+marking, that renamed transition *shall* fire from that marking with the renamed
+chosen name, for the same emission, delivering the same tokens and leaving the same
+marking.
+
 The name constructor *shall* return equal names for equal underlying values and
 different names for different underlying values. Each implementation *shall* order
 names by one fixed strict total order, the name order: if one name precedes another,
@@ -51,10 +58,17 @@ Identity is a **projection of the token payload**, not a field on the token: a
 2. Names admit a stable total order consistent across a single implementation.
 3. Adding ν-matching to a net does not change the token type or the on-the-wire
    shape of token-bearing events.
+4. A one-to-one renaming of the names a join's keys project, which makes the
+   renamed chosen name the chosen name of the renamed join, does not change which
+   tokens the join consumes or the marking it leaves.
 
 **Test derivation:** Construct `NameId("a")` twice; verify equal. Verify
 `NameId("a") < NameId("b")`. Verify a net with no match spec emits identical
-token events with and without the ν-net APIs linked.
+token events with and without the ν-net APIs linked. Run a two-branch join on a
+marking where two names can join and their earliest tokens differ, then the same
+join with its keys composed with a swap of the two names; verify that the renamed
+join fires with the renamed name, consumes the same tokens and leaves the same
+marking.
 
 ---
 
@@ -63,20 +77,28 @@ token events with and without the ν-net APIs linked.
 #### NU-010: Fresh-Name Minting
 
 **Priority:** MUST
+**Kind:** B
 
 A transition action MAY mint a fresh name via the action context
 (`ctx.freshName()` / `ctx.fresh_name()`). The action writes the minted name into
 the payloads it produces, so the sibling tokens of a fork (an [IO-011] AND
 output) share one correlation name.
 
-Minted names MUST be unique across all firings of a single execution and SHOULD
-be deterministic for a fixed firing order (replay stability). The executor
-installs the minter; absent an executor-installed minter, a fallback still
+Minted names MUST be unique across all firings of a single execution and MUST be
+deterministic for a fixed scope ([NU-011]) and a fixed sequence of calling transitions (replay
+stability). So the names follow the order of the `freshName()` calls, not the order of the
+firings: with one minting action in flight at a time the two orders agree, and actions that run
+concurrently may call the minter in either order. The executor installs the minter, one counter
+shared by all its transitions ([NU-011]); absent an executor-installed minter, a fallback still
 guarantees uniqueness.
 
+*When* an action calls `freshName()`, the executor *shall* return a name that differs from every name it returned earlier in the same execution, whether the earlier call came in the same firing or in an earlier one.
+
+For a fixed scope and a fixed sequence of calling transitions, the executor *shall* return the same sequence of names to the `freshName()` calls, whichever firings the calls fall in.
+
 What replays is the sequence **within a minting scope** ([NU-011]). Under the
-default scope the scope component of a name differs from run to run by design —
-that is what keeps a resumed execution from re-minting a live name — so a host
+default scope the scope component of a name differs from run to run by design
+(that is what keeps a resumed execution from re-minting a live name), so a host
 that needs the *whole* name reproduced pins the scope, and a test compares names
 structurally or pins one rather than hard-coding a default-scope name.
 
@@ -91,16 +113,20 @@ declares it, in one of two ways:
 - by its consuming a declared budget place ([NU-040]), whose token is what a fork
   consumes when it mints.
 
-A declared mint MUST write, into each coloured place ([NU-051], [NU-054]) it writes
-without consuming one, a name it minted with `freshName()` in that firing. A transition
+Every name a declared mint writes into a coloured place ([NU-051], [NU-054]) it writes
+without consuming one MUST be a name it minted with `freshName()` in that firing, and all such
+names MUST be one and the same, whether in one place or in several. A transition
 that writes a coloured place without consuming one and is not declared keeps the net off
 both routes, and the verifier answers through the name-blind over-approximation. What
 the executor writes on timeout ([IO-013], [IO-014]) is never a mint, declared or not: a
 `ForwardInput` copies a consumed token, name included, and an `Out.Place` writes a unit
-token, which has no name. A declared mint that is not a transition of the net MUST fail
-loudly and name it, the same way at every entry point: verification, script encoding
-([VER-013]) and open-net verification ([VER-022]), with the reason `declared mint transition
-'x' not in the net (NU-010)`. Java throws where the mint is declared, the open-net hook
+token, which has no name. A declared mint that is not a transition of the net MUST be refused, by a
+failure or an `Unknown`, with the same reason naming it at every entry point (verification, script encoding
+([VER-013]) and open-net verification ([VER-022])): `declared mint transition 'x' not in the
+net (NU-010)`, or `declared mint transitions 'a', 'b' not in the net (NU-010)` when several
+are not, each named once in code-point order. A refusal that does not depend on the
+declaration, such as a stop before the call starts ([VER-013]) or an unresolved property
+place ([VER-003]), may come first, and that refusal is then the answer. Java throws where the mint is declared, the open-net hook
 included. TypeScript throws where it is declared on a verifier, and open-net verification
 answers `Unknown`. Rust answers `Unknown` from verification and open-net verification before
 any route runs, and its script encoding panics; Python raises `ValueError` from script
@@ -109,13 +135,33 @@ of a verdict from either route names the transitions whose mint contract it assu
 Route B declines a net only because a transition writes a coloured place without consuming
 one and is not declared, the report names that transition and points at the declaration.
 
+*When* a declared mint that has no input arc on a coloured place fires, every name it writes into a coloured place *shall* be a name it minted with `freshName()` in that firing.
+
+*When* a declared mint that has no input arc on a coloured place fires, every name it writes into coloured places *shall* be one and the same name, whether in one place or in several.
+
+The fragment classifier ([NU-051]) *shall* give the mint role only to a declared mint.
+
+*If* a transition without a match specification has no input arc on a coloured place, writes a coloured place and is not a declared mint, *then* the fragment classifier *shall* give it no role.
+
+*If* the timeout outcome of a transition writes a coloured place, *then* the fragment classifier *shall not* give it the mint role.
+
+The fragment classifier *shall not* give the mint role to a transition that has a match specification or an input arc on a coloured place.
+
+*If* a declared mint has no match specification, no input arc on a coloured place and no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, writes a coloured place in some outcome and on timeout writes no coloured place, *then* the fragment classifier *shall* give it the mint role, in both BASE and EXTENDED.
+
+*If* a name given to the verifier as a mint transition is not a transition of the net, *then* verification, script encoding and open-net verification *shall* each refuse the request, by failing or by answering `Unknown`, and *shall not* answer `Proven` or `Violated` or return scripts.
+
+*If* a name given to the verifier as a mint transition is not a transition of the net, *then* the reason of that refusal *shall* be `declared mint transition 'x' not in the net (NU-010)`, or `declared mint transitions 'a', 'b' not in the net (NU-010)` when several are not, naming each such name once and in code-point order, unless the same request with no mint transition named gets the same refusal.
+
+*If* every name given to the verifier as a mint transition is a transition of the net, *then* verification, script encoding and open-net verification *shall not* refuse the request with the reason `declared mint transition 'x' not in the net (NU-010)` or `declared mint transitions 'a', 'b' not in the net (NU-010)`, whatever names it gives, unless the same request with no mint transition named gets the same refusal.
+
 **Acceptance Criteria:**
-1. Two `freshName()` calls — within one firing or across firings — return
+1. Two `freshName()` calls, within one firing or across firings, return
    unequal names.
 2. A fork that stamps both AND-branches with one minted name produces sibling
    tokens that a [NU-020] join later correlates.
-3. For a fixed firing order and a fixed scope ([NU-011]), the sequence of minted
-   names is reproducible.
+3. For a fixed sequence of calling transitions and a fixed scope ([NU-011]), the sequence of
+   minted names is reproducible.
 4. (MUST, where the [NU-050] routes are offered) `mA: S1 → A` and `mB: S2 → B` with the stock `fork()`, and a join on `A`, `B` into
    `DONE`: with one correlation id in `S1` and `S2` the executor reaches `DONE = 1`, and
    `placeBound(DONE, 0)` is not `Proven` unless `mA` and `mB` are declared mints. Declared,
@@ -124,8 +170,10 @@ one and is not declared, the report names that transition and points at the decl
    `b`, and a join on `a`, `b`: the executor forwards both requests on timeout and joins
    them when they carry one id. `placeBound(done, 0)` is not `Proven` on either route,
    with `t1` and `t2` declared or with `budget` a declared budget place.
-6. (MUST, where offered) A declared mint that is not a transition of the net fails loudly and
-   names it.
+6. (MUST, where offered) A name given to the verifier as a mint transition that is not a
+   transition of the net is refused, by a failure or an `Unknown`, with a reason naming it,
+   unless a refusal that does not depend on the declaration is the answer; a name that is a
+   transition of the net is not refused with that reason.
 
 **Depends on:** [CORE-050], [IO-011], [IO-013], [IO-014], [NU-040], [NU-050]
 **Test derivation:** A `fork` transition mints a name per firing and stamps both
@@ -137,6 +185,7 @@ downstream join and each pair merges (see `nu_fork_mints_unique_ids_then_join_me
 #### NU-011: Resume-Safe Fresh-Name Minting
 
 **Priority:** MUST
+**Kind:** F
 
 [NU-010] scopes minted-name uniqueness to "a single execution". Restoring a marking
 ([CORE-073]) begins a **new** execution whose initial marking already holds names minted by
@@ -146,11 +195,19 @@ name equality alone, the collision does not surface as an error: it silently cor
 tokens from different run segments, merging a restored token with an unrelated fresh one.
 
 Names minted by an execution seeded from a restored marking MUST NOT collide with names
-present in that marking, nor with names minted by any other execution in the same restore
-lineage. The mechanism is not prescribed. Two that satisfy it:
+minted by any other execution in the same restore lineage, other than a replay of the same
+segment (AC3), whether or not those names are still present in that marking. The mechanism is not prescribed. Two that satisfy it:
 
 - a per-execution **scope** supplied by the host and incorporated into every minted name;
 - carrying the minter's high-water mark in the snapshot and resuming strictly above it.
+
+Under the scope mechanism, names minted under two different accepted scopes never collide, so
+the guarantee rests on the executions of a lineage running under different scopes: the default
+scope is drawn at random per executor (below), and a pinned scope is the host's promise. A
+replay that re-runs a segment under its pinned scope, from the marking the segment started from
+and with the same `freshName()` calls, mints the segment's names again, which is AC3, not a
+collision between segments. A name the host writes into a token itself, such as a copied
+correlation id, is not a minted name and is not covered.
 
 **The restore lineage crosses processes.** [CORE-073] offers restore as a suspend boundary, a
 durable checkpoint, a crash-recovery point — so the execution that resumes a marking is, in the
@@ -207,23 +264,38 @@ since been consumed leaves no trace in the marking while remaining live in host 
 any token the host holds across the restore.
 
 Replay stability ([NU-010] AC3) is preserved **within** a run segment: for a fixed scope (or
-a fixed restored high-water mark) and a fixed firing order, the minted sequence MUST be
-reproducible. Randomness is therefore admitted in exactly **one** place — the *default* scope,
+a fixed restored high-water mark) and a fixed order of `freshName()` calls, the minted
+sequence MUST be reproducible. The firing order fixes the order of the calls when at most one
+minting action is in flight at a time, or when every call is made inline by a synchronous
+action. Randomness is therefore admitted in exactly **one** place — the *default* scope,
 chosen once per executor — and nowhere else: the counter `<n>` MUST NOT be random, and a scope
 the host pinned MUST be used verbatim, with nothing random mixed into it or into the sequence
 minted under it. A host that needs a reproducible segment pins its scope (AC3). A host that pins
 nothing gets uniqueness instead of reproducibility, and that is the right default: an
 unreproducible name is visible and harmless, a cross-segment merge is neither.
 
+*If* a host-supplied scope is empty or contains `:` or `#`, *then* the executor *shall* reject it when it is configured.
+
+The executor *shall* accept a host-supplied scope that is not empty and contains neither `:` nor `#`, a whitespace-only scope included.
+
+*Where* an executor uses the scope mechanism, the `i`-th `freshName()` call it answers, counting from zero across all its firings and transitions, *shall* return `<t>#<s>:<i>` with `i` written in decimal, where `t` is the name of the calling transition and `s` is the executor's scope, verbatim as the host pinned it or as it was drawn by default.
+
+*Where* executors use the scope mechanism, no name minted by an execution under one accepted scope *shall* equal a name minted by an execution under a different accepted scope.
+
+*Where* an executor is given no scope, the executor *shall* draw its scope from the platform's random source as 32 lowercase hexadecimal characters, which neither its construction order nor its run identifier determines.
+
+A host *shall not* pin one scope for two executions of one restore lineage, except for a replay: an execution that re-runs an earlier segment, after it and not alongside it, from the marking that segment started from and with the same `freshName()` calls.
+
 **Acceptance Criteria:**
 1. Restore a marking holding a name `n` minted by a prior execution; run the resumed
-   execution so it mints at least as many names as the original minted; no minted name
-   equals `n`.
+   execution, under the default scope or a pinned scope other than the prior execution's, so
+   it mints at least as many names as the original minted; no minted name equals `n`.
 2. A restored token awaiting its sibling at a [NU-020] join is not correlated with a
    freshly minted token of the resumed segment.
-3. For a fixed scope and firing order, two runs from the same restored marking mint the
-   identical name sequence.
-4. Two concurrent executions restored from the same snapshot mint disjoint name sets.
+3. For a fixed scope and a fixed order of `freshName()` calls, two runs from the same restored
+   marking mint the identical name sequence.
+4. Two concurrent executions restored from the same snapshot, under the default scope or under
+   two different pinned scopes, mint disjoint name sets.
 5. **The default scope is not process-local.** An executor given no scope mints names whose scope
    component is 32 lowercase hexadecimal characters, different for every executor and — where
    the implementation publishes a run identifier — not equal to it. AC1 and AC2 therefore hold
@@ -262,11 +334,12 @@ is the first one constructed.
 #### NU-020: Match Specification
 
 **Priority:** MUST
+**Kind:** B
 
 A transition MAY declare a **match specification**: a subset of its **input**
-places, each with a `value → NameId` key projection. Every place named by the
-match MUST also be a declared input. The match adds a correlation requirement on
-top of the existing input cardinalities ([IO-001]–[IO-004]):
+places, each with a key projection from a token's value to a `NameId` or to no name. Every
+place named by the match MUST also be a declared input. The match adds a correlation
+requirement on top of the existing input cardinalities ([IO-001]–[IO-004]):
 
 - **Enablement** = the usual cardinality/bitmap/inhibitor checks ([CORE-022])
   **and** there exists a single name `n` present in *every* correlated input
@@ -275,14 +348,61 @@ top of the existing input cardinalities ([IO-001]–[IO-004]):
   correlated input (FIFO within a name); non-correlated inputs consume FIFO as
   usual ([EXEC-010]).
 
+A key projection may yield no name for a token (a value of another type, a projection that
+returns no value): such a token has no name on that input, so that input never matches it and
+never consumes it.
+
 A match names each correlated input once: the input's cardinality, not a repeated key, sets how
 many tokens of the name it takes. Building a match or a transition whose match keys one place
-twice MUST fail. Every correlated input requires at least one token ([IO-002], [IO-004]).
+twice MUST fail. A match builder given fewer than two keys MUST fail; a construction path that is
+not a match builder (Rust `MatchSpec::from_keys`, a TypeScript object literal) leaves that minimum
+to the caller. Every correlated input requires at least one token ([IO-002], [IO-004]).
+
+**Build.** The match checks run after every other build-time check of the transition: a place
+keyed twice, then a key on a place that is not an input place, then the relay checks of
+[NU-054]. The first check that fails names the error.
+
+*If* a match builder is given fewer than two keys, *then* building the match *shall* fail.
+
+*If* a match specification keys one place twice, *then* building the match *shall* fail.
+
+Building a match from two or more keys on distinct places *shall* succeed.
+
+*If* a transition fails to build without its match specification, *then* building it with the match specification *shall* fail.
+
+*If* the match specification of a transition keys one place twice, *then* building the transition *shall* fail.
+
+*If* the match specification of a transition keys a place that is not an input place of the transition, *then* building the transition *shall* fail.
+
+Building a transition with a match specification *shall* succeed when the transition builds without the match, the match keys distinct input places of the transition, and the match declares each relay target once and as an output place of the transition ([NU-054]).
+
+**Enablement and the chosen name.**
+
+*When* a transition with a match specification fires, it *shall* be enabled on its token counts ([CORE-022]).
+
+*When* a transition with a match specification fires, every correlated input *shall* hold at least one token of the chosen name and at least its required count of tokens of that name.
+
+*When* a transition with a match specification fires, no other name of which every correlated input holds at least its required count of tokens *shall* have an earlier earliest `createdAt` among its tokens in the correlated inputs than the chosen name, or the same and precede it in the name order.
+
+**Firing.**
+
+*When* a transition with a match specification fires, its action *shall* receive from each correlated input the first tokens of the chosen name in queue order, as many as the consumption count of the input arc with `available` the number of tokens of the chosen name in the place ([IO-007]).
+
+*When* a transition with a match specification fires, each correlated input that is not one of its reset places *shall* end the firing holding the tokens it did not deliver, in their order, followed by the tokens the firing deposited there.
+
+*When* a transition with a match specification fires, its deposit *shall* be one its output spec offers for the tokens the firing takes ([IO-013], [IO-015]).
+
+*When* a transition with a match specification fires, its read arcs *shall* deliver the head of each read place after the inputs are taken ([EXEC-012]).
+
+*When* a transition with a match specification fires, each of its reset places *shall* end the firing holding only the tokens the firing deposited there ([CORE-034]).
+
+*When* a transition with a match specification fires, each place that is not a correlated input *shall* deliver to its action, and keep, the tokens it would without the match specification: the tokens at the head of its queue, as many as the consumption count of its input arc and none without one, and, unless it is a reset place, the rest of its queue in order followed by the tokens the firing deposited there ([EXEC-010], [EXEC-020]).
 
 **Determinism (tie-break).** When more than one name satisfies the join, the
-implementation MUST choose by this exact rule, so all languages fire identically:
-1. the name whose **oldest matched token** (minimum `createdAt` across the
-   correlated inputs) is **earliest**;
+implementation MUST choose by this exact rule, so all languages fire identically on names whose
+values hold only Basic Multilingual Plane characters ([NU-001]):
+1. the name whose earliest `createdAt` among all tokens carrying the name in the correlated
+   inputs is **earliest**, whether the firing consumes those tokens or not;
 2. ties broken by **name order** ([NU-001]).
 
 > The name-order tie-break is byte-identical across implementations for **BMP**
@@ -301,13 +421,14 @@ implementation MUST choose by this exact rule, so all languages fire identically
    input tokens remain.
 3. A correlated `Exactly(k)` / `AtLeast(m)` input requires k / m tokens **of the
    matched name**; `All` consumes all tokens of the matched name.
-4. The tie-break selects the earliest-oldest name, then the lexicographically
-   least name, identically across implementations.
+4. The tie-break selects the name with the earliest `createdAt` among its tokens in the
+   correlated inputs, then the least name in the name order; implementations agree on names of
+   Basic Multilingual Plane characters ([NU-001]).
 5. A match that keys one place twice is rejected when the match is built, and when a
    transition is built with such a match from any other construction path (a bindings layer,
    a composition remap, an object literal).
 
-**Depends on:** [IO-001], [IO-005], [CORE-022], [CORE-013]
+**Depends on:** [IO-001], [IO-002], [IO-003], [IO-004], [IO-005], [IO-007], [CORE-022], [CORE-013], [EXEC-010], [NU-001], [NU-022]
 **Test derivation:** `nu_join_matches_by_name_not_fifo` (reversed arrival),
 `nu_join_blocks_without_matching_name`, mirrored across every executor in every
 language.
@@ -317,18 +438,35 @@ language.
 #### NU-021: Match as the Sole Per-Token Filter
 
 **Priority:** MUST
+**Kind:** B
 
 Name correlation ([NU-020]) is the **only** per-token filter the enablement check
 applies. There is no unary value predicate on an input: guards were removed in
 [IO-006] and no implementation carries one, so token selection is determined by
-position ([EXEC-010], [IO-007]) and, on correlated inputs, by name equality —
-nothing else.
+position ([EXEC-010], [IO-007]) and, on correlated inputs, by name equality, with the
+chosen name picked by the tie-break of [NU-020], which reads names and `createdAt` only.
+Nothing else about a token's value is read.
 
-Should a future revision reintroduce a unary input filter, the composition order is
-fixed here in advance: the filter applies **first** and the name correlation runs
-over the survivors, so a token must pass the filter *and* project to the chosen name
-to be consumed. Until such a construct exists, this requirement is satisfied by the
-absence of any competing filter.
+A pairing of values says, for each place, which pairs of values may stand in for each other
+there. A transition's keys and relay targets cannot tell a pairing apart when every key on a
+place, and every relay target at a place, projects the two values of each pair on that place to
+the same name or to no name. On a place that no key and no relay target reads, a pairing may
+pair any two values, and a transition without a match specification has no keys, so for it any
+pairing qualifies. Two markings differ by a pairing when every place holds as many tokens in
+both and the tokens at the same queue position of a place have the same `createdAt` and values
+the pairing pairs on that place. Two emissions, or two deliveries, differ by a pairing when they
+hold such tokens on the same places in the same order.
+
+*When* a transition fires, it *shall* also fire with the same chosen name from every marking that differs from its marking only by a pairing its keys and relay targets cannot tell apart, for every emission that differs from its emission by the same pairing, delivering tokens and leaving a marking that differ from its own by the same pairing.
+
+*When* a transition with a match specification fires, every token it delivers from a correlated input *shall* project to the chosen name under that input's key.
+
+*When* a transition with a match specification fires, each correlated input that is not one of its reset places *shall* end the firing holding, of the tokens that do not project to the chosen name, exactly the ones it held before, in their order, followed by the ones the firing deposited there, in the order deposited.
+
+*Note (non-normative).* Should a future revision reintroduce a unary input filter, the
+intended composition order is: the filter applies **first** and the name correlation runs
+over the survivors, so a token must pass the filter *and* project to the chosen name to be
+consumed. No implementation has such a filter today.
 
 **Acceptance Criteria:**
 1. No input specification variant exposes a value predicate; the enablement check
@@ -336,24 +474,36 @@ absence of any competing filter.
 2. A correlated input consumes only tokens carrying the chosen name; a same-place
    token of a different name is left behind regardless of its value.
 
-**Depends on:** [NU-020], [IO-006]
+**Depends on:** [NU-020], [EXEC-010], [IO-007]
 **Test derivation:** A ν-join over a place holding tokens of two different names;
 verify only the tokens of the selected name are consumed and the others remain.
 
 #### NU-022: Deterministic Match Selection
 
 **Priority:** MUST
+**Kind:** F
 
 When more than one correlation name is simultaneously eligible at a matched
 transition, the implementation MUST select the name with the smallest
 `(oldest correlated-token timestamp, then NameId)` ordering: oldest first, ties
 broken by name. The selection is a pure function of the current marking and MUST
-be **identical across all conforming implementations**: the firing tie-break
-(`selectMatchName` / `select_match_name`) is byte-identical, and any incremental
+be **identical across all conforming implementations** on names whose values hold only Basic
+Multilingual Plane characters ([NU-001]): the firing tie-break
+(`selectMatchName` / `select_match_name`) is byte-identical on such names, and any incremental
 acceleration of it MUST return byte-identical results to the reference function.
 A token a `ForwardInput` forwards on a timeout outcome keeps its original `created_at` in
 every implementation ([IO-014]), so a name whose oldest correlated token was forwarded
 orders the same everywhere.
+
+A name is eligible at a matched transition when the match keys at least one input and every
+correlated input holds at least one token of the name and at least the input's required count of
+such tokens; a token whose key yields no name counts for no name ([NU-020]). The oldest
+correlated-token timestamp of a name is the earliest `createdAt` among all tokens of the name in
+the correlated inputs, whether the firing consumes them or not.
+
+*If* some name is eligible at a matched transition, *then* the selection *shall* return a name.
+
+*When* the selection returns a name, that name *shall* be eligible, and no eligible name *shall* precede it in the order by oldest correlated-token timestamp, then by name order.
 
 **Acceptance Criteria:**
 1. Given the same eligible *(name → correlated-token timestamps)* state, every
@@ -378,21 +528,30 @@ the incremental `best()` equals `selectMatchName` over non-monotonic timestamps.
 #### NU-030: Freshness Scoping under Composition
 
 **Priority:** MUST
+**Kind:** F
 
-ν-name freshness is **per instance**, as a structural consequence of name
-prefixing ([MOD-012]): the executor mints names qualified by the firing
-transition's (post-compose, instance-prefixed) name, so two instances of the same
-subnet draw from disjoint name pools with no extra runtime state. A match
-specification carried through composition MUST have its correlated places
-remapped by the same place rewrite the arcs follow ([MOD-020]), so a composed
-join still correlates the renamed inputs.
+Names minted in two instances never collide ([NU-010]); the transition component of a minted
+name ([NU-011]) is the firing transition's post-compose name, which carries the instance prefix
+unless the transition is channel-merged ([MOD-021]). The match specification of a composed join
+follows the same place rewrite as its arcs ([MOD-020]), so a composed join still correlates the
+renamed inputs and produces into the renamed relay targets ([NU-054]).
+
+*When* a transition is rebuilt through a place rewrite (such as prefix renaming [MOD-010], port binding [MOD-020], place fusion [MOD-061], or the identity rewrite of action binding [CORE-042]), the set of input places of the rebuilt transition *shall* be the image under the rewrite of the set of input places of the original transition.
+
+*When* a transition is rebuilt through a place rewrite, the set of places of the output specification of the rebuilt transition *shall* be the image under the rewrite of the set of places of the output specification of the original transition.
+
+*When* a transition that carries a match specification is rebuilt through a place rewrite, the rebuilt transition *shall* carry a match specification whose correlated places and relay targets ([NU-054]) are the images under the same rewrite of the original ones, in the same order, each with the key projection it had.
+
+*When* a transition that carries no match specification is rebuilt through a place rewrite, the rebuilt transition *shall* carry no match specification.
+
+*When* a transition is rebuilt through a place rewrite, the name of the rebuilt transition *shall* be the original name with the instance prefix under prefix renaming ([MOD-010]) and the original name under every other rebuild.
 
 **Acceptance Criteria:**
 1. Two instances of a forking subnet never mint colliding names.
 2. After composition, a join's match correlates the renamed (host-bound) places,
    not the author-original ones.
 
-**Depends on:** [MOD-010], [MOD-012], [MOD-020]
+**Depends on:** [MOD-010], [MOD-020], [MOD-021], [MOD-061], [CORE-042], [NU-010], [NU-011], [NU-054]
 **Test derivation:** Instantiate a fork+join subnet twice; verify each instance's
 joins merge only their own siblings.
 
@@ -401,22 +560,35 @@ joins merge only their own siblings.
 #### NU-060: Match-Arc Composition
 
 **Priority:** SHOULD
+**Kind:** F
 
 A correlated input behaves, under channel composition ([MOD-021]), as the input
-arc it layers on: its arc dedup/conflict rules are unchanged. When two merged
-sides both carry a match on the same place, the implementation MUST either fuse
-to a single coherent correlation or reject the merge naming the conflict; it MUST
-NOT silently drop a match.
+arc it layers on: its arc dedup/conflict rules are unchanged. A merge MUST NOT
+silently drop a match, and no implementation fuses two matches into one: when both
+merged sides carry a match, whatever places the two matches correlate, the merge
+MUST be rejected with an error naming the caller-side transition.
+
+*When* at most one side of a channel merge carries a match, the channel merge *shall* reject with the same error when the same merge of the two transitions without their matches rejects, and otherwise *shall* give the merged transition of that merge with that side's match unchanged, or with no match when neither side carries one.
+
+*If* both sides of a channel merge carry a match, *then* the channel merge *shall* be rejected with an error that names the caller-side transition.
+
+A correlated input is therefore merged by the canonical input-arc merge table like any
+other input arc: a correlated `one()` and the other side's `one()` on the same place give
+one `exactly(2)` arc that the surviving match still correlates. The other side's token on
+that place is then a token of the chosen name, not the oldest token. Which error a merge reports
+when it also breaks a rule of [MOD-021] is not specified.
 
 **Acceptance Criteria:**
-1. Composing a transition that carries a match preserves the match on the flat
-   net (it is not dropped).
-2. A merge that would combine two incompatible matches on one place is rejected
-   with a diagnostic, or fused deterministically.
+1. Composing a transition that carries a match with a side that carries none
+   preserves the match on the flat net (it is not dropped).
+2. A merge of two transitions that both carry a match is rejected with an error
+   naming the caller-side transition, whatever places the two matches correlate.
 
-**Depends on:** [MOD-021], [NU-020]
+**Depends on:** [MOD-021], [NU-020], [NU-054]
 **Test derivation:** Channel-merge a matched transition with a passthrough side;
-verify the composed transition still correlates.
+verify the composed transition still correlates. Channel-merge two matched transitions
+whose matches key different places; verify the merge is rejected naming the caller-side
+transition.
 
 ---
 
@@ -425,6 +597,7 @@ verify the composed transition still correlates.
 #### NU-040: Bounded Budget and Decidability
 
 **Priority:** SHOULD
+**Kind:** F
 
 Be explicit about the cliff. **Safety / coverability** for the ν-fragment is
 **decidable** [RV-08]: the marking-with-names state space is a well-structured transition
@@ -438,12 +611,13 @@ single token a fork consumes when it mints a name and a join (or a dead-letter
 transition) returns. Then:
 
 - "at most `k` live correlation groups" is the structural invariant
-  `PlaceBound(Budget, k)` ([VER-002]) — checkable with the existing untimed
-  encoder, no name reasoning required;
+  `PlaceBound(Budget, k)` ([VER-002]); once the budget place is declared to the verifier,
+  it is checkable with the existing untimed encoder, no name reasoning required;
 - a `Pending` place (one token per live group, emptied only by join or
-  dead-letter) plus `PlaceBound(Pending, k)` and quiescence ([EXEC-040]) to
-  `Pending = 0` expresses **"every forked name is eventually
-  joined-or-dead-lettered."**
+  dead-letter; a correlation group is live from the fork that mints its name until a join
+  or dead-letter takes its `Pending` token) plus `PlaceBound(Pending, k)` and quiescence
+  ([VER-002]) to `Pending = 0` expresses **"every forked name is joined or dead-lettered
+  by the time the net comes to rest."**
 
 With the budget bounded and branch places `PlaceBound`-checked, fresh names are
 drawn from a finite live pool, the WSTS stays finite, and these properties become
@@ -451,8 +625,29 @@ provable. This is the [reask/retry-budget-as-typed-place] discipline applied to
 correlation.
 
 Declaring a budget place to the verifier also declares the mint contract of [NU-010]
-for every transition that consumes it: where such a transition writes a coloured place
-without consuming one, the ν routes read the write as a fresh name.
+for every transition that has an input arc on it: where such a transition writes a coloured
+place without consuming one, the ν routes read the write as a fresh name.
+
+*Where* a place is declared to the verifier as a budget place, the ν routes *shall* read every transition that has an input arc on that place as a declared mint ([NU-010]).
+
+The ν routes *shall* read a transition named as a mint transition on the verifier (`mintTransitions` / `mint_transitions`) as a declared mint, whatever budget places are declared.
+
+The ν routes *shall* read a transition as a declared mint only when it is named as a mint transition on the verifier or has an input arc on a place declared to the verifier as a budget place.
+
+A read, inhibitor or reset arc on a budget place declares nothing.
+
+**JoinedOrDeadLettered.** The property `JoinedOrDeadLettered(pending)` says that no correlation
+group is left behind when the net comes to rest: no reachable quiescent marking holds a
+`pending` token. A run that never comes to rest does not violate it.
+
+Every route that decides `JoinedOrDeadLettered(pending)` *shall* count a marking as violating it when the marking is quiescent ([VER-002]) and `pending` holds a token, whether or not a declared sink place is marked.
+
+Every route that decides `JoinedOrDeadLettered(pending)` *shall* count a marking as violating it only when the marking is quiescent and `pending` holds a token.
+
+In that quiescence a transition with a match specification *shall* count as enabled exactly when it is enabled as [NU-020] says: on its token counts, and with a name of which every correlated input holds at least one token and at least its required count; a match that correlates no input is never enabled.
+
+A route that reads enablement on token counts alone does not decide `JoinedOrDeadLettered(pending)`
+on a net with a transition that has a match specification, and answers `Unknown` there ([NU-050]).
 
 **Acceptance Criteria:**
 1. A fork gated on a `Budget` input cannot mint more than `k` concurrently-live
@@ -460,23 +655,26 @@ without consuming one, the ν routes read the write as a fresh name.
 2. A net whose every forked name is joined or dead-lettered reaches `Pending = 0`
    at quiescence; `PlaceBound(Pending, k)` holds.
 3. The spec states plainly that without a bounded budget, reachability/liveness
-   over unbounded fresh names is undecidable and the verifier returns `Unknown`
-   for that case ([NU-050]).
+   over unbounded fresh names is undecidable, and that the verifier answers that case
+   as [NU-050] AC2 says: never `Proven`.
 4. `JoinedOrDeadLettered(pending)` is exactly "no reachable quiescent marking holds
-   a `pending` token". It carries **no sink clause**: declared sink places
+   a `pending` token", quiescent as in [VER-002], with a transition that has a match
+   specification enabled as in [NU-020]. It carries **no sink clause**: declared sink places
    ([VER-002]) do not weaken it, and a stranded correlation group is a violation
    whether or not some sink happens to be marked in the same marking. Every route
    that decides it decides this same predicate.
 
 **Depends on:** [VER-002], [EXEC-040], [NU-010], [NU-020]
-**Test derivation:** Build a scatter-gather net with a `Budget(k)` place; verify
-`PlaceBound(Budget, k)` and `PlaceBound(Pending, k)` with the untimed encoder.
+**Test derivation:** Build a scatter-gather net with a `Budget(k)` place, declare the
+budget place to the verifier, and verify `PlaceBound(Budget, k)` and `PlaceBound(Pending, k)`
+with the untimed encoder.
 
 ---
 
 #### NU-050: Exact Verification of Matched Transitions
 
 **Priority:** MAY
+**Kind:** B
 
 The untimed encoder is value-blind ([VER-004]). For ν-nets this is
 relaxed under a carve-out: a matched transition's **name equality** is encoded
@@ -487,21 +685,18 @@ name-symmetric.
 
 The exactness goal MAY be realized by either of two routes:
 
-- **Route A — bounded name-colouring** (the budget made literal). Because a
-  bounded `Budget` ([NU-040]) caps the live correlation groups at `k`, names are
-  modeled as a finite set of `k` **colours** (`k` is the colour-slot bound of [NU-053],
-  at least the number of live names): each coloured place becomes `k`
+- **Route A — bounded name-colouring** (the budget made literal). Names are
+  modeled as a finite set of `k` **colours**, where `k` is the colour-slot bound of
+  [NU-053], at least the number of live names: each coloured place becomes `k`
   per-colour counts, a mint introduces a *globally fresh* colour, and a join
   consumes the **same** colour from every correlated input, so no counterexample
   equates two different names. It stays in linear arithmetic, and its `Proven` is
   sound while the declared mints and the coloured consumers keep their contracts
   ([NU-010], [NU-051]). It applies to the **mint → matched-join fragment**: coloured
   places (the matched inputs) are produced only by minting forks and consumed only by
-  matched joins, each mint is declared ([NU-010]), **budget is conserved across a mint→join pair**
-  (a join refunds no more budget than the cheapest mint consumes, so the live
-  colours stay ≤ the initial budget `k`), and coloured places carry no
-  inhibitor/read/reset arc. A net outside this fragment — including one whose join
-  refunds more budget than its mint consumes — falls back to the sound
+  matched joins, each mint is declared ([NU-010]), **a colour-slot bound exists**
+  ([NU-053]), and coloured places carry no inhibitor/read/reset arc. A net outside this
+  fragment, including one with no colour-slot bound, falls back to the sound
   over-approximation (criterion #1 then holds only where the exact route was taken).
 - **Route B — SCG name-partition** (implemented). A **state-class-graph quotient
   partitioned by name relations**: each correlation token carries an abstract,
@@ -512,18 +707,32 @@ The exactness goal MAY be realized by either of two routes:
   fragment** — to budget-less but structurally name-bounded nets, to **name × time**
   (the DBM firing zone rides alongside the name partition), and to **quiescence**
   (deadlock / joined-or-dead-lettered, decided over the name-aware terminal
-  classes). It is sound, and exact (sound *and* complete) whenever the symbolic
-  graph closes within the class bound; an unbounded live-name pool surfaces as
-  graph truncation → `Unknown` (never an unsound verdict). The alternative
+  classes). It is sound for every executor run, and complete for the free-choice
+  name semantics the graph explores ([VER-012]) whenever the symbolic graph closes
+  within the class bound; an unbounded live-name pool surfaces as graph truncation,
+  which never yields `Proven`. The alternative
   realization — equality over an uninterpreted **name sort** (EUF) in the CHC
   encoder — is not taken (the SMT path is untimed, and Spacer over an
   uninterpreted sort is poorly supported).
 
 When the live correlation-name pool is **not bounded** — no budget ([NU-040]) and
 no structural bound the name-partition quotient (Route B) can discover — the
-verifier MUST return `Unknown` rather than an unsound verdict (criterion **#2**
-below, mirroring the `Ignore`-mode discipline of [VER-006]); under Route B this
-appears as state-class-graph truncation.
+verifier MUST NOT return an unsound verdict (criterion **#2** below, mirroring the
+`Ignore`-mode discipline of [VER-006]); under Route B this appears as state-class-graph
+truncation, and the verdict is `Unknown` unless the prefix rule below finds a violating class.
+
+**The verdict on a built graph.** Route B reads its verdict off the classes its build stored,
+in discovery order, by the prefix rule of [VER-012] AC3.
+
+*If* the build of the Route B graph is stopped, because it runs out of total budget or is cancelled ([VER-013]), *then* Route B *shall* answer `Unknown`, whatever classes the build stored.
+
+*If* the build is not stopped and a stored class violates a safety property, or an expanded class at which the net rests violates a quiescence property, *then* Route B *shall* answer `Violated`, also when the graph does not close.
+
+*If* Route B answers `Violated`, *then* the class its counterexample ends at *shall* violate the property: a stored class for a safety property, an expanded class at which the net rests for a quiescence property.
+
+*If* the build is not stopped and no class violates the property, *then* Route B *shall* answer `Proven` when the graph closes and `Unknown` when it does not.
+
+*If* the Route B graph does not close, *then* Route B *shall not* answer `Proven`.
 
 Under modelled injection ([VER-006]) Route B treats an environment place as an inexhaustible
 input and so cannot observe its count or the names injected into it; it declines (`Unknown`)
@@ -532,10 +741,24 @@ when a verdict would depend on them ([VER-006] AC8).
 On a timed net Route B gives a matched join a clock only while one name-symbol is present in
 every correlated input, because the executor enables the join only then ([NU-020]). A join whose
 inputs hold tokens but share no name has no clock, so its latest bound constrains no other
-firing. The clock-restart rule of [TIME-012] reads the name layer too: a firing that takes the
-bound name out of a correlated input restarts the join's clock even when the input still holds
-tokens, and a join whose inputs come to share a name starts a fresh clock then. This holds with
+firing. The clock-restart rule of [TIME-012] reads the name layer too: a firing after which no
+name is present in every correlated input restarts the join's clock, even when the inputs still
+hold tokens, and a join whose inputs come to share a name starts a fresh clock then. This holds with
 and without the latest-bound relaxation for a late executor ([TIME-013]).
+
+*While* a transition is not enabled with an eligible name ([NU-020], [NU-022]), Route B *shall* hold no clock for it, even when its inputs hold the tokens its arcs require but no name is present in every correlated input.
+
+*When* a transition fires and another transition `j` holds a clock and is not enabled with an eligible name ([NU-020], [NU-022]) in the intermediate marking ([TIME-012]), Route B *shall* take `j`'s clock away, even when `j`'s inputs still hold tokens, and *shall* give `j` a fresh clock if the firing leaves `j` enabled with an eligible name.
+
+*When* a transition fires and another transition `j` holds a clock and is enabled with an eligible name ([NU-020], [NU-022]) before the firing, in the intermediate marking and after the firing, Route B *shall* keep `j`'s clock.
+
+*When* a firing leaves a transition `j` enabled with an eligible name ([NU-020], [NU-022]) and `j` held no clock before it, Route B *shall* start `j`'s clock at that firing.
+
+*When* a transition fires, Route B *shall* take its clock away and *shall* give it a fresh clock if the firing leaves it enabled with an eligible name ([NU-020], [NU-022]).
+
+*While* time passes, Route B *shall* keep the marking and the start of the clock of every transition enabled with an eligible name ([NU-020], [NU-022]), and *shall* advance the clock reading by the time that passed.
+
+Route B *shall* fire a transition only when it holds a clock that has run for at least the transition's earliest bound ([TIME-001]), and *shall* leave the clock reading unchanged at a firing.
 
 Route B reads every coloured token through one name. It assumes that each key and relay
 projection reading a coloured place returns the name its writer put there: the name a mint
@@ -549,19 +772,32 @@ the consumed name only for a coloured consumer ([NU-051]). A write the executor 
 is read by what it is: a forward carries the consumed token's name and a unit token has none.
 Where no role reads a coloured write faithfully, the net is outside both routes.
 
+**Soundness.** Both routes are sound against the untimed executor, with no environment place,
+while the projections and the actions keep the contracts above.
+
+*If* the coloured places start empty, every transition is in the fragment for its role, every key and relay projection reads the name its writer put there, and every declared mint and coloured consumer keeps its contract ([NU-010], [NU-051]), *then* Route B *shall* answer `Proven` for a safety property only if no marking the untimed executor reaches violates it.
+
+*If* in addition every correlated input takes at least one token, *then* Route B *shall* answer `Proven` for a quiescence property only if no marking the untimed executor reaches and rests at violates it.
+
+*If* Route A builds its plan with the colour-slot bound of [NU-053], every key and relay projection reads the name its writer put there, and every declared mint and coloured consumer keeps its contract, *then* a `Proven` of the coloured encoding of a safety property *shall* hold of every marking the untimed executor reaches.
+
+*If* in addition no transition of the net is reapable, *then* a `Proven` of the coloured encoding of a quiescence property *shall* hold of every marking the untimed executor reaches and rests at.
+
 **Acceptance Criteria:**
 1. (**NU-050 #1**) A property whose counterexample requires two *different* names
    to be equal is not reported on the exact path, unlike the value-blind
    over-approximation.
-2. (**NU-050 #2**) An unbounded-fresh-name net without a budget place yields
-   `Unknown`, not `Proven`/`Violated`.
+2. (**NU-050 #2**) An unbounded-fresh-name net without a budget place never yields
+   `Proven`: its Route B graph does not close, and the verdict is `Unknown` unless a stored
+   class violates the property, in which case it is `Violated` by the prefix rule of
+   [VER-012] AC3.
 3. Two forks mint one name each into the two inputs of a join with `window(0, 5)`, and a
    watchdog marks `BAD` at `delayed(10)`. Route B reports `unreachable(BAD)` violated, on time
    and late: the join is never enabled, so its deadline does not hold back the watchdog.
 4. A join at `delayed(10)` is count-enabled from 1 ms and first shares a name at 5 ms. Route B
    lets it fire at 15 ms at the earliest.
 
-**Depends on:** [VER-004], [NU-020], [NU-040], [TIME-012]
+**Depends on:** [VER-004], [VER-006], [VER-012], [NU-001], [NU-010], [NU-020], [NU-040], [NU-051], [NU-053], [TIME-001], [TIME-012], [TIME-013]
 **Test derivation:** Encode a join whose spurious untimed counterexample equates
 two distinct correlation ids; verify the exact carve-out (Route A bounded
 name-colouring) eliminates it, while a same-name join still reaches its merge.
@@ -634,12 +870,24 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   intermediate **carrier** places (`carrierPlaces` / `carrier_place(s)`) that carry
   a fresh name from the minting fork ([NU-010]) onward to a ν-join input. The
   analyzer unions the declared carriers into the coloured set **before** role
-  assignment, so the existing mint co-mints one fresh name into all of them. A
-  declared carrier name absent from the net's places MUST NOT be silently ignored:
-  the implementation MUST fail loudly (reject at the builder, or surface `Unknown`
-  with a reason naming the offending place), because a mistyped carrier would let
+  assignment, so the existing mint co-mints one fresh name into all of them.
+  *While* the fragment mode is EXTENDED, the fragment classifier *shall* give roles
+  against the coloured set it uses with no carrier declared, with every declared
+  carrier place added and no other place. In either fragment mode, a declaration
+  whose carrier places are all places of the net is accepted. A
+  declared carrier name absent from the net's places MUST NOT be silently ignored,
+  in either fragment mode and whatever the query:
+  the implementation MUST fail loudly (reject at the builder naming the offending
+  place, or surface `Unknown` with a reason naming it), because a mistyped carrier would let
   two fork branches mint independent names and produce a confident, spurious
-  deadlock verdict. Under BASE, declared carriers are ignored (a documented no-op).
+  deadlock verdict. *If* a declared carrier place is not a place of the net, *then*
+  the verifier *shall* either reject the declaration, naming such a place, or answer
+  `Unknown` with a reason that names at least one such place and no other place, in
+  both BASE and EXTENDED and whatever the query. Under BASE, the fragment classifier
+  ignores declared carriers (a documented no-op); the in-flight split of [VER-004]
+  reads them in both modes.
+  *While* the fragment mode is BASE, the fragment classifier *shall* give roles
+  against the same coloured set whatever carrier places are declared.
 
 - **Reset/read/inhibitor-on-coloured exclusion (BOTH modes).** In **both** BASE and
   EXTENDED, the analyzer rejects a net in which **any** coloured place carries a
@@ -676,9 +924,9 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
    false `Proven` from an over-counted name layer, no dropped base-enabled firing.
 3. (MUST) In both BASE and EXTENDED, a net with a reset, read, or inhibitor arc on a
    coloured place is rejected (returns no fragment).
-4. (MUST) A declared carrier place not present in the net fails loudly (builder
-   rejection or `Unknown` with a reason naming the place); it is never silently
-   ignored.
+4. (MUST) In both BASE and EXTENDED and whatever the query, a declared carrier place
+   not present in the net fails loudly (builder rejection naming the place, or `Unknown`
+   with a reason naming the place); it is never silently ignored.
 5. (SHOULD) With carriers declared, an end-to-end quiescence property (deadlock-free
    / joined-or-dead-lettered) is decided exactly via Route B — it PROVES on a
    fork-threaded co-mint plus drain fixture and reports VIOLATED when the drain is
@@ -700,7 +948,7 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
 **Test derivation:** `classify` accepts a drain/relay fixture under EXTENDED and
 rejects it under BASE; an `Exactly(2)` coloured consumer is rejected (blocker-1 /
 blocker-2 regression); a reset-on-coloured net is rejected in both modes; an unknown
-carrier name fails loudly; a join consuming another join's key off-key is rejected in
+carrier name fails loudly in both modes; a join consuming another join's key off-key is rejected in
 both modes and its reachable stranding is not proven; an end-to-end `deadlockFree` / `JoinedOrDeadLettered`
 query on a fork-threaded co-mint plus drain fixture PROVES via Route B and turns
 VIOLATED when the drain is removed.
@@ -730,7 +978,8 @@ class when another enabled transition `H` in the same class
 - shares at least one **consumed** input place with `L` **under real competition** —
   some shared consumed place `p` whose token count in the class marking cannot
   satisfy both demands at once (`count(p) < demand_H(p) + demand_L(p)`, where each
-  demand is the tokens that transition consumes from `p` on one firing). Read and
+  demand is the sum of the required counts ([IO-007]) of that transition's input arcs
+  on `p`: 1 for `One` and `All`, `n` for `Exactly(n)` and `AtLeast(n)`). Read and
   inhibitor arcs do not count, and a place holding **enough tokens for both** (e.g.
   two independent coloured tokens) is *not* a conflict — pruning `L` there would be
   unsound,
@@ -751,10 +1000,10 @@ unexpanded from a class exactly when another transition `H` of the net pre-empts
 class, and *shall* expand every other base-enabled transition of the class as under `NONE`, in
 the same order.
 
-*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` whose
-input arcs on the places both consume from have cardinality `One` or `Exactly` to compete in a
-class exactly when some place is a consumed input of both and its token count in the class
-marking is less than the sum of the tokens each of them consumes from it on one firing.
+*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` to
+compete in a class exactly when some place is a consumed input of both and its token count in
+the class marking is less than the sum of their demands on it, where a transition's demand on a
+place is the sum of the required counts ([IO-007]) of its input arcs on that place.
 
 *While* the mode is `CONFLICT`, the Route B graph *shall* take `H` to be ready no later than `L`
 in a class exactly when `readyEarliest[H] <= readyEarliest[L]` within a float epsilon, where
@@ -791,17 +1040,51 @@ two cases break the pruning. A transition `t` that feeds `H`'s input with an act
 flight leaves `H` disabled, so the executor fires `L` first while the one-step model
 enables `H` at once and prunes `L`. And `H` itself in flight is not started again by the
 Java and TypeScript executors, so a refill of the contested place goes to `L`. So a
-verifier MUST, whenever it applies `CONFLICT` on a net with a ν-join, split every pruner
+verifier MUST, whenever conflict priority applies to a call (below), split every pruner
 `H` (a transition with strictly higher priority than another it shares a consumed input
-with) and every transition that deposits into an input or read place of a pruner, and
-MUST NOT let `H` pre-empt anything while `inflight:<H>` is marked. When one of those
-transitions cannot be split (a ν-join, or a writer into a coloured place, [VER-004]), the
-pruning is off for that call: the verdict is the `NONE` verdict and the report names the
-transition. The idiom above is such a case, because the join is a pruner and cannot be
+with) and every transition that deposits into an input or read place of a pruner, except a
+transition that models an environment or is a completion step ([VER-004]), and MUST NOT
+let `H` pre-empt anything while `inflight:<H>` is marked. When one of those transitions
+cannot be split (a ν-join, or a writer into a coloured place, [VER-004]), the pruning is
+off for that call: the verdict is the `NONE` verdict and the report names the transition,
+unless the split without the pruning is refused as well, when the call answers `Unknown`
+with that refusal. The idiom above is such a case, because the join is a pruner and cannot be
 split. Under `assumeAtomicFiring` nothing is split and the pruning stays on, and the report
 states the atomic assumption. A direct call to Route B (Rust `verify_via_name_scg`,
 TypeScript `verifyViaNameScg`) applies no split and prunes as before; the in-flight guard
 has no effect on a net without in-flight places.
+
+Conflict priority does not apply to a call on a net with a transition read as reapable
+([VER-002]); under `assumeNoReaping` none is. A late executor reaps a reapable pruner and then
+fires the transition it would have pre-empted, so no firing can be pruned for it.
+
+*While* the mode is `NONE`, conflict priority *shall not* apply to any call, and the verifier
+*shall* hand the in-flight split ([VER-004]) the `QuiescentCount` demand alone.
+
+*While* the mode is `CONFLICT`, conflict priority *shall* apply to a call exactly when no
+transition of the net is read as reapable ([VER-002]) and either the property is a
+name-alignment one ([NU-055]) or the net has a ν-join and the property is not a
+reachability-safety one with a declared budget place ([NU-050]), and the verifier *shall*
+verify every other call as under `NONE`.
+
+*While* conflict priority applies to a call and `assumeAtomicFiring` is set, the verifier
+*shall* keep conflict priority on.
+
+*While* conflict priority applies to a call and `assumeAtomicFiring` is not set, *if* the net
+has no pruner or every transition the verifier would split under conflict priority can be
+split, *then* the verifier *shall* split every pruner and every transition that deposits into
+an input or read place of a pruner, except a transition that models an environment or is a
+completion step ([VER-004]), and *shall* keep conflict priority on.
+
+*While* conflict priority applies to a call and `assumeAtomicFiring` is not set, *if* the net
+has a pruner and a transition the verifier would split under conflict priority cannot be split,
+*then* the verifier *shall* hand the in-flight split and Route B what it hands them under
+`NONE`, so the verdict is the `NONE` verdict, and *shall* name the first such transition, in the
+transition order, in the report, unless the split under `NONE` is refused too, when the call
+answers `Unknown` with that refusal ([VER-004]).
+
+*While* the mode is `CONFLICT`, the Route B graph *shall* take a transition `H` to have a firing
+in flight in a class exactly when the class marking holds a token on the place `inflight:<H>`.
 
 **Acceptance criteria (MAY):**
 1. `NONE` is the default and the only mode an implementation MUST provide; when
@@ -829,7 +1112,8 @@ has no effect on a net without in-flight places.
    and a declared ν pair beside them, from `{c, s}`, `Unreachable(bad)` under `CONFLICT`
    is `Violated` with `L` in the trace. The Java and TypeScript executors mark `bad`.
 
-**Depends on:** [VER-012], [NU-050], [NU-020], [VER-004]
+**Depends on:** [VER-012], [NU-050], [NU-020], [VER-004], [VER-002], [VER-010], [IO-007],
+[NU-055], [CONC-002], [EXEC-002], [EXEC-003]
 **Test derivation:** the minimal ν-join vs. timed dead-letter-drain fixture is
 `Violated` under `NONE` and `Proven` under `CONFLICT`; a genuine orphan is `Violated`
 under `CONFLICT` without a drain and `Proven` with one; every verdict is attributed
@@ -911,11 +1195,24 @@ under any law that weights `a`.
 
 The verifier routes a bounded quiescence query to Route B first; when Route B
 truncates (`Unknown`), it **defers** to this scalable Route A encoding rather
-than returning `Unknown`. A verdict from the coloured plan is not downgraded
-(the colour-aware deadlock does not over-fire joins). Its `Proven` is sound while the
+than returning `Unknown`. A verdict from the coloured plan is not downgraded as a
+name-blind verdict would be (the colour-aware deadlock does not over-fire joins); only the
+`Ignore` downgrade of [VER-006] applies to it. Its `Proven` is sound while the
 declared mints and the coloured consumers keep their contracts ([NU-010], [NU-051]);
 the report prints the colour-slot bound as `colour-slot bound k=<k>`, after the
 `Colour-slot bound:` line below, and names the transitions whose contracts it assumes.
+
+The verifier *shall not* run Route B ([VER-012]) after the colour-slot bound in one verification call.
+
+*When* the verifier runs the colour-slot bound for a `DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered` or `QuiescentCount` property, it *shall* have run Route B ([VER-012]) in the same verification call.
+
+The verifier *shall not* run the colour-slot bound on a net without a ν-join or without a declared budget place, or when environment injection is modelled or an arrival feeds a coloured place ([VER-006]).
+
+*When* Route B builds its name-partition graph for a `DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered` or `QuiescentCount` property of a ν-net with a declared budget place and the graph returns `Unknown`, the verifier *shall not* return that `Unknown` from Route B and *shall* hand the query over to the next phase of the dispatch.
+
+*When* the verifier has built the coloured plan and the call is not under `Ignore` with environment places registered, the fixpoint query *shall* decide with the verdict of the coloured query and *shall not* downgrade it.
+
+*When* the verifier has not built the coloured plan for a `DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered` or `QuiescentCount` property of a ν-net with a ν-join, the fixpoint query *shall not* return `Proven`.
 
 **The solve is normative**, so every implementation performs the same pivots, returns the
 same weighting and refuses the same nets:
@@ -1002,7 +1299,8 @@ behind its slot bound, are built only when the bound does not prove.
    encoding would under-approximate.
 6. A slot-bound optimum below one (a mid-phase marking with no budget token, or an
    `exactly(3)` fork from one budget token, optimum `2/3`) yields the exact plan with
-   `k = 0`: quiescence is decided, never downgraded to `Unknown`, and the emitted encoding is
+   `k = 0`: quiescence is decided, never downgraded to `Unknown` as a name-blind verdict would
+   be, and the emitted encoding is
    well-formed with zero colour slots. The program is a relaxation over the reals, so a mint
    that can never fire does not always give `k = 0` (an `exactly(2)` fork from one budget
    token that a join refunds has optimum 1). The plan is still refused when the program is
@@ -1037,6 +1335,7 @@ from one budget token has `k = 0`; a reset arc on the uncoloured budget keeps th
 #### NU-054: Join Relay
 
 **Priority:** MAY
+**Kind:** F
 
 A matched join ([NU-020]) consumes a name and, in the analysed fragment, may not write a name
 onto a coloured place: the analyzers read any coloured output of a join as a re-mint and reject the
@@ -1048,7 +1347,8 @@ in `research/net-metrics/validation/pnid/` fall back for this reason alone, and 
 property on them comes back `Unknown`.
 
 **Declaration.** A match specification MAY declare **relay targets**: output places onto which the
-join writes the name it matched, each with a `value → NameId` key projection like a match key's.
+join writes the name it matched, each with a key projection like a match key's, from a token's
+value to a `NameId` or to no name ([NU-020]).
 Every relay target MUST appear in the transition's output spec (in at least one branch), and a
 place MUST NOT be declared twice; either violation is rejected when the transition is built, naming
 the transition and the place. A relay target MAY also be one of the join's own match keys (the
@@ -1056,6 +1356,12 @@ self-loop). Under composition the relay targets are remapped by the same place r
 ([NU-030], [NU-060]). A rewrite that maps two relay targets of one join onto one place (fusion or
 port binding) produces a relay target declared twice and is rejected at rebuild with the same
 error, as the other collisions of [MOD-020] are.
+
+*If* the match specification of a transition declares one place as a relay target twice, *then* building the transition *shall* fail.
+
+*If* the match specification of a transition declares as a relay target a place that its output spec does not name, *then* building the transition *shall* fail.
+
+*When* the match specification of a transition declares one of its own match keys as a relay target and the transition passes every other build-time check, building the transition *shall* succeed.
 
 **Runtime contract, checked.** A firing of the join MUST write, into each relay target of the branch
 it produced, only tokens whose key projects to the matched name. The executor checks this on every
@@ -1081,6 +1387,16 @@ deposits in a relay target is checked, whatever wrote it, including an `Out.forw
 it is published. The check is what distinguishes this requirement from the relay of [NU-051],
 whose contract is only documented: here the analysis's reading of the transition is enforced
 against what the action does.
+
+*While* output validation is on, *when* a transition with a match specification fires, no token the firing deposits into one of its relay targets *shall* have a name other than the chosen name under that relay target's key projection, whichever output branch or timeout outcome deposited it.
+
+*While* output validation is on, *when* a transition with a match specification fires, every token the firing deposits into one of its relay targets *shall* have a name under that relay target's key projection, whichever output branch or timeout outcome deposited it.
+
+*While* output validation is on, *if* the output the action of a transition with a match specification returns, or the timeout outcome of its firing, puts into one of the transition's relay targets a token that has no name, or a name other than the chosen name, under that relay target's key projection, *then* the executor *shall* fail the firing with a TransitionFailed event ([EVT-008]) and *shall* deposit none of the tokens of that output or outcome.
+
+*When* the executor fails a firing of a transition with a match specification, it *shall not* deposit any token of the firing's output or timeout outcome, *shall not* restore the tokens the firing consumed, and *shall not* withdraw a batch the action flushed before the firing failed ([IO-015]), whether the executor has already deposited that batch or still holds it queued ([EXEC-021], [CONC-003]).
+
+*While* output validation is on, *if* a batch that the action of a transition with a match specification publishes before it completes ([IO-015]) puts into one of the transition's relay targets a token that has no name, or a name other than the chosen name, under that relay target's key projection, *then* the executor *shall not* deposit that batch, *shall* fail the firing, and *shall* deposit neither the output the action returns nor the timeout outcome of the firing.
 
 **Name layer ([VER-012], Route B).** Under the EXTENDED fragment ([NU-051]) the relay targets of
 every join are unioned into the coloured set, as declared carrier places are, **before** the fragment
@@ -1132,8 +1448,22 @@ Under **BASE** the relay declarations are ignored by the analyzer, as declared c
 coloured set is the match keys alone, and a join producing one is rejected as it is today. BASE is
 defined as the shipped mint → matched-join fragment, reproduced exactly; the relay is a coloured
 role like the drain/relay consumer, and one knob selecting every coloured role keeps both modes'
-meaning plain. A verifier that meets a relay declaration under BASE SHOULD say in its report that
+meaning plain. A verifier that meets a relay declaration under BASE MUST say in its report that
 the declaration was ignored and name EXTENDED. The runtime check is independent of the mode.
+
+*While* the fragment mode is BASE, the fragment classifier *shall* give no role to a matched transition that writes a coloured place in any of its outcomes, whatever relay targets it declares.
+
+*While* the fragment mode is EXTENDED, the fragment classifier *shall* give no role to a matched transition that writes, in any of its outcomes, a coloured place it does not declare as a relay target.
+
+*If* the timeout outcome of a matched transition writes a coloured place by anything other than a forward of one of its match keys, *then* the fragment classifier *shall* give it no role, in both BASE and EXTENDED.
+
+*While* the fragment mode is EXTENDED, *if* a matched transition has no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, writes coloured places only among its relay targets, consumes coloured places only through its match keys, consumes each match key at a fixed count (`One` or `Exactly`), and on timeout writes a coloured place only by forwarding one of its match keys, *then* the fragment classifier *shall* give it the join role with the relay targets it declares.
+
+*While* the fragment mode is EXTENDED, *when* the fragment classifier gives a matched transition the join role, the role *shall* carry as relay targets exactly the relay targets the transition declares.
+
+*While* the fragment mode is BASE, *when* the fragment classifier gives a matched transition the join role, the role *shall* carry no relay targets.
+
+*While* the fragment mode is BASE, the fragment classifier *shall* give a matched transition the role it gives the same transition without relay targets.
 
 **Acceptance Criteria:**
 1. (MUST, where offered) A relay target that is not an output of the transition, or is declared
@@ -1251,9 +1581,9 @@ which place a reason names.
 classified for the call: match keys ([NU-020]), declared carriers ([NU-051]) and relay targets
 ([NU-054]). An uncoloured place carries no name in the name layer, so the predicate on it holds
 vacuously and a `Proven` would say nothing about the net. A place that is uncoloured, or absent from
-the net, MUST fail loudly: the verdict is `Unknown` with a reason naming a place of `S`, never
-`Proven`. Which place it names follows the refusal order below: the first absent place of `S`,
-otherwise the first uncoloured one.
+the net (the net does not declare it and the initial marking does not mark it), MUST fail loudly: the
+verdict is `Unknown`, never `Proven`, and where no earlier refusal of the refusal order below applies,
+its reason names a place of `S`: the first absent place of `S`, otherwise the first uncoloured one.
 A place that a mint or a coloured consumer writes is coloured only when it is one of these, which is
 why the worked example declares `inflightA`, `inflightB` and `list` as carriers. The coloured set is
 the one the classifier computes for the call (Rust `coloured_order`, the `co` of the Lean
@@ -1267,12 +1597,14 @@ exactly as faithful to what a token carries as those contracts are.
 
 The coloured places MUST start empty (the `hempty` premise of the Lean theorems). A call whose
 initial marking holds a token in a coloured place (a restored marking, [CORE-073], [NU-011]) is
-`Unknown` with a reason naming the place, the first in code-point order of place names when several
-are marked; since nothing else decides the property, there is no fallback.
+`Unknown`, and where no earlier refusal of the refusal order below applies, its reason names the
+place, the first in code-point order of place names when several are marked; since nothing else
+decides the property, there is no fallback.
 
 **EXTENDED.** Under **BASE** the coloured set is the match keys alone ([NU-051], [NU-054]), so a
-property place that is a carrier or a relay target is uncoloured there, and the reason SHOULD name
-EXTENDED. A net outside the EXTENDED fragment gets the "EXTENDED declined" note of [NU-051] and the
+property place that is a carrier or a relay target is uncoloured there. Such a call is refused at
+step 2 or at step 6 of the refusal order below unless an earlier step refuses it, and the reason of
+either step MUST name EXTENDED. A net outside the EXTENDED fragment gets the "EXTENDED declined" note of [NU-051] and the
 verdict `Unknown`. For a name-alignment property the note MUST NOT say that the property was
 verified by another route; it says the verdict is `Unknown`.
 
@@ -1292,9 +1624,11 @@ dispatcher sends a name-alignment property to Route B before its other routing t
 budget place, which keeps a reachability-safety property on Route A ([NU-050]), does not apply.
 
 **Modelled injection.** Under `AlwaysAvailable` or `Bounded(k)` ([VER-006]) the decline rule of
-[NU-050] and [VER-006] AC8 applies to both properties. In addition, `QuiescentNameAligned` with any
-registered environment place is `Unknown`, with a reason naming the environment place and pointing
-to `Arrivals` ([VER-006]); the vacuity reading of [VER-006] AC6 does not apply to it. Route B keeps
+[NU-050] and [VER-006] AC8 applies to both properties. In addition, under these modes
+`QuiescentNameAligned` with a registered environment place that the net declares is `Unknown`, and
+where no earlier refusal of the refusal order below applies, nor an earlier rule of its step 5, the
+reason names the first such place in code-point order and points to `Arrivals` ([VER-006]); the
+vacuity reading of [VER-006] AC6 does not apply to it. Route B keeps
 an environment place inexhaustible and never consumes it. A net that reads input from one (say, a
 keystroke stream into `first` and `retire`) therefore has no resting class in the graph, and the
 vacuity reading would turn any graph of it that closes into `Proven`, even on a misaligned net,
@@ -1313,15 +1647,18 @@ the reason of the first that applies, in this order, so every implementation nam
    `Bounded(k)` environment outside its premises ([VER-006] AC3); the in-flight refusal of
    [VER-004].
 2. The net is outside the fragment of the mode even when every transition counts as a mint: the
-   decline of **EXTENDED** above, which under BASE names EXTENDED.
-3. Under `Arrivals(k)`, an arrival into a coloured place ([VER-006] AC10), naming the place.
+   fragment decline of the mode, under EXTENDED the note of **EXTENDED** above, under BASE a decline
+   that names EXTENDED.
+3. Under `Arrivals(k)` or `Arrivals(min, max)`, an arrival into a coloured place ([VER-006] AC10),
+   naming the first such place in the order the environment places were registered.
 4. The net is outside the fragment only because a transition writes a coloured place without
-   consuming one and is not a declared mint: the decline names those transitions ([NU-010]).
+   consuming one and is not a declared mint: the decline names those transitions in declaration
+   order ([NU-010]).
 5. Under `AlwaysAvailable` or `Bounded(k)`, an environment place Route B cannot model ([VER-006]
    AC8). The rules run in this order, each over the environment places the net declares in
    code-point order of names: one that is coloured; one that an inhibitor arc tests (naming the
-   first such transition in code-point order); under conflict priority, one that two or more
-   transitions consume; then, for `QuiescentNameAligned`, the first of them (**Modelled
+   first such transition in code-point order); where conflict priority is in effect ([NU-052]), one
+   that two or more transitions consume; then, for `QuiescentNameAligned`, the first of them (**Modelled
    injection** above), and for `NameAligned`, the first that is in `S`.
 6. The first place of `S`, in the order of `S`, that is not coloured. Under BASE the reason also
    names EXTENDED.
@@ -1331,6 +1668,22 @@ Steps 3 and 5 apply whether or not the coloured places start empty. A declared m
 error and is reported as [NU-010] and [NU-051] say, outside this order. The `Ignore` downgrade of a
 `Proven` ([VER-006]) and a truncation `Unknown` are not refusals: they follow a graph that was
 built.
+
+*If* a name-alignment call meets a refusal of step 1 of the refusal order, *then* the verifier *shall* answer `Unknown` with the reason of the first refusal of step 1 that applies, in the order step 1 lists them, naming for an absent place the first place of `S` that the net does not declare and the initial marking does not mark.
+
+*If* no refusal of step 1 applies and the net is outside the fragment of the mode even when every transition counts as a mint, *then* the verifier *shall* answer `Unknown` with the fragment decline of the mode, whose reason names EXTENDED under BASE.
+
+*If* no refusal of steps 1 and 2 applies and, under `Arrivals(k)` or `Arrivals(min, max)`, an arrival feeds a coloured place, *then* the verifier *shall* answer `Unknown` naming the first such place in the order the environment places were registered.
+
+*If* no refusal of steps 1 to 3 applies and transitions write a coloured place without consuming one and are not declared mints, *then* the verifier *shall* answer `Unknown` naming those transitions in declaration order.
+
+*If* no refusal of steps 1 to 4 applies and, under `AlwaysAvailable` or `Bounded(k)`, a rule of step 5 applies, *then* the verifier *shall* answer `Unknown` naming the first environment place, in code-point order, that the first applicable rule finds, and for an inhibitor arc also the first transition in code-point order that tests it.
+
+*If* no refusal of steps 1 to 5 applies and a place of `S` is not coloured, *then* the verifier *shall* answer `Unknown` naming the first such place in the order of `S`, and under BASE the reason *shall* also name EXTENDED.
+
+*If* no refusal of steps 1 to 6 applies and the initial marking marks a coloured place, *then* the verifier *shall* answer `Unknown` naming the first marked coloured place in code-point order of place names.
+
+*If* no step of the refusal order applies, *then* the verifier *shall not* refuse the call with a refusal of that order: unless the call is the caller's error of a declared mint or carrier that is not in the net, or a later poll sees a stop ([VER-013]), Route B builds the graph, and the verdict is the one it reads off that graph.
 
 **Truncation.** A graph that does not close within the class bound never yields `Proven` (Lean
 `Decide.truncated_never_proven`). The prefix rule of [VER-012] AC3 applies: a `NameAligned`
@@ -1445,9 +1798,9 @@ and the bug does not occur, which is why the verdict is about the net and not ab
    list)` and `QuiescentCount({list}, 1, 1)` are `Proven` and `NameAligned(box, list)` is
    `Violated` with an 8-firing witness; on the buggy variant `QuiescentNameAligned(box, list)` is
    `Violated` with a 12-firing witness. Every verdict is attributed to Route B.
-2. (MUST, where offered) A property naming an uncoloured place (on the same net,
-   `QuiescentNameAligned(box, ready)`) or a place absent from the net is `Unknown` with a reason
-   naming the place, never `Proven`. With two uncoloured places the reason names the first in
+2. (MUST, where offered) On the same net, a property naming an uncoloured place
+   (`QuiescentNameAligned(box, ready)`) or a place absent from the net (`QuiescentNameAligned(box,
+   nope)`) is `Unknown` with a reason naming the place, never `Proven`. With two uncoloured places the reason names the first in
    `S`: `QuiescentNameAligned(box, ready, clr)` names `ready`.
 3. (MUST, where offered) Under BASE the same net is `Unknown` for `QuiescentNameAligned(box, list)`:
    the coloured set is the match keys `reply` and `box`, `fetchA` and `fetchB` write `reply`
@@ -1465,7 +1818,9 @@ and the bug does not occur, which is why the verdict is about the net and not ab
 6. (MUST, where offered) With `typed` registered as an environment place under `AlwaysAvailable`
    (and not in the initial marking), `QuiescentNameAligned(box, list)` is `Unknown` with a reason
    naming `typed`, on the fixed net and on the buggy variant; it is never `Proven`. A call whose
-   initial marking holds a token in a coloured place is `Unknown` with a reason naming the place.
+   initial marking holds a token in a coloured place is `Unknown`, with a reason naming the place
+   where no earlier refusal of the refusal order applies: on the same net,
+   `QuiescentNameAligned(box, list)` with `box` marked names `box`.
 7. (MUST, where offered) `S` is a list. On the search-as-you-type net,
    `QuiescentNameAligned(box, staged, list)` and the singleton `NameAligned(list)` are `Proven`;
    `QuiescentNameAligned(box, list, reply)` is `Violated` with a 9-firing witness (a stale reply

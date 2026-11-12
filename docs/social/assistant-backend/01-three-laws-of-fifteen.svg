@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="aT" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="1200" fill="#0b1220"/>
+  <rect x="16" y="16" width="1168" height="1168" rx="22" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="72" y="112" font-size="17" font-weight="600" fill="#2dd4bf" letter-spacing="2.4">AI ASSISTANT BACKEND / FORMAL SUITE</text>
+  <text x="72" y="180" font-size="47" font-weight="700" fill="#e8eef6">It ran for 50 minutes to say</text>
+  <text x="72" y="234" font-size="47" font-weight="700" fill="#e8eef6">it did not know.</text>
+  <text x="72" y="282" font-size="22" fill="#8295ab">Same net. Same question. Same search depth. Only the invariant list changed.</text>
+
+  <rect x="60" y="326" width="516" height="250" rx="16" fill="#122033" stroke="#3b4a61" stroke-width="1.5"/>
+  <text x="96" y="372" font-size="17" font-weight="700" fill="#8295ab" letter-spacing="2.2">BEFORE</text>
+  <text x="96" y="470" font-size="92" font-weight="700" fill="#5b6e88">50 min</text>
+  <text x="96" y="516" font-size="21" fill="#bac8d7">then Unknown</text>
+  <text x="96" y="548" font-size="19" fill="#8295ab">3 conservation laws reached the encoder</text>
+
+  <path d="M584,450 L616,450" stroke="#2dd4bf" stroke-width="3" fill="none" marker-end="url(#aT)"/>
+
+  <rect x="624" y="326" width="516" height="250" rx="16" fill="#10262a" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="660" y="372" font-size="17" font-weight="700" fill="#2dd4bf" letter-spacing="2.2">AFTER</text>
+  <text x="660" y="470" font-size="92" font-weight="700" fill="#2dd4bf">15 s</text>
+  <text x="660" y="516" font-size="21" fill="#e8eef6">Proven</text>
+  <text x="660" y="548" font-size="19" fill="#bac8d7">all 15 did</text>
+
+  <rect x="60" y="616" width="1080" height="228" rx="16" fill="#2a1018" stroke="#5c2233" stroke-width="1.5"/>
+  <text x="96" y="662" font-size="17" font-weight="700" fill="#f5556d" letter-spacing="1.8">WHERE THE OTHER TWELVE WENT</text>
+  <text x="96" y="706" font-size="20" fill="#c7d4e2">The net drains its customer input queue with a consume-all arc, so whatever arrived while the</text>
+  <text x="96" y="738" font-size="20" fill="#c7d4e2">previous turn was running is taken in one go. A conservation law may not carry weight on a place</text>
+  <text x="96" y="770" font-size="20" fill="#c7d4e2">drained like that: the encoder's step relation is not linear there, and such a law deletes reachable</text>
+  <text x="96" y="802" font-size="20" fill="#c7d4e2">states and manufactures a proof. The gate that drops them is right, and it stays.</text>
+  <text x="96" y="832" font-size="17" fill="#8295ab">Gaussian elimination had folded that one place into rows that never needed to touch it.</text>
+
+  <line x1="60" y1="900" x2="1140" y2="900" stroke="#1b2840" stroke-width="1.5"/>
+  <text x="72" y="968" font-size="40" font-weight="700" fill="#e8eef6">The fix was not a weaker rule.</text>
+  <text x="72" y="1020" font-size="40" font-weight="700" fill="#2dd4bf">It was a better basis.</text>
+  <text x="72" y="1076" font-size="20" fill="#8295ab">The minimal non-negative laws of the net avoid the drained place entirely. Same gate, no exemption.</text>
+  <text x="72" y="1106" font-size="20" fill="#8295ab">Twelve came back.</text>
+  <text x="72" y="1152" font-size="17" fill="#5b6e88">libpetri, Apache 2.0 / spec VER-007</text>
+</svg>

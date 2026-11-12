@@ -20,38 +20,38 @@ flowchart TD
     n1936["Libpetri.Novel.Seam.NInSpec"]
     n1937["Libpetri.Novel.Seam.NInSpec.card"]
     n1939["Libpetri.Novel.Seam.NInSpec.place"]
-    n1954["Libpetri.Novel.Seam.NTransition"]
-    n1955["Libpetri.Novel.Seam.NTransition.inhibitors"]
-    n1956["Libpetri.Novel.Seam.NTransition.inputs"]
-    n1959["Libpetri.Novel.Seam.NTransition.reads"]
+    n1955["Libpetri.Novel.Seam.NTransition"]
+    n1956["Libpetri.Novel.Seam.NTransition.inhibitors"]
+    n1957["Libpetri.Novel.Seam.NTransition.inputs"]
+    n1960["Libpetri.Novel.Seam.NTransition.reads"]
   end
   subgraph g2["Libpetri/Reference/Semantics.lean"]
-    n3226["Libpetri.Reference.Trans"]
-    n3227["Libpetri.Reference.Trans.core"]
+    n3454["Libpetri.Reference.Trans"]
+    n3455["Libpetri.Reference.Trans.core"]
   end
   subgraph g3["Libpetri/Spec/Glossary.lean"]
-    n4929["Libpetri.Spec.CountMarking"]
-    n6448["Libpetri.Spec.InhibitorArc"]
-    n6500["Libpetri.Spec.Marked"]
-    n6836["Libpetri.Spec.ReadArc"]
-    n11006["Libpetri.Spec.inPlaces"]
-    n11097["Libpetri.Spec.instDecidableMarked"]
-    n12121["Libpetri.Spec.requiredCount"]
+    n6049["Libpetri.Spec.CountMarking"]
+    n7884["Libpetri.Spec.InhibitorArc"]
+    n8441["Libpetri.Spec.Marked"]
+    n9682["Libpetri.Spec.ReadArc"]
+    n16709["Libpetri.Spec.inPlaces"]
+    n16861["Libpetri.Spec.instDecidableMarked"]
+    n20069["Libpetri.Spec.requiredCount"]
   end
   subgraph g4["Libpetri/Spec/GlossaryEnable.lean"]
-    n5736["Libpetri.Spec.EnableCheck"]
-    n5739["Libpetri.Spec.EnableCheck.mk"]
-    n5740["Libpetri.Spec.EnableCheck.presence"]
-    n6449["Libpetri.Spec.InhibitorMask"]
-    n6511["Libpetri.Spec.MaskCheck"]
-    n6671["Libpetri.Spec.NeedsMask"]
-    n11791["Libpetri.Spec.presenceOf"]
+    n7089["Libpetri.Spec.EnableCheck"]
+    n7092["Libpetri.Spec.EnableCheck.mk"]
+    n7093["Libpetri.Spec.EnableCheck.presence"]
+    n7885["Libpetri.Spec.InhibitorMask"]
+    n8452["Libpetri.Spec.MaskCheck"]
+    n9104["Libpetri.Spec.NeedsMask"]
+    n19493["Libpetri.Spec.presenceOf"]
   end
   subgraph g5["Libpetri/Spec/Req/CONC_004.lean"]
-    n4089["Libpetri.Spec.CONC_004"]
-    n4097["Libpetri.Spec.CONC_004_reference"]
-    n11891["Libpetri.Spec.refEnableCheck"]
-    n11895["Libpetri.Spec.refEnableCheck_presence"]
+    n5064["Libpetri.Spec.CONC_004"]
+    n5073["Libpetri.Spec.CONC_004_reference"]
+    n19688["Libpetri.Spec.refEnableCheck"]
+    n19692["Libpetri.Spec.refEnableCheck_presence"]
   end
   n9 --> n8
   n10 --> n8
@@ -64,51 +64,51 @@ flowchart TD
   n1937 --> n8
   n1937 --> n1936
   n1939 --> n1936
-  n1955 --> n1954
-  n1956 --> n1936
-  n1956 --> n1954
-  n1959 --> n1954
-  n3227 --> n1954
-  n3227 --> n3226
-  n4089 --> n5740
-  n4089 --> n6511
-  n4097 --> n4089
-  n4097 --> n11895
-  n5739 --> n3226
-  n5739 --> n4929
-  n5739 --> n5736
-  n5740 --> n3226
-  n5740 --> n5736
-  n6448 --> n1955
-  n6448 --> n3227
-  n6449 --> n6448
-  n6500 --> n4929
-  n6511 --> n6449
-  n6511 --> n6671
-  n6671 --> n6836
-  n6671 --> n11006
-  n6836 --> n1959
-  n6836 --> n3227
-  n11006 --> n1939
-  n11006 --> n1956
-  n11006 --> n3227
-  n11097 --> n6500
-  n11791 --> n11097
-  n11891 --> n1937
-  n11891 --> n1955
-  n11891 --> n1959
-  n11891 --> n5739
-  n11891 --> n11006
-  n11891 --> n11791
-  n11891 --> n12121
-  n11895 --> n5740
-  n11895 --> n6511
-  n11895 --> n11891
-  n12121 --> n14
+  n1956 --> n1955
+  n1957 --> n1936
+  n1957 --> n1955
+  n1960 --> n1955
+  n3455 --> n1955
+  n3455 --> n3454
+  n5064 --> n7093
+  n5064 --> n8452
+  n5073 --> n5064
+  n5073 --> n19692
+  n7092 --> n3454
+  n7092 --> n6049
+  n7092 --> n7089
+  n7093 --> n3454
+  n7093 --> n7089
+  n7884 --> n1956
+  n7884 --> n3455
+  n7885 --> n7884
+  n8441 --> n6049
+  n8452 --> n7885
+  n8452 --> n9104
+  n9104 --> n9682
+  n9104 --> n16709
+  n9682 --> n1960
+  n9682 --> n3455
+  n16709 --> n1939
+  n16709 --> n1957
+  n16709 --> n3455
+  n16861 --> n8441
+  n19493 --> n16861
+  n19688 --> n1937
+  n19688 --> n1956
+  n19688 --> n1960
+  n19688 --> n7092
+  n19688 --> n16709
+  n19688 --> n19493
+  n19688 --> n20069
+  n19692 --> n7093
+  n19692 --> n8452
+  n19692 --> n19688
+  n20069 --> n14
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n4097 root
+  class n5073 root
 ```
 
 Axioms used:

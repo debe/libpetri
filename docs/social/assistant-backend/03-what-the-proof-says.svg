@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <rect width="1200" height="1200" fill="#0b1220"/>
+  <rect x="16" y="16" width="1168" height="1168" rx="22" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="72" y="112" font-size="17" font-weight="600" fill="#2dd4bf" letter-spacing="2.4">WHAT THE WHOLE-NET PROOF SAYS</text>
+  <text x="72" y="182" font-size="52" font-weight="700" fill="#e8eef6">Safe under a fast client</text>
+  <text x="72" y="228" font-size="21" fill="#8295ab">Environment places held open: more customer messages arriving at any moment, on top of the first.</text>
+
+  <rect x="60" y="272" width="1080" height="106" rx="14" fill="#122033" stroke="#235e57" stroke-width="1.5"/>
+  <circle cx="110" cy="325" r="17" fill="#2dd4bf"/><path d="M102,325 L108,332 L119,318" stroke="#0b1220" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="148" y="316" font-size="23" font-weight="700" fill="#e8eef6">Ten places that carry a turn hold at most one token</text>
+  <text x="148" y="350" font-size="19" fill="#bac8d7">However many messages queue up, exactly one turn is admitted at a time.</text>
+
+  <rect x="60" y="392" width="1080" height="106" rx="14" fill="#122033" stroke="#235e57" stroke-width="1.5"/>
+  <circle cx="110" cy="445" r="17" fill="#2dd4bf"/><path d="M102,445 L108,452 L119,438" stroke="#0b1220" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="148" y="436" font-size="23" font-weight="700" fill="#e8eef6">A guard violation and a model response never coexist</text>
+  <text x="148" y="470" font-size="19" fill="#bac8d7">A safety verdict cannot be overtaken by the answer it was meant to stop.</text>
+
+  <rect x="60" y="512" width="1080" height="106" rx="14" fill="#122033" stroke="#235e57" stroke-width="1.5"/>
+  <circle cx="110" cy="565" r="17" fill="#2dd4bf"/><path d="M102,565 L108,572 L119,558" stroke="#0b1220" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="148" y="556" font-size="23" font-weight="700" fill="#e8eef6">A tool round's commit and the next tool request never coexist</text>
+  <text x="148" y="590" font-size="19" fill="#bac8d7">One round open at a time, so a late result cannot land in the round after it.</text>
+
+  <rect x="60" y="632" width="1080" height="106" rx="14" fill="#122033" stroke="#235e57" stroke-width="1.5"/>
+  <circle cx="110" cy="685" r="17" fill="#2dd4bf"/><path d="M102,685 L108,692 L119,678" stroke="#0b1220" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="148" y="676" font-size="23" font-weight="700" fill="#e8eef6">No correlation token outlives its turn or its round</text>
+  <text x="148" y="710" font-size="19" fill="#bac8d7">Nothing from a finished turn can be joined onto the next one.</text>
+
+  <rect x="60" y="752" width="1080" height="106" rx="14" fill="#10262a" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="110" cy="805" r="17" fill="#2dd4bf"/><path d="M102,805 L108,812 L119,798" stroke="#0b1220" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="148" y="796" font-size="23" font-weight="700" fill="#e8eef6">The whole net is deadlock-free from a session's start marking</text>
+  <text x="148" y="830" font-size="19" fill="#2dd4bf">One proof, not a pile of slice proofs chained together by hand.</text>
+
+  <rect x="60" y="906" width="1080" height="190" rx="16" fill="#1b1a10" stroke="#fbbf24" stroke-width="1.6"/>
+  <text x="96" y="956" font-size="17" font-weight="700" fill="#fbbf24" letter-spacing="1.8">AND THE TWO THAT DID NOT CLOSE</text>
+  <text x="96" y="1000" font-size="23" font-weight="700" fill="#e8eef6">Two claims stayed undecided. They are not in the suite.</text>
+  <text x="96" y="1040" font-size="20" fill="#c7d4e2">The same week, we deleted the last test that had been passing on Unknown,</text>
+  <text x="96" y="1072" font-size="20" fill="#c7d4e2">along with the helper that let it. A green test now means a proof.</text>
+
+  <text x="72" y="1152" font-size="17" fill="#5b6e88">Verified with libpetri, Apache 2.0 / Java, TypeScript, Rust, Python</text>
+</svg>

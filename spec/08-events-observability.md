@@ -2,6 +2,8 @@
 
 This document specifies the event types emitted during execution, the event store interface, and observability features.
 
+The ordering sentences of this chapter (which event comes before which within a start, a deposit or a run) read the event store with two kinds of event left out where Java appends them from outside the orchestrator: ActionTimedOut events ([EVT-010]), which Java emits from the action's timer, and the log messages Java captures from actions ([EVT-013]). Such an event can fall between the events of one orchestrator step. TypeScript and Rust append every event from the orchestrator, so in their stores no event falls inside a step.
+
 ---
 
 ## Event Hierarchy
@@ -9,6 +11,7 @@ This document specifies the event types emitted during execution, the event stor
 #### EVT-001: Event Immutability
 
 **Priority:** MUST
+**Kind:** Q
 
 All events are immutable value objects. Once created, no field can be modified. Collections within events (e.g., consumed tokens) are defensive copies.
 
@@ -23,47 +26,83 @@ All events are immutable value objects. Once created, no field can be modified. 
 #### EVT-002: ExecutionStarted Event
 
 **Priority:** MUST
+**Kind:** B
 
 Emitted when the executor begins running. Contains:
 - Timestamp
 - Net name
-- Execution ID (unique per run)
+- Execution ID (Java and TypeScript): the ID of the executor that runs, drawn when it is constructed
+
+*When* a run starts, the executor *shall* emit an ExecutionStarted event before its first cycle ([EXEC-001]) and before any event of the run other than a log message ([EVT-013]).
+
+The executor *shall* emit at most one ExecutionStarted event per run.
+
+A run's events reach the event store only while the store is enabled ([EVT-020]).
+
+Two executors constructed in one process from the same copy of the library *shall* carry different execution IDs, whatever the clock reads when each is constructed ([TIME-015] AC14).
+
+*Where* the lifecycle events carry the execution ID (Java and TypeScript), the ExecutionStarted and ExecutionCompleted events of every run *shall* carry the ID of the executor that runs it.
+
+An executor keeps its execution ID for all its runs, so the runs of one executor share it. [EVT-003] says when an ExecutionCompleted event is emitted.
 
 **Acceptance Criteria:**
 1. Emitted exactly once per execution run, before any transitions fire.
-2. Execution ID is unique across runs.
+2. Two executors constructed in one process from the same copy of the library carry different execution IDs, even at the same clock reading.
 
-**Test derivation:** Run net; verify first event is ExecutionStarted with correct net name.
+**Test derivation:** Run net; verify the first event other than a log message is ExecutionStarted with correct net name.
 
 ---
 
 #### EVT-003: ExecutionCompleted Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when the executor reaches quiescence and terminates (or is explicitly closed). Contains:
+Emitted when a run ends: the executor's loop finishes the run, whatever the termination reason ([EXEC-041]). Contains:
 - Timestamp
 - Net name
-- Execution ID
-- Total duration
+- Execution ID (Java and TypeScript, [EVT-002])
+- Total duration (Java and TypeScript)
+
+*When* the executor finishes a run ([EXEC-041]), it *shall* emit exactly one ExecutionCompleted event, whatever the termination reason.
+
+The executor *shall* emit ExecutionCompleted events only when it finishes a run.
+
+*If* the executor has emitted the ExecutionCompleted event of a run, *then* it *shall not* emit another event of that run other than a log message ([EVT-013]) or an ActionTimedOut event ([EVT-010]).
+
+*When* the executor finishes a run with the termination reason `quiescent` ([EXEC-040]), it *shall* have no firing in flight, so every firing of the run has ended before its ExecutionCompleted event.
+
+The event marks the end of the run, not its outcome. A run that a terminal stop ([EXEC-042]) or an immediate termination ([ENV-015]) ends can leave firings in flight: both abandon them, and the timer of an abandoned action can still emit its ActionTimedOut after the end. The event carries no termination reason: a consumer reads the reason as [EXEC-041] says, never the event alone as proof that the net quiesced. A loop that a caller's run budget leaves running has not finished, so it emits the event when it finishes, not when the caller's wait ends.
+
+*Where* the ExecutionCompleted event carries a total duration (Java and TypeScript), the total duration *shall* be at least the time the run took on the executor's firing clock ([TIME-015]), from the reading at its ExecutionStarted event to the reading at its ExecutionCompleted event.
+
+Java and TypeScript measure the total duration from the construction of the executor, so for a later run of the same executor it also counts the earlier runs and the time between them.
 
 **Acceptance Criteria:**
-1. Emitted exactly once per execution run, after all transitions complete.
-2. Total duration reflects wall-clock time from start to completion.
+1. Emitted exactly once per run that finishes, whatever the termination reason, and followed by no event of the run other than a log message or an ActionTimedOut.
+2. At a quiescent finish no firing is in flight; a terminal stop or an immediate termination may leave firings in flight.
+3. Where the event carries a total duration (Java and TypeScript), it is at least the time the run took on the executor's firing clock.
 
-**Test derivation:** Run net; verify last event is ExecutionCompleted; verify duration > 0.
+**Test derivation:** Run a net to quiescence; verify the last event is ExecutionCompleted, emitted once; with a firing clock that advances during the run, verify the duration is at least the time between the run's ExecutionStarted and ExecutionCompleted.
 
 ---
 
 #### EVT-004: TransitionEnabled Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when a transition becomes enabled (all preconditions met for the first time, or re-enabled after being disabled).
+Emitted when a transition becomes armed ([TIME-010]): when it is armed for the first time, or armed again after the executor disarmed it.
+
+Enabled in this requirement means armed: a transition that is armed again after its own firing, after the enablement recheck of a firing pass disarmed it, or after a reap and a later write of one of its arc places is announced again, even when the marking kept it enabled. A transition whose clock restarts while it stays armed is announced with `TransitionClockRestarted` instead ([EVT-005]). As in the timing requirements, the transitions of a net are taken to have pairwise distinct names ([TIME-010]).
+
+*When* a transition is armed after an enablement update and was not armed before it, the executor *shall* emit, at that update, exactly one TransitionEnabled event naming the transition.
+
+The executor *shall* emit a TransitionEnabled event naming a transition only at an enablement update before which the transition was not armed and after which it is armed.
 
 **Acceptance Criteria:**
-1. Emitted each time a transition transitions from disabled to enabled.
-2. Not emitted if transition was already enabled.
+1. Emitted each time a transition that was not armed before an enablement update is armed after it.
+2. Not emitted if the transition was already armed, including when its clock restarts ([EVT-005]).
 
 **Test derivation:** Add token enabling transition T; verify TransitionEnabled event for T.
 
@@ -72,68 +111,109 @@ Emitted when a transition becomes enabled (all preconditions met for the first t
 #### EVT-005: TransitionClockRestarted Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when a transition's timing clock restarts while the transition stays marked enabled: another transition's firing left it disabled in the intermediate marking, and the marking enabled it again before the executor observed the gap (see [TIME-012]).
+Emitted when a transition's timing clock restarts while the transition stays armed: another transition's firing left it disabled in the intermediate marking, and the marking enabled it again before the executor observed the gap (see [TIME-012]).
+
+A transition's clock restart is pending when it is armed, a start of another transition since the last enablement update left it not enabled in that start's intermediate marking ([TIME-012]), and neither the enablement recheck of a firing pass nor a start of its own has disarmed it since. An enablement update restarts the clock of a transition when it leaves the transition armed with the update's clock reading as its stamp and its clock restart no longer pending. As in [EVT-004], the transitions of a net are taken to have pairwise distinct names.
+
+*When* an enablement update restarts the clock of a transition whose clock restart was pending before the update, the executor *shall* emit, at that update, exactly one TransitionClockRestarted event naming the transition.
+
+The executor *shall* emit a TransitionClockRestarted event naming a transition only at an enablement update before which the transition's clock restart was pending and that restarts the transition's clock.
 
 **Acceptance Criteria:**
-1. Emitted only when the transition stays marked enabled but its clock restarts.
+1. Emitted only when the transition stays armed but its clock restarts.
 2. Not emitted on initial enablement, nor on re-enablement after an observed disablement (both are `TransitionEnabled`).
 
 **Depends on:** [TIME-012]
-**Test derivation:** Transition T enabled; another transition consumes T's input token, and a synchronous action deposits a new one before the executor re-evaluates T; verify TransitionClockRestarted for T. An executor that re-evaluates between consumption and deposit reports TransitionEnabled instead ([TIME-012] AC6).
+**Test derivation:** Transition T is armed but not yet ready (for example `delayed(d)` before `d` has elapsed); another transition consumes T's input token, and its synchronous action deposits a new one before the executor re-evaluates T; verify TransitionClockRestarted for T. An executor that re-evaluates between consumption and deposit reports TransitionEnabled instead ([TIME-012] AC6), and so does a firing pass that rechecks a ready T after the consumption, since the recheck disarms it.
 
 ---
 
 #### EVT-006: TransitionStarted Event
 
 **Priority:** MUST
+**Kind:** B
 
 Emitted when a transition begins firing (tokens consumed, action dispatched). Contains:
 - Timestamp
 - Transition name
-- List of consumed tokens (defensive copy)
+- List of removed tokens, consumed by input arcs and drained by reset arcs (Java and TypeScript only; defensive copy)
+
+*When* a transition starts, the executor *shall* emit exactly one TransitionStarted event naming that transition as the last event of the start, and no event before it in that start other than TokenRemoved events ([EVT-012]).
+
+The executor *shall* emit TransitionStarted events only when a transition starts.
+
+*Where* the TransitionStarted event carries the removed tokens (Java and TypeScript), it *shall* list the tokens of the TokenRemoved events of the same start, in the same order.
+
+*Where* the TransitionStarted event carries the removed tokens (Java and TypeScript), the list *shall* hold every token the firing rule removes from the marking visible to the pass ([EXEC-003], [EXEC-013]): the tokens the input arcs consume, then the tokens the reset arcs drain, each group in declaration order and each place's tokens oldest first.
 
 **Acceptance Criteria:**
 1. Emitted after token consumption, before action execution.
-2. Consumed tokens list matches actual consumed tokens.
+2. (Java and TypeScript) The list of removed tokens matches the tokens the start actually removes, consumed and drained.
 
-**Test derivation:** Fire transition consuming 2 tokens; verify TransitionStarted with 2 tokens listed.
+**Test derivation:** Fire a transition that consumes 2 tokens through an input arc and drains 1 through a reset arc; verify its 3 TokenRemoved events, then TransitionStarted as the last event of the start, which in Java and TypeScript lists the same 3 tokens in the same order.
 
 ---
 
 #### EVT-007: TransitionCompleted Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when a transition's action completes successfully. Contains:
+Emitted when the executor deposits the outcome of a firing whose action completed successfully: the tokens the action produced at completion (an admitted completion, [EXEC-021]). Contains:
 - Timestamp
 - Transition name
-- List of produced tokens (defensive copy)
-- Duration of action execution
+- List of produced tokens (Java and TypeScript; defensive copy)
+- Duration of action execution (Java and TypeScript)
+
+*When* the executor deposits an admitted completion ([EXEC-021]), it *shall* emit the TokenAdded events of the deposited tokens followed by exactly one TransitionCompleted event naming the firing's transition, and no other event in that deposit except log messages ([EVT-013]).
+
+The executor *shall* emit TransitionCompleted events only when it deposits an admitted completion or a timeout outcome ([EXEC-022]).
+
+*If* the executor emits a TransitionCompleted event when it deposits a timeout outcome, *then* that event *shall* name the firing's transition and be the only TransitionCompleted event of the deposit and its last event other than log messages.
+
+*Where* the TransitionCompleted event carries the produced tokens (Java and TypeScript), the TokenAdded events of the deposit of an admitted completion *shall* carry the tokens the action produced at completion in emission order ([EXEC-020]), and the TransitionCompleted event *shall* list the same tokens in the same order.
+
+*Where* the TransitionCompleted event carries the produced tokens (Java and TypeScript), a TransitionCompleted event emitted when the executor deposits a timeout outcome *shall* list the tokens of that timeout outcome.
+
+*Where* the TransitionCompleted event carries the duration of the action (Java and TypeScript), the duration *shall* be at most the firing-clock time from the start of the firing to the moment the executor deposits its outcome ([TIME-015]).
 
 **Acceptance Criteria:**
-1. Emitted after successful action completion and output deposition.
-2. Duration reflects action execution time.
+1. Emitted after successful action completion and after the TokenAdded events of the tokens the action produced at completion. Tokens the action published before it completed ([IO-015]) may be deposited and reported after the event ([EXEC-020]).
+2. (Java and TypeScript) The duration is at most the firing-clock time between the start of the firing and the deposit of its outcome; zero is allowed.
 
-**Test derivation:** Fire transition; verify TransitionCompleted with produced tokens and positive duration.
+**Depends on:** [EVT-011], [EXEC-020], [EXEC-021], [EXEC-022]
+**Implementation status:** Java and TypeScript also emit TransitionCompleted when they deposit a timeout outcome, after ActionTimedOut ([EVT-010]); Rust and Python do not. Java and TypeScript carry the produced tokens and the duration, and Java reports a zero duration for every synchronously completed action. The Rust event, which Python also uses, carries the transition name and a timestamp only.
+**Test derivation:** Fire a transition whose action produces a token after the clock advanced; verify the TokenAdded event, then TransitionCompleted naming the transition, which in Java and TypeScript lists the produced token with a duration no larger than the clock advance.
 
 ---
 
 #### EVT-008: TransitionFailed Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when a transition's action throws an exception or returns an error. Contains:
+Emitted when a firing fails ([EXEC-021], [EXEC-030]): its action throws an exception or returns an error, or output validation or the join-relay check of [NU-054] rejects its outcome. Contains:
 - Timestamp
 - Transition name
 - Error message
-- Exception type name
+- Exception type name (Java and TypeScript)
+
+*If* a firing fails, because its action throws an exception or returns an error or because output validation or the join-relay check of [NU-054] rejects its outcome ([EXEC-021], [EXEC-030]), *then* the executor *shall* emit exactly one TransitionFailed event naming the firing's transition, and *shall not* emit a TransitionCompleted event or a TokenAdded event when it settles that firing.
+
+The executor *shall* emit TransitionFailed events only when a firing fails.
+
+Each TransitionFailed event *shall* carry the error message of the failure.
+
+*Where* the TransitionFailed event carries the exception type (Java and TypeScript), it *shall* carry the name of the exception type of the failure.
 
 **Acceptance Criteria:**
 1. Emitted when action fails.
-2. Error message and type are captured.
+2. The error message is captured, and the exception type name where the event carries it (Java and TypeScript).
 
-**Depends on:** [EXEC-030]
+**Depends on:** [EXEC-030], [EXEC-021], [NU-054]
+**Implementation status:** Java and TypeScript carry the error message and the exception type name (TypeScript also the stack trace). The Rust event, which Python also uses, carries one error text and no exception type.
 **Test derivation:** Action throws; verify TransitionFailed with error details.
 
 ---
@@ -141,20 +221,31 @@ Emitted when a transition's action throws an exception or returns an error. Cont
 #### EVT-009: TransitionTimedOut Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when the executor reaps a transition: a reapable transition whose elapsed time is strictly greater than its latest bound plus the deadline tolerance, without firing ([TIME-013]). Contains:
+Reports a reap of a transition ([TIME-013]). Contains:
 - Timestamp
 - Transition name
-- Deadline duration
-- Actual elapsed duration since enablement
+- Deadline duration (Java and TypeScript)
+- Elapsed time when reaped (Java and TypeScript): the time since the transition was last newly armed ([TIME-010])
+
+*When* the executor reaps a transition ([TIME-013]), it *shall* emit exactly one TransitionTimedOut event naming that transition.
+
+The executor *shall* emit a TransitionTimedOut event only when it reaps a transition, and the event *shall* name the transition it reaps.
+
+*Where* the TransitionTimedOut event carries the deadline and the elapsed time (Java and TypeScript), the deadline *shall* be the latest bound of the transition, without the deadline tolerance, and the elapsed time *shall* be the transition's elapsed time ([TIME-010]) at the reading of the deadline step that reaps it.
+
+Transition names are taken to be pairwise distinct, as in the timing requirements ([TIME-010]).
 
 **Acceptance Criteria:**
-1. Emitted when elapsed time is strictly greater than the latest bound plus the deadline
-   tolerance.
+1. Emitted in the deadline step of a cycle at whose reading a reapable, armed transition's
+   elapsed time is strictly greater than its latest bound plus the deadline tolerance; never for
+   an `Exact` transition ([TIME-006]).
 2. After this event the transition is reaped: it stays enabled but is not armed, and does not
    fire until one of its arc places is written ([TIME-013]).
 
 **Depends on:** [TIME-013]
+**Implementation status:** Java and TypeScript carry the deadline and the elapsed time. The Rust event, which Python also uses, carries the timestamp and the transition name only.
 **Test derivation:** Transition with Deadline(100ms); delay firing 200ms; verify TransitionTimedOut event.
 
 ---
@@ -162,17 +253,27 @@ Emitted when the executor reaps a transition: a reapable transition whose elapse
 #### EVT-010: ActionTimedOut Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when a transition's action exceeds the Out.Timeout duration (distinct from the transition's timing deadline). Contains:
+Emitted when a firing ends with its timeout outcome ([EXEC-022]): the budget of the `Out.Timeout` node of its output spec runs out before its action completes. It is distinct from TransitionTimedOut, which reports a transition reaped at its timing deadline ([EVT-009]). Contains:
 - Timestamp
 - Transition name
 - Timeout duration
 
-**Acceptance Criteria:**
-1. Emitted when action exceeds Out.Timeout, not the transition's timing deadline.
-2. Timeout branch is activated after this event.
+The executor *shall* emit an ActionTimedOut event only when the budget of a firing runs out or when it settles a firing that ended with its timeout outcome, and the event *shall* name that firing's transition.
 
-**Depends on:** [IO-013], [EXEC-022]
+*When* the executor emits the ActionTimedOut event of a firing as it deposits the firing's timeout outcome, it *shall* emit that event before the TokenAdded events of the outcome.
+
+The executor *shall* emit at most one ActionTimedOut event for each firing, and, for a firing that ended with its timeout outcome, *shall* emit one no later than when it settles that outcome, whether it deposits the outcome or fails the firing because the join-relay check of [NU-054] rejects it.
+
+Each ActionTimedOut event *shall* carry the duration of the `Timeout` node of the firing's output spec.
+
+**Acceptance Criteria:**
+1. Emitted for a firing that ends with its timeout outcome (its action's Out.Timeout budget runs out before the action completes, [EXEC-022]), and never for a transition reaped at its timing deadline.
+2. The TokenAdded events of the timeout branch come after this event.
+
+**Depends on:** [IO-013], [EXEC-022], [EVT-009], [NU-054]
+**Implementation status:** Java and TypeScript emit the event from the action's timer when the budget runs out, and emit TransitionCompleted after the timeout branch is deposited ([EVT-007]). Rust, which Python also uses, emits it when the executor settles the timeout outcome, and emits no TransitionCompleted for it. Every runtime carries the timeout duration (Java as a Duration, TypeScript and Rust in milliseconds).
 **Test derivation:** Action sleeps 500ms; Out.Timeout at 100ms; verify ActionTimedOut event.
 
 ---
@@ -180,15 +281,23 @@ Emitted when a transition's action exceeds the Out.Timeout duration (distinct fr
 #### EVT-011: TokenAdded Event
 
 **Priority:** MUST
+**Kind:** B
 
-Emitted when a token is added to a place (whether from initial marking, action output, or external injection). Contains:
+Emitted when the executor adds a token to a place: from an action's output, a timeout outcome, a mid-action publication (where the implementation offers one, [IO-015]) or an external injection. The tokens of the initial marking are not added by the executor and get no TokenAdded event; where the executor emits a MarkingSnapshot at the start of a run, that snapshot reports them ([EVT-014]). Contains:
 - Timestamp
 - Place name
-- The token
+- The token (Java and TypeScript; Rust and Python when the event store captures tokens)
+
+*When* the executor deposits tokens into a place, by settling a completion or a timeout outcome, by depositing a mid-action publication (where the implementation offers one, [IO-015]) or by injecting an environment token, it *shall* emit one TokenAdded event naming that place for each token it deposits there.
+
+The executor *shall* emit TokenAdded events only when it deposits tokens, and *shall not* emit a TokenAdded event for a token of the initial marking.
+
+*Where* the TokenAdded event carries the token (Java and TypeScript; Rust and Python when the event store captures tokens), the TokenAdded events of a deposit *shall* carry, for each place, the tokens deposited there in the order they are appended, so that the place's queue before the deposit followed by these tokens is its queue after the deposit.
 
 **Acceptance Criteria:**
-1. Emitted for every token addition.
+1. Emitted for every token the executor deposits during a run, and at no other time: not for the tokens of the initial marking, not when a transition starts and not when an injection is requested.
 2. Place name identifies the target place.
+3. Where the event carries the token, the tokens reported for a place in one deposit are the deposited tokens, in the order they are appended.
 
 **Test derivation:** Add token to place; verify TokenAdded event with correct place name.
 
@@ -197,11 +306,18 @@ Emitted when a token is added to a place (whether from initial marking, action o
 #### EVT-012: TokenRemoved Event
 
 **Priority:** MUST
+**Kind:** B
 
 Emitted when a token is removed from a place (consumed by input arc or cleared by reset arc). Contains:
 - Timestamp
 - Place name
-- The token
+- The token (Java and TypeScript; Rust and Python when the event store captures tokens)
+
+*When* a transition starts, the executor *shall* emit, for each place, one TokenRemoved event naming that place for each token the start removes from it, whether an input arc consumes the token or a reset arc drains it.
+
+The executor *shall* emit TokenRemoved events only when a transition starts.
+
+*Where* the TokenRemoved event carries the token (Java and TypeScript; Rust and Python when the event store captures tokens), the TokenRemoved events of a start *shall* carry, for each place, the tokens the start removes from it in the order they stood in the place's queue, and, where no correlated input of a match specification takes them ([NU-020]), these tokens followed by the tokens the place keeps *shall* be the place's queue before the start.
 
 **Acceptance Criteria:**
 1. Emitted for every token removal.
@@ -214,40 +330,59 @@ Emitted when a token is removed from a place (consumed by input arc or cleared b
 #### EVT-013: LogMessage Event
 
 **Priority:** SHOULD
+**Kind:** B
 
 Emitted when a transition action produces log output. The engine captures log statements from within actions and wraps them as events. Contains:
 - Timestamp
-- Transition name — **absent when the diagnostic is not attributable to a transition** (see below)
-- Logger name
+- Transition name, empty or absent when no transition is responsible for the message (see below)
+- Logger name (Java and TypeScript)
 - Log level
 - Message
-- Error/throwable details (optional)
+- Error/throwable details (optional; Java and TypeScript)
+
+*Where* the implementation captures the log statements of actions (Java and TypeScript), the executor *shall* report each log statement it captures from the action of a firing as one LogMessage event that carries the firing's transition name, the statement's level and its message.
 
 **The engine may also emit diagnostics of its own** through this event rather than adding an event
-type per diagnostic — an unknown place in an initial marking ([CORE-072]), a repeated output place,
-and similar. Such an event carries **no transition name**, because none is responsible for it.
+type per diagnostic: a dead arc ([CORE-037]), an unknown place ([CORE-072]), a repeated output
+place ([IO-016]), and similar. A diagnostic that a transition is responsible for carries that
+transition's name: the transition that declares the dead arc, or the transition whose firing
+deposited the tokens. A diagnostic that no transition is responsible for, at the initial-marking
+and injection seams, carries an empty or absent transition name.
 Consumers MUST therefore treat the transition name as optional and MUST NOT key, filter or group on
 it without handling its absence.
 
+*When* the executor emits an engine diagnostic before the first step of a run, the diagnostic *shall* carry an empty or absent transition name, unless it reports a dead arc ([CORE-037]), in which case it *shall* carry the name of the transition that declares the arc.
+
+*When* the executor emits an engine diagnostic as it injects a token into an environment place, the diagnostic *shall* carry an empty or absent transition name.
+
+*When* the executor emits an engine diagnostic as it deposits the outcome of a firing or a batch that the firing published ([IO-015]), the diagnostic *shall* carry the name of that firing's transition.
+
 An engine diagnostic SHOULD be emitted only where it reports something the caller did not ask for
-and would otherwise not learn. A diagnostic on a path the caller explicitly requested — a `close()`
-it called itself ([ENV-013]) — is a false positive: it fires on every run of a net whose normal
-ending is a shutdown ([ENV-012]), and a warning that always fires trains its reader to ignore the
-level. Where a queryable result already carries the information ([EXEC-041] AC3), the event is an
-addition to it and MUST NOT be the only signal.
+and would otherwise not learn. A diagnostic on a path the caller explicitly requested, such as a
+`close()` it called itself ([ENV-013]), is a false positive: it fires on every run of a net whose
+normal ending is a shutdown ([ENV-012]), and a warning that always fires trains its reader to
+ignore the level. Where a queryable result already carries the information ([EXEC-041] AC3), the
+event is an addition to it and MUST NOT be the only signal.
+
+*When* the caller drains, closes or stops the executor ([ENV-011], [ENV-013], [ENV-015]), the executor *shall not* emit an engine diagnostic for the request or for the queued external events it discards because of it.
+
+*When* a run ends because it is quiescent, a terminal place is marked, or the caller closed or stopped it ([EXEC-041]), the executor *shall not* emit an engine diagnostic for that end.
 
 **Acceptance Criteria:**
 1. Log statements within actions are captured as LogMessage events.
 2. Log level (INFO, WARN, ERROR, etc.) is preserved.
 3. Exception details are included when present.
-4. An engine-emitted diagnostic carries no transition name, and every consumer of the event
-   tolerates its absence.
-5. No engine diagnostic is emitted on a caller-requested termination path.
+4. An engine diagnostic that no transition is responsible for carries an empty or absent
+   transition name, one that a transition is responsible for carries that transition's name, and
+   every consumer of the event tolerates an absent name.
+5. No engine diagnostic is emitted on a caller-requested termination path (a drain, a close or a
+   stop), nor when a run ends as quiescent, terminal, closed or stopped.
 
+**Depends on:** [CORE-072], [ENV-012], [ENV-013], [EXEC-041]
 **Implementation notes:**
 - Java: Captures SLF4J output via LogCaptureScope
 - TypeScript: Captures via context.log() method
-- Rust: Not yet implemented
+- Rust: Emits the engine diagnostics as LogMessage events, but does not capture the log statements of actions (the transition context's log function is never installed); Python, which runs on Rust, captures none either.
 
 **Test derivation:** Action logs a warning; verify LogMessage event with correct level and message.
 
@@ -256,10 +391,21 @@ addition to it and MUST NOT be the only signal.
 #### EVT-014: MarkingSnapshot Event
 
 **Priority:** SHOULD
+**Kind:** B
 
-Emitted at specific points during execution to capture the full marking state. Contains:
+Emitted at specific points during execution to capture the marking. Contains:
 - Timestamp
 - Map of place name → list of tokens
+
+*Where* an executor emits MarkingSnapshot events (Java and TypeScript), *when* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking.
+
+*Where* an executor emits MarkingSnapshot events (Java and TypeScript), *when* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event.
+
+*Where* an executor emits MarkingSnapshot events (Java and TypeScript), the marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token.
+
+*Where* an executor emits MarkingSnapshot events (Java and TypeScript), the marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073]).
+
+A place the net does not declare may be listed with its tokens (Java) or left out (TypeScript). Rust and Python have no producer of this event (see the implementation status below).
 
 A marking snapshot carried on this event is the snapshot form of [CORE-073], and [CORE-073]'s
 canonical place-order rule applies to it: where an implementation emits this event, the places of
@@ -282,7 +428,7 @@ same-named places belongs to the host-facing snapshot and restore operations, no
 2. Snapshot is a deep defensive copy (not a live reference).
 3. Only non-empty places are included.
 4. The places of the marking carried on the event appear in ascending code-point order of the
-   place name ([CORE-073] AC12), on every executor, including for a place name above U+FFFF.
+   place name ([CORE-073] AC12), on every executor that emits the event (Java and TypeScript), including for a place name above U+FFFF.
 5. Rendering the same event stream twice with one implementation — into an archive or onto the
    debug protocol — yields identical output.
 
@@ -725,6 +871,8 @@ The replay of an event stream *shall* start from the empty state (no token in an
 
 The enabled transitions are those with a `TransitionEnabled` event and no later `TransitionStarted` event, so they over-approximate the transitions enabled at that point of the run: a transition whose tokens another firing took, or a reaped transition, stays listed. The in-flight transitions are a set of names, so a transition with two firings in flight at once leaves it when its first firing ends. The replayed token counts include the initial marking only for a stream that reports it: a Java or TypeScript stream reports the initial marking in a `MarkingSnapshot` right after its `ExecutionStarted` event, while a Rust or Python stream reports no initial token. The two transition lists of a `ComputedState` are sets: their order is not specified.
 
+*Where* the executor is a Java or TypeScript executor, which reports the initial marking in a `MarkingSnapshot` right after `ExecutionStarted` ([EVT-014]), the replay of all events a run has emitted before its first step, or up to the end of any of its steps, *shall* count, for every place the net declares, the tokens that place holds at that point, and *shall* list among the enabled transitions every transition that holds a clock at that point, also one whose clock restart is pending ([EVT-005]). At an index inside the events of one step, for example between the `TokenRemoved` events of a firing that starts, the replayed counts can match no marking the executor held. The count is required only on the places the net declares: a TypeScript snapshot lists only the declared places, so the snapshot before `ExecutionCompleted` sets the replayed count of an undeclared place back to zero.
+
 **Acceptance Criteria:**
 1. `compute_at(events, 0)` is the empty state; `compute_at(events, len)` is the replay of the whole
    stream.
@@ -736,6 +884,10 @@ The enabled transitions are those with a `TransitionEnabled` event and no later 
    is expected for speed only: it does not change the state returned.
 4. The marking in `ComputedState` carries token counts; replayed tokens need not carry value
    payloads (events carry type + structured metadata, not live objects).
+5. In Java and TypeScript, before the first step of a run and after each of its steps, the replay
+   of the events emitted so far counts on every declared place the tokens it holds, and lists as
+   enabled every transition that holds a clock; a Rust or Python stream of a net with an initial
+   token fails this before the first step.
 
 **Depends on:** [EVT-021], [EVT-004], [EVT-006], [EVT-007], [EVT-008], [EVT-009], [EVT-010], [EVT-011], [EVT-012], [EVT-014]
 **Implementation status:** Implemented in all four: Rust (`libpetri-debug::MarkingCache`), Python
@@ -745,4 +897,7 @@ clamp an index beyond the stream length and throws `IndexOutOfBoundsException` (
 no debug protocol handler calls `invalidate()` when its debug store evicts events ([EVT-024]), so a
 seek after an eviction can return a state that is not the replay (AC3).
 **Test derivation:** Record a multi-firing run; `compute_at` at 0, an intermediate index, the end,
-and beyond-end; verify clamping and snapshot reuse.
+and beyond-end; verify clamping and snapshot reuse. In Java and TypeScript, run a net with token 1 in
+place 0 and one transition that takes it and puts 9 back; before the first step and after each
+step, compare the replayed counts with the executor's marking and check that every transition
+that holds a clock is listed as enabled.

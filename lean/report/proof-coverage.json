@@ -1222,6 +1222,190 @@
       ]
     },
     {
+      "name": "cites_completion_handoff",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "CONC-006",
+          "fragment": "the behaviour the completion hand-off carries: the orchestrator deposits a firing's produced tokens only after its action has returned (CONC-001, on the reference executor), at the tail of each place's queue in the order the action produced them (EXEC-020); lock-freedom and the O(1) cost per completion are not stated"
+        },
+        {
+          "id": "PERF-004",
+          "fragment": "the behaviour the completion signaling path carries: a completion is deposited only after the action has returned (CONC-001, on the reference executor), its tokens in production order at the queue tails (EXEC-020); that the path takes no lock is not stated"
+        }
+      ]
+    },
+    {
+      "name": "cites_conc020_parts",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "CONC-020",
+          "fragment": "the parts of the precompiled representation, each on its reference model: opcode consume operations (CONC-021), one token queue per place (CONC-022), priority-partitioned ready order (CONC-023), precomputed timing arrays (CONC-024) and sparse enablement masks (PERF-042); that the parts live in flat arrays and that the net is immutable after compile() are not stated"
+        }
+      ]
+    },
+    {
+      "name": "cites_core071_completion",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "CORE-071",
+          "fragment": "AC2 on the reference firing: a firing that ends with its action's completion deposits exactly the output tokens the action completed with (CORE-050 line 2), so an action changes the marking only through its outputs"
+        }
+      ]
+    },
+    {
+      "name": "cites_core071_ctx",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "CORE-071",
+          "fragment": "AC2: token production from actions goes through the context/output mechanism: an action that writes through a context accepting output calls on output places only deposits, in a reference action firing, on output places of its transition only (thread confinement and the absence of locks are not stated)"
+        }
+      ]
+    },
+    {
+      "name": "cites_dirty_set",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "PERF-001",
+          "fragment": "AC2's behaviour: a cycle re-evaluates only the transitions whose arc places a firing or an injection wrote, or that fired (CONC-005 on the timed reference step); the linear time bound is a benchmark"
+        },
+        {
+          "id": "PERF-003",
+          "fragment": "only transitions affected by token changes are re-evaluated: the enablement check of a transition is re-run only when one of its arc places is written or it fires (CONC-005 on the timed reference step); the O(D) cost is a benchmark"
+        }
+      ]
+    },
+    {
+      "name": "cites_exp015_mapper",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "EXP-015",
+          "fragment": "the mapper the doc generators delegate to draws one junction node per XOR or AND group of two or more children (EXP-012) and the combined reset and output edges (EXP-013), on the reference exporter; that javadoc, cargo doc and the TypeDoc plugin embed that mapper's DOT is tested per generator"
+        }
+      ]
+    },
+    {
+      "name": "cites_inline_sync",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "CONC-011",
+          "fragment": "the observable consequence of inline execution: a token a synchronous action deposits during a firing pass is not part of the pass-visible marking, so no later start of the same pass consumes or drains it (EXEC-003, on the reference executor); which thread runs the action and the absence of task dispatch are not stated"
+        },
+        {
+          "id": "PERF-011",
+          "fragment": "AC1's observable half: a synchronous action that completes inside a firing pass deposits tokens the same pass does not see (EXEC-003, on the reference executor); task spawning and its cost are not stated"
+        }
+      ]
+    },
+    {
+      "name": "cites_perf003_unwritten",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "PERF-003",
+          "fragment": "AC2: transitions connected to unchanged places need no re-evaluation: a firing that writes none of a transition's arc places leaves the transition's enablement unchanged (CONC-005 line 3, for every policy of the timed step)"
+        }
+      ]
+    },
+    {
+      "name": "cites_perf010_noop",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "PERF-010",
+          "fragment": "the observable half: the noop event store reports itself as not enabled and keeps nothing that is appended to it (EVT-022 on the reference noop store); that the executor allocates no event object is not stated"
+        }
+      ]
+    },
+    {
+      "name": "cites_perf020_chain",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "PERF-020",
+          "fragment": "the Linear chain scenario (N = 5) on one decided run of the reference executor: the five transitions fire in turn, one per firing pass, the token ends in the last place, every other place is empty and the run ends quiescent; that each implementation ships the benchmark suite, and its timings, are not stated"
+        }
+      ]
+    },
+    {
+      "name": "cites_perf031_store",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "PERF-031",
+          "fragment": "AC2's storage shape as behaviour: each place keeps its tokens in one sequential FIFO queue of its own, appended at the tail and taken from the head (CONC-022 on the reference ring store); memory use and pre-allocation are not stated"
+        }
+      ]
+    },
+    {
+      "name": "cites_precompiled_refines",
+      "module": "Libpetri/Spec/Cites.lean",
+      "specIds": [
+        {
+          "id": "CONC-020",
+          "fragment": "the precompiled net computes what the net it is compiled from computes: on the untimed immediate synchronous fragment, any number of precompiled executor cycles keeps the materialized marking and the control bits equal to the bitmap reference's (array layout and the absence of hash lookups are not stated)"
+        },
+        {
+          "id": "PERF-040",
+          "fragment": "computes what the reference computes: on the untimed immediate synchronous fragment the precompiled backend's materialized marking and control bits equal the bitmap backend's after every cycle; the flat-array layout and the absence of hash map lookups are not stated"
+        },
+        {
+          "id": "PERF-041",
+          "fragment": "the two executors the speedup compares compute the same result: on the untimed immediate synchronous fragment they fire the same transitions in the same order and show the same marking after every cycle; the speedup itself is a benchmark"
+        }
+      ]
+    },
+    {
+      "name": "clashEvt_completedAfterTimeout",
+      "module": "Libpetri/Spec/ClashesEvents.lean",
+      "specIds": [
+        {
+          "id": "EVT-007",
+          "fragment": "after a timeout outcome is deposited, TransitionCompleted may follow and is not required (ruling D65 (a)): the Java and TypeScript emission reports it at every deposit of a timeout outcome and the Rust emission at none, and both meet EVT-007, EVT-008 and EVT-011"
+        }
+      ]
+    },
+    {
+      "name": "clashEvt_endMarker",
+      "module": "Libpetri/Spec/ClashesEvents.lean",
+      "specIds": [
+        {
+          "id": "EVT-003",
+          "fragment": "ExecutionCompleted is emitted at most once per run, when the loop ends, after its last orchestrator event; 'nothing in flight' holds only for the quiescent end (ruling D74 (a)): when a terminal place is marked while another firing is in flight the run stops at once (EXEC-042) and reports ExecutionCompleted with that firing still in flight, so 'after all transitions complete' cannot hold together with the terminal stop"
+        }
+      ]
+    },
+    {
+      "name": "clashEvt_initialAdded",
+      "module": "Libpetri/Spec/ClashesEvents.lean",
+      "specIds": [
+        {
+          "id": "EVT-011",
+          "fragment": "the tokens of the initial marking get no TokenAdded event (ruling D76 (a)): no executor meets EVT-011 and also reports each token of the initial marking as added at boot, and the reference, under both emissions, meets EVT-011"
+        }
+      ]
+    },
+    {
+      "name": "clashEvt_lateActionTimedOut",
+      "module": "Libpetri/Spec/ClashesEvents.lean",
+      "specIds": [
+        {
+          "id": "EVT-010",
+          "fragment": "an ActionTimedOut may follow ExecutionCompleted for a firing the run abandoned (ruling D65 (a)): in Java and TypeScript the action's timer reports it after a terminal stop, and in Rust and Python nothing follows ExecutionCompleted on the same run"
+        },
+        {
+          "id": "EVT-003",
+          "fragment": "no orchestrator event follows ExecutionCompleted, and ActionTimedOut is not an orchestrator event (ruling D65 (a)): on a run that stops on a terminal place with a timed firing in flight, the Java and TypeScript trace ends with that firing's ActionTimedOut after ExecutionCompleted"
+        }
+      ]
+    },
+    {
       "name": "clashExec_closeKeepsStarting",
       "module": "Libpetri/Spec/ClashesExec.lean",
       "specIds": [
@@ -1332,6 +1516,36 @@
       ]
     },
     {
+      "name": "clashNu_budgetCount",
+      "module": "Libpetri/Spec/ClashesNu.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "the Route A fragment is 'a colour-slot bound exists' ([NU-053]), not budget conservation (ruling D59 (a)): bounding the colours by the budget count proves a false bound on a net that reaches two live names, and the slot-bound plan refuses that net"
+        }
+      ]
+    },
+    {
+      "name": "clashNu_demand",
+      "module": "Libpetri/Spec/ClashesNu.lean",
+      "specIds": [
+        {
+          "id": "NU-052",
+          "fragment": "a transition's demand on a place is the required count of its input arcs there, not the tokens one firing consumes (ruling D97 (a)): two All arcs on a place with two tokens compete under the tokens-consumed reading and not under the required count, and the required count never competes where the other reading does not"
+        }
+      ]
+    },
+    {
+      "name": "clashNu_freeChoice",
+      "module": "Libpetri/Spec/ClashesNu.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "a closed Route B graph's verdict is sound against the executor and complete against the free-choice graph (ruling D59 (a)): at AC1's join two names are eligible, the graph may join on either, and every reference firing joins on the selected one"
+        }
+      ]
+    },
+    {
       "name": "TIME_014_bullet2_order_conflicts_EXEC_002",
       "module": "Libpetri/Spec/ClashesTime.lean",
       "specIds": [
@@ -1382,6 +1596,16 @@
       ]
     },
     {
+      "name": "netEvent_value",
+      "module": "Libpetri/Spec/GlossaryEvents.lean",
+      "specIds": [
+        {
+          "id": "EVT-001",
+          "fragment": "All events are immutable value objects."
+        }
+      ]
+    },
+    {
       "name": "CONC_004_reference",
       "module": "Libpetri/Spec/Req/CONC_004.lean",
       "specIds": [
@@ -1398,6 +1622,16 @@
         {
           "id": "CONC-004",
           "fragment": "the presence check on the compiled masks, over the bitmap indexed by place ID, passes exactly when every needs-mask bit is set and no inhibitor-mask bit is set"
+        }
+      ]
+    },
+    {
+      "name": "conc008_nu_enabled",
+      "module": "Libpetri/Spec/Req/CONC_008.lean",
+      "specIds": [
+        {
+          "id": "NU-020",
+          "fragment": "enablement of a matched transition: the usual cardinality, bitmap and inhibitor checks, and a name present in every correlated input with at least that input's required count"
         }
       ]
     },
@@ -1488,6 +1722,36 @@
         {
           "id": "CORE-012",
           "fragment": "A unit token is a special token with no meaningful payload value, used for pure control flow signaling. The engine provides a canonical way to create unit tokens."
+        }
+      ]
+    },
+    {
+      "name": "core011b_QStamped_forward",
+      "module": "Libpetri/Spec/Req/CORE_011_B.lean",
+      "specIds": [
+        {
+          "id": "IO-014",
+          "fragment": "A forwarded token's `created_at` equals the original's and is **not** re-stamped from the epoch clock, while a minted recovery token in the same branch *is*, in every implementation."
+        }
+      ]
+    },
+    {
+      "name": "core011b_output_stamp",
+      "module": "Libpetri/Spec/Req/CORE_011_B.lean",
+      "specIds": [
+        {
+          "id": "CORE-035",
+          "fragment": "Output tokens are created with the current timestamp of the epoch clock ([TIME-015]); a token a `ForwardInput` forwards keeps its original `created_at` ([IO-014])."
+        }
+      ]
+    },
+    {
+      "name": "core011b_ref_wall_blind",
+      "module": "Libpetri/Spec/Req/CORE_011_B.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "Under an injected clock, tokens produced by `ctx.output`, by a raw-value injection, and by a minted action-timeout recovery output all carry timestamps from the injected epoch clock, not from wall time."
         }
       ]
     },
@@ -1712,6 +1976,46 @@
       ]
     },
     {
+      "name": "env012_goes_on",
+      "module": "Libpetri/Spec/Req/ENV_012.lean",
+      "specIds": [
+        {
+          "id": "ENV-012",
+          "fragment": "The engine supports event-driven workflow patterns where ~10 environment places represent external event sources (activity signals, data streams, tool requests, state changes, etc.) and the executor runs indefinitely, processing events as they arrive."
+        }
+      ]
+    },
+    {
+      "name": "env012_reacts",
+      "module": "Libpetri/Spec/Req/ENV_012.lean",
+      "specIds": [
+        {
+          "id": "ENV-012",
+          "fragment": "AC3: The net reacts to each injection by enabling relevant transitions."
+        }
+      ]
+    },
+    {
+      "name": "env012_sources",
+      "module": "Libpetri/Spec/Req/ENV_012.lean",
+      "specIds": [
+        {
+          "id": "ENV-012",
+          "fragment": "AC2: Injection from multiple concurrent sources works correctly."
+        }
+      ]
+    },
+    {
+      "name": "env012_ten_registered",
+      "module": "Libpetri/Spec/Req/ENV_012.lean",
+      "specIds": [
+        {
+          "id": "ENV-012",
+          "fragment": "AC1: 10+ environment places can be registered simultaneously."
+        }
+      ]
+    },
+    {
       "name": "env014_snapshot_frame",
       "module": "Libpetri/Spec/Req/ENV_014.lean",
       "specIds": [
@@ -1728,6 +2032,150 @@
         {
           "id": "ENV-016",
           "fragment": "when the caller's timeout expires while the loop is running, the implementation shall act on the expiry under the policy the caller chose: an expiry handler that never runs meets every line of the block and fails its coverage clause Env016Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env016_await_covers_hang",
+      "module": "Libpetri/Spec/Req/ENV_016_l1.lean",
+      "specIds": [
+        {
+          "id": "ENV-016",
+          "fragment": "awaitTermination returns whether termination was observed within the timeout and is not defeated by a failure in the termination bookkeeping: a call that never returns meets every line of the block and fails its coverage clause Env016AwaitCovers"
+        }
+      ]
+    },
+    {
+      "name": "EVT_002_executionId_reference",
+      "module": "Libpetri/Spec/Req/EVT_002.lean",
+      "specIds": [
+        {
+          "id": "TIME-015",
+          "fragment": "AC14: two executors constructed in one process carry different execution IDs, whatever the clock reads"
+        }
+      ]
+    },
+    {
+      "name": "EVT_005_time012_ac4",
+      "module": "Libpetri/Spec/Req/EVT_005.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "AC4: T's clock continues, and neither TransitionClockRestarted nor TransitionEnabled is emitted for T after the refresh"
+        }
+      ]
+    },
+    {
+      "name": "EVT_005_time012_ac6",
+      "module": "Libpetri/Spec/Req/EVT_005.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "AC6: each restart emits exactly one of TransitionClockRestarted or TransitionEnabled; on the run of the AC1 refill with a synchronous action the restart is a TransitionClockRestarted, and with an asynchronous action whose deposit comes after the next enablement update it is a TransitionEnabled (AC5, the gap the executor observed)"
+        }
+      ]
+    },
+    {
+      "name": "evt005_one_of",
+      "module": "Libpetri/Spec/Req/EVT_005.lean",
+      "specIds": [
+        {
+          "id": "TIME-012",
+          "fragment": "AC6 at the enablement update that arms the transition again: each restart emits exactly one of TransitionClockRestarted or TransitionEnabled, the first when the restart is still pending at the update, the second when the executor disarmed the transition before it; and AC4's event clause, a transition that keeps its clock gets neither"
+        }
+      ]
+    },
+    {
+      "name": "EVT_006_with_EVT_012_noRemovals",
+      "module": "Libpetri/Spec/Req/EVT_006.lean",
+      "specIds": [
+        {
+          "id": "EVT-006",
+          "fragment": "the TokenRemoved events of a start are EVT-012's: EVT_006 alone accepts a start that reports TransitionStarted with no TokenRemoved event, and EVT_012 (line 1, one event per removed token) rejects it"
+        }
+      ]
+    },
+    {
+      "name": "evt006_payload_matches",
+      "module": "Libpetri/Spec/Req/EVT_006.lean",
+      "specIds": [
+        {
+          "id": "EVT-006",
+          "fragment": "AC2 (the removed-tokens list matches the tokens the start actually removes): with EVT_012_payload, line 1 of the companion makes the list of a start's TransitionStarted, place by place, exactly the tokens the start removes, oldest first"
+        }
+      ]
+    },
+    {
+      "name": "evt009_ac1",
+      "module": "Libpetri/Spec/Req/EVT_009.lean",
+      "specIds": [
+        {
+          "id": "EVT-009",
+          "fragment": "AC1: emitted in the deadline step of a cycle at whose reading a reapable, armed transition's elapsed time is strictly greater than its latest bound plus the deadline tolerance; read with TIME-013's executor companion, a deadline step emits exactly one TransitionTimedOut for each reapable, armed transition whose elapsed time at its reading is past the bound plus the tolerance, and only for those (ruling D5), so never for an Exact transition"
+        },
+        {
+          "id": "TIME-013",
+          "fragment": "the executor shall reap it in the deadline step of that cycle and emit TransitionTimedOut ([EVT-009]): with EVT-009, the deadline step that reaps an expired transition emits exactly one TransitionTimedOut naming it"
+        }
+      ]
+    },
+    {
+      "name": "evt009_ac1_otherSteps",
+      "module": "Libpetri/Spec/Req/EVT_009.lean",
+      "specIds": [
+        {
+          "id": "EVT-009",
+          "fragment": "AC1: never for an Exact transition; read with an executor that reaps only at deadline steps, no step other than a deadline step emits a TransitionTimedOut, so neither does the late start of an Exact transition"
+        }
+      ]
+    },
+    {
+      "name": "evt009_ac2",
+      "module": "Libpetri/Spec/Req/EVT_009.lean",
+      "specIds": [
+        {
+          "id": "EVT-009",
+          "fragment": "AC2: after this event the transition is reaped: it stays enabled but is not armed, and does not fire until one of its arc places is written; on a run from a state with no ready order left, the step of the event leaves the name reaped, only a step that writes one of the transition's arc places ends the reaped state (CONC-005), no step starts the name while it is reaped (EXEC-003 line 1), and a step that writes none of its arc places keeps its enablement (CONC-001, CONC-005)"
+        }
+      ]
+    },
+    {
+      "name": "evt009_ac2_enabled",
+      "module": "Libpetri/Spec/Req/EVT_009.lean",
+      "specIds": [
+        {
+          "id": "EVT-009",
+          "fragment": "AC2: it stays enabled; read with TIME-013's executor companion, the step of the event leaves the transition reaped and enabled, as the deadline step reaps only expired, hence enabled, transitions and keeps the marking"
+        }
+      ]
+    },
+    {
+      "name": "evt009_disarmSilent_needs_time013",
+      "module": "Libpetri/Spec/Req/EVT_009.lean",
+      "specIds": [
+        {
+          "id": "EVT-009",
+          "fragment": "AC1 and AC2: the transition is reaped when its elapsed time is past the bound plus the tolerance; EVT-009 alone accepts an executor that disarms the expired transition to off and reports nothing, and TIME-013's executor companion rejects it, so AC1 and AC2 are read with it"
+        }
+      ]
+    },
+    {
+      "name": "EVT_010_reference",
+      "module": "Libpetri/Spec/Req/EVT_010.lean",
+      "specIds": [
+        {
+          "id": "IO-013",
+          "fragment": "AC4, an ActionTimedOut event on timeout: under both emission variants a firing that ends with its timeout outcome has exactly one ActionTimedOut, naming its transition, by the time the executor settles that outcome (EVT_010 lines 1 and 3)"
+        }
+      ]
+    },
+    {
+      "name": "EVT_010_rust",
+      "module": "Libpetri/Spec/Req/EVT_010.lean",
+      "specIds": [
+        {
+          "id": "EXEC-022",
+          "fragment": "Timeout fires first, ActionTimedOut event emitted: a firing whose budget runs out first has exactly one ActionTimedOut, emitted no later than the settle of its timeout outcome and before the TokenAdded events of that outcome (EVT_010 lines 2 and 3)"
         }
       ]
     },
@@ -1852,12 +2300,456 @@
       ]
     },
     {
+      "name": "mod040b_ac2",
+      "module": "Libpetri/Spec/Req/MOD_040_b.lean",
+      "specIds": [
+        {
+          "id": "MOD-040",
+          "fragment": "AC2: each cluster block contains, directly or through the cluster blocks nested in it, exactly the nodes whose cluster key is the cluster's key or begins with it followed by /, for every exporter meeting the export half"
+        }
+      ]
+    },
+    {
+      "name": "mod040b_ac4",
+      "module": "Libpetri/Spec/Req/MOD_040_b.lean",
+      "specIds": [
+        {
+          "id": "MOD-040",
+          "fragment": "AC4: a net with no composed instances and no membership metadata (no / in any name) produces no cluster subgraphs, for every exporter meeting the export half"
+        }
+      ]
+    },
+    {
+      "name": "mod040b_ac5",
+      "module": "Libpetri/Spec/Req/MOD_040_b.lean",
+      "specIds": [
+        {
+          "id": "MOD-040",
+          "fragment": "AC5: cluster IDs match the regex cluster_[A-Za-z0-9_]+, for every exporter meeting the export half, for every cluster whose key is not empty"
+        }
+      ]
+    },
+    {
+      "name": "mod050_accepts",
+      "module": "Libpetri/Spec/Req/MOD_050.lean",
+      "specIds": [
+        {
+          "id": "MOD-050",
+          "fragment": "all verification facilities specified in section 07 (VER) operate on a composed flat net: in every model of the block, a composed net is accepted whenever section 07's facility accepts its built net, the reference pass-through included"
+        }
+      ]
+    },
+    {
+      "name": "mod050_handWritten",
+      "module": "Libpetri/Spec/Req/MOD_050.lean",
+      "specIds": [
+        {
+          "id": "MOD-023",
+          "fragment": "AC4: running verification on the composed net and on its hand-written equivalent gives identical results, for every model of the MOD-050 block and every verification facility that does not depend on the order of places, the hand-written net being the re-declaration of buildScript_redeclare"
+        }
+      ]
+    },
+    {
+      "name": "mod050_pinvColumns",
+      "module": "Libpetri/Spec/Req/MOD_050.lean",
+      "specIds": [
+        {
+          "id": "VER-005",
+          "fragment": "the P-invariant computation on a net that build() returned: in every model of the MOD-050 block whose facility reads the flat net with its places sorted by name, the composed pipeline with its places in any order and its hand-written equivalent get the same result, over the composed, prefixed place names"
+        }
+      ]
+    },
+    {
+      "name": "mod050_proven_iff",
+      "module": "Libpetri/Spec/Req/MOD_050.lean",
+      "specIds": [
+        {
+          "id": "VER-002",
+          "fragment": "property checks (deadlock freedom, place bounds, mutual exclusion, unreachability) on a net that build() returned: in every model of the MOD-050 block whose facility is the reference verdict, a composed net is Proven exactly when the search over its flat net completed and no reachable marking of the flat net violates the property"
+        }
+      ]
+    },
+    {
+      "name": "mod050_sameStructure",
+      "module": "Libpetri/Spec/Req/MOD_050.lean",
+      "specIds": [
+        {
+          "id": "MOD-031",
+          "fragment": "the correspondence is not consulted by the verifier: in every model of the MOD-050 block, two nets with the same built net get one result from every verification facility, whatever correspondence they carry"
+        }
+      ]
+    },
+    {
+      "name": "mod051_bind_inst",
+      "module": "Libpetri/Spec/Req/MOD_051.lean",
+      "specIds": [
+        {
+          "id": "MOD-051",
+          "fragment": "AC8: bindActions on a definition returns a new definition whose instances carry the bound actions, keyed by unprefixed names: in every model of the MOD_051_bind block, the instance of the bound definition carries the actions the net-level binding gives the body, position by position"
+        }
+      ]
+    },
+    {
+      "name": "mod051_default",
+      "module": "Libpetri/Spec/Req/MOD_051.lean",
+      "specIds": [
+        {
+          "id": "MOD-051",
+          "fragment": "AC4: the environment-analysis mode defaults to one that models injection, so a subnet with an input port is not refused a Proven by default: in every model of the MOD-051 block, an entry of a call without options is the verifier under AlwaysAvailable with the harness places of the input ports registered"
+        }
+      ]
+    },
+    {
+      "name": "mod051_fails_of_build",
+      "module": "Libpetri/Spec/Req/MOD_051.lean",
+      "specIds": [
+        {
+          "id": "MOD-051",
+          "fragment": "If instantiating the subnet under the prefix sut fails or building the synthetic net fails, then verify shall fail: in every model of the MOD-051 block a report needs the instance and the synthetic net, so a call without them fails"
+        }
+      ]
+    },
+    {
+      "name": "mod051_fwd_synth",
+      "module": "Libpetri/Spec/Req/MOD_051.lean",
+      "specIds": [
+        {
+          "id": "MOD-051",
+          "fragment": "AC5: a subnet that forwards each input token to an output port: its synthetic net is the environment net env IN → T → OUT of VER-006 AC9, with IN the harness place of its input port and OUT the harness place of its output port"
+        }
+      ]
+    },
+    {
+      "name": "mod051_ref_covers",
+      "module": "Libpetri/Spec/Req/MOD_051.lean",
+      "specIds": [
+        {
+          "id": "MOD-051",
+          "fragment": "A subnet definition SHOULD support a local verification operation `verify(harness)` that proves properties of the subnet **in isolation**, without first composing it into an enclosing net: the reference verify returns a report whenever every input and in-out port has a token source, the instance and the synthetic net build and the CORE-043 check passes"
+        }
+      ]
+    },
+    {
+      "name": "NU_010_routeA_mint",
+      "module": "Libpetri/Spec/Req/NU_010.lean",
+      "specIds": [
+        {
+          "id": "NU-010",
+          "fragment": "A transition that writes a coloured place without consuming one and is not declared keeps the net off both routes; what the executor writes on timeout is never a mint, declared or not (Route A half)"
+        }
+      ]
+    },
+    {
+      "name": "nu010_contract_fresh",
+      "module": "Libpetri/Spec/Req/NU_010.lean",
+      "specIds": [
+        {
+          "id": "NU-010",
+          "fragment": "Every name a declared mint writes into a coloured place it writes without consuming one MUST be a name it minted with `freshName()` in that firing, and all such names MUST be one and the same: with the reference minter that name is held in no coloured place, which is the mint contract the Route B soundness theorems assume"
+        }
+      ]
+    },
+    {
+      "name": "nu010_fallback_unique",
+      "module": "Libpetri/Spec/Req/NU_010.lean",
+      "specIds": [
+        {
+          "id": "NU-010",
+          "fragment": "absent an executor-installed minter, a fallback still guarantees uniqueness"
+        }
+      ]
+    },
+    {
+      "name": "nu011_ac2",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC2: a restored token awaiting its sibling at a NU-020 join is not correlated with a freshly minted token of the resumed segment"
+        }
+      ]
+    },
+    {
+      "name": "nu011_ac6",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC6: a name minted by a transition whose own name contains # and : splits back into transition, scope and counter by the rule above"
+        }
+      ]
+    },
+    {
+      "name": "nu011_collision",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "Transition a under scope b#c and transition a#b under scope c both mint a#b#c:0"
+        }
+      ]
+    },
+    {
+      "name": "nu011_default_draw_accepted",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC5: an executor given no scope mints names whose scope component is 32 lowercase hexadecimal characters"
+        }
+      ]
+    },
+    {
+      "name": "nu011_default_not_runId",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "The run identifier remains the reproducible one, the default scope is the unique one, and an implementation MUST NOT derive either from the other"
+        }
+      ]
+    },
+    {
+      "name": "nu011_fromId_fixed",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC5: the default scope is not the run identifier; a default derived from the execution id is fixed by the construction order, which the coverage conjunct DefaultUnfixed of joint_nu_sketch rules out"
+        }
+      ]
+    },
+    {
+      "name": "nu011_host_replay",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC3 and the replay exception: two executions of one lineage share a minted name only when one replays the other"
+        }
+      ]
+    },
+    {
+      "name": "nu011_lineage_nodup",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC4: two concurrent executions restored from the same snapshot, under the default scope or under two different pinned scopes, mint disjoint name sets"
+        }
+      ]
+    },
+    {
+      "name": "nu011_lineage_of_format",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "With # banned as well, a minted name parses uniquely whatever the transition name contains: two executions under different accepted scopes never mint one name"
+        }
+      ]
+    },
+    {
+      "name": "nu011_parse",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "the last : splits off the counter, and the last # before it splits off the scope; everything in front is the transition name"
+        }
+      ]
+    },
+    {
+      "name": "nu011_replay",
+      "module": "Libpetri/Spec/Req/NU_011.lean",
+      "specIds": [
+        {
+          "id": "NU-011",
+          "fragment": "AC3: for a fixed scope and a fixed order of freshName() calls, two runs from the same restored marking mint the identical name sequence"
+        }
+      ]
+    },
+    {
+      "name": "nu030_fusedKeys_refused",
+      "module": "Libpetri/Spec/Req/NU_030.lean",
+      "specIds": [
+        {
+          "id": "NU-030",
+          "fragment": "A rewrite that maps two correlated inputs of one join onto one place is rejected when the rebuilt transition is built"
+        }
+      ]
+    },
+    {
+      "name": "nu030_instanceNames_disjoint",
+      "module": "Libpetri/Spec/Req/NU_030.lean",
+      "specIds": [
+        {
+          "id": "NU-030",
+          "fragment": "AC1: two instances of a forking subnet never mint colliding names"
+        }
+      ]
+    },
+    {
+      "name": "nu030_keysOnInputs",
+      "module": "Libpetri/Spec/Req/NU_030.lean",
+      "specIds": [
+        {
+          "id": "NU-030",
+          "fragment": "AC2: after composition, a join's match correlates the renamed (host-bound) places, not the author-original ones"
+        }
+      ]
+    },
+    {
+      "name": "nu030_oneExecution",
+      "module": "Libpetri/Spec/Req/NU_030.lean",
+      "specIds": [
+        {
+          "id": "NU-030",
+          "fragment": "AC1: names minted in two instances never collide, channel-merged transitions included"
+        }
+      ]
+    },
+    {
+      "name": "nu030_passes_nameMaps",
+      "module": "Libpetri/Spec/Req/NU_030.lean",
+      "specIds": [
+        {
+          "id": "NU-030",
+          "fragment": "*When* a transition is rebuilt through a place rewrite, the name of the rebuilt transition *shall* be the original name with the instance prefix under prefix renaming ([MOD-010]) and the original name under every other rebuild."
+        }
+      ]
+    },
+    {
+      "name": "nu030_relaysOnOutputs",
+      "module": "Libpetri/Spec/Req/NU_030.lean",
+      "specIds": [
+        {
+          "id": "NU-030",
+          "fragment": "the correlated places and relay targets of a rebuilt match are the images under the same rewrite as the arcs: relay targets stay on output places"
+        }
+      ]
+    },
+    {
+      "name": "NU_040_ac1",
+      "module": "Libpetri/Spec/Req/NU_040.lean",
+      "specIds": [
+        {
+          "id": "NU-040",
+          "fragment": "AC1 and the second half of AC2 on the scatter-gather net: with Budget(k), a fork gated on a Budget input, a matched join and a dead-letter that return the budget token, every marking the reference ν firing reaches holds budget + pending = k, so PlaceBound(Budget, k) and PlaceBound(Pending, k) hold"
+        }
+      ]
+    },
+    {
+      "name": "NU_040_ac2",
+      "module": "Libpetri/Spec/Req/NU_040.lean",
+      "specIds": [
+        {
+          "id": "NU-040",
+          "fragment": "AC2 on the scatter-gather net: every forked group is joined or dead-lettered, so pending is empty at every reachable quiescent marking and JoinedOrDeadLettered(pending) holds"
+        }
+      ]
+    },
+    {
+      "name": "NU_050_prefix_never_proven",
+      "module": "Libpetri/Spec/Req/NU_050.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "A truncated graph never yields `Proven`"
+        }
+      ]
+    },
+    {
+      "name": "NU_050_prefix_open_never_proven",
+      "module": "Libpetri/Spec/Req/NU_050.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "If the Route B graph does not close, then Route B shall not answer `Proven` (a consequence of the four lines of NU_050_prefix)"
+        },
+        {
+          "id": "NU-050",
+          "fragment": "AC2 (NU-050 #2): on a net whose Route B graph does not close, as an unbounded-fresh-name net without a budget place has, the verdict is never Proven; it is Unknown unless a stored class violates the property, and then Violated by the prefix rule. That the graph of every such net does not close is not proven here; NU_050_soundB_nonvacuous shows it for one net at one class bound."
+        }
+      ]
+    },
+    {
+      "name": "NU_050_timed_covers_reference",
+      "module": "Libpetri/Spec/Req/NU_050_timed.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "A join whose inputs hold tokens but share no name has no clock, so its latest bound constrains no other firing."
+        }
+      ]
+    },
+    {
+      "name": "nu050t_fire_executor",
+      "module": "Libpetri/Spec/Req/NU_050_timed.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "On a timed net Route B gives a matched join a clock only while one name-symbol is present in every correlated input, because the executor enables the join only then ([NU-020])."
+        }
+      ]
+    },
+    {
+      "name": "nu050t_old_graph_escapes",
+      "module": "Libpetri/Spec/Req/NU_050_timed.lean",
+      "specIds": [
+        {
+          "id": "NU-050",
+          "fragment": "A join whose inputs hold tokens but share no name has no clock, so its latest bound constrains no other firing."
+        }
+      ]
+    },
+    {
       "name": "NU_051_routeA_consume",
       "module": "Libpetri/Spec/Req/NU_051.lean",
       "specIds": [
         {
           "id": "NU-051",
           "fragment": "AC8, Route A half: a coloured consumer whose timeout forwards another input, or writes a unit token, into a coloured place is refused by the shipped Route A plan"
+        }
+      ]
+    },
+    {
+      "name": "nu051c_builder_covers",
+      "module": "Libpetri/Spec/Req/NU_051_carrier.lean",
+      "specIds": [
+        {
+          "id": "NU-051",
+          "fragment": "In either fragment mode, a declaration whose carrier places are all places of the net is accepted."
+        }
+      ]
+    },
+    {
+      "name": "nu051c_covers_baseRefuses",
+      "module": "Libpetri/Spec/Req/NU_051_carrier.lean",
+      "specIds": [
+        {
+          "id": "NU-051",
+          "fragment": "Under BASE, the fragment classifier ignores declared carriers (a documented no-op); the in-flight split of [VER-004] reads them in both modes."
+        }
+      ]
+    },
+    {
+      "name": "nu051c_covers_refusesAll",
+      "module": "Libpetri/Spec/Req/NU_051_carrier.lean",
+      "specIds": [
+        {
+          "id": "NU-051",
+          "fragment": "In either fragment mode, a declaration whose carrier places are all places of the net is accepted."
+        }
+      ]
+    },
+    {
+      "name": "nu051c_ref_covers",
+      "module": "Libpetri/Spec/Req/NU_051_carrier.lean",
+      "specIds": [
+        {
+          "id": "NU-051",
+          "fragment": "In either fragment mode, a declaration whose carrier places are all places of the net is accepted."
         }
       ]
     },
@@ -1968,6 +2860,16 @@
         {
           "id": "NU-053",
           "fragment": "AC6: a bound of k = 0 from a bound that meets NU-053 line 1 gives the exact zero-slot plan: any sub-net keeping the rows that touch no coloured place reaches exactly the markings the full flat net reaches"
+        }
+      ]
+    },
+    {
+      "name": "NU_060_table",
+      "module": "Libpetri/Spec/Req/NU_060.lean",
+      "specIds": [
+        {
+          "id": "NU-060",
+          "fragment": "A correlated input is therefore merged by the canonical input-arc merge table like any other input arc: a correlated `one()` and the other side's `one()` on the same place give one `exactly(2)` arc that the surviving match still correlates."
         }
       ]
     },
@@ -2260,12 +3162,192 @@
       ]
     },
     {
+      "name": "VER_006_ac2",
+      "module": "Libpetri/Spec/Req/VER_006.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "AC2"
+        }
+      ]
+    },
+    {
+      "name": "VER_006_frozen_in_injected",
+      "module": "Libpetri/Spec/Req/VER_006.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "Only `Proven` is refused."
+        }
+      ]
+    },
+    {
+      "name": "VER_006_quiescent_exact",
+      "module": "Libpetri/Spec/Req/VER_006.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "*While* the mode is `AlwaysAvailable` or `Bounded(k)`, the verifier *shall* treat a marking as quiescent exactly when every transition that is not reapable is permanently disabled or has a disabling reason that holds at the marking."
+        }
+      ]
+    },
+    {
+      "name": "VER_006_quiescent_stuck",
+      "module": "Libpetri/Spec/Req/VER_006.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "A marking quiescent in this sense that is reachable with injection, from an initial marking that holds at most `k` tokens on each environment place under `Bounded(k)`, enables no transition, and no sequence of injections makes it enable one."
+        }
+      ]
+    },
+    {
       "name": "VER_007_preserves_reach",
       "module": "Libpetri/Spec/Req/VER_007.lean",
       "specIds": [
         {
           "id": "VER-007",
           "fragment": "AC6 and the pure-strengthening sentence: for every encoding that meets the VER-007 block, under off, on and auto, the strengthened relation over deposit rows (every handed law conjoined, injection rules carrying none) reaches exactly the abstract reachable set ReachADInj, so a genuine violation stays Violated; encoder modelled, not extracted"
+        }
+      ]
+    },
+    {
+      "name": "VER_010_all_enables_inhibited",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "the inhibited successor MUST be reachable, since `p` is drained"
+        }
+      ]
+    },
+    {
+      "name": "VER_010_atLeast_drains",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "an `atLeast(2, p)` input over 5 tokens MUST leave `p` empty"
+        }
+      ]
+    },
+    {
+      "name": "ver010_closed_covers",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "State class graph enumerates reachable (marking, timing zone) pairs"
+        }
+      ]
+    },
+    {
+      "name": "ver010_key_graph",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "Two arrivals at the same marking and zone by different interleavings are one class; two zones that agree on every projection but differ in a difference constraint are two."
+        }
+      ]
+    },
+    {
+      "name": "ver010_old_rule_loses_run",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "A successor that keeps a clock the executor restarts under-approximates the executor's behaviors"
+        }
+      ]
+    },
+    {
+      "name": "ver010_stored_one_class",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "Two arrivals at the same marking and zone by different interleavings are one class"
+        }
+      ]
+    },
+    {
+      "name": "ver010_succWith_of",
+      "module": "Libpetri/Spec/Req/VER_010.lean",
+      "specIds": [
+        {
+          "id": "VER-010",
+          "fragment": "a transition `t' ≠ t` keeps its clock only if it is enabled in `M`, in the successor marking `M'`, and in the intermediate marking `M - Pre(t)`"
+        }
+      ]
+    },
+    {
+      "name": "ver012_build_complete_quiescence",
+      "module": "Libpetri/Spec/Req/VER_012.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "complete for the free-choice name semantics the graph explores"
+        }
+      ]
+    },
+    {
+      "name": "ver012_build_complete_violated",
+      "module": "Libpetri/Spec/Req/VER_012.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "complete for the free-choice name semantics the graph explores"
+        }
+      ]
+    },
+    {
+      "name": "ver012_routeB_closed_stores",
+      "module": "Libpetri/Spec/Req/VER_012.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "every class the graph reaches is stored and expanded"
+        }
+      ]
+    },
+    {
+      "name": "ver012_sound_executor",
+      "module": "Libpetri/Spec/Req/VER_012.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "sound for every executor run"
+        }
+      ]
+    },
+    {
+      "name": "ver012_succs_keys",
+      "module": "Libpetri/Spec/Req/VER_012.lean",
+      "specIds": [
+        {
+          "id": "VER-012",
+          "fragment": "up to renaming"
+        }
+      ]
+    },
+    {
+      "name": "VER_013_stop_failing",
+      "module": "Libpetri/Spec/Req/VER_013.lean",
+      "specIds": [
+        {
+          "id": "VER-013",
+          "fragment": "AC2"
+        }
+      ]
+    },
+    {
+      "name": "ver013_ac8",
+      "module": "Libpetri/Spec/Req/VER_013.lean",
+      "specIds": [
+        {
+          "id": "VER-013",
+          "fragment": "AC8"
         }
       ]
     },
@@ -2320,6 +3402,206 @@
       ]
     },
     {
+      "name": "VER_017_cache_reuse",
+      "module": "Libpetri/Spec/Req/VER_017.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "AC7"
+        }
+      ]
+    },
+    {
+      "name": "VER_017_decided_ends",
+      "module": "Libpetri/Spec/Req/VER_017.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "shall not run the SMT pipeline"
+        }
+      ]
+    },
+    {
+      "name": "VER_017_firing_sequence",
+      "module": "Libpetri/Spec/Req/VER_017.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "A `violated` is a real firing sequence"
+        }
+      ]
+    },
+    {
+      "name": "VER_017_pipeline",
+      "module": "Libpetri/Spec/Req/VER_017.lean",
+      "specIds": [
+        {
+          "id": "VER-017",
+          "fragment": "Test derivation"
+        }
+      ]
+    },
+    {
+      "name": "VER_018_join_refinement",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "AC2: the inequality hasdata <= ready0 + ready1 passes the exact re-check on the join and excludes the candidate that skips after the data arrived"
+        }
+      ]
+    },
+    {
+      "name": "VER_018_limit",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "after 32 refinements"
+        }
+      ]
+    },
+    {
+      "name": "VER_018_order_disabled",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "With the phase disabled, verdicts and reports are those of the pipeline without it."
+        }
+      ]
+    },
+    {
+      "name": "VER_018_order_fb_gate",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "on exactly the queries that the state-equation phase of [VER-018] runs on"
+        }
+      ]
+    },
+    {
+      "name": "VER_018_order_runs",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "On the flat path, after [VER-015] and before the fixpoint query."
+        }
+      ]
+    },
+    {
+      "name": "VER_018_plain_trap_fails",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "A transition with a consume-all input or a reset arc on a trap place removes tokens from the trap, so it too must put one back."
+        }
+      ]
+    },
+    {
+      "name": "VER_018_proven_needs_check",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "AC4: while the certificate check is enabled, the phase's Proven is withheld unless the check passes"
+        }
+      ]
+    },
+    {
+      "name": "VER_018_proven_sound",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "A proof is the inductive invariant `SE(M, n) ∧ ⋀ refinements(M)` over the places and one counter per flat transition."
+        }
+      ]
+    },
+    {
+      "name": "VER_018_refinements_hold",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "Every trap and inductive refinement holds in every reachable marking"
+        }
+      ]
+    },
+    {
+      "name": "VER_018_unsat_sound",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "Every reachable marking satisfies the equation for the counts of its run, so `unsat` proves the property."
+        }
+      ]
+    },
+    {
+      "name": "VER_018_violated_sound",
+      "module": "Libpetri/Spec/Req/VER_018.lean",
+      "specIds": [
+        {
+          "id": "VER-018",
+          "fragment": "A genuine violation is never masked: the phase returns `Violated` only for a replayed run."
+        }
+      ]
+    },
+    {
+      "name": "VER_019_order_continues",
+      "module": "Libpetri/Spec/Req/VER_019.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "the pipeline *shall* go on to its next step"
+        }
+      ]
+    },
+    {
+      "name": "VER_019_order_disabled",
+      "module": "Libpetri/Spec/Req/VER_019.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "the verdicts and reports *shall* be those of the pipeline without the phase"
+        }
+      ]
+    },
+    {
+      "name": "VER_019_order_flat_gate",
+      "module": "Libpetri/Spec/Req/VER_019.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "on exactly the queries that the state-equation phase of [VER-018] runs on"
+        }
+      ]
+    },
+    {
+      "name": "VER_019_order_runs",
+      "module": "Libpetri/Spec/Req/VER_019.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "after the state-equation phase of [VER-018] and before the bounded witness phase of [VER-025] and the fixpoint query"
+        }
+      ]
+    },
+    {
+      "name": "VER_019_order_se_free",
+      "module": "Libpetri/Spec/Req/VER_019.lean",
+      "specIds": [
+        {
+          "id": "VER-019",
+          "fragment": "whether [VER-018] is enabled or not"
+        }
+      ]
+    },
+    {
       "name": "VER_020_commoner",
       "module": "Libpetri/Spec/Req/VER_020.lean",
       "specIds": [
@@ -2336,6 +3618,136 @@
         {
           "id": "VER-020",
           "fragment": "AC4: every conforming siphon search returns, on the ring with minimal siphon {x, y} and on the padding witness with minimal siphon {a, b}, a list holding that siphon"
+        }
+      ]
+    },
+    {
+      "name": "VER_020_guard_arrivals",
+      "module": "Libpetri/Spec/Req/VER_020.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "no environment place registered on the net it decides (the Arrivals rewrite of VER-006 leaves none)"
+        }
+      ]
+    },
+    {
+      "name": "VER_020_guard_match",
+      "module": "Libpetri/Spec/Req/VER_020.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "A match transition hides a dead marking from the flat net: a ν-join net whose flat net passes the structural check is stuck at its initial marking"
+        }
+      ]
+    },
+    {
+      "name": "VER_020_guard_sound",
+      "module": "Libpetri/Spec/Req/VER_020.lean",
+      "specIds": [
+        {
+          "id": "VER-020",
+          "fragment": "AC2 and AC3: a structural Proven, given only behind the guard, rules out every dead marking reachable in the flat net"
+        }
+      ]
+    },
+    {
+      "name": "VER_021_outCount_of_VER_001",
+      "module": "Libpetri/Spec/Req/VER_021.lean",
+      "specIds": [
+        {
+          "id": "VER-021",
+          "fragment": "the number of outcomes is that of the virtual transitions of VER-001"
+        }
+      ]
+    },
+    {
+      "name": "VER_021_together",
+      "module": "Libpetri/Spec/Req/VER_021.lean",
+      "specIds": [
+        {
+          "id": "VER-021",
+          "fragment": "test derivation: one XOR branch unreachable beside a reachable one"
+        }
+      ]
+    },
+    {
+      "name": "VER_022_covers_refuse",
+      "module": "Libpetri/Spec/Req/VER_022.lean",
+      "specIds": [
+        {
+          "id": "VER-022",
+          "fragment": "when the verifier accepts the closure, it shall return a result: a verifier that refuses every verification meets every line of the block and fails its coverage Ver022Covers"
+        }
+      ]
+    },
+    {
+      "name": "VER_022_covers_unknown",
+      "module": "Libpetri/Spec/Req/VER_022.lean",
+      "specIds": [
+        {
+          "id": "VER-022",
+          "fragment": "when the verifier accepts the closure and the graph closes within the class budget on a contract that holds, the verifier shall return Proven: a verifier that leaves every accepted closure Unknown meets every line of the block and fails its coverage Ver022Covers"
+        }
+      ]
+    },
+    {
+      "name": "VER_022_meets_plain",
+      "module": "Libpetri/Spec/Req/VER_022.lean",
+      "specIds": [
+        {
+          "id": "VER-022",
+          "fragment": "A quiescent marking **meets** the contract when every clause holds, lower bounds only while no terminal marker is marked, and every token lies on a clause place, a rest place, an environment place, a terminal marker, or an excused place of a marked terminal."
+        }
+      ]
+    },
+    {
+      "name": "VER_022_quiescent_sources",
+      "module": "Libpetri/Spec/Req/VER_022.lean",
+      "specIds": [
+        {
+          "id": "VER-022",
+          "fragment": "A run is therefore quiescent only once every required arrival has happened and every optional one has been delivered or declined."
+        }
+      ]
+    },
+    {
+      "name": "VER_023_ac11",
+      "module": "Libpetri/Spec/Req/VER_023.lean",
+      "specIds": [
+        {
+          "id": "VER-023",
+          "fragment": "On the [VER-002] AC11 witness the check is `TIMED_CONFIRMED` with the empty trace."
+        }
+      ]
+    },
+    {
+      "name": "VER_023_ac6",
+      "module": "Libpetri/Spec/Req/VER_023.lean",
+      "specIds": [
+        {
+          "id": "VER-023",
+          "fragment": "The report MUST also say what that timed claim assumes: an on-time executor with atomic firings, one that reaps no transition, fires none after its latest bound, and gives an action no duration."
+        }
+      ]
+    },
+    {
+      "name": "VER_023_keeps_timing",
+      "module": "Libpetri/Spec/Req/VER_023.lean",
+      "specIds": [
+        {
+          "id": "VER-023",
+          "fragment": "No verdict differs between the check on and off, for any net and property."
+        }
+      ]
+    },
+    {
+      "name": "VER_023_spurious_sound",
+      "module": "Libpetri/Spec/Req/VER_023.lean",
+      "specIds": [
+        {
+          "id": "VER-023",
+          "fragment": "The graph closes and no class violates: `SPURIOUS_UNDER_TIMING`. The property holds under timing."
         }
       ]
     },

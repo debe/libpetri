@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="aMute" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#44546b"/>
+    </marker>
+    <marker id="aTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="640" fill="#0b1220"/>
+  <rect x="14" y="14" width="1172" height="612" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- ===== legend ===== -->
+  <g>
+    <circle cx="178" cy="82" r="17" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+    <text x="208" y="78" font-size="18.0" font-weight="700" fill="#e8eef6">Place</text>
+    <text x="208" y="97" font-size="15.0" fill="#8295ab">a typed slot for tokens</text>
+  </g>
+  <g>
+    <rect x="500" y="66" width="32" height="32" rx="6" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+    <text x="546" y="78" font-size="18.0" font-weight="700" fill="#e8eef6">Transition</text>
+    <text x="546" y="97" font-size="15.0" fill="#8295ab">a step that moves tokens</text>
+  </g>
+  <g>
+    <circle cx="852" cy="82" r="11" fill="#38bdf8"/>
+    <text x="878" y="78" font-size="18.0" font-weight="700" fill="#e8eef6">Token</text>
+    <text x="878" y="97" font-size="15.0" fill="#8295ab">your data, flowing</text>
+  </g>
+  <line x1="70" y1="124" x2="1130" y2="124" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- ===== before firing (with leader labels) ===== -->
+  <text x="92" y="210" font-size="15.6" font-weight="700" letter-spacing="1" fill="#6f8197">BEFORE</text>
+
+  <path d="M288,250 L452,250" stroke="#44546b" stroke-width="2" fill="none" marker-end="url(#aMute)"/>
+  <path d="M548,250 L712,250" stroke="#44546b" stroke-width="2" fill="none" marker-end="url(#aMute)"/>
+
+  <circle cx="252" cy="250" r="34" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="252" cy="250" r="12" fill="#38bdf8"/>
+  <text x="252" y="305" text-anchor="middle" font-size="15.6" fill="#8295ab">READY</text>
+
+  <rect x="454" y="222" width="94" height="56" rx="9" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <text x="501" y="255" text-anchor="middle" font-size="18.6" fill="#dbe5f0">Reply</text>
+
+  <circle cx="748" cy="250" r="34" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <text x="748" y="305" text-anchor="middle" font-size="15.6" fill="#8295ab">SENT</text>
+
+  <!-- leader labels -->
+  <g stroke="#33445c" stroke-width="1" fill="none">
+    <path d="M252,216 L252,196"/>
+    <path d="M501,222 L501,196"/>
+    <path d="M370,250 L370,196"/>
+  </g>
+  <text x="252" y="186" text-anchor="middle" font-size="14.4" fill="#9fb0c4">place</text>
+  <text x="501" y="186" text-anchor="middle" font-size="14.4" fill="#9fb0c4">transition</text>
+  <text x="370" y="186" text-anchor="middle" font-size="14.4" fill="#9fb0c4">arc</text>
+  <line x1="278" y1="276" x2="300" y2="312" stroke="#33445c" stroke-width="1"/>
+  <text x="318" y="318" font-size="14.4" fill="#9fb0c4">token</text>
+
+  <!-- fires arrow -->
+  <path d="M501,300 L501,392" stroke="#2dd4bf" stroke-width="2.2" fill="none" marker-end="url(#aTeal)"/>
+  <text x="520" y="352" font-size="15.6" font-weight="600" fill="#2dd4bf">fires</text>
+
+  <!-- ===== after firing ===== -->
+  <text x="92" y="430" font-size="15.6" font-weight="700" letter-spacing="1" fill="#6f8197">AFTER</text>
+
+  <path d="M288,440 L452,440" stroke="#44546b" stroke-width="2" fill="none" marker-end="url(#aMute)"/>
+  <path d="M548,440 L712,440" stroke="#44546b" stroke-width="2" fill="none" marker-end="url(#aMute)"/>
+
+  <circle cx="252" cy="440" r="34" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <text x="252" y="495" text-anchor="middle" font-size="15.6" fill="#8295ab">READY</text>
+
+  <rect x="454" y="412" width="94" height="56" rx="9" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <text x="501" y="445" text-anchor="middle" font-size="18.6" fill="#dbe5f0">Reply</text>
+
+  <circle cx="748" cy="440" r="34" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="748" cy="440" r="12" fill="#38bdf8"/>
+  <text x="748" y="495" text-anchor="middle" font-size="15.6" fill="#8295ab">SENT</text>
+
+  <!-- caption -->
+  <text x="600" y="572" text-anchor="middle" font-size="18.0" fill="#bac8d7">A transition fires when its inputs are present. Nobody calls it.</text>
+  <text x="600" y="596" text-anchor="middle" font-size="18.0" font-weight="600" fill="#2dd4bf">The cause is the token. Causality is structural.</text>
+</svg>

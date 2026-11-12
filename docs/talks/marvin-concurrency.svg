@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="mTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+    <marker id="mMute" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#44546b"/>
+    </marker>
+    <marker id="mRed" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#f5556d"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="680" fill="#0b1220"/>
+  <rect x="14" y="14" width="1172" height="652" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- input place: one customer turn -->
+  <circle cx="118" cy="330" r="34" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="118" cy="330" r="13" fill="#38bdf8"/>
+  <text x="118" y="386" text-anchor="middle" font-size="15.6" fill="#8295ab">one turn</text>
+  <text x="118" y="290" text-anchor="middle" font-size="15.6" font-weight="600" fill="#cdd9e6">your words</text>
+
+  <!-- fan-out arcs: one turn distributes into every lane, at once -->
+  <g stroke="#44546b" stroke-width="2" fill="none">
+    <path d="M152,318 C236,250 250,168 296,150" marker-end="url(#mMute)"/>
+    <path d="M152,326 C236,300 250,272 296,268" marker-end="url(#mMute)"/>
+    <path d="M152,334 C236,360 250,376 296,386" marker-end="url(#mMute)"/>
+    <path d="M152,342 C236,418 250,496 296,504" marker-end="url(#mMute)"/>
+  </g>
+
+  <!-- concurrency bracket around all lanes -->
+  <rect x="288" y="104" width="588" height="452" rx="16" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-dasharray="6 7" opacity="0.55"/>
+  <text x="582" y="92" text-anchor="middle" font-size="15.6" font-weight="700" letter-spacing="1" fill="#2dd4bf">ALL FIRING AT ONCE</text>
+
+  <!-- 8 activity cards, 2 columns x 4 rows; each holds a live token -->
+  <!-- row 1 -->
+  <rect x="312" y="120" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="336" cy="150" r="7" fill="#2dd4bf"/>
+  <text x="452" y="156" text-anchor="middle" font-size="18.0" fill="#e8eef6">guard input</text>
+  <rect x="604" y="120" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="628" cy="150" r="7" fill="#2dd4bf"/>
+  <text x="744" y="156" text-anchor="middle" font-size="18.0" fill="#e8eef6">intent</text>
+  <!-- row 2 -->
+  <rect x="312" y="238" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="336" cy="268" r="7" fill="#2dd4bf"/>
+  <text x="452" y="274" text-anchor="middle" font-size="18.0" fill="#e8eef6">topic knowledge</text>
+  <rect x="604" y="238" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="628" cy="268" r="7" fill="#2dd4bf"/>
+  <text x="744" y="274" text-anchor="middle" font-size="18.0" fill="#e8eef6">derive facets</text>
+  <!-- row 3 -->
+  <rect x="312" y="356" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="336" cy="386" r="7" fill="#2dd4bf"/>
+  <text x="452" y="392" text-anchor="middle" font-size="18.0" fill="#e8eef6">search &#215;3</text>
+  <rect x="604" y="356" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="628" cy="386" r="7" fill="#2dd4bf"/>
+  <text x="744" y="392" text-anchor="middle" font-size="18.0" fill="#e8eef6">rank + select</text>
+  <!-- row 4 -->
+  <rect x="312" y="474" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="336" cy="504" r="7" fill="#2dd4bf"/>
+  <text x="452" y="510" text-anchor="middle" font-size="18.0" fill="#e8eef6">generate reply</text>
+  <rect x="604" y="474" width="248" height="60" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <circle cx="628" cy="504" r="7" fill="#2dd4bf"/>
+  <text x="744" y="510" text-anchor="middle" font-size="18.0" fill="#e8eef6">guard output</text>
+
+  <!-- barge-in: the customer can interrupt at any moment -->
+  <circle cx="1040" cy="180" r="30" fill="#2a1018" stroke="#f5556d" stroke-width="2"/>
+  <circle cx="1040" cy="180" r="11" fill="#f5556d"/>
+  <text x="1040" y="138" text-anchor="middle" font-size="15.6" font-weight="600" fill="#f1909c">barge-in</text>
+  <path d="M1012,200 C920,280 900,300 880,318" stroke="#f5556d" stroke-width="2.2" fill="none" stroke-dasharray="7 6" marker-end="url(#mRed)"/>
+  <text x="1010" y="372" text-anchor="middle" font-size="15.0" fill="#f1909c" transform="rotate(58 1010 372)">interrupt at any moment</text>
+
+  <!-- bottom callout -->
+  <rect x="70" y="586" width="1060" height="78" rx="14" fill="#0d1c2a" stroke="#15463f" stroke-width="1.5"/>
+  <text x="600" y="618" text-anchor="middle" font-size="18.6" font-weight="700" fill="#2dd4bf">One turn in. Eight things, at once.</text>
+  <text x="600" y="644" text-anchor="middle" font-size="16.2" fill="#bac8d7">No single "next" to read. The marking holds them all, the interrupt included.</text>
+</svg>

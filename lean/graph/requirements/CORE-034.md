@@ -25,25 +25,25 @@ flowchart TD
     n135["Libpetri.InSpec.card"]
     n136["Libpetri.InSpec.guard"]
     n138["Libpetri.InSpec.place"]
-    n2720["Libpetri.PlaceId"]
-    n13129["Libpetri.Transition"]
-    n13130["Libpetri.Transition.inhibitors"]
-    n13131["Libpetri.Transition.inputs"]
-    n13132["Libpetri.Transition.mk"]
-    n13133["Libpetri.Transition.name"]
-    n13134["Libpetri.Transition.priority"]
-    n13135["Libpetri.Transition.reads"]
-    n13136["Libpetri.Transition.resets"]
-    n13157["Libpetri.alphaFireC"]
-    n13206["Libpetri.consumeAllAt"]
-    n13207["Libpetri.consumeCount"]
-    n13220["Libpetri.consumedAt"]
-    n13259["Libpetri.enabledC"]
-    n13280["Libpetri.fireA"]
-    n13346["Libpetri.matchCount"]
-    n13376["Libpetri.post"]
-    n13381["Libpetri.pre"]
-    n13436["Libpetri.specAt"]
+    n2723["Libpetri.PlaceId"]
+    n21910["Libpetri.Transition"]
+    n21911["Libpetri.Transition.inhibitors"]
+    n21912["Libpetri.Transition.inputs"]
+    n21913["Libpetri.Transition.mk"]
+    n21914["Libpetri.Transition.name"]
+    n21915["Libpetri.Transition.priority"]
+    n21916["Libpetri.Transition.reads"]
+    n21917["Libpetri.Transition.resets"]
+    n21938["Libpetri.alphaFireC"]
+    n21987["Libpetri.consumeAllAt"]
+    n21988["Libpetri.consumeCount"]
+    n22001["Libpetri.consumedAt"]
+    n22040["Libpetri.enabledC"]
+    n22061["Libpetri.fireA"]
+    n22127["Libpetri.matchCount"]
+    n22157["Libpetri.post"]
+    n22162["Libpetri.pre"]
+    n22217["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ResetArc.lean"]
     n1150["Libpetri.Novel.ResetArc.OnlyReset"]
@@ -58,9 +58,9 @@ flowchart TD
     n1162["Libpetri.Novel.ResetArc.fireA_reset_empty"]
     n1163["Libpetri.Novel.ResetArc.reset_arc_semantics"]
   end
-  n0 --> n2720
+  n0 --> n2723
   n6 --> n21
-  n6 --> n2720
+  n6 --> n2723
   n9 --> n8
   n10 --> n8
   n11 --> n9
@@ -79,73 +79,73 @@ flowchart TD
   n136 --> n132
   n136 --> n134
   n138 --> n134
-  n138 --> n2720
+  n138 --> n2723
   n1150 --> n138
-  n1150 --> n13130
-  n1150 --> n13131
-  n1150 --> n13135
-  n1152 --> n13157
+  n1150 --> n21911
+  n1150 --> n21912
+  n1150 --> n21916
+  n1152 --> n21938
   n1153 --> n1152
   n1155 --> n6
   n1158 --> n1150
   n1158 --> n1151
-  n1158 --> n13259
+  n1158 --> n22040
   n1159 --> n1155
   n1159 --> n1158
-  n1160 --> n13132
-  n1160 --> n13133
-  n1160 --> n13134
-  n1160 --> n13259
-  n1161 --> n13280
+  n1160 --> n21913
+  n1160 --> n21914
+  n1160 --> n21915
+  n1160 --> n22040
+  n1161 --> n22061
   n1162 --> n1161
   n1163 --> n1153
   n1163 --> n1159
   n1163 --> n1160
-  n13130 --> n2720
-  n13130 --> n13129
-  n13131 --> n134
-  n13131 --> n13129
-  n13132 --> n134
-  n13132 --> n2720
-  n13132 --> n13129
-  n13133 --> n13129
-  n13134 --> n13129
-  n13135 --> n2720
-  n13135 --> n13129
-  n13136 --> n2720
-  n13136 --> n13129
-  n13157 --> n0
-  n13157 --> n13136
-  n13157 --> n13220
-  n13206 --> n11
-  n13206 --> n135
-  n13206 --> n13436
-  n13207 --> n11
-  n13207 --> n14
-  n13207 --> n135
-  n13207 --> n13346
-  n13220 --> n13207
-  n13220 --> n13436
-  n13259 --> n14
-  n13259 --> n135
-  n13259 --> n13130
-  n13259 --> n13131
-  n13259 --> n13135
-  n13259 --> n13346
-  n13280 --> n0
-  n13280 --> n13136
-  n13280 --> n13206
-  n13280 --> n13376
-  n13280 --> n13381
-  n13346 --> n6
-  n13346 --> n136
-  n13346 --> n138
-  n13376 --> n2720
-  n13381 --> n14
-  n13381 --> n135
-  n13381 --> n13436
-  n13436 --> n138
-  n13436 --> n13131
+  n21911 --> n2723
+  n21911 --> n21910
+  n21912 --> n134
+  n21912 --> n21910
+  n21913 --> n134
+  n21913 --> n2723
+  n21913 --> n21910
+  n21914 --> n21910
+  n21915 --> n21910
+  n21916 --> n2723
+  n21916 --> n21910
+  n21917 --> n2723
+  n21917 --> n21910
+  n21938 --> n0
+  n21938 --> n21917
+  n21938 --> n22001
+  n21987 --> n11
+  n21987 --> n135
+  n21987 --> n22217
+  n21988 --> n11
+  n21988 --> n14
+  n21988 --> n135
+  n21988 --> n22127
+  n22001 --> n21988
+  n22001 --> n22217
+  n22040 --> n14
+  n22040 --> n135
+  n22040 --> n21911
+  n22040 --> n21912
+  n22040 --> n21916
+  n22040 --> n22127
+  n22061 --> n0
+  n22061 --> n21917
+  n22061 --> n21987
+  n22061 --> n22157
+  n22061 --> n22162
+  n22127 --> n6
+  n22127 --> n136
+  n22127 --> n138
+  n22157 --> n2723
+  n22162 --> n14
+  n22162 --> n135
+  n22162 --> n22217
+  n22217 --> n138
+  n22217 --> n21912
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

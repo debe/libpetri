@@ -100,6 +100,18 @@ describe('coverage', () => {
     ]);
   });
 
+  it('finds the Lean proof column by its header when Kind and Lean form come first', () => {
+    const withKind = `| ID | Kind | Lean form | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |
+|----|------|-----------|---------------------------------|----------|------|------------|------|--------|
+| CORE-001 | Q | cites | — | ✓ | — | — | ✓ | — |
+| CORE-002 | B | block | \`core002_x\` — a | — | ✓ | — | — | — |
+`;
+    expect(parseCoverageMatrix(withKind)).toEqual([
+      { id: 'CORE-001', proved: false, leanRef: true, tested: { java: false, typescript: false, rust: true, python: false } },
+      { id: 'CORE-002', proved: true, leanRef: false, tested: { java: true, typescript: false, rust: false, python: false } },
+    ]);
+  });
+
   it('names proofs by their full theorem, in module order', () => {
     const map = parseProofCoverage(proofs, citations);
     expect(map.get('CORE-001')).toEqual([

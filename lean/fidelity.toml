@@ -881,12 +881,12 @@ lean = ["Libpetri/Novel/ForwardDeposit.lean"]
 [[pin]]
 file = "rust/libpetri-runtime/src/executor_core/output.rs"
 fn = "timeout_outputs"
-lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+lean = ["Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Spec/Req/CORE_011_B.lean"]
 
 [[pin]]
 file = "rust/libpetri-runtime/src/executor_core/output.rs"
 fn = "collect_timeout_outputs"
-lean = ["Libpetri/Novel/ForwardDeposit.lean"]
+lean = ["Libpetri/Novel/ForwardDeposit.lean", "Libpetri/Spec/Req/CORE_011_B.lean"]
 
 [[pin]]
 file = "rust/libpetri-verification/src/state_class_graph.rs"
@@ -1710,6 +1710,21 @@ fn = "output_many"
 lean = ["Libpetri/Spec/Req/CORE_053.lean", "Libpetri/Spec/Req/CORE_062.lean"]
 
 [[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "output"
+lean = ["Libpetri/Spec/Req/CORE_011_B.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "output_raw"
+lean = ["Libpetri/Spec/Req/CORE_011_B.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/context.rs"
+fn = "epoch_now"
+lean = ["Libpetri/Spec/Req/CORE_011_B.lean"]
+
+[[pin]]
 file = "rust/libpetri-core/src/action.rs"
 fn = "passthrough"
 lean = ["Libpetri/Spec/Req/CORE_051.lean"]
@@ -1808,3 +1823,283 @@ lean = ["Libpetri/Spec/Req/CORE_051.lean"]
 file = "rust/libpetri-py/src/model.rs"
 fn = "build"
 lean = ["Libpetri/Spec/Req/CORE_041.lean", "Libpetri/Spec/Req/CORE_051.lean"]
+
+# ---- rust/libpetri-runtime/src/executor_core/event_payload.rs ----
+# The token a Rust TokenAdded / TokenRemoved event carries is attached only when the event store
+# sets CAPTURES_TOKENS (EVT-011 and EVT-012 payload companions are scoped to the executors that
+# carry it; EVT-006's removed-token list is Java and TypeScript only).
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/event_payload.rs"
+fn = "token_added_event"
+lean = ["Libpetri/Spec/Req/EVT_011.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/event_payload.rs"
+fn = "token_removed_event"
+lean = ["Libpetri/Spec/Req/EVT_012.lean", "Libpetri/Spec/Req/EVT_006.lean"]
+
+# ---- rust/libpetri-debug/src/debug_aware_event_store.rs ----
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_aware_event_store.rs"
+fn = "DebugAwareEventStore"
+lean = ["Libpetri/Spec/Req/EVT_012.lean"]
+
+# ---- rust/libpetri-core/src/subnet_def.rs ----
+# Subnet definitions: the MOD-006 checks at build, instantiation (MOD-010) and the fromNet retrofit (MOD-014).
+
+[[pin]]
+file = "rust/libpetri-core/src/subnet_def.rs"
+fn = "build"
+lean = ["Libpetri/Spec/Req/MOD_006.lean", "Libpetri/Spec/Req/MOD_001.lean", "Libpetri/Spec/Req/MOD_003.lean", "Libpetri/Spec/Req/MOD_004.lean", "Libpetri/Spec/Req/MOD_005.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/subnet_def.rs"
+fn = "instantiate"
+lean = ["Libpetri/Reference/ComposeDef.lean", "Libpetri/Spec/Req/MOD_010.lean", "Libpetri/Spec/Req/MOD_011.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/subnet_def.rs"
+fn = "from_net"
+lean = ["Libpetri/Spec/Req/MOD_014.lean"]
+
+# ---- rust/libpetri-core/src/instance.rs ----
+# Module instances: the typed port lookup (MOD-011) and per-instance action binding (MOD-030).
+
+[[pin]]
+file = "rust/libpetri-core/src/instance.rs"
+fn = "port"
+lean = ["Libpetri/Spec/Req/MOD_011.lean", "Libpetri/Spec/Req/MOD_004.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/instance.rs"
+fn = "bind_actions"
+lean = ["Libpetri/Spec/Req/MOD_030.lean"]
+
+# ---- rust/libpetri-core/src/interface.rs ----
+# The interface keeps its ports in a hash map (MOD-004 compares ports by name).
+
+[[pin]]
+file = "rust/libpetri-core/src/interface.rs"
+fn = "Interface"
+lean = ["Libpetri/Spec/Req/MOD_001.lean", "Libpetri/Spec/Req/MOD_004.lean"]
+
+# ---- rust/libpetri-core/src/compose.rs ----
+# Compose bindings: a port or channel bound twice in one call is rejected (MOD-020, ruling D72 (i)(a)).
+
+[[pin]]
+file = "rust/libpetri-core/src/compose.rs"
+fn = "bind_port"
+lean = ["Libpetri/Spec/Req/MOD_020.lean", "Libpetri/Spec/Req/MOD_022.lean", "Libpetri/Reference/ComposeBind.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/compose.rs"
+fn = "bind_channel"
+lean = ["Libpetri/Spec/Req/MOD_020.lean", "Libpetri/Reference/ComposeBind.lean"]
+
+# ---- rust/libpetri-core/src/rewriter.rs ----
+# The rewrite passes: renaming (MOD-010), place substitution (MOD-020) and the channel merge (MOD-021).
+
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "rename_net"
+lean = ["Libpetri/Reference/ComposeDef.lean", "Libpetri/Spec/Req/MOD_010.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "substitute_places"
+lean = ["Libpetri/Reference/ComposeBind.lean", "Libpetri/Spec/Req/MOD_020.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "merge_transitions"
+lean = ["Libpetri/Reference/ComposeMerge.lean", "Libpetri/Spec/Req/MOD_021.lean", "Libpetri/Spec/Req/MOD_031.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "merge_in_pair"
+lean = ["Libpetri/Reference/ComposeMerge.lean", "Libpetri/Reference/Fuse.lean", "Libpetri/Spec/Req/MOD_021.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "merge_timings"
+lean = ["Libpetri/Reference/ComposeMerge.lean", "Libpetri/Spec/Req/MOD_021.lean"]
+
+# ---- rust/libpetri-core/src/fusion.rs ----
+# Fusion sets: the first declared member is canonical (MOD-060, MOD-061, ruling D54 (a)).
+
+[[pin]]
+file = "rust/libpetri-core/src/fusion.rs"
+fn = "FusionSet"
+lean = ["Libpetri/Reference/Fuse.lean", "Libpetri/Spec/Req/MOD_061.lean", "Libpetri/Spec/Req/MOD_026.lean"]
+
+# ---- rust/libpetri-core/src/subnet_prefixes.rs ----
+# Instance prefixes read from node names: the part before the last / (MOD-040, MOD-041).
+
+[[pin]]
+file = "rust/libpetri-core/src/subnet_prefixes.rs"
+fn = "instance_prefix_of"
+lean = ["Libpetri/Spec/Req/MOD_040.lean", "Libpetri/Spec/Req/MOD_041.lean"]
+
+# ---- rust/libpetri-debug/src/debug_session_registry.rs ----
+# Debug-session subnet descriptors grouped by instance prefix (MOD-041).
+
+[[pin]]
+file = "rust/libpetri-debug/src/debug_session_registry.rs"
+fn = "build_subnet_instances"
+lean = ["Libpetri/Spec/Req/MOD_041.lean"]
+
+# ---- rust/libpetri-docgen/src/subnet_header.rs ----
+# The doc generator reads port directions (MOD-004: direction is metadata the builders do not read).
+
+[[pin]]
+file = "rust/libpetri-docgen/src/subnet_header.rs"
+fn = "render_port_channel_badges"
+lean = ["Libpetri/Spec/Req/MOD_004.lean"]
+
+# ---- rust/libpetri-verification/src/harness.rs ----
+# The MOD-051 verification harness reads port directions (MOD-004).
+
+[[pin]]
+file = "rust/libpetri-verification/src/harness.rs"
+fn = "verify_subnet_with_options"
+lean = ["Libpetri/Spec/Req/MOD_004.lean"]
+
+# ---- rust/libpetri-core/tests/mod031_place_resolution.rs ----
+# The nested-instantiation test MOD-013 cites (doubly prefixed names resolve).
+
+[[pin]]
+file = "rust/libpetri-core/tests/mod031_place_resolution.rs"
+fn = "nested_instantiation_resolves_doubly_prefixed"
+lean = ["Libpetri/Spec/Req/MOD_013.lean"]
+
+# ---- rust/libpetri-runtime/src/executor_core/executor.rs, executor_core/scope.rs ----
+# ν-name minting (NU-010, NU-011): one counter per executor shared by every transition, names
+# `<t>#<scope>:<n>`, and the host scope check (refMintSys, refValidScope).
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "fresh_name_fn"
+lean = ["Libpetri/Reference/NuMint.lean"]
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/scope.rs"
+fn = "validate_execution_scope"
+lean = ["Libpetri/Reference/NuMint.lean"]
+
+# ---- rust/libpetri-runtime/src/nu_relay_tests.rs ----
+# The NU-054 relay-check test NU_054_check cites: an absent value has no name and the projection
+# is not called.
+
+[[pin]]
+file = "rust/libpetri-runtime/src/nu_relay_tests.rs"
+fn = "absent_value_has_no_name_and_the_projection_is_not_called"
+lean = ["Libpetri/Spec/Req/NU_054.lean"]
+
+# ---- wave W10: the verifier pipeline blocks ----
+# Pins for the Rust items the W10 blocks newly cite, each re-read against its model when added.
+
+# VER-021: the XOR branch analysis reads the taken outcome indices off the graph's edges under the
+# transition's label (refXor).
+
+[[pin]]
+file = "rust/libpetri-verification/src/analyzer.rs"
+fn = "analyze_xor_branches"
+lean = ["Libpetri/Spec/Req/VER_021.lean"]
+
+# VER-017: the state-space cache's answers (Built, Reused, Declined, Stopped) and the lookup that
+# picks them (Graph.cacheLookup, Graph.cacheQuery).
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_space_cache.rs"
+fn = "StateSpaceLookup"
+lean = ["Libpetri/Spec/Verifier/Graph.lean", "Libpetri/Spec/Req/VER_017.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_space_cache.rs"
+fn = "lookup"
+lean = ["Libpetri/Spec/Verifier/Graph.lean", "Libpetri/Spec/Req/VER_017.lean"]
+
+# VER-018: the exact re-check of an inductive inequality (refSECheckInd) and the refinement loop
+# of the state-equation phase (refSEPhase): a trap, then an inductive inequality, then a relative
+# one.
+
+[[pin]]
+file = "rust/libpetri-verification/src/invariant_synthesis.rs"
+fn = "check_inductive_exact"
+lean = ["Libpetri/Spec/Req/VER_018.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/state_equation_phase.rs"
+fn = "run_state_equation_phase"
+lean = ["Libpetri/Spec/Req/VER_018.lean"]
+
+# VER-022: the arrival transitions of the closure, the findings at a quiescent marking (clauses in
+# contract order, then stranded places), the SMT route's queries and how it reads a violation.
+
+[[pin]]
+file = "rust/libpetri-verification/src/open_net/closure.rs"
+fn = "arrival_transition"
+lean = ["Libpetri/Spec/Verifier/OpenNet.lean", "Libpetri/Spec/Req/VER_022.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/open_net/predicate.rs"
+fn = "quiescence_findings"
+lean = ["Libpetri/Spec/Verifier/OpenNet.lean", "Libpetri/Spec/Req/VER_022.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/open_net/smt_route.rs"
+fn = "decide_via_smt"
+lean = ["Libpetri/Spec/Req/VER_022.lean", "Libpetri/Spec/Req/NU_052_split.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/open_net/smt_route.rs"
+fn = "read_violation"
+lean = ["Libpetri/Spec/Req/VER_022.lean"]
+
+# NU-010 AC6: the Python script encoder raises the unknown-mint reason as a ValueError.
+
+[[pin]]
+file = "rust/libpetri-py/src/verification.rs"
+fn = "py_encode_smt_scripts"
+lean = ["Libpetri/Spec/Req/NU_010_ac6.lean"]
+
+# VER-013: the timeouts of one z3 process, the reply classification, and the total-budget clamp.
+
+[[pin]]
+file = "rust/libpetri-verification/src/z3_process.rs"
+fn = "args_for"
+lean = ["Libpetri/Spec/Req/VER_013.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/z3_process.rs"
+fn = "hard_timeout_secs"
+lean = ["Libpetri/Spec/Req/VER_013.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/z3_process.rs"
+fn = "watchdog_ms"
+lean = ["Libpetri/Spec/Req/VER_013.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/z3_process.rs"
+fn = "classify_first_line"
+lean = ["Libpetri/Spec/Req/VER_013.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/z3_process.rs"
+fn = "failure_reason"
+lean = ["Libpetri/Spec/Req/VER_013.lean"]
+
+[[pin]]
+file = "rust/libpetri-verification/src/total_budget.rs"
+fn = "clamp"
+lean = ["Libpetri/Spec/Req/VER_013.lean"]
+
+# ---- wave W11: CORE-037 dead-arc warnings at construction ----
+
+[[pin]]
+file = "rust/libpetri-runtime/src/executor_core/executor.rs"
+fn = "warn_dead_arcs"
+lean = ["Libpetri/Spec/Req/CORE_037_B.lean"]

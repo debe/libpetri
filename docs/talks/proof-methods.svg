@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="pTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="680" fill="#0b1220"/>
+  <rect x="14" y="14" width="1172" height="652" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="600" y="96" text-anchor="middle" font-size="23" font-weight="700" fill="#2dd4bf">Prove it. Before it runs.</text>
+
+  <!-- row 1: SMT / IC3 via Z3 -->
+  <rect x="90" y="186" width="320" height="92" rx="12" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="250" y="226" text-anchor="middle" font-size="22" font-weight="600" fill="#e8eef6">SMT / IC3</text>
+  <text x="250" y="252" text-anchor="middle" font-size="15.5" fill="#2dd4bf">via Z3</text>
+  <path d="M412,232 L484,232" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#pTeal)"/>
+
+  <rect x="500" y="206" width="200" height="52" rx="18" fill="#0d1c2a" stroke="#235e57" stroke-width="1.5"/>
+  <text x="600" y="238" text-anchor="middle" font-size="16" fill="#dbe5f0">deadlock freedom</text>
+  <rect x="716" y="206" width="200" height="52" rx="18" fill="#0d1c2a" stroke="#235e57" stroke-width="1.5"/>
+  <text x="816" y="238" text-anchor="middle" font-size="16" fill="#dbe5f0">mutual exclusion</text>
+  <rect x="932" y="206" width="190" height="52" rx="18" fill="#0d1c2a" stroke="#235e57" stroke-width="1.5"/>
+  <text x="1027" y="238" text-anchor="middle" font-size="16" fill="#dbe5f0">place bounds</text>
+
+  <!-- row 2: State Class Graph -->
+  <rect x="90" y="372" width="320" height="92" rx="12" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="250" y="412" text-anchor="middle" font-size="20" font-weight="600" fill="#e8eef6">State Class Graph</text>
+  <text x="250" y="438" text-anchor="middle" font-size="15.5" fill="#2dd4bf">structural, no solver</text>
+  <path d="M412,418 L484,418" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#pTeal)"/>
+
+  <rect x="500" y="392" width="622" height="52" rx="18" fill="#0d1c2a" stroke="#235e57" stroke-width="1.5"/>
+  <text x="811" y="424" text-anchor="middle" font-size="16" fill="#dbe5f0">the reachable state space is finite and bounded</text>
+
+  <!-- callout -->
+  <rect x="70" y="540" width="1060" height="104" rx="14" fill="#0d1c2a" stroke="#15463f" stroke-width="1.5"/>
+  <text x="600" y="582" text-anchor="middle" font-size="18.6" fill="#bac8d7">Two routes to the same guarantee.</text>
+  <text x="600" y="614" text-anchor="middle" font-size="18.6" font-weight="700" fill="#2dd4bf">Solver-backed or solver-free. Both finish before a token moves.</text>
+</svg>

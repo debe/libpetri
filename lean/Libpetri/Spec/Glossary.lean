@@ -260,15 +260,19 @@ named twice in one output branch
 [IO-011], more than one `Timeout` node [IO-013], an `Xor` node inside the child of the `Timeout`
 node [IO-013], a `ForwardInput` outside the child of a `Timeout` node [IO-014], a `ForwardInput`
 whose `from` is not an input place [IO-014], and two output branches that claim the same set of
-places [IO-012]. The first check that fails names the error. No executor option skips them
-[CONC-026]."
+places [IO-012], then, for a transition with a match specification, a place the match keys
+twice and a key on a place that is not an input place [NU-020], and per relay target one
+declared twice and one that is not an output place [NU-054]. The first check that fails names
+the error. No executor option skips them [CONC-026]."
 
 `WellFormedOut` is the output-spec part, `PreOutputChecks` the checks that run before it
 ([CORE-030], the [IO-002]/[IO-004] input counts, and [EXEC-012]'s input-and-read check), `Builds`
 the whole. The timing check of [TIME-001] is outside this model, because `Trans` carries no
 timing; `Reference/Load.lean` and the runtimes run it in the stated place. The spec orders [EXEC-012] after both, and orders neither of [CORE-030] and the
 count checks before the other; `refBuild` is the reference builder, which names the first failing
-check with its message, byte for byte. -/
+check with its message, byte for byte. `Trans` carries no match specification either: the match
+and relay checks of [NU-020] and [NU-054] are `NuBuilds` and `refNuBuild` (`GlossaryNu`,
+`Reference/Nu.lean`), which run them after every check here. -/
 
 /-- The input places of `t`, in declaration order. -/
 def inPlaces (t : Trans N) : List N := t.core.inputs.map (·.place)

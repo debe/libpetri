@@ -36,6 +36,8 @@ export interface MatrixRow {
   readonly tested: { readonly [R in Runtime]: boolean };
 }
 
+/** The header of the Lean proof column; the matrix also has Kind and Lean form columns before it. */
+const LEAN_PROOF = 'Lean proof (theorem + fragment)';
 const CHECK = '✓';
 const DASH = '—';
 
@@ -65,7 +67,7 @@ export function parseCoverageMatrix(text: string, file: string = COVERAGE_MATRIX
     const c = cells(line);
     if (c[0] === 'ID') {
       columns = new Map(c.map((name, k) => [name, k]));
-      for (const name of ['Lean ref', ...RUNTIMES]) {
+      for (const name of [LEAN_PROOF, 'Lean ref', ...RUNTIMES]) {
         if (!columns.has(name)) throw inputError(file, i + 1, `table header has no "${name}" column`);
       }
       continue;
@@ -74,7 +76,7 @@ export function parseCoverageMatrix(text: string, file: string = COVERAGE_MATRIX
     if (columns === null || !REQ_ID_RE.test(id)) continue;
     const col = (name: string): string | undefined => c[columns?.get(name) ?? -1];
     const where = (name: string) => (): Error => inputError(file, i + 1, `${id}: "${name}" cell is neither ${CHECK} nor ${DASH}`);
-    const proofCell = c[1] ?? DASH;
+    const proofCell = col(LEAN_PROOF) ?? DASH;
     rows.push({
       id,
       proved: proofCell !== DASH,

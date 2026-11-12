@@ -148,6 +148,7 @@ The dirty set is maintained as a bitmap: when a place changes, the executor sets
 #### CONC-006: Lock-Free Completion Signaling
 
 **Priority:** MUST
+**Kind:** Q
 
 Action completions are communicated to the orchestrator via a lock-free mechanism (lock-free queue, mpsc channel, or similar). The hot path avoids contention on shared locks.
 
@@ -206,7 +207,7 @@ The compiled net *shall* set the match presence flag of a transition exactly whe
 Enablement checking is a multi-phase process:
 1. **Phase 1 — Bitmap presence check**: O(W) bitwise check against needs-mask and inhibitor-mask. Fast reject for most transitions.
 2. **Phase 2 — Cardinality check**: For transitions with Exactly(n)/All/AtLeast(m), verify actual token counts meet thresholds.
-3. **Phase 3 — ν-match check**: For transitions carrying a match specification ([NU-020]), scan the correlated inputs for a name shared by all of them. This is the only per-token phase; there is no value-predicate phase (guards were removed, [IO-006]).
+3. **Phase 3 — ν-match check**: For transitions carrying a match specification ([NU-020]), scan the correlated inputs for a name of which every correlated input holds at least its required count of tokens of that name. This is the only per-token phase; there is no value-predicate phase (guards were removed, [IO-006]).
 
 Phases 2 and 3 are only reached if Phase 1 passes, minimizing work for most transitions.
 
@@ -218,10 +219,18 @@ Phases 2 and 3 are only reached if Phase 1 passes, minimizing work for most tran
 
 *When* a transition that builds has no match specification, its enablement check *shall* pass exactly when the transition is enabled ([CORE-022]).
 
+*When* a transition that builds has a match specification and phases 1 and 2 pass on the token counts of the marking, its ν-match check *shall* pass exactly when the match specification keys at least one place and there is a name of which every correlated input holds at least its required count of tokens of that name ([NU-020]).
+
+*When* a transition that builds has a match specification, its enablement check *shall* pass exactly when phases 1 and 2 pass on the token counts of the marking and its ν-match check passes.
+
+*When* a transition that builds has no match specification, its enablement check *shall* pass exactly when phases 1 and 2 pass on the token counts of the marking.
+
+*When* a transition that builds has a match specification, its enablement check *shall* pass exactly when the transition without its match specification is enabled on the token counts of the marking ([CORE-022]), the match specification keys at least one place and there is a name of which every correlated input holds at least its required count of tokens of that name.
+
 **Acceptance Criteria:**
 1. A transition with only One inputs and no match specification is fully checked in Phase 1.
 2. A transition with Exactly(5) input requires Phase 2 to verify token count.
-3. A transition with a match specification requires Phase 3 to scan tokens for a shared name.
+3. A transition with a match specification requires Phase 3 to scan tokens for a name of which every correlated input holds at least its required count of tokens of that name.
 
 **Test derivation:** Mix of simple and complex transitions; verify correct enablement with minimal re-evaluation.
 
@@ -232,6 +241,7 @@ Phases 2 and 3 are only reached if Phase 1 passes, minimizing work for most tran
 #### CONC-020: Precompiled Net Representation
 
 **Priority:** SHOULD
+**Kind:** Q
 
 The precompiled net extends the compiled net [CONC-007] by further compiling the net topology into flat arrays and operation sequences that eliminate virtual dispatch and hash map lookups from the hot path. The precompiled representation includes:
 - Flat arrays of length T (transition count) for per-transition data: timing, priorities, enablement masks, operation sequences
@@ -480,6 +490,7 @@ So no queued work waits for a timer or a poll, and a wait with a timing boundary
 #### CONC-011: Inline Synchronous Execution
 
 **Priority:** SHOULD
+**Kind:** Q
 
 When an action completes synchronously (returns an immediately-resolved future or signals inline execution support), the executor SHOULD avoid task pool dispatch entirely and run the action inline on the orchestrator thread. This eliminates scheduling overhead for pure-compute workflows.
 

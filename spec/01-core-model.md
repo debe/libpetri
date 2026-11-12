@@ -9,6 +9,7 @@ This document specifies the foundational model of the CTPN engine: places, token
 #### CORE-001: Place Definition
 
 **Priority:** MUST
+**Kind:** Q
 
 A place is a named, typed container that holds tokens. Each place has a string name and an associated token value type.
 
@@ -104,20 +105,32 @@ A host creates a token through a factory; a Python host passes values instead, a
 
 *When* a host creates the canonical unit token, the token *shall* hold no value and carry the timestamp 0, whatever the clocks read at the call.
 
+*When* an action writes a value to an output place, the token the executor creates for it *shall* hold that value and carry the reading of its epoch clock at the write ([TIME-015]).
+
+A Python action's `ctx.output` only buffers the value: its write is made when the action returns or calls `ctx.flush()`, and its token carries the epoch clock's reading at that point.
+
+*When* a host injects a raw value into an environment place, the token the executor creates for it *shall* hold that value and carry the reading of its epoch clock at the call ([TIME-015]).
+
+*When* the budget of a firing runs out, each token the executor mints for the timeout outcome *shall* carry the reading of its epoch clock at that moment, and each token a `ForwardInput` forwards *shall* be the consumed token itself, with its timestamp ([IO-014]).
+
+*When* an action outputs a token it built itself, or a host injects a token it built, the executor *shall* keep that token as it is, with its timestamp.
+
 **Acceptance Criteria:**
 1. Creating a token through the default factory yields a token that holds the given value and records the current reading of the host's wall clock.
 2. While the host's wall clock does not go back, two tokens created one after the other through the default factory have non-decreasing timestamps.
 3. A token created at an explicit timestamp holds the given value and carries that timestamp unchanged, also when the timestamp lies before the epoch or is finer than a millisecond and the implementation's timestamp type can hold it.
 4. The canonical unit token holds no value and carries the timestamp 0.
 5. While an executor runs on an injected clock, a token created through the default factory carries the reading of the host's wall clock, not the injected clock's.
+6. While an executor runs on an injected clock, a token it creates for an action's value write, for a raw-value injection or as a minted timeout output carries the epoch clock's reading at that moment, not the wall clock's; a forwarded token, a token the action built and a token the host built keep their timestamps.
 
-**Test derivation:** Read the host's wall clock, create a token through the default factory and read the wall clock again; verify that the token holds the given value and that its timestamp lies between the two readings. Create two tokens in sequence through the default factory; verify second timestamp >= first. Repeat the first step while an executor runs on an injected clock that reads far from the wall clock; verify that the timestamp still lies between the two wall-clock readings. Create tokens at explicit timestamps, including one before the epoch and one finer than a millisecond where the timestamp type can hold them, and the canonical unit token; verify that each token holds its value (no value for the unit token) and carries its timestamp unchanged (0 for the unit token).
+**Test derivation:** Read the host's wall clock, create a token through the default factory and read the wall clock again; verify that the token holds the given value and that its timestamp lies between the two readings. Create two tokens in sequence through the default factory; verify second timestamp >= first. Repeat the first step while an executor runs on an injected clock that reads far from the wall clock; verify that the timestamp still lies between the two wall-clock readings. Create tokens at explicit timestamps, including one before the epoch and one finer than a millisecond where the timestamp type can hold them, and the canonical unit token; verify that each token holds its value (no value for the unit token) and carries its timestamp unchanged (0 for the unit token). Run an executor on an injected clock that reads far from the wall clock: let an action write a value and output a token it built at an explicit timestamp, inject a raw value and a token built at an explicit timestamp, move the clock, and let a firing whose timeout branch mints a unit token and forwards its input time out; verify that the written value, the injected value and the minted unit token carry the injected clock's readings at their steps, and that the forwarded and the built tokens keep their timestamps.
 
 ---
 
 #### CORE-012: Unit Token
 
 **Priority:** MUST
+**Kind:** Q
 
 A unit token is a special token with no meaningful payload value, used for pure control flow signaling. The engine provides a canonical way to create unit tokens.
 
@@ -495,6 +508,18 @@ An implementation SHOULD report every dead arc, once, where the net meets its in
   ```
 
   No result field changes and no verdict depends on it.
+
+In EARS form, for an executor or the SMT verifier that reports dead arcs, with the dead-arc report and the warning text above:
+
+*Where* an executor reports dead arcs, the events that carry the warning text of an arc of the net (its dead-arc events) and that it emits before `ExecutionStarted` *shall* be, in report order, one `WARN` log-message event per entry of the dead-arc report for its net, its environment places and its initial marking, each carrying the name of the transition that declares the arc and the warning text of that arc.
+
+*Where* an executor reports dead arcs, it *shall not* emit a dead-arc event as an engine diagnostic after `ExecutionStarted`.
+
+*Where* an executor reports dead arcs, its other events and its steps *shall* be those of the same executor that does not report dead arcs, as if its dead-arc events had never been emitted.
+
+*Where* the SMT verifier reports dead arcs, the lines of a verification's report that are `WARNING: ` followed by the warning text of an arc of the net (its dead-arc lines) *shall* be, in report order, one line per entry of the dead-arc report for the net as the caller passed it, the verification's initial marking and its environment places, each `WARNING: ` followed by the warning text of that arc.
+
+*Where* the SMT verifier reports dead arcs, its report with the dead-arc lines and the blank line after them left out *shall* be the report of the same verifier that does not report dead arcs, and every other field of its result except the elapsed time *shall* be as it is in that verifier.
 
 **Acceptance Criteria:**
 1. A reset arc on a place no transition consumes from or produces into, that is not an
@@ -927,6 +952,7 @@ An empty marking *shall* hold no token in any place.
 #### CORE-071: Marking Thread Safety
 
 **Priority:** MUST
+**Kind:** A
 
 The live marking is mutated only by the orchestrator thread. It is NOT thread-safe. Transition actions must NOT directly access the marking.
 

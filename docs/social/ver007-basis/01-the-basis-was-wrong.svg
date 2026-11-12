@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="mSlate" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#8295ab"/>
+    </marker>
+    <marker id="mRed" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#f5556d"/>
+    </marker>
+    <marker id="mTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="1200" fill="#0b1220"/>
+  <rect x="16" y="16" width="1168" height="1168" rx="22" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="72" y="112" font-size="17" font-weight="600" fill="#2dd4bf" letter-spacing="2.4">LIBPETRI / VER-007</text>
+  <text x="72" y="182" font-size="52" font-weight="700" fill="#e8eef6">The laws were there. The basis was not.</text>
+  <text x="72" y="228" font-size="22" fill="#8295ab">One reset arc on a side place, and the gate takes the whole chain with it.</text>
+
+  <!-- net -->
+  <rect x="60" y="272" width="1080" height="212" rx="16" fill="#122033" stroke="#3b4a61" stroke-width="1.5"/>
+
+  <circle cx="182" cy="342" r="27" fill="#0d1c2a" stroke="#8295ab" stroke-width="2.2"/>
+  <circle cx="182" cy="342" r="6.5" fill="#e8eef6"/>
+  <text x="182" y="396" text-anchor="middle" font-size="17" fill="#bac8d7">queue</text>
+  <path d="M212,342 L292,342" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#mSlate)"/>
+
+  <rect x="302" y="311" width="14" height="62" fill="#8295ab"/>
+  <text x="309" y="296" text-anchor="middle" font-size="17" fill="#bac8d7">take</text>
+  <path d="M320,342 L400,342" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#mSlate)"/>
+
+  <circle cx="437" cy="342" r="27" fill="#0d1c2a" stroke="#8295ab" stroke-width="2.2"/>
+  <circle cx="437" cy="342" r="6.5" fill="#e8eef6"/>
+  <text x="437" y="396" text-anchor="middle" font-size="17" fill="#bac8d7">work</text>
+  <path d="M467,342 L547,342" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#mSlate)"/>
+
+  <rect x="557" y="311" width="14" height="62" fill="#8295ab"/>
+  <text x="564" y="296" text-anchor="middle" font-size="17" fill="#bac8d7">finish</text>
+  <path d="M575,342 L655,342" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#mSlate)"/>
+
+  <circle cx="692" cy="342" r="27" fill="#0d1c2a" stroke="#8295ab" stroke-width="2.2"/>
+  <text x="692" y="396" text-anchor="middle" font-size="17" fill="#bac8d7">done</text>
+
+  <path d="M564,375 L564,416" stroke="#f5556d" stroke-width="2.2" fill="none" marker-end="url(#mRed)"/>
+  <path d="M551,387 L577,387" stroke="#f5556d" stroke-width="2.2" fill="none"/>
+  <circle cx="564" cy="446" r="22" fill="#2a1018" stroke="#f5556d" stroke-width="2.2"/>
+  <text x="600" y="443" font-size="17" fill="#f5556d">scratch</text>
+  <text x="600" y="465" font-size="15" fill="#8295ab" font-style="italic">cleared by a reset arc</text>
+
+  <text x="800" y="326" font-size="19" fill="#c7d4e2">A law may not carry weight on a place</text>
+  <text x="800" y="354" font-size="19" fill="#c7d4e2">a transition drains with all(), atLeast(n)</text>
+  <text x="800" y="382" font-size="19" fill="#c7d4e2">or a reset arc. The encoder's step</text>
+  <text x="800" y="410" font-size="19" fill="#c7d4e2">relation is not linear there.</text>
+  <text x="800" y="446" font-size="17" font-weight="700" fill="#2dd4bf">That check is right, and it stays.</text>
+
+  <!-- row A -->
+  <rect x="60" y="504" width="1080" height="158" rx="16" fill="#2a1018" stroke="#5c2233" stroke-width="1.5"/>
+  <text x="96" y="548" font-size="17" font-weight="700" fill="#f5556d" letter-spacing="1.8">WHAT GAUSSIAN ELIMINATION HANDED US</text>
+  <text x="96" y="600" font-size="31" font-weight="700" fill="#e8eef6" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">queue + work + done + scratch = 4</text>
+  <text x="96" y="636" font-size="18" fill="#c7d4e2">A perfectly good conservation law, written in terms of a place that gets cleared.</text>
+  <text x="1104" y="592" text-anchor="end" font-size="27" font-weight="700" fill="#f5556d">DROPPED</text>
+  <text x="1104" y="622" text-anchor="end" font-size="17" fill="#8295ab">and so is every other row of that chain</text>
+
+  <!-- row B -->
+  <rect x="60" y="686" width="1080" height="158" rx="16" fill="#10262a" stroke="#2dd4bf" stroke-width="1.8"/>
+  <text x="96" y="730" font-size="17" font-weight="700" fill="#2dd4bf" letter-spacing="1.8">WHAT THE MINIMAL P-SEMIFLOW GIVES YOU</text>
+  <text x="96" y="782" font-size="31" font-weight="700" fill="#e8eef6" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">queue + work + done = 3</text>
+  <text x="96" y="818" font-size="18" fill="#c7d4e2">The same chain, expressed without the drained place. Elimination had folded it away.</text>
+  <text x="1104" y="774" text-anchor="end" font-size="27" font-weight="700" fill="#2dd4bf">ENCODED</text>
+  <text x="1104" y="804" text-anchor="end" font-size="17" fill="#8295ab">after passing the identical gate</text>
+
+  <line x1="60" y1="898" x2="1140" y2="898" stroke="#1b2840" stroke-width="1.5"/>
+  <text x="72" y="972" font-size="42" font-weight="700" fill="#e8eef6">The fix was not a weaker gate.</text>
+  <text x="72" y="1026" font-size="42" font-weight="700" fill="#2dd4bf">It was a better basis.</text>
+  <text x="72" y="1084" font-size="20" fill="#8295ab">Both rows sit in the same null space. Only one of them survives a check that is doing its job.</text>
+  <text x="72" y="1146" font-size="17" fill="#5b6e88">libpetri, Apache 2.0 / Java, TypeScript, Rust, Python</text>
+</svg>

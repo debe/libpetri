@@ -1,5 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Novel.SiphonSearch
+import Libpetri.Reference.Nu
+import Libpetri.Novel.EnvSemantics.Arrivals
 
 set_option linter.missingDocs true
 
@@ -35,9 +37,18 @@ What a search node is, and how the search spends the budget it is given, is not 
 statement fixes the number the check passes (10 000) and that a search on the AC4 witnesses
 returns at it, not the node count of the reference.
 
-Which nets the verifier hands to the check, and when it turns the answer into a `Proven` (the
-property, the match, reapable, arc-kind, sink and environment-place guards), is the verifier
-pipeline's line of wave W10 (RefVerifier, ruling D93), not a line here.
+When the verifier turns the check's answer into a `Proven` is the second block,
+`VER_020_guard` (kind B, ruling D93): a predicate over the structural route `R`, which reads the
+property, whether the net has a match transition, whether a transition is reapable and
+`assumeNoReaping`, the flat net, the declared sinks and conditional sinks and the environment
+places registered on the net it receives (the `Arrivals` rewrite of [VER-006] leaves none). Its
+witness is `refStructRoute`; it is checked against a route that ignores the check's answer and
+one route per dropped guard conjunct. `VER_020_guard_sound` composes both blocks: a structural
+`Proven` on a net whose inputs lie below `n` rules out every reachable dead marking of the flat
+net. `VER_020_guard_match` shows why the match conjunct guards soundness: on a ν-join net whose
+flat net the check passes, the ν net is stuck at its initial marking. `VER_020_guard_arrivals`
+shows what the rewrite leaves the route on the reference closure of [VER-006]: the net itself
+under `Arrivals(0)`, and under `Arrivals(1, 1)` a source place that the check does not pass.
 -/
 
 namespace Libpetri.Spec
@@ -105,12 +116,12 @@ requirement VER_020
           "Line 4 is the fourth to seventh quoted sentences, with the limits of ruling D45 as numbers in the formula: the 50-place cut and the 10 000-node budget, which the three runtimes share (structural_check.rs, structural-check.ts and StructuralCheck.java). 'No transition' is the flat net being empty, the guard flat.transitions.is_empty() of structural_check.rs: outcomes() gives every transition at least one outcome (branch_outcomes.rs), so the flat net is empty exactly when the net has no transition. The fifth quoted sentence fixes the number the check passes to the search and nothing more. What a search node is (in the reference one call of grow_siphon, counted by the Rust's node counter) and how the search spends the budget it is given are the search's own and are not stated: a search that returns a correct list past its budget, or gives up before it, conforms to lines 1, 2 and 4, and only lines 5 and 6 bound it. VER_020_forbids_budget therefore kills a check that passes a smaller number to the reference search, not a search that spends its budget differently. 'Deciding the condition is co-NP-complete, so the search MAY run under a budget; past it the result is inconclusive, never a proof.' is the sixth quoted sentence: a search that does not return, for its budget or for the stop, makes the check answer inconclusive. Java and TypeScript answer no potential deadlock at once on a net with transitions and no place; the reference search returns no siphon there, so line 4 gives the same answer."
           "Line 5 is the eighth quoted sentence and the first sentence of AC4. The stop oracle that never fires is a total budget of VER-013 that is not spent. The two witnesses are netRing (t1: g + x to y + g, t2: h + y to x + h, places g h x y numbered 0 to 3) and netPad (t1: a + c to b + c, t2: b to a, places a b c numbered 0 to 2). With lines 1 and 2, a search that returns there finds {x, y} on the ring and {a, b} on netPad, as sets of places (VER_020_finds_ac4, from the statement alone). Other nets are not named. A search that never returns is killed by this line (VER_020_forbids_neverReturns)."
           "Line 6 is the ninth quoted sentence. A total budget that is spent before the search starts is a stop oracle that fires at every poll; the stop oracle is indexed by the search's node counter (premise P5 of Novel/SiphonSearch.lean), and when it fires at every poll the counter does not matter. A net with no place gives the search no start place, so the line asks nothing of it. That the reference also gives up when the stop fires later, after some nodes, is shown on the reference only (VER_020_nonvacuous); the statement does not say how often a search polls the stop. A search that does not read the stop oracle is killed by this line (VER_020_forbids_ignoresStop)."
-          "The 'Commoner's theorem governs ORDINARY nets only' paragraph, its MUST sentence and AC3 are about when the verifier turns the check's answer into a Proven, which the check does not decide: it reads the pre and post vectors only and is called behind the guard. The guard sentence 'The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only when it decides `DeadlockFree` on a net with no match transition ([NU-020]), no reapable transition ([VER-002]) unless `assumeNoReaping` is set, no read, inhibitor or reset arc, no consume-all input, no arc weight above one, no declared sink or conditional sink and no registered environment place.' is the RefVerifier pipeline's B line of wave W10 (ruling D93), with a nu-join mutant net for the match guard. Here the ordinary premise is a premise of VER_020_commoner, and Commoner.ordinary_is_necessary shows it cannot be dropped. That the three witnesses of the paragraph return a verdict from a route that models what disables them is the other routes' (VER-017, VER-018 and the fixpoint query), reached through the guard."
+          "The 'Commoner's theorem governs ORDINARY nets only' paragraph, its MUST sentence and AC3 are about when the verifier turns the check's answer into a Proven, which the check does not decide: it reads the pre and post vectors only and is called behind the guard. The guard sentence after the paragraph 'A match transition hides a dead marking from the flat net' is the second block, VER_020_guard (ruling D93), with the ν-join net of VER_020_guard_match for the match conjunct. Here the ordinary premise is a premise of VER_020_commoner, and Commoner.ordinary_is_necessary shows it cannot be dropped. That the three witnesses of the paragraph return a verdict from a route that models what disables them is the other routes' (VER-017, VER-018 and the fixpoint query), reached through the guard."
           "The 'Commoner's theorem needs at least one transition' paragraph is the empty-net guard of line 4: on a net with no transition the check answers inconclusive (VER_020_nonvacuous on the one-place witness), and a check without the guard is killed (VER_020_forbids_unguarded, the retrodiction SiphonSearch.empty_net_structural_proven_dead). That the one-place witness is Violated is the enumeration route's verdict (VER-017), not the check's."
           "The 'A structural proof needs every minimal siphon' paragraph is lines 1, 2 and 4: every minimal siphon is returned, and each one's maximal trap must hold a token in the initial marking, so an empty or unmarked trap gives potential deadlock. 'Growing a siphon by committing to one input of each producer (the first, or all of them) is incomplete' is killed by VER_020_forbids_padding (the pre-fix Rust search, SiphonSearch.pre_fix_padding_proves_dead_net); a test of a nonempty but unmarked trap is killed by VER_020_forbids_nonemptyTrap (SiphonSearch.pre_fix_unmarked_trap_proves_dead_net)."
           "AC1 (siphons and traps are identified from the net structure) is lines 1 to 3."
-          "AC2 (every siphon containing an initially marked trap ensures deadlock-freedom of an ordinary net) is VER_020_commoner, proved from the statement and Commoner.commoner: on an ordinary net whose input arcs lie on places below n, a no-potential-deadlock answer means no marking reachable under the untimed relation ReachA is dead. 'Liveness only for free-choice nets' is a remark about the theory with no behaviour of the check; it is not stated. The answer is about the untimed net; that it holds for timed runs too when no transition is reapable is SiphonSearch.structural_proven_sound_timed, behind the reapable guard of W10."
-          "AC3 (a structural Proven only for DeadlockFree on a net with no match transition, no reapable transition unless assumeNoReaping is set, no read, inhibitor or reset arc, no consume-all input, no arc weight above one, no declared sink or conditional sink and no registered environment place; the three witnesses decided by another route; never for a net with no transition) is the guard line of W10, as above, except its last clause: on a net with no transition the check answers inconclusive (line 4, VER_020_nonvacuous), so no Proven can come from it."
+          "AC2 (every siphon containing an initially marked trap ensures deadlock-freedom of an ordinary net) is VER_020_commoner, proved from the statement and Commoner.commoner: on an ordinary net whose input arcs lie on places below n, a no-potential-deadlock answer means no marking reachable under the untimed relation ReachA is dead. 'Liveness only for free-choice nets' is a remark about the theory with no behaviour of the check; it is not stated. The answer is about the untimed net; that it holds for timed runs too when no transition is reapable is SiphonSearch.structural_proven_sound_timed, behind the reapable conjunct of VER_020_guard."
+          "AC3 (a structural Proven only for DeadlockFree on a net with no match transition, no reapable transition unless assumeNoReaping is set, no read, inhibitor or reset arc, no consume-all input, no input arc weight above one, no declared sink or conditional sink and no environment place registered on the net the verifier decides; the three witnesses decided by another route; never for a net with no transition) is VER_020_guard, as above, except its last clause: on a net with no transition the check answers inconclusive (line 4, VER_020_nonvacuous), so no Proven can come from it."
           "AC4 (the search is complete: it finds {x, y} and {a, b} in the two witnesses and neither net is proven structurally; an unmarked maximal trap blocks a structural proof; a net with more than 50 places or an exhausted search budget is inconclusive) is, for every conforming triple: line 5 with lines 1 and 2 for 'finds {x, y} and {a, b}' (VER_020_finds_ac4); lines 1, 2 and 4 for 'neither net is proven structurally' and 'an unmarked maximal trap blocks a structural proof', since a returned list holds every minimal siphon and a check answers no potential deadlock only when each one's maximal trap is marked; line 4 for the 50-place cut (VER_020_forbids_noPlaceCut) and for a search that does not return. That a search gives up past its budget is the reference's, as line 4 says above: VER_020_nonvacuous shows on the reference that the search at a budget of 1 node gives up on the ring, that the check answers potential deadlock on both witnesses from the stated markings and on the ring a to b and back from the empty marking, and that a stopped search gives inconclusive. A check that passes a smaller budget is killed (VER_020_forbids_budget)."
           "The test derivation (a net with known siphon and trap structure, the identification verified) is AC1 and AC4, as above."
   signoff "pending"
@@ -234,8 +245,8 @@ transition that outputs into `p` consumes from `q` and nothing else of `{p, q}`,
 way round, holds both `p` and `q`. -/
 theorem ver020_pair_closed {net : FlatNet} {p q : PlaceId} {K : List PlaceId}
     (hne : ∃ r, r ∈ K) (hKS : ∀ r ∈ K, r = p ∨ r = q) (hK : Siphon net (· ∈ K))
-    (hp : ∀ r, r ∈ K → (∃ ft ∈ net, ft.2.contains p = true ∧ ∀ s, Consumes ft.1 s → s ∈ K → s = q))
-    (hq : ∀ r, r ∈ K → (∃ ft ∈ net, ft.2.contains q = true ∧ ∀ s, Consumes ft.1 s → s ∈ K → s = p)) :
+    (hp : ∀ r, r ∈ K → (∃ ft ∈ net, ft.2.contains p = true ∧ ∀ s, Commoner.Consumes ft.1 s → s ∈ K → s = q))
+    (hq : ∀ r, r ∈ K → (∃ ft ∈ net, ft.2.contains q = true ∧ ∀ s, Commoner.Consumes ft.1 s → s ∈ K → s = p)) :
     p ∈ K ∧ q ∈ K := by
   obtain ⟨r, hr⟩ := hne
   have toq : p ∈ K → q ∈ K := fun hpK => by
@@ -537,5 +548,461 @@ theorem VER_020_forbids_ignoresStop :
   have := h.2.2.2.2.2 ver020_netLoop 1 10000 (by decide)
   revert this
   decide
+
+/-! ## VER-020 (B): when the structural answer becomes a `Proven` -/
+
+/-- **What the structural route reads** of the net it receives: whether the property is
+`DeadlockFree`, whether the net declares a match (ν-join) transition ([NU-020]), whether a
+transition is reapable ([VER-002]) and whether `assumeNoReaping` is set, the flat net with its
+place count, the declared sinks and conditional sinks, and the environment places registered on
+the net it receives. The route runs after the `Arrivals` rewrite of [VER-006], which closes the
+net and clears the registration, so under `Arrivals` the list is empty; under `AlwaysAvailable`,
+`Bounded` and `Ignore` no rewrite runs and it holds the environment places the caller
+registered. -/
+structure StructInput (K : Type) where
+  /-- Whether the property is `DeadlockFree`. -/
+  deadlockFree : Bool
+  /-- Whether the net declares a match (ν-join) transition ([NU-020]). -/
+  hasMatch : Bool
+  /-- Whether some transition is reapable ([VER-002]). -/
+  reapable : Bool
+  /-- Whether `assumeNoReaping` is set. -/
+  assumeNoReaping : Bool
+  /-- The flat net the check reads. -/
+  flat : FlatNet
+  /-- The flat net's place count. -/
+  n : Nat
+  /-- The declared sinks. -/
+  sinks : List K
+  /-- The markers of the declared conditional sinks. -/
+  condSinks : List K
+  /-- The environment places registered on the net the route receives: none after the
+  `Arrivals` rewrite. -/
+  envPlaces : List K
+
+/-- **The structural route**: from the structural check, what the route reads of the net, the
+stop oracle and the initial marking, whether the verifier answers `Proven` from the check. -/
+abbrev StructRouteFn (K : Type) : Type :=
+  Ver020Check → StructInput K → (Nat → Bool) → AMarking → Bool
+
+/-- The arc test of the structural guard (`commoner_applies`, `smt_verifier.rs`): no read,
+inhibitor or reset arc, and every input arc neither consume-all nor of weight above one. -/
+def commonerApplies (net : FlatNet) : Bool :=
+  net.all fun ft => ft.1.inhibitors.isEmpty && ft.1.reads.isEmpty && ft.1.resets.isEmpty &&
+    ft.1.inputs.all fun s => !s.card.consumesAll && decide (s.card.required ≤ 1)
+
+/-- The arc test is exactly `Commoner.Ordinary`, the premise of Commoner's theorem. -/
+theorem commonerApplies_iff (net : FlatNet) : commonerApplies net = true ↔ Ordinary net := by
+  simp [commonerApplies, Ordinary, List.all_eq_true, and_assoc]
+
+/-- **The reference guard** (`structural_candidate`, `smt_verifier.rs`; `SmtVerifier.java` and
+`smt-verifier.ts` compute the same conjunction): `DeadlockFree`, no match transition, no reapable
+transition unless `assumeNoReaping`, the arc test, no sink, no conditional sink, no environment
+place registered on the net it receives. -/
+def refStructGate {K : Type} (x : StructInput K) : Bool :=
+  x.deadlockFree && !x.hasMatch && (!x.reapable || x.assumeNoReaping) &&
+    commonerApplies x.flat && x.sinks.isEmpty && x.condSinks.isEmpty && x.envPlaces.isEmpty
+
+/-- **The reference route**: `Proven` exactly when the guard passes and the check answers no
+potential deadlock. -/
+def refStructRoute {K : Type} : StructRouteFn K := fun C x stop a0 =>
+  refStructGate x && decide (C x.flat x.n stop a0 = .noPotentialDeadlock)
+
+#spec_witness refStructRoute
+
+requirement VER_020_guard
+  id "VER-020"
+  title "Siphon and Trap Analysis: Structural Proven Guard"
+  kind B
+  scope "the verifier's structural route (the step that turns the structural check's answer into a Proven) of every implementation"
+  source verbatim "spec/07-verification.md"
+  quote "The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only when it decides `DeadlockFree` on a net with no match transition ([NU-020]), no reapable transition ([VER-002]) unless `assumeNoReaping` is set, no read, inhibitor or reset arc, no consume-all input, no input arc weight above one, no declared sink or conditional sink and no environment place registered on the net it decides (the `Arrivals` rewrite of [VER-006] leaves none)."
+  reading "For every structural check C, input x, stop oracle stop and initial marking a0: when R answers Proven, C answers no potential deadlock on the flat net of x with its place count, stop and a0; the property is DeadlockFree; x has no match transition; no transition is reapable or assumeNoReaping is set; the flat net is ordinary (no inhibitor, read or reset arc, every input arc neither consume-all nor of weight above one); and the declared sinks, the conditional sinks and the environment places registered on the net the route receives are all empty."
+  assumes "The model is a route R : StructRouteFn over StructInput, what the route reads of the net it receives: the property as the flag deadlockFree, the flags hasMatch, reapable and assumeNoReaping, the flat net with its place count (Soundness.FlatNet, as in VER_020), the declared sinks, the markers of the declared conditional sinks, and the environment places registered on the net it receives. The witness is refStructRoute: refStructGate (structural_candidate in smt_verifier.rs, the same conjunction in SmtVerifier.java and smt-verifier.ts) and the check's answer. R takes the check C as an argument and the line holds for every C, so the line does not depend on the check being the one of VER_020; VER_020_guard_sound composes the two blocks."
+          "'Registered on the net it decides (the Arrivals rewrite of VER-006 leaves none)' is the W1 review note W1-SK-7: under Arrivals and ArrivalsBetween all three verifiers close the net and clear the environment places before any route (with_arrivals in smt_verifier.rs, applyArrivals in SmtVerifier.java and smt-verifier.ts), Arrivals(0) included; under AlwaysAvailable, Bounded and Ignore no rewrite runs, the registered places stay and the route does not run. The field envPlaces is the list on the net the route receives, and the formula is the one the older wording 'no registered environment place' gives; the parenthesis names which net that is. That the rewrite clears the list is VER-006's (VER_006_arrivals assumes, kind N there): the closure of Novel/EnvSemantics returns rows and a marking, no registration. What the rewrite leaves the route is VER_020_guard_arrivals, on the reference closure of VER-006: under Arrivals(0) nothing is added and the route proves t: a → a; once an arrival is injected the closure adds a source place that no transition refills, so the source is a siphon with no trap inside it and the check answers potential deadlock (shown under Arrivals(1, 1); the optional source of Arrivals(k) with k ≥ 1 is the same kind of siphon). So the structural route proves a net whose places were registered only under Arrivals(0); a closed net with a source goes to the other routes. A route that reads the places before the rewrite only refuses more and breaks no line; that the route does prove on the net it receives is the offer in Ver020GuardCovers, which such a route fails."
+          "'No input arc weight above one' reads the pre vector, as commoner_applies does in all three runtimes (pre[p] ≤ 1); an output weight above one is not refused, and Commoner's argument does not need it refused: a dead marking's empty places form a siphon whatever the outputs deposit, and a trap stays marked whatever they deposit. The model takes one input arc per place (InputsDistinctPlaces of Soundness.lean), which CORE-030 AC3 makes true of every net the verifier sees: building a transition with two input arcs on one place fails (TransitionBuilder::build in transition.rs, the same check in Java and TypeScript), so the summed pre[p] of the flattener is the arc's required count. The per-arc reading would not be enough without it: t: one(a) one(a) → a from {a:1} passes a per-arc test and is dead at once. commonerApplies_iff shows the arc test is Commoner.Ordinary. 'Read, inhibitor or reset arc' and 'consume-all input' are the other conjuncts of Ordinary. The read arc of the flat net is ft.1.reads."
+          "The line is the safety half ('only when'). That the route does prove when every conjunct holds and the check answers no potential deadlock is an offer, so it is the coverage clause Ver020GuardCovers with its reference proof refStructRoute_covers, for the consistency theorem (convention of GlossaryExec), not a line. That a structural Proven is reported with the method structural and the route Structural, and that the report says why the route did not run, are kind Q."
+          "The paragraph 'A match transition hides a dead marking from the flat net' is the reason for the match conjunct: VER_020_guard_match shows a ν-join net whose flat net passes the check, so no marking reachable in the flat net is dead, while the ν net, with different names on the two joined places, is stuck at its initial marking. VER_020_guard_forbids_noMatch kills the route without the match conjunct on that net. Its last sentence (the route does not decide a net with a reapable transition unless assumeNoReaping is set) is the reapable conjunct, killed by VER_020_guard_forbids_noReap; the timed reading behind it is SiphonSearch.structural_proven_sound_timed."
+          "The 'Commoner's theorem governs ORDINARY nets only' paragraph: its list of disablements the fixpoints do not see ('a read arc, an inhibitor arc, a reset arc, a consume-all input or an input arc weight above one') is Ordinary, and its MUST sentence ('MUST therefore refuse to do so for any net carrying one of them, exactly as it already refuses when sinks are declared or environment places are registered on the net it decides') is the Ordinary, sink and environment conjuncts. Its three witnesses each pass the check and fail the arc test, so the reference route does not prove them (VER_020_guard_nonvacuous); a route without the arc test is killed on the exactly(2) witness (VER_020_guard_forbids_noOrdinary)."
+          "AC3 (a structural Proven only for DeadlockFree on a net with no match transition, no reapable transition unless assumeNoReaping, no read, inhibitor or reset arc, no consume-all input, no input arc weight above one, no declared sink or conditional sink and no environment place registered on the net the verifier decides; each of the three witnesses decided by another route; never for a net with no transition) is the line, conjunct by conjunct, with one forbids theorem per conjunct and one for a route that ignores the check's answer (VER_020_guard_forbids_ignoresCheck). 'Decided by another route' and that the one-place witness is Violated are the other routes' (VER-017, the fixpoint query), not this line's. 'Never for a net with no transition' is the empty-net guard of VER_020 line 4: the check answers inconclusive there, and the line asks for a no-potential-deadlock answer. AC1, AC2 and AC4 are VER_020's."
+  signoff "pending"
+  statement : ∀ {K : Type}, StructRouteFn K → Prop :=
+    fun R => ∀ (C : Ver020Check) (x : StructInput _) (stop : Nat → Bool) (a0 : AMarking),
+      R C x stop a0 = true →
+        C x.flat x.n stop a0 = .noPotentialDeadlock ∧ x.deadlockFree = true ∧
+        x.hasMatch = false ∧ (x.reapable = false ∨ x.assumeNoReaping = true) ∧
+        Ordinary x.flat ∧ x.sinks = [] ∧ x.condSinks = [] ∧ x.envPlaces = []
+
+/- The pinned readable form of VER-020's guard block. -/
+/--
+info: def Libpetri.Spec.VER_020_guard : {K : Type} → StructRouteFn K → Prop :=
+fun {K} R =>
+  ∀ (C : Ver020Check) (x : StructInput K) (stop : ℕ → Bool) (a0 : AMarking),
+    R C x stop a0 = true →
+      C x.flat x.n stop a0 = Verdict.noPotentialDeadlock ∧
+        x.deadlockFree = true ∧
+          x.hasMatch = false ∧
+            (x.reapable = false ∨ x.assumeNoReaping = true) ∧
+              Ordinary x.flat ∧ x.sinks = [] ∧ x.condSinks = [] ∧ x.envPlaces = []
+-/
+#guard_msgs in #print VER_020_guard
+
+/-! ### The reference -/
+
+/-- The reference route meets the guard: it answers `Proven` only when its guard passes, and
+each conjunct of the guard is a conjunct of the line (`commonerApplies_iff` for the arc test). -/
+@[evidence holds VER_020_guard]
+theorem VER_020_guard_reference {K : Type} : VER_020_guard (refStructRoute (K := K)) := by
+  intro C x stop a0 h
+  simp only [refStructRoute, refStructGate, Bool.and_eq_true, Bool.not_eq_true',
+    Bool.or_eq_true, decide_eq_true_eq, List.isEmpty_iff] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨hd, hm⟩, hr⟩, ho⟩, hs⟩, hc⟩, he⟩, hC⟩ := h
+  exact ⟨hC, hd, hm, hr.imp id id, (commonerApplies_iff _).1 ho, hs, hc, he⟩
+
+/-- **The offer** (coverage, not a line): the route answers `Proven` whenever every conjunct of
+the guard holds and the check answers no potential deadlock, the environment places read on the
+net the route receives. Under `Arrivals(0)` that is the net itself with its registration
+cleared, so the route proves it when the check passes. Once an arrival is injected the closed
+net has a source place no transition refills; it is a siphon with no trap inside it, so the
+check does not pass and the offer asks nothing (`VER_020_guard_arrivals`). -/
+def Ver020GuardCovers {K : Type} (R : StructRouteFn K) : Prop :=
+  ∀ (C : Ver020Check) (x : StructInput K) (stop : Nat → Bool) (a0 : AMarking),
+    C x.flat x.n stop a0 = .noPotentialDeadlock → x.deadlockFree = true → x.hasMatch = false →
+    (x.reapable = false ∨ x.assumeNoReaping = true) → Ordinary x.flat → x.sinks = [] →
+    x.condSinks = [] → x.envPlaces = [] → R C x stop a0 = true
+
+/-- The reference route makes the offer. -/
+theorem refStructRoute_covers {K : Type} : Ver020GuardCovers (refStructRoute (K := K)) := by
+  intro C x stop a0 hC hd hm hr ho hs hc he
+  have ho' := (commonerApplies_iff _).2 ho
+  simp only [refStructRoute, refStructGate, hd, hm, ho', hs, hc, he, hC, List.isEmpty_nil,
+    Bool.not_false, Bool.true_and, Bool.and_true, decide_true]
+  rcases hr with hr | hr <;> simp [hr]
+
+/-- **A structural `Proven` rules out every reachable dead marking of the flat net**, from the
+two blocks alone: when the route answers `Proven` with a check that meets VER-020, on a net whose
+input arcs lie below `n`, no marking reachable under the untimed relation `ReachA` is dead. The
+guard gives the ordinary premise and the no-potential-deadlock answer; `VER_020_commoner` does
+the rest. -/
+@[evidence cites "VER-020" "AC2 and AC3: a structural Proven, given only behind the guard, rules out every dead marking reachable in the flat net"]
+theorem VER_020_guard_sound {K : Type} {F : Ver020Search} {T : Ver020Trap} {C : Ver020Check}
+    {R : StructRouteFn K} (hc : VER_020 F T C) (hg : VER_020_guard R) {x : StructInput K}
+    {stop : Nat → Bool} {a0 : AMarking} (hbelow : InputsBelow x.flat x.n)
+    (hR : R C x stop a0 = true) {a : AMarking} (hr : ReachA x.flat a0 a) : ¬ Dead x.flat a :=
+  have h := hg C x stop a0 hR
+  VER_020_commoner hc h.2.2.2.2.1 hbelow h.1 hr
+
+/-! ### The ν-join net: why the match conjunct guards soundness -/
+
+/-- The flat join `a + b → c` (places `a b c` = `0 1 2`). -/
+def ver020_tJoin : Transition :=
+  { name := "join", inputs := [⟨0, .one, none⟩, ⟨1, .one, none⟩], inhibitors := [], reads := [],
+    resets := [] }
+
+/-- The flat fork `c → a + b`. -/
+def ver020_tFork : Transition :=
+  { name := "fork", inputs := [⟨2, .one, none⟩], inhibitors := [], reads := [], resets := [] }
+
+/-- The flat net of the ν-join net: the join and the fork, names dropped. -/
+def ver020_netJoin : FlatNet := [(ver020_tJoin, [2]), (ver020_tFork, [0, 1])]
+
+/-- One token on `a` and one on `b`. -/
+def ver020_a0Join : AMarking := fun p => if p = 0 ∨ p = 1 then 1 else 0
+
+/-- The key of the ν join: a token's name is its value. -/
+def ver020_nuKey : KeyFn Nat Nat := some
+
+/-- The match of the ν join: places `a` and `b` joined by name. -/
+def ver020_nuMs : MatchSpec Nat (KeyFn Nat Nat) := { keys := [(0, ver020_nuKey), (1, ver020_nuKey)] }
+
+/-- The ν join `a + b → c`, matched on `a` and `b`. -/
+def ver020_nuJoin : NuTrans Nat (KeyFn Nat Nat) :=
+  { base := { core := { name := "join", inputs := [⟨0, .one⟩, ⟨1, .one⟩], inhibitors := [],
+                        reads := [], resets := [] }, out := some (.place 2) }
+    mspec := some ver020_nuMs }
+
+/-- The fork `c → a + b`, no match. -/
+def ver020_nuFork : NuTrans Nat (KeyFn Nat Nat) :=
+  { base := { core := { name := "fork", inputs := [⟨2, .one⟩], inhibitors := [], reads := [],
+                        resets := [] }, out := some (.and (.place 0) (.place 1)) } }
+
+/-- The ν-join net: the matched join and the fork. -/
+def ver020_nuNet : List (NuTrans Nat (KeyFn Nat Nat)) := [ver020_nuJoin, ver020_nuFork]
+
+/-- Its initial marking: a token of name 1 on `a`, a token of name 2 on `b`. -/
+def ver020_nuM0 : Reference.QMarking Nat (Stamped Nat) := fun p =>
+  if p = 0 then [⟨1, 0⟩] else if p = 1 then [⟨2, 0⟩] else []
+
+/-- The ν net's initial counts are the flat net's initial marking. -/
+theorem ver020_nuM0_count (p : Nat) : Reference.qCount ver020_nuM0 p = ver020_a0Join p := by
+  unfold Reference.qCount ver020_nuM0 ver020_a0Join
+  by_cases h0 : p = 0
+  · simp [h0]
+  · by_cases h1 : p = 1 <;> simp [h0, h1]
+
+/-- **The flat net hides the ν net's dead marking.** Example: a join of `a` and `b` into `c`,
+and a fork of `c` back into `a` and `b`, with one token on `a` and one on `b`. The flat net,
+which counts tokens and drops names, passes the structural check: its minimal siphons `{a, c}`
+and `{b, c}` are traps marked from the start, so no marking reachable in the flat net is dead.
+In the ν net the token on `a` has name 1 and the one on `b` name 2, so the join finds no common
+name and the fork has nothing on `c`: no transition can fire and the net is stuck at once. A
+structural `Proven` would be wrong, which is why the route refuses a net with a match transition. -/
+@[evidence cites "VER-020" "A match transition hides a dead marking from the flat net: a ν-join net whose flat net passes the structural check is stuck at its initial marking"]
+theorem VER_020_guard_match :
+    refStructCheck ver020_netJoin 3 (fun _ => false) ver020_a0Join = .noPotentialDeadlock ∧
+    (∀ a, ReachA ver020_netJoin ver020_a0Join a → ¬ Dead ver020_netJoin a) ∧
+    (∀ M', ¬ Reference.RefNuStep ver020_nuNet ver020_nuM0 M') := by
+  have hC : refStructCheck ver020_netJoin 3 (fun _ => false) ver020_a0Join =
+      .noPotentialDeadlock := by decide
+  refine ⟨hC, fun a hr => VER_020_commoner VER_020_reference
+    ((commonerApplies_iff _).1 (by decide)) (by unfold InputsBelow; decide) hC hr, ?_⟩
+  rintro M' ⟨t, ht, c, δ, e, hf⟩
+  have hen := Reference.refNuFire_nuEnabled hf
+  simp only [ver020_nuNet, List.mem_cons, List.not_mem_nil, or_false] at ht
+  rcases ht with rfl | rfl
+  · obtain ⟨n, hn⟩ := hen.2 ver020_nuMs rfl
+    have h := (refSelect_spec _).2 ⟨n, hn⟩
+    have h0 : refSelect (matchIn ver020_nuMs ver020_nuJoin ver020_nuM0) = none := by decide
+    rw [h0] at h
+    cases h
+  · have := hen.1
+    revert this
+    decide
+
+/-! ### Examples -/
+
+/-- `t: one(a) read(g) → g`, `t2: one(g) → a` (places `a g` = `0 1`), the read witness. -/
+def ver020_tRead1 : Transition :=
+  { name := "t1", inputs := [⟨0, .one, none⟩], inhibitors := [], reads := [1], resets := [] }
+
+/-- The second transition of the read witness. -/
+def ver020_tRead2 : Transition :=
+  { name := "t2", inputs := [⟨1, .one, none⟩], inhibitors := [], reads := [], resets := [] }
+
+/-- The read witness, dead at `{a:1}`. -/
+def ver020_netRead : FlatNet := [(ver020_tRead1, [1]), (ver020_tRead2, [0])]
+
+/-- `t: one(a) inhibitor(b) → a` (places `a b` = `0 1`), the inhibitor witness. -/
+def ver020_tInh : Transition :=
+  { name := "t", inputs := [⟨0, .one, none⟩], inhibitors := [1], reads := [], resets := [] }
+
+/-- The inhibitor witness, dead at `{a:1, b:1}`. -/
+def ver020_netInh : FlatNet := [(ver020_tInh, [0])]
+
+/-- The route's input for `t: a → a` with one place, every conjunct of the guard passing. -/
+def ver020_x0 : StructInput Nat :=
+  { deadlockFree := true, hasMatch := false, reapable := false, assumeNoReaping := false,
+    flat := ver020_netLoop, n := 1, sinks := [], condSinks := [], envPlaces := [] }
+
+/-- The route's input for the ν-join net: the flat net and a match transition. -/
+def ver020_xJoin : StructInput Nat :=
+  { ver020_x0 with hasMatch := true, flat := ver020_netJoin, n := 3 }
+
+/-- ✓ **The guard on small nets.** `t: a → a` with a token on `a`: the check answers no
+potential deadlock and the route proves it, also with a reapable transition under
+`assumeNoReaping`, and also under `Arrivals(0)`, where nothing is injected, the net is left as
+it is and the route reads it with no environment place left. It does not prove it with a
+reapable transition and no `assumeNoReaping`, with an environment place registered on the net
+it receives (the same net under `AlwaysAvailable`), with a declared sink, or for a property
+other than `DeadlockFree`. The
+ν-join net is refused. The three witnesses of the ordinary-nets paragraph (`one(a) read(g)`,
+`exactly(2, a)`, `one(a) inhibitor(b)`) each pass the check, and the route proves none of them. -/
+@[evidence nonvacuous VER_020_guard]
+theorem VER_020_guard_nonvacuous :
+    refStructRoute refStructCheck ver020_x0 (fun _ => false) (fun _ => 1) = true ∧
+    refStructRoute refStructCheck { ver020_x0 with reapable := true, assumeNoReaping := true }
+      (fun _ => false) (fun _ => 1) = true ∧
+    refStructRoute refStructCheck { ver020_x0 with reapable := true } (fun _ => false)
+      (fun _ => 1) = false ∧
+    refStructRoute refStructCheck { ver020_x0 with envPlaces := [0] } (fun _ => false)
+      (fun _ => 1) = false ∧
+    refStructRoute refStructCheck { ver020_x0 with sinks := [0] } (fun _ => false)
+      (fun _ => 1) = false ∧
+    refStructRoute refStructCheck { ver020_x0 with deadlockFree := false } (fun _ => false)
+      (fun _ => 1) = false ∧
+    refStructCheck ver020_netJoin 3 (fun _ => false) ver020_a0Join = .noPotentialDeadlock ∧
+    refStructRoute refStructCheck ver020_xJoin (fun _ => false) ver020_a0Join = false ∧
+    refStructCheck ver020_netRead 2 (fun _ => false) aOne = .noPotentialDeadlock ∧
+    refStructRoute refStructCheck { ver020_x0 with flat := ver020_netRead, n := 2 }
+      (fun _ => false) aOne = false ∧
+    refStructCheck netEx 1 (fun _ => false) a0Ex = .noPotentialDeadlock ∧
+    refStructRoute refStructCheck { ver020_x0 with flat := netEx } (fun _ => false) a0Ex = false ∧
+    refStructCheck ver020_netInh 2 (fun _ => false) (fun _ => 1) = .noPotentialDeadlock ∧
+    refStructRoute refStructCheck { ver020_x0 with flat := ver020_netInh, n := 2 }
+      (fun _ => false) (fun _ => 1) = false := by
+  decide
+
+/-- ✓ **What the `Arrivals` rewrite leaves the route**, on the reference closure of [VER-006].
+Example: `t: a → a` with a token on `a`, and `a` registered as an environment place. Under
+`Arrivals(0)` nothing is injected: the closure adds no place and no transition, the
+registration is cleared, and the route proves the net. Under `Arrivals(1, 1)` the closure adds a
+source holding one token and a transition that moves it to `a`. Nothing puts a token back into
+the source, so the source alone is a siphon, and the one transition that takes from it puts
+nothing back, so no trap lies inside it. The check answers potential deadlock and the route
+does not prove the net, although `t` keeps its token on `a` and can always fire again. Such a
+net goes to the other routes. -/
+@[evidence cites "VER-020" "no environment place registered on the net it decides (the Arrivals rewrite of VER-006 leaves none)"]
+theorem VER_020_guard_arrivals :
+    EnvSemantics.closureRows ver020_netLoop [0] 1 0 0 = ver020_netLoop ∧
+    refStructRoute refStructCheck
+      { ver020_x0 with flat := EnvSemantics.closureRows ver020_netLoop [0] 1 0 0 }
+      (fun _ => false) (EnvSemantics.closureM0 (fun _ => 1) [0] 1 0 0) = true ∧
+    commonerApplies (EnvSemantics.closureRows ver020_netLoop [0] 1 1 1) = true ∧
+    refStructCheck (EnvSemantics.closureRows ver020_netLoop [0] 1 1 1) 2 (fun _ => false)
+      (EnvSemantics.closureM0 (fun _ => 1) [0] 1 1 1) = .potentialDeadlock ∧
+    refStructRoute refStructCheck
+      { ver020_x0 with flat := EnvSemantics.closureRows ver020_netLoop [0] 1 1 1, n := 2 }
+      (fun _ => false) (EnvSemantics.closureM0 (fun _ => 1) [0] 1 1 1) = false :=
+  ⟨by simp [EnvSemantics.closureRows, EnvSemantics.envRows, EnvSemantics.groupRows],
+    by decide, by decide, by decide, by decide⟩
+
+/-! ### Wrong routes -/
+
+/-- A route that also reads the environment places `pre` registered before the `Arrivals`
+rewrite, as if they were still on the net it receives. -/
+def ver020_routePreRewrite (pre : List Nat) : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with envPlaces := x.envPlaces ++ pre } stop a0
+
+/-- ✓ The line allows a route that reads the registration from before the `Arrivals` rewrite:
+it only refuses more. The offer rules it out. Example: `t: a → a` with a token on `a`, and `a`
+registered before an `Arrivals(0)` rewrite cleared it. The check passes and every conjunct of
+the guard holds on the net the route receives, but the route still counts `a` as registered
+and refuses, so it never gives the `Proven` that `Ver020GuardCovers` asks for. -/
+@[evidence allows VER_020_guard]
+theorem VER_020_guard_allows_preRewrite :
+    VER_020_guard (ver020_routePreRewrite [0]) ∧
+      ¬ Ver020GuardCovers (ver020_routePreRewrite [0]) := by
+  refine ⟨fun C x stop a0 h => ?_, fun hc => ?_⟩
+  · have := VER_020_guard_reference C { x with envPlaces := x.envPlaces ++ [0] } stop a0 h
+    simp at this
+  · have := hc refStructCheck ver020_x0 (fun _ => false) (fun _ => 1) (by decide) rfl rfl
+      (Or.inl rfl) ((commonerApplies_iff _).1 (by decide)) rfl rfl rfl
+    revert this
+    decide
+
+/-- A route that proves whenever the guard passes, without reading the check's answer. -/
+def ver020_routeIgnoresCheck : StructRouteFn Nat := fun _ x _ _ => refStructGate x
+
+/-- The route without the `DeadlockFree` conjunct. -/
+def ver020_routeNoDlf : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with deadlockFree := true } stop a0
+
+/-- The route without the match conjunct. -/
+def ver020_routeNoMatch : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with hasMatch := false } stop a0
+
+/-- The route without the reapable conjunct. -/
+def ver020_routeNoReap : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with reapable := false } stop a0
+
+/-- The route without the arc test (`commoner_applies`). -/
+def ver020_routeNoOrdinary : StructRouteFn Nat := fun C x stop a0 =>
+  x.deadlockFree && !x.hasMatch && (!x.reapable || x.assumeNoReaping) && x.sinks.isEmpty &&
+    x.condSinks.isEmpty && x.envPlaces.isEmpty &&
+    decide (C x.flat x.n stop a0 = .noPotentialDeadlock)
+
+/-- The route without the sink conjunct. -/
+def ver020_routeNoSink : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with sinks := [] } stop a0
+
+/-- The route without the conditional-sink conjunct. -/
+def ver020_routeNoCondSink : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with condSinks := [] } stop a0
+
+/-- The route without the environment-place conjunct. -/
+def ver020_routeNoEnv : StructRouteFn Nat := fun C x stop a0 =>
+  refStructRoute C { x with envPlaces := [] } stop a0
+
+/-- ✗ A route that ignores the check's answer: on `t: a → a` with `a` empty the check answers
+potential deadlock (the trap `{a}` is unmarked), and this route still proves the net. -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_ignoresCheck : ¬ VER_020_guard ver020_routeIgnoresCheck := by
+  intro h
+  have := (h refStructCheck ver020_x0 (fun _ => false) (fun _ => 0) (by decide)).1
+  revert this
+  decide
+
+/-- ✗ A route that proves other properties too: with the property not `DeadlockFree`, on
+`t: a → a` with a token on `a`, it still answers `Proven` from the check. -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noDlf : ¬ VER_020_guard ver020_routeNoDlf := by
+  intro h
+  have := (h refStructCheck { ver020_x0 with deadlockFree := false } (fun _ => false)
+    (fun _ => 1) (by decide)).2.1
+  revert this
+  decide
+
+/-- ✗ A route that does not refuse a match transition: on the ν-join net it proves deadlock
+freedom from the flat net, while the ν net is stuck at its initial marking
+(`VER_020_guard_match`). -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noMatch : ¬ VER_020_guard ver020_routeNoMatch := by
+  intro h
+  have := (h refStructCheck ver020_xJoin (fun _ => false) ver020_a0Join (by decide)).2.2.1
+  revert this
+  decide
+
+/-- ✗ A route that does not refuse a reapable transition: on `t: a → a` with the transition
+reapable and no `assumeNoReaping`, it proves a net that can rest with the transition still
+enabled ([VER-002]). -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noReap : ¬ VER_020_guard ver020_routeNoReap := by
+  intro h
+  have := (h refStructCheck { ver020_x0 with reapable := true } (fun _ => false) (fun _ => 1)
+    (by decide)).2.2.2.1
+  revert this
+  decide
+
+/-- ✗ A route without the arc test: on `t: exactly(2, a) → a` from `{a:1}`, the spec's second
+witness, the check answers no potential deadlock and this route proves a net that is dead at
+once. -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noOrdinary : ¬ VER_020_guard ver020_routeNoOrdinary := by
+  intro h
+  have := (h refStructCheck { ver020_x0 with flat := netEx } (fun _ => false) a0Ex
+    (by decide)).2.2.2.2.1
+  rw [← commonerApplies_iff] at this
+  revert this
+  decide
+
+/-- ✗ A route that does not refuse a declared sink: on `t: a → a` with `a` declared a sink it
+proves the net. -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noSink : ¬ VER_020_guard ver020_routeNoSink := by
+  intro h
+  have := (h refStructCheck { ver020_x0 with sinks := [0] } (fun _ => false) (fun _ => 1)
+    (by decide)).2.2.2.2.2.1
+  revert this
+  decide
+
+/-- ✗ A route that does not refuse a conditional sink: on `t: a → a` with a conditional sink
+on `a` it proves the net. -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noCondSink : ¬ VER_020_guard ver020_routeNoCondSink := by
+  intro h
+  have := (h refStructCheck { ver020_x0 with condSinks := [0] } (fun _ => false) (fun _ => 1)
+    (by decide)).2.2.2.2.2.2.1
+  revert this
+  decide
+
+/-- ✗ A route that does not refuse a registered environment place: on `t: a → a` with `a`
+registered on the net it receives (under `AlwaysAvailable`, `Bounded` or `Ignore`, where no
+rewrite runs), it proves the net, although tokens injected on `a` are not in the flat net the
+check reads. -/
+@[evidence forbids VER_020_guard]
+theorem VER_020_guard_forbids_noEnv : ¬ VER_020_guard ver020_routeNoEnv := by
+  intro h
+  have := (h refStructCheck { ver020_x0 with envPlaces := [0] } (fun _ => false) (fun _ => 1)
+    (by decide)).2.2.2.2.2.2.2
+  revert this
+  decide
+
+/-- ✓ The two VER-020 blocks hold together with the offer: the reference siphon search,
+contraction and check, and the reference route, which proves exactly behind the guard. -/
+@[evidence consistent VER_020 VER_020_guard]
+theorem VER_020_guard_joint {K : Type} :
+    ∃ (F : Ver020Search) (T : Ver020Trap) (C : Ver020Check) (R : StructRouteFn K),
+      VER_020 F T C ∧ VER_020_guard R ∧ Ver020GuardCovers R :=
+  ⟨_, _, _, _, VER_020_reference, VER_020_guard_reference, refStructRoute_covers⟩
 
 end Libpetri.Spec

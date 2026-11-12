@@ -8,6 +8,15 @@ Theorems carrying this ID:
 - `Libpetri.Novel.TimedScg.persistence_rule` (theorem, `Libpetri/Novel/TimedScg/Run.lean:101`)
 - `Libpetri.Novel.TimedScg.reset_restarts` (theorem, `Libpetri/Novel/TimedScg/Run.lean:142`)
 - `Libpetri.Novel.TimedScg.surplus_keeps` (theorem, `Libpetri/Novel/TimedScg/Run.lean:164`)
+- `Libpetri.Spec.EVT_005_time012_ac4` (theorem, `Libpetri/Spec/Req/EVT_005.lean:340`)
+- `Libpetri.Spec.EVT_005_time012_ac6` (theorem, `Libpetri/Spec/Req/EVT_005.lean:319`)
+- `Libpetri.Spec.evt005_one_of` (theorem, `Libpetri/Spec/Req/EVT_005.lean:255`)
+
+> **Note:** the full tree has 424 nodes (limit 60), so it is drawn as one diagram per theorem (7 theorems).
+
+### `Libpetri.Novel.TimedScg.fired_never_persists`
+
+> Rule: this theorem's whole tree, 34 nodes.
 
 ```mermaid
 flowchart TD
@@ -23,42 +32,37 @@ flowchart TD
     n134["Libpetri.InSpec"]
     n135["Libpetri.InSpec.card"]
     n138["Libpetri.InSpec.place"]
-    n2720["Libpetri.PlaceId"]
-    n13129["Libpetri.Transition"]
-    n13130["Libpetri.Transition.inhibitors"]
-    n13131["Libpetri.Transition.inputs"]
-    n13132["Libpetri.Transition.mk"]
-    n13135["Libpetri.Transition.reads"]
-    n13136["Libpetri.Transition.resets"]
-    n13206["Libpetri.consumeAllAt"]
-    n13258["Libpetri.enabledA"]
-    n13381["Libpetri.pre"]
-    n13436["Libpetri.specAt"]
+    n2723["Libpetri.PlaceId"]
+    n21910["Libpetri.Transition"]
+    n21911["Libpetri.Transition.inhibitors"]
+    n21912["Libpetri.Transition.inputs"]
+    n21913["Libpetri.Transition.mk"]
+    n21916["Libpetri.Transition.reads"]
+    n21917["Libpetri.Transition.resets"]
+    n21987["Libpetri.consumeAllAt"]
+    n22039["Libpetri.enabledA"]
+    n22162["Libpetri.pre"]
+    n22217["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
     n867["Libpetri.Novel.ForwardDeposit.Deposit"]
     n895["Libpetri.Novel.ForwardDeposit.fireAD"]
   end
   subgraph g2["Libpetri/Novel/TimedScg/Run.lean"]
-    n2504["Libpetri.Novel.TimedScg.fired_never_persists"]
-    n2612["Libpetri.Novel.TimedScg.persistence_rule"]
-    n2638["Libpetri.Novel.TimedScg.reset_restarts"]
-    n2669["Libpetri.Novel.TimedScg.surplus_keeps"]
+    n2507["Libpetri.Novel.TimedScg.fired_never_persists"]
   end
   subgraph g3["Libpetri/Novel/TimedScg/Succ.lean"]
-    n2417["Libpetri.Novel.TimedScg.TNet"]
-    n2426["Libpetri.Novel.TimedScg.TTrans"]
-    n2431["Libpetri.Novel.TimedScg.TTrans.tr"]
-    n2488["Libpetri.Novel.TimedScg.en"]
-    n2489["Libpetri.Novel.TimedScg.en_eq"]
-    n2490["Libpetri.Novel.TimedScg.en_lt"]
-    n2552["Libpetri.Novel.TimedScg.inter"]
-    n2604["Libpetri.Novel.TimedScg.noTr"]
-    n2613["Libpetri.Novel.TimedScg.persists"]
-    n2670["Libpetri.Novel.TimedScg.survives"]
-    n2688["Libpetri.Novel.TimedScg.trOf"]
+    n2420["Libpetri.Novel.TimedScg.TNet"]
+    n2429["Libpetri.Novel.TimedScg.TTrans"]
+    n2434["Libpetri.Novel.TimedScg.TTrans.tr"]
+    n2491["Libpetri.Novel.TimedScg.en"]
+    n2555["Libpetri.Novel.TimedScg.inter"]
+    n2607["Libpetri.Novel.TimedScg.noTr"]
+    n2616["Libpetri.Novel.TimedScg.persists"]
+    n2673["Libpetri.Novel.TimedScg.survives"]
+    n2691["Libpetri.Novel.TimedScg.trOf"]
   end
-  n0 --> n2720
+  n0 --> n2723
   n9 --> n8
   n10 --> n8
   n11 --> n9
@@ -74,71 +78,588 @@ flowchart TD
   n135 --> n8
   n135 --> n134
   n138 --> n134
-  n138 --> n2720
-  n867 --> n2720
+  n138 --> n2723
+  n867 --> n2723
   n895 --> n0
   n895 --> n867
-  n895 --> n13136
-  n895 --> n13206
-  n895 --> n13381
-  n2417 --> n2426
-  n2431 --> n2426
-  n2431 --> n13129
-  n2488 --> n2417
-  n2488 --> n2431
-  n2488 --> n13258
-  n2489 --> n2488
-  n2489 --> n2688
-  n2490 --> n2488
-  n2504 --> n2613
-  n2552 --> n0
-  n2552 --> n13136
-  n2552 --> n13206
-  n2552 --> n13381
-  n2604 --> n13132
-  n2612 --> n2613
-  n2613 --> n895
-  n2613 --> n2552
-  n2613 --> n2670
-  n2613 --> n2688
-  n2638 --> n2489
-  n2638 --> n2490
-  n2638 --> n2612
-  n2669 --> n2612
-  n2670 --> n2488
-  n2688 --> n2417
-  n2688 --> n2431
-  n2688 --> n2604
-  n13130 --> n2720
-  n13130 --> n13129
-  n13131 --> n134
-  n13131 --> n13129
-  n13132 --> n134
-  n13132 --> n2720
-  n13132 --> n13129
-  n13135 --> n2720
-  n13135 --> n13129
-  n13136 --> n2720
-  n13136 --> n13129
-  n13206 --> n11
-  n13206 --> n135
-  n13206 --> n13436
-  n13258 --> n0
-  n13258 --> n14
-  n13258 --> n135
-  n13258 --> n138
-  n13258 --> n13130
-  n13258 --> n13131
-  n13258 --> n13135
-  n13381 --> n14
-  n13381 --> n135
-  n13381 --> n13436
-  n13436 --> n138
-  n13436 --> n13131
+  n895 --> n21917
+  n895 --> n21987
+  n895 --> n22162
+  n2420 --> n2429
+  n2434 --> n2429
+  n2434 --> n21910
+  n2491 --> n2420
+  n2491 --> n2434
+  n2491 --> n22039
+  n2507 --> n2616
+  n2555 --> n0
+  n2555 --> n21917
+  n2555 --> n21987
+  n2555 --> n22162
+  n2607 --> n21913
+  n2616 --> n895
+  n2616 --> n2555
+  n2616 --> n2673
+  n2616 --> n2691
+  n2673 --> n2491
+  n2691 --> n2420
+  n2691 --> n2434
+  n2691 --> n2607
+  n21911 --> n2723
+  n21911 --> n21910
+  n21912 --> n134
+  n21912 --> n21910
+  n21913 --> n134
+  n21913 --> n2723
+  n21913 --> n21910
+  n21916 --> n2723
+  n21916 --> n21910
+  n21917 --> n2723
+  n21917 --> n21910
+  n21987 --> n11
+  n21987 --> n135
+  n21987 --> n22217
+  n22039 --> n0
+  n22039 --> n14
+  n22039 --> n135
+  n22039 --> n138
+  n22039 --> n21911
+  n22039 --> n21912
+  n22039 --> n21916
+  n22162 --> n14
+  n22162 --> n135
+  n22162 --> n22217
+  n22217 --> n138
+  n22217 --> n21912
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n2504,n2612,n2638,n2669 root
+  class n2507 root
+```
+
+### `Libpetri.Novel.TimedScg.persistence_rule`
+
+> Rule: this theorem's whole tree, 34 nodes.
+
+```mermaid
+flowchart TD
+  subgraph g0["Libpetri/Basic.lean"]
+    n0["Libpetri.AMarking"]
+    n8["Libpetri.Card"]
+    n9["Libpetri.Card.all"]
+    n10["Libpetri.Card.atLeast"]
+    n11["Libpetri.Card.consumesAll"]
+    n12["Libpetri.Card.exactly"]
+    n13["Libpetri.Card.one"]
+    n14["Libpetri.Card.required"]
+    n134["Libpetri.InSpec"]
+    n135["Libpetri.InSpec.card"]
+    n138["Libpetri.InSpec.place"]
+    n2723["Libpetri.PlaceId"]
+    n21910["Libpetri.Transition"]
+    n21911["Libpetri.Transition.inhibitors"]
+    n21912["Libpetri.Transition.inputs"]
+    n21913["Libpetri.Transition.mk"]
+    n21916["Libpetri.Transition.reads"]
+    n21917["Libpetri.Transition.resets"]
+    n21987["Libpetri.consumeAllAt"]
+    n22039["Libpetri.enabledA"]
+    n22162["Libpetri.pre"]
+    n22217["Libpetri.specAt"]
+  end
+  subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
+    n867["Libpetri.Novel.ForwardDeposit.Deposit"]
+    n895["Libpetri.Novel.ForwardDeposit.fireAD"]
+  end
+  subgraph g2["Libpetri/Novel/TimedScg/Run.lean"]
+    n2615["Libpetri.Novel.TimedScg.persistence_rule"]
+  end
+  subgraph g3["Libpetri/Novel/TimedScg/Succ.lean"]
+    n2420["Libpetri.Novel.TimedScg.TNet"]
+    n2429["Libpetri.Novel.TimedScg.TTrans"]
+    n2434["Libpetri.Novel.TimedScg.TTrans.tr"]
+    n2491["Libpetri.Novel.TimedScg.en"]
+    n2555["Libpetri.Novel.TimedScg.inter"]
+    n2607["Libpetri.Novel.TimedScg.noTr"]
+    n2616["Libpetri.Novel.TimedScg.persists"]
+    n2673["Libpetri.Novel.TimedScg.survives"]
+    n2691["Libpetri.Novel.TimedScg.trOf"]
+  end
+  n0 --> n2723
+  n9 --> n8
+  n10 --> n8
+  n11 --> n9
+  n11 --> n10
+  n11 --> n12
+  n11 --> n13
+  n12 --> n8
+  n13 --> n8
+  n14 --> n9
+  n14 --> n10
+  n14 --> n12
+  n14 --> n13
+  n135 --> n8
+  n135 --> n134
+  n138 --> n134
+  n138 --> n2723
+  n867 --> n2723
+  n895 --> n0
+  n895 --> n867
+  n895 --> n21917
+  n895 --> n21987
+  n895 --> n22162
+  n2420 --> n2429
+  n2434 --> n2429
+  n2434 --> n21910
+  n2491 --> n2420
+  n2491 --> n2434
+  n2491 --> n22039
+  n2555 --> n0
+  n2555 --> n21917
+  n2555 --> n21987
+  n2555 --> n22162
+  n2607 --> n21913
+  n2615 --> n2616
+  n2616 --> n895
+  n2616 --> n2555
+  n2616 --> n2673
+  n2616 --> n2691
+  n2673 --> n2491
+  n2691 --> n2420
+  n2691 --> n2434
+  n2691 --> n2607
+  n21911 --> n2723
+  n21911 --> n21910
+  n21912 --> n134
+  n21912 --> n21910
+  n21913 --> n134
+  n21913 --> n2723
+  n21913 --> n21910
+  n21916 --> n2723
+  n21916 --> n21910
+  n21917 --> n2723
+  n21917 --> n21910
+  n21987 --> n11
+  n21987 --> n135
+  n21987 --> n22217
+  n22039 --> n0
+  n22039 --> n14
+  n22039 --> n135
+  n22039 --> n138
+  n22039 --> n21911
+  n22039 --> n21912
+  n22039 --> n21916
+  n22162 --> n14
+  n22162 --> n135
+  n22162 --> n22217
+  n22217 --> n138
+  n22217 --> n21912
+  classDef root stroke-width:3px
+  classDef locked fill:#fff3cd,stroke:#b8860b
+  classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
+  class n2615 root
+```
+
+### `Libpetri.Novel.TimedScg.reset_restarts`
+
+> Rule: this theorem's whole tree, 37 nodes.
+
+```mermaid
+flowchart TD
+  subgraph g0["Libpetri/Basic.lean"]
+    n0["Libpetri.AMarking"]
+    n8["Libpetri.Card"]
+    n9["Libpetri.Card.all"]
+    n10["Libpetri.Card.atLeast"]
+    n11["Libpetri.Card.consumesAll"]
+    n12["Libpetri.Card.exactly"]
+    n13["Libpetri.Card.one"]
+    n14["Libpetri.Card.required"]
+    n134["Libpetri.InSpec"]
+    n135["Libpetri.InSpec.card"]
+    n138["Libpetri.InSpec.place"]
+    n2723["Libpetri.PlaceId"]
+    n21910["Libpetri.Transition"]
+    n21911["Libpetri.Transition.inhibitors"]
+    n21912["Libpetri.Transition.inputs"]
+    n21913["Libpetri.Transition.mk"]
+    n21916["Libpetri.Transition.reads"]
+    n21917["Libpetri.Transition.resets"]
+    n21987["Libpetri.consumeAllAt"]
+    n22039["Libpetri.enabledA"]
+    n22162["Libpetri.pre"]
+    n22217["Libpetri.specAt"]
+  end
+  subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
+    n867["Libpetri.Novel.ForwardDeposit.Deposit"]
+    n895["Libpetri.Novel.ForwardDeposit.fireAD"]
+  end
+  subgraph g2["Libpetri/Novel/TimedScg/Run.lean"]
+    n2615["Libpetri.Novel.TimedScg.persistence_rule"]
+    n2641["Libpetri.Novel.TimedScg.reset_restarts"]
+  end
+  subgraph g3["Libpetri/Novel/TimedScg/Succ.lean"]
+    n2420["Libpetri.Novel.TimedScg.TNet"]
+    n2429["Libpetri.Novel.TimedScg.TTrans"]
+    n2434["Libpetri.Novel.TimedScg.TTrans.tr"]
+    n2491["Libpetri.Novel.TimedScg.en"]
+    n2492["Libpetri.Novel.TimedScg.en_eq"]
+    n2493["Libpetri.Novel.TimedScg.en_lt"]
+    n2555["Libpetri.Novel.TimedScg.inter"]
+    n2607["Libpetri.Novel.TimedScg.noTr"]
+    n2616["Libpetri.Novel.TimedScg.persists"]
+    n2673["Libpetri.Novel.TimedScg.survives"]
+    n2691["Libpetri.Novel.TimedScg.trOf"]
+  end
+  n0 --> n2723
+  n9 --> n8
+  n10 --> n8
+  n11 --> n9
+  n11 --> n10
+  n11 --> n12
+  n11 --> n13
+  n12 --> n8
+  n13 --> n8
+  n14 --> n9
+  n14 --> n10
+  n14 --> n12
+  n14 --> n13
+  n135 --> n8
+  n135 --> n134
+  n138 --> n134
+  n138 --> n2723
+  n867 --> n2723
+  n895 --> n0
+  n895 --> n867
+  n895 --> n21917
+  n895 --> n21987
+  n895 --> n22162
+  n2420 --> n2429
+  n2434 --> n2429
+  n2434 --> n21910
+  n2491 --> n2420
+  n2491 --> n2434
+  n2491 --> n22039
+  n2492 --> n2491
+  n2492 --> n2691
+  n2493 --> n2491
+  n2555 --> n0
+  n2555 --> n21917
+  n2555 --> n21987
+  n2555 --> n22162
+  n2607 --> n21913
+  n2615 --> n2616
+  n2616 --> n895
+  n2616 --> n2555
+  n2616 --> n2673
+  n2616 --> n2691
+  n2641 --> n2492
+  n2641 --> n2493
+  n2641 --> n2615
+  n2673 --> n2491
+  n2691 --> n2420
+  n2691 --> n2434
+  n2691 --> n2607
+  n21911 --> n2723
+  n21911 --> n21910
+  n21912 --> n134
+  n21912 --> n21910
+  n21913 --> n134
+  n21913 --> n2723
+  n21913 --> n21910
+  n21916 --> n2723
+  n21916 --> n21910
+  n21917 --> n2723
+  n21917 --> n21910
+  n21987 --> n11
+  n21987 --> n135
+  n21987 --> n22217
+  n22039 --> n0
+  n22039 --> n14
+  n22039 --> n135
+  n22039 --> n138
+  n22039 --> n21911
+  n22039 --> n21912
+  n22039 --> n21916
+  n22162 --> n14
+  n22162 --> n135
+  n22162 --> n22217
+  n22217 --> n138
+  n22217 --> n21912
+  classDef root stroke-width:3px
+  classDef locked fill:#fff3cd,stroke:#b8860b
+  classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
+  class n2641 root
+```
+
+### `Libpetri.Novel.TimedScg.surplus_keeps`
+
+> Rule: this theorem's whole tree, 35 nodes.
+
+```mermaid
+flowchart TD
+  subgraph g0["Libpetri/Basic.lean"]
+    n0["Libpetri.AMarking"]
+    n8["Libpetri.Card"]
+    n9["Libpetri.Card.all"]
+    n10["Libpetri.Card.atLeast"]
+    n11["Libpetri.Card.consumesAll"]
+    n12["Libpetri.Card.exactly"]
+    n13["Libpetri.Card.one"]
+    n14["Libpetri.Card.required"]
+    n134["Libpetri.InSpec"]
+    n135["Libpetri.InSpec.card"]
+    n138["Libpetri.InSpec.place"]
+    n2723["Libpetri.PlaceId"]
+    n21910["Libpetri.Transition"]
+    n21911["Libpetri.Transition.inhibitors"]
+    n21912["Libpetri.Transition.inputs"]
+    n21913["Libpetri.Transition.mk"]
+    n21916["Libpetri.Transition.reads"]
+    n21917["Libpetri.Transition.resets"]
+    n21987["Libpetri.consumeAllAt"]
+    n22039["Libpetri.enabledA"]
+    n22162["Libpetri.pre"]
+    n22217["Libpetri.specAt"]
+  end
+  subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
+    n867["Libpetri.Novel.ForwardDeposit.Deposit"]
+    n895["Libpetri.Novel.ForwardDeposit.fireAD"]
+  end
+  subgraph g2["Libpetri/Novel/TimedScg/Run.lean"]
+    n2615["Libpetri.Novel.TimedScg.persistence_rule"]
+    n2672["Libpetri.Novel.TimedScg.surplus_keeps"]
+  end
+  subgraph g3["Libpetri/Novel/TimedScg/Succ.lean"]
+    n2420["Libpetri.Novel.TimedScg.TNet"]
+    n2429["Libpetri.Novel.TimedScg.TTrans"]
+    n2434["Libpetri.Novel.TimedScg.TTrans.tr"]
+    n2491["Libpetri.Novel.TimedScg.en"]
+    n2555["Libpetri.Novel.TimedScg.inter"]
+    n2607["Libpetri.Novel.TimedScg.noTr"]
+    n2616["Libpetri.Novel.TimedScg.persists"]
+    n2673["Libpetri.Novel.TimedScg.survives"]
+    n2691["Libpetri.Novel.TimedScg.trOf"]
+  end
+  n0 --> n2723
+  n9 --> n8
+  n10 --> n8
+  n11 --> n9
+  n11 --> n10
+  n11 --> n12
+  n11 --> n13
+  n12 --> n8
+  n13 --> n8
+  n14 --> n9
+  n14 --> n10
+  n14 --> n12
+  n14 --> n13
+  n135 --> n8
+  n135 --> n134
+  n138 --> n134
+  n138 --> n2723
+  n867 --> n2723
+  n895 --> n0
+  n895 --> n867
+  n895 --> n21917
+  n895 --> n21987
+  n895 --> n22162
+  n2420 --> n2429
+  n2434 --> n2429
+  n2434 --> n21910
+  n2491 --> n2420
+  n2491 --> n2434
+  n2491 --> n22039
+  n2555 --> n0
+  n2555 --> n21917
+  n2555 --> n21987
+  n2555 --> n22162
+  n2607 --> n21913
+  n2615 --> n2616
+  n2616 --> n895
+  n2616 --> n2555
+  n2616 --> n2673
+  n2616 --> n2691
+  n2672 --> n2615
+  n2673 --> n2491
+  n2691 --> n2420
+  n2691 --> n2434
+  n2691 --> n2607
+  n21911 --> n2723
+  n21911 --> n21910
+  n21912 --> n134
+  n21912 --> n21910
+  n21913 --> n134
+  n21913 --> n2723
+  n21913 --> n21910
+  n21916 --> n2723
+  n21916 --> n21910
+  n21917 --> n2723
+  n21917 --> n21910
+  n21987 --> n11
+  n21987 --> n135
+  n21987 --> n22217
+  n22039 --> n0
+  n22039 --> n14
+  n22039 --> n135
+  n22039 --> n138
+  n22039 --> n21911
+  n22039 --> n21912
+  n22039 --> n21916
+  n22162 --> n14
+  n22162 --> n135
+  n22162 --> n22217
+  n22217 --> n138
+  n22217 --> n21912
+  classDef root stroke-width:3px
+  classDef locked fill:#fff3cd,stroke:#b8860b
+  classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
+  class n2672 root
+```
+
+### `Libpetri.Spec.EVT_005_time012_ac4`
+
+> Rule: this theorem's tree has 366 nodes (limit 60); every file other than its own is collapsed into one node, leaving 17.
+
+```mermaid
+flowchart TD
+  subgraph g0["Libpetri/Spec/Req/EVT_005.lean"]
+    n6318["Libpetri.Spec.EVT_005_time012_ac4"]
+  end
+  c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
+  c66["📁 Libpetri/Novel/TimedScg/Timing.lean (12 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Events.lean (23 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Exec.lean (29 declarations, collapsed)"]
+  c91["📁 Libpetri/Reference/Queue.lean (14 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (16 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
+  c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
+  c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
+  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c138["📁 Libpetri/Spec/GlossaryEvents.lean (35 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/GlossaryExec.lean (156 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c210["📁 Libpetri/Spec/Req/EVT_004.lean (7 declarations, collapsed)"]
+  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c80
+  c78 --> c138
+  c80 --> c139
+  c91 --> c94
+  c94 --> c54
+  c98 --> c66
+  c98 --> c94
+  c103 --> c109
+  c132 --> c94
+  c139 --> c91
+  c139 --> c232
+  c146 --> c98
+  c146 --> c132
+  c210 --> c80
+  c210 --> c138
+  c232 --> c103
+  c232 --> c146
+  n6318 --> c78
+  n6318 --> c210
+  classDef root stroke-width:3px
+  classDef locked fill:#fff3cd,stroke:#b8860b
+  classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
+  class n6318 root
+  class c0,c54,c66,c78,c80,c91,c94,c98,c103,c109,c132,c138,c139,c146,c210,c232 collapsed
+```
+
+### `Libpetri.Spec.EVT_005_time012_ac6`
+
+> Rule: this theorem's tree has 354 nodes (limit 60); every file other than its own is collapsed into one node, leaving 18.
+
+```mermaid
+flowchart TD
+  subgraph g0["Libpetri/Spec/Req/EVT_005.lean"]
+    n6319["Libpetri.Spec.EVT_005_time012_ac6"]
+    n14826["Libpetri.Spec.evt005_gapRun"]
+  end
+  c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
+  c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
+  c66["📁 Libpetri/Novel/TimedScg/Timing.lean (12 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Events.lean (23 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Exec.lean (27 declarations, collapsed)"]
+  c91["📁 Libpetri/Reference/Queue.lean (14 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (16 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
+  c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
+  c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
+  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c138["📁 Libpetri/Spec/GlossaryEvents.lean (26 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/GlossaryExec.lean (156 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c210["📁 Libpetri/Spec/Req/EVT_004.lean (5 declarations, collapsed)"]
+  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c54 --> c0
+  c78 --> c80
+  c78 --> c138
+  c80 --> c139
+  c91 --> c94
+  c94 --> c54
+  c98 --> c66
+  c98 --> c94
+  c103 --> c109
+  c132 --> c94
+  c139 --> c91
+  c139 --> c232
+  c146 --> c98
+  c146 --> c132
+  c210 --> c139
+  c232 --> c103
+  c232 --> c146
+  n6319 --> c78
+  n6319 --> c210
+  n6319 --> n14826
+  n14826 --> c139
+  classDef root stroke-width:3px
+  classDef locked fill:#fff3cd,stroke:#b8860b
+  classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
+  class n6319 root
+  class c0,c54,c66,c78,c80,c91,c94,c98,c103,c109,c132,c138,c139,c146,c210,c232 collapsed
+```
+
+### `Libpetri.Spec.evt005_one_of`
+
+> Rule: this theorem's tree has 68 nodes (limit 60); every file other than its own is collapsed into one node, leaving 12.
+
+```mermaid
+flowchart TD
+  subgraph g0["Libpetri/Spec/Req/EVT_005.lean"]
+    n6305["Libpetri.Spec.EVT_005"]
+    n14836["Libpetri.Spec.evt005_one_of"]
+  end
+  c54["📁 Libpetri/Novel/Seam/Net.lean (2 declarations, collapsed)"]
+  c78["📁 Libpetri/Reference/Events.lean (6 declarations, collapsed)"]
+  c91["📁 Libpetri/Reference/Queue.lean (1 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (4 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (2 declarations, collapsed)"]
+  c131["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
+  c138["📁 Libpetri/Spec/GlossaryEvents.lean (34 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/GlossaryExec.lean (13 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (1 declarations, collapsed)"]
+  c210["📁 Libpetri/Spec/Req/EVT_004.lean (2 declarations, collapsed)"]
+  c78 --> c91
+  c78 --> c138
+  c78 --> c139
+  c94 --> c54
+  c98 --> c94
+  c139 --> c98
+  c146 --> c98
+  c210 --> c78
+  c210 --> c131
+  c210 --> c146
+  n6305 --> c210
+  n14836 --> n6305
+  classDef root stroke-width:3px
+  classDef locked fill:#fff3cd,stroke:#b8860b
+  classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
+  class n14836 root
+  class c54,c78,c91,c94,c98,c131,c138,c139,c146,c210 collapsed
 ```
 
 Axioms used:
@@ -147,3 +668,6 @@ Axioms used:
 - `Libpetri.Novel.TimedScg.persistence_rule`: `Quot.sound`, `propext`
 - `Libpetri.Novel.TimedScg.reset_restarts`: `Quot.sound`, `propext`
 - `Libpetri.Novel.TimedScg.surplus_keeps`: `Quot.sound`, `propext`
+- `Libpetri.Spec.EVT_005_time012_ac4`: `Quot.sound`, `propext`
+- `Libpetri.Spec.EVT_005_time012_ac6`: `Quot.sound`, `propext`
+- `Libpetri.Spec.evt005_one_of`: `Quot.sound`, `propext`

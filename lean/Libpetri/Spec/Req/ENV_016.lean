@@ -8,9 +8,10 @@ set_option linter.missingDocs true
 # ENV-016: Observable Termination (`spec/06-environment-places.md`)
 
 ENV-016 has two halves. The first, `awaitTermination`, needs the event model (its answer waits
-for ExecutionCompleted), so it is the block's line 1 in wave W7 (ruling D47 (c)). This file
-states the second half, the policy of run-with-timeout for the loop when the caller's timeout
-expires, over the executor model (`RefExec`, `Reference/Exec.lean`).
+for ExecutionCompleted), so it is the second block of ENV-016, `ENV_016_await`
+(`ENV_016_l1.lean`, wave W7, ruling D47 (c)). This file states the second half, the policy of
+run-with-timeout for the loop when the caller's timeout expires, over the executor model
+(`RefExec`, `Reference/Exec.lean`).
 
 The expiry of the caller's timeout is an event of the host, not a step of the loop, and ruling
 D18 (b) keeps host time out of the model. So the expiry is not a label of `XLbl`: the model of
@@ -96,8 +97,8 @@ requirement ENV_016
           "The termination reason an abandoned run reports is EXEC-041's question, not this block's (env-b ENVB-R6 (a), ruling D53 (c)): TypeScript sets its reason to stopped when the caller's timeout expires and keeps it if the loop later ends on its own. That field is reporting state outside the executor state of the model, and D53 (c) allows it, since stopped is not a completed reason. Lines 1 and 3 speak of the executor state and the marking only."
           "Java closes the executor from a callback that runs after the returned stage has failed (whenCompleteAsync), so loop steps may come between the expiry and the close. The model places the expiry at the moment close() takes effect; a run in which loop steps come first is a run of R whose close step comes later. TypeScript calls close() in the turn that rejects the promise."
           "Which policy is the default is configuration (kind N) and not a line: run(timeout) without a policy abandons in Java and TypeScript, the historical default of the text. The lines hold for whichever policy the caller chooses."
-          "Deferred to wave W7 (ruling D47 (c), plan W7): AC1, AC2 and the first paragraph, awaitTermination answering false while the loop runs and true once it has stopped and finished its termination bookkeeping (pending inject() futures completed, ExecutionCompleted emitted), returning promptly when the loop was never started, and not being defeated by a failure in that bookkeeping such as a throwing event store. Its answer depends on the emission of ExecutionCompleted, which needs the event model RefEvents; that line will join this block. Blocking, the timeout of awaitTermination and 'promptly' are kind Q."
-          "The test derivation (a net with an action still in flight when a short timeout expires, under each policy; the executor closed under close and the loop stopping once the action completes, the loop still live under abandon and reporting the action's output) is ENV_016_nonvacuous: at the expiry the loop is still running, parked with a firing in flight; under close the executor is closed by R's close step and the loop finishes closed after the action completes; under abandon the executor is unchanged and the loop goes on to finish quiescent with the action's output. The awaitTermination half of the test derivation is W7's."
+          "AC1, AC2 and the first paragraph are the second block of ENV-016, ENV_016_await (ENV_016_l1.lean, wave W7, ruling D47 (c)), over the event model RefEvents, since the answer waits for the step that emits ExecutionCompleted: awaitTermination answers true when the loop was never started, false while it runs, true only after the finish step that answers the queued inject() calls and only once no emission of ExecutionCompleted is still to come, and true once the loop has finished, whatever a failing event store did. Blocking, the timeout of awaitTermination and 'promptly' are kind Q."
+          "The test derivation (a net with an action still in flight when a short timeout expires, under each policy; the executor closed under close and the loop stopping once the action completes, the loop still live under abandon and reporting the action's output) is ENV_016_nonvacuous: at the expiry the loop is still running, parked with a firing in flight; under close the executor is closed by R's close step and the loop finishes closed after the action completes; under abandon the executor is unchanged and the loop goes on to finish quiescent with the action's output. The awaitTermination half of the test derivation is ENV_016_await_nonvacuous, on the same run."
   signoff "pending"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → ExpiryRel N T → Prop :=
     fun R X => ∀ C,

@@ -17,49 +17,49 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n7178["Libpetri.Spec.Time001.decValid"]
-    n7190["Libpetri.Spec.TimingContract"]
-    n7193["Libpetri.Spec.TimingContract.earliest"]
-    n7197["Libpetri.Spec.TimingContract.mk"]
-    n12071["Libpetri.Spec.refTimingFactory"]
-    n12073["Libpetri.Spec.refTimingMsg"]
-    n12074["Libpetri.Spec.refTimingQ"]
-    n12286["Libpetri.Spec.time001_fire_after_earliest"]
+    n10217["Libpetri.Spec.Time001.decValid"]
+    n10247["Libpetri.Spec.TimingContract"]
+    n10250["Libpetri.Spec.TimingContract.earliest"]
+    n10254["Libpetri.Spec.TimingContract.mk"]
+    n19979["Libpetri.Spec.refTimingFactory"]
+    n19981["Libpetri.Spec.refTimingMsg"]
+    n19982["Libpetri.Spec.refTimingQ"]
+    n20366["Libpetri.Spec.time001_fire_after_earliest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
   c66["📁 Libpetri/Novel/TimedScg/Timing.lean (12 declarations, collapsed)"]
-  c83["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c87["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
-  c115["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c126["📁 Libpetri/Spec/GlossaryTime.lean (13 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
+  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (13 declarations, collapsed)"]
   c54 --> c0
-  c83 --> c28
-  c83 --> c54
-  c87 --> c66
-  c87 --> c83
-  c115 --> c83
-  c126 --> c87
-  c126 --> c115
-  n7178 --> c66
-  n7193 --> c66
-  n7193 --> n7190
-  n7197 --> c66
-  n7197 --> n7190
-  n12071 --> n7178
-  n12071 --> n12073
-  n12073 --> c66
-  n12074 --> n7197
-  n12074 --> n12071
-  n12286 --> c126
-  n12286 --> n7193
-  n12286 --> n12074
+  c94 --> c28
+  c94 --> c54
+  c98 --> c66
+  c98 --> c94
+  c132 --> c94
+  c146 --> c98
+  c146 --> c132
+  n10217 --> c66
+  n10250 --> c66
+  n10250 --> n10247
+  n10254 --> c66
+  n10254 --> n10247
+  n19979 --> n10217
+  n19979 --> n19981
+  n19981 --> c66
+  n19982 --> n10254
+  n19982 --> n19979
+  n20366 --> c146
+  n20366 --> n10250
+  n20366 --> n19982
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12286 root
-  class c0,c28,c54,c66,c83,c87,c115,c126 collapsed
+  class n20366 root
+  class c0,c28,c54,c66,c94,c98,c132,c146 collapsed
 ```
 
 ### `Libpetri.Spec.time001_reap_past_latest`
@@ -69,50 +69,50 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n7178["Libpetri.Spec.Time001.decValid"]
-    n7190["Libpetri.Spec.TimingContract"]
-    n7195["Libpetri.Spec.TimingContract.hasDeadline"]
-    n7196["Libpetri.Spec.TimingContract.latest"]
-    n7197["Libpetri.Spec.TimingContract.mk"]
-    n12071["Libpetri.Spec.refTimingFactory"]
-    n12073["Libpetri.Spec.refTimingMsg"]
-    n12074["Libpetri.Spec.refTimingQ"]
-    n12292["Libpetri.Spec.time001_reap_past_latest"]
+    n10217["Libpetri.Spec.Time001.decValid"]
+    n10247["Libpetri.Spec.TimingContract"]
+    n10252["Libpetri.Spec.TimingContract.hasDeadline"]
+    n10253["Libpetri.Spec.TimingContract.latest"]
+    n10254["Libpetri.Spec.TimingContract.mk"]
+    n19979["Libpetri.Spec.refTimingFactory"]
+    n19981["Libpetri.Spec.refTimingMsg"]
+    n19982["Libpetri.Spec.refTimingQ"]
+    n20372["Libpetri.Spec.time001_reap_past_latest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
   c66["📁 Libpetri/Novel/TimedScg/Timing.lean (13 declarations, collapsed)"]
-  c83["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
-  c87["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
-  c126["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (35 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
   c54 --> c0
-  c83 --> c28
-  c83 --> c54
-  c87 --> c66
-  c87 --> c83
-  c126 --> c87
-  n7178 --> c66
-  n7195 --> c66
-  n7195 --> n7190
-  n7196 --> c66
-  n7196 --> n7190
-  n7197 --> c66
-  n7197 --> n7190
-  n12071 --> n7178
-  n12071 --> n12073
-  n12073 --> c66
-  n12074 --> n7197
-  n12074 --> n12071
-  n12292 --> c126
-  n12292 --> n7195
-  n12292 --> n7196
-  n12292 --> n12074
+  c94 --> c28
+  c94 --> c54
+  c98 --> c66
+  c98 --> c94
+  c146 --> c98
+  n10217 --> c66
+  n10252 --> c66
+  n10252 --> n10247
+  n10253 --> c66
+  n10253 --> n10247
+  n10254 --> c66
+  n10254 --> n10247
+  n19979 --> n10217
+  n19979 --> n19981
+  n19981 --> c66
+  n19982 --> n10254
+  n19982 --> n19979
+  n20372 --> c146
+  n20372 --> n10252
+  n20372 --> n10253
+  n20372 --> n19982
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12292 root
-  class c0,c28,c54,c66,c83,c87,c126 collapsed
+  class n20372 root
+  class c0,c28,c54,c66,c94,c98,c146 collapsed
 ```
 
 ### `Libpetri.Spec.time001_valid_iff`
@@ -122,34 +122,34 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Novel/TimedScg/Timing.lean"]
-    n2432["Libpetri.Novel.TimedScg.Timing"]
-    n2433["Libpetri.Novel.TimedScg.Timing.Valid"]
-    n2439["Libpetri.Novel.TimedScg.Timing.deadline"]
-    n2441["Libpetri.Novel.TimedScg.Timing.delayed"]
-    n2443["Libpetri.Novel.TimedScg.Timing.exact"]
-    n2445["Libpetri.Novel.TimedScg.Timing.immediate"]
-    n2459["Libpetri.Novel.TimedScg.Timing.window"]
-    n2576["Libpetri.Novel.TimedScg.maxDurationMs"]
+    n2435["Libpetri.Novel.TimedScg.Timing"]
+    n2436["Libpetri.Novel.TimedScg.Timing.Valid"]
+    n2442["Libpetri.Novel.TimedScg.Timing.deadline"]
+    n2444["Libpetri.Novel.TimedScg.Timing.delayed"]
+    n2446["Libpetri.Novel.TimedScg.Timing.exact"]
+    n2448["Libpetri.Novel.TimedScg.Timing.immediate"]
+    n2462["Libpetri.Novel.TimedScg.Timing.window"]
+    n2579["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_001.lean"]
-    n12295["Libpetri.Spec.time001_valid_iff"]
+    n20375["Libpetri.Spec.time001_valid_iff"]
   end
-  n2433 --> n2439
-  n2433 --> n2441
-  n2433 --> n2443
-  n2433 --> n2445
-  n2433 --> n2459
-  n2433 --> n2576
-  n2439 --> n2432
-  n2441 --> n2432
-  n2443 --> n2432
-  n2445 --> n2432
-  n2459 --> n2432
-  n12295 --> n2433
+  n2436 --> n2442
+  n2436 --> n2444
+  n2436 --> n2446
+  n2436 --> n2448
+  n2436 --> n2462
+  n2436 --> n2579
+  n2442 --> n2435
+  n2444 --> n2435
+  n2446 --> n2435
+  n2448 --> n2435
+  n2462 --> n2435
+  n20375 --> n2436
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12295 root
+  class n20375 root
 ```
 
 Axioms used:

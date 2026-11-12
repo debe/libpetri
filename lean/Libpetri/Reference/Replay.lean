@@ -1,4 +1,5 @@
 import Libpetri.Spec.Registry
+import Libpetri.Spec.GlossaryEvents
 
 set_option linter.missingDocs true
 
@@ -21,8 +22,9 @@ event (`ExecutionStarted`, `ExecutionCompleted`, `TransitionClockRestarted`, `Lo
 `other`. The event type `E` is a parameter and `view : E → REv N` its projection. The table
 above is `recView` over `RecEvent N`, the thirteen recorded events by name with the part the
 replay can read (a `MarkingSnapshot` as the list of places it carries, an unlisted place counting
-zero). The executor event model (`RefEvents`, wave W7) defines the full event type; its view is
-`recView` after the map that forgets what the replay does not read.
+zero). The executor event model (`NetEvent`, wave W7) defines the full event type; its view is
+`recView` after the map that forgets what the replay does not read (`NetEvent.toRec`,
+`Reference/EventsLink.lean`), and `RecEvent.kind` reads the event glossary's one kind type.
 
 The **replayed state** (`RState N`) is what a `ComputedState` shows, compared by value: the
 token count of every place (`cnt`), and the enabled and in-flight transition names as two sets
@@ -193,6 +195,40 @@ def RecEvent.name : RecEvent N → String
   | .tokenRemoved _ => "TokenRemoved"
   | .logMessage => "LogMessage"
   | .markingSnapshot _ => "MarkingSnapshot"
+
+/-- The kind of a recorded event: the event glossary's one kind type (`NetEventKind`), which the
+logging store's level table ([EVT-023]) and the query helpers ([EVT-030]) read too. -/
+def RecEvent.kind : RecEvent N → NetEventKind
+  | .executionStarted => .executionStarted
+  | .executionCompleted => .executionCompleted
+  | .transitionEnabled _ => .transitionEnabled
+  | .transitionClockRestarted _ => .transitionClockRestarted
+  | .transitionStarted _ => .transitionStarted
+  | .transitionCompleted _ => .transitionCompleted
+  | .transitionFailed _ => .transitionFailed
+  | .transitionTimedOut _ => .transitionTimedOut
+  | .actionTimedOut _ => .actionTimedOut
+  | .tokenAdded _ => .tokenAdded
+  | .tokenRemoved _ => .tokenRemoved
+  | .logMessage => .logMessage
+  | .markingSnapshot _ => .markingSnapshot
+
+/-- Every event kind is the kind of a recorded event (over any non-empty set of places): the
+recorded events name the same thirteen kinds. -/
+theorem RecEvent.kind_surjective [Inhabited N] : ∀ k : NetEventKind, ∃ e : RecEvent N, e.kind = k
+  | .executionStarted => ⟨.executionStarted, rfl⟩
+  | .executionCompleted => ⟨.executionCompleted, rfl⟩
+  | .transitionEnabled => ⟨.transitionEnabled "", rfl⟩
+  | .transitionClockRestarted => ⟨.transitionClockRestarted "", rfl⟩
+  | .transitionStarted => ⟨.transitionStarted "", rfl⟩
+  | .transitionCompleted => ⟨.transitionCompleted "", rfl⟩
+  | .transitionFailed => ⟨.transitionFailed "", rfl⟩
+  | .transitionTimedOut => ⟨.transitionTimedOut "", rfl⟩
+  | .actionTimedOut => ⟨.actionTimedOut "", rfl⟩
+  | .tokenAdded => ⟨.tokenAdded default, rfl⟩
+  | .tokenRemoved => ⟨.tokenRemoved default, rfl⟩
+  | .markingSnapshot => ⟨.markingSnapshot [], rfl⟩
+  | .logMessage => ⟨.logMessage, rfl⟩
 
 /-- **The replay view of the recorded events** ([EVT-032], the third quoted sentence by name): a
 `MarkingSnapshot` gives the count it carries for each place it lists and zero for every other

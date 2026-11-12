@@ -13,57 +13,57 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
-    n4861["Libpetri.Spec.ClashExec.some_of_map"]
-    n7680["Libpetri.Spec.clashExec_closedRest_bothCauses"]
-    n9145["Libpetri.Spec.cxCfg"]
-    n9148["Libpetri.Spec.cxCfgEnv"]
-    n9154["Libpetri.Spec.cxM0"]
-    n9155["Libpetri.Spec.cxQuiet"]
-    n9158["Libpetri.Spec.cxRunClosedRest"]
+    n5927["Libpetri.Spec.ClashExec.some_of_map"]
+    n12316["Libpetri.Spec.clashExec_closedRest_bothCauses"]
+    n14018["Libpetri.Spec.cxCfg"]
+    n14021["Libpetri.Spec.cxCfgEnv"]
+    n14027["Libpetri.Spec.cxM0"]
+    n14028["Libpetri.Spec.cxQuiet"]
+    n14031["Libpetri.Spec.cxRunClosedRest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
   c66["📁 Libpetri/Novel/TimedScg/Timing.lean (12 declarations, collapsed)"]
-  c74["📁 Libpetri/Reference/Exec.lean (29 declarations, collapsed)"]
-  c80["📁 Libpetri/Reference/Queue.lean (14 declarations, collapsed)"]
-  c83["📁 Libpetri/Reference/Semantics.lean (14 declarations, collapsed)"]
-  c87["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
-  c92["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
-  c98["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
-  c115["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c120["📁 Libpetri/Spec/GlossaryExec.lean (155 declarations, collapsed)"]
-  c126["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c194["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c80["📁 Libpetri/Reference/Exec.lean (29 declarations, collapsed)"]
+  c91["📁 Libpetri/Reference/Queue.lean (14 declarations, collapsed)"]
+  c94["📁 Libpetri/Reference/Semantics.lean (14 declarations, collapsed)"]
+  c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
+  c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
+  c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
+  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/GlossaryExec.lean (155 declarations, collapsed)"]
+  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
-  c74 --> c120
-  c80 --> c83
-  c83 --> c54
-  c87 --> c66
-  c87 --> c83
-  c92 --> c98
-  c115 --> c83
-  c120 --> c80
-  c120 --> c194
-  c126 --> c87
-  c126 --> c115
-  c194 --> c92
-  c194 --> c126
-  n4861 --> c120
-  n7680 --> c74
-  n7680 --> n4861
-  n7680 --> n9148
-  n7680 --> n9154
-  n7680 --> n9158
-  n9145 --> c120
-  n9148 --> n9145
-  n9154 --> c80
-  n9155 --> c120
-  n9158 --> n9155
+  c80 --> c139
+  c91 --> c94
+  c94 --> c54
+  c98 --> c66
+  c98 --> c94
+  c103 --> c109
+  c132 --> c94
+  c139 --> c91
+  c139 --> c232
+  c146 --> c98
+  c146 --> c132
+  c232 --> c103
+  c232 --> c146
+  n5927 --> c139
+  n12316 --> c80
+  n12316 --> n5927
+  n12316 --> n14021
+  n12316 --> n14027
+  n12316 --> n14031
+  n14018 --> c139
+  n14021 --> n14018
+  n14027 --> c91
+  n14028 --> c139
+  n14031 --> n14028
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n7680 root
-  class c0,c54,c66,c74,c80,c83,c87,c92,c98,c115,c120,c126,c194 collapsed
+  class n12316 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c132,c139,c146,c232 collapsed
 ```
 
 Axioms used:

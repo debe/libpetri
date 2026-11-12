@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="wTape" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5b6e88"/>
+    </marker>
+    <marker id="wTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="600" fill="#0b1220"/>
+  <rect x="14" y="14" width="1172" height="572" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+  <line x1="600" y1="70" x2="600" y2="520" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- ================= LEFT: SEQUENTIAL ================= -->
+  <text x="305" y="58" text-anchor="middle" font-size="18" font-weight="700" letter-spacing="2" fill="#8aa0b8">SEQUENTIAL</text>
+  <text x="305" y="82" text-anchor="middle" font-size="14" fill="#7e8ea3">one total order</text>
+
+  <!-- nested recap of the Chomsky sets -->
+  <ellipse cx="305" cy="250" rx="186" ry="114" fill="#0f1c30" stroke="#46566e" stroke-width="2"/>
+  <text x="305" y="156" text-anchor="middle" font-size="11.5" fill="#7e8ea3">recursively enumerable</text>
+  <ellipse cx="305" cy="252" rx="124" ry="76" fill="#13243f" stroke="#6a83a1" stroke-width="2"/>
+  <text x="305" y="196" text-anchor="middle" font-size="11.5" fill="#8295ab">context-free / sensitive</text>
+  <ellipse cx="305" cy="258" rx="78" ry="48" fill="#1b1a10" stroke="#fbbf24" stroke-width="2"/>
+  <text x="305" y="254" text-anchor="middle" font-size="15" font-weight="700" fill="#fbbf24">FSM</text>
+  <text x="305" y="272" text-anchor="middle" font-size="10.5" fill="#c8b48a">graphs</text>
+
+  <!-- tape -->
+  <g stroke="#5b6e88" stroke-width="1.5" fill="#122033">
+    <rect x="232" y="404" width="30" height="22"/>
+    <rect x="266" y="404" width="30" height="22"/>
+    <rect x="300" y="404" width="30" height="22"/>
+    <rect x="334" y="404" width="30" height="22"/>
+  </g>
+  <circle cx="247" cy="415" r="5.5" fill="#7e8ea3"/>
+  <line x1="368" y1="415" x2="398" y2="415" stroke="#5b6e88" stroke-width="1.6" marker-end="url(#wTape)"/>
+  <text x="305" y="456" text-anchor="middle" font-size="14" fill="#8295ab">state machines, graphs, regexes, parsers</text>
+
+  <!-- ================= RIGHT: CONCURRENT ================= -->
+  <text x="900" y="58" text-anchor="middle" font-size="18" font-weight="700" letter-spacing="2" fill="#2dd4bf">CONCURRENT</text>
+  <text x="900" y="82" text-anchor="middle" font-size="14" fill="#7e8ea3">partial order, many at once</text>
+
+  <!-- event sources -->
+  <g font-size="13.5" fill="#cfe8e2">
+    <rect x="636" y="132" width="120" height="34" rx="8" fill="#10262a" stroke="#2dd4bf" stroke-width="1.6"/>
+    <text x="696" y="154" text-anchor="middle">Go channels</text>
+    <rect x="636" y="192" width="120" height="34" rx="8" fill="#10262a" stroke="#2dd4bf" stroke-width="1.6"/>
+    <text x="696" y="214" text-anchor="middle">Kafka</text>
+    <rect x="636" y="252" width="120" height="34" rx="8" fill="#10262a" stroke="#2dd4bf" stroke-width="1.6"/>
+    <text x="696" y="274" text-anchor="middle">timers</text>
+    <rect x="636" y="312" width="120" height="34" rx="8" fill="#10262a" stroke="#2dd4bf" stroke-width="1.6"/>
+    <text x="696" y="334" text-anchor="middle">user interrupt</text>
+    <rect x="636" y="372" width="120" height="34" rx="8" fill="#10262a" stroke="#2dd4bf" stroke-width="1.6"/>
+    <text x="696" y="394" text-anchor="middle">webhook</text>
+  </g>
+
+  <!-- arrows converge into an environment place -->
+  <g stroke="#2dd4bf" stroke-width="1.8" fill="none">
+    <path d="M758,149 C812,154 838,238 858,256" marker-end="url(#wTeal)"/>
+    <path d="M758,209 C808,214 836,250 858,262" marker-end="url(#wTeal)"/>
+    <path d="M758,269 L858,270" marker-end="url(#wTeal)"/>
+    <path d="M758,329 C808,324 836,290 858,278" marker-end="url(#wTeal)"/>
+    <path d="M758,389 C812,384 838,302 858,284" marker-end="url(#wTeal)"/>
+  </g>
+
+  <!-- a small net: events become tokens -->
+  <circle cx="888" cy="270" r="30" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="888" cy="262" r="10" fill="#38bdf8"/>
+  <circle cx="888" cy="280" r="10" fill="#fbbf24"/>
+  <path d="M918,270 L956,270" stroke="#44546b" stroke-width="2" fill="none" marker-end="url(#wTeal)"/>
+  <rect x="958" y="246" width="86" height="48" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="1001" y="275" text-anchor="middle" font-size="14.5" fill="#e8eef6">react</text>
+  <text x="888" y="320" text-anchor="middle" font-size="12.5" fill="#8295ab">env place</text>
+
+  <text x="900" y="456" text-anchor="middle" font-size="14" fill="#2dd4bf">events become tokens, interleaved. concurrency is primary.</text>
+
+  <!-- ================= bottom band ================= -->
+  <rect x="70" y="532" width="1060" height="52" rx="14" fill="#0d1c2a" stroke="#233650" stroke-width="1.5"/>
+  <text x="600" y="564" text-anchor="middle" font-size="15.5" fill="#bac8d7">Two worlds. A distributed system lives on the right, where order is partial, not total.</text>
+</svg>

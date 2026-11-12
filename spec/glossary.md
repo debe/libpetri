@@ -7,8 +7,10 @@ requirements; each entry cites the requirements that define the term. The Lean c
 `lean/Libpetri/Spec/Glossary.lean` for the firing terms, `lean/Libpetri/Spec/GlossaryTime.lean`
 for the timing terms, `lean/Libpetri/Spec/GlossaryQueue.lean` for the execution terms,
 `lean/Libpetri/Spec/GlossaryAction.lean` for the action terms,
-`lean/Libpetri/Spec/GlossaryEnable.lean` for the enablement-check terms and
-`lean/Libpetri/Spec/GlossaryNuVer.lean` for the ν verification terms, whose docstrings quote
+`lean/Libpetri/Spec/GlossaryEnable.lean` for the enablement-check terms,
+`lean/Libpetri/Spec/GlossaryNu.lean` for the ν-net terms,
+`lean/Libpetri/Spec/GlossaryNuVer.lean` for the ν verification terms and
+`lean/Libpetri/Spec/GlossaryCompose.lean` for the composition terms, whose docstrings quote
 these entries.
 
 ---
@@ -154,8 +156,10 @@ then, on its output spec and in this order, a place named twice in one output br
 `Timeout` node [IO-013], an `Xor` node inside the child of the `Timeout` node [IO-013], a
 `ForwardInput` outside the child of a `Timeout` node [IO-014], a
 `ForwardInput` whose `from` is not an input place [IO-014], and two output branches that claim
-the same set of places [IO-012]. The first check that fails names the error. No executor option
-skips them [CONC-026].
+the same set of places [IO-012], then, for a transition with a match specification, a place the
+match keys twice and a key on a place that is not an input place [NU-020], and per relay target
+one declared twice and one that is not an output place [NU-054]. The first check that fails names
+the error. No executor option skips them [CONC-026].
 
 ### Builds
 
@@ -345,6 +349,50 @@ specification, the ν-match check [CONC-008], [NU-020].
 
 ---
 
+## ν-nets
+
+### Name
+
+An opaque correlation identity, constructed from a string value [NU-001]. A token carries no name
+field: a key projection reads a name off the token's value [NU-020].
+
+### Match specification
+
+What a transition may declare to join by name: a list of its input places, each with a key
+projection, and optionally relay targets, each an output place with a key projection [NU-020],
+[NU-054]. A transition with one is a matched transition.
+
+### Correlated input
+
+An input place that the match specification of its transition names. Its required count and
+consumption count apply to the tokens of the chosen name [NU-020].
+
+### Key projection
+
+The function a match specification gives a correlated input: from a token's value to a name, or
+to no name. A token whose key yields no name has no name on that input: it is never matched and
+never consumed by that input [NU-020].
+
+### Chosen name
+
+The name a firing of a matched transition joins on: among the names of which every correlated
+input holds at least its required count of tokens, the one whose earliest `createdAt` among all
+tokens of the name in the correlated inputs is earliest, ties broken by the name order [NU-020],
+[NU-022].
+
+### Correlated take
+
+The tokens a firing takes from a correlated input: the first tokens of the chosen name in queue
+order, as many as the consumption count of the input arc with `available` the number of tokens of
+the chosen name [IO-007], [NU-020]. Tokens of other names stay in the place, in their order.
+
+### Relay target
+
+An output place a match specification declares for its transition, with a key projection: every
+token the firing deposits there must project to the chosen name [NU-054].
+
+---
+
 ## ν verification
 
 ### Coloured place
@@ -377,3 +425,29 @@ distinct name: any two names resident in places of S, in the same place or in tw
 ### Verdict
 
 The answer a verifier gives for a property: `Proven`, `Violated` or `Unknown` [VER-003].
+
+---
+
+## Composition
+
+### Subnet definition
+
+A net fragment that is never run on its own: a body net (its places and transitions) and an
+interface of ports, each exposing one body place with a direction, and channels, each exposing
+one body transition [MOD-001], [MOD-003], [MOD-005]. Instantiating it under a prefix gives a
+module instance [MOD-010].
+
+### Prefix
+
+The string a subnet definition is instantiated under. A prefix is non-empty and contains no `/`,
+the reserved separator [MOD-010]. Under prefix `p` a place or transition named `x` is renamed
+`p/x` [MOD-010]; nesting gives names of the form `outer/inner/x` [MOD-013].
+
+### Module instance
+
+What instantiating a subnet definition under a prefix gives: the prefix, a renamed copy of the
+body, in which every place and transition is renamed under the prefix, every arc names the
+renamed places and every timing, priority and action is kept, and handles that resolve the
+definition's port and channel names to the renamed places and transitions [MOD-010], [MOD-011].
+Two instances of one definition under different prefixes share no place and no transition name
+[MOD-010].

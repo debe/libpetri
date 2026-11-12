@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="bS" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#8295ab"/>
+    </marker>
+    <marker id="bR" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#f5556d"/>
+    </marker>
+    <marker id="bT" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="1200" fill="#0b1220"/>
+  <rect x="16" y="16" width="1168" height="1168" rx="22" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="72" y="112" font-size="17" font-weight="600" fill="#f5556d" letter-spacing="2.4">ONE ARC, MOST OF THE LAWS</text>
+  <text x="72" y="182" font-size="52" font-weight="700" fill="#e8eef6">Draining a queue is not exotic</text>
+  <text x="72" y="228" font-size="22" fill="#8295ab">It is what every backend does with the messages that piled up while it was busy.</text>
+
+  <rect x="60" y="272" width="1080" height="304" rx="16" fill="#122033" stroke="#3b4a61" stroke-width="1.5"/>
+
+  <text x="96" y="316" font-size="17" font-weight="700" fill="#8295ab" letter-spacing="1.8">THE SHAPE, STRIPPED TO WHAT MATTERS</text>
+
+  <circle cx="176" cy="410" r="34" fill="#0d1c2a" stroke="#f5556d" stroke-width="2.4"/>
+  <circle cx="164" cy="400" r="6" fill="#f5556d"/><circle cx="188" cy="400" r="6" fill="#f5556d"/><circle cx="176" cy="422" r="6" fill="#f5556d"/>
+  <text x="176" y="472" text-anchor="middle" font-size="18" fill="#f5556d">CUSTOMER_INPUT</text>
+  <text x="176" y="496" text-anchor="middle" font-size="15" fill="#8295ab" font-style="italic">everything that queued up</text>
+
+  <path d="M214,410 L296,410" stroke="#f5556d" stroke-width="3" fill="none" marker-end="url(#bR)"/>
+  <text x="255" y="392" text-anchor="middle" font-size="16" font-weight="700" fill="#f5556d">all()</text>
+
+  <rect x="306" y="376" width="15" height="68" fill="#8295ab"/>
+  <text x="313" y="360" text-anchor="middle" font-size="17" fill="#bac8d7">ForkInput</text>
+  <path d="M325,410 L404,410" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#bS)"/>
+
+  <circle cx="440" cy="410" r="30" fill="#0d1c2a" stroke="#8295ab" stroke-width="2.2"/>
+  <circle cx="440" cy="410" r="7" fill="#e8eef6"/>
+  <text x="440" y="466" text-anchor="middle" font-size="17" fill="#bac8d7">one turn</text>
+
+  <path d="M472,410 L552,410" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#bS)"/>
+  <rect x="562" y="368" width="196" height="84" rx="12" fill="#0d1c2a" stroke="#3b4a61" stroke-width="1.4"/>
+  <text x="660" y="400" text-anchor="middle" font-size="17" fill="#bac8d7">guard, intent and</text>
+  <text x="660" y="424" text-anchor="middle" font-size="17" fill="#bac8d7">response branches</text>
+  <text x="660" y="444" text-anchor="middle" font-size="14" fill="#8295ab">concurrent, plus tool rounds</text>
+
+  <path d="M762,410 L842,410" stroke="#8295ab" stroke-width="2" fill="none" marker-end="url(#bS)"/>
+  <rect x="852" y="376" width="15" height="68" fill="#8295ab"/>
+  <text x="859" y="360" text-anchor="middle" font-size="17" fill="#bac8d7">CloseTurn</text>
+
+  <path d="M871,410 L950,410" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#bT)"/>
+  <circle cx="988" cy="410" r="30" fill="#10262a" stroke="#2dd4bf" stroke-width="2.2"/>
+  <circle cx="988" cy="410" r="7" fill="#2dd4bf"/>
+  <text x="988" y="466" text-anchor="middle" font-size="17" fill="#2dd4bf">TURN_BUDGET</text>
+  <text x="988" y="490" text-anchor="middle" font-size="15" fill="#8295ab" font-style="italic">refunded once per turn</text>
+
+  <text x="96" y="546" font-size="19" fill="#c7d4e2">One token in TURN_BUDGET is what makes turns strictly sequential, and it is the thing the whole proof hangs on.</text>
+
+  <rect x="60" y="616" width="1080" height="212" rx="16" fill="#2a1018" stroke="#5c2233" stroke-width="1.5"/>
+  <text x="96" y="662" font-size="27" font-weight="700" fill="#e8eef6">Every conservation law whose support touches</text>
+  <text x="96" y="700" font-size="27" font-weight="700" fill="#f5556d">CUSTOMER_INPUT is dropped by the exact gate.</text>
+  <text x="96" y="750" font-size="20" fill="#c7d4e2">Correctly. The step relation is not linear on a consume-all arc, so a law resting on that place</text>
+  <text x="96" y="782" font-size="20" fill="#c7d4e2">can quietly remove reachable states and hand back a proof of a net that is not yours.</text>
+  <text x="96" y="812" font-size="18" fill="#8295ab">The report says Dropped. It does not say that most of the net's laws just left.</text>
+
+  <line x1="60" y1="884" x2="1140" y2="884" stroke="#1b2840" stroke-width="1.5"/>
+  <text x="72" y="950" font-size="38" font-weight="700" fill="#e8eef6">The law was true.</text>
+  <text x="72" y="1000" font-size="38" font-weight="700" fill="#2dd4bf">The way elimination wrote it down was not.</text>
+  <text x="72" y="1060" font-size="20" fill="#8295ab">P-semiflows, the minimal non-negative laws, are exactly the combinations that avoid the drained place.</text>
+  <text x="72" y="1092" font-size="20" fill="#8295ab">They go through the identical gate. Twelve of them survived it.</text>
+  <text x="72" y="1152" font-size="17" fill="#5b6e88">libpetri, Apache 2.0 / spec VER-007</text>
+</svg>

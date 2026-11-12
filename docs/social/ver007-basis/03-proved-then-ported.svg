@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="cTeal" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="1200" fill="#0b1220"/>
+  <rect x="16" y="16" width="1168" height="1168" rx="22" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="72" y="112" font-size="17" font-weight="600" fill="#2dd4bf" letter-spacing="2.4">WHAT THE BETTER BASIS BOUGHT</text>
+  <text x="72" y="182" font-size="52" font-weight="700" fill="#e8eef6">Eight queries. About a second each.</text>
+  <text x="72" y="228" font-size="22" fill="#8295ab">Same net, same solver, same property. Only the invariant list changed.</text>
+
+  <rect x="60" y="272" width="516" height="254" rx="16" fill="#122033" stroke="#3b4a61" stroke-width="1.5"/>
+  <text x="96" y="318" font-size="17" font-weight="700" fill="#8295ab" letter-spacing="2.2">BEFORE</text>
+  <text x="96" y="424" font-size="100" font-weight="700" fill="#5b6e88">120 s</text>
+  <text x="96" y="468" font-size="21" fill="#bac8d7">budget burned, eight times over</text>
+  <text x="96" y="500" font-size="19" fill="#8295ab">every one came back Unknown</text>
+
+  <path d="M584,398 L616,398" stroke="#2dd4bf" stroke-width="3" fill="none" marker-end="url(#cTeal)"/>
+
+  <rect x="624" y="272" width="516" height="254" rx="16" fill="#10262a" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="660" y="318" font-size="17" font-weight="700" fill="#2dd4bf" letter-spacing="2.2">AFTER</text>
+  <text x="660" y="424" font-size="100" font-weight="700" fill="#2dd4bf">~1 s</text>
+  <text x="660" y="468" font-size="21" fill="#e8eef6">all eight close</text>
+  <text x="660" y="500" font-size="19" fill="#bac8d7">with answers, not a shrug</text>
+
+  <text x="72" y="592" font-size="17" font-weight="600" fill="#2dd4bf" letter-spacing="2.4">PROVED IN LEAN, THEN PORTED TO FOUR LANGUAGES</text>
+
+  <rect x="60" y="620" width="524" height="248" rx="16" fill="#122033" stroke="#235e57" stroke-width="1.5"/>
+  <text x="92" y="668" font-size="24" font-weight="700" fill="#2dd4bf" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">semiflow_union_sound</text>
+  <text x="92" y="712" font-size="19" fill="#c7d4e2">Conjoining any list of gate-validated</text>
+  <text x="92" y="740" font-size="19" fill="#c7d4e2">laws preserves the abstract reachable</text>
+  <text x="92" y="768" font-size="19" fill="#c7d4e2">set. The union is pure strengthening.</text>
+  <text x="92" y="812" font-size="18" font-weight="700" fill="#e8eef6">Turning it on can never turn a</text>
+  <text x="92" y="840" font-size="18" font-weight="700" fill="#e8eef6">Violated into a Proven.</text>
+
+  <rect x="616" y="620" width="524" height="248" rx="16" fill="#122033" stroke="#235e57" stroke-width="1.5"/>
+  <text x="648" y="668" font-size="24" font-weight="700" fill="#2dd4bf" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">semiflow_gate_is_necessary</text>
+  <text x="648" y="712" font-size="19" fill="#c7d4e2">A semi-positive row that fails the gate</text>
+  <text x="648" y="740" font-size="19" fill="#c7d4e2">prunes a genuinely reachable violating</text>
+  <text x="648" y="768" font-size="19" fill="#c7d4e2">state. Semi-positivity is not enough.</text>
+  <text x="648" y="812" font-size="18" font-weight="700" fill="#e8eef6">So the new source faces the identical</text>
+  <text x="648" y="840" font-size="18" font-weight="700" fill="#e8eef6">check. No exemption.</text>
+
+  <line x1="60" y1="920" x2="1140" y2="920" stroke="#1b2840" stroke-width="1.5"/>
+  <text x="72" y="982" font-size="26" fill="#c7d4e2">Off by default, so existing reports stay byte-identical. The report says how many were added:</text>
+  <text x="72" y="1042" font-size="26" fill="#2dd4bf" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">  Semiflows encoded as invariants: N</text>
+  <text x="72" y="1104" font-size="20" fill="#8295ab">Java, TypeScript, Rust and Python all take the option. Rust is the reference; the others are ported byte-faithfully.</text>
+  <text x="72" y="1152" font-size="17" fill="#5b6e88">libpetri, Apache 2.0 / spec VER-007</text>
+</svg>

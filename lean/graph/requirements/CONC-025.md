@@ -13,53 +13,53 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CONC_025.lean"]
-    n6513["Libpetri.Spec.Materialiser"]
-    n6515["Libpetri.Spec.Materialiser.mat"]
-    n6516["Libpetri.Spec.Materialiser.mk"]
-    n6519["Libpetri.Spec.Materialiser.σ"]
-    n8268["Libpetri.Spec.conc025_matches_bitmap"]
-    n11980["Libpetri.Spec.refMaterialiser"]
+    n8468["Libpetri.Spec.Materialiser"]
+    n8470["Libpetri.Spec.Materialiser.mat"]
+    n8471["Libpetri.Spec.Materialiser.mk"]
+    n8474["Libpetri.Spec.Materialiser.σ"]
+    n12955["Libpetri.Spec.conc025_matches_bitmap"]
+    n19799["Libpetri.Spec.refMaterialiser"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
   c2["📁 Libpetri/Conservation.lean (15 declarations, collapsed)"]
   c3["📁 Libpetri/Conservation/Pop.lean (8 declarations, collapsed)"]
   c4["📁 Libpetri/Enablement.lean (20 declarations, collapsed)"]
-  c80["📁 Libpetri/Reference/Queue.lean (1 declarations, collapsed)"]
-  c88["📁 Libpetri/Refinement.lean (18 declarations, collapsed)"]
-  c89["📁 Libpetri/Refinement/Correspondence.lean (2 declarations, collapsed)"]
-  c90["📁 Libpetri/Refinement/Model.lean (38 declarations, collapsed)"]
-  c94["📁 Libpetri/Ring/Core.lean (54 declarations, collapsed)"]
-  c95["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
-  c97["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
-  c124["📁 Libpetri/Spec/GlossaryQueue.lean (6 declarations, collapsed)"]
-  c1 --> c95
+  c91["📁 Libpetri/Reference/Queue.lean (1 declarations, collapsed)"]
+  c99["📁 Libpetri/Refinement.lean (18 declarations, collapsed)"]
+  c100["📁 Libpetri/Refinement/Correspondence.lean (2 declarations, collapsed)"]
+  c101["📁 Libpetri/Refinement/Model.lean (38 declarations, collapsed)"]
+  c105["📁 Libpetri/Ring/Core.lean (54 declarations, collapsed)"]
+  c106["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
+  c108["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
+  c144["📁 Libpetri/Spec/GlossaryQueue.lean (6 declarations, collapsed)"]
+  c1 --> c106
   c2 --> c1
   c2 --> c3
-  c3 --> c94
+  c3 --> c105
   c4 --> c2
-  c88 --> c89
-  c89 --> c90
-  c90 --> c4
-  c94 --> c0
-  c94 --> c97
-  c95 --> c94
-  c124 --> c80
-  c124 --> c95
-  n6513 --> c124
-  n6515 --> n6519
-  n6516 --> n6513
-  n6519 --> n6513
-  n8268 --> c88
-  n8268 --> n6515
-  n8268 --> n11980
-  n11980 --> c90
-  n11980 --> n6516
+  c99 --> c100
+  c100 --> c101
+  c101 --> c4
+  c105 --> c0
+  c105 --> c108
+  c106 --> c105
+  c144 --> c91
+  c144 --> c106
+  n8468 --> c144
+  n8470 --> n8474
+  n8471 --> n8468
+  n8474 --> n8468
+  n12955 --> c99
+  n12955 --> n8470
+  n12955 --> n19799
+  n19799 --> c101
+  n19799 --> n8471
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8268 root
-  class c0,c1,c2,c3,c4,c80,c88,c89,c90,c94,c95,c97,c124 collapsed
+  class n12955 root
+  class c0,c1,c2,c3,c4,c91,c99,c100,c101,c105,c106,c108,c144 collapsed
 ```
 
 Axioms used:

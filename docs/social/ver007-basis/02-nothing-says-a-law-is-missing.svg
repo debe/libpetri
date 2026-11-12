@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <rect x="0" y="0" width="1200" height="1200" fill="#0b1220"/>
+  <rect x="16" y="16" width="1168" height="1168" rx="22" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="72" y="112" font-size="17" font-weight="600" fill="#fbbf24" letter-spacing="2.4">WHY IT WENT UNNOTICED</text>
+  <text x="72" y="182" font-size="52" font-weight="700" fill="#e8eef6">The prover was disarmed quietly</text>
+  <text x="72" y="228" font-size="22" fill="#8295ab">One drain arc on a busy place takes out every basis row whose support touches it.</text>
+
+  <!-- basis rows -->
+  <rect x="60" y="272" width="1080" height="332" rx="16" fill="#122033" stroke="#3b4a61" stroke-width="1.5"/>
+  <text x="96" y="316" font-size="17" font-weight="700" fill="#8295ab" letter-spacing="1.8">THE NULL-SPACE BASIS, AS ELIMINATION RETURNS IT</text>
+
+  <text x="96" y="366" font-size="24" fill="#6f8197" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">queue + work + done + scratch = 4</text>
+  <line x1="92" y1="358" x2="616" y2="358" stroke="#f5556d" stroke-width="2.4"/>
+  <text x="1104" y="366" text-anchor="end" font-size="19" font-weight="700" fill="#f5556d">DROPPED</text>
+
+  <text x="96" y="412" font-size="24" fill="#6f8197" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">work + retries + scratch = 3</text>
+  <line x1="92" y1="404" x2="536" y2="404" stroke="#f5556d" stroke-width="2.4"/>
+  <text x="1104" y="412" text-anchor="end" font-size="19" font-weight="700" fill="#f5556d">DROPPED</text>
+
+  <text x="96" y="458" font-size="24" fill="#6f8197" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">budget + inflight + scratch = 8</text>
+  <line x1="92" y1="450" x2="588" y2="450" stroke="#f5556d" stroke-width="2.4"/>
+  <text x="1104" y="458" text-anchor="end" font-size="19" font-weight="700" fill="#f5556d">DROPPED</text>
+
+  <text x="96" y="504" font-size="24" fill="#6f8197" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">queue + parked + scratch = 6</text>
+  <line x1="92" y1="496" x2="552" y2="496" stroke="#f5556d" stroke-width="2.4"/>
+  <text x="1104" y="504" text-anchor="end" font-size="19" font-weight="700" fill="#f5556d">DROPPED</text>
+
+  <text x="96" y="550" font-size="24" fill="#e8eef6" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">lease + free = 2</text>
+  <text x="1104" y="550" text-anchor="end" font-size="19" font-weight="700" fill="#2dd4bf">ENCODED</text>
+
+  <text x="96" y="586" font-size="17" fill="#8295ab">Every one of those laws is true. The gate is rejecting how they are written, not what they say.</text>
+
+  <!-- report -->
+  <rect x="60" y="636" width="1080" height="256" rx="16" fill="#0d1c2a" stroke="#fbbf24" stroke-width="1.6"/>
+  <text x="96" y="680" font-size="17" font-weight="700" fill="#fbbf24" letter-spacing="1.8">AND THE ENTIRE SIGNAL YOU GET</text>
+  <text x="96" y="726" font-size="21" fill="#c7d4e2" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">  Dropped invariant: weight on reset place 'scratch'</text>
+  <text x="96" y="758" font-size="21" fill="#c7d4e2" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">  Dropped invariant: weight on reset place 'scratch'</text>
+  <text x="96" y="790" font-size="21" fill="#c7d4e2" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">  Dropped invariant: weight on reset place 'scratch'</text>
+  <text x="96" y="822" font-size="21" fill="#c7d4e2" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace">  Invariants encoded: 1</text>
+  <text x="96" y="866" font-size="18" fill="#8295ab">No line says the net still has conservation laws, and that IC3 is now expected to find them alone.</text>
+
+  <line x1="60" y1="944" x2="1140" y2="944" stroke="#1b2840" stroke-width="1.5"/>
+  <text x="72" y="1014" font-size="38" font-weight="700" fill="#e8eef6">Draining an input queue is</text>
+  <text x="72" y="1062" font-size="38" font-weight="700" fill="#2dd4bf">the everyday case, not an exotic one.</text>
+  <text x="72" y="1110" font-size="20" fill="#8295ab">On a net of a hundred places, IC3 does not rediscover them within any practical budget.</text>
+  <text x="72" y="1152" font-size="17" fill="#5b6e88">libpetri, Apache 2.0 / Java, TypeScript, Rust, Python</text>
+</svg>

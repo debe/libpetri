@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" role="img" aria-label="Two panels, same input: a customer searches for red sneakers, then refines to red sneakers under 100 euros while the first search is still running. Left, a step graph with shared state: the slow first search overwrites the results slot and the reply shows its items for the second query. Right, a libpetri Petri net: result tokens keep their query id, the reply transition fires only when result and open query carry the same id, and the late token is drained.">
+<title>libpetri: results pair by identity</title>
+<rect x="0" y="0" width="1920" height="1080" fill="#ffffff"/>
+<text x="72" y="78" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#0d9488" letter-spacing="3">OPEN SOURCE BUILDING BLOCKS</text>
+<text x="68" y="142" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="62" font-weight="900" fill="#0f172a">libpetri</text>
+<text x="302.98" y="112" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="23" font-weight="800" fill="#334155">Coloured Time Petri nets for concurrent orchestration</text>
+<text x="302.98" y="142" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="400" fill="#64748b">Java · TypeScript · Rust · Python · open source, Apache-2.0</text>
+<g transform="translate(1740,40) scale(4.00000)"><path d="M0 0.5h7m1 0h3m4 0h4m3 0h7M0 1.5h1m5 0h1m1 0h3m1 0h1m3 0h1m2 0h2m1 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m1 0h2m1 0h1m3 0h2m5 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m2 0h3m4 0h3m1 0h1m1 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m1 0h2m1 0h2m1 0h3m1 0h2m2 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m3 0h1m1 0h1m2 0h2m3 0h1m1 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 7.5h2m1 0h2m2 0h1M0 8.5h1m2 0h6m1 0h1m2 0h1m3 0h1m1 0h1m1 0h1m2 0h1m1 0h3M1 9.5h1m2 0h1m2 0h3m1 0h3m2 0h4m1 0h1m1 0h2m1 0h2M1 10.5h2m2 0h5m1 0h1m1 0h1m1 0h3m2 0h1m2 0h2m1 0h1M0 11.5h1m2 0h1m4 0h1m3 0h2m2 0h3m1 0h4m1 0h1m2 0h1M4 12.5h3m1 0h6m1 0h2m2 0h2m1 0h2m4 0h1M1 13.5h1m5 0h1m2 0h2m1 0h2m1 0h3m3 0h7M2 14.5h1m1 0h1m1 0h2m1 0h2m1 0h2m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1M0 15.5h1m2 0h2m3 0h2m1 0h1m3 0h1m3 0h1m3 0h2m1 0h1m1 0h1M2 16.5h1m3 0h2m1 0h1m1 0h1m2 0h1m4 0h3m3 0h1M0 17.5h2m3 0h1m2 0h2m1 0h1m1 0h2m1 0h4m4 0h1m1 0h2M0 18.5h4m2 0h3m1 0h2m3 0h1m2 0h2m4 0h2m2 0h1M0 19.5h2m1 0h3m1 0h2m1 0h1m1 0h1m1 0h1m3 0h2m2 0h1m2 0h2M0 20.5h2m1 0h1m1 0h2m1 0h1m1 0h1m1 0h3m1 0h2m2 0h8M8 21.5h2m2 0h1m1 0h2m4 0h1m3 0h2M0 22.5h7m1 0h5m1 0h2m1 0h4m1 0h1m1 0h2M0 23.5h1m5 0h1m1 0h2m1 0h1m2 0h7m3 0h1m3 0h1M0 24.5h1m1 0h3m1 0h1m1 0h4m1 0h3m3 0h7m1 0h2M0 25.5h1m1 0h3m1 0h1m1 0h1m1 0h2m3 0h2m1 0h1m2 0h1m6 0h1M0 26.5h1m1 0h3m1 0h1m2 0h2m1 0h2m1 0h2m3 0h2m1 0h2m1 0h3M0 27.5h1m5 0h1m3 0h3m1 0h1m7 0h2m1 0h2m1 0h1M0 28.5h7m1 0h3m1 0h1m2 0h2m2 0h2m1 0h1m1 0h1" fill="none" stroke="#0f172a" stroke-width="1" shape-rendering="crispEdges"/></g>
+<text x="1714" y="98" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="30" font-weight="900" fill="#0f172a" text-anchor="end">libpetri.org</text>
+<text x="1714" y="130" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="400" fill="#64748b" text-anchor="end">github.com/debe/libpetri</text>
+<line x1="64" y1="176" x2="1856" y2="176" stroke="#e2e8f0" stroke-width="1.5"/>
+<rect x="64" y="196" width="876" height="704" fill="#f8fafc" rx="26" stroke="#e2e8f0" stroke-width="1.5"/>
+<text x="104" y="242" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="900" fill="#334155" letter-spacing="2">STEP GRAPH + SHARED STATE</text>
+<text x="104" y="270" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="400" fill="#64748b">steps hand results over through one shared slot</text>
+<rect x="104" y="296" width="198.27" height="50" fill="#ffffff" rx="25" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="132" cy="321" r="14" fill="#d97706"/>
+<text x="132" y="327.12" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="158" y="329" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="600" fill="#0f172a">red sneakers</text>
+<rect x="322.27" y="296" width="373.27" height="50" fill="#ffffff" rx="25" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="350.27" cy="321" r="14" fill="#2563eb"/>
+<text x="350.27" y="327.12" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="376.27" y="329" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="600" fill="#0f172a">red sneakers under €100</text>
+<text x="675.53" y="328" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="800" fill="#64748b" text-anchor="end">+0.3 s</text>
+<path d="M 203.13 346 L 203.13 368" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="203.13,380 196.63,367 209.63,367" fill="#64748b"/>
+<rect x="98.13" y="380" width="210" height="60" fill="#ffffff" rx="18" stroke="#94a3b8" stroke-width="2"/>
+<circle cx="126.13" cy="410" r="13" fill="#d97706"/>
+<text x="126.13" y="415.76" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="148.13" y="418" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="700" fill="#0f172a">search</text>
+<text x="290.13" y="417" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="800" fill="#b45309" text-anchor="end">1.8 s</text>
+<path d="M 508.9 346 L 508.9 368" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="508.9,380 502.4,367 515.4,367" fill="#64748b"/>
+<rect x="403.9" y="380" width="210" height="60" fill="#ffffff" rx="18" stroke="#94a3b8" stroke-width="2"/>
+<circle cx="431.9" cy="410" r="13" fill="#2563eb"/>
+<text x="431.9" y="415.76" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="453.9" y="418" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="700" fill="#0f172a">search</text>
+<text x="595.9" y="417" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="800" fill="#1d4ed8" text-anchor="end">0.4 s</text>
+<rect x="123.13" y="480" width="465.77" height="120" fill="#ffffff" rx="16" stroke="#94a3b8" stroke-width="2"/>
+<text x="145.13" y="510" font-family="'Fira Code', 'DejaVu Sans Mono', monospace" font-size="18" font-weight="500" fill="#334155">state[&quot;results&quot;]</text>
+<line x1="123.13" y1="524" x2="588.9" y2="524" stroke="#e2e8f0" stroke-width="1.5"/>
+<circle cx="157.13" cy="549" r="11" fill="#a9c4f5"/>
+<text x="157.13" y="553.68" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="177.13" y="556" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#94a3b8">under €100</text>
+<line x1="173.13" y1="549" x2="283.99" y2="549" stroke="#94a3b8" stroke-width="2"/>
+<circle cx="157.13" cy="579" r="11" fill="#d97706"/>
+<text x="157.13" y="583.68" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="177.13" y="586" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">all red sneakers</text>
+<rect x="441.6" y="563" width="131.3" height="32" fill="#fff1f2" rx="16" stroke="#fecdd3" stroke-width="1.5"/>
+<text x="507.25" y="584.6" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="800" fill="#e11d48" text-anchor="middle">last write wins</text>
+<path d="M 203.13 440 L 203.13 468" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="203.13,480 196.63,467 209.63,467" fill="#334155"/>
+<path d="M 508.9 440 L 508.9 468" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="508.9,480 502.4,467 515.4,467" fill="#334155"/>
+<text x="215.13" y="468" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#e11d48">overwrites at 1.8 s</text>
+<text x="520.9" y="468" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">writes at 0.7 s</text>
+<path d="M 356.02 600 L 356.02 632" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="356.02,644 349.52,631 362.52,631" fill="#334155"/>
+<text x="368.02" y="630" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">reads at 2.2 s</text>
+<rect x="251.02" y="644" width="210" height="60" fill="#ffffff" rx="18" stroke="#94a3b8" stroke-width="2"/>
+<circle cx="279.02" cy="674" r="13" fill="#2563eb"/>
+<text x="279.02" y="679.76" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="301.02" y="682" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="700" fill="#0f172a">reply</text>
+<text x="443.02" y="681" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="800" fill="#1d4ed8" text-anchor="end">1.5 s</text>
+<text x="483.02" y="668" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="800" fill="#e11d48">reads the slot,</text>
+<text x="483.02" y="691" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="800" fill="#e11d48">whoever wrote last</text>
+<path d="M 356.02 704 L 356.02 726" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="356.02,738 349.52,725 362.52,725" fill="#334155"/>
+<text x="368.02" y="726" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">sends</text>
+<rect x="136.02" y="738" width="440" height="108" fill="#ffffff" rx="16" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="156.02" y="767" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="400" fill="#64748b">answer for</text>
+<circle cx="244.64" cy="761.56" r="9" fill="#2563eb"/>
+<text x="244.64" y="765.52" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="258.44" y="767" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="800" fill="#334155">red sneakers under €100</text>
+<rect x="156.02" y="784" width="104" height="44" fill="#f1f5f9" rx="10"/>
+<g transform="translate(168.02,797)"><path d="M1 12.5 C1 8 3 4.5 7 4.5 L10.5 4.5 C12 4.5 13 6 15 7.2 C18 8.8 22 9.4 26 10 C29.5 10.5 31.5 12 31.5 14.5 L1 14.5 Z" fill="#ef4444"/><rect x="0.5" y="14" width="31.5" height="3.8" rx="1.9" fill="#334155"/><path d="M9 11.2 C14 12.3 19 12.1 24.5 10.6" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/></g>
+<text x="208.02" y="813" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#0f172a">€129</text>
+<circle cx="165.02" cy="793" r="4.5" fill="#d97706"/>
+<rect x="270.02" y="784" width="104" height="44" fill="#f1f5f9" rx="10"/>
+<g transform="translate(282.02,797)"><path d="M1 12.5 C1 8 3 4.5 7 4.5 L10.5 4.5 C12 4.5 13 6 15 7.2 C18 8.8 22 9.4 26 10 C29.5 10.5 31.5 12 31.5 14.5 L1 14.5 Z" fill="#ef4444"/><rect x="0.5" y="14" width="31.5" height="3.8" rx="1.9" fill="#334155"/><path d="M9 11.2 C14 12.3 19 12.1 24.5 10.6" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/></g>
+<text x="322.02" y="813" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#0f172a">€149</text>
+<circle cx="279.02" cy="793" r="4.5" fill="#d97706"/>
+<rect x="384.02" y="784" width="104" height="44" fill="#f1f5f9" rx="10"/>
+<g transform="translate(396.02,797)"><path d="M1 12.5 C1 8 3 4.5 7 4.5 L10.5 4.5 C12 4.5 13 6 15 7.2 C18 8.8 22 9.4 26 10 C29.5 10.5 31.5 12 31.5 14.5 L1 14.5 Z" fill="#ef4444"/><rect x="0.5" y="14" width="31.5" height="3.8" rx="1.9" fill="#334155"/><path d="M9 11.2 C14 12.3 19 12.1 24.5 10.6" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/></g>
+<text x="436.02" y="813" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#0f172a">€189</text>
+<circle cx="393.02" cy="793" r="4.5" fill="#d97706"/>
+<circle cx="534.02" cy="806" r="22" fill="#e11d48"/>
+<path d="M527.02 799 L541.02 813 M541.02 799 L527.02 813" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="249.45" y="876" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="900" fill="#e11d48">results of</text>
+<circle cx="339.84" cy="869.88" r="10" fill="#d97706"/>
+<text x="339.84" y="874.2" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="355" y="876" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="900" fill="#e11d48">shown for</text>
+<circle cx="451.58" cy="869.88" r="10" fill="#2563eb"/>
+<text x="451.58" y="874.2" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<rect x="980" y="196" width="876" height="704" fill="#f8fafc" rx="26" stroke="#e2e8f0" stroke-width="1.5"/>
+<text x="1020" y="242" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="900" fill="#0d9488" letter-spacing="2">PETRI NET + TOKEN IDENTITY</text>
+<text x="1020" y="270" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="400" fill="#64748b">libpetri: every token keeps the id of its query</text>
+<rect x="1020" y="296" width="198.27" height="50" fill="#ffffff" rx="25" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="1048" cy="321" r="14" fill="#d97706"/>
+<text x="1048" y="327.12" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="1074" y="329" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="600" fill="#0f172a">red sneakers</text>
+<rect x="1238.27" y="296" width="373.27" height="50" fill="#ffffff" rx="25" stroke="#cbd5e1" stroke-width="1.5"/>
+<circle cx="1266.27" cy="321" r="14" fill="#2563eb"/>
+<text x="1266.27" y="327.12" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1292.27" y="329" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="600" fill="#0f172a">red sneakers under €100</text>
+<text x="1591.53" y="328" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="800" fill="#64748b" text-anchor="end">+0.3 s</text>
+<path d="M 1119.13 346 L 1119.13 368" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1119.13,380 1112.63,367 1125.63,367" fill="#64748b"/>
+<rect x="1039.13" y="380" width="160" height="60" fill="#ffffff" rx="8" stroke="#334155" stroke-width="2.2"/>
+<circle cx="1082.38" cy="410" r="13" fill="#d97706"/>
+<text x="1082.38" y="415.76" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="1105.38" y="418" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="700" fill="#0f172a">search</text>
+<path d="M 1424.9 346 L 1424.9 368" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1424.9,380 1418.4,367 1431.4,367" fill="#64748b"/>
+<rect x="1344.9" y="380" width="160" height="60" fill="#ffffff" rx="8" stroke="#334155" stroke-width="2.2"/>
+<circle cx="1388.15" cy="410" r="13" fill="#2563eb"/>
+<text x="1388.15" y="415.76" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1411.15" y="418" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="700" fill="#0f172a">search</text>
+<rect x="1348.01" y="626" width="276" height="96" fill="#e7f3f4" rx="24"/>
+<rect x="1357.01" y="635" width="258" height="78" fill="#c5e4e3" rx="16"/>
+<path d="M 1119.13 440 C 1119.13 472 1193.35 488.54 1218.46 504.97" fill="none" stroke="#334155" stroke-width="2.2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1228.5,511.54 1214.06,509.86 1221.18,498.98" fill="#334155"/>
+<path d="M 1424.9 440 C 1424.9 472 1350.68 488.54 1325.58 504.97" fill="none" stroke="#334155" stroke-width="2.2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1315.53,511.54 1322.85,498.98 1329.97,509.86" fill="#334155"/>
+<circle cx="1272.02" cy="540" r="52" fill="#ffffff" stroke="#334155" stroke-width="2.4"/>
+<circle cx="1253.02" cy="540" r="16" fill="#d97706"/>
+<text x="1253.02" y="546.84" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<circle cx="1291.02" cy="540" r="16" fill="#2563eb"/>
+<text x="1291.02" y="546.84" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1206.02" y="538" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#334155" text-anchor="end">results</text>
+<text x="1206.02" y="559" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#64748b" text-anchor="end">any arrival order</text>
+<path d="M 1611.53 321 C 1700 321 1700 369 1700 476" fill="none" stroke="#334155" stroke-width="2.2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1700,488 1693.5,475 1706.5,475" fill="#334155"/>
+<circle cx="1700" cy="540" r="52" fill="#ffffff" stroke="#334155" stroke-width="2.4"/>
+<circle cx="1700" cy="540" r="16" fill="#2563eb"/>
+<text x="1700" y="546.84" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1686" y="448" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#334155" text-anchor="end">open query</text>
+<text x="1686" y="470" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="700" fill="#64748b" text-anchor="end">only the newest waits</text>
+<path d="M 1312.99 572.01 C 1339.78 592.95 1424.01 597 1424.01 631" fill="none" stroke="#0d9488" stroke-width="2.8" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1424.01,644 1417.01,630 1431.01,630" fill="#0d9488"/>
+<rect x="1352.84" y="589.11" width="51.41" height="28" fill="#f0fdfa" rx="14" stroke="#0d9488" stroke-width="1.5"/>
+<text x="1378.55" y="609.06" font-family="'Fira Code', 'DejaVu Sans Mono', monospace" font-size="17" font-weight="500" fill="#0d9488" text-anchor="middle">⟨n⟩</text>
+<path d="M 1659.02 572.01 C 1632.23 592.95 1548.01 597 1548.01 631" fill="none" stroke="#0d9488" stroke-width="2.8" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1548.01,644 1541.01,630 1555.01,630" fill="#0d9488"/>
+<rect x="1567.77" y="589.11" width="51.41" height="28" fill="#f0fdfa" rx="14" stroke="#0d9488" stroke-width="1.5"/>
+<text x="1593.47" y="609.06" font-family="'Fira Code', 'DejaVu Sans Mono', monospace" font-size="17" font-weight="500" fill="#0d9488" text-anchor="middle">⟨n⟩</text>
+<rect x="1366.01" y="644" width="240" height="60" fill="#0d9488" rx="10"/>
+<text x="1438.21" y="682" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="23" font-weight="800" fill="#ffffff">reply </text>
+<text x="1495.04" y="681" font-family="'Fira Code', 'DejaVu Sans Mono', monospace" font-size="21" font-weight="500" fill="#ffffff">⟨n⟩</text>
+<text x="1642.01" y="668" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="800" fill="#0d9488">fires only when</text>
+<text x="1642.01" y="691" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="800" fill="#0d9488">both ids match</text>
+<path d="M 1226.98 566 C 1201 581 1120 602 1120 636" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="6 5"/>
+<polygon points="1120,648 1113.5,635 1126.5,635" fill="#94a3b8"/>
+<rect x="1020" y="648" width="160" height="52" fill="#ffffff" rx="8" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="1100" y="681" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#64748b" text-anchor="middle">drain</text>
+<circle cx="1039.78" cy="722.56" r="9" fill="#d97706"/>
+<text x="1039.78" y="726.52" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">1</text>
+<text x="1053.67" y="728" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">finds no partner,</text>
+<text x="1100" y="750" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b" text-anchor="middle">drained after a delay</text>
+<path d="M 1486.01 704 L 1486.01 726" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round"/>
+<polygon points="1486.01,738 1479.51,725 1492.51,725" fill="#334155"/>
+<text x="1498.01" y="726" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" fill="#64748b">sends</text>
+<rect x="1266.01" y="738" width="440" height="108" fill="#ffffff" rx="16" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="1286.01" y="767" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="400" fill="#64748b">answer for</text>
+<circle cx="1374.63" cy="761.56" r="9" fill="#2563eb"/>
+<text x="1374.63" y="765.52" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1388.43" y="767" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="800" fill="#334155">red sneakers under €100</text>
+<rect x="1286.01" y="784" width="104" height="44" fill="#f1f5f9" rx="10"/>
+<g transform="translate(1298.01,797)"><path d="M1 12.5 C1 8 3 4.5 7 4.5 L10.5 4.5 C12 4.5 13 6 15 7.2 C18 8.8 22 9.4 26 10 C29.5 10.5 31.5 12 31.5 14.5 L1 14.5 Z" fill="#ef4444"/><rect x="0.5" y="14" width="31.5" height="3.8" rx="1.9" fill="#334155"/><path d="M9 11.2 C14 12.3 19 12.1 24.5 10.6" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/></g>
+<text x="1338.01" y="813" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#0f172a">€69</text>
+<circle cx="1295.01" cy="793" r="4.5" fill="#2563eb"/>
+<rect x="1400.01" y="784" width="104" height="44" fill="#f1f5f9" rx="10"/>
+<g transform="translate(1412.01,797)"><path d="M1 12.5 C1 8 3 4.5 7 4.5 L10.5 4.5 C12 4.5 13 6 15 7.2 C18 8.8 22 9.4 26 10 C29.5 10.5 31.5 12 31.5 14.5 L1 14.5 Z" fill="#ef4444"/><rect x="0.5" y="14" width="31.5" height="3.8" rx="1.9" fill="#334155"/><path d="M9 11.2 C14 12.3 19 12.1 24.5 10.6" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/></g>
+<text x="1452.01" y="813" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#0f172a">€79</text>
+<circle cx="1409.01" cy="793" r="4.5" fill="#2563eb"/>
+<rect x="1514.01" y="784" width="104" height="44" fill="#f1f5f9" rx="10"/>
+<g transform="translate(1526.01,797)"><path d="M1 12.5 C1 8 3 4.5 7 4.5 L10.5 4.5 C12 4.5 13 6 15 7.2 C18 8.8 22 9.4 26 10 C29.5 10.5 31.5 12 31.5 14.5 L1 14.5 Z" fill="#ef4444"/><rect x="0.5" y="14" width="31.5" height="3.8" rx="1.9" fill="#334155"/><path d="M9 11.2 C14 12.3 19 12.1 24.5 10.6" fill="none" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/></g>
+<text x="1566.01" y="813" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="800" fill="#0f172a">€89</text>
+<circle cx="1523.01" cy="793" r="4.5" fill="#2563eb"/>
+<circle cx="1664.01" cy="806" r="22" fill="#0d9488"/>
+<path d="M1655.01 807 L1661.01 813 L1673.01 800" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1379.45" y="876" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="900" fill="#0d9488">results of</text>
+<circle cx="1469.84" cy="869.88" r="10" fill="#2563eb"/>
+<text x="1469.84" y="874.2" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1484.99" y="876" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="900" fill="#0d9488">shown for</text>
+<circle cx="1581.57" cy="869.88" r="10" fill="#2563eb"/>
+<text x="1581.57" y="874.2" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle">2</text>
+<text x="960" y="972" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="40" font-weight="900" fill="#0f172a" text-anchor="middle">Results pair by identity, not by arrival order.</text>
+<text x="960" y="1014" font-family="Lato, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="400" fill="#64748b" text-anchor="middle">The id match is part of the firing rule: there is no check-then-act gap. Runs in production, checked by Z3 in CI.</text>
+</svg>

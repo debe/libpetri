@@ -9,6 +9,7 @@ This document specifies scaling requirements, benchmark expectations, and perfor
 #### PERF-001: Linear Scaling
 
 **Priority:** MUST
+**Kind:** Q
 
 Execution time scales linearly with the number of transitions in the net. There MUST be no quadratic or worse blowup in the orchestrator loop.
 
@@ -24,6 +25,7 @@ Execution time scales linearly with the number of transitions in the net. There 
 #### PERF-002: Enablement Check O(W)
 
 **Priority:** MUST
+**Kind:** Q
 
 Individual transition enablement checks are O(W) where W = ceil(numPlaces / word_size). Word size is implementation-defined (32-bit or 64-bit). For nets with fewer than 64 places, this is O(1).
 
@@ -40,6 +42,7 @@ Individual transition enablement checks are O(W) where W = ceil(numPlaces / word
 #### PERF-003: Dirty Set O(affected)
 
 **Priority:** MUST
+**Kind:** Q
 
 Each orchestrator cycle re-evaluates only the transitions affected by token changes since the last cycle. The cost is O(D) where D is the number of dirty transitions, not O(T) where T is the total transition count.
 
@@ -55,6 +58,7 @@ Each orchestrator cycle re-evaluates only the transitions affected by token chan
 #### PERF-004: Lock-Free Hot Path
 
 **Priority:** MUST
+**Kind:** Q
 
 The completion signaling path (action completing → orchestrator notified) uses lock-free data structures. No mutex/lock acquisition on the hot path.
 
@@ -72,6 +76,7 @@ The completion signaling path (action completing → orchestrator notified) uses
 #### PERF-010: Noop Event Store Zero-Cost
 
 **Priority:** MUST
+**Kind:** Q
 
 When the noop event store is used (isEnabled() returns false), the executor MUST skip event object creation entirely. No allocation occurs for events that will be discarded.
 
@@ -90,6 +95,7 @@ When the noop event store is used (isEnabled() returns false), the executor MUST
 #### PERF-011: Inline Action Optimization
 
 **Priority:** SHOULD
+**Kind:** Q
 
 Synchronous actions (passthrough, simple transforms) that complete immediately SHOULD be executed inline on the orchestrator thread, avoiding task dispatch overhead.
 
@@ -107,6 +113,7 @@ Synchronous actions (passthrough, simple transforms) that complete immediately S
 #### PERF-020: Benchmark Suite
 
 **Priority:** MUST
+**Kind:** Q
 
 Each implementation MUST include a benchmark suite covering the following scenarios:
 
@@ -129,6 +136,7 @@ Each implementation MUST include a benchmark suite covering the following scenar
 #### PERF-021: Target Performance Ranges
 
 **Priority:** SHOULD
+**Kind:** Q
 
 The following ranges are reference targets, not hard requirements. They represent expected performance for a reasonably optimized implementation on modern hardware:
 
@@ -156,6 +164,7 @@ These targets assume:
 #### PERF-022: Regression Detection
 
 **Priority:** MUST
+**Kind:** Q
 
 Benchmarks MUST be runnable in CI pipelines for regression detection. A significant performance regression (e.g., > 20% slowdown) should be flagged.
 
@@ -204,6 +213,7 @@ Together the three structures take at most (1 + k × T) × ceil(P / word_size) +
 #### PERF-031: Token Storage Efficiency
 
 **Priority:** SHOULD
+**Kind:** Q
 
 Token storage should be efficient for the common case where places hold 0-5 tokens. Implementations SHOULD avoid excessive pre-allocation.
 
@@ -220,6 +230,7 @@ Token storage should be efficient for the common case where places hold 0-5 toke
 #### PERF-040: Flat-Array Memory Layout
 
 **Priority:** SHOULD
+**Kind:** Q
 
 The precompiled executor SHOULD use a flat-array memory layout with no hash map lookups on the hot path. Per-transition data is stored in parallel arrays of length T (transition count) indexed by transition ID. Token storage uses ring buffers indexed by place ID. In-flight transition tracking uses arrays indexed by transition ID.
 
@@ -237,6 +248,7 @@ The precompiled executor SHOULD use a flat-array memory layout with no hash map 
 #### PERF-041: Precompiled Executor Target Speedup
 
 **Priority:** SHOULD
+**Kind:** Q
 
 The precompiled flat-array executor SHOULD achieve 2–4× speedup on synchronous chains compared to the bitmap executor. This target assumes trivial synchronous actions, warm runtime, and noop event store.
 

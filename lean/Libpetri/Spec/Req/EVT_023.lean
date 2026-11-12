@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
+import Libpetri.Spec.GlossaryEvents
 import Libpetri.Spec.Req.EVT_021
 
 set_option linter.missingDocs true
@@ -38,79 +39,14 @@ receives exactly the decorator's appends, an executor's events all reach the dec
 it wraps (`storeSink`, [EVT-020] AC3), so the decorator over an in-memory store returns them in
 order ([EVT-021]) and the decorator over the noop store is not a noop store ([EVT-022]).
 
-`NetEventKind`, `NetEventKind.isFailure` and `LogLevel` are block-local here. The failure set is
-the one [EVT-030]'s `failures()` reads; the integrator may move the three into the store
-glossary so that both blocks share them (design events.md, section 3: one failure set).
+`NetEventKind`, `NetEventKind.isFailure` and `LogLevel` are the event glossary's
+(`GlossaryEvents.lean`): one kind type and one failure set for the whole event model, the set
+[EVT-030]'s `failures()` reads (design events.md, section 3).
 -/
 
 namespace Libpetri.Spec
 
 /-! ## Block-local vocabulary -/
-
-/-- The levels of the platform's logging framework the decorator logs at (Java
-`System.Logger.Level`; the decorator never uses ERROR). -/
-inductive LogLevel where
-  /-- TRACE. -/
-  | trace
-  /-- DEBUG. -/
-  | debug
-  /-- INFO. -/
-  | info
-  /-- WARN (Java `Level.WARNING`). -/
-  | warn
-  /-- ERROR. -/
-  | error
-  deriving DecidableEq, Repr
-
-/-- The severity of a level, least severe first (`System.Logger.Level` is ordered the same
-way). -/
-def LogLevel.rank : LogLevel → Nat
-  | .trace => 0
-  | .debug => 1
-  | .info => 2
-  | .warn => 3
-  | .error => 4
-
-/-- Whether the logging framework, configured at the threshold `th`, has the level `l` enabled:
-`l` is `th` or more severe (`System.Logger.isLoggable`). -/
-def LogLevel.loggableAt (l th : LogLevel) : Bool := decide (th.rank ≤ l.rank)
-
-/-- The thirteen kinds of net event ([EVT-002] to [EVT-014]; Java's sealed `NetEvent`, the same
-thirteen variants in TypeScript, Rust and Python). -/
-inductive NetEventKind where
-  /-- `ExecutionStarted`. -/
-  | executionStarted
-  /-- `ExecutionCompleted`. -/
-  | executionCompleted
-  /-- `TransitionEnabled`. -/
-  | transitionEnabled
-  /-- `TransitionClockRestarted`. -/
-  | transitionClockRestarted
-  /-- `TransitionStarted`. -/
-  | transitionStarted
-  /-- `TransitionCompleted`. -/
-  | transitionCompleted
-  /-- `TransitionFailed`. -/
-  | transitionFailed
-  /-- `TransitionTimedOut`. -/
-  | transitionTimedOut
-  /-- `ActionTimedOut`. -/
-  | actionTimedOut
-  /-- `TokenAdded`. -/
-  | tokenAdded
-  /-- `TokenRemoved`. -/
-  | tokenRemoved
-  /-- `MarkingSnapshot`. -/
-  | markingSnapshot
-  /-- `LogMessage`. -/
-  | logMessage
-  deriving DecidableEq, Repr
-
-/-- The failure kinds: `TransitionFailed`, `TransitionTimedOut` and `ActionTimedOut` (the set
-[EVT-030]'s `failures()` returns in every runtime). -/
-def NetEventKind.isFailure : NetEventKind → Bool
-  | .transitionFailed | .transitionTimedOut | .actionTimedOut => true
-  | _ => false
 
 /-- The level table of the logging event store (ruling D29 (a), evt-c EVT-C3 (a): Java's table,
 `EventStore.java:374-416`): the failure kinds at WARN, the two lifecycle kinds at INFO, the other

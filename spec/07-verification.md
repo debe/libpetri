@@ -317,12 +317,13 @@ The verifier *shall* read a marking as quiescent exactly when every transition w
 #### VER-003: Verification Result
 
 **Priority:** SHOULD
+**Kind:** B
 
 The verification result includes:
 
 - **Verdict**: Proven (with proof method and optional inductive invariant), Violated (with counterexample), or Unknown (with reason)
 - **Route**: which route decided the verdict — the SMT pipeline, bounded enumeration
-  ([VER-017]), the ν name-partition graph ([VER-012]), a structural proof, or none. The graph
+  ([VER-017]), the ν name-partition graph ([VER-012]), a structural proof, or `Unavailable` when no route decided it. The graph
   routes compute no P-invariants, so a consumer reading the result's fields rather than its
   report MUST be able to tell "not computed on this route" from "the net has none". The rule
   is about the **empty** case only: an empty list off the SMT route means "not computed", while
@@ -343,7 +344,9 @@ The verification result includes:
   - `UNTIMED_ABSTRACTION`: the net is timed and the counterexample comes from the untimed
     abstraction, unchecked under timing: the timed check of [VER-023] was off or did not apply.
   - `TIMED_EXACT`: the deciding route already explores timed behaviour ([VER-012]'s Route B on a
-    timed net), so the trace is a run of the timed semantics. Route B is priority-blind by default
+    timed net), so the trace is a path of the graph Route B explored: the late graph by default,
+    which keeps each earliest bound and drops each latest bound ([VER-002]), and the on-time graph
+    under `assumeNoReaping`. Route B is priority-blind by default
     and honours priority only in part under conflict-only priority ([NU-052]), so the trace is
     timing-feasible **ignoring priority**, not necessarily a run the executor takes.
   - `TIMED_CONFIRMED`: the timed check ran and the timed state-class graph reaches a violating
@@ -364,9 +367,37 @@ The verification result includes:
   The field never changes a verdict: the untimed claim of [VER-004] is the contract.
 - **Statistics**: Number of places, transitions, invariants found, elapsed time
 
+The verifier *shall* return `Proven` with a proof method that is not empty, `Violated`, or `Unknown` with a reason that is not empty.
+
+The places a property of [VER-002] names are the places of `MutualExclusion`, `PlaceBound` and `Unreachable`, and the places and the `waivedBy` places of `QuiescentCount`; the sinks of `DeadlockFree` and `TerminatesAtSink` and the places of a conditional sink declaration ([VER-014]) are not among them, since a sink or marker the net does not hold is never marked and excuses nothing.
+
+*If* a property names a place that the net does not declare, the initial marking does not mark and no rewrite of the verified net adds (the in-flight places of [VER-004], the arrival sources of [VER-006]), *then* the verifier *shall* return `Unknown`, whatever any route would answer.
+
+*If* the verified net cannot be built (the in-flight split of [VER-004] refuses the net, or the premise check of `Bounded(k)` of [VER-006] fails), *then* the verifier *shall* return `Unknown`.
+
+A configuration error is not a verified net that cannot be built. A name that the `Arrivals` closure of [VER-006] would add and that the net already declares, or an `ArrivalsBetween` mode with `max < min`, is rejected with an exception (a panic in Rust) before any route runs, not with a verdict.
+
+*When* the verdict is `Violated` and `counterexampleConfirmed` is `true`, the verifier *shall* report a trace that is a firing sequence of the verified net from the initial marking to a marking that violates the property.
+
+*When* the initial marking violates the property and the verdict is `Violated`, the verifier *shall* report the empty firing sequence, with `counterexampleConfirmed` not `false`, and `true` unless Route B or the name-coloured encoding of [NU-053] decided it.
+
+The verifier *shall* return `Proven` only when no marking reachable from the initial marking in the untimed abstraction of the verified net ([VER-004]) violates the property.
+
+On a ν-net, a `Proven` of Route B is the claim of [VER-012]: where its graph keeps a latest bound (under `assumeNoReaping`, or on a direct call on a timed net), the claim holds for an on-time executor whose actions take no time.
+
+*When* the verifier reports a P-invariant, on any route, its weighted token sum *shall* equal its constant on every marking reachable from the initial marking in the untimed abstraction of the verified net.
+
+The verifier *shall* report a `counterexampleTiming` exactly when the verdict is `Violated`, and `UNTIMED_NET` exactly when every transition of the net is `immediate`.
+
+*When* the verdict is `Violated` and some transition of the net is not `immediate`, the verifier *shall* report `TIMED_EXACT` if Route B decided it, and `UNTIMED_ABSTRACTION` if another route decided it while the timed check of [VER-023] is off.
+
+*When* the verdict is `Proven` or `Violated`, the verifier *shall* name the route that decided it, which is not `Unavailable`.
+
 **Acceptance Criteria:**
 1. Proven verdict includes the proof method.
-2. Violated verdict includes a counterexample trace of markings and transitions.
+2. Violated verdict includes a counterexample trace of markings and transitions. With
+   `counterexampleConfirmed` `true` the trace is a firing sequence of the verified net from the
+   initial marking to a violating marking; an unconfirmed trace may be empty.
 3. Unknown verdict includes a reason (e.g., timeout, solver limit).
 4. The result names the deciding route, so an empty invariant list from a graph route is
    distinguishable from a net that genuinely has none. A non-empty list is valid on every
@@ -378,6 +409,8 @@ The verification result includes:
    the unresolved conjunct and separates a strictly stronger demand; an enumeration finds no
    class marking a place that cannot be marked — so a refusal placed inside one route is not a
    refusal at all. It MUST precede the ν route, the structural routes and the encoders alike.
+   A place that a rewrite of the verified net adds, such as `inflight:<t>` of [VER-004], resolves:
+   the check reads the verified net.
 6. `counterexampleTiming` is absent for `Proven` and `Unknown`. For `Violated` it is
    `UNTIMED_NET` on a net whose transitions are all `immediate`, whatever the route;
    `TIMED_EXACT` for a Route B verdict on a timed net; and `UNTIMED_ABSTRACTION` for any other
@@ -387,12 +420,15 @@ The verification result includes:
    `  It may be spurious if timing constraints prevent this sequence.`, in every implementation.
 8. **An initial violation is the empty trace.** When the initial marking itself violates the
    property, every route's `Violated` carries the **empty firing sequence**: a trace of one
-   marking (the initial marking) and no transition, with `counterexampleConfirmed` `true`. On
-   the fixpoint query this holds whether or not the counterexample replay is enabled: the
+   marking (the initial marking) and no transition, with `counterexampleConfirmed` `true`, or absent on
+   Route B ([NU-055]). On the name-coloured encoding ([NU-053]) no replay applies:
+   `counterexampleConfirmed` is absent and the trace need not list the initial marking. On the
+   flat fixpoint query this holds whether or not the counterexample replay is enabled: the
    refutation proof has no step to decode, so the verifier evaluates the violation predicate
    on the initial marking directly and reports the report line `Counterexample: the initial
-   marking violates the property (empty firing sequence)`. A `Violated` with no trace at all
-   is not conforming, since no one can replay it.
+   marking violates the property (empty firing sequence)`. At an initial violation off the
+   name-coloured encoding, a `Violated` with no trace at all is not conforming, since no one can
+   replay it.
 
 **Implementation notes:**
 - Java: `SmtVerificationResult.counterexampleTiming()`, a nullable
@@ -416,16 +452,17 @@ untimed warning.
 #### VER-004: Untimed Over-Approximation
 
 **Priority:** SHOULD
+**Kind:** B
 
 SMT verification operates on untimed Petri net semantics (marking projection, integer token counts). Timing only restricts which firings happen: every timed firing is an untimed one, and a reap ([TIME-013]) changes no marking, so every marking a timed run visits is reachable in the untimed net (Lean `ReapingVsUntimed.timed_markings_reachable`). A proof of a property of the marking alone on the untimed net therefore holds for the timed net (`marking_properties_transfer`).
 
-Timing does add one thing the untimed net lacks: a place to **rest**. A late executor reaps a `Deadline` or `Window` transition and stops at a marking that still enables it, a marking the untimed net does not count as quiescent (`reaping_refutes_ver004_ac3`: `p0 → t → p1`, `t = window(3, 5)`, rests at `{p0}` with the token stranded while the untimed `DeadlockFree` is `Proven`). The untimed abstraction MUST include this, so every quiescence property reads quiescence reap-aware ([VER-002]): a marking where every enabled transition is reapable counts as quiescent. With that reading, a proof on the untimed net is sound for every timed run, a late one included. `assumeNoReaping` restores the plain reading; a `Proven` under it holds only for an on-time executor, one that reaps no transition and fires none after its latest bound, and the report says so.
+Timing does add one thing the untimed net lacks: a place to **rest**. A late executor reaps a `Deadline` or `Window` transition and stops at a marking that still enables it, a marking the untimed net does not count as quiescent (`reaping_refutes_ver004_ac3`: `p0 → t → p1`, `t = window(3, 5)`, rests at `{p0}` with the token stranded while the untimed `DeadlockFree` is `Proven`). The untimed abstraction MUST include this, so every quiescence property reads quiescence reap-aware ([VER-002]): a marking where every enabled transition is reapable counts as quiescent. With that reading, a proof on the untimed net is sound for every timed run, a late one included. `assumeNoReaping` restores the plain reading; a `Proven` under it holds only for an on-time executor, one that reaps no transition and lets no armed transition pass its latest bound, and the report says so.
 
 **Atomic firings and in-flight actions.** Every route reads a firing as one atomic step: its inputs leave and its outputs arrive in the same step. The executor does not fire that way. It consumes a firing's inputs when the action starts and deposits the outputs when the action completes ([EXEC-001] steps 5 and 1), and it fires other transitions in between. An asynchronous action keeps that gap open while it runs ([CONC-002]). A synchronous one keeps it open to the end of its firing pass, because a drain later in the same pass does not see the deposit ([EXEC-003] AC5). For monotone arcs the gap changes nothing: a run with `t` in flight can be reordered so that `t`'s deposit follows its start at once, because the steps in between only see more tokens in `t`'s output places, and a transition that needs tokens stays enabled and does the same. It does change something when a transition tests one of `t`'s output places **non-monotonically**: an inhibitor arc, a reset arc, or a draining input (`all`, `atLeast`). A terminal place ([EXEC-042]) counts too, since it inhibits every transition. With `t: one(p) → p` and an async action, and `u: one(q) + inhibitor(p) → bad`, `p` is never empty in any atomic run from `{p, q}`, so `Unreachable(bad)` was `Proven`; the executor fires `u` while `t` is in flight. With `start: one(req) + inhibitor(busy) → busy` and two requests, `PlaceBound(busy, 1)` was `Proven` too, and two guarded transitions sharing `busy` both start.
 
 The untimed abstraction MUST therefore model the two-step firing for every transition `t` with an output place (in any branch, the `Timeout` branch included) that some transition tests non-monotonically. Such a `t` is **split** into:
 - `t` itself, with every input, read, inhibitor and reset arc, its timing, priority and match spec, whose only output is a fresh place `inflight:<t>`, and
-- `complete:<t>`, `immediate()`, with the one input `one(inflight:<t>)` and `t`'s output spec, in which a `forwardInput(from, to)` leaf deposits into `to`.
+- `complete:<t>`, `immediate()`, with the one input `one(inflight:<t>)`, no other arc, `t`'s priority and `t`'s output spec, in which a `forwardInput(from, to)` leaf deposits into `to`.
 
 Two readings split more transitions, because the property or the priority semantics tests the gap too:
 - A `QuiescentCount` with `min > 0` on a net with a terminal place it does not waive ([EXEC-042]) splits every transition that deposits into a counted place or a waiver place. A terminal stop abandons an action in flight, so the counted tokens it would deposit never arrive.
@@ -453,23 +490,56 @@ counterexamples that would require two distinct correlation names to be equal,
 without sacrificing soundness, and is the one place the untimed encoder reasons
 about token *identity* rather than only token *counts*.
 
+Each firing the executor takes under its timing *shall* be a firing of a transition of the untimed net, from the same marking to the same marking.
+
+A reap ([TIME-013]) and the passing of time *shall* change no marking.
+
+*Where* the transitions of a net have distinct names, a marking at which a timed run from the initial marking ([TIME-010]) rests, with no transition it enables armed, *shall* be quiescent as [VER-002] reads quiescence by default: every transition it enables is reapable.
+
+*Where* the transitions of a net have distinct names, a marking at which an on-time run from the initial marking ([TIME-010]) rests, one that reaps no transition and lets no armed transition pass its latest bound, *shall* enable no transition.
+
+A place is tested non-monotonically when it is a terminal place, when some transition has an inhibitor arc, a reset arc or an `all` or `atLeast` input on it, or when one of the two readings below counts it so.
+
+*If* the property is a `QuiescentCount` with `min > 0` and the net has a terminal place its waiver places do not name, *then* the verifier *shall* count the property's places and its waiver places as tested non-monotonically.
+
+*While* conflict priority applies, the verifier *shall* count the input and read places of every pruning transition, one with strictly higher priority than another transition that shares an input place with it, as tested non-monotonically.
+
+*While* `assumeAtomicFiring` is not set, the verifier *shall* split exactly the transitions that model no environment, are not a completion step (a transition named `complete:<x>` whose one input is `one(inflight:<x>)` and that has no read or reset arc), and either are pruning transitions while conflict priority applies or have an output place, in any branch with the `Timeout` branch included, that is tested non-monotonically.
+
+The verifier *shall* replace each split transition `t`, at its position in the transition order, by `t` with every input, read, inhibitor and reset arc and its timing, whose only output is the place `inflight:<t>`, directly followed by `complete:<t>`, `immediate()`, whose one input is `one(inflight:<t>)`, which has no other arc, and whose output spec is that of `t` with each `forwardInput(from, to)` leaf replaced by the place `to`.
+
+The places of the split net *shall* be the places of the net followed by `inflight:<t>` for each split transition `t` in the transition order, and every transition that is not split *shall* stay as it is.
+
+*If* no transition is to be split, *then* the verifier *shall* verify the net as it is.
+
+*If* a transition to split is a ν-join, writes a coloured place, has a `Timeout` that forwards an input whose cardinality is not `one`, or would add a name the net already uses for a place or a transition, *then* the verifier *shall* refuse the split with a reason that opens with `transition '<t>'` for the first such transition `t` in the transition order, and *shall* answer `Unknown` on every route.
+
+*While* `assumeAtomicFiring` is not set, *if* conflict priority applies, the net has a pruning transition, and a transition the verifier would split under conflict priority cannot be split, *then* the verifier *shall*, instead of refusing the split, turn conflict priority off for that call and split the net as it does without conflict priority.
+
+*While* `assumeAtomicFiring` is set, the verifier *shall* verify the net as it is and *shall* keep conflict priority as it applies.
+
+*While* `assumeAtomicFiring` is not set and the split succeeds, *where* no firing fails (no action fails, and output validation and the relay check reject no output or timeout outcome), no action publishes an output before it completes and no token is injected, a marking the executor reaches from the initial marking, with each action in flight of a transition that is not split completed with one of its outcomes, *shall* be reachable in the split net from the initial marking, with one token on `inflight:<t>` for each action of a split transition `t` in flight.
+
 **Acceptance Criteria:**
-1. Verification ignores timing constraints.
+1. The flat routes read no timing bound: of a transition's timing they read only whether it is
+   reapable ([VER-002]). Route B ([VER-012]) keeps each earliest bound, and each latest bound only
+   under `assumeNoReaping`.
 2. Verification is value-blind — value-dependent branch and correlation choices are
    over-approximated (except the [NU-020] name-equality carve-out of [NU-050], when
    implemented).
 3. A Proven verdict on the untimed net implies the property holds for all timed executions,
    including those of an executor that runs late and reaps a transition ([TIME-013]), with
    quiescence read as [VER-002] defines it. Under `assumeNoReaping` a Proven verdict holds for
-   the timed executions of an on-time executor, in which no transition is reaped and none
-   fires after its latest bound, and the report states that assumption. On Route B
+   the timed executions of an on-time executor, in which no transition is reaped and no armed
+   transition passes its latest bound, and the report states that assumption. On Route B
    ([VER-012]), which keeps the latest bounds under `assumeNoReaping`, a firing is also one
    instant step, so the verdict holds only for an executor whose actions take no time. The
    report says so, and a closed graph is called exact only for such an executor: with `t: a →
    p` at `deadline(20)` and a 150 ms action, `h: p + b → ok` at `deadline(20)` and `v: b → bad`
    at `delayed(60)`, beside a ν pair, `Unreachable(bad)` is `Proven` under `assumeNoReaping`
    with that label, `Violated` by default, and the executor marks `bad`.
-4. A Proven verdict holds for the executor's runs with actions in flight: every transition
+4. A Proven verdict holds for the executor's runs with actions in flight whose actions publish no
+   output before they complete (no `ctx.flush()`): every transition
    whose output some transition tests non-monotonically is verified as its start and
    `complete:<name>`, and the report names the split transitions. From `{p, q, go}`, with
    `t: one(p) + one(go) → p` whose action is asynchronous, `u: one(q) + inhibitor(p) → r` makes
@@ -478,8 +548,8 @@ about token *identity* rather than only token *counts*.
    drains). The executors reach the same markings.
 5. A net with no such transition produces byte-identical scripts, with or without
    `assumeAtomicFiring`.
-6. A ν-join or coloured writer that needs the split, and a `Timeout` forward of more than one
-   token that needs it, give `Unknown` on every route, naming the transition. Under
+6. A ν-join or coloured writer that needs the split, and a `Timeout` forward from an input that is
+   not `one` that needs it, give `Unknown` on every route, naming the transition. Under
    `assumeAtomicFiring` the net is verified atomically and the report states the assumption.
    Under conflict priority a transition that cannot be split turns the pruning off instead:
    the verdict is the one without conflict priority, and the report names the transition.
@@ -526,6 +596,7 @@ The verifier *shall* report a nonzero weight vector `w` with a constant `c` as a
 #### VER-006: Environment Analysis Mode
 
 **Priority:** SHOULD
+**Kind:** B
 
 The verifier supports configurable treatment of environment places during analysis:
 
@@ -540,8 +611,14 @@ The verifier supports configurable treatment of environment places during analys
 - **Arrivals(min, max)** — between `min` and `max` tokens injected into each environment place in
   total: `min` of them are required, the rest optional. `Arrivals(k)` is `Arrivals(0, k)`, and
   `Arrivals(k, k)` is exactly `k`. A configuration with `min < 0` or `max < min` is rejected when
-  the mode is built
+  the mode is built, and a mode value written directly (a Rust enum variant) is refused before any
+  route runs
 - **Ignore** — environment places are not modeled
+
+The default mode of the SMT verifier is `AlwaysAvailable`, and this requirement binds that
+verifier and every route it dispatches to. The state-class graph API takes `AlwaysAvailable`,
+`Bounded(k)` and `Ignore`, defaults to `Ignore`, and refuses `Arrivals`, which only the SMT
+verifier applies, as a net rewrite.
 
 **Arrivals is a net rewrite, not an encoding.** Before any route runs, the verifier closes the
 net with the construction [VER-022] uses for an arrival group with the same `min` and `max`
@@ -559,8 +636,9 @@ declined. In particular, under `Arrivals(k, k)` a quiescent marking has seen exa
 which is what exact accounting on an open subnet ("k inputs arrive ⇒ k outcomes at quiescence")
 needs; under `Arrivals(k)` a run that declines is always a counterexample to it. The rewritten net has **no** environment places,
 so every route applies to it as to any closed net: the enumeration route ([VER-017]), P-invariants
-and quiescence mean what they mean on a closed net, and none of the `Ignore` refusals or
-`AlwaysAvailable` vacuity notes below applies. Consequences a caller sees:
+and quiescence mean what they mean on a closed net, none of the `Ignore` refusals below applies,
+and the vacuity note below arises only as it does on a closed net, from a transition that is not
+reapable and has no input, read or inhibitor arc. Consequences a caller sees:
 
 - Counterexample traces name the injection transitions (`env:arrive[i]:P`, `env:arrive?[i]:P`),
   each firing being one arrival, and the declines (`env:decline[i]`); the report says the net was
@@ -583,27 +661,65 @@ external source rather than a column that starts empty and can only be consumed.
 laws (P-invariants) derived from the closed net MUST NOT be applied to injected environment
 places, since injection breaks closed-net conservation.
 
-**The mirror-image vacuity.** Under `AlwaysAvailable` (and under `Bounded(k)` whenever the
-demand is met) an environment-gated transition is enabled in *every* marking, so **no marking
-is quiescent** and every quiescence property — `DeadlockFree`, `TerminatesAtSink`,
-`QuiescentCount`, `JoinedOrDeadLettered` — is unviolatable. The `Proven` this yields is correct
+**The mirror-image vacuity.** Under `AlwaysAvailable`, and under `Bounded(k)` when the cap
+meets the demand, an input or read arc on an environment place is no reason a transition is
+disabled. A transition with no inhibitor arc whose every input and read arc is such an arc has no
+reason left: it is enabled, through injection, in *every* marking, so **no marking is quiescent**
+and every quiescence property (`DeadlockFree`, `TerminatesAtSink`, `QuiescentCount`,
+`JoinedOrDeadLettered`) is unviolatable. A transition that also needs a token of an ordinary
+place, or carries an inhibitor arc, keeps a reason, so quiescent markings can exist beside it. The
+`Proven` this yields is correct
 and carries no information about the net: an open net with an always-available source never
 comes to rest, so "no reachable quiescent marking strands a token" holds whatever the net does.
 Unlike the `Ignore` case this is not refused, because the verdict is true; but an implementation
 MUST report it, so a caller cannot read the empty claim as a guarantee about their workflow.
+`QuiescentNameAligned` ([NU-055]) is the exception: where no marking can be quiescent it is
+`Unknown` (AC6). Under a mode that models injection an environment place is an ordinary place for
+the rest set of [VER-014]: a token left on it is stranded unless the caller declares the place a
+sink, as the closure of [VER-022] does.
 
 Because `Ignore` does not model injection, a safety property that holds **only** because
-environment-gated transitions never fire is vacuous. When environment places are registered and
-the mode does not model injection (`Ignore`), the verifier MUST NOT return `Proven` for such a
-property — it reports `Unknown` (with a reason) instead of silently certifying.
+environment-gated transitions never fire is vacuous, and the verifier cannot tell which properties
+hold only for that reason. When environment places are registered and the mode does not model
+injection (`Ignore`), the verifier MUST NOT return `Proven` for any property: it reports `Unknown`
+(with a reason) instead of silently certifying.
 
 This binds **every route that can return `Proven`**, not only the SMT encoding. An
 implementation that decides some properties structurally — the name-partition state-class graph
 of [NU-050], say — reaches a verdict without ever building an encoding, and a structural
 exploration under `Ignore` treats an environment place as an ordinary place that simply starts
 empty. The bound it certifies then holds for exactly the reason this requirement rejects. Only
-`Proven` is refused: a `Violated` under `Ignore` is a real counterexample in a strictly smaller
-reachable set, so it is a fortiori a counterexample in the injected one.
+`Proven` is refused. A `Violated` of a reachability-safety property (`MutualExclusion`,
+`PlaceBound`, `Unreachable`) under `Ignore` is a real counterexample in a strictly smaller
+reachable set, so it is a fortiori a counterexample in the injected one. A `Violated` of a
+quiescence property under `Ignore` is a rest of the net while the environment stays silent, which
+need not be a rest under `AlwaysAvailable` or `Bounded(k)`: on `env IN → T → OUT` the empty
+marking marks no sink, so `TerminatesAtSink({OUT})` is `Violated` under `Ignore`, while under
+`AlwaysAvailable` no marking is quiescent and the property is `Proven` with the vacuity note.
+
+*While* the mode is `AlwaysAvailable`, the verifier *shall* treat as reachable every marking the executor reaches while the environment injects tokens into the environment places.
+
+*While* the mode is `Bounded(k)` and the two premises of AC3 hold, the verifier *shall* treat as reachable every marking the executor reaches while the environment keeps at most `k` tokens resident in each environment place.
+
+*While* the mode is `Bounded(k)`, the verifier *shall* not treat as reachable a marking that holds more than `k` tokens on an environment place, from an initial marking that holds at most `k` on each one.
+
+*While* the mode is `Bounded(k)`, the premise check *shall* pass exactly when the initial marking holds at most `k` tokens on each registered environment place and no transition deposits into one.
+
+*If* the mode is `Bounded(k)` and the premise check fails, *then* the verifier *shall* return `Unknown` naming the environment place and the broken premise, and *shall* run no route.
+
+*While* the mode is `AlwaysAvailable` or `Bounded(k)`, an input or read arc on an environment place *shall* not count as a reason a transition is disabled, unless the mode is `Bounded(k)` and the arc demands more than `k` tokens, in which case the transition *shall* count as permanently disabled.
+
+*While* the mode is `AlwaysAvailable` or `Bounded(k)`, the verifier *shall* treat a marking as quiescent exactly when every transition that is not reapable is permanently disabled or has a disabling reason that holds at the marking. A marking quiescent in this sense that is reachable with injection, from an initial marking that holds at most `k` tokens on each environment place under `Bounded(k)`, enables no transition, and no sequence of injections makes it enable one.
+
+The verifier *shall* report the vacuity note only for a quiescence property, and only when some transition of the verified net that is not reapable is neither permanently disabled nor has a disabling reason left under the mode, an input or read arc on an environment place being a reason under `Ignore` and `Arrivals`, which model no injection, and an inhibitor arc that the terminal rewrite of [EXEC-042] adds being a reason in every mode.
+
+*While* the mode is `AlwaysAvailable` or `Bounded(k)` and environment places are registered, *when* the property is a quiescence property and some transition of the verified net that is not reapable is neither permanently disabled nor has a disabling reason left (an inhibitor arc that the terminal rewrite of [EXEC-042] adds is a reason), the verifier *shall* report the vacuity note with a `Proven` or `Violated` verdict.
+
+*While* the mode is `Arrivals(min, max)`, the verifier *shall* verify the net closed with a mandatory source holding `min` tokens and an optional source holding `max − min` tokens for each environment place, so that a marking of the net is reachable in the closed net exactly when the environment reaches it with at most `max` arrivals on each environment place, and is a dead marking of the closed net exactly when it is reached with at least `min` arrivals on each environment place and enables no transition of the net.
+
+*If* environment places are registered and the mode is `Ignore`, *then* the verifier *shall* not return `Proven`, on any route.
+
+*When* the mode is `Ignore` and the verdict is `Violated` with `counterexampleConfirmed` `true`, the trace *shall* be a firing sequence of the verified net without injection to a marking that violates the property.
 
 **Acceptance Criteria:**
 1. Each mode is selectable via the verifier configuration.
@@ -666,7 +782,7 @@ reachable set, so it is a fortiori a counterexample in the injected one.
 than restating it. `Arrivals(k)` is selectable on
 the verifier and in `SubnetDef.verify` ([MOD-051]).
 
-**Depends on:** [VER-022], [NU-050], [NU-051]
+**Depends on:** [VER-002], [VER-003], [VER-004], [VER-012], [VER-014], [VER-017], [VER-022], [NU-050], [NU-051], [NU-055]
 
 **Test derivation:** Same net (`env IN → T → OUT`) with different environment modes; verify
 `AlwaysAvailable` → `Violated`, `Bounded(k)` gates by per-firing multiplicity, `Arrivals(k)` bounds
@@ -819,6 +935,7 @@ the encoded script must report itself coloured and must differ between the optio
 #### VER-013: Solver Transport
 
 **Priority:** SHOULD
+**Kind:** B
 
 The SMT pipeline ([VER-001]) reaches the solver through one transport in every implementation:
 each query is one `z3` process. The process is started with the argument list
@@ -834,7 +951,9 @@ solver, and a wall-clock watchdog at `timeout_ms + 2000` milliseconds kills a pr
 ignored both timeouts. The process is killed and reaped on every exit path. No solver state
 survives a query: concurrent verifications in one host process are independent, and a solver
 crash is a verdict, never a crashed host. The timeout is per invocation; the HORN query, the
-certificate script and its detail re-run each receive the full budget.
+certificate script and its detail re-run each receive the full budget. The formula is fixed for a
+`timeout_ms` of at least 1. A timeout of 0 is outside it: Java and TypeScript raise it to 1 ms, so
+that `-t:0`, which `z3` reads as no limit, never reaches the solver, and Rust passes `-t:0`.
 
 **Total budget.** Because the timeout is per invocation, one `verify()` can run for several times
 it: the bound query ([VER-015]), the state-equation phase shared across its refinements
@@ -925,7 +1044,8 @@ counter and the phase one of `bound` ([VER-015]), `state-equation`, `invariant` 
 `(assert (not Error))`, `sat` is `Proven` and `unsat` is `Violated`. Without a verdict line the
 `Unknown` reason is, in this order: the `timeout` line printed by the `-T` backstop; the watchdog
 kill; the first `(error …)` line on stdout, then on stderr; any other stderr text; the unexpected
-stdout itself. The certificate script requires exactly three positional answers; an `(error …)`
+stdout itself. A verdict line decides whatever else the reply carries, an `(error …)` line or a
+non-zero exit included. The certificate script requires exactly three positional answers; an `(error …)`
 on either stream, a `timeout` line, a kill or a non-zero exit makes the check inconclusive and
 withholds `Proven`.
 
@@ -946,6 +1066,26 @@ state class ([VER-010]), and the markings and violation lists of an open-net rep
 `String.compareTo`) differs from code-point order (Rust `str`) wherever a character above
 U+FFFF meets one in U+E000–U+FFFF.
 
+**The transport, as EARS sentences.**
+
+*When* the verifier starts a `z3` process with a timeout of `t` milliseconds, `t` at least 1, it *shall* pass `-t:t` and, as `-T`, the smallest whole number of seconds that is at least `(t + 1000) / 1000`, and *shall* kill the process at `t + 2000` milliseconds if it has not exited.
+
+*While* a total budget is set, the verifier *shall* give each `z3` process the smaller of its normal timeout and the whole milliseconds that remain, and *shall* start no process when none remain.
+
+The verifier *shall* read the verdict of a reply off the first stdout line that, trimmed, equals `sat`, `unsat` or `unknown`, wherever that line appears.
+
+*If* no stdout line of a reply is a verdict line, *then* the verifier *shall* give as the reason of the failure the first of these that applies: a `timeout` line on stdout, the watchdog kill, the first `(error …)` line on stdout and then on stderr, any other stderr text, the stdout itself.
+
+*If* a `z3` process gives no verdict line, or no process is started, *then* the step that asked for it *shall* read the failure as no answer, so a step that proves a property only on a solver answer *shall not* return `Proven` from it.
+
+*When* the poll made on entering a step finds the total budget spent or the call cancelled, the verifier *shall* charge the stop to the step that was running before, *shall* not enter the new step, and *shall* end the pipeline without a verdict.
+
+*While* a stop is recorded, the verifier *shall* start no `z3` process, enter no step and reach no verdict.
+
+*When* a stop is recorded, the verifier *shall* keep a `Proven` or `Violated` reached before it, and *shall* give an `Unknown` the reason `total verification budget of <N> ms exhausted during <phase>` or `verification cancelled during <phase>`, `<phase>` the step the stop was charged to.
+
+*While* no total budget is set and the caller does not cancel, the verifier *shall* record no stop.
+
 **Acceptance Criteria:**
 1. The same net, marking, property and options produce byte-identical HORN and certificate
    scripts in every implementation (the golden scripts under
@@ -954,8 +1094,11 @@ U+FFFF meets one in U+E000–U+FFFF.
    `LIBPETRI_Z3`; no exception escapes and the host process survives.
 3. An executable below 4.8.0, or one whose `--version` reports no version, yields `Unknown`
    naming both versions (or the reply).
-4. A `timeout` reply, an `(error …)` on either stream, a non-zero exit and a process that never
-   exits each yield `Unknown` with a distinct reason and leave no solver process behind.
+4. A reply without a verdict line yields `Unknown` with the reason of the reply classification
+   above: a `timeout` line, a process that never exits (the watchdog kill), an `(error …)` on
+   either stream, other stderr text and unexpected stdout each give a distinct reason, and no
+   solver process is left behind. A verdict line decides even when an `(error …)` line or a
+   non-zero exit comes with it; in the certificate check either makes the check inconclusive.
 5. A reply preceded by a banner of arbitrary size on either stream is classified by its verdict
    line.
 6. The report carries `  Solver: z3 <version>` in its solver phase, or
@@ -1137,6 +1280,18 @@ A `MutualExclusion` of fewer than two entries is never violated ([VER-002]), so 
 
 The verifier *shall not* return `Violated` from the bound phase; every outcome of the phase other than `Proven` hands over to the next phase of the dispatch.
 
+*When* the bound phase proves the property, it *shall* return `Proven` with method `structural`, an empty counterexample trace and no `counterexampleConfirmed`.
+
+A property with a demand is a `PlaceBound`, `BranchPlaceBound`, `MutualExclusion` or `Unreachable` property; the name-alignment properties of [NU-055] have no demand.
+The verifier *shall not* run the bound phase on a property without a demand, while the phase is disabled, or under `Ignore` with environment places registered.
+The verifier *shall* run the bound phase at most once in one verification call.
+The verifier *shall* send the `bound` query of each demand at most once in one verification call.
+The verifier *shall not* run Route B ([VER-012]) after the bound phase, and *shall not* run the bound phase after the colour-slot bound of the coloured encoding ([NU-053]) or after the fixpoint query.
+*When* the bound phase is enabled and the verifier runs the colour-slot bound or the fixpoint query on a property with a demand, not under `Ignore` with environment places registered, it *shall* have run the bound phase earlier in the same call.
+*When* the bound phase is enabled and the verifier runs the enumeration of [VER-017] on a property with a demand, and the enumeration route applies to a net with no drained forward, it *shall* have run the bound phase earlier in the same call, and *shall not* run the bound phase after the enumeration.
+*When* the bound phase runs ahead of the enumeration and does not prove the property, the next phase the verifier runs *shall* be the enumeration.
+On a net where the enumeration route does not apply, or that has a drained forward, the verifier *shall not* run the bound phase before the enumeration.
+
 This closes the class of proofs IC3 does not find on pipeline-shaped nets: an *ordering*
 argument — "both join slots armed means every upstream stage has run, so no halt is still
 possible" — is a weighted count bound, which Spacer's lemma generalisation does not invent
@@ -1190,8 +1345,8 @@ whose graph exceeds the budget: about 17 s per `placeBound` claim at a budget of
 several minutes at 5 000 000, and under 0.1 s with the bound first. A bound that proves returns
 as in AC1, with the report line of [VER-017] AC3 for the invariants it did not compute. Anything
 else falls through to the enumeration, and the fixpoint query later does not send the `bound`
-query again. When the solver cannot be started, the early bound is skipped with a report line and
-the enumeration runs without a solver, as it did before; the `Unknown` with route `Unavailable`
+query again. When the solver cannot be started, the early bound sends no query and hands over
+with a report line, and the enumeration runs without a solver, as it did before; the `Unknown` with route `Unavailable`
 of [VER-013] comes only from the later phases. On every other net the phase keeps the slot above.
 
 It is on by default and MAY be disabled (`linearBound(false)`) to force
@@ -1309,11 +1464,12 @@ net that has one.
 #### VER-017: Bounded State-Space Enumeration Route
 
 **Priority:** SHOULD
+**Kind:** B
 
 Before the SMT pipeline ([VER-001]), an implementation SHOULD try to decide the property by
 **enumerating the state-class graph** ([VER-010]) up to a class budget. When the graph closes
-within the budget the verdict is read off it directly and no solver runs; when it does not, the
-route declines and the SMT pipeline runs unchanged. A reachability-safety property first tries
+with fewer classes than the class budget, the verdict is read off it directly and no solver runs
+for the enumeration; when it does not, the route declines and the SMT pipeline runs unchanged. A reachability-safety property first tries
 the linear bound of [VER-015], which runs ahead of this route.
 
 The motivation is a shape the fixpoint engine handles badly and enumeration handles trivially.
@@ -1330,8 +1486,9 @@ one it replaces:
 
 1. The net declares **no match (ν-join) transitions** — a ν-net has its own exact route
    ([VER-012], Route B), which subsumes this one.
-2. **No environment places** are registered. The graph does not model injection ([VER-006]), so
-   a verdict about an open net would not mean what the encoders' does.
+2. **No environment places** are registered on the net the route receives. The graph does not
+   model injection ([VER-006]), so a verdict about an open net would not mean what the encoders'
+   does. A net closed under `Arrivals` ([VER-006]) has none left, and the route applies to it.
 3. The net is **untimed** — every transition `immediate`. The graph carries firing domains, so on
    a timed net it would explore only the runs the timing admits and its `proven` would be the
    weaker *timed* claim; [VER-004] fixes the untimed proof as the stronger one, and a route MUST
@@ -1340,7 +1497,8 @@ one it replaces:
 4. The class budget is positive. Setting it to `0` disables the route.
 
 **What the verdict means.** Exact — sound *and* complete. A `violated` is a real firing sequence
-with the shortest witnessing path from the initial class, not a possibly-spurious
+along a shortest path, in the graph the route built, from the initial class to the class it
+reports, not a possibly-spurious
 over-approximation, so it needs no replay: implementations report `counterexampleConfirmed` as
 confirmed (AC2), since the path is itself an ordered firing sequence of the untimed abstraction
 ([VER-003]). Its `counterexampleTiming` is `UNTIMED_NET`, as the route runs only on untimed nets
@@ -1349,13 +1507,13 @@ same claim the encoders make, decided by enumeration rather than by search. The 
 **same predicate** as every other route ([VER-002] AC7, [VER-014]); implementations MUST share
 one predicate implementation between this route and [VER-012]'s rather than restate it.
 
-The route can only add verdicts, never remove them: on truncation the SMT pipeline runs exactly
-as before, unless the explored prefix already violates the property (below), so no query that the
+Unless the total budget runs out or the caller cancels ([VER-013]), the route can only add
+verdicts, never remove them: on truncation the SMT pipeline runs exactly as before, unless the explored prefix already violates the property (below), so no query that the
 solver could decide becomes `unknown`.
 
 **Verdicts from a truncated graph.** A graph cut off at the class budget is not thrown away. Every
-class it stored is a real reachable class, and the builder explores breadth-first, so the
-depth at which it discovered a class is that class's true distance from the initial class. On
+class it stored is a real reachable class, and the builder explores breadth-first, so no class it
+stored later is nearer to the initial class, in the graph it built, than a class it stored earlier. On
 truncation the route therefore runs the **same shared predicate** over the explored prefix, with
 one restriction on which classes count:
 
@@ -1363,7 +1521,8 @@ one restriction on which classes count:
   stored class counts, expanded or not.
 - **Quiescence properties** (`deadlockFree`, `terminatesAtSink`, `joinedOrDeadLettered`,
   `quiescentCount`, and any other property that reads "this class has no successor"): only classes
-  the builder **expanded** and found without successors count. A frontier class, stored but never
+  the builder **expanded** and found without successors count, where a step of a reapable
+  transition ([VER-002]) is not counted as a successor. A frontier class, stored but never
   expanded, has no successor only because nobody looked, and MUST NOT count as quiescent. With a
   first-in-first-out worklist the expanded classes are exactly those whose discovery index is
   below the number of classes taken from the worklist, and the builder exposes that number.
@@ -1377,8 +1536,8 @@ comes from a prefix.** The same rule applies to Route B ([VER-012]) and to the t
 A graph stopped by the total budget or by cancellation ([VER-013]) is not a truncation at the
 class budget: the prefix check does not run on it, and the verdict is the `Unknown` of [VER-013].
 
-**Reusing the state space across queries.** The graph depends only on the net and its initial
-marking. The property, the sinks and the conditional sinks only *read* it. A caller that asks many
+**Reusing the state space across queries.** The graph depends only on the net, the in-flight
+split of [VER-004], the initial marking and, under [VER-024], whether the graph is reduced. The property, the sinks and the conditional sinks only *read* it. A caller that asks many
 questions of one net would otherwise rebuild the same graph for every question. When the graph
 exceeds the budget, every question pays the full attempt before it falls through. Measured on a
 47-place, 54-transition agent net whose graph exceeds the default budget: 3–4.6 s per query with
@@ -1389,12 +1548,17 @@ passes to each verification, and owns: `StateSpaceCache` / `stateSpaceCache(cach
 behaviour is exactly as above. With one:
 
 - An entry is keyed by the caller's net, the transitions the in-flight split of [VER-004] rewrote,
-  and the initial marking. The split changes the graph: under `assumeAtomicFiring` the net stays
+  the initial marking, and, under [VER-024], whether the graph is reduced. Under `Arrivals` the key
+  also covers the closure of [VER-006] (the registered environment places in registration order
+  and the mode), or the verifier does not use the cache for that query and the report says so:
+  two queries on one net and marking that register different environment places verify different
+  closed nets. The split changes the graph: under `assumeAtomicFiring` the net stays
   atomic, and otherwise a transition whose output another tests non-monotonically becomes two
   steps. A key without the split would let a graph of the atomic net answer a query that runs on
   the split one, and that `Proven` can be wrong. The inert-place, split and terminal ([EXEC-042])
-  rewrites are a deterministic function of the net and the transitions split, so the rest of the
-  key is the net as the caller passed it. An implementation may key on the split net instead. An
+  rewrites are a deterministic function of the net and the transitions split, and the `Arrivals`
+  closure one of the net, the registered environment places and the mode, so with the clause above
+  the rest of the key is the net as the caller passed it. An implementation may key on the split net instead. An
   implementation whose nets have no stable identity keys on a structural fingerprint instead. The
   fingerprint MUST cover everything the graph reads: places, arcs with their kinds and
   cardinalities, outputs, timing, priority and terminals. A fingerprint that also covers the actions
@@ -1408,10 +1572,11 @@ behaviour is exactly as above. With one:
   classes, their successors and the number expanded. Any later budget of `B` or less does not
   build: it runs the prefix check above over the remembered prefix, and declines at once when that
   finds nothing. A larger budget builds again and replaces the entry.
-- The verdict, the witness and the route are the same with and without the cache, with one
-  exception: a query at a budget below `B` that hits a remembered truncation at `B` checks the
-  larger remembered prefix, so it can find a violation an uncached query at its own budget would
-  not reach. Such a violation is still a real firing sequence; it never turns a verdict into
+- The verdict, the witness and the route are the same with and without the cache, with two
+  exceptions: a query at a budget below `B` that hits a remembered truncation at `B` checks the
+  larger remembered prefix, and a query at a budget of `C` or less that hits a closed graph of `C`
+  classes checks that whole graph as a prefix, so either can find a violation an uncached query
+  at its own budget would not reach. Such a violation is still a real firing sequence; it never turns a verdict into
   `Proven`. The report says when a cached graph, or a cached truncation, was used.
 - Concurrent verifications that share a cache build a given entry once. The others wait for it
   rather than build their own. While a larger budget rebuilds a truncated entry, a budget of `B` or
@@ -1422,9 +1587,53 @@ behaviour is exactly as above. With one:
 - The cache holds its graphs until the caller drops it or clears it. It never shares memory the
   caller did not ask for.
 
+**The route, as EARS sentences.**
+
+The enumeration route *shall* apply exactly when the net it receives, after the rewrites of [VER-006], [VER-004] and [EXEC-042], declares no match transition, has no environment place registered and has only `immediate` transitions, and the class budget is positive.
+
+An applying route runs unless an earlier step of the pipeline decided or refused the query: the linear bound of [VER-015], Route B for a name-alignment property ([VER-012], [NU-055]), the refusals of [VER-003], [VER-004] and [NU-010], or a stop of [VER-013].
+
+The build *shall* be stopped only when the total budget runs out or the caller cancels ([VER-013]).
+
+*While* the build is neither stopped by the total budget nor cancelled ([VER-013]), the state-class graph *shall* be closed exactly when it has fewer classes than the class budget.
+
+The state-class graph *shall* hold the initial class as its first class, and only classes reachable from it.
+
+*When* the graph is closed, the route *shall* return `Proven` exactly when no marking reachable from the initial marking violates the property, and `Violated` otherwise.
+
+*While* the build is neither stopped by the total budget nor cancelled ([VER-013]), the route *shall* return `Violated` when a counted class violates the property, where a counted class is any stored class for a safety property and a class the builder expanded for a quiescence property.
+
+*When* the route returns `Violated`, it *shall* report a counted class that violates the property, and a firing sequence from the initial marking to the marking of that class that is a path, in the graph the route built, from the initial class to that class.
+
+*When* the route returns `Violated`, the firing sequence it reports *shall* be no longer than any path, in the graph the route built, from the initial class to a counted class that violates the property.
+
+The route *shall not* return `Proven` from a graph that is not closed, and *shall* read nothing off a graph whose build was stopped by the total budget or cancelled.
+
+*When* the route returns `Proven` or `Violated`, the verifier *shall* return that verdict and *shall not* run the SMT pipeline.
+
+*If* the route does not run, or the graph is truncated and no counted class violates the property, *then* the verifier *shall* continue with the rest of the pipeline exactly as it does without the route, except that the time the route took counts against a total budget ([VER-013]).
+
+*If* the build is stopped by the total budget or cancelled, *then* the verifier *shall* return the `Unknown` of [VER-013].
+
+**The state-space cache, as EARS sentences.**
+
+*When* a state-space cache is passed, the verifier *shall* key each entry by the caller's net, the transitions the in-flight split of [VER-004] rewrote, the initial marking and whether the graph is reduced ([VER-024]), and a query *shall* read and write only the entry of its own key.
+
+*While* the mode is `Arrivals(k)` or `Arrivals(min, max)` of [VER-006] and environment places are registered, *when* a state-space cache is passed, the verifier *shall* either key each entry also by the closure (the registered environment places in registration order and the mode), or not use the cache for that query and say so in the report.
+
+*When* an entry holds a closed graph of `C` classes, a query at a budget greater than `C` *shall* reuse it, and a query at a budget of `C` or less *shall* read it as an explored prefix, in both cases without building.
+
+*When* an entry holds a truncation remembered at budget `B`, a query at a budget of `B` or less *shall* read its explored prefix without building.
+
+*When* an entry is empty, or holds a truncation remembered at a budget smaller than the query's, the query *shall* build at its own budget, and the entry *shall* then hold a closed graph as closed, a truncated graph with the query's budget, and, after a build stopped by the total budget or cancelled, what it held before.
+
+*If* a build fails, *then* the entry *shall* stay as the build found it, and the failure *shall* reach the query that ran the build.
+
+A query *shall* read a graph it built or reused as the route reads it without the cache, and a graph it read as an explored prefix as a graph that is not closed.
+
 **Acceptance Criteria:**
-1. On an untimed net whose state-class graph closes within the budget, the property is decided
-   by the graph: the report names the route and its class count, and carries no solver phase
+1. On an untimed net whose state-class graph closes with fewer classes than the budget, the
+   property is decided by the graph, unless the bound of [VER-015] proved it first: the report names the route and its class count, and carries no solver phase
    other than the `bound` phase of [VER-015], which a reachability-safety property tries first.
 2. A violated verdict carries a counterexample trace whose transition sequence is a real firing
    sequence from the initial marking to the witnessing class, reported as **confirmed**: the
@@ -1435,14 +1644,20 @@ behaviour is exactly as above. With one:
    invariant list is not mistaken for "the net has none".
 4. Exceeding the budget produces a report line naming the budget and, unless the explored prefix
    violates the property, falls through to the SMT pipeline, whose behaviour is unchanged.
-5. The route is skipped for a ν-net, for a net with environment places, for a timed net, and
-   when the budget is `0`; in each case the report shows the SMT pipeline ran.
+5. The route is skipped for a ν-net, for a net with environment places after the rewrites of
+   [VER-006], for a timed net, and when the budget is `0`; in each case the report carries no
+   enumeration section, and the verdict is that of the rest of the pipeline.
 6. Where both routes can answer, they return the same verdict for the same net and property.
-7. With a state-space cache, the second and later queries on one net and initial marking build
-   no graph, and return the same verdict, witness and route as a query without the cache.
+7. With a state-space cache, a later query with the same key (net, in-flight split, initial
+   marking, reduced or full graph, and under `Arrivals` the closure) at the same budget builds no
+   graph, and returns the same verdict, witness and route as a query without the cache. Under
+   `Arrivals` this holds for a query the cache serves; an implementation that does not use the
+   cache there builds on every query and says so in the report.
 8. A cached truncation at budget `B` makes a query at budget `≤ B` answer from the remembered
    prefix without building: `Violated` when the prefix violates the property, otherwise a decline.
-   A query at a larger budget builds, and replaces the entry.
+   A query at a larger budget builds, and replaces the entry. A cached closed graph of `C` classes
+   answers a query at a budget of `C` or less from the whole graph read as a prefix, without
+   building, and never with `Proven`.
 9. A different initial marking, or a structurally different net, never hits another entry. Nor
    does the same net verified with a different in-flight split: on a net that the split
    rewrites, a query with `assumeAtomicFiring` and one without build a graph each, in either
@@ -1467,7 +1682,9 @@ behaviour is exactly as above. With one:
   (exported from `libpetri/verification`) returns an `ScgOutcome`, `truncated` for an incomplete
   graph. The build is synchronous, so concurrent `verify()` calls on one event loop build an entry
   once, and a build that throws leaves the previous entry in place.
-- Java: `org.libpetri.smt.ScgVerifier`; `SmtVerifier.enumerationMaxClasses(int)`.
+- Java: `org.libpetri.smt.ScgVerifier`; `SmtVerifier.enumerationMaxClasses(int)`. A transition
+  with the deprecated `Timing.Unconstrained` counts as timed there, so a net using it skips the
+  route in Java only; the rest of the pipeline gives the same verdict.
   The state-space cache is `org.libpetri.smt.StateSpaceCache` (`clear()`; `size()` counts entries,
   builds in flight included), passed with `SmtVerifier.stateSpaceCache(StateSpaceCache)`. The key
   is the net by identity, the list of transitions the in-flight split rewrote, the initial marking
@@ -1494,14 +1711,21 @@ behaviour is exactly as above. With one:
   structural fingerprint, which is why it hits although the binding clones the net on every
   call. An empty cache is falsy, since it defines `__len__`. The `initial_marking` dict is read in
   insertion order, so a witness starts in the caller's order.
+- Under `Arrivals` ([VER-006]) the implementations differ. Java does not use the cache for the
+  query and the report says so (`SmtVerifier.java`, the enumeration step). Rust and Python key
+  the fingerprint of the closed net, so the closure is in the key and a repeated query hits.
+  TypeScript keys the caller's net with the closed initial marking, whose arrival sources are new
+  `Place` objects on every call, so every such query misses, builds, and adds an entry, with no
+  report line (runtime defect RD-28).
 
-**Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-012], [VER-013], [VER-014]
+**Depends on:** [VER-001], [VER-002], [VER-003], [VER-004], [VER-006], [VER-010], [VER-012],
+[VER-013], [VER-014], [VER-015], [VER-024], [EXEC-042]
 
 **Test derivation:** a pipeline `p0 → t0 → p1 → … → pn`, untimed: `deadlockFree` with `pn` a sink
 is proven by enumeration with `n+1` classes and no solver phase; without the sink it is violated
-with the firing sequence `t0 … t(n-1)`. The same net with a class budget below the graph size
+with the firing sequence `t0 … t(n-1)`. The same net with a class budget at or below the graph size
 reports truncation and is answered by the SMT pipeline; with the budget `0` the route never runs.
-A `delayed` variant of the same net is skipped as timed. For AC5, the same query with and without
+A `delayed` variant of the same net is skipped as timed. For AC6, the same query with and without
 the route returns the same verdict. For AC11, an untimed net with an unbounded producer
 (`gen: G → G, A`) and `placeBound(A, 2)` under a class budget of 50 is `Violated` by the route with
 the trace `gen, gen, gen`, where it used to fall through; `deadlockFree` on the same truncated
@@ -1512,6 +1736,7 @@ graph falls through.
 #### VER-024: Stubborn-Set Reduction of the Enumeration Route
 
 **Priority:** SHOULD
+**Kind:** B
 
 The enumeration of [VER-017] explores every interleaving. A net that forks one token into `k`
 independent subnets therefore has a state space close to the **product** of the subnets' spaces,
@@ -1553,8 +1778,9 @@ can **decrease** `p` has `p` among its inputs or resets.
 closure `S(s)` is the least set containing `s` such that, for every `t ∈ S(s)`:
 
 - (D1) if `t` is enabled at `M`, every transition dependent with `t` is in `S(s)`;
-- (D2) if `t` is disabled at `M`, take its **first unsatisfied condition**, in code-point order of
-  place name, inputs and reads before inhibitors: an input or read place `p` with too few tokens
+- (D2) if `t` is disabled at `M`, take its **first unsatisfied condition**, over its input and
+  read places in code-point order of place name, then over its inhibitor places in code-point
+  order: an input or read place `p` with too few tokens
   puts every transition that can increase `p` into `S(s)`; a marked inhibitor place `p` puts every
   transition that can decrease `p` into `S(s)`.
 
@@ -1578,6 +1804,26 @@ graph yields `Proven`.
 [VER-017] keys it apart from the full graph of the same net and marking: a safety query never
 reads a reduced entry, and a quiescence query with the reduction off never reads one either.
 
+*While* the enumeration route of [VER-017] runs on a quiescence property (`deadlockFree`, `terminatesAtSink`, `joinedOrDeadLettered` or `quiescentCount`), on a net without a drained forward ([IO-014]), with the reduction enabled, the route *shall* build the reduced graph.
+
+*If* the property is not a quiescence property, the net has a drained forward or the reduction is disabled, *then* the route *shall* build the full graph of [VER-017].
+
+Every implementation *shall* turn the reduction on by default.
+
+*While* the reduction applies, *when* the route expands a class whose marking `M` enables a transition, it *shall* expand exactly the enabled transitions of `S(s)` for the enabled seed `s` whose closure has the fewest enabled transitions, the code-point-smallest seed name breaking ties.
+
+*When* a transition `t` of `S(s)` is disabled at `M`, the closure *shall* read its first unsatisfied condition over its input and read places in code-point order of place name, then over its inhibitor places in code-point order.
+
+*While* the reduction applies, the route *shall* expand the transitions it selects at a class in ascending code-point order of transition name.
+
+*When* the route expands a class, it *shall* expand only enabled transitions, each with all of its outcomes.
+
+*While* the reduction applies, every dead marking reachable from the initial marking *shall* be reachable by a run that fires, at each class, one of the transitions the route expands there.
+
+*While* the reduction applies, a class *shall* have no reduced successor exactly when no transition is enabled at its marking.
+
+The cache of [VER-017] *shall* key a reduced graph apart from the full graph of the same net and initial marking, so that a safety query, and a quiescence query with the reduction off, never read a reduced entry.
+
 **Acceptance Criteria:**
 1. On every net and quiescence property of the conformance corpus, the verdict with the reduction
    equals the verdict without it, and every `violated` trace replays.
@@ -1588,8 +1834,8 @@ reads a reduced entry, and a quiescence query with the reduction off never reads
 4. With `partialOrderReduction(false)` the graph, the witness and the class count are those of
    [VER-017].
 5. The class count of a reduced graph is the same in every implementation.
-6. When the reduction ran, the report says so beside the class count of [VER-017] AC1:
-   `  Stubborn-set reduction (VER-024): on`.
+6. When the reduction ran, the report contains the line `Stubborn-set reduction (VER-024): on`
+   beside the class count of [VER-017] AC1; its indentation is not fixed.
 
 **Implementation notes:**
 - TypeScript: `verification/analysis/stubborn-sets`; `SmtVerifier.partialOrderReduction(enabled)`.
@@ -1612,6 +1858,7 @@ two subnets dependent, so the reduction keeps both orders.
 #### VER-018: State-Equation Phase with Refinement
 
 **Priority:** SHOULD
+**Kind:** B
 
 Before the fixpoint query, the verifier asks one `QF_LIA` query (phase `state-equation`, through
 the transport of [VER-013]): can a marking that satisfies the marking equation of [VER-016]
@@ -1621,6 +1868,10 @@ violation is encoded exactly as the error rule of [VER-001] encodes it. Every re
 satisfies the equation for the counts of its run, so `unsat` proves the property. Unlike
 [VER-015] the query asks for the violation directly, so it covers every property, quiescence
 included.
+
+*When* the state-equation query answers `unsat`, the phase *shall* end with a proof over the refinements it has added so far.
+
+*If* the state-equation query fails in the transport, answers `unknown`, gives a model that cannot be decoded, or the timeout runs out before its answer, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue.
 
 A `sat` model is a **candidate**: the equation ignores firing order and the guards that impose
 it, so the net need not reach the candidate. On a compiled workflow net the typical spurious
@@ -1635,10 +1886,8 @@ arrived. Each candidate is settled, in this order, by:
    Injections are not searched. On a net with injected environment places a run found is still
    real: it injects nothing, and quiescence is judged with the relax-env enablement of [VER-006],
    so its marking is stuck whatever the environment does. A completed search there proves
-   nothing, since an injected token could enable a run it never tried, so the search MUST report
-   itself inconclusive rather than report that no violating run exists. Implementations MUST NOT
-   skip the search on such nets: it is the phase's only source of witnesses there. A run that
-   needs an injection is left to the bounded witness phase ([VER-025]), which unrolls injection
+   nothing, since an injected token could enable a run it never tried. The search is the phase's
+   only source of witnesses there. A run that needs an injection is left to the bounded witness phase ([VER-025]), which unrolls injection
    steps and runs before the fixpoint query.
 2. **Trap.** An initially marked trap the candidate leaves empty (Esparza, Ledesma-Garza,
    Majumdar, Meyer and Niksic, CAV 2014). A transition with a consume-all input or a reset arc on
@@ -1656,9 +1905,44 @@ arrived. Each candidate is settled, in this order, by:
    result is `hasdata ≤ ready_0 + ready_1`; on a queue bundled once a signal arrives,
    `N·out + q ≤ N`, relative to the equation's `q + budget ≤ N`.
 
-Every refinement holds in every reachable marking, so the query is asked again and a later
-`unsat` is still a proof. The phase steps aside, leaving the pipeline unchanged, when nothing
+*When* the state-equation query answers `sat`, the phase *shall* first run the witness search on the candidate, and *shall* return `Violated` with the run the search reports before it tries any refinement.
+
+The witness search *shall* fire each flat transition at most as often as the candidate's counts allow, under the exact abstract semantics of [VER-004] and with no injection step, and *shall* report a run only when every step is enabled and the last marking violates the property.
+
+A run the witness search reports *shall* be no longer than any other run within the counts that ends in a violating marking.
+
+The witness search *shall* report that no violating run exists only when it has completed, no run within the counts ends in a violating marking, and no environment place is declared for injection.
+
+*While* environment places are declared for injection, the phase *shall* still run the witness search, and the search *shall* report the same run it reports on the same net without injection.
+
+*If* a run within the candidate's counts ends in a violating marking, *then* the witness search *shall* report a run whenever its node budget is large enough.
+
+The trap search *shall* return a set `Q` of places of the flat net only when every flat transition that can take a token from `Q`, through an input arc, a consume-all input or a reset arc, also puts a token into `Q`, some place of `Q` is marked in `M0`, and the candidate leaves every place of `Q` empty.
+
+The trap search *shall* return a trap whenever some initially marked trap among the places of the flat net is empty in the candidate.
+
+The exact re-check *shall* accept an inequality `a·M ≤ b` only when it holds at `M0` and every firing and every injection step of the exact step relation keeps it.
+
+The exact re-check *shall* accept an inequality `a·M ≤ b` that holds at `M0`, gives no injected place a positive weight, and for which every flat transition that can fire, taken from the least marking its guard allows, passes the keep test or the restore test: the keep test, that the firing does not raise `a·M` and every place the firing clears without inhibiting has a weight of at least 0; the restore test, that the marking after the firing meets the bound and every place the firing neither clears nor inhibits has a weight of at most 0.
+
+*When* the witness search reports no run and the phase has added fewer refinements than the refinement limit, the phase *shall* settle the candidate in this order: with `Σ_{q∈Q} m_q ≥ 1` when the trap search returns a trap `Q`; otherwise with the inequality the `invariant` query returns, marked inductive, when the exact re-check accepts it and the candidate violates it; otherwise, when that query answers `unsat`, with the inequality the same query returns with the marking equation as a premise of every step, marked relative, when the candidate violates it.
+
+*When* the phase adds a refinement, it *shall* ask the state-equation query again with every refinement added so far.
+
+*If* no trap and no inequality settles the candidate, an inequality fails the exact re-check or holds at the candidate, or an `invariant` query fails in the transport, answers `unknown`, gives a model that cannot be decoded, or the timeout runs out before its answer, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue.
+
+Every trap and inductive refinement holds in every reachable marking, and a relative one does too
+when the solver's answer is right, since it is inductive together with the equation; so the query
+is asked again and a later `unsat` is still a proof. The phase steps aside, leaving the pipeline unchanged, when nothing
 settles a candidate, after 32 refinements, on a transport failure, or when the timeout runs out.
+
+*If* the witness search reports no run on a candidate after the phase has added as many refinements as the refinement limit, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue.
+
+The refinement limit *shall* be 32 in every implementation.
+
+The node budget of one witness search *shall* be 100 000 in every implementation.
+
+Each weight of an inductive or relative inequality *shall* have a magnitude of at most the larger of 8 and the number of tokens in `M0`.
 
 **Certificate.** A proof is the inductive invariant `SE(M, n) ∧ ⋀ refinements(M)` over the places
 and one counter per flat transition. It goes as the `Reachable` interpretation to the certificate
@@ -1669,10 +1953,24 @@ withholds the `Proven`, says so in the report, and the pipeline continues. The F
 final `unsat` is not used as the certificate: for a quiescence property the violation is a
 disjunction, and one inequality per disjunct is exponential in the net.
 
+*While* the certificate check is enabled, the verifier *shall* return the phase's proof as `Proven` with method `state-equation` and neither a counterexample nor `counterexampleConfirmed` when the certificate check of [VER-016] passes on the invariant `SE(M, n) ∧ ⋀ refinements(M)`, and a failed or inconclusive check *shall* withhold the `Proven` and let the pipeline continue.
+
+*While* the certificate check is disabled, the verifier *shall* return the phase's proof as `Proven` with method `state-equation` and neither a counterexample nor `counterexampleConfirmed`, and the report *shall* carry `  Certificate check: not applicable (disabled)` in place of the check.
+
+*When* the phase returns `Violated`, the verifier *shall* return the markings and transitions of the run, in firing order, as the counterexample, with `counterexampleConfirmed` `true`.
+
 **Where it runs.** On the flat path, after [VER-015] and before the fixpoint query. Not on a net
 with match transitions (the flat encoding is name-blind there; [VER-012] and [NU-053] are its
 exact routes), not on the name-coloured encoding, and not under `Ignore` with environment places
 registered ([VER-006]). On by default; MAY be disabled to force the fixpoint path.
+
+The pipeline *shall* place the state-equation phase at one point, after the linear bound of [VER-015] and before the fixpoint query.
+
+*While* the phase is enabled, the pipeline *shall* run it on exactly the queries whose verified net has no match transition and that are not verified under `Ignore` with environment places registered ([VER-006]), unless an earlier step has decided the query or the run has stopped.
+
+*If* the phase is disabled, *then* the verifier *shall not* run it, and the verdicts and reports *shall* be those of the pipeline without the phase.
+
+Every implementation *shall* turn the phase on by default.
 
 Measured on 23 compiled workflow nets of 28–370 places under `DeadlockFree` with conditional
 sinks ([VER-014]): 21 proven in 10–220 ms, four after one refinement, among them a 41-node chain
@@ -1688,8 +1986,9 @@ left to the next phase.
    invariants are the refinements as printed.
 3. A candidate that a run within its counts realises is reported `violated`, with that run as the
    confirmed counterexample.
-4. The phase's `Proven` is withheld unless the certificate check passes. A genuine violation is
-   never masked: the phase returns `Violated` only for a replayed run.
+4. While the certificate check is enabled (the default), the phase's `Proven` is withheld unless
+   the check passes. A genuine violation is never masked: the phase returns `Violated` only for a
+   replayed run.
 5. With the phase disabled, verdicts and reports are those of the pipeline without it.
 6. `LIBPETRI_SMT_DUMP` records the phase's scripts under the phases `state-equation` and
    `invariant` ([VER-013]).
@@ -1717,10 +2016,13 @@ left to the next phase.
 
 **Depends on:** [VER-001], [VER-003], [VER-004], [VER-006], [VER-013], [VER-015], [VER-016]
 
-**Test derivation:** the join of a compiled workflow net — `route: start → AND(aData, bEmpty) |
+**Test derivation:** with the enumeration budget of [VER-017] at 0 and `assumeAtomicFiring`,
+since [VER-017] would otherwise decide these small untimed nets first and the in-flight split of
+[VER-004] would verify the arms of the join and `produce` of the queue in two steps: the join of a
+compiled workflow net, `route: start → AND(aData, bEmpty) |
 AND(aEmpty, bData)`, a data arm writing `hasdata` with its `ready`, an empty arm its `ready`
 alone, `mergeStart: ready0 + ready1 + all(hasdata) → done`, `mergeSkip: ready0 + ready1,
-inhibitor(hasdata) → skipped` — under `deadlockFree` with `done` and `skipped` as sinks: the first
+inhibitor(hasdata) → skipped`, under `deadlockFree` with `done` and `skipped` as sinks: the first
 candidate skips after the data arrived, one inductive inequality excludes it, and the proof passes
 the certificate check. The queue-and-bundle net (`produce: budget → q` inhibited by `s` and by
 `out`, `signal: src → s`, `bundle: all(q) + s → out`, `bundleEmpty: s, inhibitor(q) → out`,
@@ -1755,8 +2057,8 @@ With the bound, a **bounded model check** decides the property. One `QF_LIA` scr
 unrolls `d` steps of the exact step relation from `M0`: a selector per step names the transition
 fired or an idle step, an idle step is followed only by idle steps, and the violation is asked of
 the last marking. The encoder also emits the environment post-caps of [VER-006] for the bounded
-witness phase ([VER-025]); here there are none, since this phase does not run on a net with
-injected environment places.
+witness phase ([VER-025]); here there are none, since this phase sends no query on a net
+with injected environment places.
 
 *When* the phase has the bound `K`, it *shall* ask the bounded model check first at depth `min(K, 8, L)`, where `L` is the depth limit, and after an `unsat` answer at a depth `d` below both `K` and `L` it *shall* ask next at depth `min(2d, K, L)`.
 
@@ -1780,8 +2082,8 @@ property. That depth is asked only when `K` is 0.
 
 When no ranking exists, Farkas gives firing counts `y ≥ 0, y ≠ 0` with `C·y ≥ 0`, which the
 marking equation lets repeat forever. The report names their transitions (a second query) and the
-pipeline continues. This does not show that the net has an infinite run — a loop that only an
-inhibitor stops has no ranking — only that the phase makes no claim about runs it cannot bound.
+pipeline continues. This does not show that the net has an infinite run (a loop that only an
+inhibitor stops has no ranking), only that the phase makes no claim about runs it cannot bound.
 
 *If* the ranking query answers `unsat`, *then* the phase *shall* report that the net has no firing bound, whatever the second query answers, and the pipeline *shall* continue to the fixpoint query.
 
@@ -1790,8 +2092,9 @@ inhibitor stops has no ranking — only that the phase makes no claim about runs
 A proof from this phase has no inductive invariant, so the certificate check does not apply; it
 rests on the exactly re-checked ranking and the solver's `unsat`. The phase gets half the
 timeout, rounded down to whole milliseconds and at least 1 ms: short counterexamples take
-seconds, while a proof to a deep bound on a wide net can outlast any budget. It runs where
-[VER-018] runs. Its bounded run has transition steps only. The bounded witness phase ([VER-025])
+seconds, while a proof to a deep bound on a wide net can outlast any budget. It runs on the
+queries [VER-018] runs on, whether [VER-018] is enabled or not. Its bounded run has transition
+steps only. The bounded witness phase ([VER-025])
 shares its encoder, adds injection steps to it and asks one fixed depth without a bound, so it
 finds runs but proves nothing; on a net without injection its script is this phase's script. A
 name-alignment property ([NU-055]) gets no query from the phase: it ends inconclusive with the
@@ -1808,7 +2111,17 @@ verdict-parity fixtures without any property differing.
 
 *If* the phase is disabled, *then* the verifier *shall not* run it, and the verdicts and reports *shall* be those of the pipeline without the phase.
 
-Disabling the phase forces the fixpoint path.
+Disabling the phase leaves the query to the later steps, up to the fixpoint query.
+
+The pipeline *shall* place the firing-bound phase at one point, after the state-equation phase of [VER-018] and before the bounded witness phase of [VER-025] and the fixpoint query.
+
+So no run enters the state-equation phase after this phase, this phase after the witness phase or the fixpoint query, or this phase twice.
+
+*While* the phase is enabled, the pipeline *shall* run it on exactly the queries that the state-equation phase of [VER-018] runs on when that phase is enabled, whether [VER-018] is enabled or not, unless an earlier step has decided the query or the run has stopped.
+
+*When* the phase ends inconclusive or reports that the net has no firing bound, the pipeline *shall* go on to its next step.
+
+*When* the phase returns `Proven` or `Violated`, the verifier *shall* return that result: `Proven` with the method `bounded-model-check` and neither a counterexample nor `counterexampleConfirmed`; `Violated` with the transitions of the replayed run, in firing order, as the counterexample and `counterexampleConfirmed` `true`.
 
 Measured on the same 23 workflow nets: the violated net [VER-018] leaves open has `K = 25` and a
 22-step counterexample at depth 25 in about 11 s; proofs to `K ≤ 22` take 0.1–70 s; `K = 86` on
@@ -2130,8 +2443,27 @@ depth to 0, since the phase now answers first.
 #### VER-010: State Class Graph Analysis
 
 **Priority:** MAY
+**Kind:** B
 
 The engine may support state class graph construction using the Berthomieu-Diaz (1991) algorithm. State classes combine a marking with a Difference Bound Matrix (DBM) representing timing constraints on enabled transitions.
+
+An implementation that offers the graph is bound by the sentences below. In them a timed run of the net starts at an initial marking with every clock at zero, on a net in which no transition's earliest firing time is below zero or above its latest, and follows the Time Petri net semantics: time may pass only as far as no enabled transition goes past its latest firing time, a transition fires no earlier than its earliest firing time and deposits its outputs at the instant it fires, and a clock is kept or restarted by the persistence rule below. A class holds a state when the class's marking is the state's marking and its firing domain holds every combination of firing times the state allows the class's clocks. A class is well formed when its clocks are the transitions enabled in its marking and its firing domain has the form letting time pass leaves: the closure of a matrix with a finite reference bound in which every clock's lower bound is zero. For a well-formed class that holds a state, the class's clocks are the state's enabled transitions.
+
+*When* a timed run of the net reaches a state, the state class graph *shall* hold a class, reachable from its initial class, that holds the state.
+
+Every class the state class graph reaches from its initial class *shall* be well formed and *shall* list its clocks once each, in ascending order of transition name compared by Unicode code point ([VER-013]).
+
+*When* a transition can fire with one of its outcomes ([VER-001]) from a state in which no enabled transition is past its latest firing time, and a well-formed class holds that state, the state class graph *shall* give that class a successor, labelled with the transition's name and the outcome's index, that holds the state the firing leaves.
+
+Every successor of a class *shall* be labelled with the name of a transition among the class's clocks and the index of one of that transition's outcomes, and *shall* have the marking that firing the transition with that outcome leaves: each input place less the `consumptionCount(available)` of [IO-007], so an `All` or `AtLeast` input empties its place, each reset place emptied, and the outcome's tokens added.
+
+*When* a transition `t` fires from marking `M` into marking `M'`, the successor step of the state class graph *shall* keep the clock of a transition `t'` enabled in `M` exactly when `t'` is not `t` and is enabled both in `M'` and in the intermediate marking `M - Pre(t)`, which has the inputs of `t` consumed, its reset places drained and none of its outputs deposited.
+
+The canonical order of the state class graph *shall* either keep a list of transitions or return a permutation of its positions, and *shall* leave every list it is given in ascending order of transition name, compared by Unicode code point ([VER-013]).
+
+*If* the transition names of the net are unique, *then* the class key of the state class graph *shall* give two classes, each with the transitions enabled in its marking as clocks, once each in that order, and a canonical firing domain (closed, zero on the diagonal, every clock with a finite lower bound), the same key exactly when they have the same marking and their firing domains hold the same firing times.
+
+When every bound of the net is a whole number of milliseconds, the successor step of [VER-011] leaves every firing domain canonical, so two classes that step builds on a net with unique names are one exactly when they have the same marking and the same firing domain, whatever interleavings reached them. A net may give two transitions one name ([CORE-021]); the key sentence does not reach such a net, since an order by name cannot tell two enabling orders of one name apart. These sentences speak of the successor's soundness: a class holds every state the firing rule allows. That a class holds no state a timed run cannot reach is the exact half of the successor, not stated here, and so is the exact half of the fresh interval a newly enabled clock gets.
 
 **Acceptance Criteria:**
 1. State class graph enumerates reachable (marking, timing zone) pairs. A class's identity is
@@ -2150,17 +2482,24 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
    `consumptionCount(available)` of [IO-007] — the same function the executor uses —
    and not the enablement threshold `requiredCount()`. In particular `All` and
    `AtLeast(m)` drain the place.
-3. XOR outputs are expanded into virtual transitions for branch analysis.
+3. Every outcome of a transition, each XOR branch and a timeout outcome that deposits
+   differently from every branch, is expanded into a virtual transition of its own
+   ([VER-001]), and a successor is labelled with the fired transition's name and the
+   outcome's index, counting the outcomes in the order in which [VER-001] numbers the
+   `_b<i>` virtual transitions: the branches in enumeration order, then the timeout outcome.
 4. Clock persistence uses the intermediate marking of Berthomieu and Diaz. After `t` fires
    from marking `M`, a transition `t' ≠ t` keeps its clock only if it is enabled in `M`, in
    the successor marking `M'`, and in the intermediate marking `M - Pre(t)`: inputs
    consumed, reset places drained, outputs not yet deposited. Every other transition
-   enabled in `M'` gets a fresh firing interval. This is the executor's rule ([TIME-012]).
+   enabled in `M'` gets a fresh firing interval. This is the executor's rule ([TIME-012])
+   for an on-time executor with atomic firings, one that reaps no transition, fires none
+   after its latest bound, and gives an action no duration, the assumptions [VER-023] lists;
+   the enablement recheck of a firing pass ([EXEC-003] AC3) is part of atomic firings.
    A successor that keeps a clock the executor restarts under-approximates the executor's
-   behaviors. Two limits follow from the graph's abstractions: a transition outside the
-   in-flight split of [VER-004] fires atomically and takes no time (a split one completes
-   through its immediate completion step at any later time); and under `alwaysAvailable` /
-   `bounded` environment modes an environment input never disables a transition.
+   behaviors. A transition outside the in-flight split of [VER-004] fires atomically and
+   takes no time (a split one completes through its immediate completion step at any later
+   time). Under `alwaysAvailable` an environment input never disables a transition, and under
+   `bounded(k)` only one that demands more than `k` tokens does, permanently ([VER-006] AC3).
 5. The graph builder (`StateClassGraph.build` in every language) builds the graph of the net it
    is given and does not apply the in-flight split itself. A caller that builds the graph
    directly, outside `SmtVerifier`, MUST apply the split first (`splitInFlight` in TypeScript,
@@ -2168,7 +2507,8 @@ The engine may support state class graph construction using the Berthomieu-Diaz 
    two-step firing ([VER-004]); when the split is refused, no graph of this kind is faithful to
    the executor. The builder's documentation MUST say so.
 
-**Depends on:** [IO-007], [EXEC-010], [TIME-012]
+**Depends on:** [IO-007], [EXEC-010], [TIME-012], [TIME-013], [VER-001], [VER-004], [VER-011],
+[VER-013]
 
 **Implementation notes:**
 - Java: Full implementation
@@ -2232,6 +2572,7 @@ The zone library *shall* report a zone empty only when it holds no firing times.
 #### VER-012: Name-Aware State Class Graph (ν-Partition Quotient)
 
 **Priority:** MAY
+**Kind:** F
 
 The state class graph ([VER-010]) MAY be made **ν-aware** to decide [NU-020] join
 correlation *exactly* — the [NU-050] **Route B** carve-out. Each correlation
@@ -2240,9 +2581,47 @@ transition is enabled only when one symbol is shared by every correlated input
 (not merely when the token counts allow); a minting fork introduces a
 globally-fresh symbol; and the graph is quotiented under name-permutation
 symmetry (its dedup key abstracts the symbol identities). The timed firing domain
-([VER-011]) is carried unchanged alongside the name partition, so the analysis is
-exact over **name × time**, and quiescence ([NU-050]) is decided over the
-name-aware terminal classes.
+([VER-011]) is carried beside the name partition, with a matched join's clock gated by
+name-enablement ([NU-050]) and, unless `assumeNoReaping` is set, without latest bounds
+([TIME-013]); the Route B class key pairs the base class (for a timed net its marking, zone
+and earliest-ready times) with the canonical key of the name layer. Quiescence ([NU-050]) is
+decided over the name-aware terminal classes.
+
+*When* the Route B graph fires a ν-join on a name-symbol, every correlated input *shall* hold at
+least the required count of that symbol, and the firing *shall* remove the required count of that
+symbol from each correlated input and add one token of it to each relay target of the fired branch
+([NU-054]). *If* every correlated input of a ν-join holds at least the required count of a
+name-symbol, *then* the name successors of a firing of that join *shall* include one with the
+canonical key of the join fired on that symbol. *When* the Route B graph fires a coloured consumer
+([NU-051]), it *shall* fire it on a name-symbol its coloured input holds, removing one token of that
+symbol from the input and adding one token of it to each coloured output of the fired branch. *If*
+the coloured input of a coloured consumer holds a name-symbol, *then* the name successors of a
+firing of that consumer *shall* include one with the canonical key of the consumer fired on that
+symbol. *When* the Route B graph fires a minting transition, its one name successor *shall* add one
+token of a name-symbol that no coloured place of the class holds to each coloured output of the
+fired branch. *When* the Route B graph fires a transition that neither mints, joins nor consumes a
+name-symbol, its one name successor *shall* be the name layer of the class unchanged. Two name
+layers *shall* have the same canonical key exactly when one is the other with its name-symbols
+renamed by a permutation. The Route B graph *shall* identify two classes exactly when they have the
+same base class and their name layers have the same canonical key. *When* the Route B graph fires a
+transition, the successor *shall* hold on each place the transition does not reset the tokens the
+place held, less the tokens the transition's input on that place consumes by [IO-007] (all of them
+for an `All` or `AtLeast` input), plus the tokens the fired branch deposits there.
+
+The executor fires a ν-join on one of the names that enable it ([NU-020]); the graph fires it on
+each of them, up to renaming, and a coloured consumer ([NU-051]) on each resident name. Route B's
+successor step gives any two classes with the same key the same transition labels and successor
+keys, up to order, so the premise of the completeness sentence below holds for it.
+
+Every class the Route B build stores *shall* be reachable in the graph from the initial class,
+whether the build closed, was truncated, was stopped or stopped early. *If* the Route B build
+closes, *then* it *shall* have expanded every class it stored. *While* the graph's successor step
+gives any two classes with the same key the same transition labels and successor keys, up to order,
+*if* the Route B build closes, *then* it *shall* have stored a class with the key of every class the
+graph reaches from the initial class. *If* the Route B build stops early at a violating class of a
+reachability-safety property, *then* its verdict for that property *shall* be the verdict of the
+same build without the early stop, unless that build is stopped by the total budget or a
+cancellation. *If* the Route B build stops early, *then* it *shall not* report the graph as closed.
 
 **Acceptance Criteria:**
 1. A ν-join fires in the graph only on a name shared by all correlated inputs; a
@@ -2252,8 +2631,11 @@ name-aware terminal classes.
    state class (the quotient is finite when the live-name pool is structurally
    bounded).
 3. **Conditional on an executor-faithful consumption model** (see below): when the
-   graph closes within the class bound the verdict is exact (sound and complete) for
-   reachability-safety and quiescence, for the net it explores. When that graph keeps a latest
+   graph closes within the class bound the verdict for reachability-safety and quiescence is
+   sound for every executor run ([NU-050]) and complete for the free-choice name semantics the
+   graph explores: every class the graph reaches is stored and expanded, so a property that a
+   class the graph reaches violates is `Violated`, and a `Violated` names a class the graph
+   reaches. When that graph keeps a latest
    bound (under `assumeNoReaping`, or a direct call on a timed net) it reads each firing as one
    instant step, so the verdict is exact only for an on-time executor whose actions take no
    time, and the report says so ([VER-004] AC3). A graph that does not close within the class
@@ -2275,8 +2657,10 @@ name-aware terminal classes.
    "Verdicts from a truncated graph", and `NameAligned` of [NU-055]) the build checks each class
    with the same shared predicate as it is discovered and stops at the first violating class. BFS discovers classes in index
    order, so that class is the lowest-index violating class — the one the check over a full or
-   truncated graph selects — and its path is the shortest; verdict, route and witness are
-   identical to a build without the early stop, and only the class count and time differ. When
+   truncated graph selects — and its path is the shortest; verdict and route are
+   identical to a build without the early stop and the witness ends at the same class; only the
+   class count, the time and, among equally short paths to that class, the path the witness
+   takes may differ. When
    the stop comes before the class bound, the report note
    `Note: Route B stopped at the first violating class after N classes (VER-012). Every explored class is reachable and classes are discovered breadth-first, so the counterexample is a real firing sequence and a shortest one to any violation.`
    replaces both the truncation note and the exact-graph note, and the parent whose expansion
@@ -2286,12 +2670,14 @@ name-aware terminal classes.
    the default class bound: `Violated` with `create_order ×3` after a handful of classes,
    where it took 1.8 s to fill the cap first.
 
-**Exactness precondition (consumption model).** The exactness of criterion 3 is not
-unconditional — it holds only while the graph's successor relation removes the *same*
-tokens the executor would. The successor step MUST derive each input's token count from
-the canonical `consumptionCount(available)` of [IO-007] (so `All` and `AtLeast(m)`
-consume **all** available tokens, not merely `requiredCount()`), in the [EXEC-010] FIFO
-order. A successor relation that consumes a *minimum* instead leaves phantom residue in
+**Exactness precondition (consumption model).** The soundness and completeness of
+criterion 3 are not unconditional: they hold only while the graph's successor relation
+removes as many tokens from each place as the executor would. The successor step MUST
+derive each input's token count from the canonical `consumptionCount(available)` of
+[IO-007] (so `All` and `AtLeast(m)` consume **all** available tokens, not merely
+`requiredCount()`). Which names the removed tokens carry is the graph's free choice, where
+the executor takes the oldest ([EXEC-010], [NU-020]), so criterion 3 claims completeness only
+for the graph's own name semantics. A successor relation that consumes a *minimum* instead leaves phantom residue in
 the source place; that residue keeps inhibitor arcs on the place unsatisfied and
 suppresses successor classes, so a genuinely reachable marking is reported unreachable —
 an **unsound** `Proven`, not a conservative one. Implementations therefore MUST delegate
@@ -2348,8 +2734,8 @@ an ever-minting net truncates to `Unknown`. For AC3's prefix rule, PNID Fig. 11(
 quiescence property on an ever-minting net whose only successor-free classes are frontier classes
 stays `Unknown`. For the early stop (AC5), the same Fig. 11(b) query at the default class bound
 is `Violated` after fewer than 50 classes with the trace `create_order ×3`, a quiescence property
-on that net explores as before, and on several fixtures the early-stop witness equals the witness
-from a build without it. For the orbit dedup, the class count of every existing Route B fixture is
+on that net explores as before, and on several fixtures the early-stop witness ends at the class the
+witness from a build without it ends at. For the orbit dedup, the class count of every existing Route B fixture is
 unchanged, and an 8 000-class build of Fig. 11(b) finishes under a generous time bound.
 
 ---
@@ -2357,6 +2743,7 @@ unchanged, and an 8 000-class build of Fig. 11(b) finishes under a generous time
 #### VER-023: Timed Counterexample Check
 
 **Priority:** SHOULD
+**Kind:** B
 
 The flat encoders decide the untimed abstraction ([VER-004]), so a `Violated` on a timed net can
 rest on a run the timing forbids. A call that answers within `window(0, 2)`, raced by a watchdog
@@ -2371,7 +2758,8 @@ default.
 
 1. the net is timed (some transition is not `immediate`, [VER-017] condition 3);
 2. no environment places are registered, since the graph does not model injection ([VER-006],
-   [VER-017] condition 2);
+   [VER-017] condition 2); under the `Arrivals` mode of [VER-006] the net is closed before any
+   route and has none, so the check runs on the closed net;
 3. the net declares no match (ν-join) transitions. The state-class graph is name-blind: it fires a
    join on tokens whose names differ and misses the quiescent markings of a join that never
    matches ([VER-017] condition 1, [VER-022]), so neither its violation nor its closure would
@@ -2400,17 +2788,18 @@ For the quiescence properties the predicate reads "this class has no successor" 
 transition can ever fire again", and, on a net with a reapable transition, also treats a class
 whose enabled transitions are all reapable as resting ([VER-002]). The graph itself fires every
 transition on time: it does not hold the runs a late executor takes after a reap, so
-`SPURIOUS_UNDER_TIMING` there means that no on-time run reaches a violating rest. On the
-[VER-002] AC11 witness the check is `TIMED_CONFIRMED` with the empty trace. On a timed graph that MUST still hold: a class with an enabled
-transition has a successor whatever its interval, so a `delayed(5)` transition, whose interval
-`[5, ∞)` has no upper bound, still fires out of its class. A graph that dropped such a class's
-successors would report a timed deadlock that the net does not have.
+`SPURIOUS_UNDER_TIMING` there means that no on-time run reaches a violating rest. On a timed
+graph that MUST still hold: a class with an enabled transition has a successor whatever its
+interval, so a `delayed(5)` transition, whose interval `[5, ∞)` has no upper bound, still fires
+out of its class. A graph that dropped such a class's successors would report a timed deadlock
+that the net does not have. On the [VER-002] AC11 witness the check is `TIMED_CONFIRMED` with the empty trace.
 
 **Outcomes.**
 - The graph reaches a violating class: `TIMED_CONFIRMED`. The counterexample trace and its
-  transitions are **replaced** by the shortest path from the initial class to a violating class,
-  a run of the timed semantics **ignoring priority** (the graph of [VER-010] does not order
-  transitions by priority), and the report says the trace came from the timed graph. The run is
+  transitions are **replaced** by the shortest path from the initial class to a violating class
+  (the first one the breadth-first build stored, [VER-017]), a run of the timed semantics
+  **ignoring priority** (the graph of [VER-010] does not order transitions by priority), and the
+  report says the trace came from the timed graph. The run is
   timing-feasible, not necessarily one the executor takes: when priority is what keeps the
   executor off the trace (a higher-priority transition always wins the conflict, e.g.
   `hi: A → OK` at priority 10 and `lo: A → BAD` at priority 0, both `delayed(1)`, under
@@ -2428,7 +2817,8 @@ successors would report a timed deadlock that the net does not have.
   enough for other firings to interleave with it.
 - The graph is truncated at the class budget and its explored prefix violates the property, by
   the rule of [VER-017] ("Verdicts from a truncated graph": any stored class for a safety
-  property, only expanded classes without successors for a quiescence property):
+  property, only expanded classes that rest for a quiescence property, a class resting when it
+  has no successor or every transition it enables is reapable, [VER-002]):
   `TIMED_CONFIRMED`, the trace replaced by the shortest path in the explored graph, and the
   report says the timed graph was truncated at `N` classes and the violation found in its prefix.
 - The graph is truncated at the class budget with no violation in its prefix, or stopped by the
@@ -2444,9 +2834,42 @@ would be exactly that substitution; turning it into `Unknown` would withdraw a v
 correct under the contract. The timed claim also rests on the on-time, atomic executor above,
 which the executor does not guarantee. So the timed check annotates. `SPURIOUS_UNDER_TIMING` with verdict
 `Violated` is not a contradiction: the untimed abstraction violates the property, and the timed
-net does not. The route, the invariants and every other field are unchanged, and with the
-option off the result and report are byte-identical to a verification without it, apart from
-the `counterexampleTiming` field.
+net does not. The verdict, the route and the invariants are unchanged; under `TIMED_CONFIRMED`
+the trace, its transitions and `counterexampleConfirmed` are replaced, and under the other two
+outcomes they are kept. With the option off, the result and the report are byte-identical to
+those of a verifier that does not offer the check.
+
+**The check, as EARS sentences.**
+
+The verifier *shall* run the timed check exactly when the option is on, the verdict is `Violated`, some transition of the verified net is not `immediate`, no environment place is still registered on the verified net (the `Arrivals` rewrite of [VER-006] removes them), the net declares no match transition, and the route that decided is not Route B ([VER-012]).
+
+*If* the build of the timed graph is stopped by the total budget or cancelled ([VER-013]), *then* the timed check *shall* answer `TIMED_UNDECIDED`.
+
+*While* the build is neither stopped by the total budget nor cancelled, the timed check *shall* answer `TIMED_CONFIRMED` when a counted class of the timed graph violates the property, a counted class being any stored class for a safety property and a class the builder expanded for a quiescence property.
+
+*When* the timed graph is closed and no class of it violates the property, the timed check *shall* answer `SPURIOUS_UNDER_TIMING`.
+
+*When* the timed graph is truncated at the class budget and no counted class of it violates the property, the timed check *shall* answer `TIMED_UNDECIDED`.
+
+*When* the timed check answers `TIMED_CONFIRMED`, the path it reports *shall* lead, in the timed graph it built, from the initial class to the first class, in the order the builder stored the classes, that is counted and violates the property, and *shall* be no longer than any other path of that graph from the initial class to that class.
+
+*If* the timed check does not run, *then* the verifier *shall* leave the result unchanged, its `counterexampleTiming` at the value [VER-003] gives it.
+
+*When* the timed check runs, the verifier *shall* leave the verdict, the route and the reported P-invariants unchanged.
+
+*When* the timed check answers `TIMED_CONFIRMED`, the verifier *shall* report `counterexampleTiming` `TIMED_CONFIRMED`, replace the counterexample's transitions by those of the path the check reports, and report `counterexampleConfirmed` as `true`.
+
+*When* the timed check answers `SPURIOUS_UNDER_TIMING`, the verifier *shall* report it as `counterexampleTiming` and keep the counterexample's transitions and `counterexampleConfirmed`.
+
+*When* the timed check answers `TIMED_UNDECIDED`, the verifier *shall* report it as `counterexampleTiming` and keep the counterexample's transitions and `counterexampleConfirmed`.
+
+**The timed graph, as EARS sentences.**
+
+*While* every finite bound of the net is a whole number of milliseconds, a class of the timed graph *shall* have no successor exactly when its marking enables no transition.
+
+*When* the timed graph is closed and no class of it violates a safety property, the property *shall* hold on every marking that an on-time run with atomic firings reaches from the initial marking.
+
+*When* the timed graph is closed and no class of it violates a quiescence property, the property *shall* hold on every resting marking that an on-time run with atomic firings reaches from the initial marking, a marking resting when every transition it enables is reapable ([VER-002], [TIME-013]), which under `assumeNoReaping` means when it enables none.
 
 **Acceptance Criteria:**
 1. The watchdog net (`start: REQ → CALLING`; `answer: CALLING → RESP`, `window(0, 2)`;
@@ -2466,14 +2889,14 @@ the `counterexampleTiming` field.
    an unbounded timed producer `gen: G → G, A` at `delayed(1)`, one token on `G`, under
    `placeBound(A, 2)` with a class budget of 50 never closes, and its prefix holds `A = 3` after
    `gen, gen, gen`.
-5. With environment places registered, or with match transitions, the check does not run and
-   the value is `UNTIMED_ABSTRACTION`; a Route B verdict on a timed net stays `TIMED_EXACT`; an
-   untimed net stays `UNTIMED_NET`.
+5. With environment places registered under a mode other than `Arrivals` ([VER-006]), or with
+   match transitions, the check does not run and the value is `UNTIMED_ABSTRACTION`; a Route B
+   verdict on a timed net stays `TIMED_EXACT`; an untimed net stays `UNTIMED_NET`.
 6. The race `t1: p → a` at `window(3, 5)`, `t2: p → b` at `delayed(10)`, one token on `p`, under
    `unreachable(b)` with the check on: the verdict is `Violated`, the value is
    `SPURIOUS_UNDER_TIMING`, and the report says the timed claim assumes an on-time executor with
    atomic firings.
-6. No verdict differs between the check on and off, for any net and property.
+7. No verdict differs between the check on and off, for any net and property.
 
 **Implementation notes:**
 - Java: `SmtVerifier.timedCounterexampleCheck(boolean)`; the graph is
@@ -2484,8 +2907,8 @@ the `counterexampleTiming` field.
   `StateClassGraph::build_with_options`, the predicate `graph_decision::decide_over_classes`.
 - Python: `verify(..., timed_counterexample_check=False)`.
 
-**Depends on:** [VER-003], [VER-004], [VER-006], [VER-010], [VER-013], [VER-014], [VER-017],
-[EXEC-042]
+**Depends on:** [VER-002], [VER-003], [VER-004], [VER-006], [VER-010], [VER-012], [VER-013],
+[VER-014], [VER-017], [VER-022], [EXEC-003], [EXEC-042], [TIME-013]
 
 **Test derivation:** the watchdog net above with the check off and on (AC1), with the watchdog
 made faster than the answer (AC2), and truncated by `enumerationMaxClasses` (AC4); the timed
@@ -2506,14 +2929,14 @@ The engine may support structural analysis of siphons (sets of places that, once
 **Commoner's theorem governs ORDINARY nets only.** The siphon and trap fixpoints are computed
 from the pre/post vectors, so they model a net in which the sole reason a transition is disabled
 is an input place holding too few tokens. A read arc, an inhibitor arc, a reset arc, a
-consume-all input or an arc weight above one is a disablement the fixpoints do not see, and
-dropping it yields a strictly **more permissive** net — the wrong direction for a deadlock
+consume-all input or an input arc weight above one is a disablement the fixpoints do not see,
+and dropping it yields a strictly **more permissive** net, the wrong direction for a deadlock
 proof. An implementation that converts a siphon/trap result into a `Proven` verdict MUST
 therefore refuse to do so for any net carrying one of them, exactly as it already refuses when
-sinks are declared or environment places are registered. Three witnesses, each a net that is
-dead at its initial marking and was reported deadlock-free before the restriction:
-`t1: one(a) read(g) → g` with `t2: one(g) → a` from `{a:1}`; `t: exactly(2, a) → a` from
-`{a:1}`; `t: one(a) inhibitor(b) → a` from `{a:1, b:1}`.
+sinks are declared or environment places are registered on the net it decides. Three
+witnesses, each a net that is dead at its initial marking and was reported deadlock-free before
+the restriction: `t1: one(a) read(g) → g` with `t2: one(g) → a` from `{a:1}`;
+`t: exactly(2, a) → a` from `{a:1}`; `t: one(a) inhibitor(b) → a` from `{a:1, b:1}`.
 
 **Commoner's theorem needs at least one transition.** On a net with no transition every marking
 is dead, yet each marked place is a siphon whose maximal trap, the place itself, is marked, so
@@ -2558,7 +2981,7 @@ whenever the counts are there, so it can have no dead marking while the net it s
 one. The structural route therefore does not decide a net with match transitions, as it does
 not decide one with a reapable transition ([VER-002]) unless `assumeNoReaping` is set.
 
-The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only when it decides `DeadlockFree` on a net with no match transition ([NU-020]), no reapable transition ([VER-002]) unless `assumeNoReaping` is set, no read, inhibitor or reset arc, no consume-all input, no arc weight above one, no declared sink or conditional sink and no registered environment place.
+The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only when it decides `DeadlockFree` on a net with no match transition ([NU-020]), no reapable transition ([VER-002]) unless `assumeNoReaping` is set, no read, inhibitor or reset arc, no consume-all input, no input arc weight above one, no declared sink or conditional sink and no environment place registered on the net it decides (the `Arrivals` rewrite of [VER-006] leaves none).
 
 **Acceptance Criteria:**
 1. Siphons and traps are identified from the net structure.
@@ -2566,10 +2989,11 @@ The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only
    deadlock-freedom of an ordinary net; liveness only for free-choice nets).
 3. A structural `Proven` is offered only for `DeadlockFree` on a net with no match transition,
    no reapable transition (unless `assumeNoReaping` is set), no read, inhibitor or reset arc, no
-   consume-all input, no arc weight above one, no declared sink or conditional sink and no
-   registered environment place. Each of the three witnesses above returns a
-   verdict from a route that models what disables them, never a structural proof. Nor is a net
-   with no transition: the one-place witness above is `Violated`, not proven structurally.
+   consume-all input, no input arc weight above one, no declared sink or conditional sink and no
+   environment place registered on the net the verifier decides (the `Arrivals` rewrite of
+   [VER-006] leaves none). Each of the three witnesses above returns a verdict from a route that
+   models what disables them, never a structural proof. Nor is a net with no transition: the
+   one-place witness above is `Violated`, not proven structurally.
 4. The siphon search is complete: it finds `{x, y}` and `{a, b}` in the two witnesses above, and
    neither net is proven structurally. A siphon whose maximal trap is empty in the initial
    marking (the ring `a ↔ b` from the empty marking) blocks a structural proof. A net with more
@@ -2582,15 +3006,30 @@ The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only
 #### VER-021: XOR Branch Analysis
 
 **Priority:** SHOULD
+**Kind:** F
 
-The verifier supports analysis of XOR output branches to identify unreachable branches via state space exploration. Each XOR branch is expanded into a virtual transition for analysis.
+The verifier supports analysis of the outcomes of transitions with XOR output branches over a built state class graph ([VER-010]), reporting which outcomes the graph takes. Each outcome of a transition, each XOR branch and a timeout outcome that deposits differently from every branch, is a virtual transition of its own ([VER-001]), and the outcomes are numbered from 0 in that order: the XOR branches in enumeration order, then the timeout outcome.
+
+The XOR branch analysis *shall* report every transition of the net with two or more outcomes, and no other, once each with its number of outcomes.
+
+*While* the graph it reads does not split a transition in flight, the XOR branch analysis *shall* report an index of that transition as taken exactly when an edge of the graph fires the transition with that index.
+
+*While* the graph it reads splits a transition in flight ([VER-004]), that is, while an edge fires its completion `complete:<t>` or a class marks its place `inflight:<t>`, the XOR branch analysis *shall* report an index of that transition as taken exactly when an edge of the graph fires `complete:<t>` with that index.
+
+The XOR branch analysis *shall* report as untaken exactly the outcomes of a reported transition, numbered from 0 below its number of outcomes, that it does not report as taken.
+
+*When* the graph is closed, the XOR branch analysis *shall* report an outcome of a reported transition as untaken exactly when no run of the net from its initial marking fires the transition with that outcome, or fires `complete:<t>` with it when the graph splits the transition.
+
+An index is taken as the edge carries it, with no bound: a graph builder that fires a transition only with its own outcomes gives no index at or above the number of outcomes. A transition whose `Timeout` forwards an `All` or `AtLeast` input ([IO-014]) has no virtual transitions of [VER-001], so the first sentence does not cover it: the analysis may report it with the number of outcomes its graph builder fires, as the runtimes do, and still reports every other transition of the net.
+
+The analysis reads only the graph it is given and does not report whether that graph is closed. On a graph truncated at its class budget ([VER-017]) an untaken outcome may still fire beyond the budget, so a caller reads the graph's completeness (`isComplete`, `is_complete` in Rust) before calling an outcome unreachable.
 
 **Acceptance Criteria:**
-1. XOR branches are expanded into separate virtual transitions.
-2. Unreachable branches (those that can never fire given the net structure and initial marking) are identified.
+1. Every outcome of a transition, each XOR branch and a timeout outcome that deposits differently from every branch, is expanded into a separate virtual transition.
+2. An outcome no edge of the graph fires is reported untaken; on a closed graph it is one that no run fires.
 
-**Depends on:** [IO-012], [IO-016]
-**Test derivation:** Net with XOR output where one branch is structurally unreachable; verify identification.
+**Depends on:** [IO-012], [IO-016], [VER-001], [VER-004], [VER-010]
+**Test derivation:** Net with a XOR transition enabled after one step and a second XOR transition whose input place is never marked; on the closed graph the first XOR transition reports every outcome taken and the second every outcome untaken. A graph truncated before the first XOR transition fires is not complete and reports that transition's outcomes untaken. A transition split in flight is read off `complete:<t>`, a start edge alone takes none of its outcomes, and a class that marks `inflight:<t>` splits it before any completion fires. A XOR transition beside an unrelated drained forward is still reported.
 
 ---
 
@@ -2599,6 +3038,7 @@ The verifier supports analysis of XOR output branches to identify unreachable br
 #### VER-022: Open-Net Verification Against a Contract
 
 **Priority:** MAY
+**Kind:** B
 
 An implementation MAY verify a subnet **in isolation**, its ports played by the environment,
 against a **contract** stating what the environment does and what the subnet guarantees. A net
@@ -2614,8 +3054,9 @@ environment runs dry.
 - *Arrival groups*: each delivers between `min` and `max` tokens in total, each onto one of its
   places, at any point of the run. Both bounds are finite: a bound is both the runtime cap and
   the width of the claim.
-- *Count clauses*, each named: at every quiescent marking the tokens across the clause's places
-  number between `min` and `max`.
+- *Count clauses*, each named: at every quiescent marking the tokens across the clause's places,
+  each place counted once, number between `min` and `max`, or at least `min` for a clause with no
+  `max`.
 - *Rest places*: may hold any number of tokens at quiescence.
 - *Designed terminals*: while a terminal's marker holds a token, clause lower bounds are waived
   (upper bounds are not) and the terminal's excused places may hold tokens. The marker itself may
@@ -2625,7 +3066,8 @@ environment runs dry.
   its own — which an arrival group cannot express because its tokens do not wait for a request. A
   place only environment transitions touch is an **environment place**, the environment's own
   state; a place they share with the subnet is a port.
-- *Termination*: every run comes to rest, unless the contract waives it.
+- *Termination*: no run fires forever, unless the contract waives it. A cycle of reapable
+  transitions ([TIME-013]) counts too, since a run need not reap them.
 
 A quiescent marking **meets** the contract when every clause holds, lower bounds only while no
 terminal marker is marked, and every token lies on a clause place, a rest place, an environment
@@ -2634,13 +3076,19 @@ rest set of [VER-014] with the clause, rest and environment places as sinks and 
 conditional sink, and implementations MUST decide it through that same predicate. Every other
 place is internal to the subnet and must be empty.
 
+The verifier *shall* judge a quiescent marking to meet the contract exactly when, counting each
+place of a clause once, the tokens across each clause's places number at most the clause's `max` if
+it has one, at least its `min` unless some terminal marker is marked, and no marked place is
+stranded under the rest set of [VER-014] whose sinks are the clause, rest and environment places and
+whose conditional sinks are the terminals.
+
 **Closure.** The subnet is verified as a closed net. Arrival group `i` contributes a source place
-holding `min` tokens, a source place holding `max − min`, one transition per target place moving
-a token from either source onto it, and a transition with no output that declines a token of the
-second source. A run is therefore quiescent only once every required arrival has happened and
-every optional one has been delivered or declined. The sources are ordinary places, not the
-environment places of [VER-006], which never run dry and would make every quiescence property hold
-vacuously.
+holding `min` tokens and a source place holding `max − min`, each left out with its transitions when
+its count is 0, one transition per source and target place moving a token from that source onto the
+place, and a transition with no output that declines a token of the second source. A run is
+therefore quiescent only once every required arrival has happened and every optional one has been
+delivered or declined. The sources are ordinary places, not the environment places of [VER-006],
+which never run dry and would make every quiescence property hold vacuously.
 
 The contract's environment transitions join the closed net unchanged. Their actions never run, so
 one that declares outputs gets a placeholder action instead of a [CORE-043] refusal. Contract
@@ -2648,7 +3096,33 @@ places no arc touches join as places of their own and are listed in the report, 
 place nothing writes counts zero there: a finding, never a refusal. The closure's names
 (`env:arrivals[i]`, `env:optional[i]`, `env:arrive[i]:<place>`, `env:arrive?[i]:<place>`,
 `env:decline[i]`) and the environment transitions' names MUST NOT collide with the subnet's, and a
-collision is refused.
+collision is refused. The in-flight split of [VER-004] applies to the closed net before the
+terminal rewrite of [EXEC-042]: the environment transitions stay atomic and their arcs count as
+tests, and a closed net the split refuses, or one that a declared mint transition ([NU-010]) is
+not in, is `Unknown` before either route runs.
+
+*If* a name the closure adds, or the name of an environment transition, is already a place or
+transition name of the subnet, *then* the verifier *shall* refuse the closure, and it *shall* not
+refuse a closure whose added and environment-transition names are distinct from each other, from the
+subnet's names and from the environment places.
+
+The verifier *shall* build the closed net from the subnet's transitions, then the environment
+transitions unchanged, then, for each arrival group `i` in order, numbered from 0, one immediate
+transition `env:arrive[i]:<place>` per target place, in the group's order, taking one token from the
+source `env:arrivals[i]` when `min > 0`, and one immediate transition `env:arrive?[i]:<place>` per
+target place, in the group's order, taking one token from the source `env:optional[i]`, followed by
+an immediate `env:decline[i]` discarding one, when `max > min`; the transitions the closure adds
+have no other arc.
+
+The verifier *shall* start the closed net from the contract's initial marking with `min` tokens on
+`env:arrivals[i]` and `max − min` tokens on `env:optional[i]` for each source it builds.
+
+The verifier *shall* treat as an environment place exactly a place that an environment transition
+touches and the subnet does not, and *shall* make every place of the subnet and every place the
+contract names a place of the closed net.
+
+The verifier *shall* mark as environment steps exactly the environment transitions and the
+transitions the closure adds.
 
 **Routes.** Both decide the untimed claim of [VER-004].
 1. *Graph.* The closed net's state-class graph is built **untimed**: every clock gets the interval
@@ -2687,7 +3161,7 @@ verdict used.
 
 **Verdict.**
 - `Proven`: every reachable quiescent marking of the closed net meets the contract and, where
-  termination is required, no run fails to come to rest.
+  termination is required, no run fires forever.
 - `Violated`: lists every broken part the deciding route found (each clause by name, each stranded
   place by name, and termination), each with a witness. A witness carries the firing sequence from
   the initial marking, environment steps included, the markings along it, and the **port trace**:
@@ -2698,6 +3172,36 @@ verdict used.
   counterexample, which need not be shortest; one that does not replay as an ordered firing
   sequence ([VER-003]) is marked unconfirmed and names no stranded place.
 - `Unknown`: says which parts no route decided, and why.
+
+*If* the verifier refuses the closure, *then* it *shall* refuse the verification.
+
+*When* the verifier accepts the closure, it *shall* return a result, and that result *shall* be
+`Proven` when the closed net declares no match transition, its graph closes within a class budget
+above 0, every reachable quiescent marking meets the contract and, where termination is required, no
+run fires forever.
+
+The verifier *shall* return `Proven` only when every quiescent marking reachable in the closed net
+from its initial marking meets the contract, reading quiescence as [VER-002] does, or, when
+`assumeNoReaping` is set, as a marking with no enabled transition, and, where termination is
+required, no run of the closed net fires forever.
+
+*When* the verdict is `Violated`, the verifier *shall* list at least one broken part, and for each
+part with a confirmed witness *shall* report a firing sequence of the closed net from its initial
+marking, environment steps included, that leads to a quiescent marking at which the named clause
+fails, or to a quiescent marking at which each named place, at least one, holds a stranded token,
+or, for `termination`, whose part before the reported cycle start leads to a marking and whose part
+after it, not empty, leads from that marking back to it.
+
+The verifier *shall* mark a witness unconfirmed only when the SMT route decided, and *shall* name in
+each clause part, confirmed or not, a clause of the contract.
+
+The verifier *shall* report a `termination` part only when the contract requires termination, and
+*shall* name no stranded place in a witness that is not confirmed.
+
+*When* the verdict is `Unknown`, the verifier *shall* give a reason that is not empty.
+
+*If* the closed net declares a match transition, *then* the verifier *shall* return `Proven` or
+`Violated` only from the SMT route.
 
 **Report order.** Names in a result and its report follow the name order of [VER-013]: the places
 of every printed marking, the stranded places of the graph route (after the clauses, in contract
@@ -2710,14 +3214,16 @@ order), and the stranded places an SMT stranding violation names.
 2. A clause whose upper bound is exceeded is violated whether or not a terminal is marked. A
    lower bound is waived while one is.
 3. A token on a place the contract does not name is reported as stranded, and the report
-   names the place.
+   names the place whenever its witness is confirmed, always on the graph route.
 4. A reachable cycle is a `termination` violation with a lasso witness when termination is
    required, and no violation when it is waived.
 5. An arrival group that must deliver `n` tokens reaches quiescence only after all `n`; a
    group that may deliver at most `n` also reaches quiescence after fewer.
-6. A timed subnet gets the untimed verdict: its class count equals that of the same subnet
-   with every transition immediate. On the SMT route, a ν-net whose timing keeps a transition
-   from firing is judged as if it could: a stranding only that transition causes is `Violated`.
+6. A timed subnet gets the verdict of the untimed, reap-aware claim of [VER-004]: its class
+   count equals that of the same subnet with every transition immediate, and its verdict equals
+   that subnet's when no transition is reapable or under `assumeNoReaping`. On the SMT route, a
+   ν-net whose timing keeps a transition from firing is judged as if it could: a stranding only
+   that transition causes is `Violated`.
 7. When the graph does not close, the SMT route decides. The result is `Unknown`, naming
    the reason, when that route is disabled or leaves a part undecided.
 8. An environment transition's firings are marked as environment steps in the port trace. A
@@ -2797,7 +3303,8 @@ close, not an alternative to one.
   to the net's by name, although Java `Place` equality also compares the token type.
 - Every implementation's report is byte-identical to TypeScript's.
 
-**Depends on:** [VER-002], [VER-004], [VER-006], [VER-010], [VER-014], [VER-017], [VER-019]
+**Depends on:** [VER-002], [VER-003], [VER-004], [VER-006], [VER-010], [VER-012], [VER-013],
+[VER-014], [VER-017], [VER-019], [TIME-013], [EXEC-042], [CORE-043], [NU-010]
 
 **Test derivation:** Use a node gadget: one input edge carrying data or empty, one output with
 two edges, a shared budget, and a halt that inhibits start and skip. Its contract is proven.

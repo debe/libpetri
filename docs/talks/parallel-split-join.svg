@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 600" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="mMute" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#44546b"/>
+    </marker>
+    <marker id="mTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1100" height="600" fill="#0b1220"/>
+  <rect x="14" y="14" width="1072" height="572" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="550" y="118" text-anchor="middle" font-size="15" fill="#2dd4bf">three branches, all enabled at once</text>
+
+  <!-- ===== arcs ===== -->
+  <g stroke="#44546b" stroke-width="2" fill="none">
+    <!-- request -> accept -->
+    <path d="M122,300 L167,300" marker-end="url(#mMute)"/>
+    <!-- accept -> branch places (AND-split: one transition, three output arcs) -->
+    <path d="M263,286 C300,250 308,182 332,178" marker-end="url(#mMute)"/>
+    <path d="M263,300 L332,300" marker-end="url(#mMute)"/>
+    <path d="M263,314 C300,350 308,418 332,422" marker-end="url(#mMute)"/>
+    <!-- branch place -> branch transition -->
+    <path d="M386,170 L466,170" marker-end="url(#mMute)"/>
+    <path d="M386,300 L466,300" marker-end="url(#mMute)"/>
+    <path d="M386,430 L466,430" marker-end="url(#mMute)"/>
+    <!-- branch transition -> result place -->
+    <path d="M618,170 L659,170" marker-end="url(#mMute)"/>
+    <path d="M618,300 L659,300" marker-end="url(#mMute)"/>
+    <path d="M618,430 L659,430" marker-end="url(#mMute)"/>
+    <!-- result place -> compose (AND-join: three input arcs) -->
+    <path d="M711,178 C745,200 752,278 778,288" marker-end="url(#mMute)"/>
+    <path d="M711,300 L778,300" marker-end="url(#mMute)"/>
+    <path d="M711,422 C745,400 752,322 778,312" marker-end="url(#mMute)"/>
+  </g>
+  <!-- compose -> reply -->
+  <path d="M882,300 L950,300" stroke="#2dd4bf" stroke-width="2.2" fill="none" marker-end="url(#mTeal)"/>
+
+  <!-- ===== REQUEST place ===== -->
+  <circle cx="90" cy="300" r="30" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <text x="90" y="350" text-anchor="middle" font-size="15" fill="#8295ab">REQUEST</text>
+
+  <!-- ===== accept transition (the fork) ===== -->
+  <rect x="169" y="273" width="92" height="54" rx="9" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <text x="215" y="306" text-anchor="middle" font-size="17" fill="#e8eef6">accept</text>
+  <text x="215" y="350" text-anchor="middle" font-size="13" fill="#7f93a8">the fork: one transition</text>
+
+  <!-- ===== branch places (each holds a token: parallel) ===== -->
+  <circle cx="360" cy="170" r="26" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="360" cy="170" r="11" fill="#38bdf8"/>
+  <circle cx="360" cy="300" r="26" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="360" cy="300" r="11" fill="#fbbf24"/>
+  <circle cx="360" cy="430" r="26" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="360" cy="430" r="11" fill="#38bdf8"/>
+
+  <!-- ===== branch transitions (all enabled at once) ===== -->
+  <rect x="468" y="146" width="150" height="48" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="543" y="176" text-anchor="middle" font-size="16.5" fill="#e8eef6">guard</text>
+  <rect x="468" y="276" width="150" height="48" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="543" y="306" text-anchor="middle" font-size="16.5" fill="#e8eef6">search</text>
+  <rect x="468" y="406" width="150" height="48" rx="9" fill="#16263c" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="543" y="436" text-anchor="middle" font-size="15" fill="#e8eef6">search-fallback</text>
+
+  <!-- ===== result places ===== -->
+  <circle cx="685" cy="170" r="26" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="685" cy="300" r="26" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="685" cy="430" r="26" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+
+  <!-- ===== compose transition (AND-join) ===== -->
+  <rect x="778" y="268" width="104" height="64" rx="9" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <text x="830" y="296" text-anchor="middle" font-size="17" fill="#e8eef6">compose</text>
+  <text x="830" y="316" text-anchor="middle" font-size="12.5" fill="#2dd4bf">AND-join: all 3</text>
+
+  <!-- ===== REPLY place ===== -->
+  <circle cx="980" cy="300" r="30" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <text x="980" y="350" text-anchor="middle" font-size="15" fill="#8295ab">REPLY</text>
+
+  <!-- ===== caption ===== -->
+  <rect x="70" y="510" width="960" height="66" rx="14" fill="#0d1c2a" stroke="#233650" stroke-width="1.5"/>
+  <text x="550" y="540" text-anchor="middle" font-size="16.5" font-weight="700" fill="#2dd4bf">Three tokens, three places, at once. The branches fire in parallel.</text>
+  <text x="550" y="563" text-anchor="middle" font-size="14.5" fill="#bac8d7">accept is the fork, compose the AND-join. Ordinary transitions, no special operator, no 2&#8319;.</text>
+</svg>

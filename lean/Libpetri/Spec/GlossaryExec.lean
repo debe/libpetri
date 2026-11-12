@@ -250,8 +250,9 @@ inductive XLbl (N T : Type) where
   passed output validation (glossary: Admitted completion). The step that emits
   TransitionCompleted. -/
   | commit (i : Nat)
-  /-- Step 1: settle firing `i` without a deposit: the action failed, or output validation
-  rejected its outcome ([EXEC-021], [EXEC-030]). -/
+  /-- Step 1: settle firing `i` without a deposit: the action failed, output validation rejected
+  its outcome, or the join-relay check of [NU-054] rejected it, also for a timeout outcome
+  ([EXEC-021], [EXEC-030], ruling D24 (a)). -/
   | fail (i : Nat)
   /-- Step 1: settle firing `i`'s timeout outcome and deposit it ([EXEC-022], [IO-013]). -/
   | tdeposit (i : Nat)

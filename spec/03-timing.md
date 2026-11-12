@@ -317,6 +317,14 @@ A firing of transition `t` has two halves: its inputs are consumed and its reset
 
 *When* a transition `t` fires and a transition that lost its clock in that firing is enabled after it, that transition *shall* be newly armed ([TIME-010]).
 
+A matched transition ([NU-020]) is armed only while it is enabled and some name is eligible ([NU-022]), in the intermediate marking as in any other marking.
+
+*When* a transition `t` fires, each armed matched transition other than `t` that is not enabled in the intermediate marking or has no eligible name there *shall* lose its clock, even when its correlated inputs still hold tokens.
+
+*When* a transition `t` fires and a matched transition that lost its clock in that firing has no eligible name after it, that transition *shall not* be newly armed, even when it is enabled after the firing.
+
+*When* a transition `t` fires, each armed matched transition other than `t` that is enabled with an eligible name both in the intermediate marking and after the firing *shall* keep its stamp, even when `t` took tokens of the name it would have joined on.
+
 *If* the enablement recheck of a firing pass finds a transition disabled ([EXEC-003] AC3), *then* the transition *shall* lose its clock, even when a same-pass deposit keeps it enabled in the live marking.
 
 *When* a firing pass starts a transition `t`, each other armed transition that is not enabled in the intermediate marking of `t` *shall* lose its clock at the next enablement update ([EXEC-001] step 3), even when a deposit before that update refills its places, and that update *shall* stamp it with the reading the update takes if it is enabled ([TIME-010]), after which its clock runs from that stamp.
@@ -337,9 +345,12 @@ The state class graph applies the same rule to persistence ([VER-010]). A transi
 4. As AC1, but P holds two tokens and the other transition takes one and returns it. T's clock continues, and neither `TransitionClockRestarted` nor `TransitionEnabled` is emitted for T after the refresh.
 5. AC1 with an asynchronous action restarts T's clock as well.
 6. Each restart emits exactly one of `TransitionClockRestarted` or `TransitionEnabled`.
+7. A join J correlates places P0 and P1 by name ([NU-020]). P0 holds a token of name 1 and then one of name 2, P1 a token of name 1, and J is armed. Another transition takes P0's head (name 1) and puts a token of name 1 back into P0 in one firing. J's clock restarts, although both inputs held tokens throughout.
+8. As AC7, but P0 and P1 each hold a token of name 1 and then one of name 2, and the other transition takes P0's head (name 1) and puts nothing back into P0. J's clock continues, because name 2 stays eligible, and neither `TransitionClockRestarted` nor `TransitionEnabled` is emitted for J.
+9. Two joins share P0: J1 correlates P0 and P1, J2 correlates P0 and P3. P0 holds a token of name 1 and then two of name 2, P1 two tokens of name 2, P3 a token of name 1, and both joins are armed. J1 fires on name 2. J2's clock continues, because name 1 stays eligible, and J1 starts a fresh clock.
 
-**Depends on:** [TIME-010], [TIME-011], [CORE-034], [EXEC-003], [EXEC-013], [EVT-004]
-**Test derivation:** A timer place P feeds a delayed transition T. An injected activity token fires a refresh transition that takes P's token and puts one back: through an input arc, with T only reading P, through a reset arc, and with a surplus token in P. Repeat the input-arc case with an asynchronous action. Assert a lower bound on T's firing time and the fresh-clock event, or its absence in the surplus case.
+**Depends on:** [TIME-010], [TIME-011], [CORE-034], [EXEC-003], [EXEC-013], [EVT-004], [NU-020], [NU-022]
+**Test derivation:** A timer place P feeds a delayed transition T. An injected activity token fires a refresh transition that takes P's token and puts one back: through an input arc, with T only reading P, through a reset arc, and with a surplus token in P. Repeat the input-arc case with an asynchronous action. Assert a lower bound on T's firing time and the fresh-clock event, or its absence in the surplus case. For the ν-join clause, a join J correlates two inputs by name: a refresh takes the head of one input and returns a token of the same name (AC7), a taker removes one shared name while another stays shared (AC8), and a second join sharing an input fires on another name (AC9). Assert J's restart, or its absence, and the fired join's fresh clock.
 
 ---
 

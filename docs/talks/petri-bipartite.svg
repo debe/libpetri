@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="aTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2dd4bf"/>
+    </marker>
+    <marker id="aRed" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#f5556d"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="640" fill="#0b1220"/>
+  <rect x="14" y="14" width="1172" height="612" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- ===== alternating chain: place, transition, place, transition, place ===== -->
+  <path d="M216,240 L272,240" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#aTeal)"/>
+  <path d="M356,240 L414,240" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#aTeal)"/>
+  <path d="M492,240 L546,240" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#aTeal)"/>
+  <path d="M630,240 L688,240" stroke="#2dd4bf" stroke-width="2.4" fill="none" marker-end="url(#aTeal)"/>
+
+  <circle cx="180" cy="240" r="36" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <circle cx="180" cy="240" r="13" fill="#38bdf8"/>
+  <rect x="274" y="212" width="80" height="56" rx="9" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <circle cx="454" cy="240" r="36" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <rect x="548" y="212" width="80" height="56" rx="9" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <circle cx="728" cy="240" r="36" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+
+  <!-- kind labels (the alternation reads place / transition / place / ...) -->
+  <text x="180" y="305" text-anchor="middle" font-size="15" fill="#8295ab">place</text>
+  <text x="314" y="305" text-anchor="middle" font-size="15" fill="#8295ab">transition</text>
+  <text x="454" y="305" text-anchor="middle" font-size="15" fill="#8295ab">place</text>
+  <text x="588" y="305" text-anchor="middle" font-size="15" fill="#8295ab">transition</text>
+  <text x="728" y="305" text-anchor="middle" font-size="15" fill="#8295ab">place</text>
+
+  <text x="454" y="345" text-anchor="middle" font-size="16.2" font-weight="600" fill="#2dd4bf">Places and transitions alternate. Every arc crosses between the kinds.</text>
+
+  <line x1="120" y1="392" x2="1080" y2="392" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- ===== forbidden: never within a kind ===== -->
+  <text x="600" y="438" text-anchor="middle" font-size="15.6" font-weight="700" letter-spacing="2" fill="#f5556d">NEVER WITHIN A KIND</text>
+
+  <!-- place -> place (forbidden) -->
+  <circle cx="320" cy="498" r="24" fill="#131e30" stroke="#33445c" stroke-width="2"/>
+  <circle cx="440" cy="498" r="24" fill="#131e30" stroke="#33445c" stroke-width="2"/>
+  <path d="M346,498 L412,498" stroke="#f5556d" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#aRed)" opacity="0.85"/>
+  <line x1="366" y1="484" x2="394" y2="512" stroke="#f5556d" stroke-width="4"/>
+  <line x1="366" y1="512" x2="394" y2="484" stroke="#f5556d" stroke-width="4"/>
+  <text x="380" y="556" text-anchor="middle" font-size="14.4" fill="#8295ab">place to place</text>
+
+  <!-- transition -> transition (forbidden) -->
+  <rect x="746" y="476" width="44" height="44" rx="7" fill="#131e30" stroke="#33445c" stroke-width="2"/>
+  <rect x="866" y="476" width="44" height="44" rx="7" fill="#131e30" stroke="#33445c" stroke-width="2"/>
+  <path d="M794,498 L864,498" stroke="#f5556d" stroke-width="2" stroke-dasharray="6 5" fill="none" marker-end="url(#aRed)" opacity="0.85"/>
+  <line x1="816" y1="484" x2="844" y2="512" stroke="#f5556d" stroke-width="4"/>
+  <line x1="816" y1="512" x2="844" y2="484" stroke="#f5556d" stroke-width="4"/>
+  <text x="828" y="556" text-anchor="middle" font-size="14.4" fill="#8295ab">transition to transition</text>
+
+  <!-- ===== caption ===== -->
+  <text x="600" y="600" text-anchor="middle" font-size="18.0" font-weight="600" fill="#bac8d7">Two disjoint sets. The arcs do the rest.</text>
+</svg>

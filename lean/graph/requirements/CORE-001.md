@@ -9,51 +9,51 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Reference/Build.lean"]
-    n3084["Libpetri.Reference.PlaceKeyed"]
-    n3085["Libpetri.Reference.PlaceKeyed.K"]
-    n3086["Libpetri.Reference.PlaceKeyed.P"]
-    n3087["Libpetri.Reference.PlaceKeyed.Same"]
-    n3088["Libpetri.Reference.PlaceKeyed.key"]
-    n3089["Libpetri.Reference.PlaceKeyed.mk"]
-    n3090["Libpetri.Reference.PlaceKeyed.name"]
-    n3092["Libpetri.Reference.PlaceKeyed.ty"]
-    n3680["Libpetri.Reference.refPlacesByName"]
-    n3681["Libpetri.Reference.refPlacesByNameType"]
-    n3683["Libpetri.Reference.refPlacesByNameType_same"]
+    n3305["Libpetri.Reference.PlaceKeyed"]
+    n3306["Libpetri.Reference.PlaceKeyed.K"]
+    n3307["Libpetri.Reference.PlaceKeyed.P"]
+    n3308["Libpetri.Reference.PlaceKeyed.Same"]
+    n3309["Libpetri.Reference.PlaceKeyed.key"]
+    n3310["Libpetri.Reference.PlaceKeyed.mk"]
+    n3311["Libpetri.Reference.PlaceKeyed.name"]
+    n3313["Libpetri.Reference.PlaceKeyed.ty"]
+    n4436["Libpetri.Reference.refPlacesByName"]
+    n4437["Libpetri.Reference.refPlacesByNameType"]
+    n4439["Libpetri.Reference.refPlacesByNameType_same"]
   end
   subgraph g1["Libpetri/Spec/ConsistencyStructure.lean"]
-    n8293["Libpetri.Spec.core001_place"]
+    n12983["Libpetri.Spec.core001_place"]
   end
   subgraph g2["Libpetri/Spec/Req/CORE_002.lean"]
-    n4273["Libpetri.Spec.CORE_002"]
-    n4274["Libpetri.Spec.CORE_002_byName"]
-    n4275["Libpetri.Spec.CORE_002_byNameType"]
+    n5258["Libpetri.Spec.CORE_002"]
+    n5259["Libpetri.Spec.CORE_002_byName"]
+    n5260["Libpetri.Spec.CORE_002_byNameType"]
   end
-  n3085 --> n3084
-  n3086 --> n3084
-  n3087 --> n3088
-  n3088 --> n3085
-  n3088 --> n3086
-  n3089 --> n3084
-  n3090 --> n3086
-  n3092 --> n3086
-  n3680 --> n3089
-  n3681 --> n3089
-  n3683 --> n3087
-  n3683 --> n3681
-  n4273 --> n3087
-  n4273 --> n3090
-  n4273 --> n3092
-  n4274 --> n3680
-  n4274 --> n4273
-  n4275 --> n3683
-  n4275 --> n4273
-  n8293 --> n4274
-  n8293 --> n4275
+  n3306 --> n3305
+  n3307 --> n3305
+  n3308 --> n3309
+  n3309 --> n3306
+  n3309 --> n3307
+  n3310 --> n3305
+  n3311 --> n3307
+  n3313 --> n3307
+  n4436 --> n3310
+  n4437 --> n3310
+  n4439 --> n3308
+  n4439 --> n4437
+  n5258 --> n3308
+  n5258 --> n3311
+  n5258 --> n3313
+  n5259 --> n4436
+  n5259 --> n5258
+  n5260 --> n4439
+  n5260 --> n5258
+  n12983 --> n5259
+  n12983 --> n5260
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n8293 root
+  class n12983 root
 ```
 
 Axioms used:

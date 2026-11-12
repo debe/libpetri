@@ -309,7 +309,7 @@ A transition that builds therefore has pairwise distinct output branches, so at 
 **Priority:** MUST
 **Kind:** B
 
-`Timeout(duration, child)` is a node of an output spec that gives the action of a firing a budget of `duration` to complete. *If* the action does not complete within `duration`, the firing *shall* end with the timeout outcome: it is abandoned, and it deposits the tokens of `child`. *When* a firing ends with the timeout outcome, it *shall not* deposit any output of the action, so the marking receives the tokens of `child` and nothing else.
+`Timeout(duration, child)` is a node of an output spec that gives the action of a firing a budget of `duration` to complete. *If* the action does not complete within `duration`, the firing *shall* end with the timeout outcome: it is abandoned, and it deposits the tokens of `child`. *When* a firing ends with the timeout outcome, it *shall not* deposit any output of the action, so the marking receives the tokens of `child` and nothing else. A firing of a transition with a match specification whose timeout outcome fails the relay check of [NU-054] does not end with the timeout outcome: it fails ([EVT-008]) and deposits none of the tokens of `child`.
 
 **One budget per action.** *If* an output spec holds more than one `Timeout` node, whether one is nested in the child of another or they sit apart, *then* building the transition *shall* fail with
 
@@ -371,7 +371,7 @@ The count *shall* be the consumption count of the input arc on `from` ([IO-007])
 
 *If* a firing consumed no token from `from`, which a declared input cannot do but a mis-declared spec can, *then* the forward *shall* deposit no token in `to`.
 
-Forwarding is thus multiplicity-preserving, which enables retry patterns without losing tokens.
+Forwarding is thus multiplicity-preserving, which enables retry patterns without losing tokens. A forward into a relay target of a transition with a match specification is checked like every other token of the timeout outcome: when the timeout outcome fails the relay check of [NU-054], the firing fails and its forwards deposit nothing ([NU-054]).
 
 **What a forwarded token carries.** *When* a `ForwardInput` forwards a consumed token, the token it deposits in `to` *shall* carry the consumed token's `created_at` as well as its value. `ForwardInput` exists so a retry does not lose tokens, and a token's creation time is part of what it keeps: it is provenance across exactly the path a net takes when something went wrong, and the [NU-022] tie-break orders correlation names by it. Forwarding is therefore the one exception to [TIME-015]'s token-stamping rule: a forwarded token is the consumed token itself, not a token the executor mints, so it does not take the injected epoch clock. A *minted* recovery token, such as the unit token of a bare `Place` child, does.
 

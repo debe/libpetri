@@ -1,4 +1,6 @@
 import Libpetri.Spec.Registry
+import Libpetri.Spec.Ears
+import Libpetri.Spec.Req.NU_021
 
 set_option linter.missingDocs true
 
@@ -21,14 +23,17 @@ names compare by object identity (a Java class without `equals`, a JavaScript ob
 Ruling D31 (a) makes the order a parameter: the block accepts any strict total order that is
 code-point order on BMP names, so the Rust order (code point, the reference) and the
 Java/TypeScript order (UTF-16 code unit) both satisfy it, although they disagree on names with
-supplementary-plane characters (`NU_001_allows_utf16`). Ruling D96 (a) adds a behaviour line (a
-firing depends on names only through equality and, for the tie-break, the name order); it is stated
-in wave W9 over the ν firing model, together with NU-021's value-blindness, and is an assumes item
-here.
+supplementary-plane characters (`NU_001_allows_utf16`).
 
-Consistency: this block has no conjunct in a `Consistency*` module yet. Its conjunct
-(`∃ I : NameImpl, NU_001 I`, instantiated by `refNameImpl`) joins `Spec/ConsistencyNu.lean`, the
-ν sketch of wave W9, where the name type it fixes is shared with the ν firing model.
+Ruling D96 (a) adds a behaviour block, `NU_001_rename` (kind B, at the end of this file): a firing
+reads the names its keys project only through equality and, for the tie-break, the name order.
+It is stated over the ν firing model and proved from NU-021's equivariance lemma
+(`refNuFire_transfer`) with values paired by equality: renaming every name one-to-one changes no
+firing, as long as the tie-break still picks the renamed chosen name.
+
+Consistency: the F block has the conjunct `NU_001 I` of `joint_nu_sketch` in
+`Spec/ConsistencyNu.lean`, instantiated by `refNameImpl`, and the B block has the conjunct
+`NU_001_rename NF` there, instantiated by `RefNuFire`, the firing relation of NU-020's blocks.
 -/
 
 namespace Libpetri.Spec
@@ -82,9 +87,9 @@ requirement NU_001
           "The fourth line ranges over different underlying values. By the first line these are exactly the pairs of different names, so it is the quote's 'of two different names'; stating it over values keeps it independent of the first line."
           "'Stable' and 'consistent across a single implementation' (AC2) are read as: the name order is one fixed relation of the implementation, a field of NameImpl, so it cannot differ between two comparisons. Whether it is the same relation in two processes of one implementation is not modelled; every runtime fixes it in code (Rust's derived Ord, Java's String.compareTo, TypeScript's string comparison)."
           "Ruling D31 (a): outside the BMP the order is a parameter. The reference is code-point order (refNameImpl, the order of Rust and of Python, which runs on the Rust runtime); the UTF-16 code-unit order of Java and TypeScript satisfies the block too, agrees with code-point order on BMP names (NU_001_utf16_bmp_agree) and disagrees with it on U+FFFF against U+10000 (NU_001_allows_utf16). The fifth line is what NU-020's 'all languages fire identically' and its note 'byte-identical across implementations for BMP names' rest on for the name half of the tie-break; it rejects a reversed comparator (NU_001_mutant_reversed) and a shortlex order (NU_001_forbids_shortlex). That the oldest-token half of the tie-break agrees across languages is NU-020's and NU-022's, not a line here."
-          "Ruling D96 (a): the sentence 'Whether a matched transition is enabled, and which tokens its firing consumes, shall depend on the names its keys project only through name equality and, for the tie-break of [NU-020], the name order.' is a behaviour line over the ν firing model and is stated in wave W9 together with NU-021, not in this block. It needs two clauses there: (i) under every injective renaming of projected names, whether a matched transition is enabled is unchanged and the names the tie-break chooses among are renamed, with the consumed tokens following the chosen name, so the order cannot decide enabledness or consumption outside the tie-break (a rule 'enabled only if the matched name is the least name in the marking' breaks it); (ii) a firing commutes with every injective renaming that also preserves the name order. Equivariance under order-preserving renamings alone is weaker than the sentence and does not discharge it. The sentences 'A name (NameId) is an opaque correlation identity, constructed from an underlying string value.' and 'The name order exists solely for that tie-break and carries no domain meaning.' are this line's design text and are traced by it. The verifier's name symmetry (Novel.RouteB.joinEnab_inv, joinStep_sym, mintStep_sym, CanonicalKey.canonicalKey_comp) is cited there."
+          "Ruling D96 (a): the behaviour sentence of NU-001 (a firing reads the names its keys project only through name equality and, for the tie-break of NU-020, the name order) and its event-driven form are the kind B block NU_001_rename in this file, over the ν firing model; they are not lines of this F block. The sentences 'A name (NameId) is an opaque correlation identity, constructed from an underlying string value.' and 'The name order exists solely for that tie-break and carries no domain meaning.' are design text, traced by NU_001_rename."
           "'Identity is a projection of the token payload, not a field on the token' and 'the token model is unchanged' are design text: a match key reads the token value (NU-020), and no model in this development adds a name field to a token. AC3 (adding ν-matching does not change the token type or the on-the-wire shape of token-bearing events) and the test derivation's third check are API and wire shape (kind Q). No test in any language yet runs a net with and without the ν-net APIs and compares its token events, so AC3 has no traced Q evidence; it is recorded here as open, to be closed by a kind Q test beside the EVT-011 and EVT-012 tests."
-          "AC1 (two names constructed from the same underlying value are equal; from different values, unequal) is the first line. AC2 (a stable total order on names, consistent across a single implementation) is the second, third and fourth lines: a strict total order on names, with stability read as above."
+          "AC1 (two names constructed from the same underlying value are equal; from different values, unequal) is the first line. AC2 (a stable total order on names, consistent across a single implementation) is the second, third and fourth lines: a strict total order on names, with stability read as above. AC4 (a one-to-one renaming that keeps the chosen name the chosen name changes no firing) is the renaming line NU_001_rename's."
           "The test derivation's first two checks (NameId(\"a\") constructed twice is equal; NameId(\"a\") precedes NameId(\"b\")) follow from the statement for every implementation (NU_001_testDerivation) and are NU_001_nonvacuous on the reference. At runtime the Rust unit tests equality_by_value and total_order_is_lexicographic in rust/libpetri-core/src/name.rs run them."
           "Implementations also hash names (Rust's derived Hash, Java's record hashCode, a JavaScript Map key); a hash consistent with the name equality adds no observation, and is not modelled."
   signoff "pending"
@@ -108,8 +113,8 @@ fun I =>
           I.lt (I.ofValue a) (I.ofValue b) → I.lt (I.ofValue b) (I.ofValue c) → I.lt (I.ofValue a) (I.ofValue c)) ∧
         (∀ (a b : String), a ≠ b → I.lt (I.ofValue a) (I.ofValue b) ∨ I.lt (I.ofValue b) (I.ofValue a)) ∧
           ∀ (a b : String),
-            (∀ (c : Char), c ∈ a.toList → c.toNat < 65536) →
-              (∀ (c : Char), c ∈ b.toList → c.toNat < 65536) → (I.lt (I.ofValue a) (I.ofValue b) ↔ a < b)
+            (∀ c ∈ a.toList, c.toNat < 65536) →
+              (∀ c ∈ b.toList, c.toNat < 65536) → (I.lt (I.ofValue a) (I.ofValue b) ↔ a < b)
 -/
 #guard_msgs in #print NU_001
 
@@ -522,5 +527,431 @@ theorem NU_001_forbids_shortlex : ¬ NU_001 nu001Shortlex := by
     show ¬ (("aa" : String).length < ("b" : String).length ∨
       (("aa" : String).length = ("b" : String).length ∧ ("aa" : String) < "b"))
     decide)
+
+/-! ## The behaviour line (ruling D96 (a)): names are read only through equality and the tie-break -/
+
+open Libpetri Libpetri.Reference
+
+section Rename
+
+variable {N V Nm : Type}
+
+/-- A key projection with every name it gives renamed by `σ`. -/
+def nuRenameKey (σ : Nm → Nm) (f : KeyFn V Nm) : KeyFn V Nm := fun v => (f v).map σ
+
+/-- A match specification with every key and relay projection renamed by `σ`: the same keyed
+places and relay targets, in the same order. -/
+def nuRenameMs (σ : Nm → Nm) (ms : MatchSpec N (KeyFn V Nm)) : MatchSpec N (KeyFn V Nm) :=
+  { keys := ms.keys.map fun k => (k.1, nuRenameKey σ k.2),
+    relays := ms.relays.map fun k => (k.1, nuRenameKey σ k.2) }
+
+/-- **The transition with its names renamed**: `t` with every name its keys and relay targets
+project renamed by `σ`. Its arcs, output spec and every token value stay as they are. -/
+def nuRenameNames (σ : Nm → Nm) (t : NuTrans N (KeyFn V Nm)) : NuTrans N (KeyFn V Nm) :=
+  { base := t.base, mspec := t.mspec.map (nuRenameMs σ) }
+
+end Rename
+
+/-! ## NU-001: Name Identity (the renaming line) -/
+
+requirement NU_001_rename
+  id "NU-001"
+  title "Name Identity (renaming)"
+  kind B
+  scope "every executor; one firing of a transition with a match specification"
+  source verbatim "spec/12-nu-nets.md"
+  quote "Whether a matched transition is enabled, and which tokens its firing consumes, *shall* depend on the names its keys project only through name **equality** and, for the tie-break of [NU-020], the name order."
+        "*When* a matched transition fires with a chosen name, and a one-to-one renaming of names makes the renamed chosen name the chosen name ([NU-020], [NU-022]) of the same transition with every name its keys and relay targets project renamed, at the same marking, that renamed transition *shall* fire from that marking with the renamed chosen name, for the same emission, delivering the same tokens and leaving the same marking."
+  reading "For every transition t with match specification ms, every injective renaming σ of names, and every firing of t in R from M with chosen name n, delivery δ and emission e, leaving M': if σ n is the chosen name of nuRenameNames σ t at M (t with every name its keys and relay targets give renamed by σ; Selected over the selection input of t at M with every name renamed by σ, which is the renamed transition's own selection input), then R has a firing of nuRenameNames σ t from M with chosen name σ n, delivery δ and emission e, leaving M'."
+  assumes "The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel), as for NU_020_enable and NU_021: R t M c δ e M' says that t fires from M with chosen name c, delivers δ, the action emits e, and the firing leaves M'. A renaming of names is a function σ from names to names applied to what every key and relay target projects (nuRenameNames); the places, arcs, output spec, token values, markings and emissions are untouched, so 'the same transition with every name its keys and relay targets project renamed' is nuRenameNames σ t and token payloads are not renamed. It is injective because a renaming that merges two names changes name equality, which the sentence lets a firing read: a matcher whose name index folds names that differ, such as a case-folding NameId, is rejected (NU_001_rename_forbids_folded). 'Is enabled' and 'which tokens its firing consumes' are read as: the firing exists, with the same delivery and the same result."
+          "The name order enters only through the premise: σ n must be the chosen name of the renamed transition at M (Selected over the renamed selection input, which is the renamed transition's own selection input at M, nu001_matchIn_rename). The premise speaks of the renamed side only; that n is the chosen name of t at M is not assumed, and for a relation that meets NU_020_enable it holds anyway. A renaming that keeps the name order keeps the pick of every firing NU_020_enable allows, so with NU_020_enable the line gives 'a firing commutes with every strictly monotone renaming' (nu001_rename_strictMono). A renaming that does not keep the name order is what rules out reading the order anywhere but the tie-break: a matcher that fires only when the chosen name is the least name held in its correlated inputs meets every firing line of NU-020 and is rejected here (NU_001_rename_mutant_leastHeld), and so is a matcher that treats the name 0 as no name, a test on the content of a name (NU_001_rename_forbids_zeroAsNone, the case NU-021's assumes defers to this line)."
+          "When the renaming changes which name the tie-break picks (possible only when two eligible names share their earliest createdAt), the line says nothing of the renamed transition's firing under the new pick. That it fires is the conjunct NuCovers of the ν consistency theorem: a transition enabled on its counts fires under its Selected name with every offered, relay-checked emission, and being enabled on the counts and eligibility read names only through equality (NU_020_enable's first two lines). So 'whether a matched transition is enabled' is this line together with NuCovers; enabledness is an existence clause and is not a line here. For a renaming that can be undone (a permutation of names) the line runs both ways when the pick is kept on both sides (nu001_rename_iff); a one-to-one renaming that is not onto has no one-to-one inverse, and for it the way back is again NuCovers with NU_020_enable's eligibility line."
+          "A firing whose chosen name is not eligible meets the premise under no renaming, since a one-to-one renaming keeps a name that is not eligible not eligible (nu021_eligible), so this line says nothing of it: a matcher that lets a reserved name such as the empty string join any name when no name is eligible meets this line and is rejected by the eligibility line of NU_020_enable (nu001_wildcard_left_to_NU_020). Rust, Java and TypeScript have no such fallback."
+          "The reference RefNuFire meets the line by NU-021's equivariance lemma refNuFire_transfer at the pairing 'equal values' (NU_001_rename_reference). The verifier's name symmetry is the same property one layer down: Route B's join enabling and steps are invariant under renamings (Novel.RouteB.joinEnab_inv, joinStep_sym, mintStep_sym) and its canonical key under permutations of name symbols (Novel.CanonicalKey.canonicalKey_comp)."
+          "AC4 (a one-to-one renaming of the names a join's keys project, which makes the renamed chosen name the chosen name of the renamed join, does not change which tokens the join consumes or the marking it leaves) is this line, and the test derivation's renaming check is NU_001_rename_nonvacuous on the reference. No test in any language yet runs a join with its keys composed with a swap of names, so AC4 has no runtime test; it is recorded here as open. AC1 to AC3 are accounted for by the F block NU_001."
+          "The sentences 'A name (NameId) is an opaque correlation identity, constructed from an underlying string value.' and 'The name order exists solely for that tie-break and carries no domain meaning.' are this line's design text. Transitions without a match project no name, so the line speaks of matched transitions only; timing, priority and the firing pass are not in the model, as for NU-020."
+  signoff "pending"
+  statement : ∀ {N V Nm : Type} [DecidableEq N] [LinearOrder Nm], NuFireRel N V Nm → Prop :=
+    fun R =>
+      ∀ t ms, t.mspec = some ms → ∀ σ, Function.Injective σ → ∀ n δ e,
+        on (fun M M' => R t M (some n) δ e M'), shall (fun M M' =>
+          Selected (nuMapIn σ (matchIn ms t M)) (σ n) →
+            R (nuRenameNames σ t) M (some (σ n)) δ e M')
+
+/- The pinned readable form of NU_001_rename: a change to the formula shows up as a diff here. -/
+/--
+info: def Libpetri.Spec.NU_001_rename : {N V Nm : Type} → [DecidableEq N] → [LinearOrder Nm] → NuFireRel N V Nm → Prop :=
+fun {N V Nm} [DecidableEq N] [LinearOrder Nm] R =>
+  ∀ (t : NuTrans N (KeyFn V Nm)) (ms : MatchSpec N (KeyFn V Nm)),
+    t.mspec = some ms →
+      ∀ (σ : Nm → Nm),
+        Function.Injective σ →
+          ∀ (n : Nm) (δ : QDelivered N (Stamped V)) (e : List (N × Stamped V)),
+            on fun M M' => R t M (some n) δ e M', shall fun M M' =>
+              Selected (nuMapIn σ (matchIn ms t M)) (σ n) → R (nuRenameNames σ t) M (some (σ n)) δ e M'
+-/
+#guard_msgs in #print NU_001_rename
+
+/-! ## The reference meets the renaming line -/
+
+section RenameFacts
+variable {N V Nm : Type} [DecidableEq N] [LinearOrder Nm]
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- A marking corresponds to itself when values are paired by equality. -/
+theorem nu001_qRel_refl (M : QMarking N (Stamped V)) : NuQRel (fun _ => (· = ·)) M M :=
+  fun _ => List.forall₂_same.2 fun _ _ => ⟨rfl, rfl⟩
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- An emission corresponds to itself when values are paired by equality. -/
+theorem nu001_emRel_refl (e : List (N × Stamped V)) : NuEmRel (fun _ => (· = ·)) e e :=
+  List.forall₂_same.2 fun _ _ => ⟨rfl, rfl, rfl⟩
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- Markings that correspond with values paired by equality are equal. -/
+theorem nu001_qRel_eq {A B : QMarking N (Stamped V)} (h : NuQRel (fun _ => (· = ·)) A B) :
+    A = B := funext fun p => by
+  have h' : List.Forall₂ (· = ·) (A p) (B p) := (h p).imp fun x y hxy => by
+    cases x; cases y; obtain ⟨h1, h2⟩ := hxy; simp only at h1 h2; subst h1 h2; rfl
+  rwa [List.forall₂_eq_eq_eq] at h'
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- The keys (or relay targets) of a match correspond to their renaming, with values paired by
+equality. -/
+theorem nu001_keysRel (σ : Nm → Nm) (ks : List (N × KeyFn V Nm)) :
+    List.Forall₂ (NuKeyRel (fun _ => (· = ·)) σ) ks (ks.map fun k => (k.1, nuRenameKey σ k.2)) := by
+  induction ks with
+  | nil => exact .nil
+  | cons k ks ih => exact .cons ⟨rfl, fun v w hvw => by subst hvw; rfl⟩ ih
+
+omit [LinearOrder Nm] in
+/-- The renamed match's selection input is the selection input with every name renamed: the
+premise of the line is the renamed transition's own tie-break at `M`. -/
+theorem nu001_matchIn_rename (σ : Nm → Nm) (ms : MatchSpec N (KeyFn V Nm))
+    (t : NuTrans N (KeyFn V Nm)) (M : QMarking N (Stamped V)) :
+    matchIn (nuRenameMs σ ms) (nuRenameNames σ t) M = nuMapIn σ (matchIn ms t M) :=
+  nu021_matchIn (t₁ := t) rfl (nu001_keysRel σ ms.keys) (nu001_qRel_refl M)
+
+/-- ✓ RefNuFire satisfies the renaming line: by NU-021's equivariance lemma with values paired
+by equality, the renamed transition takes the same tokens for the renamed chosen name, accepts
+the same emission and leaves the same marking; and the tie-break picks the renamed chosen name,
+which is the premise. -/
+@[evidence holds NU_001_rename]
+theorem NU_001_rename_reference : NU_001_rename (RefNuFire (N := N) (V := V) (Nm := Nm)) := by
+  intro t ms hm σ hσ n δ e M M' hf hsel
+  obtain ⟨n', hn, -, hen, ⟨ch, hdep⟩, hrok, rfl, rfl⟩ := (refNuFire_matched hm M _ _ _ _).1 hf
+  cases hn
+  have hm₂ : (nuRenameNames σ t).mspec = some (nuRenameMs σ ms) := by
+    simp [nuRenameNames, hm]
+  have hb : t.base = (nuRenameNames σ t).base := rfl
+  have hk : List.Forall₂ (NuKeyRel (fun _ => (· = ·)) σ) ms.keys (nuRenameMs σ ms).keys :=
+    nu001_keysRel σ ms.keys
+  have hr : List.Forall₂ (NuKeyRel (fun _ => (· = ·)) σ) ms.relays (nuRenameMs σ ms).relays :=
+    nu001_keysRel σ ms.relays
+  have hM := nu001_qRel_refl M
+  obtain ⟨hin, hpost⟩ := nu021_nuInputs_nuPost hσ hb hk hM n
+  have hc := nu021_corrTake hσ hb hk hM n
+  have hinEq := nu001_qRel_eq hin
+  have hpostEq := nu001_qRel_eq hpost
+  refine (refNuFire_matched hm₂ M _ _ _ _).2 ⟨σ n, rfl, ?_, hen, ⟨ch, ?_⟩, ?_, ?_, ?_⟩
+  · rw [nu001_matchIn_rename]; exact refSelect_eq_some_iff.2 hsel
+  · rw [hc]; exact hdep
+  · exact nu021_relayOk hr (nu001_emRel_refl e) hrok
+  · unfold nuDelivered; rw [hinEq, hpostEq]; rfl
+  · unfold nuConsume; rw [hpostEq]; rfl
+
+/-- With NU-020's tie-break line, the renaming line gives the commuting form: every firing commutes
+with every strictly monotone renaming of names (such a renaming keeps the tie-break's pick). -/
+theorem nu001_rename_strictMono {R : NuFireRel N V Nm} (h1 : NU_001_rename R)
+    (h2 : NU_020_enable R) {t : NuTrans N (KeyFn V Nm)} {ms : MatchSpec N (KeyFn V Nm)}
+    (hm : t.mspec = some ms) {σ : Nm → Nm} (hσ : StrictMono σ) {M : QMarking N (Stamped V)}
+    {n δ e M'} (hf : R t M (some n) δ e M') : R (nuRenameNames σ t) M (some (σ n)) δ e M' := by
+  refine h1 t ms hm σ hσ.injective n δ e M M' hf ⟨?_, fun m hm' => ?_⟩
+  · obtain ⟨n', hn', hel⟩ := h2.2.1 t ms hm _ δ e M M' hf
+    cases hn'
+    rw [nu021_eligible hσ.injective]; exact hel
+  · obtain ⟨m', rfl⟩ := nu021_eligible_image _ hm'
+    rw [nu021_eligible hσ.injective] at hm'
+    exact (nu021_selKey hσ _ n m').2 (h2.2.2 t ms hm n δ e M M' hf m' hm')
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- Renaming the keys and relay targets by `σ` and then by a left inverse `τ` of `σ` gives back
+the keys and relay targets. -/
+theorem nu001_keys_rename_rename {σ τ : Nm → Nm} (h : ∀ x, τ (σ x) = x)
+    (ks : List (N × KeyFn V Nm)) :
+    ((ks.map fun k => (k.1, nuRenameKey σ k.2)).map fun k => (k.1, nuRenameKey τ k.2)) = ks := by
+  induction ks with
+  | nil => rfl
+  | cons k ks ih =>
+    simp only [List.map_cons, ih, List.cons.injEq, and_true]
+    refine Prod.ext rfl (funext fun v => ?_)
+    simp only [nuRenameKey, Option.map_map]
+    cases k.2 v <;> simp [h]
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- Renaming a transition's names by `σ` and then by a left inverse `τ` of `σ` gives back the
+transition. -/
+theorem nu001_rename_rename {σ τ : Nm → Nm} (h : ∀ x, τ (σ x) = x) (t : NuTrans N (KeyFn V Nm)) :
+    nuRenameNames τ (nuRenameNames σ t) = t := by
+  obtain ⟨b, ms⟩ := t
+  cases ms with
+  | none => rfl
+  | some ms =>
+    simp only [nuRenameNames, Option.map_some, nuRenameMs, nu001_keys_rename_rename h]
+
+omit [DecidableEq N] [LinearOrder Nm] in
+/-- Renaming a selection input's names by `σ` and then by a left inverse `τ` of `σ` gives back
+the selection input. -/
+theorem nu001_mapIn_mapIn {σ τ : Nm → Nm} (h : ∀ x, τ (σ x) = x) (I : MatchIn Nm) :
+    nuMapIn τ (nuMapIn σ I) = I := by
+  obtain ⟨ks⟩ := I
+  simp [nuMapIn, Function.comp_def, h]
+
+/-- For a renaming that can be undone, the renaming line runs both ways: when the chosen name
+`n` of `t` and its renamed name `σ n` of the renamed transition are both the tie-break's pick at
+`M`, then `t` fires with `n` exactly when the renamed transition fires with `σ n`, with the same
+delivery, emission and result. The way back is the line applied to the inverse renaming. -/
+theorem nu001_rename_iff {R : NuFireRel N V Nm} (h1 : NU_001_rename R)
+    {t : NuTrans N (KeyFn V Nm)} {ms : MatchSpec N (KeyFn V Nm)} (hm : t.mspec = some ms)
+    {σ τ : Nm → Nm} (hστ : ∀ x, τ (σ x) = x) (hτσ : ∀ y, σ (τ y) = y)
+    {M : QMarking N (Stamped V)} {n δ e M'} (hsel : Selected (matchIn ms t M) n)
+    (hsel' : Selected (nuMapIn σ (matchIn ms t M)) (σ n)) :
+    R t M (some n) δ e M' ↔ R (nuRenameNames σ t) M (some (σ n)) δ e M' := by
+  have hσ : Function.Injective σ := fun x y hxy => by rw [← hστ x, hxy, hστ y]
+  have hτ : Function.Injective τ := fun x y hxy => by rw [← hτσ x, hxy, hτσ y]
+  have hm₂ : (nuRenameNames σ t).mspec = some (nuRenameMs σ ms) := by
+    simp [nuRenameNames, hm]
+  refine ⟨fun hf => h1 t ms hm σ hσ n δ e M M' hf hsel', fun hf => ?_⟩
+  have hback := h1 _ _ hm₂ τ hτ (σ n) δ e M M' hf (by
+    rw [nu001_matchIn_rename, nu001_mapIn_mapIn hστ, hστ]; exact hsel)
+  rwa [nu001_rename_rename hστ, hστ] at hback
+
+end RenameFacts
+
+/-! ## Examples: a join of places 0 and 1 whose key reads the name off the value -/
+
+/-- The renaming that swaps the names `a` and `b` and keeps every other name. -/
+def nu001_swap (a b : Nat) : Nat → Nat := fun x => if x = a then b else if x = b then a else x
+
+/-- A swap is one-to-one. -/
+theorem nu001_swap_inj (a b : Nat) : Function.Injective (nu001_swap a b) := by
+  intro x y h
+  unfold nu001_swap at h
+  split_ifs at h <;> omega
+
+/-- Place 0 holds 1@0, 2@1; place 1 holds 2@2, 1@3. Both names are eligible; name 1 has the
+earlier token (createdAt 0 against 1), so the tie-break picks 1. -/
+def nu001_M : QMarking Nat (Stamped Nat) := fun p =>
+  if p = 0 then [nu020_tok 1 0, nu020_tok 2 1]
+  else if p = 1 then [nu020_tok 2 2, nu020_tok 1 3] else []
+
+/-- The reference join fires on `nu001_M` with name 1, taking 1@0 and 1@3. -/
+theorem nu001_fires :
+    RefNuFire (nu020_join .one .one) nu001_M (some 1)
+      (nuDelivered nu020_ms (nu020_join .one .one) nu001_M 1) []
+      (qAppend (nuConsume nu020_ms (nu020_join .one .one) nu001_M 1) []) :=
+  ⟨1, rfl, by decide, by decide, ⟨.action 0, rfl⟩, fun r hr => by simp [nu020_ms] at hr, rfl, rfl⟩
+
+/-- ✓ Worked example. Place 0 holds 1@0, 2@1 and place 1 holds 2@2, 1@3, and the join fires with
+name 1, the name with the earlier token. Now swap the names 1 and 2, which reverses their order:
+name 2 now has the earlier token, so the tie-break picks it, and the renamed join fires with name 2,
+taking the same two tokens 1@0 and 1@3 and leaving the same marking. -/
+@[evidence nonvacuous NU_001_rename]
+theorem NU_001_rename_nonvacuous :
+    RefNuFire (nu020_join .one .one) nu001_M (some 1)
+        (nuDelivered nu020_ms (nu020_join .one .one) nu001_M 1) []
+        (qAppend (nuConsume nu020_ms (nu020_join .one .one) nu001_M 1) []) ∧
+      Selected (nuMapIn (nu001_swap 1 2) (matchIn nu020_ms (nu020_join .one .one) nu001_M)) 2 ∧
+      RefNuFire (nuRenameNames (nu001_swap 1 2) (nu020_join .one .one)) nu001_M (some 2)
+        (nuDelivered nu020_ms (nu020_join .one .one) nu001_M 1) []
+        (qAppend (nuConsume nu020_ms (nu020_join .one .one) nu001_M 1) []) ∧
+      nuInputs nu020_ms (nu020_join .one .one) nu001_M 1 0 = [nu020_tok 1 0] ∧
+      nuInputs nu020_ms (nu020_join .one .one) nu001_M 1 1 = [nu020_tok 1 3] := by
+  have hs : Selected (nuMapIn (nu001_swap 1 2) (matchIn nu020_ms (nu020_join .one .one) nu001_M))
+      (nu001_swap 1 2 1) := refSelect_eq_some_iff.1 (by decide)
+  exact ⟨nu001_fires, hs, NU_001_rename_reference _ nu020_ms rfl _ (nu001_swap_inj 1 2) 1 _ _ _ _
+    nu001_fires hs, by decide, by decide⟩
+
+/-! ## Wrong firings the renaming line rejects -/
+
+/-- The reference firing with an extra condition `G` on the transition, the marking and the
+chosen name. -/
+def nu001_gated (G : NuTrans Nat (KeyFn Nat Nat) → QMarking Nat (Stamped Nat) → Option Nat → Prop) :
+    NuFireRel Nat Nat Nat := fun t M c δ e M' => RefNuFire t M c δ e M' ∧ G t M c
+
+/-- The lines of NU-020 that speak of a firing (the tie-break, the correlated take, the frame). -/
+def nu001_nu020Lines {N V Nm : Type} [DecidableEq N] [LinearOrder Nm] (R : NuFireRel N V Nm) :
+    Prop :=
+  NU_020_enable R ∧ NU_020_take R ∧ NU_020_frame R
+
+/-- A gated reference firing meets every line of NU-020: each line constrains only the firings
+that happen, and the gate only removes firings. -/
+theorem nu001_gated_meets_NU_020 (G) : nu001_nu020Lines (nu001_gated G) := by
+  obtain ⟨e1, e2, e3⟩ := NU_020_enable_reference (N := Nat) (V := Nat) (Nm := Nat)
+  obtain ⟨t1, t2⟩ := NU_020_take_reference (N := Nat) (V := Nat) (Nm := Nat)
+  obtain ⟨f1, f2, f3, f4, f5⟩ := NU_020_frame_reference (N := Nat) (V := Nat) (Nm := Nat)
+  exact ⟨⟨fun t ms hm c δ e M M' hf => e1 t ms hm c δ e M M' hf.1,
+      fun t ms hm c δ e M M' hf => e2 t ms hm c δ e M M' hf.1,
+      fun t ms hm n δ e M M' hf => e3 t ms hm n δ e M M' hf.1⟩,
+    ⟨fun t ms hm n δ e M M' hf => t1 t ms hm n δ e M M' hf.1,
+      fun t ms hm n δ e M M' hf => t2 t ms hm n δ e M M' hf.1⟩,
+    ⟨fun t ms hm n δ e M M' hf => f1 t ms hm n δ e M M' hf.1,
+      fun t ms hm n δ e M M' hf => f2 t ms hm n δ e M M' hf.1,
+      fun t ms hm n δ e M M' hf => f3 t ms hm n δ e M M' hf.1,
+      fun t ms hm n δ e M M' hf => f4 t ms hm n δ e M M' hf.1,
+      fun t ms hm n δ e M M' hf => f5 t ms hm n δ e M M' hf.1⟩⟩
+
+/-- The gate "the chosen name is the least name held in the correlated inputs": every name a
+correlated input's key gives to one of its tokens, eligible or not, is at least the chosen name. -/
+def nu001_leastHeldGate (t : NuTrans Nat (KeyFn Nat Nat)) (M : QMarking Nat (Stamped Nat))
+    (c : Option Nat) : Prop :=
+  ∀ ms, t.mspec = some ms → ∀ n, c = some n → ∀ k ∈ (matchIn ms t M).keys, ∀ x ∈ k.1, n ≤ x.1
+
+/-- The matcher that fires only when the chosen name is the least name held in its correlated
+inputs: it reads the name order outside the tie-break. -/
+def nu001_leastHeld : NuFireRel Nat Nat Nat := nu001_gated nu001_leastHeldGate
+
+/-- Place 0 holds 1@0, 2@1; place 1 holds 1@2. Only name 1 is eligible (place 1 holds no 2), and
+1 is also the least name held. -/
+def nu001_M1 : QMarking Nat (Stamped Nat) := fun p =>
+  if p = 0 then [nu020_tok 1 0, nu020_tok 2 1] else if p = 1 then [nu020_tok 1 2] else []
+
+/-- ✗ Worked example. Place 0 holds 1@0, 2@1 and place 1 holds 1@2; only name 1 can join, and it
+is the least name held, so this matcher fires with 1. Swap the names 1 and 2: the only name that
+can join is now 2, so the tie-break picks it, but 2 is no longer the least name held (place 0 also
+holds a token named 1), and this matcher does not fire. It meets every firing line of NU-020, so only the
+renaming line rules out reading the name order outside the tie-break. -/
+@[evidence mutant NU_001_rename]
+theorem NU_001_rename_mutant_leastHeld :
+    nu001_nu020Lines nu001_leastHeld ∧ ¬ NU_001_rename nu001_leastHeld := by
+  refine ⟨nu001_gated_meets_NU_020 _, fun h => ?_⟩
+  have hf : nu001_leastHeld (nu020_join .one .one) nu001_M1 (some 1)
+      (nuDelivered nu020_ms (nu020_join .one .one) nu001_M1 1) []
+      (qAppend (nuConsume nu020_ms (nu020_join .one .one) nu001_M1 1) []) := by
+    refine ⟨⟨1, rfl, by decide, by decide, ⟨.action 0, rfl⟩,
+      fun r hr => by simp [nu020_ms] at hr, rfl, rfl⟩, ?_⟩
+    intro ms hms n hn
+    simp only [nu020_join, Option.some.injEq] at hms hn
+    subst hms hn
+    decide
+  have hs : Selected (nuMapIn (nu001_swap 1 2) (matchIn nu020_ms (nu020_join .one .one) nu001_M1))
+      (nu001_swap 1 2 1) := refSelect_eq_some_iff.1 (by decide)
+  have h2 := (h _ nu020_ms rfl _ (nu001_swap_inj 1 2) 1 _ _ _ _ hf hs).2 _ rfl _ rfl
+  revert h2
+  decide
+
+/-- The gate "the name 0 is no name": the matcher refuses to join on the name 0, a test on the
+content of a name. -/
+def nu001_zeroAsNoneGate (_t : NuTrans Nat (KeyFn Nat Nat)) (_M : QMarking Nat (Stamped Nat))
+    (c : Option Nat) : Prop :=
+  c ≠ some 0
+
+/-- ✗ Worked example. Place 0 holds 11@0 and place 1 holds 11@1 (the marking of NU-021's
+examples, here with the key that reads the name off the value), and a matcher that treats the name
+0 as no name fires with name 11. Swap the names 11 and 0: the only name that can join is now 0, the
+tie-break picks it, and the matcher refuses to fire, so the renaming line fails. -/
+@[evidence forbids NU_001_rename]
+theorem NU_001_rename_forbids_zeroAsNone : ¬ NU_001_rename (nu001_gated nu001_zeroAsNoneGate) := by
+  intro h
+  have hf : nu001_gated nu001_zeroAsNoneGate (nu020_join .one .one) nu021_M₁ (some 11)
+      (nuDelivered nu020_ms (nu020_join .one .one) nu021_M₁ 11) []
+      (qAppend (nuConsume nu020_ms (nu020_join .one .one) nu021_M₁ 11) []) :=
+    ⟨⟨11, rfl, by decide, by decide, ⟨.action 0, rfl⟩,
+      fun r hr => by simp [nu020_ms] at hr, rfl, rfl⟩, by show (some 11 : Option Nat) ≠ some 0; decide⟩
+  have hs : Selected (nuMapIn (nu001_swap 0 11) (matchIn nu020_ms (nu020_join .one .one) nu021_M₁))
+      (nu001_swap 0 11 11) := refSelect_eq_some_iff.1 (by decide)
+  exact (h _ nu020_ms rfl _ (nu001_swap_inj 0 11) 11 _ _ _ _ hf hs).2 (by decide)
+
+/-- Folding a name to its last digit, standing in for a name equality that normalises (a `NameId`
+whose `equals` and `hashCode` fold case, used as the key of the per-input name index). -/
+def nu001_fold (x : Nat) : Nat := x % 10
+
+/-- The matcher whose name index is keyed by the folded name: the reference firing of `t` with
+every name its keys give folded, so different names that fold alike share one bucket. -/
+def nu001_folded : NuFireRel Nat Nat Nat := fun t => RefNuFire (nuRenameNames nu001_fold t)
+
+/-- Place 0 holds 1@0; place 1 holds 11@1, 1@2. -/
+def nu001_M2 : QMarking Nat (Stamped Nat) := fun p =>
+  if p = 0 then [nu020_tok 1 0] else if p = 1 then [nu020_tok 11 1, nu020_tok 1 2] else []
+
+/-- ✗ Worked example. Place 0 holds 1@0 and place 1 holds 11@1, 1@2. A matcher that folds names
+to their last digit treats 11 as 1, joins on name 1 and takes 11@1 from place 1, the first token
+of its bucket. Swap the names 11 and 12: the tie-break still picks 1, but 12 folds to 2, so the
+matcher now takes 1@2 from place 1. The renaming line asks for the same tokens, so it rejects a
+name equality that is coarser than equality of names. -/
+@[evidence forbids NU_001_rename]
+theorem NU_001_rename_forbids_folded : ¬ NU_001_rename nu001_folded := by
+  intro h
+  have hf : nu001_folded (nu020_join .one .one) nu001_M2 (some 1)
+      (nuDelivered (nuRenameMs nu001_fold nu020_ms) (nuRenameNames nu001_fold (nu020_join .one .one))
+        nu001_M2 1) []
+      (qAppend (nuConsume (nuRenameMs nu001_fold nu020_ms)
+        (nuRenameNames nu001_fold (nu020_join .one .one)) nu001_M2 1) []) :=
+    (refNuFire_matched (ms := nuRenameMs nu001_fold nu020_ms) rfl _ _ _ _ _).2
+      ⟨1, rfl, by decide, by decide, ⟨.action 0, rfl⟩,
+        fun r hr => by simp [nuRenameMs, nu020_ms] at hr, rfl, rfl⟩
+  have hs : Selected (nuMapIn (nu001_swap 11 12) (matchIn nu020_ms (nu020_join .one .one) nu001_M2))
+      (nu001_swap 11 12 1) := refSelect_eq_some_iff.1 (by decide)
+  have h2 := h _ nu020_ms rfl _ (nu001_swap_inj 11 12) 1 _ _ _ _ hf hs
+  obtain ⟨n, hc, -, -, -, -, hδ, -⟩ :=
+    (refNuFire_matched (ms := nuRenameMs nu001_fold (nuRenameMs (nu001_swap 11 12) nu020_ms)) rfl
+      _ _ _ _ _).1 h2
+  have hn : n = 1 := by simp [nu001_swap] at hc; omega
+  subst hn
+  have := congrArg (fun d => d.inputs 1) hδ
+  revert this
+  decide
+
+/-- Reading the name 0 as the name `n`. -/
+def nu001_wild (n : Nat) : Nat → Nat := fun x => if x = 0 then n else x
+
+/-- A matcher with a reserved wildcard name used as a fallback: it fires as the reference does,
+and when no name can join it lets a token whose key gives the name 0 (the empty string in a
+runtime) stand in for any name `n` and fires with `n`. -/
+def nu001_wildcard : NuFireRel Nat Nat Nat := fun t M c δ e M' =>
+  RefNuFire t M c δ e M' ∨
+    ∃ ms n, t.mspec = some ms ∧ (∀ m, eligible (matchIn ms t M) m = false) ∧ c = some n ∧
+      RefNuFire (nuRenameNames (nu001_wild n) t) M (some n) δ e M'
+
+/-- Place 0 holds 1@0; place 1 holds the wildcard 0@1. No name is in both places. -/
+def nu001_M3 : QMarking Nat (Stamped Nat) := fun p =>
+  if p = 0 then [nu020_tok 1 0] else if p = 1 then [nu020_tok 0 1] else []
+
+/-- Worked example of what the renaming line leaves to NU-020. Place 0 holds 1@0 and place 1
+holds 0@1, so no name is in both places and the join cannot fire. A matcher that reads the name 0
+as "joins anything" fires anyway with name 1. The renaming line accepts this matcher: its extra
+firings use a chosen name that cannot join, and no one-to-one renaming makes such a name the
+tie-break's pick, so the line never applies to them. NU-020's line "the chosen name can join"
+rejects it. -/
+theorem nu001_wildcard_left_to_NU_020 :
+    NU_001_rename nu001_wildcard ∧ ¬ NU_020_enable nu001_wildcard := by
+  refine ⟨fun t ms hm σ hσ n δ e M M' hf hsel => ?_, fun h => ?_⟩
+  · rcases hf with hf | ⟨ms', n', hm', hnone, hc, -⟩
+    · exact Or.inl (NU_001_rename_reference t ms hm σ hσ n δ e M M' hf hsel)
+    · rw [hm] at hm'; cases hm'; cases hc
+      have h1 := hsel.1
+      rw [nu021_eligible hσ, hnone n] at h1
+      exact absurd h1 Bool.false_ne_true
+  · have hnone : ∀ m, eligible (matchIn nu020_ms (nu020_join .one .one) nu001_M3) m = false := by
+      intro m
+      by_cases h0 : m = 0
+      · subst h0; decide
+      · by_cases h1 : m = 1
+        · subst h1; decide
+        · simp [eligible, matchIn, nu020_ms, nu020_key, nu001_M3, stamps, nu020_tok, Ne.symm h0,
+            Ne.symm h1]
+    have hf : nu001_wildcard (nu020_join .one .one) nu001_M3 (some 1)
+        (nuDelivered (nuRenameMs (nu001_wild 1) nu020_ms)
+          (nuRenameNames (nu001_wild 1) (nu020_join .one .one)) nu001_M3 1) []
+        (qAppend (nuConsume (nuRenameMs (nu001_wild 1) nu020_ms)
+          (nuRenameNames (nu001_wild 1) (nu020_join .one .one)) nu001_M3 1) []) :=
+      Or.inr ⟨nu020_ms, 1, rfl, hnone, rfl,
+        (refNuFire_matched (ms := nuRenameMs (nu001_wild 1) nu020_ms) rfl _ _ _ _ _).2
+          ⟨1, rfl, by decide, by decide, ⟨.action 0, rfl⟩,
+            fun r hr => by simp [nuRenameMs, nu020_ms] at hr, rfl, rfl⟩⟩
+    obtain ⟨n, hn, hel⟩ := h.2.1 (nu020_join .one .one) nu020_ms rfl _ _ _ nu001_M3 _ hf
+    cases hn
+    rw [hnone] at hel
+    exact absurd hel Bool.false_ne_true
 
 end Libpetri.Spec

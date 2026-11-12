@@ -62,7 +62,8 @@ theorem nu052_untimedBase_compete : untimedBase.compete = refCompete := rfl
 
 /-- An input cardinality whose firing consumes a fixed number of tokens: `One` (one token) and
 `Exactly(n)` (`n` tokens). For these the required count is the number of tokens one firing
-consumes ([IO-007]); for `All` and `AtLeast` it is not. -/
+consumes ([IO-007]); for `All` and `AtLeast` it is not. Line 2 reads the required count for
+every cardinality (ruling D97 (a)); the wrong competition test `nu052_wholePair` reads this. -/
 def fixedCard : Card → Bool
   | .one => true
   | .exactly _ => true
@@ -82,36 +83,36 @@ requirement NU_052
   scope "the Route B successor step, under CONFLICT and NONE"
   source verbatim "spec/12-nu-nets.md"
   quote "*While* the mode is `CONFLICT`, the Route B graph *shall* leave a base-enabled transition `L` unexpanded from a class exactly when another transition `H` of the net pre-empts `L` in that class, and *shall* expand every other base-enabled transition of the class as under `NONE`, in the same order."
-        "*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` whose input arcs on the places both consume from have cardinality `One` or `Exactly` to compete in a class exactly when some place is a consumed input of both and its token count in the class marking is less than the sum of the tokens each of them consumes from it on one firing."
+        "*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` to compete in a class exactly when some place is a consumed input of both and its token count in the class marking is less than the sum of their demands on it, where a transition's demand on a place is the sum of the required counts ([IO-007]) of its input arcs on that place."
         "*While* the mode is `NONE`, the Route B graph *shall* expand each base-enabled transition of a class, in the class's clock order (the code-point order of the transitions' names, [VER-010] AC1), with the successors the transition has when it is expanded alone from the same class and the same base layer, *shall* expand no other transition, and *shall not* read the readiness, in-flight state or competition of any transition."
         "*While* the mode is `NONE`, the Route B graph *shall* give a base-enabled transition at least one successor labelled with its name when the base layer can fire one of its branches in the class and the transition will fire on the name layer (always for an ordinary or minting transition, with an enabling name for a join, with a resident name for a consumer)."
   reading "Let E be the Route B expansion and C the competition test."
           "For every net whose transition names are distinct, every base layer whose competition is C read on the count marking κ of the class, and every class: the CONFLICT successors of the class are its NONE successors, in order, without those labelled with the name of a transition L of the net that some transition H of the net pre-empts in the class (glossary: Pre-empt, read as PreEmpts over the base layer's enabled, readyLe, idle and compete and the will-fire test of H's role)."
-          "For every count marking a and transitions H and L whose input arcs on the places both consume from have cardinality One or Exactly: C a H L holds exactly when some input arc of H is on a place that is also the place of an input arc of L and holds fewer tokens in a than the sum of the tokens H and L consume from it on one firing."
+          "For every count marking a and transitions H and L: C a H L holds exactly when some input arc of H is on a place that is also the place of an input arc of L and holds fewer tokens in a than the sum of H's and L's demands on it, a transition's demand on a place being the sum of the required counts of its input arcs there (demandOn over Card.required: 1 for One and All, n for Exactly(n) and AtLeast(n))."
           "For every base layer, every class and every net whose transitions are listed in the code-point order of their names: the NONE successors of the class are, in that order, the NONE successors each base-enabled transition T has when the step is given T alone (the net [T]), from the same class and the same base layer."
           "For every two base layers that agree on enablement and firing: the NONE successors of every class are the same under both."
           "For every base layer, class and transition T that is base-enabled, has a branch the base layer fires in the class, and whose role will fire on the class's name layer (willFire): the NONE successors of the class in the net [T] include one labelled with T's name."
-  assumes "The model is the pair (E, C). E is one expansion of a class of the name-aware state-class graph of Route B ([VER-012]): the coloured set, the base layer (Novel.RouteB.BaseLayer: enabled, fire, readyLe, compete and idle), the net with its roles, the mode (true for CONFLICT, false for NONE), the mint counter and the class give the labelled successors, each labelled with the name of the transition that fired. The witness is refExpand, the shipped step Novel.RouteB.succ (name_state_class_graph.rs build_until). C is the competition test on a class's count marking; the witness is refCompete, Novel.RouteB.sharesConsumed (shares_consumed_input). The step reads competition through the base layer (as in Graph.lean), so line 1 is stated for the base layers whose compete is C read on the class's count marking κ; that is what makes C the graph's competition and not a separate function. The untimed base is such a layer, with κ the identity (nu052_untimedBase_compete). The timed base, whose count marking is the marking of the timed class, comes with wave W10; a base layer whose compete is not of this form is a wrong base layer, not a wrong graph, and is not this requirement's subject. The pruning predicate itself is the glossary term Pre-empt; its shipped form is refPrune (GlossaryNuVer, refPrune_iff)."
+  assumes "The model is the pair (E, C). E is one expansion of a class of the name-aware state-class graph of Route B ([VER-012]): the coloured set, the base layer (Novel.RouteB.BaseLayer: enabled, fire, readyLe, compete and idle), the net with its roles, the mode (true for CONFLICT, false for NONE), the mint counter and the class give the labelled successors, each labelled with the name of the transition that fired. The witness is refExpand, the shipped step Novel.RouteB.succ (name_state_class_graph.rs build_until). C is the competition test on a class's count marking; the witness is refCompete, Novel.RouteB.sharesConsumed (shares_consumed_input). The step reads competition through the base layer (as in Graph.lean), so line 1 is stated for the base layers whose compete is C read on the class's count marking κ; that is what makes C the graph's competition and not a separate function. The untimed base is such a layer, with κ the identity (nu052_untimedBase_compete). The timed base, whose count marking is the marking of the timed class, is not in the model (gap R6, the open item of VER_012); a base layer whose compete is not of this form is a wrong base layer, not a wrong graph, and is not this requirement's subject: that the base layer of a Route B call reads competition by line 2 is the companion block NU_052_split, line 7, which a base layer reading a demand as the tokens one firing consumes breaks (NU_052_split_forbids_consumedBase). The pruning predicate itself is the glossary term Pre-empt; its shipped form is refPrune (GlossaryNuVer, refPrune_iff)."
           "The first quoted sentence is line 1. 'Exactly when' restates the body's 'is not expanded from a class when' together with the soundness paragraph's 'The pruning removes only interleavings in which a lower-priority transition fires ahead of a ready, conflicting, strictly-higher-priority one': under CONFLICT the graph prunes and does nothing else. 'Another transition' is read as another name: the line is stated for nets whose transition names are distinct, because the shipped step labels successors with names and compares H and L by name (name_state_class_graph.rs:587, `h.name() != l.name()`). Transitions are identified by name (ruling D10, with D23 settling that distinct names are one shared assumption for every name-keyed requirement), so the premise is that assumption and the quoted sentence needs no narrowing. Outside it, on a net where two transitions share a name, the Rust prune never lets one pre-empt the other, while the Java and TypeScript prunes compare by identity (NameStateClassGraph.java:402, name-state-class-graph.ts:336) and do; D10 puts that net out of scope, so the case is not encoded."
-          "Line 1 reads every bullet of the body through the glossary term Pre-empt: strictly higher priority, competition (the base layer's compete, line 2 on count markings), ready no later than L (the base layer's readyLe), no firing in flight (the base layer's idle) and 'actually fires in this class' (willFire of H's role: a join needs an enabling name, a consumer a resident one, so a name-disabled join pre-empts nothing). H ranges over the base-enabled transitions of the class, as the body's 'another enabled transition H in the same class'. 'Actually fires in this class' is read on the name layer, as the body's own gloss ('a name-disabled join, whose inputs carry no shared name, produces no name-successor') and the shipped prune (dominated reads will_fire and no firing of the base) do; whether H has a branch the base layer can fire is not part of it. On the untimed base every enabled transition fires. On a timed base, H ready no later than L (readyLe) makes H firable whenever L is, and when L is not firable pruning it removes no successor; that this holds of the timed readyLe is the timed base's subject (wave W10)."
-          "The second quoted sentence is line 2, stated for transitions whose input arcs on the places both consume from have cardinality One or Exactly (fixedCard). An All or AtLeast arc on a place only one of them consumes from plays no part in the demand on a shared place, so the premise leaves it free and line 2 still constrains such a pair (NU_052_forbids_wholePair). The body defines a demand as 'the tokens that transition consumes from p on one firing'; the runtimes and the Lean model use the required count (consumed_demand, Card.required), which is 1 for All and n for AtLeast(n), not the tokens consumed. For One and Exactly the two agree, so line 2 uses demandOn under that premise. Which reading holds for All and AtLeast on a shared place is ruling D97 (clash nu-c#3), and the widened line waits for it (wave W10); until then the quoted sentence names One and Exactly. 'Read and inhibitor arcs do not count' is line 2's 'consumed input of both': only input arcs occur in it."
-          "The body's 'becomes ready no later than L by the class-relative residual earliest: the DBM lower bound of each enabled clock captured before time is let to pass (readyEarliest, parallel to the enabled set)', the comparison within a float epsilon, and the sentence '*While* the mode is `CONFLICT`, the Route B graph *shall* take `H` to be ready no later than `L` in a class exactly when `readyEarliest[H] <= readyEarliest[L]` within a float epsilon, where `readyEarliest` is the DBM lower bound of each enabled clock before time is let to pass.' are a timing line over a timed base layer, as are the body's claims that a static H.earliest() <= L.earliest() does not suffice, that the rule subsumes the immediate-H case and that it also prunes sound non-zero-earliest conflicts. The base layer here is abstract (readyLe); its timed instance needs the timed class of RefScg (VER-010), so this sentence is not encoded here and comes with wave W10. On the untimed base every transition is ready at once (untimedBase.readyLe is true)."
+          "Line 1 reads every bullet of the body through the glossary term Pre-empt: strictly higher priority, competition (the base layer's compete, line 2 on count markings), ready no later than L (the base layer's readyLe), no firing in flight (the base layer's idle) and 'actually fires in this class' (willFire of H's role: a join needs an enabling name, a consumer a resident one, so a name-disabled join pre-empts nothing). H ranges over the base-enabled transitions of the class, as the body's 'another enabled transition H in the same class'. 'Actually fires in this class' is read on the name layer, as the body's own gloss ('a name-disabled join, whose inputs carry no shared name, produces no name-successor') and the shipped prune (dominated reads will_fire and no firing of the base) do; whether H has a branch the base layer can fire is not part of it. On the untimed base every enabled transition fires. On a timed base, H ready no later than L (readyLe) makes H firable whenever L is, and when L is not firable pruning it removes no successor; that this holds of the timed readyLe is the timed base's subject (gap R6)."
+          "The second quoted sentence is line 2, for every cardinality. Ruling D97 (a) (clash nu-c#3) reads a demand as the required count of [IO-007], what all three runtimes compute (consumed_demand over required_count in name_state_class_graph.rs, consumedDemand in NameStateClassGraph.java and name-state-class-graph.ts) and the Lean model's demandOn: 1 for All and n for AtLeast(n), not the tokens one firing consumes. The body's bullet says so too. The tokens-consumed reading competes on more pairs (two All arcs on a place with two tokens), so it would prune more; the required count prunes a subset and stays sound (ClashesNu.clashNu_demand, cited). A test with the tokens-consumed reading breaks line 2 (NU_052_forbids_consumed), as does one that gives up on a pair over an All or AtLeast arc on a place only one of them consumes from (NU_052_forbids_wholePair). 'Read and inhibitor arcs do not count' is line 2's 'consumed input of both': only input arcs occur in it."
+          "The body's 'becomes ready no later than L by the class-relative residual earliest: the DBM lower bound of each enabled clock captured before time is let to pass (readyEarliest, parallel to the enabled set)', the comparison within a float epsilon, and the sentence '*While* the mode is `CONFLICT`, the Route B graph *shall* take `H` to be ready no later than `L` in a class exactly when `readyEarliest[H] <= readyEarliest[L]` within a float epsilon, where `readyEarliest` is the DBM lower bound of each enabled clock before time is let to pass.' are a timing line over a timed base layer, as are the body's claims that a static H.earliest() <= L.earliest() does not suffice, that the rule subsumes the immediate-H case and that it also prunes sound non-zero-earliest conflicts. The base layer here is abstract (readyLe); its timed instance needs the timed class of RefScg (VER-010), so this sentence is not encoded here; the timed base layer is gap R6 (the open item of VER_012). On the untimed base every transition is ready at once (untimedBase.readyLe is true)."
           "The third quoted sentence is lines 3 and 4. It restates 'The default mode, NONE, MUST reproduce the prior Route B behaviour byte-for-byte' with the first paragraph's 'it expands every base-enabled transition': line 3 says no transition's NONE successors depend on another transition, that they come in the class's clock order and that a transition not base-enabled adds none, so NONE prunes nothing by priority; line 4 says NONE reads none of the base layer's readyLe, idle and compete, the inputs only the prune reads."
           "'In the class's clock order': the runtimes walk a class's enabled transitions in the class's canonical clock order, ascending transition name in code-point order ([VER-010] AC1; the Rust, Java and TypeScript name-state-class graphs walk the base class's enabled list, which the state-class graph permutes into canonical order when it builds a class). The model's step walks the net list it is given, so line 3 is stated for a net listed in that order (the Pairwise premise), and the model's list order is then the runtimes' order on every class. A net listed in another order is the same net handed to the step in another enumeration; line 1's 'in the same order' compares CONFLICT with NONE on one enumeration and needs no premise."
           "'Expanded alone from the same class and the same base layer' is the net [T] with the class and the base layer unchanged. The base layer is the class's own: the base successor of T is computed over the whole net (its clocks, enabled set and readyEarliest, state_class_graph.rs compute_successor_gated), and in the model that whole-net computation is inside base.fire, which line 3 does not vary, so [T] is not the net holding T alone. The minted symbols are compared up to the canonical key of the class ([VER-012] AC2): the runtimes thread one mint counter across the expansions of a class and across classes (name_state_class_graph.rs next_sym), while line 3 passes the same counter c to every transition, so the raw symbol numbers of the runtimes agree with the model only after interning."
-          "The fourth quoted sentence is line 5. It is the least that 'expands' says of one transition: a transition that fires on both layers yields a successor labelled with its name, so an expansion that yields nothing is ruled out (NU_052_forbids_empty). The will-fire condition is the body's name-disabled join, which 'produces no name-successor', read the other way. Which successors one transition yields, all of them and byte for byte, is VER-012's subject, cited in wave W10, so 'the prior Route B behaviour' is not stated as a fixed function here."
-          "Which mode the verifier hands the step is outside the step. On a net with a reapable transition Route B does not prune ([VER-002], 'It does not prune by priority ([NU-052]) on a net with a reapable transition.'; nu_scg_verifier.rs:195-200 turns CONFLICT into NONE). NU-052's body states the pruning without that exception; whether NU-052 gains the sentence is ruling D97 (clash nu-c#4). The lines here hold for whatever mode the step is given, so they need neither answer."
-          "The paragraph 'In-flight actions' (the split rule: a verifier MUST split every pruner and every transition depositing into an input or read place of a pruner on a net with a ν-join, MUST NOT let H pre-empt while inflight:<H> is marked, falls back to the NONE verdict naming the transition when one cannot be split, keeps the pruning under assumeAtomicFiring and on a direct call to Route B) is a pipeline obligation over the split net. It needs RefSplit (VER-004) and the pipeline slice of RefVerifier, and its scope (a net with a ν-join) waits for ruling D97; it comes with wave W10. What this block keeps of it is the in-flight guard as the base layer's idle in line 1; that idle is the count of inflight:<H> being 0 is the split model's subject."
-          "The paragraph 'Soundness' (the pruned firings are ones the eager, priority-ordered executor never performs; L is re-examined after H fires) relates the graph to the executor. It needs RefExec with a priority-ordered pass and actions in flight, and it must list EXEC-003 AC4 (a ν-join that received a same-pass deposit fires no earlier than the next cycle). Whether the Java and TypeScript wording of the in-flight case stays is ruling D8. It comes with wave W10; Libpetri.postFixPrune_agrees_with_executor (Priority.lean) is true by construction and is no evidence for it."
+          "The fourth quoted sentence is line 5. It is the least that 'expands' says of one transition: a transition that fires on both layers yields a successor labelled with its name, so an expansion that yields nothing is ruled out (NU_052_forbids_empty). The will-fire condition is the body's name-disabled join, which 'produces no name-successor', read the other way. Which successors one transition yields, all of them and byte for byte, is VER-012's subject, so 'the prior Route B behaviour' is not stated as a fixed function here."
+          "Which mode the verifier hands the step is outside the step, and is the companion block NU_052_split (ruling D97 (a), clash nu-c#4): it says to which calls conflict priority applies (none on a net with a transition read as reapable, [VER-002]; a name-alignment call on a net without a ν-join included), and that every other call is verified as under NONE. The lines here hold for whatever mode the step is given."
+          "The paragraph 'In-flight actions' (split every pruner and every transition depositing into an input or read place of a pruner, never let H pre-empt while inflight:<H> is marked, the NONE verdict naming the transition when one cannot be split, the pruning kept under assumeAtomicFiring) is the companion block NU_052_split, over the verifier's setup of a call and the in-flight test of the base layer; the split itself is VER_004_split. What this block keeps of it is the in-flight guard as the base layer's idle in line 1; NU_052_split line 6 says that idle is the count of inflight:<H> being 0. 'A direct call to Route B ... applies no split and prunes as before' is this block: the step prunes by line 1 whatever net it is given."
+          "The paragraph 'Soundness' (the pruned firings are ones the eager, priority-ordered executor never performs; L is re-examined after H fires) relates the graph to the executor. It needs RefExec with a priority-ordered pass and actions in flight, and it must list EXEC-003 AC4 (a ν-join that received a same-pass deposit fires no earlier than the next cycle). Ruling D8 (b) makes re-entrancy implementation-defined, so the Java and TypeScript wording of the in-flight case stays. It comes with VER-004 block B (wave W11); Libpetri.postFixPrune_agrees_with_executor (Priority.lean) is true by construction and is no evidence for it."
           "The option names prioritySemantics / priority_semantics, that CONFLICT is opt-in and that an implementation MAY omit it are configuration, not encoded."
           "AC1 (NONE is the default and the only mode an implementation MUST provide; NONE leaves every existing Route B verdict unchanged) is lines 3, 4 and 5 for the step: NONE expands each base-enabled transition on its own, reads nothing the prune reads and gives every transition that fires a successor. The default and the verdicts are configuration and VER-012's graph; not encoded beyond that."
-          "AC2 (the fork-threaded co-mint plus immediate ν-join plus delayed lower-priority drain fixture: Violated under NONE, Proven under CONFLICT on Route B called directly and under assumeAtomicFiring; through verify() with the split on, the NONE verdict and a report note) needs the timed base (a delayed drain), the verdict and the pipeline; it comes with wave W10. Its step-level core, that under CONFLICT the join's competitor is pruned when the join pre-empts it, is line 1 (NU_052_nonvacuous on the untimed base)."
-          "AC3 (no over-pruning: a genuine orphan, whose join is name-disabled, still reaches its drain) is line 1's will-fire condition. The Route B retrodiction of commit c23cd9e (Novel.RouteB.WF: a priority-10 join whose keys hold two different names and a priority-0 drain competing for one token) is the evidence: the pre-fix prune without the will-fire guard stalls the class (NU_052_forbids_preFix), and the shipped step keeps the drain's edge (NU_052_orphan_not_pruned). The verdicts Violated without a drain and Proven with one are VER-012's graph and come with wave W10."
+          "AC2 (the fork-threaded co-mint plus immediate ν-join plus delayed lower-priority drain fixture: Violated under NONE, Proven under CONFLICT on Route B called directly and under assumeAtomicFiring; through verify() with the split on, the NONE verdict and a report note) needs the timed base (a delayed drain) and the verdict, which are not encoded here; its pipeline half (the join cannot be split, so the call is verified as under NONE and the report names the join) is NU_052_split line 5 (NU_052_split_ac2). Its step-level core, that under CONFLICT the join's competitor is pruned when the join pre-empts it, is line 1 (NU_052_nonvacuous on the untimed base)."
+          "AC3 (no over-pruning: a genuine orphan, whose join is name-disabled, still reaches its drain) is line 1's will-fire condition. The Route B retrodiction of commit c23cd9e (Novel.RouteB.WF: a priority-10 join whose keys hold two different names and a priority-0 drain competing for one token) is the evidence: the pre-fix prune without the will-fire guard stalls the class (NU_052_forbids_preFix), and the shipped step keeps the drain's edge (NU_052_orphan_not_pruned). The verdicts Violated without a drain and Proven with one are VER-012's graph and are not encoded here."
           "AC4 (only consumed-input conflicts prune; a read or inhibitor arc on the shared place creates no conflict) is line 2 (NU_052_forbids_reads, NU_052_nonvacuous)."
-          "AC5 (a delayed(100) ν-join still pre-empts a delayed(200) lower-priority drain, so DEADLETTER is unreachable under CONFLICT and reachable under NONE) is the residual-earliest comparison over a timed base and a verdict; it comes with wave W10. Line 1 keeps the readiness condition (NU_052_forbids_noReady)."
+          "AC5 (a delayed(100) ν-join still pre-empts a delayed(200) lower-priority drain, so DEADLETTER is unreachable under CONFLICT and reachable under NONE) is the residual-earliest comparison over a timed base and a verdict, not encoded here (gap R6). Line 1 keeps the readiness condition (NU_052_forbids_noReady)."
           "AC6 (when the shared consumed place holds enough tokens for both transitions, CONFLICT does not prune the lower-priority one) is line 2 (NU_052_forbids_noCount) and, on the step, NU_052_nonvacuous (two tokens: both expanded)."
-          "AC7 (a pruner in flight pre-empts nothing: H with an asynchronous action, L, the refill g, Unreachable(bad) Violated under CONFLICT with L in the trace) needs the split net (inflight:<H>) and the verdict; it comes with wave W10. Line 1 keeps the in-flight condition as the base layer's idle (NU_052_forbids_noIdle); the count-level witness is Libpetri.inFlight_guard_is_necessary (Priority.lean)."
-          "The test derivation (the ν-join versus timed dead-letter drain fixture, the genuine orphan, every verdict attributed to Route B) is AC2 and AC3 and comes with wave W10."
+          "AC7 (a pruner in flight pre-empts nothing: H with an asynchronous action, L, the refill g, Unreachable(bad) Violated under CONFLICT with L in the trace) needs the verdict over the split net, which is not encoded here. Line 1 keeps the in-flight condition as the base layer's idle (NU_052_forbids_noIdle); NU_052_split line 6 reads idle on inflight:<H> and shows that a pruner in flight leaves L expanded (NU_052_split_nonvacuous); which transitions are split is VER_004_split_ac7; the count-level witness is Libpetri.inFlight_guard_is_necessary (Priority.lean)."
+          "The test derivation (the ν-join versus timed dead-letter drain fixture, the genuine orphan, every verdict attributed to Route B) is AC2 and AC3: their verdicts are VER-012's graph and are not encoded here."
   signoff "pending"
   statement : ∀ {β : Type}, Expand β → Compete → Prop :=
     fun E C =>
@@ -120,10 +121,8 @@ requirement NU_052
         E co base net role true c S = (E co base net role false c S).filter fun x =>
           !decide (∃ L ∈ net, L.base.name = x.1 ∧ ∃ H ∈ net, PreEmpts base role S H L)) ∧
       (∀ (a : AMarking) (H L : Transition),
-        (∀ s ∈ H.inputs ++ L.inputs, (∃ sh ∈ H.inputs, sh.place = s.place) →
-          (∃ sl ∈ L.inputs, sl.place = s.place) → fixedCard s.card = true) →
-        (C a H L = true ↔ ∃ sh ∈ H.inputs, (∃ sl ∈ L.inputs, sl.place = sh.place) ∧
-          a sh.place < demandOn H sh.place + demandOn L sh.place)) ∧
+        C a H L = true ↔ ∃ sh ∈ H.inputs, (∃ sl ∈ L.inputs, sl.place = sh.place) ∧
+          a sh.place < demandOn H sh.place + demandOn L sh.place) ∧
       (∀ co (base : BaseLayer _) net role c (S : NState co _),
         net.Pairwise (fun T U => T.base.name < U.base.name) →
         E co base net role false c S =
@@ -148,11 +147,9 @@ fun {β} E C =>
             List.filter (fun x => !decide (∃ L ∈ net, L.base.name = x.1 ∧ ∃ H ∈ net, PreEmpts base role S H L))
               (E co base net role false c S)) ∧
     (∀ (a : AMarking) (H L : Transition),
-        (∀ s ∈ H.inputs ++ L.inputs,
-            (∃ sh ∈ H.inputs, sh.place = s.place) → (∃ sl ∈ L.inputs, sl.place = s.place) → fixedCard s.card = true) →
-          (C a H L = true ↔
-            ∃ sh ∈ H.inputs,
-              (∃ sl ∈ L.inputs, sl.place = sh.place) ∧ a sh.place < demandOn H sh.place + demandOn L sh.place)) ∧
+        C a H L = true ↔
+          ∃ sh ∈ H.inputs,
+            (∃ sl ∈ L.inputs, sl.place = sh.place) ∧ a sh.place < demandOn H sh.place + demandOn L sh.place) ∧
       (∀ (co : List PlaceId) (base : BaseLayer β) (net : List NuTrans) (role : NuTrans → Role) (c : ℕ)
           (S : NState co β),
           List.Pairwise (fun T U => T.base.name < U.base.name) net →
@@ -241,12 +238,11 @@ end Reference
 successors of a transition `T` exactly when `dominated` holds, which is "some `H` pre-empts `T`"
 (`refPrune_iff`); every successor of `T` is labelled with `T`'s name (`nu052_expandT_label`),
 and with distinct names the only transition of the net with that name is `T`. Line 2 is
-`sharesConsumed` unfolded (it holds for every cardinality; the premise only narrows the
-claim). Lines 3 and 4: under `NONE` the step is the per-transition expansion and reads neither
+`sharesConsumed` unfolded, for every cardinality. Lines 3 and 4: under `NONE` the step is the per-transition expansion and reads neither
 `readyLe` nor `idle` nor `compete`. -/
 @[evidence holds NU_052]
 theorem NU_052_reference {β : Type} : NU_052 (refExpand (β := β)) refCompete := by
-  refine ⟨fun co base _ net role c S _ hnd => ?_, fun a H L _ => ?_,
+  refine ⟨fun co base _ net role c S _ hnd => ?_, fun a H L => ?_,
     fun co base net role c S _ => ?_, fun co base base' net role c S h1 h2 => ?_,
     fun co base T role c S d hen hd hf hw => ?_⟩
   · simp only [refExpand]
@@ -423,7 +419,7 @@ consumers of a place holding two tokens do not compete. -/
 @[evidence forbids NU_052]
 theorem NU_052_forbids_noCount : ¬ NU_052 (refExpand (β := Unit)) nu052_noCount := by
   intro h
-  have := h.2.1 (nu052_a 2) nu052_hi.base nu052_lo.base (by decide)
+  have := h.2.1 (nu052_a 2) nu052_hi.base nu052_lo.base
   revert this
   decide
 
@@ -438,7 +434,7 @@ reader of a place holding one token do not compete. -/
 @[evidence forbids NU_052]
 theorem NU_052_forbids_reads : ¬ NU_052 (refExpand (β := Unit)) nu052_reads := by
   intro h
-  have := h.2.1 (nu052_a 1) nu052_hi.base nu052_rd.base (by decide)
+  have := h.2.1 (nu052_a 1) nu052_hi.base nu052_rd.base
   revert this
   decide
 
@@ -454,13 +450,36 @@ def nu052_hiAll : Transition :=
   nu052_tr "hi" 10 [inOne 0, { place := 1, card := .all, guard := none }]
 
 /-- ✗ A competition test that drops the pair over a variable-cardinality arc on an unshared
-place violates NU-052 (line 2): the shared place `0` carries `One` arcs
-only and holds one token, fewer than the two the pair demands, so `hiAll` and `lo` compete. The
-`All` arc is on place `1`, which only `hiAll` consumes from, so ruling D97 does not touch it. -/
+place violates NU-052 (line 2). Worked example: the shared place `0` carries `One` arcs only and
+holds one token, fewer than the two the pair demands, so `hiAll` and `lo` compete. The `All` arc
+is on place `1`, which only `hiAll` consumes from, and changes nothing. -/
 @[evidence forbids NU_052]
 theorem NU_052_forbids_wholePair : ¬ NU_052 (refExpand (β := Unit)) nu052_wholePair := by
   intro h
-  have := h.2.1 (nu052_a 1) nu052_hiAll nu052_lo.base (by decide)
+  have := h.2.1 (nu052_a 1) nu052_hiAll nu052_lo.base
+  revert this
+  decide
+
+/-- A competition test that reads a demand as the tokens one firing consumes: an `All` or
+`AtLeast` arc demands every token its place holds (the body's wording before ruling D97). -/
+def nu052_consumed : Compete := fun a H L =>
+  let dem (t : Transition) (p : PlaceId) : ℕ :=
+    ((t.inputs.filter fun s => s.place == p).map fun s =>
+      if s.card.consumesAll then a p else s.card.required).sum
+  H.inputs.any fun sh =>
+    L.inputs.any (fun sl => sl.place == sh.place) && decide (a sh.place < dem H sh.place + dem L sh.place)
+
+/-- `hiDrain : all(0)` at priority 10: it drains place `0`. -/
+def nu052_hiDrain : Transition := nu052_tr "hi" 10 [{ place := 0, card := .all, guard := none }]
+
+/-- ✗ A demand read as the tokens consumed violates NU-052 (line 2, ruling D97 (a)). Worked
+example: `hiDrain : all(0)` and `lo : one(0)` share place `0`, which holds two tokens. Their
+required counts are 1 and 1, which two tokens cover, so they do not compete and `lo` is not
+pruned. Read as tokens consumed, `hiDrain` would demand both tokens and the two would compete. -/
+@[evidence forbids NU_052]
+theorem NU_052_forbids_consumed : ¬ NU_052 (refExpand (β := Unit)) nu052_consumed := by
+  intro h
+  have := h.2.1 (nu052_a 2) nu052_hiDrain nu052_lo.base
   revert this
   decide
 
@@ -514,10 +533,8 @@ def NU_052_mutant_noIdle {β : Type} (E : Expand β) (C : Compete) : Prop :=
       !decide (∃ L ∈ net, L.base.name = x.1 ∧ ∃ H ∈ net,
         PreEmpts { base with idle := fun _ _ => true } role S H L)) ∧
   (∀ (a : AMarking) (H L : Transition),
-    (∀ s ∈ H.inputs ++ L.inputs, (∃ sh ∈ H.inputs, sh.place = s.place) →
-      (∃ sl ∈ L.inputs, sl.place = s.place) → fixedCard s.card = true) →
-    (C a H L = true ↔ ∃ sh ∈ H.inputs, (∃ sl ∈ L.inputs, sl.place = sh.place) ∧
-      a sh.place < demandOn H sh.place + demandOn L sh.place)) ∧
+    C a H L = true ↔ ∃ sh ∈ H.inputs, (∃ sl ∈ L.inputs, sl.place = sh.place) ∧
+      a sh.place < demandOn H sh.place + demandOn L sh.place) ∧
   (∀ co (base : BaseLayer _) net role c (S : NState co _),
     net.Pairwise (fun T U => T.base.name < U.base.name) →
     E co base net role false c S =

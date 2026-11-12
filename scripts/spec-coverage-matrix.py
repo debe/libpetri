@@ -15,6 +15,12 @@ Inputs (all read-only):
       the matrix does not depend on the order of the file's entries.
   (c) grep of lean/**/*.lean        — spec-ID comment mentions (kept separate
       from (b): a mention is not a proof).
+  (e) lean/report/requirements.json — the requirement blocks (`#write_requirements_report`);
+      only each block's `id` is read, to count the blocks per ID.
+  (f) the `**Kind:**` line of each `#### ID:` section of spec/NN-*.md
+      (ruling D21: the ID's primary kind, one of B F T Q A N). The alignment
+      gate (scripts/spec-lean-alignment.py, ALIGN kind-*) checks the line; this
+      script only shows it.
   (d) per-language test greps:
       java/src/test/**/*.java, typescript/tests/**/*.ts,
       rust/**/tests/**/*.rs plus rust/**/src/**/*.rs containing
@@ -41,6 +47,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SPEC_INDEX = REPO / "spec" / "00-index.md"
 PROOF_COVERAGE = REPO / "lean" / "report" / "proof-coverage.json"
+REQUIREMENTS = REPO / "lean" / "report" / "requirements.json"
 OUTPUT = REPO / "spec" / "coverage-matrix.md"
 LEAN_DIR = REPO / "lean"
 
@@ -52,6 +59,10 @@ EXPECTED_ACTIVE = 224
 EXCLUDED_DIR_NAMES = {"target", "node_modules", ".lake", ".venv", "dist"}
 SPEC_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d{3})\b")
 RUST_CFG_TEST_RE = re.compile(r"#!?\[cfg\(test\)\]")
+SECTION_HEADING_RE = re.compile(r"^#### ([A-Z]+-\d+):")
+ANY_HEADING_RE = re.compile(r"^ {0,3}#{1,4}(?:\s|$)")
+KIND_LINE_RE = re.compile(r"^ {0,3}\*\*Kind:\*\*(.*)$")
+KINDS = "BFTQAN"
 
 CHECK_MARK = "✓"
 DASH = "—"
@@ -234,6 +245,64 @@ def load_proof_coverage(active_ids: set[str], tombstones: set[str]):
 
 
 # --------------------------------------------------------------------------
+# (e) requirement blocks and (f) Kind lines
+# --------------------------------------------------------------------------
+
+def load_block_counts() -> dict[str, int]:
+    """Return dict id -> number of requirement blocks in lean/report/requirements.json."""
+    try:
+        data = json.loads(REQUIREMENTS.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        fail(f"{REQUIREMENTS} not found")
+    except json.JSONDecodeError as e:
+        fail(f"{REQUIREMENTS} is not valid JSON: {e}")
+    reqs = data.get("requirements") if isinstance(data, dict) else None
+    if not isinstance(reqs, list):
+        fail(f'{REQUIREMENTS}: top-level "requirements" must be a list')
+    counts: dict[str, int] = {}
+    for i, r in enumerate(reqs):
+        rid = r.get("id") if isinstance(r, dict) else None
+        if not isinstance(rid, str) or not rid:
+            fail(f'{REQUIREMENTS} requirements[{i}]: missing or empty "id"')
+        counts[rid] = counts.get(rid, 0) + 1
+    return counts
+
+
+def load_kinds(spec_files) -> dict[str, str]:
+    """Return dict id -> the value of the first `**Kind:**` line of its section."""
+    kinds: dict[str, str] = {}
+    for fname, _prefix, _count in spec_files:
+        path = REPO / "spec" / fname
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as e:
+            fail(f"cannot read {path}: {e}")
+        current: str | None = None
+        for line in lines:
+            m = SECTION_HEADING_RE.match(line)
+            if m:
+                current = m.group(1)
+                continue
+            if ANY_HEADING_RE.match(line):
+                current = None
+                continue
+            m = KIND_LINE_RE.match(line)
+            if current is not None and m and current not in kinds:
+                kinds[current] = m.group(1).strip()
+    return kinds
+
+
+def lean_form(rid: str, blocks: dict[str, int], proven) -> str:
+    """`block` (`block ×n` for n blocks), `cites` (citations only) or a dash."""
+    n = blocks.get(rid, 0)
+    if n == 1:
+        return "block"
+    if n > 1:
+        return f"block ×{n}"
+    return "cites" if rid in proven else DASH
+
+
+# --------------------------------------------------------------------------
 # (d) per-language test greps
 # --------------------------------------------------------------------------
 
@@ -292,13 +361,14 @@ def md_escape(s: str) -> str:
     return s.replace("|", "\\|")
 
 
-def render(spec_files, active, proven, lean_refs, tests) -> str:
+def render(spec_files, active, proven, lean_refs, tests, blocks, kinds) -> str:
     langs = ("java", "typescript", "rust", "python")
     all_ids = [rid for _, prefix, _ in spec_files for rid, _, _ in active[prefix]]
     n = len(all_ids)
     assert n == EXPECTED_ACTIVE, f"internal error: rendering {n} rows, expected {EXPECTED_ACTIVE}"
 
     proven_ids = set(proven)
+    forms = {rid: lean_form(rid, blocks, proven) for rid in all_ids}
     ref_only = {rid for rid in all_ids if rid in lean_refs and rid not in proven_ids}
     untested = [rid for rid in all_ids if not any(rid in tests[l] for l in langs)]
 
@@ -316,6 +386,15 @@ def render(spec_files, active, proven, lean_refs, tests) -> str:
     )
     out.append("")
     out.append(
+        "**Kind** is the one-letter `**Kind:**` line of the ID's section (B behaviour, "
+        "F pure function, T timing, Q quality: tested, not proven, A assumption, "
+        "N configuration). **Lean form** is `block` when the ID has a requirement block "
+        "in [`lean/report/requirements.json`](../lean/report/requirements.json) (`block ×n` "
+        "for n blocks), `cites` when it has citations only, and "
+        f"{DASH} when it has neither."
+    )
+    out.append("")
+    out.append(
         f"Column semantics: a {CHECK_MARK} in a test column means \"referenced by ≥ 1 "
         f"test file\" in that language — a spec-ID citation, **not** a semantic "
         f"coverage guarantee. **Lean ref** {CHECK_MARK} means the ID appears in "
@@ -328,6 +407,16 @@ def render(spec_files, active, proven, lean_refs, tests) -> str:
     out.append("## Summary")
     out.append("")
     out.append(f"- Active requirements: **{n}**")
+    out.append(
+        "- Kind: "
+        + ", ".join(f"{k} **{sum(1 for r in all_ids if kinds.get(r) == k)}**" for k in KINDS)
+        + f", no Kind line **{sum(1 for r in all_ids if r not in kinds)}**"
+    )
+    out.append(
+        f"- Lean form: block **{sum(1 for r in all_ids if forms[r].startswith('block'))}**, "
+        f"cites only **{sum(1 for r in all_ids if forms[r] == 'cites')}**, "
+        f"neither **{sum(1 for r in all_ids if forms[r] == DASH)}**"
+    )
     out.append(
         f"- Proven in Lean (≥ 1 validated theorem fragment): **{len(proven_ids)}**"
     )
@@ -348,8 +437,8 @@ def render(spec_files, active, proven, lean_refs, tests) -> str:
     for fname, prefix, _ in spec_files:
         out.append(f"## {fname} — {prefix}")
         out.append("")
-        out.append("| ID | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |")
-        out.append("|----|---------------------------------|----------|------|------------|------|--------|")
+        out.append("| ID | Kind | Lean form | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |")
+        out.append("|----|------|-----------|---------------------------------|----------|------|------------|------|--------|")
         for rid, _title, _prio in active[prefix]:
             if rid in proven:
                 proof_cell = "<br>".join(
@@ -360,6 +449,8 @@ def render(spec_files, active, proven, lean_refs, tests) -> str:
                 proof_cell = DASH
             cells = [
                 rid,
+                md_escape(kinds.get(rid, DASH)),
+                forms[rid],
                 proof_cell,
                 CHECK_MARK if rid in lean_refs else DASH,
                 *(CHECK_MARK if rid in tests[l] else DASH for l in langs),
@@ -396,8 +487,10 @@ def main() -> int:
         if m in active_ids
     }
     tests = collect_test_mentions(active_ids)
+    blocks = load_block_counts()
+    kinds = load_kinds(spec_files)
 
-    content = render(spec_files, active, proven, lean_refs, tests)
+    content = render(spec_files, active, proven, lean_refs, tests, blocks, kinds)
 
     if args.update:
         OUTPUT.write_text(content, encoding="utf-8")

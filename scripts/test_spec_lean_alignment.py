@@ -511,6 +511,83 @@ class AlignmentTest(unittest.TestCase):
         self.assertIn("2 verbatim quotes", out)
         self.assertIn("1 citations", out)
 
+    # ---- Kind lines (ruling D21) -------------------------------------------
+
+    def _with_kinds(self, k031=None, k032=None, k001=None):
+        """Write the fixture spec with `**Kind:**` lines under the given headings."""
+        core = CORE
+        if k031 is not None:
+            core = core.replace("**Priority:** MUST\n", f"**Priority:** MUST\n**Kind:** {k031}\n", 1)
+        if k032 is not None:
+            core = core.replace("#### CORE-032: Read Arc\n", f"#### CORE-032: Read Arc\n\n**Kind:** {k032}\n", 1)
+        (self.spec / "01-core.md").write_text(core)
+        io_text = IO
+        if k001 is not None:
+            io_text = io_text.replace("#### IO-001: Input One\n", f"#### IO-001: Input One\n\n**Kind:** {k001}\n", 1)
+        (self.spec / "02-io.md").write_text(io_text)
+
+    def run_gate_args(self, data, *extra) -> tuple[int, str]:
+        self.report.write_text(json.dumps(data))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = align.main(["--report", str(self.report), "--spec", str(self.spec), *extra])
+        return rc, out.getvalue() + err.getvalue()
+
+    def test_kind_line_matching_block_passes(self):
+        self._with_kinds(k031="B", k032="Q", k001="N")
+        self.assertPasses([block()])
+
+    def test_real_shape_kind_line_is_read(self):
+        data = self._real()
+        (self.spec / "01-core.md").write_text(REAL_CORE_031.replace("**Kind:** B", "**Kind:** F"))
+        self.assertFails(data, "ALIGN kind-mismatch CORE-031: the section in 01-core.md:",
+                         "says Kind F, but no block of CORE-031 has kind F (blocks: B)")
+
+    def test_companion_block_of_another_kind_passes(self):
+        self._with_kinds(k031="B")
+        self.assertPasses([block(), block(decl="Libpetri.Spec.CORE_031_table", kind="F",
+                                          evidence=[{"role": "forbids", "theorem": "x"}])])
+
+    def test_fail_kind_line_without_a_block_of_that_kind(self):
+        self._with_kinds(k031="T")
+        out = self.assertFails([block()], "ALIGN kind-mismatch CORE-031",
+                               "says Kind T, but no block of CORE-031 has kind T (blocks: B)")
+        self.assertIn("1 finding(s)", out)
+
+    def test_fail_stated_kind_without_any_block(self):
+        self._with_kinds(k032="F")
+        self.assertFails([block()], "ALIGN kind-mismatch CORE-032",
+                         "a stated kind, but CORE-032 has no requirement block")
+
+    def test_q_a_n_kinds_need_no_block(self):
+        for k in "QAN":
+            self._with_kinds(k032=k)
+            self.assertPasses([block()])
+
+    def test_fail_malformed_or_repeated_kind_line(self):
+        self._with_kinds(k031="B+Q", k032="Q\n**Kind:** A")
+        self.assertFails([block()], "ALIGN kind-mismatch CORE-031: '**Kind:** B+Q'",
+                         "ALIGN kind-mismatch CORE-032: the section in 01-core.md:",
+                         "has 2 '**Kind:**' lines (Q, A); expected one")
+
+    def test_kind_line_in_code_or_comment_does_not_count(self):
+        core = CORE.replace("**Priority:** MUST\n", "**Priority:** MUST\n<!-- **Kind:** T -->\n", 1)
+        (self.spec / "01-core.md").write_text(core)
+        self.assertPasses([block()])
+
+    def test_kind_missing_only_with_require_kind(self):
+        self._with_kinds(k031="B")
+        self.assertPasses([block()])
+        rc, out = self.run_gate_args([block()], "--require-kind")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("ALIGN kind-missing CORE-032", out)
+        self.assertIn("ALIGN kind-missing IO-001", out)
+        self.assertNotIn("kind-missing CORE-031", out)
+        self.assertIn("2 finding(s)", out)
+        self._with_kinds(k031="B", k032="Q", k001="Q")
+        rc, out = self.run_gate_args([block()], "--require-kind")
+        self.assertEqual(rc, 0, out)
+
     # ---- output format and input errors ----------------------------------
 
     def test_fail_all_findings_reported_together_with_prefix(self):

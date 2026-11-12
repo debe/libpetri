@@ -135,7 +135,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | ENV-006 | inject() Rejection on Closed or Draining Executor | MUST | — |
 | ENV-010 | Implicit Long-Running Behavior | MUST | — |
 | ENV-011 | Graceful Drain | MUST | ENV-010 |
-| ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, 002, 010 |
+| ENV-012 | Event-Driven Workflow Pattern | SHOULD | ENV-001, ENV-002, ENV-003, ENV-004, ENV-010, EXEC-001, CONC-002, CONC-005, TIME-010, TIME-013 |
 | ENV-013 | Immediate Close | MUST | ENV-010, ENV-004, EXEC-040 |
 | ENV-014 | Mid-Execution Marking Snapshot | SHOULD | ENV-003, ENV-004, ENV-010, EXEC-001, EXEC-031, EXEC-040, CORE-073, TIME-015 |
 | ENV-015 | Immediate Termination | MAY | ENV-013 |
@@ -234,14 +234,14 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-001 | SubnetDef Definition (open net + interface) | MUST | — |
 | MOD-002 | Subnet Identity (sealed/sum-type distinction from PetriNet) | MUST | — |
 | MOD-003 | Port Declaration (name + direction + place) | MUST | — |
-| MOD-004 | Port Direction Semantics (advisory; arcs govern flow) | SHOULD | CORE-030–035 |
+| MOD-004 | Port Direction Semantics (advisory; arcs govern flow) | MUST | CORE-030–035 |
 | MOD-005 | Channel Declaration (interface transitions for synchronous fusion) | MUST | — |
 | MOD-006 | Subnet Validation at Build | MUST | CORE-040, CORE-041 |
 | MOD-010 | Instance Creation via instantiate(prefix, params) | MUST | CORE-001, CORE-040 |
 | MOD-011 | Instance Handle Map (typed port + channel handles) | MUST | MOD-003, MOD-005, MOD-010 |
-| MOD-012 | Per-Instance State Isolation | MUST | MOD-010, CORE-070, TIME-010 |
-| MOD-013 | Nested Instantiation (prefix concatenation associative) | MUST | MOD-010, MOD-012, MOD-020 |
-| MOD-014 | SubnetDef.fromNet retrofit utility | MAY | MOD-001, MOD-006 |
+| MOD-012 | Per-Instance State Isolation | MUST | MOD-010, MOD-020, MOD-021, MOD-024, MOD-025, MOD-060, CORE-070, TIME-010, TIME-011, TIME-012, TIME-013 |
+| MOD-013 | Nested Instantiation (prefix concatenation associative) | MUST | MOD-010, MOD-012, MOD-014, MOD-020, MOD-021 |
+| MOD-014 | SubnetDef.fromNet retrofit utility | MUST | MOD-001, MOD-006 |
 | MOD-020 | Composition Operation (port mapping by structural rewrite) | MUST | MOD-010, MOD-011, CORE-030, IO-011 |
 | MOD-021 | Channel Composition (transition merge: arc union + conflict resolution) | MUST | MOD-005, CORE-021, TIME-001, CORE-013, TIME-010, CONC-002 |
 | MOD-022 | Type Compatibility at Compose | MUST | CORE-003, MOD-011, MOD-020 |
@@ -251,7 +251,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | MOD-026 | Subnet-Membership Metadata for Direct Composition | SHOULD | MOD-025, MOD-023, MOD-001 |
 | MOD-027 | References to Bound Ports | MUST | MOD-010, MOD-011, MOD-020, MOD-024, MOD-061, CORE-002, CORE-040 |
 | MOD-030 | Action Binding Per Instance (share-by-default, override via bindActions) | MUST | CORE-042, MOD-010 |
-| MOD-031 | Action Place Resolution under Composition (declared → actual correspondence) | MUST | MOD-010, MOD-013, MOD-020, MOD-021, MOD-023, MOD-024, MOD-025, MOD-030, CORE-042, EXEC-031 |
+| MOD-031 | Action Place Resolution under Composition (declared → actual correspondence) | MUST | MOD-010, MOD-013, MOD-014, MOD-020, MOD-021, MOD-023, MOD-024, MOD-025, MOD-030, MOD-061, CORE-042, EXEC-031 |
 | MOD-040 | Export Grouping (subgraph cluster_* per instance prefix) | SHOULD | MOD-010, EXP-001, EXP-014 |
 | MOD-041 | Debug Protocol Subnet Instances | SHOULD | MOD-010, MOD-013 |
 | MOD-050 | Verification Pass-Through on Composed Flat Net | MUST | MOD-023, VER-001 |
@@ -265,10 +265,10 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | NU-001 | Name Identity | MUST | CORE-010 |
 | NU-010 | Fresh-Name Minting | MUST | CORE-050, IO-011, IO-013, IO-014, NU-040, NU-050 |
 | NU-011 | Resume-Safe Fresh-Name Minting | MUST | NU-010, NU-020, CORE-073, TIME-015, VER-004 |
-| NU-020 | Match Specification | MUST | IO-001, IO-005, CORE-022, CORE-013 |
-| NU-021 | Match as the Sole Per-Token Filter | MUST | NU-020, IO-006 |
+| NU-020 | Match Specification | MUST | IO-001, IO-002, IO-003, IO-004, IO-005, IO-007, CORE-022, CORE-013, EXEC-010, NU-001, NU-022 |
+| NU-021 | Match as the Sole Per-Token Filter | MUST | NU-020, EXEC-010, IO-007 |
 | NU-022 | Deterministic Match Selection | MUST | NU-020, NU-001 |
-| NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-012, MOD-020 |
+| NU-030 | Freshness Scoping under Composition | MUST | MOD-010, MOD-020, MOD-021, MOD-061, CORE-042, NU-010, NU-011, NU-054 |
 | NU-040 | Bounded Budget and Decidability | SHOULD | VER-002, EXEC-040, NU-010, NU-020 |
 | NU-050 | Exact Verification of Matched Transitions | MAY | VER-004, NU-020, NU-040, TIME-012 |
 | NU-051 | EXTENDED Coloured-Consumer Fragment | MAY | NU-050, VER-012, NU-020 |
@@ -322,7 +322,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | VER-005 | P-Invariant Computation | SHOULD | — |
 | VER-006 | Environment Analysis Mode | SHOULD | VER-022, NU-050, NU-051 |
 | VER-007 | Invariant Strengthening from P-Semiflows | SHOULD | VER-004, 005, 006, NU-050, NU-053 |
-| VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010, TIME-012 |
+| VER-010 | State Class Graph Analysis | MAY | IO-007, EXEC-010, TIME-012, TIME-013, VER-001, VER-004, VER-011, VER-013 |
 | VER-011 | DBM Zone Representation | MAY | — |
 | VER-012 | Name-Aware State Class Graph (ν-Partition Quotient) | MAY | VER-010, 011, 017, NU-020, NU-050, IO-007 |
 | VER-013 | Solver Transport | SHOULD | VER-001, 003, 007, 017, 022, MOD-051, IO-016 |

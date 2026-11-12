@@ -36,8 +36,17 @@ named function is the reference.
 | RD-18 | EVT-025 | Python | open |
 | RD-19 | EVT-025 | Python | open |
 | RD-20 | EVT-025 | Python | open |
-| RD-21 | EVT-030 | Java | open |
+| RD-21 | EVT-030, EVT-013 | Java | open |
 | RD-22 | EVT-032 | Java | open |
+| RD-23 | MOD-031 | Rust, Java, TypeScript, Python | open |
+| RD-24 | MOD-025 | Java | open |
+| RD-25 | MOD-061, MOD-026 | Rust, Java, TypeScript, Python | open |
+| RD-26 | VER-003, NU-053 | Java | open |
+| RD-27 | NU-051 | Rust, Python | open |
+| RD-28 | VER-017 | TypeScript | open |
+| RD-29 | MOD-051 | TypeScript | open |
+| RD-30 | MOD-031 | Python | open |
+| RD-31 | MOD-031, IO-013 | Java, TypeScript | open |
 
 ### RD-01. The timeout outcome is validated against the output spec
 
@@ -81,7 +90,8 @@ named function is the reference.
 - **Defect:** the `TransitionStarted` event carries the executor's own `consumed` array, which the
   executor also hands on, so the event is not a copy. `typescript/src/runtime/bitmap-net-executor.ts`
   (`fireTransition`), `typescript/src/event/net-event.ts:59-64`.
-- **Lean evidence:** none yet (EVT-001 is a wave W7 block).
+- **Lean evidence:** none. EVT-001 has no block: a Lean event is a value, so a shared array cannot
+  be stated (`netEvent_value`, GlossaryEvents.lean, cites EVT-001).
 - **Status:** open.
 
 ### RD-05. A TypeScript resolver that returns `undefined` binds `undefined`
@@ -159,16 +169,22 @@ named function is the reference.
   keeps such nets out of the blocks.
 - **Status:** open.
 
-### RD-11. MOD-020 rejections that no runtime makes
+### RD-11. A caller transition bound to two channels is not rejected
 
-- **Requirements:** MOD-020 (ruling D72: re-binding a port in one call is an error naming both
-  bindings; a caller transition bound to two channels of one instance is an error).
+- **Requirements:** MOD-020 (ruling D72 (ii)(b): a caller transition bound to two channels of
+  one instance in one call is an error, AC6). The port half of the first entry is withdrawn:
+  every runtime rejects a port re-bound in one call with `Port '<name>' is already bound`
+  (ruling D72 (i)(a); `rust/libpetri-core/src/compose.rs:103-105`,
+  `java/src/main/java/org/libpetri/core/ComposeBindings.java:69-72`,
+  `typescript/src/core/compose-bindings.ts:74-76`).
 - **Runtimes:** all.
-- **Defect:** the runtimes keep the last binding of a re-bound port and accept a caller
-  transition bound to two channels. `rust/libpetri-core/src/compose.rs:128-130`,
-  `java/src/main/java/org/libpetri/core/ComposeBindings.java:98-101`.
-- **Lean evidence:** none yet (MOD-020 is a wave W8 block; D72 (ii)(b) makes it a caller
-  obligation there).
+- **Defect:** no runtime rejects one caller transition bound to two channels of one instance.
+  Rust stages the merges in a map keyed by the caller's name, so only the merge its hash order
+  visits last survives; Java and TypeScript add both merges under one name
+  (`apply_composition` in `rust/libpetri-core/src/petri_net.rs`, `applyComposition` in
+  `java/src/main/java/org/libpetri/core/PetriNet.java` and `typescript/src/core/petri-net.ts`).
+- **Lean evidence:** none; MOD-020 makes distinct caller-side names a caller obligation
+  (`mod020_fresh`, MOD_020.lean) and states nothing about such a call.
 - **Status:** open.
 
 ### RD-12. An empty `/` segment in a cluster key fails the export
@@ -280,7 +296,9 @@ named function is the reference.
 
 ### RD-21. Java's `transitionEvents` throws on an event with no transition name
 
-- **Requirements:** EVT-030 (every helper is total; ruling D29 (a)).
+- **Requirements:** EVT-030 (every helper is total; ruling D29 (a)), EVT-013 (AC4: a diagnostic
+  that no transition is responsible for carries an empty or absent name, so a consumer reads it
+  without failing).
 - **Runtimes:** Java.
 - **Defect:** `transitionEvents` calls `equals` on the transition name of every log message and
   throws on an engine diagnostic whose name is `null`, which both Java executors emit on an
@@ -296,4 +314,167 @@ named function is the reference.
   `IndexOutOfBoundsException` past the stream length.
   `java/src/main/java/org/libpetri/debug/MarkingCache.java:40`.
 - **Lean evidence:** `EVT_032_mutant_noClamp` (EVT_032.lean).
+- **Status:** open.
+
+### RD-23. A channel merge drops the caller's declared places from the correspondence
+
+- **Requirements:** MOD-031 (key-set completeness of the declared-to-actual correspondence
+  through every rewrite pass; ruling D69 (a) leaves the merged case out of the block).
+- **Runtimes:** Rust, Java, TypeScript (Python rides on Rust).
+- **Defect:** when a caller transition that carries no correspondence is merged with an instance
+  transition that carries one, the merged transition keeps the instance side's correspondence
+  whole, and a transition that carries a correspondence is never re-read from its arcs. The
+  caller's declared places are then no keys, so a later pass that renames one of them (fusion at
+  build, or instantiating the retrofitted net under MOD-014) leaves it unresolved, and the
+  caller's action fails its declared-place check after its inputs were consumed (EXEC-031).
+  `rust/libpetri-core/src/rewriter.rs:746`, `:309-318`,
+  `java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:654-655`,
+  `typescript/src/core/internal/subnet-rewriter.ts:603-604`.
+- **Lean evidence:** `MOD_031_mergeThenPass_undecided` (MOD_031.lean): after the runtimes' merge
+  and one pass the declared place `h` resolves to `h`, which no arc names; after the reference's
+  merge it resolves to `f`.
+- **Status:** open.
+
+### RD-24. Java's compose token-type check reads one host place per name
+
+- **Requirements:** MOD-025 (line 4: a body place whose name the builder holds with another token
+  type is rejected).
+- **Runtimes:** Java.
+- **Defect:** `compose(SubnetDef)` compares each body place with one host place per name, the
+  one put last into a name-keyed map. When the builder already holds two places of one name with
+  different token types (Java's `Place` equality is structural on name and type) and the last one
+  has the body place's type, Java accepts the call where MOD-025 rejects it.
+  `java/src/main/java/org/libpetri/core/PetriNet.java:611-615`.
+- **Lean evidence:** none; line 4 of MOD-025 (MOD_025.lean) states the rejection, and no theorem
+  models Java's name-keyed map.
+- **Status:** open.
+
+### RD-25. A fusion set that lists its first member again drops that member
+
+- **Requirements:** MOD-061 (step 3: the canonical member remains; lines 1 and 3) and MOD-026
+  (AC5: the surviving canonical place keeps its own entry; lines 1 and 2).
+- **Runtimes:** Rust, Java, TypeScript (Python rides on Rust).
+- **Defect:** the non-canonical members are every member after the first position, so a set
+  with members `[a, b, a]` counts `a` among them. Fusion then drops the declared place `a` (it
+  comes back only through an arc of a rewritten transition), runs the input merge on a transition
+  whose only input arcs are on `a`, and drops `a`'s cluster entry.
+  `rust/libpetri-core/src/petri_net.rs:939-943`, `:962-974`,
+  `java/src/main/java/org/libpetri/core/PetriNet.java:1163-1169`, `:1093-1107`,
+  `typescript/src/core/petri-net.ts:844-848`, `:771-783`.
+- **Lean evidence:** `mod061_dupCanonical_kept` (MOD_061.lean) and `mod026_dupCanonical_kept`
+  (MOD_026.lean): the reference keeps `a` and its entry.
+- **Status:** open.
+
+### RD-26. Java reports `counterexampleConfirmed` `false` on the name-coloured encoding
+
+- **Requirements:** VER-003 (the initial-violation sentence: the empty firing sequence, with
+  `counterexampleConfirmed` not `false`; AC8: on the name-coloured encoding no replay applies and
+  `counterexampleConfirmed` is absent) and NU-053 (the name-coloured fixpoint query).
+- **Runtimes:** Java.
+- **Defect:** the check that the initial marking violates the property is gated on a flat
+  answer (`colouredPlan == null`), but the replay that follows has no such gate. On a
+  name-coloured `Violated` the flat decoder finds no `Reachable` fact of the flat arity (the
+  coloured `Reachable` has another shape), the empty decode makes `assessCounterexample` return
+  `Unconfirmed`, and the result is `Violated` with `counterexampleConfirmed` `false`, also when
+  the initial marking violates the property. Rust and TypeScript leave the field absent on this
+  path. `java/src/main/java/org/libpetri/smt/SmtVerifier.java:2421`, `:2455`, `:2488`,
+  `:3698`; `java/src/main/java/org/libpetri/smt/z3/CounterexampleDecoder.java:69`; Rust
+  `rust/libpetri-verification/src/smt_verifier.rs:3164` (`replay_phase` returns `None` when
+  coloured). Confirmed by a run: `JoinRelayTest.fig12c(true)` with `R = 2`, budget `R`, the
+  `FIG12C_CARRIERS` and `PlaceBound(R, 1)` (violated at the initial marking) returns `Violated`
+  on route `SMT` with the name-coloured encoding, an empty trace and `counterexampleConfirmed`
+  `false`.
+- **Lean evidence:** line 6 of VER-003 (VER_003.lean) asks for `counterexampleConfirmed` not
+  `false` at an initial violation; a decider that answers `some false` there, the reference
+  otherwise, fails the block (checked in the wave W10 mutant run, not kept as a theorem). ν-nets
+  are outside `Reference.TimedNet`, so VER_003.lean has no theorem about the coloured path.
+- **Status:** open.
+
+### RD-27. Rust ignores a carrier declaration it cannot resolve, outside Route B
+
+- **Requirements:** NU-051 (the carrier bullet: a declared carrier that is not a place of the net
+  is refused, in either fragment mode and whatever the query; ruling D95 (a)).
+- **Runtimes:** Rust, Python (which runs the Rust verifier).
+- **Defect:** Rust checks the declared carriers only under EXTENDED and only inside Route B
+  (`rust/libpetri-verification/src/nu_scg_verifier.rs:279-290`, `verify_name_scg`, which answers
+  `Unknown` naming the place). An absent carrier is therefore silently ignored in three cases:
+  under BASE; under EXTENDED on a call that does not reach Route B; and under EXTENDED on a
+  bounded quiescence query that does reach it, because the pipeline drops the Route B `Unknown`
+  there and defers to Route A (`rust/libpetri-verification/src/smt_verifier.rs:1374-1379`,
+  `defer_to_route_a`), whose `build_plan` skips a carrier it cannot resolve
+  (`rust/libpetri-verification/src/name_coloured_encoder.rs:196-201`). Java and TypeScript
+  reject the declaration in both modes (`SmtVerifier.carrierPlaces`).
+- **Lean evidence:** `NU_051_carrier_forbids_routeBOnly` (BASE) and
+  `NU_051_carrier_forbids_routeADeferral` (EXTENDED) in `NU_051_carrier.lean`: the shape Rust
+  ships answers `Proven` on the co-mint net with the mistyped carrier `7`.
+- **Status:** open.
+
+### RD-28. TypeScript's state-space cache grows on every `Arrivals` query and never hits
+
+- **Requirements:** VER-017 (the cache key: under `Arrivals` the key covers the closure, or the
+  verifier does not use the cache for that query and says so in the report; AC7).
+- **Runtimes:** TypeScript.
+- **Defect:** the enumeration looks the graph up under the caller's net and the closed initial
+  marking (`typescript/src/verification/smt-verifier.ts:2251-2254`, `enumerate`), and the marking
+  half of the key names `Place` objects by identity
+  (`typescript/src/verification/state-space-cache.ts:139`, `:163-171`, `markingKey`). The
+  `Arrivals` closure makes new arrival-source `Place` objects on every call
+  (`typescript/src/verification/smt-verifier.ts:338-345`, `applyArrivals`), so every query under
+  `Arrivals` misses, builds, and adds one more entry, and the report does not say that the cache
+  was not used. No verdict is wrong, since the cache never hits there. Java bypasses the cache
+  under `Arrivals` with a report line; Rust and Python key the fingerprint of the closed net.
+- **Lean evidence:** none; `VER_017_cache` takes the key as an abstract value (its assumes
+  records the `Arrivals` clause as the key's job).
+- **Status:** open.
+
+### RD-29. TypeScript hands the selected environment mode to `verify` only when there is an input port
+
+- **Requirements:** MOD-051 (the setup of each per-property verification: the verifier is set up
+  with the harness environment places and the selected environment mode, and then passed,
+  together with the synthetic net, through the configure hook).
+- **Runtimes:** TypeScript.
+- **Defect:** `SubnetDef.verify` registers the environment places and the selected mode only when
+  the harness has an environment place (`typescript/src/core/subnet-def.ts:359-362`). For a subnet
+  with no input or in-out port the configure hook receives a verifier on the verifier default
+  `AlwaysAvailable` (`typescript/src/verification/smt-verifier.ts:149`), not on the selected
+  mode, so a hook that registers an environment place itself runs under the wrong mode. Rust
+  (`rust/libpetri-verification/src/harness.rs:465-468`) and Java
+  (`java/src/main/java/org/libpetri/core/SubnetDef.java:369-371`) set the mode on every call, and
+  Python rides on Rust.
+- **Lean evidence:** `MOD_051_forbids_modeOnlyWithEnvs` in `MOD_051.lean`: the forwarder without
+  its input port, verified under `Ignore` with a hook that registers `sut/IN`; the TypeScript
+  shape (`mod051ModeOnlyWithEnvs`) proves `TerminatesAtSink` where line 4 requires `Violated`.
+- **Status:** open.
+
+### RD-30. The Python binding adapter resolves the given name before the correspondence
+
+- **Requirements:** MOD-031 (an action's context operations resolve a declared place through the
+  correspondence, and a binding adapter that resolves for its actions keeps the same order).
+- **Runtimes:** Python.
+- **Defect:** `require_output` and `resolve_lookup_key` first look the given name up in the
+  allowed outputs or in the delivered input or read map, and fall back through `local_name_map`
+  only when that fails (`rust/libpetri-py/src/action.rs:307-345`). When the given name is itself
+  a place of the call's kind that the correspondence resolves to another place (a port `a` bound
+  to the caller place `b`, and a port `b` bound to `c`), the call answers for the given place,
+  not for the place the correspondence names. Java and TypeScript resolve first; the Rust native
+  context hands the correspondence to native actions.
+- **Lean evidence:** `MOD_031_ctx_mutant_literalFirst_killed` and `mod031ctx_collision` in
+  `MOD_031.lean`: on the collision example the name-first lookup answers for the wrong place.
+- **Status:** open.
+
+### RD-31. Java and TypeScript resolve the timeout branch's places a second time
+
+- **Requirements:** MOD-031 (the correspondence is applied once, to a declared place), IO-013 (the
+  timeout outcome deposits the tokens of its child on the child's places).
+- **Runtimes:** Java, TypeScript.
+- **Defect:** the executor deposits the timeout branch through `outputToHarvest` and
+  `forwardToHarvest` with the places the rewritten output specification names, which are already
+  the actual places (`java/src/main/java/org/libpetri/runtime/ExecutorSupport.java:505`, `:514`,
+  `produceTimeoutOutputRecursive`; `typescript/src/runtime/executor-support.ts:320`, `:328`,
+  `produceTimeoutOutput`). Both methods resolve the place through the correspondence again
+  (`java/src/main/java/org/libpetri/core/TransitionContext.java:404-428`;
+  `typescript/src/core/transition-context.ts:262-283`). On a collision (port `a` bound to the
+  caller place `b`, port `b` bound to `c`) the timeout token meant for `b` lands on `c`. Rust
+  deposits the timeout branch on the places as given.
+- **Lean evidence:** `mod031ctx_timeout_resolveTwice` in `MOD_031.lean`.
 - **Status:** open.

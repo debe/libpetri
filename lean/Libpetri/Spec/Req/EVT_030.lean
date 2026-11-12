@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
+import Libpetri.Spec.GlossaryEvents
 import Libpetri.Spec.Req.EVT_021
 
 set_option linter.missingDocs true
@@ -34,81 +35,28 @@ also by `null`). Line 1 therefore constrains every query whose transition filter
 the empty name, and `EVT_030_allows_emptySentinel` shows that helpers comparing names as they are
 meet the requirement under the shape that reads the empty name as no name.
 
-Block-local vocabulary (`EventType`, `EventShape`, `EventQuery`, `QueryHelpers`) lives in this
-file. The executor event glossary of wave W7 (`GlossaryEvents`) owns the event kinds; when it
-lands, `EventType` and `EventShape` move there, and this block reads them from it.
+The event kinds (`NetEventKind`, with the one failure set `NetEventKind.isFailure`) and the event
+shape (`EventShape`) are the event glossary's (`GlossaryEvents.lean`), shared with [EVT-023]'s
+level table and the replay's recorded events; the query vocabulary (`EventQuery`,
+`QueryHelpers`) is block-local.
 -/
 
 namespace Libpetri.Spec
 
-/-! ## Block-local vocabulary: event types, event shapes, queries -/
-
-/-- The thirteen event types of the event model ([EVT-002] to [EVT-014]), as a query names them
-(`eventsOfType` in Java and TypeScript, the `types` filter and `counters()` in Python). -/
-inductive EventType where
-  /-- ExecutionStarted ([EVT-002]). -/
-  | executionStarted
-  /-- ExecutionCompleted ([EVT-003]). -/
-  | executionCompleted
-  /-- TransitionEnabled ([EVT-004]). -/
-  | transitionEnabled
-  /-- TransitionClockRestarted ([EVT-005]). -/
-  | transitionClockRestarted
-  /-- TransitionStarted ([EVT-006]). -/
-  | transitionStarted
-  /-- TransitionCompleted ([EVT-007]). -/
-  | transitionCompleted
-  /-- TransitionFailed ([EVT-008]). -/
-  | transitionFailed
-  /-- TransitionTimedOut ([EVT-009]). -/
-  | transitionTimedOut
-  /-- ActionTimedOut ([EVT-010]). -/
-  | actionTimedOut
-  /-- TokenAdded ([EVT-011]). -/
-  | tokenAdded
-  /-- TokenRemoved ([EVT-012]). -/
-  | tokenRemoved
-  /-- LogMessage ([EVT-013]). -/
-  | logMessage
-  /-- MarkingSnapshot ([EVT-014]). -/
-  | markingSnapshot
-  deriving DecidableEq, Repr
+/-! ## Block-local vocabulary: queries -/
 
 /-- Every event type, once each. -/
-def allEventTypes : List EventType :=
+def allEventTypes : List NetEventKind :=
   [.executionStarted, .executionCompleted, .transitionEnabled, .transitionClockRestarted,
    .transitionStarted, .transitionCompleted, .transitionFailed, .transitionTimedOut,
    .actionTimedOut, .tokenAdded, .tokenRemoved, .logMessage, .markingSnapshot]
-
-/-- The failure types: TransitionFailed, TransitionTimedOut and ActionTimedOut ([EVT-030] AC4;
-the same set as the failure level of [EVT-023]). -/
-def EventType.isFailure : EventType → Bool
-  | .transitionFailed | .transitionTimedOut | .actionTimedOut => true
-  | _ => false
-
-/-- What a query reads of an event: its type, the transition name it carries and the place name
-it carries. In every runtime the eight transition kinds carry a transition name field (LogMessage
-included), the two token kinds carry a place name, and the other kinds carry neither
-(`rust/libpetri-event/src/net_event.rs` `transition_name` and `place_name`). An engine diagnostic
-fills the name field with the empty name in all four runtimes (the initial-marking seam), and
-with `null` in Java on an interrupted run; whether the shape reads the empty name as no name is
-the event model's choice (wave W7), and line 1 holds the same either way
-(`EVT_030_allows_emptySentinel`). -/
-structure EventShape where
-  /-- The event type. -/
-  type : EventType
-  /-- The transition name the event carries, if any. -/
-  transition : Option String := none
-  /-- The place name the event carries, if any. -/
-  place : Option String := none
-  deriving DecidableEq, Repr
 
 /-- A query ([EVT-030]): optional filters by event type, by transition name and by place name,
 each a list of the names it accepts (Java and TypeScript name one, Python a set), then an offset
 and an optional limit. A filter left out accepts every event. -/
 structure EventQuery where
   /-- The event types the query accepts, or every type. -/
-  types : Option (List EventType) := none
+  types : Option (List NetEventKind) := none
   /-- The transition names the query accepts, or every event. -/
   transitions : Option (List String) := none
   /-- The place names the query accepts, or every event. -/
@@ -142,7 +90,7 @@ def EventQuery.page {α : Type} (q : EventQuery) (l : List α) : List α :=
   | some n => (l.drop q.offset).take n
 
 /-- The number of events of type `k` in `es`. -/
-def countOfType {E : Type} (sh : E → EventShape) (k : EventType) (es : List E) : Nat :=
+def countOfType {E : Type} (sh : E → EventShape) (k : NetEventKind) (es : List E) : Nat :=
   es.countP fun e => (sh e).type == k
 
 /-- The query helpers of one implementation, each applied to the list `es` a call of `events()`
@@ -155,15 +103,15 @@ structure QueryHelpers (E : Type) where
   /-- `failures()`. -/
   failures : List E → List E
   /-- `counters()`. -/
-  counters : List E → List (EventType × Nat)
+  counters : List E → List (NetEventKind × Nat)
   /-- The count: `size()` (no type) in Java, TypeScript and Rust; `len()` and `count(types=...)`
   in Python. -/
-  count : Option (List EventType) → List E → Nat
+  count : Option (List NetEventKind) → List E → Nat
 
 /-! ## The reference helpers -/
 
 /-- The reference histogram: each event type that occurs, with its number of events. -/
-def refCounters {E : Type} (sh : E → EventShape) (es : List E) : List (EventType × Nat) :=
+def refCounters {E : Type} (sh : E → EventShape) (es : List E) : List (NetEventKind × Nat) :=
   (allEventTypes.map fun k => (k, countOfType sh k es)).filter fun x => x.2 != 0
 
 /-- The reference query helpers: a query filters, then pages; `failures()` keeps the failure
@@ -220,9 +168,9 @@ requirement EVT_030
       (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
       (∀ es : List E, H.failures es = es.filter fun e => (sh e).type.isFailure) ∧
       (∀ es : List E, ((H.counters es).map Prod.fst).Nodup) ∧
-      (∀ (es : List E) (k : EventType) (n : Nat),
+      (∀ (es : List E) (k : NetEventKind) (n : Nat),
         (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
-      (∀ (ts : Option (List EventType)) (es : List E),
+      (∀ (ts : Option (List NetEventKind)) (es : List E),
         H.count ts es = (es.filter fun e => ts.all fun l => l.contains (sh e).type).length)
 
 /- The pinned readable form of EVT-030: a change to the formula shows up as a diff here. -/
@@ -234,8 +182,8 @@ fun {E} sh H =>
     (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
       (∀ (es : List E), H.failures es = List.filter (fun e => (sh e).type.isFailure) es) ∧
         (∀ (es : List E), (List.map Prod.fst (H.counters es)).Nodup) ∧
-          (∀ (es : List E) (k : EventType) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
-            ∀ (ts : Option (List EventType)) (es : List E),
+          (∀ (es : List E) (k : NetEventKind) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
+            ∀ (ts : Option (List NetEventKind)) (es : List E),
               H.count ts es = (List.filter (fun e => Option.all (fun l => l.contains (sh e).type) ts) es).length
 -/
 #guard_msgs in #print EVT_030
@@ -243,7 +191,7 @@ fun {E} sh H =>
 /-! ### The reference -/
 
 /-- Every event type is in `allEventTypes`. -/
-theorem mem_allEventTypes (k : EventType) : k ∈ allEventTypes := by
+theorem mem_allEventTypes (k : NetEventKind) : k ∈ allEventTypes := by
   cases k <;> decide
 
 /-- `allEventTypes` names every event type once. -/
@@ -261,7 +209,7 @@ theorem refCounters_keys_nodup {E : Type} (sh : E → EventShape) (es : List E) 
   exact allEventTypes_nodup.sublist hsub
 
 /-- The reference histogram holds `(k, n)` exactly when `n` is the nonzero count of type `k`. -/
-theorem mem_refCounters {E : Type} (sh : E → EventShape) (es : List E) (k : EventType) (n : Nat) :
+theorem mem_refCounters {E : Type} (sh : E → EventShape) (es : List E) (k : NetEventKind) (n : Nat) :
     (k, n) ∈ refCounters sh es ↔ n = countOfType sh k es ∧ n ≠ 0 := by
   simp only [refCounters, List.mem_filter, List.mem_map, Prod.mk.injEq, bne_iff_ne, ne_eq]
   constructor
@@ -281,7 +229,7 @@ theorem EVT_030_reference {E : Type} (sh : E → EventShape) : EVT_030 sh (refQu
 /-- AC1 on helpers that meet EVT-030: a query with one type (Java and TypeScript
 `eventsOfType`) returns exactly the events of that type, in order. -/
 theorem evt030_eventsOfType {E : Type} {sh : E → EventShape} {H : QueryHelpers E}
-    (hH : EVT_030 sh H) (k : EventType) (es : List E) :
+    (hH : EVT_030 sh H) (k : NetEventKind) (es : List E) :
     H.select { types := some [k] } es = es.filter fun e => (sh e).type == k := by
   have h := hH.1 { types := some [k] } es rfl
   simp only [EventQuery.unpaged] at h
@@ -374,7 +322,7 @@ theorem sum_snd_filter_ne_zero {α : Type} (l : List (α × Nat)) :
     · simp [h, ih]
 
 /-- One event adds one to the count of exactly one event type. -/
-theorem sum_indicator_allEventTypes (t : EventType) :
+theorem sum_indicator_allEventTypes (t : NetEventKind) :
     (allEventTypes.map fun k => if (t == k) = true then 1 else 0).sum = 1 := by
   cases t <;> decide
 
@@ -416,7 +364,7 @@ theorem evt030_count_all {E : Type} {sh : E → EventShape} {H : QueryHelpers E}
 /-- On helpers that meet EVT-030 the count by type is the length of the answer to the query with
 that type filter and nothing else (Python's `count(types=)` and `len(events(types=))`). -/
 theorem evt030_count_select {E : Type} {sh : E → EventShape} {H : QueryHelpers E}
-    (hH : EVT_030 sh H) (ts : Option (List EventType)) (es : List E) :
+    (hH : EVT_030 sh H) (ts : Option (List NetEventKind)) (es : List E) :
     H.count ts es = (H.select { types := ts } es).length := by
   have h := hH.1 { types := ts } es rfl
   simp only [EventQuery.unpaged] at h
@@ -481,8 +429,8 @@ def evt030_noFilterLine {E : Type} (sh : E → EventShape) (H : QueryHelpers E) 
   (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
   (∀ es : List E, H.failures es = es.filter fun e => (sh e).type.isFailure) ∧
   (∀ es : List E, ((H.counters es).map Prod.fst).Nodup) ∧
-  (∀ (es : List E) (k : EventType) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
-  (∀ (ts : Option (List EventType)) (es : List E),
+  (∀ (es : List E) (k : NetEventKind) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
+  (∀ (ts : Option (List NetEventKind)) (es : List E),
     H.count ts es = (es.filter fun e => ts.all fun l => l.contains (sh e).type).length)
 
 /-- Helpers that answer a query by `answer` (the page of it) and are the reference otherwise. -/
@@ -562,8 +510,8 @@ def evt030_noPageLine {E : Type} (sh : E → EventShape) (H : QueryHelpers E) : 
     H.select q.unpaged es = es.filter fun e => q.matches (sh e)) ∧
   (∀ es : List E, H.failures es = es.filter fun e => (sh e).type.isFailure) ∧
   (∀ es : List E, ((H.counters es).map Prod.fst).Nodup) ∧
-  (∀ (es : List E) (k : EventType) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
-  (∀ (ts : Option (List EventType)) (es : List E),
+  (∀ (es : List E) (k : NetEventKind) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
+  (∀ (ts : Option (List NetEventKind)) (es : List E),
     H.count ts es = (es.filter fun e => ts.all fun l => l.contains (sh e).type).length)
 
 /-- A query that pages the store first and then filters the page. -/
@@ -588,8 +536,8 @@ def evt030_noFailureLine {E : Type} (sh : E → EventShape) (H : QueryHelpers E)
     H.select q.unpaged es = es.filter fun e => q.matches (sh e)) ∧
   (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
   (∀ es : List E, ((H.counters es).map Prod.fst).Nodup) ∧
-  (∀ (es : List E) (k : EventType) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
-  (∀ (ts : Option (List EventType)) (es : List E),
+  (∀ (es : List E) (k : NetEventKind) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
+  (∀ (ts : Option (List NetEventKind)) (es : List E),
     H.count ts es = (es.filter fun e => ts.all fun l => l.contains (sh e).type).length)
 
 /-- `failures()` that keeps the two transition failure kinds and leaves out ActionTimedOut. -/
@@ -615,8 +563,8 @@ def evt030_noNodupLine {E : Type} (sh : E → EventShape) (H : QueryHelpers E) :
     H.select q.unpaged es = es.filter fun e => q.matches (sh e)) ∧
   (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
   (∀ es : List E, H.failures es = es.filter fun e => (sh e).type.isFailure) ∧
-  (∀ (es : List E) (k : EventType) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
-  (∀ (ts : Option (List EventType)) (es : List E),
+  (∀ (es : List E) (k : NetEventKind) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0) ∧
+  (∀ (ts : Option (List NetEventKind)) (es : List E),
     H.count ts es = (es.filter fun e => ts.all fun l => l.contains (sh e).type).length)
 
 /-- A histogram that lists every entry twice. -/
@@ -643,7 +591,7 @@ def evt030_noHistLine {E : Type} (sh : E → EventShape) (H : QueryHelpers E) : 
   (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
   (∀ es : List E, H.failures es = es.filter fun e => (sh e).type.isFailure) ∧
   (∀ es : List E, ((H.counters es).map Prod.fst).Nodup) ∧
-  (∀ (ts : Option (List EventType)) (es : List E),
+  (∀ (ts : Option (List NetEventKind)) (es : List E),
     H.count ts es = (es.filter fun e => ts.all fun l => l.contains (sh e).type).length)
 
 /-- A histogram that lists all thirteen types, with a zero count for each type that does not
@@ -671,7 +619,7 @@ def evt030_noCountLine {E : Type} (sh : E → EventShape) (H : QueryHelpers E) :
   (∀ (q : EventQuery) (es : List E), H.select q es = q.page (H.select q.unpaged es)) ∧
   (∀ es : List E, H.failures es = es.filter fun e => (sh e).type.isFailure) ∧
   (∀ es : List E, ((H.counters es).map Prod.fst).Nodup) ∧
-  (∀ (es : List E) (k : EventType) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0)
+  (∀ (es : List E) (k : NetEventKind) (n : Nat), (k, n) ∈ H.counters es ↔ n = countOfType sh k es ∧ n ≠ 0)
 
 /-- A count by type that reads an empty type set as no filter (an `if not types:` guard) and so
 counts every event where the type query returns none. -/

@@ -210,6 +210,11 @@ expect_caught "quote only in an HTML comment -> alignment" "$ALIGN" \
   'sed -i "s/^\*While\* an inhibitor place of a transition is unmarked, .*$/<!-- & -->/" ../spec/01-core-model.md' \
   "ALIGN quote-missing Libpetri.Spec.CORE_031"
 
+# 12b. The Kind line (ruling D21) names a kind that no block of the ID has.
+expect_caught "Kind line edited in spec/01   -> alignment" "$ALIGN" \
+  'sed -i "/^#### CORE-031:/,/^\*\*Kind:\*\*/ s/^\*\*Kind:\*\* B$/**Kind:** F/" ../spec/01-core-model.md' \
+  "ALIGN kind-mismatch CORE-031" "says Kind F, but no block of CORE-031 has kind F"
+
 # 13. A citation of a removed (tombstoned) requirement.
 expect_caught "citation of tombstoned IO-006 -> alignment" "$ALIGN_REGEN" \
   "plant_core '/-- planted -/

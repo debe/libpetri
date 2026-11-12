@@ -27,6 +27,15 @@ spec/lean-proposed.txt. Every failure line starts with a stable prefix:
                             `forbids` nor `mutant` (no negative example).
   ALIGN duplicate-heading   two canonical `#### ID:` headings for one ID.
   ALIGN schema              unknown kind or source.
+  ALIGN kind-mismatch       a section's `**Kind:** X` line (ruling D21: the ID's
+                            primary kind, one of B F T Q A N) is malformed or
+                            repeated; or the ID has blocks and none of them has
+                            kind X; or X is a stated kind (B, F or T) and the ID
+                            has no block. A block of another kind is allowed
+                            beside one of kind X (a companion block).
+  ALIGN kind-missing        an active ID whose section has no `**Kind:**` line.
+                            Reported only with --require-kind, which CI turns on
+                            once every active ID carries the line.
 
 A heading such as `### CORE-031:` or `#### CORE-031 :` is not canonical: it is
 reported on stderr as a warning and does not open a section.
@@ -74,7 +83,9 @@ SHALL_RE = re.compile(r"\bshall\b", re.IGNORECASE)
 AC_HEAD_RE = re.compile(r"^acceptance criteria:?$", re.IGNORECASE)
 AC_MENTION_RE = re.compile(r"\bAC\s?(\d+)\b")
 CITE_ID_RE = re.compile(r"^[A-Z]+-\d{3}$")
+KIND_LINE_RE = re.compile(r"^ {0,3}\*\*Kind:\*\*(.*)$")
 KINDS = set("BFTQAN")
+STATED_KINDS = set("BFT")
 PROPOSED_FILE = "lean-proposed.txt"
 
 
@@ -157,12 +168,27 @@ class Unit:
 
 
 class Section:
-    """The body of one `#### ID:` section: its file, heading line and units."""
+    """The body of one `#### ID:` section: its file, heading line and units.
 
-    def __init__(self, fname: str, line: int, units: list[Unit]):
+    `kinds` holds the value of every `**Kind:**` line of the body, stripped, in
+    order (ruling D21: exactly one is expected).
+    """
+
+    def __init__(self, fname: str, line: int, units: list[Unit], kinds: list[str] | None = None):
         self.fname = fname
         self.line = line
         self.units = units
+        self.kinds = kinds or []
+
+
+def kind_lines(body: list[str]) -> list[str]:
+    """The values of the `**Kind:**` lines of stripped section body lines."""
+    found: list[str] = []
+    for line in body:
+        m = KIND_LINE_RE.match(line)
+        if m:
+            found.append(m.group(1).strip())
+    return found
 
 
 def units(body: list[str]) -> list[Unit]:
@@ -266,7 +292,8 @@ def spec_sections(spec_dir: Path) -> tuple[dict[str, Section], list[str], list[s
             j = i + 1
             while j < len(lines) and not is_heading[j]:
                 j += 1
-            sections[rid] = Section(f.name, i + 1, units(lines[i + 1:j]))
+            body = lines[i + 1:j]
+            sections[rid] = Section(f.name, i + 1, units(body), kind_lines(body))
     return sections, dups, warns
 
 
@@ -542,11 +569,51 @@ def check(blocks: list[dict], cites: list[dict], sections: dict[str, Section],
     return bad, found
 
 
+def check_kinds(blocks: list[dict], sections: dict[str, Section], active: set[str],
+                require_kind: bool) -> list[str]:
+    """The `**Kind:**` line checks of ruling D21 (kind-mismatch, and kind-missing on request)."""
+    bad: list[str] = []
+    block_kinds: dict[str, list[str]] = {}
+    for b in blocks:
+        block_kinds.setdefault(b["id"], []).append(b.get("kind"))
+    for rid in sorted(active):
+        sec = sections.get(rid)
+        if sec is None:
+            continue  # a missing heading is reported by the quote check of its blocks
+        where = f"{sec.fname}:{sec.line}"
+        if not sec.kinds:
+            if require_kind:
+                bad.append(f"ALIGN kind-missing {rid}: the '#### {rid}:' section in {where} has no "
+                           f"'**Kind:**' line (one of {' '.join(sorted(KINDS))})")
+            continue
+        if len(sec.kinds) > 1:
+            bad.append(f"ALIGN kind-mismatch {rid}: the section in {where} has "
+                       f"{len(sec.kinds)} '**Kind:**' lines ({', '.join(sec.kinds)}); expected one")
+            continue
+        kind = sec.kinds[0]
+        if kind not in KINDS:
+            bad.append(f"ALIGN kind-mismatch {rid}: '**Kind:** {kind}' in {where} is not one "
+                       f"letter of {' '.join(sorted(KINDS))}")
+            continue
+        have = block_kinds.get(rid, [])
+        if have and kind not in have:
+            bad.append(f"ALIGN kind-mismatch {rid}: the section in {where} says Kind {kind}, "
+                       f"but no block of {rid} has kind {kind} (blocks: "
+                       f"{', '.join(str(k) for k in have)})")
+        elif not have and kind in STATED_KINDS:
+            bad.append(f"ALIGN kind-mismatch {rid}: the section in {where} says Kind {kind}, "
+                       f"a stated kind, but {rid} has no requirement block (Q, A and N need none)")
+    return bad
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--report", default="lean/report/requirements.json",
                     help="registry JSON written by #write_requirements_report (repo-relative)")
     ap.add_argument("--spec", default="spec", help="spec directory (repo-relative)")
+    ap.add_argument("--require-kind", action="store_true",
+                    help="also report every active ID whose section has no **Kind:** line "
+                         "(ALIGN kind-missing)")
     a = ap.parse_args(argv)
 
     report = Path(a.report)
@@ -572,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"spec-lean-alignment: WARNING: {w}\n")
 
     bad, found = check(blocks, cites, sections, active, tombstones, allowed)
-    bad = dups + bad
+    bad = dups + bad + check_kinds(blocks, sections, active, a.require_kind)
     if bad:
         print(f"spec-lean-alignment FAILED, {len(bad)} finding(s):")
         for line in bad:

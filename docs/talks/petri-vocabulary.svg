@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="aLight" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#c7d4e2"/>
+    </marker>
+    <marker id="aRed" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#f5556d"/>
+    </marker>
+    <marker id="aGrey" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#8295ab"/>
+    </marker>
+    <marker id="aOrange" markerWidth="8" markerHeight="8" refX="6.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#fb923c"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="640" fill="#0b1220"/>
+  <rect x="14" y="14" width="1172" height="612" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <line x1="640" y1="150" x2="640" y2="512" stroke="#1b2840" stroke-width="1.5"/>
+
+  <!-- ===================== ARCS ===================== -->
+  <text x="100" y="122" font-size="16.2" font-weight="700" letter-spacing="2" fill="#6f8197">ARCS</text>
+
+  <!-- Input -->
+  <circle cx="115" cy="178" r="17" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <rect x="205" y="162" width="32" height="32" rx="6" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <path d="M134,178 L201,178" stroke="#c7d4e2" stroke-width="2.2" fill="none" marker-end="url(#aLight)"/>
+  <text x="270" y="173" font-size="19" font-weight="700" fill="#e8eef6">Input</text>
+  <text x="270" y="195" font-size="14.4" fill="#8295ab">consume from the place</text>
+
+  <!-- Output -->
+  <circle cx="115" cy="248" r="17" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <rect x="205" y="232" width="32" height="32" rx="6" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <path d="M203,248 L136,248" stroke="#c7d4e2" stroke-width="2.2" fill="none" marker-end="url(#aLight)"/>
+  <text x="270" y="243" font-size="19" font-weight="700" fill="#e8eef6">Output</text>
+  <text x="270" y="265" font-size="14.4" fill="#8295ab">produce into the place</text>
+
+  <!-- Inhibitor (odot head) -->
+  <circle cx="115" cy="318" r="17" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <rect x="205" y="302" width="32" height="32" rx="6" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <path d="M134,318 L188,318" stroke="#f5556d" stroke-width="2.2" fill="none"/>
+  <circle cx="196" cy="318" r="7" fill="#0b1220" stroke="#f5556d" stroke-width="2.2"/>
+  <text x="270" y="313" font-size="19" font-weight="700" fill="#f5556d">Inhibitor</text>
+  <text x="270" y="335" font-size="14.4" fill="#8295ab">fire only while the place is empty</text>
+
+  <!-- Read (dashed) -->
+  <circle cx="115" cy="388" r="17" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <rect x="205" y="372" width="32" height="32" rx="6" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <path d="M134,388 L201,388" stroke="#8295ab" stroke-width="2.2" stroke-dasharray="6 5" fill="none" marker-end="url(#aGrey)"/>
+  <text x="270" y="383" font-size="19" font-weight="700" fill="#aeb9c8">Read</text>
+  <text x="270" y="405" font-size="14.4" fill="#8295ab">test the value, consume nothing</text>
+
+  <!-- Reset (bold orange) -->
+  <circle cx="115" cy="458" r="17" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <rect x="205" y="442" width="32" height="32" rx="6" fill="#16263c" stroke="#5b6e88" stroke-width="2"/>
+  <path d="M203,458 L138,458" stroke="#fb923c" stroke-width="4" fill="none" marker-end="url(#aOrange)"/>
+  <text x="270" y="453" font-size="19" font-weight="700" fill="#fb923c">Reset</text>
+  <text x="270" y="475" font-size="14.4" fill="#8295ab">clear the place to empty</text>
+
+  <!-- ===================== PLACES ===================== -->
+  <text x="684" y="122" font-size="16.2" font-weight="700" letter-spacing="2" fill="#6f8197">PLACES</text>
+
+  <!-- Place -->
+  <circle cx="702" cy="178" r="18" fill="#122033" stroke="#3b4a61" stroke-width="2"/>
+  <text x="748" y="173" font-size="19" font-weight="700" fill="#e8eef6">Place</text>
+  <text x="748" y="195" font-size="14.4" fill="#8295ab">a typed slot for tokens</text>
+
+  <!-- Environment (dashed) -->
+  <circle cx="702" cy="248" r="18" fill="#2a1620" stroke="#f5556d" stroke-width="2.2" stroke-dasharray="5 4"/>
+  <text x="748" y="243" font-size="19" font-weight="700" fill="#f5556d">Environment place</text>
+  <text x="748" y="265" font-size="14.4" fill="#8295ab">the outside world injects here</text>
+
+  <!-- Start -->
+  <circle cx="702" cy="318" r="18" fill="#10261d" stroke="#34d399" stroke-width="2.2"/>
+  <text x="748" y="313" font-size="19" font-weight="700" fill="#34d399">Start</text>
+  <text x="748" y="335" font-size="14.4" fill="#8295ab">a source</text>
+
+  <!-- End (double circle) -->
+  <circle cx="702" cy="388" r="18" fill="#0e2436" stroke="#38bdf8" stroke-width="2.2"/>
+  <circle cx="702" cy="388" r="12" fill="none" stroke="#38bdf8" stroke-width="2.2"/>
+  <text x="748" y="383" font-size="19" font-weight="700" fill="#38bdf8">End</text>
+  <text x="748" y="405" font-size="14.4" fill="#8295ab">a sink</text>
+
+  <!-- ===================== transitions note ===================== -->
+  <line x1="120" y1="520" x2="1080" y2="520" stroke="#1b2840" stroke-width="1.5"/>
+  <text x="600" y="556" text-anchor="middle" font-size="16.2" fill="#9fb0c4">A <tspan font-weight="700" fill="#dbe5f0">transition</tspan> fires on these arcs, carrying timing and priority.</text>
+  <text x="600" y="586" text-anchor="middle" font-size="15" fill="#8295ab">immediate · deadline · delayed · window · exact</text>
+</svg>

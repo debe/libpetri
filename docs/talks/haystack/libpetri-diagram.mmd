@@ -1,0 +1,48 @@
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "primaryColor": "#ffffff", "primaryTextColor": "#0f172a", "primaryBorderColor": "#334155", "lineColor": "#475569", "clusterBkg": "#f8fafc", "clusterBorder": "#e2e8f0", "edgeLabelBackground": "#ffffff"}, "flowchart": {"curve": "basis", "nodeSpacing": 30, "rankSpacing": 44, "wrappingWidth": 320}}}%%
+flowchart LR
+  %% Dagre lays the Petri panel out with query 2 on the left; the step-graph panel
+  %% declares query 2 first so both panels match. linkStyle indices follow edge order.
+  subgraph SG["STEP GRAPH + SHARED STATE"]
+    direction TB
+    a2(["② red sneakers<br/>under €100 · +0.3 s"]) --> a4("② search · 0.4 s")
+    a1(["① red sneakers"]) --> a3("① search · 1.8 s")
+    a4 -- "writes at 0.7 s" --> slot[("state.results<br/>① overwrote ②")]
+    a3 -- "overwrites at 1.8 s" --> slot
+    slot -- "reads at 2.2 s" --> a5("② reply · 1.5 s")
+    a5 --> ansL["✗ answer for ②<br/>shows ①'s results<br/>€129 · €149 · €189"]
+  end
+  subgraph PN["PETRI NET + TOKEN IDENTITY"]
+    direction TB
+    b1(["① red sneakers"]) --> b3["search ①"]
+    b2(["② red sneakers<br/>under €100 · +0.3 s"]) --> b4["search ②"]
+    b3 --> res(("results<br/>① ②"))
+    b4 --> res
+    b2 --> oq(("open query<br/>②"))
+    res -- "⟨n⟩" --> reply["reply ⟨n⟩"]
+    oq -- "⟨n⟩" --> reply
+    res -. "① finds no partner" .-> drain["drain · delayed"]
+    reply --> ansR["✓ answer for ②<br/>shows ②'s results<br/>€69 · €79 · €89"]
+  end
+  SG ~~~ PN
+
+  classDef one fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#0f172a
+  classDef two fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#0f172a
+  classDef step fill:#ffffff,stroke:#94a3b8,stroke-width:2px,color:#0f172a
+  classDef net fill:#ffffff,stroke:#334155,stroke-width:2.5px,color:#0f172a
+  classDef selected fill:#0d9488,stroke:#0f766e,stroke-width:4px,color:#ffffff,font-weight:bold
+  classDef bad fill:#fff1f2,stroke:#e11d48,stroke-width:2px,color:#9f1239
+  classDef good fill:#f0fdfa,stroke:#0d9488,stroke-width:2px,color:#115e59
+  classDef drain fill:#ffffff,stroke:#94a3b8,stroke-width:2px,stroke-dasharray:5 4,color:#64748b
+  class a1,b1 one
+  class a2,b2 two
+  class a3,a4,a5,slot step
+  class b3,b4,res,oq net
+  class reply selected
+  class ansL bad
+  class ansR good
+  class drain drain
+  style SG fill:#f8fafc,stroke:#e2e8f0,color:#334155
+  style PN fill:#f8fafc,stroke:#e2e8f0,color:#0d9488
+  linkStyle 3 stroke:#e11d48,stroke-width:2.5px
+  linkStyle 11,12 stroke:#0d9488,stroke-width:3px
+  linkStyle 13 stroke:#94a3b8,stroke-width:2px

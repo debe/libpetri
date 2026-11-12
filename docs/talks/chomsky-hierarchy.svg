@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 620" font-family="'Helvetica Neue', Helvetica, Arial, 'DejaVu Sans', sans-serif">
+  <defs>
+    <marker id="hStep" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#fbbf24"/>
+    </marker>
+    <marker id="hTape" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5b6e88"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1100" height="620" fill="#0b1220"/>
+  <rect x="14" y="14" width="1072" height="592" rx="20" fill="none" stroke="#1b2840" stroke-width="1.5"/>
+
+  <text x="966" y="58" text-anchor="end" font-size="13.5" fill="#7e8ea3">more power, outward</text>
+
+  <!-- nested Chomsky sets -->
+  <rect x="120" y="70" width="860" height="420" rx="18" fill="#0f1c30" stroke="#46566e" stroke-width="2"/>
+  <text x="142" y="99" font-size="16" font-weight="600" fill="#aebccd">Recursively enumerable</text>
+  <text x="142" y="119" font-size="12.5" fill="#7e8ea3">Turing machines &#183; general computation</text>
+
+  <rect x="205" y="132" width="690" height="300" rx="16" fill="#11203a" stroke="#556884" stroke-width="2"/>
+  <text x="227" y="160" font-size="14.5" font-weight="600" fill="#aebccd">Context-sensitive &#183; a bounded tape</text>
+
+  <rect x="300" y="185" width="500" height="195" rx="14" fill="#13243f" stroke="#6a83a1" stroke-width="2"/>
+  <text x="322" y="212" font-size="14.5" font-weight="600" fill="#aebccd">Context-free &#183; a stack &#183; parsers</text>
+
+  <rect x="410" y="232" width="280" height="118" rx="12" fill="#1b1a10" stroke="#fbbf24" stroke-width="2"/>
+  <text x="550" y="261" text-anchor="middle" font-size="16.5" font-weight="700" fill="#fbbf24">Regular</text>
+  <text x="550" y="281" text-anchor="middle" font-size="12" fill="#c8b48a">finite state machines &#183; graphs</text>
+  <!-- tiny state machine glyph -->
+  <g>
+    <line x1="512" y1="316" x2="543" y2="316" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#hStep)"/>
+    <line x1="557" y1="316" x2="588" y2="316" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#hStep)"/>
+    <circle cx="505" cy="316" r="7" fill="#1b1a10" stroke="#fbbf24" stroke-width="1.6"/>
+    <circle cx="550" cy="316" r="7" fill="#1b1a10" stroke="#fbbf24" stroke-width="1.6"/>
+    <circle cx="595" cy="316" r="7" fill="#1b1a10" stroke="#fbbf24" stroke-width="1.6"/>
+  </g>
+
+  <!-- the tape: one input, total order -->
+  <g stroke="#5b6e88" stroke-width="1.6" fill="#122033">
+    <rect x="457" y="520" width="34" height="24"/>
+    <rect x="495" y="520" width="34" height="24"/>
+    <rect x="533" y="520" width="34" height="24"/>
+    <rect x="571" y="520" width="34" height="24"/>
+    <rect x="609" y="520" width="34" height="24"/>
+  </g>
+  <circle cx="474" cy="532" r="6" fill="#7e8ea3"/>
+  <circle cx="512" cy="532" r="6" fill="#7e8ea3"/>
+  <line x1="643" y1="532" x2="678" y2="532" stroke="#5b6e88" stroke-width="1.8" fill="none" marker-end="url(#hTape)"/>
+  <text x="550" y="576" text-anchor="middle" font-size="13.5" fill="#8295ab">always one input, one symbol at a time, a single total order</text>
+</svg>

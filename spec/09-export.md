@@ -258,6 +258,7 @@ The export *shall* give the same category to all ordinary places, in one net or 
 #### EXP-010: Formal Interchange Format
 
 **Priority:** MAY
+**Kind:** Q
 
 The engine MAY support exporting to formal analysis interchange formats suitable for external tools (e.g., PNML for Petri net tools, STTT format for Sirio timing analysis).
 
@@ -275,6 +276,7 @@ The engine MAY support exporting to formal analysis interchange formats suitable
 #### EXP-011: Compile-Time Diagram Generation
 
 **Priority:** MAY
+**Kind:** Q
 
 The engine MAY support generating diagrams from net structure annotations at compile time, embedding them in documentation or source comments.
 
@@ -441,6 +443,7 @@ AC1 covers the junctions of transitions whose name is not empty and holds only A
 #### EXP-015: Doc Generator Parity
 
 **Priority:** MUST
+**Kind:** Q
 
 The compile-time diagram generators (EXP-011) MUST embed DOT sources reflecting the visualization rules above. Specifically, `mvn javadoc:javadoc`, `cargo doc`, and the TypeDoc plugin MUST emit DOT that includes junction nodes (per EXP-012) and combined reset+output edges (per EXP-013) for any net that uses XOR/AND outputs or reset+output coupling. Rendering of that DOT into SVG happens client-side at view time via the bundled `LibpetriViewer` IIFE (per EXP-011).
 
