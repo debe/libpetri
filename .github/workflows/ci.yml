@@ -33,7 +33,9 @@ jobs:
 
   typescript:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20: `npm test` alone takes 6-10 min, most of it the z3-backed replay of
+    # the 305-net conformance corpus (tests/verification/conformance).
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: typescript
@@ -203,10 +205,10 @@ jobs:
   # closure are fetched (step below), so nothing from Mathlib is compiled.
   lean:
     runs-on: ubuntu-latest
-    # 25, not 15: the leanchecker kernel replay below re-checks every Libpetri
-    # declaration, ~100 s wall pinned to 4 cores locally (likely 2-4 min on a
-    # 4-vCPU runner), on top of the build and the other gates.
-    timeout-minutes: 25
+    # 40: on a 4-vCPU runner `lake build` takes about 13 min and the leanchecker
+    # kernel replay below, which re-checks every Libpetri declaration, several
+    # more, on top of the report regeneration and the planted-fault gates.
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: lean
@@ -255,7 +257,10 @@ jobs:
           find Libpetri -name '*.lean' | sed 's/\.lean$//; s#/#.#g' | LC_ALL=C sort \
             | awk 'prev == "" || index($0, prev ".") != 1 { print; prev = $0 }' > /tmp/lc-modules
           test -s /tmp/lc-modules
-          xargs -n 1 lake env leanchecker < /tmp/lc-modules
+          # One process per prefix, four at a time: each loads its imports (about
+          # 1.5 GB peak), so the cap keeps a local run within memory; one by one
+          # the 303 prefixes took over 12 min on the runner.
+          xargs -P 4 -n 1 lake env leanchecker < /tmp/lc-modules
           echo "leanchecker: replayed $(wc -l < /tmp/lc-modules) module prefixes"
       # A `sorry` still builds (with a warning), so the build alone is not a
       # gate. Both checks below are: grep catches the source text, and
