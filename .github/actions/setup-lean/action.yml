@@ -26,7 +26,7 @@ runs:
       run: |
         prefix="lean-build-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json', 'lean/lakefile.toml') }}-"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-        echo "key=$prefix${{ hashFiles('lean/**/*.lean', '!lean/.lake/**') }}" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${{ hashFiles('lean/**/*.lean', '!lean/.lake/**') }}" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@v6
       with:
         path: ~/.elan
