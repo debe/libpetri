@@ -204,7 +204,9 @@ jobs:
   #
   # lean-build builds lean/ (Libpetri, proofgraph, ProofGraphFixture, reference) once
   # per run; `lean`, the `lean-kernel` shards and `conformance` restore the
-  # result from the cache instead of building it again.
+  # result from the cache instead of building it again. The cache holds
+  # lean/.lake/build and the packages' ir/ directories (the C objects the
+  # executables link; setup-lean restores both).
   #
   # The key is the toolchain, the manifest, the lakefile and every .lean
   # source under lean/. On a miss the build starts from the newest entry with
@@ -225,19 +227,18 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-lean
         id: lean
-      - uses: actions/cache/restore@v6
-        id: restore
         with:
-          path: lean/.lake/build
-          key: ${{ steps.lean.outputs.build-key }}
-          restore-keys: ${{ steps.lean.outputs.build-key-prefix }}
+          build-cache: newest
       - name: lake build
         working-directory: lean
         run: lake build
-      - if: steps.restore.outputs.cache-hit != 'true'
+      # Same path list as the restore in setup-lean.
+      - if: steps.lean.outputs.build-cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: lean/.lake/build
+          path: |
+            lean/.lake/build
+            lean/.lake/packages/*/.lake/build/ir
           key: ${{ steps.lean.outputs.build-key }}
 
   # Every gate over the built Lean development except the kernel replay,
@@ -252,12 +253,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-lean
-        id: lean
-      - uses: actions/cache/restore@v6
         with:
-          path: lean/.lake/build
-          key: ${{ steps.lean.outputs.build-key }}
-          fail-on-cache-miss: true
+          build-cache: exact
       # A no-op on the restored build. If Lake ever did rebuild here, the
       # gates below would still read a correct build, only later.
       - run: lake build
@@ -895,12 +892,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-lean
-        id: lean
-      - uses: actions/cache/restore@v6
         with:
-          path: lean/.lake/build
-          key: ${{ steps.lean.outputs.build-key }}
-          fail-on-cache-miss: true
+          build-cache: exact
       - name: Kernel replay of this shard's Libpetri modules (leanchecker)
         shell: bash
         run: |
@@ -931,16 +924,12 @@ jobs:
       LIBPETRI_CONFORMANCE_REQUIRE: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-lean
-        id: lean
       # Starts at once instead of waiting for lean-build: restores the newest
-      # build cache (the exact one when this run's lean-build already saved
-      # it) and lets Lake build whatever changed since.
-      - uses: actions/cache/restore@v6
+      # cached build (this checkout's when lean-build already saved it) and
+      # lets Lake build whatever changed since.
+      - uses: ./.github/actions/setup-lean
         with:
-          path: lean/.lake/build
-          key: ${{ steps.lean.outputs.build-key }}
-          restore-keys: ${{ steps.lean.outputs.build-key-prefix }}
+          build-cache: newest
       - name: Build the Lean reference
         working-directory: lean
         run: lake build reference
