@@ -139,6 +139,47 @@
   background: #e8e8e8;
 }
 
+.libpetri-viewer .diagram-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.libpetri-viewer .diagram-search-input {
+  width: 200px;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  color: #222;
+  font-size: 14px;
+}
+
+.libpetri-viewer .diagram-search-input:focus {
+  outline: 2px solid var(--lpv-search-stroke);
+  outline-offset: -1px;
+}
+
+.libpetri-viewer .diagram-search-count {
+  min-width: 3em;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #333;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.libpetri-viewer .diagram-search-count:empty {
+  display: none;
+}
+
+.libpetri-viewer .diagram-search-count.is-empty {
+  color: #b91c1c;
+}
+
 .petrinet-diagram .diagram-btn:disabled,
 .libpetri-viewer .diagram-btn:disabled {
   opacity: 0.5;
@@ -536,6 +577,8 @@ svg.has-active-filter {
   --lpv-highlight-stroke:         #d97706;
   --lpv-highlight-glow:           rgba(217, 119, 6, 0.55);
   --lpv-neighbor-stroke:          #2563eb;
+  --lpv-search-stroke:            #db2777;
+  --lpv-search-glow:              rgba(219, 39, 119, 0.6);
   --lpv-faded-node-opacity:       0.14;
   --lpv-faded-edge-opacity:       0.08;
   --lpv-faded-cluster-opacity:    0.25;
@@ -737,6 +780,28 @@ g.node.petri-replica > text.libpetri-replica-glyph {
   stroke-width: 2.4 !important;
   opacity: 1 !important;
   filter: drop-shadow(0 0 4px rgba(217, 119, 6, 0.35));
+}
+
+/* Search hits (search.ts). A hit stays opaque while a highlight fades the
+ * rest, and the current hit wins over the highlight stroke. */
+.libpetri-viewer svg g.node.is-search-match.is-faded {
+  opacity: 1 !important;
+}
+
+.libpetri-viewer svg g.node.is-search-match > ellipse,
+.libpetri-viewer svg g.node.is-search-match > circle,
+.libpetri-viewer svg g.node.is-search-match > polygon,
+.libpetri-viewer svg g.node.is-search-match > rect {
+  stroke: var(--lpv-search-stroke) !important;
+  stroke-width: 2.5 !important;
+}
+
+.libpetri-viewer svg g.node.is-search-current > ellipse,
+.libpetri-viewer svg g.node.is-search-current > circle,
+.libpetri-viewer svg g.node.is-search-current > polygon,
+.libpetri-viewer svg g.node.is-search-current > rect {
+  stroke-width: 4 !important;
+  filter: drop-shadow(0 0 8px var(--lpv-search-glow));
 }
 
 /* ============================================================

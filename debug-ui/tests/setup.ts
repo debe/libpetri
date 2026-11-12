@@ -31,6 +31,7 @@ vi.mock('panzoom', () => ({
 const ELEMENT_IDS = [
   'status-dot', 'status-text',
   'session-select', 'refresh-sessions', 'reset-zoom', 'toggle-subnets',
+  'diagram-search', 'diagram-search-count', 'diagram-search-prev', 'diagram-search-next',
   'diagram-container', 'dot-diagram', 'no-session',
   'marking-inspector', 'token-inspector',
   'breakpoint-list', 'add-breakpoint',
@@ -60,7 +61,7 @@ export function setupDOM(): void {
     if (document.getElementById(id)) continue;
     let tag = 'div';
     if (id.startsWith('btn-') || id.endsWith('-sessions') || id === 'reset-zoom'
-      || id === 'toggle-subnets'
+      || id === 'toggle-subnets' || id === 'diagram-search-prev' || id === 'diagram-search-next'
       || id === 'add-breakpoint' || id.startsWith('bp-save') || id.startsWith('bp-cancel')
       || id === 'apply-filter' || id === 'clear-filter'
       || id === 'search-prev' || id === 'search-next' || id === 'search-clear'
@@ -73,7 +74,7 @@ export function setupDOM(): void {
     } else if (id === 'filter-transition' || id === 'filter-place' || id === 'filter-instance'
       || id === 'filter-exclude-transition' || id === 'filter-exclude-place'
       || id === 'bp-target'
-      || id === 'search-input' || id === 'timeline-slider'
+      || id === 'search-input' || id === 'diagram-search' || id === 'timeline-slider'
       || id === 'archive-search' || id === 'archive-upload') {
       tag = 'input';
     } else if (id === 'transition-options' || id === 'place-options' || id === 'instance-options') {
