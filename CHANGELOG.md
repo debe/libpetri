@@ -4,7 +4,12 @@
 
 ### Added
 
-- **Viewer: search places and transitions by name.** A search box in the viewer controls (`chrome: true`) and in the debug-ui header marks every node whose label contains the query (case-insensitive) and zooms onto the first. Enter / Shift+Enter (or ‹ ›) step through the hits with wrap-around, centring each one and highlighting it with its neighbours. Esc clears; `/` or Ctrl/Cmd+F jumps into the box while the diagram has focus. Junctions, hidden nodes and nodes inside collapsed clusters never match, and each replica of a shared place is its own hit. `ViewerHandle` gains `search(query)`, `searchNext()`, `searchPrev()`, `clearSearch()` and `searchState`, and the search survives re-mounts (`setSubnets`, `setEdgeRouting`, live redraws). Viewer bundle and bundled debug-ui rebuilt.
+**Viewer: search places and transitions by name**, in the viewer controls (`chrome: true`) and the debug-ui header.
+
+- Case-insensitive match on the node label; every hit is outlined and the first is zoomed to and centred.
+- Enter / Shift+Enter or ‹ › step through the hits with wrap-around; Esc clears; `/` or Ctrl/Cmd+F jumps into the box.
+- Junctions, hidden nodes and nodes in collapsed clusters never match; each replica of a shared place is its own hit.
+- `ViewerHandle` gains `search(query)`, `searchNext()`, `searchPrev()`, `clearSearch()` and `searchState`; the search survives re-mounts. New theming variables `--lpv-search-stroke` and `--lpv-search-glow`.
 
 ## Java 11.0.0 / TypeScript 10.0.0 / Rust 12.0.0 / Python 8.0.0 — 2026-11-10
 
