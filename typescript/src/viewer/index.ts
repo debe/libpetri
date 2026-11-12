@@ -42,6 +42,7 @@ import {
 import { annotateSvgForC0 } from './c0-annotations.js';
 import { mountSidebar, type SidebarHandle } from './chrome/sidebar.js';
 import { applyHighlight } from './highlight.js';
+import { applySearchMarks, findMatches, focusNode, nodeId } from './search.js';
 import { tagReplicas } from './replica-tagging.js';
 import { applyVisibility, type VisibilityState } from './visibility.js';
 import { VIEWER_CSS_VARIABLES } from './styles.js';
@@ -73,6 +74,16 @@ export type { ClusterLayout, ElkLayoutConfig, LeafPackingOptions };
  *   Same nodes and edges, no visual grouping.
  */
 export type SubnetVisibility = 'show' | 'hide';
+
+/** Current find-by-name state; see {@link ViewerHandle.search}. */
+export interface SearchState {
+  /** The active query, `''` when no search is running. */
+  readonly query: string;
+  /** Position of the current hit in the hit list, `-1` when there is none. */
+  readonly index: number;
+  /** Number of hits. */
+  readonly count: number;
+}
 
 /** Handle returned by {@link mount}. */
 export interface ViewerHandle {
@@ -139,6 +150,22 @@ export interface ViewerHandle {
    * directed-reachable orphans render. C0-only.
    */
   setVisibility(state: VisibilityState): void;
+  /**
+   * Find places and transitions whose label contains `query`
+   * (case-insensitive), mark every hit and zoom onto the first. Hidden nodes
+   * and nodes inside collapsed clusters are skipped; each replica of a shared
+   * place is its own hit. An empty query clears the search. Returns the
+   * number of hits.
+   */
+  search(query: string): number;
+  /** Step to the next hit (wrapping) and zoom onto it. */
+  searchNext(): void;
+  /** Step to the previous hit (wrapping) and zoom onto it. */
+  searchPrev(): void;
+  /** Drop the search marks and the highlight the search set. */
+  clearSearch(): void;
+  /** The current search; carried over to the handle of a re-mount. */
+  readonly searchState: SearchState;
   /** Tear down: dispose panzoom and detach listeners. */
   dispose(): void;
 }
@@ -226,6 +253,7 @@ export async function mount(
     ? new Set(previousHandle.collapsedPrefixes)
     : new Set<string>();
   const preservedFilter = previousHandle?.activeFilter ?? null;
+  const preservedSearch = previousHandle?.searchState ?? null;
   // Subnet mode: explicit opt wins, else inherit from previousHandle, else default to 'show'.
   const subnetsMode: SubnetVisibility =
     opts.subnets ?? previousHandle?.subnets ?? 'show';
@@ -278,6 +306,141 @@ export async function mount(
   let sidebarHandle: SidebarHandle | null = null;
   let highlightModeEnabled = true;
 
+  // Find-by-name state. `searchHighlightId` is the highlight the search set,
+  // so clearing the search leaves a highlight the user clicked alone.
+  let searchQuery = '';
+  let searchMatches: SVGGElement[] = [];
+  let searchIndex = -1;
+  let searchHighlightId: string | null = null;
+  let searchInput: HTMLInputElement | null = null;
+  let searchCounter: HTMLElement | null = null;
+  let searchStepButtons: HTMLButtonElement[] = [];
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function updateSearchUi(): void {
+    if (searchCounter) {
+      searchCounter.textContent = searchQuery === ''
+        ? ''
+        : `${searchIndex + 1}/${searchMatches.length}`;
+      searchCounter.classList.toggle('is-empty', searchMatches.length === 0);
+    }
+    for (const btn of searchStepButtons) btn.disabled = searchMatches.length === 0;
+  }
+
+  // Re-run the query against the current SVG, keeping the current hit when it
+  // is still a hit.
+  function runSearch(query: string, preferredIndex: number, focus: boolean): void {
+    const previous = searchMatches[searchIndex];
+    searchQuery = query.trim();
+    searchMatches = findMatches(svg, searchQuery);
+    const kept = previous ? searchMatches.indexOf(previous) : -1;
+    searchIndex = searchMatches.length === 0
+      ? -1
+      : kept >= 0 ? kept : Math.min(Math.max(preferredIndex, 0), searchMatches.length - 1);
+    applySearchMarks(svg, searchMatches, searchIndex);
+    // The hit the search highlighted is gone (new query, collapsed, hidden).
+    if (kept < 0) releaseSearchHighlight();
+    if (focus) focusCurrentMatch();
+    updateSearchUi();
+  }
+
+  // Visibility and collapse changes alter which nodes can match.
+  function refreshSearch(): void {
+    if (searchQuery !== '') runSearch(searchQuery, searchIndex, false);
+  }
+
+  function focusCurrentMatch(): void {
+    const node = searchMatches[searchIndex];
+    if (!node) return;
+    focusNode(panzoomInstance, node);
+    if (layoutMode === 'elk' && highlightModeEnabled) {
+      searchHighlightId = nodeId(node);
+      handle.highlight(searchHighlightId);
+    }
+  }
+
+  function releaseSearchHighlight(): void {
+    if (searchHighlightId !== null && highlightedNodeId === searchHighlightId) {
+      handle.highlight(null);
+    }
+    searchHighlightId = null;
+  }
+
+  function stepSearch(delta: 1 | -1): void {
+    if (searchMatches.length === 0) return;
+    searchIndex = (searchIndex + delta + searchMatches.length) % searchMatches.length;
+    applySearchMarks(svg, searchMatches, searchIndex);
+    focusCurrentMatch();
+    updateSearchUi();
+  }
+
+  // `/` or Ctrl/Cmd+F while the diagram has focus jumps into the search box.
+  function onContainerKeydown(ev: KeyboardEvent): void {
+    if (!searchInput || ev.target === searchInput) return;
+    if (ev.key === '/' || ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'f')) {
+      ev.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+
+  function buildSearchBox(): HTMLElement {
+    const group = document.createElement('div');
+    group.className = 'diagram-search';
+    // Panzoom listens on the container; without this the arrow and +/- keys
+    // typed into the box would pan and zoom the diagram.
+    for (const type of ['keydown', 'mousedown', 'dblclick', 'touchstart', 'wheel']) {
+      group.addEventListener(type, (ev) => ev.stopPropagation());
+    }
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.className = 'diagram-search-input';
+    input.placeholder = 'Search places/transitions';
+    input.title = 'Enter: next match · Shift+Enter: previous · Esc: clear';
+    input.setAttribute('aria-label', 'Search places and transitions');
+    input.value = searchQuery;
+    input.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => handle.search(input.value), 150);
+    });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        clearTimeout(searchTimer);
+        // A query still waiting on the debounce runs first; Enter steps after that.
+        if (input.value.trim() !== searchQuery) handle.search(input.value);
+        else if (ev.shiftKey) handle.searchPrev();
+        else handle.searchNext();
+      } else if (ev.key === 'Escape') {
+        clearTimeout(searchTimer);
+        input.value = '';
+        handle.clearSearch();
+        input.blur();
+      }
+    });
+    const stepButton = (label: string, title: string, step: () => void): HTMLButtonElement => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'diagram-btn diagram-search-step';
+      btn.title = title;
+      btn.textContent = label;
+      btn.addEventListener('click', step);
+      return btn;
+    };
+    const counter = document.createElement('span');
+    counter.className = 'diagram-search-count';
+    counter.setAttribute('aria-live', 'polite');
+    searchInput = input;
+    searchCounter = counter;
+    searchStepButtons = [
+      stepButton('‹', 'Previous match (Shift+Enter)', () => handle.searchPrev()),
+      stepButton('›', 'Next match (Enter)', () => handle.searchNext()),
+    ];
+    group.append(input, counter, ...searchStepButtons);
+    updateSearchUi();
+    return group;
+  }
+
   function ensureChrome(): void {
     if (!opts.chrome) return;
     if (chromeRoot && chromeRoot.parentNode === container) return;
@@ -293,6 +456,8 @@ export async function mount(
     const controls = document.createElement('div');
     controls.className = 'diagram-controls';
     controls.style.pointerEvents = 'auto';
+    controls.appendChild(buildSearchBox());
+    container.addEventListener('keydown', onContainerKeydown);
     const resetBtn = document.createElement('button');
     resetBtn.type = 'button';
     resetBtn.className = 'diagram-btn btn-reset';
@@ -450,6 +615,7 @@ export async function mount(
         collapsedPrefixes.add(prefix);
         opts.onClusterCollapse?.(prefix, true);
       }
+      refreshSearch();
     },
     expand(prefix: string): void {
       if (disposed) return;
@@ -460,6 +626,7 @@ export async function mount(
         collapsedPrefixes.delete(prefix);
         opts.onClusterCollapse?.(prefix, false);
       }
+      refreshSearch();
     },
     collapseAll(): void {
       if (disposed) return;
@@ -470,6 +637,7 @@ export async function mount(
           opts.onClusterCollapse?.(cluster.prefix, true);
         }
       }
+      refreshSearch();
     },
     expandAll(): void {
       if (disposed) return;
@@ -480,6 +648,7 @@ export async function mount(
         collapsedPrefixes.delete(prefix);
         opts.onClusterCollapse?.(prefix, false);
       }
+      refreshSearch();
     },
     filter(prefix: string | null): void {
       if (disposed) return;
@@ -525,10 +694,41 @@ export async function mount(
       if (disposed) return;
       if (layoutMode !== 'elk') return;
       applyVisibility(svg, state);
+      refreshSearch();
+    },
+    search(query: string): number {
+      if (disposed) return 0;
+      // A new query starts from its first hit, not wherever the old one was.
+      searchMatches = [];
+      searchIndex = -1;
+      runSearch(query, 0, true);
+      return searchMatches.length;
+    },
+    searchNext(): void {
+      if (disposed) return;
+      stepSearch(1);
+    },
+    searchPrev(): void {
+      if (disposed) return;
+      stepSearch(-1);
+    },
+    clearSearch(): void {
+      if (disposed) return;
+      searchQuery = '';
+      searchMatches = [];
+      searchIndex = -1;
+      applySearchMarks(svg, [], -1);
+      releaseSearchHighlight();
+      updateSearchUi();
+    },
+    get searchState(): SearchState {
+      return { query: searchQuery, index: searchIndex, count: searchMatches.length };
     },
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      clearTimeout(searchTimer);
+      container.removeEventListener('keydown', onContainerKeydown);
       try {
         panzoomInstance.dispose();
       } catch {
@@ -550,6 +750,10 @@ export async function mount(
   }
   if (preservedFilter !== null) {
     handle.filter(preservedFilter);
+  }
+  // Re-run the search without zooming: a re-mount keeps the user's view.
+  if (preservedSearch && preservedSearch.query !== '') {
+    runSearch(preservedSearch.query, preservedSearch.index, false);
   }
 
   // C0 click-to-highlight: clicking a node highlights it + every copy of

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+**Viewer: search places and transitions by name**, in the viewer controls (`chrome: true`) and the debug-ui header.
+
+- Case-insensitive match on the node label; every hit is outlined and the first is zoomed to and centred.
+- Enter / Shift+Enter or ‹ › step through the hits with wrap-around; Esc clears; `/` or Ctrl/Cmd+F jumps into the box.
+- Junctions, hidden nodes and nodes in collapsed clusters never match; each replica of a shared place is its own hit.
+- `ViewerHandle` gains `search(query)`, `searchNext()`, `searchPrev()`, `clearSearch()` and `searchState`; the search survives re-mounts. New theming variables `--lpv-search-stroke` and `--lpv-search-glow`.
+
 ## Java 11.0.0 / TypeScript 10.0.0 / Rust 12.0.0 / Python 8.0.0 — 2026-11-10
 
 **Breaking in all languages:** output specs that used to build and fail or misbehave at runtime are now rejected when the transition is built.

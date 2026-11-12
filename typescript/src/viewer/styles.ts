@@ -46,6 +46,8 @@ export const VIEWER_CSS_VARIABLES = [
   '--lpv-faded-node-opacity',
   '--lpv-faded-edge-opacity',
   '--lpv-faded-cluster-opacity',
+  '--lpv-search-stroke',
+  '--lpv-search-glow',
 ] as const;
 
 export type ViewerCssVariable = (typeof VIEWER_CSS_VARIABLES)[number];

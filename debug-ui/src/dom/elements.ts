@@ -16,6 +16,10 @@ export let el: {
   refreshSessions: HTMLButtonElement;
   resetZoom: HTMLButtonElement;
   toggleSubnets: HTMLButtonElement;
+  diagramSearch: HTMLInputElement;
+  diagramSearchCount: HTMLElement;
+  diagramSearchPrev: HTMLButtonElement;
+  diagramSearchNext: HTMLButtonElement;
   diagramContainer: HTMLElement;
   dotDiagram: HTMLElement;
   noSession: HTMLElement;
@@ -87,6 +91,10 @@ export function initElements(): void {
     refreshSessions: getEl<HTMLButtonElement>('refresh-sessions'),
     resetZoom: getEl<HTMLButtonElement>('reset-zoom'),
     toggleSubnets: getEl<HTMLButtonElement>('toggle-subnets'),
+    diagramSearch: getEl<HTMLInputElement>('diagram-search'),
+    diagramSearchCount: getEl('diagram-search-count'),
+    diagramSearchPrev: getEl<HTMLButtonElement>('diagram-search-prev'),
+    diagramSearchNext: getEl<HTMLButtonElement>('diagram-search-next'),
     diagramContainer: getEl('diagram-container'),
     dotDiagram: getEl('dot-diagram'),
     noSession: getEl('no-session'),

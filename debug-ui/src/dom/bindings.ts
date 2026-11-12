@@ -9,7 +9,7 @@ import { shared } from '../net/shared-state.js';
 import { CONFIG } from '../net/types.js';
 import type { FilterState, ModalContent } from '../net/types.js';
 import type { BreakpointConfig, BreakpointType } from '../protocol/index.js';
-import { resetZoom } from '../net/actions/diagram.js';
+import { clearDiagramSearch, resetZoom, searchDiagram, stepDiagramSearch } from '../net/actions/diagram.js';
 import { refreshSessions } from '../net/actions/session.js';
 import { generateBreakpointId, showBreakpointForm, hideBreakpointForm, findBreakpoint } from '../net/actions/breakpoints.js';
 import { copyModalJson } from '../net/actions/modal.js';
@@ -43,6 +43,32 @@ export function bindDomEvents(executor: BitmapNetExecutor): void {
   el.toggleSubnets.addEventListener('click', () => {
     executor.injectValue(p.userToggleSubnets, undefined);
   });
+
+  // Diagram search: like reset zoom, a pure view concern the net never sees.
+  let diagramSearchDebounce: ReturnType<typeof setTimeout> | null = null;
+  el.diagramSearch.addEventListener('input', () => {
+    if (diagramSearchDebounce) clearTimeout(diagramSearchDebounce);
+    diagramSearchDebounce = setTimeout(() => searchDiagram(el.diagramSearch.value), 150);
+  });
+  el.diagramSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (diagramSearchDebounce) clearTimeout(diagramSearchDebounce);
+      // A query still waiting on the debounce runs first; Enter steps after that.
+      if (el.diagramSearch.value.trim() !== (shared.viewerHandle?.searchState.query ?? '')) {
+        searchDiagram(el.diagramSearch.value);
+      } else {
+        stepDiagramSearch(e.shiftKey ? -1 : 1);
+      }
+    } else if (e.key === 'Escape') {
+      if (diagramSearchDebounce) clearTimeout(diagramSearchDebounce);
+      el.diagramSearch.value = '';
+      clearDiagramSearch();
+      el.diagramSearch.blur();
+    }
+  });
+  el.diagramSearchPrev.addEventListener('click', () => stepDiagramSearch(-1));
+  el.diagramSearchNext.addEventListener('click', () => stepDiagramSearch(1));
 
   // ======================== Playback controls ========================
 

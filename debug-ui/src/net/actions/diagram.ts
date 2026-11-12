@@ -39,6 +39,7 @@ export async function renderDotDiagram(dotSource: string): Promise<void> {
   shared.svgNodeCache = buildSvgNodeCache(handle.svg);
 
   attachSubnetListeners();
+  updateSearchCount();
 
   el.noSession.classList.add('hidden');
 }
@@ -63,6 +64,7 @@ export async function toggleSubnetMode(): Promise<void> {
   shared.prevHighlighted = { shapes: [], edges: [] };
 
   el.toggleSubnets.textContent = next.subnets === 'hide' ? 'Subnet View' : 'Flat View';
+  updateSearchCount();
 }
 
 /**
@@ -249,6 +251,37 @@ export function updateDiagramHighlighting(uiState: UIState, session: SessionData
   }
 
   shared.prevHighlighted = { shapes: newShapes, edges: newEdges };
+}
+
+/** Find places/transitions by label and zoom onto the first hit. */
+export function searchDiagram(query: string): void {
+  shared.viewerHandle?.search(query);
+  updateSearchCount();
+}
+
+/** Step to the next (`1`) or previous (`-1`) search hit and zoom onto it. */
+export function stepDiagramSearch(delta: 1 | -1): void {
+  const handle = shared.viewerHandle;
+  if (!handle) return;
+  if (delta === 1) handle.searchNext();
+  else handle.searchPrev();
+  updateSearchCount();
+}
+
+/** Drop the search marks. */
+export function clearDiagramSearch(): void {
+  shared.viewerHandle?.clearSearch();
+  updateSearchCount();
+}
+
+/** Mirror the handle's search state (which survives re-mounts) into the header. */
+function updateSearchCount(): void {
+  const state = shared.viewerHandle?.searchState;
+  const count = state?.count ?? 0;
+  el.diagramSearchCount.textContent = !state || state.query === '' ? '' : `${state.index + 1}/${count}`;
+  el.diagramSearchCount.classList.toggle('text-red-400', state !== undefined && state.query !== '' && count === 0);
+  el.diagramSearchPrev.disabled = count === 0;
+  el.diagramSearchNext.disabled = count === 0;
 }
 
 /** Reset zoom on the active viewer handle. */

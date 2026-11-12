@@ -28,6 +28,14 @@
             <button id="refresh-sessions" class="px-3 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors">
                 Refresh
             </button>
+            <div class="flex items-center gap-1">
+                <input id="diagram-search" type="search" placeholder="Search places/transitions"
+                       title="Enter: next match · Shift+Enter: previous · Esc: clear"
+                       class="bg-gray-700 rounded px-3 py-1.5 text-sm w-56 border border-gray-600 focus:outline-none focus:border-blue-500">
+                <span id="diagram-search-count" class="text-xs text-gray-400 min-w-[3em] text-center tabular-nums"></span>
+                <button id="diagram-search-prev" class="px-2 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors disabled:opacity-50" title="Previous match (Shift+Enter)" disabled>&lsaquo;</button>
+                <button id="diagram-search-next" class="px-2 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors disabled:opacity-50" title="Next match (Enter)" disabled>&rsaquo;</button>
+            </div>
             <button id="reset-zoom" class="px-3 py-1.5 bg-gray-700 rounded text-sm hover:bg-gray-600 transition-colors">
                 Reset Zoom
             </button>
