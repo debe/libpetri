@@ -5,6 +5,7 @@ import Libpetri.Reference.ComposeDef
 import Libpetri.Reference.ComposeBind
 import Libpetri.Spec.Req.MOD_006
 import Libpetri.Spec.Req.MOD_011
+import Libpetri.Spec.Req.MOD_020
 
 set_option linter.missingDocs true
 
@@ -52,33 +53,33 @@ requirement MOD_022
   scope "implementations whose place identity carries the token type (Java)"
   source verbatim "spec/11-modular-composition.md"
   quote "*Where* place identity carries the token type (Java), *if* a compose call binds no port twice and binds a port to a caller place whose token type differs from the token type of the port's place, *then* the compose call *shall* fail."
-        "*Where* place identity carries the token type (Java), *if* a compose call binds no port twice, binds only ports of the interface and binds some port to a caller place of another token type, *then* the error message of its failure *shall* name such a port, the token type of the port's place and the token type of the caller place."
-        "*Where* place identity carries the token type (Java), *when* a compose call binds no channel, binds no port twice, binds only ports of the interface, binds each port it binds to a caller place of the token type of the port's place, sends no two different port places that one transition consumes from or that one output branch of a transition names to one caller place, and every transition rewritten through the bindings passes the transition builder's checks, the compose call *shall* succeed."
+        "*Where* place identity carries the token type (Java), *if* a compose call binds no port twice, binds no channel twice, binds no caller-side transition to two channels, binds only ports of the interface and binds some port to a caller place of another token type, *then* the error message of its failure *shall* name such a port, the token type of the port's place and the token type of the caller place."
+        "*Where* place identity carries the token type (Java), *when* a coherent compose call ([MOD-020]) binds no channel, binds no port twice, binds only ports of the interface, binds each port it binds to a caller place of the token type of the port's place, sends no two different port places that one transition consumes from or that one output branch of a transition names to one caller place, and every transition rewritten through the bindings passes the transition builder's checks, the compose call *shall* succeed."
   reading "For every run-time token type tyOf of a place, every transition builder check Build and every composition function C, for every builder b, instance I, port bindings ports (port name, caller place) and channel bindings chans:"
           "if no port is bound twice in ports and some binding (n, X) has a port place q = I.port n with tyOf q ≠ tyOf X, C b I ports chans fails;"
-          "if no channel and no port is bound twice, every bound port is a port of I, some binding has a port place of another type than its caller place, and C b I ports chans fails with the message m, then m contains, for some binding (n, X) whose port place q has tyOf q ≠ tyOf X, the name n, the text of tyOf q and the text of tyOf X;"
-          "if no port is bound twice, every bound port is a port of I, every binding's port place has its caller place's type, no definition of I has an input or output collision under the bindings, and every definition of I rewritten through the bindings passes Build, then C b I ports [] succeeds."
-  assumes "Ruling D36 (a): the type check is scoped to the implementations whose place identity carries the token type, which is Java. Java's compose(instance, map) and compose(instance, bindings) both run composeInternal, which for every port binding first fails on an unknown port and then compares the token type of the renamed port place (Instance.port(name, tokenType)) with the caller place's token type, throwing IllegalArgumentException with a message that names the port, the subnet, both types and the caller place (java/src/main/java/org/libpetri/core/PetriNet.java:688-716), before the collision check, the rewrite and the channel merges. tyOf is the place record's tokenType (typedNaming's second component, Prod.snd), and the text of a type is its Class.getName()."
-          "Rust, TypeScript and Python are out of scope: their place identity does not carry the token type, and their compose checks no type. Rust's bind_port::<T> and TypeScript's bindPort<T> take T from the caller place they are given and record the place without its type (rust/libpetri-core/src/compose.rs:97-107, typescript/src/core/compose-bindings.ts:73-79), Rust's compose_internal resolves a port through port_handles and never reads the port's recorded TypeId (rust/libpetri-core/src/petri_net.rs:1034-1069), and Python's compose passes names. The composition that never checks (mod022NeverCheck) violates line 1 on the typed example (MOD_022_forbids_neverCheck). The withdrawn compile-time claim (old items 1 and 2: no binding API relates the port's type to the caller place's type, since ports are bound by name) and the per-language note are the markdown's prose; the typing invariant of CORE-003 is premised on compatible emissions in every language."
-          "A composition function is one implementation's compose(instance, bindings) read as a function from the builder, the instance, the port bindings as a list of (port name, caller place) and the channel bindings as a list of (channel name, caller-side definition) to the builder after the call or a rejection with a message (an exception, read as .error msg), as in MOD-020. Java's port bindings are a map, so no port is bound twice through compose(instance, map), and ComposeBindings.bindPort rejects a second binding of a port (java/src/main/java/org/libpetri/core/ComposeBindings.java:66-75); lines 1 to 3 are premised on distinct port names, which is MOD-020's matter (D72 (i)(a), RD-11)."
-          "Line 2 is the markdown's 'with a message naming the port, the token type of the port's place and the token type of the caller place': to name is to contain as a substring (MsgNames, as in MOD-006 line 7). It is existential over the offending bindings: Java walks the map in hash order and reports the first offender it meets, so which offender is named when there are several is not stated. It is premised on every bound port being known and bound once, because an unknown port met first in Java's walk reports the unknown-port message instead, and on no channel being bound twice, because Java's binding builder rejects a second binding of a channel while the caller records the bindings (ComposeBindings.bindChannel, java/src/main/java/org/libpetri/core/ComposeBindings.java:98-101), before composeInternal checks any type, with the message Channel '<name>' is already bound, which names no type. It is not premised on the absence of collisions: a composition that runs MOD-020's collision check before the type check fails with the collision message, which names no type (MOD_022_forbids_collisionFirst). Java's message also names the subnet and the caller place; the line asks for the port and the two types only."
+          "if no channel and no port is bound twice, no caller-side transition is bound to two channels (the caller-side definitions of the channel bindings have pairwise distinct names), every bound port is a port of I, some binding has a port place of another type than its caller place, and C b I ports chans fails with the message m, then m contains, for some binding (n, X) whose port place q has tyOf q ≠ tyOf X, the name n, the text of tyOf q and the text of tyOf X;"
+          "if the call is coherent (mod020_coherent: any two bindings whose ports expose one renamed place bind it to one caller place), no port is bound twice, every bound port is a port of I, every binding's port place has its caller place's type, no definition of I has an input or output collision under the bindings, and every definition of I rewritten through the bindings passes Build, then C b I ports [] succeeds."
+  assumes "Ruling D36 (a): the type check is scoped to the implementations whose place identity carries the token type, which is Java. Java's compose(instance, map) and compose(instance, bindings) both run composeInternal, which for every port binding first fails on an unknown port and then compares the token type of the renamed port place (Instance.port(name, tokenType)) with the caller place's token type, throwing IllegalArgumentException with a message that names the port, the subnet, both types and the caller place (java/src/main/java/org/libpetri/core/PetriNet.java), before the collision check, the rewrite and the channel merges. tyOf is the place record's tokenType (typedNaming's second component, Prod.snd), and the text of a type is its Class.getName()."
+          "Rust, TypeScript and Python are out of scope: their place identity does not carry the token type, and their compose checks no type. Rust's bind_port::<T> and TypeScript's bindPort<T> take T from the caller place they are given and record the place without its type (rust/libpetri-core/src/compose.rs, typescript/src/core/compose-bindings.ts), Rust's compose_internal resolves a port through port_handles and never reads the port's recorded TypeId (rust/libpetri-core/src/petri_net.rs), and Python's compose passes names. The composition that never checks (mod022NeverCheck) violates line 1 on the typed example (MOD_022_forbids_neverCheck). The withdrawn compile-time claim (old items 1 and 2: no binding API relates the port's type to the caller place's type, since ports are bound by name) and the per-language note are the markdown's prose; the typing invariant of CORE-003 is premised on compatible emissions in every language."
+          "A composition function is one implementation's compose(instance, bindings) read as a function from the builder, the instance, the port bindings as a list of (port name, caller place) and the channel bindings as a list of (channel name, caller-side definition) to the builder after the call or a rejection with a message (an exception, read as .error msg), as in MOD-020. Java's port bindings are a map, so no port is bound twice through compose(instance, map), and ComposeBindings.bindPort rejects a second binding of a port (java/src/main/java/org/libpetri/core/ComposeBindings.java); lines 1 to 3 are premised on distinct port names, which is MOD-020's matter (D72 (i)(a): a port bound twice fails, MOD-020 line 2)."
+          "Line 2 is the markdown's 'with a message naming the port, the token type of the port's place and the token type of the caller place': to name is to contain as a substring (MsgNames, as in MOD-006 line 7). It is existential over the offending bindings: Java walks the map in hash order and reports the first offender it meets, so which offender is named when there are several is not stated. The markdown sentence and the line are premised on every bound port being known and bound once, because an unknown port met first in Java's walk reports the unknown-port message instead, and on no channel being bound twice, because Java's binding builder rejects a second binding of a channel while the caller records the bindings (ComposeBindings.bindChannel, java/src/main/java/org/libpetri/core/ComposeBindings.java), before composeInternal checks any type, with the message Channel '<name>' is already bound, which names no type. For the same reason the sentence and the line are premised on no caller-side transition being bound to two channels: bindChannel rejects the second channel binding of one caller transition with a message that names the transition and two channels and no type. The line reads that premise as pairwise distinct names of the caller-side definitions (ruling D23). It is not premised on the absence of collisions: a composition that runs MOD-020's collision check before the type check fails with the collision message, which names no type (MOD_022_forbids_collisionFirst). Java's message also names the subnet and the caller place; the line asks for the port and the two types only."
           "Line 2 does not say which of the two named types is the port's and which is the caller place's: a message that gives the two types the wrong way round meets it, as the substring reading of MOD-006 line 7 does not fix the order of words either. Substring containment is weak for a short name: the port name in occurs inside the words instance and String of any such message, so the example checks the quoted form port 'in' (MOD_022_nonvacuous), and the composition whose type message leaves out the port name is killed with a port q, whose letter occurs nowhere else in that message (MOD_022_forbids_anonPort)."
-          "Line 3 is the acceptance half ('well-typed' bindings are not rejected for their type), stated for calls without channel bindings and premised on everything else MOD-020 rejects being absent: a port bound twice, an unknown port, an input collision or output collision (two different bound ports sent to one caller place, consumed by one transition or named in one AND branch) and a rewritten transition that the transition builder Build rejects. It asks nothing of the ports the call leaves unbound: a call may bind only some of the interface's ports. The ports of the interface are read through the instance's port lookup (I.port), which on every instance that instantiate produces agrees with the interface (MOD-011). Java's builder transition() rejects nothing (java/src/main/java/org/libpetri/core/PetriNet.java:320-329), so the builder b is arbitrary. Java's compose also refuses an instance whose definition's body declares a terminal place (SubnetRewriter.rejectTerminals, java/src/main/java/org/libpetri/core/PetriNet.java:682-683), which instantiate already refuses (EXEC-042 AC6), so no instance that compose is given has one. A call with channel bindings succeeds or fails by MOD-020 and MOD-021 (the channel merge); channel bindings carry no token-type check, since transitions are not typed, and arc-level type compatibility is CORE-003's."
+          "Line 3 is the acceptance half ('well-typed' bindings are not rejected for their type), stated for coherent calls without channel bindings and premised on everything else MOD-020 rejects being absent. Coherence (mod020_coherent, ruling D35 (a), as in MOD-020 lines 1, 4 to 9) is the premise because two ports may expose one body place (MOD-003) and a call that binds them to different caller places has no defined outcome: the reference rewrites through the first such binding (bindLookup), Java's composeInternal puts every binding into mergeMap in the caller's order so the last one wins, and its rejectPortCollisions pairs the ports, not the places (java/src/main/java/org/libpetri/core/PetriNet.java), so Java can reject such a call with a collision or a transition-builder message that the first-binding rewrite does not meet. The rest of the premises: a port bound twice, an unknown port, an input collision or output collision (two different bound ports sent to one caller place, consumed by one transition or named in one AND branch) and a rewritten transition that the transition builder Build rejects. It asks nothing of the ports the call leaves unbound: a call may bind only some of the interface's ports. The ports of the interface are read through the instance's port lookup (I.port), which on every instance that instantiate produces agrees with the interface (MOD-011). Java's builder transition() rejects nothing (Builder.transition, java/src/main/java/org/libpetri/core/PetriNet.java), so the builder b is arbitrary. Java's compose also refuses an instance whose definition's body declares a terminal place (composeInternal calls SubnetRewriter.rejectTerminals first, java/src/main/java/org/libpetri/core/PetriNet.java), which instantiate already refuses (EXEC-042 AC6), so no instance that compose is given has one. A call with channel bindings succeeds or fails by MOD-020 and MOD-021 (the channel merge); channel bindings carry no token-type check, since transitions are not typed, and arc-level type compatibility is CORE-003's."
           "The type a binding is checked against is the type of the renamed port place that the instance's port lookup returns. On Java's naming model the rename keeps the token type, so jointly with MOD-011's two blocks this is the type the port was declared with, and a binding of a port to a caller place of another type than its declared type fails (mod022_declared)."
           "AC1 (port(\"in\", String) -> Place<String> composes successfully) is line 3 in Java (MOD_022_nonvacuous: binding the String port in of the example instance r1 to the String place X composes, and r1/work then takes from X); in the other implementations it is MOD-020's acceptance. AC2 (in Java, a binding of the String port in to an Integer place is rejected at compose, through the typed overload and the map overload alike, with a message containing port 'in', String and Integer) is lines 1 and 2 (MOD_022_nonvacuous: the reference rejects that binding with a message containing port 'in', String and Integer). The test derivation is the two ACs."
-  signoff "pending"
+  signoff "2026-11-13 5897f306f25db963 ai"
   statement : ∀ {N A T : Type} [DecidableEq N] [ToString T],
       (N → T) → (Trans N → Option String) → ComposeFn N A → Prop :=
     fun {N A _} _ _ tyOf Build C =>
       (∀ b (I : Instance N A) ports chans, PortsDistinct ports →
         ¬ PortTypesAgree tyOf I ports → ∃ m, C b I ports chans = .error m) ∧
-      (∀ b (I : Instance N A) ports chans m, (chans.map (·.1)).Nodup → PortsDistinct ports →
-        PortsKnown I ports →
+      (∀ b (I : Instance N A) ports chans m, (chans.map (·.1)).Nodup →
+        (chans.map (·.2.core.name)).Nodup → PortsDistinct ports → PortsKnown I ports →
         ¬ PortTypesAgree tyOf I ports → C b I ports chans = .error m →
         ∃ e ∈ ports, ∃ q, I.port e.1 = some q ∧ tyOf q ≠ tyOf e.2 ∧
           MsgNames m e.1 ∧ MsgNames m (toString (tyOf q)) ∧ MsgNames m (toString (tyOf e.2))) ∧
-      (∀ b (I : Instance N A) ports, PortsDistinct ports → PortsKnown I ports →
-        PortTypesAgree tyOf I ports →
+      (∀ b (I : Instance N A) ports, mod020_coherent I ports → PortsDistinct ports →
+        PortsKnown I ports → PortTypesAgree tyOf I ports →
         (∀ d ∈ I.defs, ¬ InCollision (bindEntries I ports) d ∧
           ¬ OutCollision (bindEntries I ports) d ∧
           Build (rewriteDef (bindEntries I ports) d).toTrans = none) →
@@ -93,23 +94,26 @@ fun {N A x} x_1 x_2 tyOf Build C =>
       PortsDistinct ports → ¬PortTypesAgree tyOf I ports → ∃ m, C b I ports chans = Except.error m) ∧
     (∀ (b : Bld N A) (I : Instance N A) (ports : List (String × N)) (chans : List (String × CDef N A)) (m : String),
         (List.map (fun x => x.1) chans).Nodup →
+          (List.map (fun x => x.2.core.name) chans).Nodup →
+            PortsDistinct ports →
+              PortsKnown I ports →
+                ¬PortTypesAgree tyOf I ports →
+                  C b I ports chans = Except.error m →
+                    ∃ e ∈ ports,
+                      ∃ q,
+                        I.port e.1 = some q ∧
+                          tyOf q ≠ tyOf e.2 ∧
+                            MsgNames m e.1 ∧ MsgNames m (toString (tyOf q)) ∧ MsgNames m (toString (tyOf e.2))) ∧
+      ∀ (b : Bld N A) (I : Instance N A) (ports : List (String × N)),
+        mod020_coherent I ports →
           PortsDistinct ports →
             PortsKnown I ports →
-              ¬PortTypesAgree tyOf I ports →
-                C b I ports chans = Except.error m →
-                  ∃ e ∈ ports,
-                    ∃ q,
-                      I.port e.1 = some q ∧
-                        tyOf q ≠ tyOf e.2 ∧
-                          MsgNames m e.1 ∧ MsgNames m (toString (tyOf q)) ∧ MsgNames m (toString (tyOf e.2))) ∧
-      ∀ (b : Bld N A) (I : Instance N A) (ports : List (String × N)),
-        PortsDistinct ports →
-          PortsKnown I ports →
-            PortTypesAgree tyOf I ports →
-              (∀ d ∈ I.defs,
-                  ¬InCollision (bindEntries I ports) d ∧
-                    ¬OutCollision (bindEntries I ports) d ∧ Build (rewriteDef (bindEntries I ports) d).toTrans = none) →
-                ∃ b', C b I ports [] = Except.ok b'
+              PortTypesAgree tyOf I ports →
+                (∀ d ∈ I.defs,
+                    ¬InCollision (bindEntries I ports) d ∧
+                      ¬OutCollision (bindEntries I ports) d ∧
+                        Build (rewriteDef (bindEntries I ports) d).toTrans = none) →
+                  ∃ b', C b I ports [] = Except.ok b'
 -/
 #guard_msgs in #print MOD_022
 
@@ -126,8 +130,8 @@ def mod022_line1 (tyOf : N → T) (C : ComposeFn N A) : Prop :=
 
 /-- Line 2 of MOD-022: the failure names an offending port and both types. -/
 def mod022_line2 (tyOf : N → T) (C : ComposeFn N A) : Prop :=
-  ∀ b (I : Instance N A) ports chans m, (chans.map (·.1)).Nodup → PortsDistinct ports →
-    PortsKnown I ports →
+  ∀ b (I : Instance N A) ports chans m, (chans.map (·.1)).Nodup →
+    (chans.map (·.2.core.name)).Nodup → PortsDistinct ports → PortsKnown I ports →
     ¬ PortTypesAgree tyOf I ports → C b I ports chans = .error m →
     ∃ e ∈ ports, ∃ q, I.port e.1 = some q ∧ tyOf q ≠ tyOf e.2 ∧
       MsgNames m e.1 ∧ MsgNames m (toString (tyOf q)) ∧ MsgNames m (toString (tyOf e.2))
@@ -135,8 +139,8 @@ def mod022_line2 (tyOf : N → T) (C : ComposeFn N A) : Prop :=
 /-- Line 3 of MOD-022: a well-typed call without channel bindings that nothing else rejects
 succeeds. -/
 def mod022_line3 (tyOf : N → T) (Build : Trans N → Option String) (C : ComposeFn N A) : Prop :=
-  ∀ b (I : Instance N A) ports, PortsDistinct ports → PortsKnown I ports →
-    PortTypesAgree tyOf I ports →
+  ∀ b (I : Instance N A) ports, mod020_coherent I ports → PortsDistinct ports →
+    PortsKnown I ports → PortTypesAgree tyOf I ports →
     (∀ d ∈ I.defs, ¬ InCollision (bindEntries I ports) d ∧
       ¬ OutCollision (bindEntries I ports) d ∧
       Build (rewriteDef (bindEntries I ports) d).toTrans = none) →
@@ -222,7 +226,7 @@ type message of the first binding of another type, which names its port and both
 theorem ref022_line2 (tyOf : N → T) (Build : Trans N → Option String)
     (Mg : CDef N A → CDef N A → Except String (CDef N A)) :
     mod022_line2 tyOf (refCompose tyOf Build Mg) := by
-  intro b I ports chans m _ h1 h2 hn hm
+  intro b I ports chans m _ _ h1 h2 hn hm
   cases hf : ports.find? (portTyBad tyOf I) with
   | none =>
     exfalso
@@ -253,7 +257,7 @@ rejects composes. -/
 theorem ref022_line3 (tyOf : N → T) (Build : Trans N → Option String)
     (Mg : CDef N A → CDef N A → Except String (CDef N A)) :
     mod022_line3 tyOf Build (refCompose tyOf Build Mg) :=
-  fun _ I _ h1 h2 h3 h5 =>
+  fun _ I _ _ h1 h2 h3 h5 =>
     refCompose_accepts h1 h2 h3 (mod022_chansOk_nil I) h5 (fun _ _ _ hc => nomatch hc)
 
 end Reference
@@ -372,6 +376,13 @@ theorem mod022_good_premises :
   obtain ⟨h1, h2, h3, -, h5, -⟩ := refCompose_ok_iff.1 hb
   exact ⟨h1, h2, h3, h5⟩
 
+/-- The well-typed binding of the example binds one port, so it is coherent. -/
+theorem mod022_good_coherent : mod020_coherent mod022_exI mod022_good := by
+  intro e he e' he' _ _
+  simp only [mod022_good, List.mem_singleton] at he he'
+  subst he he'
+  rfl
+
 /-- The wrong-typed binding of the example is not well typed. -/
 theorem mod022_bad_any : mod022_bad.any (portTyBad Prod.snd mod022_exI) = true := by decide
 
@@ -445,9 +456,9 @@ theorem mod022_line3_of_agree {tyOf : N → T} {Build : Trans N → Option Strin
     {Mg : CDef N A → CDef N A → Except String (CDef N A)} {C : ComposeFn N A}
     (hC : ∀ b I ports chans, PortTypesAgree tyOf I ports →
       C b I ports chans = refCompose tyOf Build Mg b I ports chans) :
-    mod022_line3 tyOf Build C := fun b I ports h1 h2 h3 h5 => by
+    mod022_line3 tyOf Build C := fun b I ports hco h1 h2 h3 h5 => by
   rw [hC b I ports [] h3]
-  exact ref022_line3 tyOf Build Mg b I ports h1 h2 h3 h5
+  exact ref022_line3 tyOf Build Mg b I ports hco h1 h2 h3 h5
 
 end Wrong
 
@@ -483,7 +494,7 @@ theorem MOD_022_forbids_compareNames :
     ¬ MOD_022 Prod.snd refBuild (mod022CompareNames (Ty := Mod022Ty) refBuild mod022Merge) := by
   intro h
   obtain ⟨h1, h2, h3, h5⟩ := mod022_good_premises
-  obtain ⟨b', hb⟩ := h.2.2 Bld.empty mod022_exI mod022_good h1 h2 h3 h5
+  obtain ⟨b', hb⟩ := h.2.2 Bld.empty mod022_exI mod022_good mod022_good_coherent h1 h2 h3 h5
   have hs : (mod022CompareNames refBuild mod022Merge Bld.empty mod022_exI mod022_good
       []).toOption.isSome = false := by decide
   rw [hb] at hs
@@ -542,7 +553,7 @@ theorem mod022AnonCompose_lines13 (tyOf : N → T) (Build : Trans N → Option S
     (Mg : CDef N A → CDef N A → Except String (CDef N A)) :
     mod022_line1 tyOf (mod022AnonCompose tyOf Build Mg) ∧
       mod022_line3 tyOf Build (mod022AnonCompose tyOf Build Mg) := by
-  refine ⟨fun b I ports chans _ hn => ?_, fun b I ports h1 h2 h3 h5 => ?_⟩
+  refine ⟨fun b I ports chans _ hn => ?_, fun b I ports hco h1 h2 h3 h5 => ?_⟩
   · cases hs : mod022AnonPortCheck tyOf I ports with
     | some m => exact ⟨m, by simp [mod022AnonCompose, hs]⟩
     | none =>
@@ -550,7 +561,7 @@ theorem mod022AnonCompose_lines13 (tyOf : N → T) (Build : Trans N → Option S
       exact hn (portCheck_eq_none_iff.1 (mod022AnonPortCheck_none_iff.1 hs)).2.2
   · have hs : mod022AnonPortCheck tyOf I ports = none :=
       mod022AnonPortCheck_none_iff.2 (portCheck_eq_none_iff.2 ⟨h1, h2, h3⟩)
-    obtain ⟨b', hb'⟩ := ref022_line3 tyOf Build Mg b I ports h1 h2 h3 h5
+    obtain ⟨b', hb'⟩ := ref022_line3 tyOf Build Mg b I ports hco h1 h2 h3 h5
     exact ⟨b', by simp [mod022AnonCompose, hs, hb']⟩
 
 /-- A composition that runs the collision pass of [MOD-020] over every definition first (the
@@ -567,7 +578,7 @@ theorem mod022CollFirst_lines13 (tyOf : N → T) (Build : Trans N → Option Str
     (Mg : CDef N A → CDef N A → Except String (CDef N A)) :
     mod022_line1 tyOf (mod022CollFirst tyOf Build Mg) ∧
       mod022_line3 tyOf Build (mod022CollFirst tyOf Build Mg) := by
-  refine ⟨fun b I ports chans _ hn => ?_, fun b I ports h1 h2 h3 h5 => ?_⟩
+  refine ⟨fun b I ports chans _ hn => ?_, fun b I ports hco h1 h2 h3 h5 => ?_⟩
   · unfold mod022CollFirst
     cases I.defs.mapM (bindStep (fun _ => none) I.pfx (bindEntries I ports)) with
     | error m => exact ⟨m, rfl⟩
@@ -575,7 +586,7 @@ theorem mod022CollFirst_lines13 (tyOf : N → T) (Build : Trans N → Option Str
   · have hc : I.defs.mapM (bindStep (fun _ => none) I.pfx (bindEntries I ports)) =
         .ok (I.defs.map (rewriteDef (bindEntries I ports))) :=
       mapM_bindStep_ok_iff.2 ⟨fun d hd => ⟨(h5 d hd).1, (h5 d hd).2.1, rfl⟩, rfl⟩
-    obtain ⟨b', hb'⟩ := ref022_line3 tyOf Build Mg b I ports h1 h2 h3 h5
+    obtain ⟨b', hb'⟩ := ref022_line3 tyOf Build Mg b I ports hco h1 h2 h3 h5
     exact ⟨b', by simp only [mod022CollFirst, hc, hb']⟩
 
 end Slips
@@ -624,7 +635,7 @@ theorem MOD_022_forbids_anonPort :
     mod022_any_portTyBad_iff.1 (by decide)
   have h2 : PortsKnown mod022_anonI mod022_anonBad := by
     intro e he; simp only [mod022_anonBad, List.mem_singleton] at he; subst he; decide
-  obtain ⟨e, he, -, -, -, hn1, -, -⟩ := h.2.1 Bld.empty mod022_anonI mod022_anonBad [] _ List.nodup_nil
+  obtain ⟨e, he, -, -, -, hn1, -, -⟩ := h.2.1 Bld.empty mod022_anonI mod022_anonBad [] _ List.nodup_nil List.nodup_nil
     (by simp [PortsDistinct, mod022_anonBad]) h2 hn mod022_anon_q_msg
   simp only [mod022_anonBad, List.mem_singleton] at he
   subst he
@@ -710,7 +721,7 @@ theorem MOD_022_forbids_collisionFirst :
     simp only [mod022CpPorts, List.mem_cons, List.not_mem_nil, or_false] at he
     rcases he with rfl | rfl <;> decide
   obtain ⟨e, he, q, hq, hne, -, hT, -⟩ :=
-    h.2.1 Bld.empty mod022CpI mod022CpPorts [] _ List.nodup_nil h1 h2 hn mod022_collFirst_cp
+    h.2.1 Bld.empty mod022CpI mod022CpPorts [] _ List.nodup_nil List.nodup_nil h1 h2 hn mod022_collFirst_cp
   simp only [mod022CpPorts, List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl
   · have : q = .pa := Option.some.inj hq.symm
@@ -736,7 +747,7 @@ theorem MOD_022_mutant_noReject_killed :
         (mod022AcceptMismatch (N := String × Mod022Ty) (A := Unit) Prod.snd refBuild mod022Merge) ∧
       ¬ MOD_022 Prod.snd refBuild
         (mod022AcceptMismatch (N := String × Mod022Ty) (A := Unit) Prod.snd refBuild mod022Merge) := by
-  refine ⟨⟨fun b I ports chans m _ _ _ hn hm => ?_, mod022_line3_of_agree (Mg := mod022Merge) fun b I ports chans h3 => ?_⟩,
+  refine ⟨⟨fun b I ports chans m _ _ _ _ hn hm => ?_, mod022_line3_of_agree (Mg := mod022Merge) fun b I ports chans h3 => ?_⟩,
     fun h => ?_⟩
   · rw [mod022AcceptMismatch, if_pos (mod022_any_portTyBad_iff.2 hn)] at hm
     cases hm
@@ -780,7 +791,7 @@ theorem MOD_022_mutant_noMsg_killed :
     have hm : mod022VagueMsg Prod.snd refBuild mod022Merge Bld.empty mod022_exI mod022_bad [] =
         .error "rejected" := by
       rw [mod022VagueMsg, if_pos mod022_bad_any]
-    obtain ⟨e, he, -, -, -, hn1, -, -⟩ := h.2.1 Bld.empty mod022_exI mod022_bad [] _ List.nodup_nil (by simp [PortsDistinct, mod022_bad]) h2
+    obtain ⟨e, he, -, -, -, hn1, -, -⟩ := h.2.1 Bld.empty mod022_exI mod022_bad [] _ List.nodup_nil List.nodup_nil (by simp [PortsDistinct, mod022_bad]) h2
       hn hm
     simp only [mod022_bad, List.mem_singleton] at he
     subst he
@@ -800,13 +811,13 @@ theorem MOD_022_mutant_noAccept_killed :
         (mod022RejectWellTyped (N := String × Mod022Ty) (A := Unit) Prod.snd refBuild mod022Merge) ∧
       ¬ MOD_022 Prod.snd refBuild
         (mod022RejectWellTyped (N := String × Mod022Ty) (A := Unit) Prod.snd refBuild mod022Merge) := by
-  refine ⟨⟨fun b I ports chans h1 hn => ?_, fun b I ports chans m hu h1 h2 hn hm => ?_⟩, fun h => ?_⟩
+  refine ⟨⟨fun b I ports chans h1 hn => ?_, fun b I ports chans m hu hc h1 h2 hn hm => ?_⟩, fun h => ?_⟩
   · rw [mod022RejectWellTyped, if_pos (mod022_any_portTyBad_iff.2 hn)]
     exact ref022_line1 Prod.snd refBuild mod022Merge b I ports chans h1 hn
   · rw [mod022RejectWellTyped, if_pos (mod022_any_portTyBad_iff.2 hn)] at hm
-    exact ref022_line2 Prod.snd refBuild mod022Merge b I ports chans m hu h1 h2 hn hm
+    exact ref022_line2 Prod.snd refBuild mod022Merge b I ports chans m hu hc h1 h2 hn hm
   · obtain ⟨h1, h2, h3, h5⟩ := mod022_good_premises
-    obtain ⟨b', hb⟩ := h.2.2 Bld.empty mod022_exI mod022_good h1 h2 h3 h5
+    obtain ⟨b', hb⟩ := h.2.2 Bld.empty mod022_exI mod022_good mod022_good_coherent h1 h2 h3 h5
     rw [mod022RejectWellTyped, mod022_good_any] at hb
     cases hb
 

@@ -105,7 +105,7 @@ requirement IO_011
           "AC3 (validation failure if a child received no tokens) is read on firings: a completion in which a child received no tokens is not a firing, so the marking never shows it. That the failure is reported (an ActionFailed outcome, the error the user sees) is not observable in the firing relation, which has no events or errors; it is EXEC-030's and IO-015's subject and is not encoded here."
           "AC4 and the paragraph 'A place at most once per branch' are the build line, and the first build check of WellFormedOut (every output branch Nodup, equivalently no BranchDuplicate, IO_011_noDuplicate_of_wf) for the firing lines' scope: And(P, P), And(P, And(Q, P)) and Xor(A, And(P, P)) are rejected with the message naming P, and Xor(And(P, A), And(P, B)) builds (IO_011_ac4). The construction paths and MOD-020's more specific message are not in the model. The reference semantics still fires And(P, P) depositing two tokens in P (IO_011_reference_fires_duplicate); that transition does not build, so the firing lines do not speak of it."
           "AC5 (And(Xor(A, B), Xor(B, A)) is rejected naming B) is the build line on that spec, checked under the reference builder (IO_011_ac5)."
-  signoff "pending"
+  signoff "2026-11-13 7b09ae3f76121963 ai"
   statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Trans N → Option String) → FireRel N →
       Prop :=
     fun {N} [DecidableEq N] [ToString N] Build F =>

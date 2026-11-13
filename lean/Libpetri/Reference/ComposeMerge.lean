@@ -62,7 +62,7 @@ abbrev CorrMergeFn (N A : Type) := CDef N A → CDef N A → Except String (Opti
 
 /-! ## Timing -/
 
-/-- **The merged timing** (ruling D77 (a); Rust `merge_timings`, `rewriter.rs:831-844`, Java
+/-- **The merged timing** (ruling D77 (a); Rust `merge_timings` in `rewriter.rs`, Java
 `mergeTimings`, TypeScript `mergeTimings`): `Immediate` yields to the other side, two equal
 timings collapse, any other pair has no merge (`none`). -/
 def rtMergeTiming : Timing → Timing → Option Timing

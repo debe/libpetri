@@ -115,7 +115,7 @@ requirement EXP_017
           "and the edges other than ghost edges are, up to order (List.Perm), those of E drawn for X under cfg with cluster source none."
   assumes "The model is an exporter E : Exporter (glossary): from a configuration (with its cluster source, EXP-016) and the export view of a net (with its membership map, MOD-026), the typed graph a mapper builds before DOT text. The block reads the compound attribute, the nodes in their order and the edges in their order; a ghost edge is an edge of arc type ghost, and of it the block reads its source, target, ltail and lhead."
           "The cluster key of a node is EXP-016's (nodeKey: the membership entry, else the part of the name before its last /, per cluster source; a junction has its transition's key). So the key of a node is its deepest cluster: outer/inner/a to an orphan to other/b bridges (outer/inner, other) and not (outer, other), and outer/a to an orphan to outer/inner/b bridges a cluster to its own child (ruling D26 item 6; exp_b probe cases 8 and 9; exp017NetE in EXP_017_nonvacuous, EXP_017_forbids_skipNested). The sentence 'Orphan paths that fall entirely inside a single cluster (X == Y)' compares keys, not the drawn boxes: both ends of outer/a to o to outer/inner/b lie inside the box of outer, yet the keys differ and the pair is bridged, as the quoted sentence on nested clusters says. Graphviz may warn about and ignore ltail and lhead when one cluster contains the other, so such a ghost edge may constrain less than a ghost edge between two sibling clusters; whether to keep drawing it is a feature question outside the migration. A place shared by two subnets of a direct composition has no membership entry and no prefix, so it is an orphan too. Cluster IDs are compared as EXP-016 draws them (clusterId, cluster_ followed by the sanitised key)."
-          "Ruling D46 (a) with (x), kind A: lines 2 to 5 cover the nets EXP-016 covers, as the scope sentence of the requirement says: nets that meet ExportNet.ClusterNames under cfg's cluster source (EXP-014's name assumption, and every cluster key ASCII and non-empty with no empty /-segment). The compound line binds every net, since its sentence says 'in every export'. On other nets the runtimes do not draw what lines 2 to 5 would ask. All three look a node's key up by its DOT ID (node_id_to_prefix in Rust, nodeIdToPrefix in Java and TypeScript), so on a net where b1/t outputs to b1_x, b2/u consumes b1_x and b1/v consumes b1/x, the place b1/x gives the shared ID p_b1_x the key b1, the orphan b1_x is not seen as an orphan, and no runtime draws the ghost edge for (b1, b2) that the bridges keyed by node reference ask for. On a key with an empty segment (a name such as a//x) the Rust builder panics and the Java builder throws, and on a non-ASCII membership key Rust draws a cluster ID that the glossary's clusterId does not give. Those are recorded runtime defects (RD-12 to RD-14 in spec/runtime-defects.md) or implementation-defined cases of ruling D46, and the block is silent on such nets. The reference meets the block without the premise (EXP_017_reference does not use it), and every mutant below fails it on a net that meets the premise."
+          "Ruling D46 (a) with (x), kind A: lines 2 to 5 cover the nets EXP-016 covers, as the scope sentence of the requirement says: nets that meet ExportNet.ClusterNames under cfg's cluster source (EXP-014's name assumption, and every cluster key ASCII and non-empty with no empty /-segment). The compound line binds every net, since its sentence says 'in every export'. On other nets the runtimes do not draw what lines 2 to 5 would ask. All three look a node's key up by its DOT ID (node_id_to_prefix in Rust, nodeIdToPrefix in Java and TypeScript), so on a net where b1/t outputs to b1_x, b2/u consumes b1_x and b1/v consumes b1/x, the place b1/x gives the shared ID p_b1_x the key b1, the orphan b1_x is not seen as an orphan, and no runtime draws the ghost edge for (b1, b2) that the bridges keyed by node reference ask for. On a non-ASCII membership key Rust draws a cluster ID that the glossary's clusterId does not give. The Unicode cluster ID is implementation-defined under ruling D46 (a), and the lookup by DOT ID is the Known limit sentence of EXP-016; the block is silent on such nets. A key with an empty segment (a name such as a//x) is outside the premise only because EXP-016's scope sentence excludes it: all three mappers register the key chain the reference draws there (see EXP-016). Inside the premise a cluster key may hold the NUL character (it is ASCII), and the block binds on such nets. All three mappers dedup ghost edges by the ordered pair: Rust keys by the (String, String) pair, Java by List.of(X, Y), and TypeScript by the string of the length of X, a colon, X and Y, which no two pairs share (ghostEdgesDedupByOrderedPair_nulInKeyDoesNotMerge_EXP017 in Java, the EXP-017 ordered-pair test of typescript/tests/export/cluster-builder.test.ts). A dedup by the string X, NUL, Y (the behaviour RD-37 recorded) merges the distinct pairs (a NUL b, c) and (a, b NUL c) and draws one ghost edge where the second line asks for two (EXP_017_forbids_nulDedup on exp017NulNet). The reference meets the block without the premise (EXP_017_reference does not use it), and every mutant below fails it on a net that meets the premise."
           "Bridges are read over the drawn edges of every arc type in the direction drawn (ruling D26 item 6), as all three mappers scan them: a reset edge into an orphan place and a read edge out of it bridge two clusters although no token moves between them (exp_b probe case F, EXP_017_forbids_tokenFlow), and an orphan transition whose output spec has a junction bridges nothing through it, since its junction is itself an orphan whose only incoming edge leaves the keyless transition. Whether these should change is a feature question outside the migration. The ghost edges are left out of the scan; they join two nodes with keys, so they would bridge nothing anyway, and the quoted definition of an edge leaves them out, so the definition does not refer to itself."
           "The scan order is the graph's own node and edge order, so the first bridge depends on the order the exporter draws its nodes and edges, which differs between the runtimes (ruling R2 (exp-b)) and is stated by no requirement. The block fixes the anchors relative to the drawn order, which is what each mapper computes."
           "Order of the ghost edges is not stated: the second and third lines are membership statements and the fourth line counts, so the ghost edges are compared up to order. Order of the other edges is not stated either: the fifth line compares them with the edges drawn under cluster source none up to order (List.Perm), the visible edge set of the body, as EXP-016's seventh line does. The first bridge is read in the order of the graph drawn under cfg, so an exporter that draws its edges in another order when it clusters anchors at the first bridge of that order."
@@ -123,7 +123,7 @@ requirement EXP_017
           "The header says SHOULD and the body MUST; the EARS sentences read an exporter that clusters shall (ruling D26 item 7). The SHOULD priority is whether an exporter clusters at all. The predicate is what an exporter that clusters draws: its bridges are read off the cluster keys (nodeKey under cfg's cluster source and X's membership map), which are the clusters an exporter meeting EXP-016 draws, not off the clusters the exporter happens to draw. An exporter that never draws clusters does not meet it on a net with a bridge and is outside the requirement, as in EXP-016. With cluster source none no node has a key, so there is no bridge and, by the third line, no ghost edge."
           "AC1, AC2, AC3, AC4, AC5, AC6 and AC7 are EXP_017_nonvacuous on the reference exporter: every export has compound true, a flat net has no ghost edge (AC1, AC7); the net exp017NetA has three orphan transitions bridging (left, right), one bridging (right, left), one with left on both sides and one with a single clustered neighbour, and gets exactly two ghost edges, one per direction, anchored at the first bridge (AC2 to AC6). AC2's literal net, exp017NetAC2 (left and right bridged by one orphan transition), gets exactly one ghost edge with ltail cluster_left and lhead cluster_right."
           "AC8 (anchor selection matches across Java, TypeScript and Rust byte for byte) is kind Q: a Lean function is deterministic and cross-language equality is a property of three programs (export design P3, ruling D60 (c)); the export corpus EP-2 replays the reference against the runtimes after the migration. The test derivation is AC2 to AC7."
-  signoff "pending"
+  signoff "2026-11-13 e515badb27496d93 ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (E cfg X).compound = true ∧
@@ -368,6 +368,40 @@ theorem EXP_017_forbids_unordered : ¬ EXP_017 exp017_unordered := by
   have := ((h {} exp017NetA).2 (by decide)).1
   revert this
   decide
+
+/-- A dedup by the NUL-joined string (the behaviour RD-37 recorded): one ghost edge per string
+`X ++ "\x00" ++ Y`, not per ordered pair, so two pairs whose keys hold a NUL character can share
+one string. -/
+def exp017NulDedup (key : NodeRef → Option String) (rs : List NodeRef) (es : List XEdge) :
+    List ((String × String) × (NodeRef × NodeRef)) :=
+  (bridgeWitnesses key rs es).foldl
+    (fun acc p => if acc.any (fun q => decide (q.1.1 ++ "\x00" ++ q.1.2 = p.1.1 ++ "\x00" ++ p.1.2))
+      then acc else acc ++ [p]) []
+
+/-- An exporter that dedups ghost edges by the NUL-joined key string. -/
+def exp017_nulDedup : Exporter := exp017WithPairs exp017NulDedup
+
+/-- Two orphan transitions: `o1` bridges (`a\x00b`, `c`) and `o2` bridges (`a`, `b\x00c`); both
+pairs join to the string `a\x00b\x00c`. The net meets `ExportNet.ClusterNames` (ASCII keys, no
+empty segment). -/
+def exp017NulNet : ExportNet :=
+  { trans := [clusterExTrans "o1" "a\x00b/p" (.place "c/q"),
+              clusterExTrans "o2" "a/r" (.place "b\x00c/s")] }
+
+/-- ✗ Dedup by the NUL-joined string loses (`a`, `b\x00c`) on a net inside the premise and
+violates EXP-017 (line 2): the reference draws two ghost edges, this exporter one. -/
+@[evidence forbids EXP_017]
+theorem EXP_017_forbids_nulDedup : ¬ EXP_017 exp017_nulDedup := by
+  intro h
+  have := ((h {} exp017NulNet).2 (by decide)).1
+  revert this
+  decide
+
+/-- The NUL net is inside the premise, and the reference draws two ghost edges on it where the
+NUL-joined dedup draws one. -/
+theorem exp017_nulNet_counts : exp017NulNet.ClusterNames .auto ∧
+    (exp017Ghosts (refExport {} exp017NulNet)).length = 2 ∧
+    (exp017Ghosts (exp017_nulDedup {} exp017NulNet)).length = 1 := by decide
 
 /-- The witness of a pair of edges with no `x ≠ y` check. -/
 def exp017EntryAny : Option String → Option String → NodeRef → NodeRef →

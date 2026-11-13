@@ -51,7 +51,7 @@ const core031Lean: LeanBlock = {
   ],
   assumes: ['A firing is read as one step from a marking to a marking (glossary: Fire).'],
   statement: 'fun {N} [DecidableEq N] F ↦\n  ∀ (t : Reference.Trans N) (p : N),\n    InhibitorArc t p →\n      (while fun m ↦ Marked m p, never Fire F t)',
-  signoff: { state: 'signed', date: '2026-11-10', hash: '4f884470bf67c07e' },
+  signoff: { state: 'signed', date: '2026-11-10', hash: '4f884470bf67c07e', by: 'person' },
   hash: '4f884470bf67c07e',
   evidence: [
     { theorem: 'Libpetri.Spec.CORE_031_reference', role: 'holds', module: 'Libpetri.Spec.Core', doc: 'The reference semantics satisfies CORE-031: `Seam.enabledNA` requires every inhibitor place to be empty.' },
@@ -175,6 +175,7 @@ export function fixtureData(): SiteData {
         text: 'The Java executor ignores the inhibitor arc.',
         evidence: ['Libpetri.Spec.CORE_031_forbids_ignoresInhibitor'],
         evidenceText: '`CORE_031_forbids_ignoresInhibitor`',
+        fix: null,
         status: { state: 'open' },
       },
     ],

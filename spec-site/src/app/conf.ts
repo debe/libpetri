@@ -531,7 +531,7 @@ function leanDetails(ctx: AppContext, row: ConfRow): HTMLElement {
       return h('li', null,
         h('code', { class: 'conf__d-decl' }, b.decl),
         h('p', { class: 'conf__d-meta' },
-          b.signoff.state === 'signed' ? `Signed ${b.signoff.date}` : 'Not signed',
+          b.signoff.state === 'signed' ? `${b.signoff.by === 'ai' ? 'AI-reviewed' : 'Signed'} ${b.signoff.date}` : 'Not signed',
           roles.length > 0 ? ' · ' : '',
           roles.map(([role, n]) => `${ROLE_META[role].glyph} ${ROLE_META[role].word} ${n}`).join(' · '),
         ),

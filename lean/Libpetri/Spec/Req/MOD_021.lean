@@ -89,7 +89,7 @@ requirement MOD_021_table
           "Line 1 kills mod021_firstWins (keeps the first side's arc) and MOD_021_table_mutant_ruleA; line 2 kills MOD_021_table_mutant_noAllRow (two all arcs read as a conflict); line 3 kills MOD_021_table_mutant_atLeastSummed (atLeast minimums summed, AC6's 'not AtLeast(4)'); line 4 kills MOD_021_table_mutant_rowsOnly (an off-table pair merged to atLeast of the summed requirements instead of rejected). A table that rejects everything violates line 1 (MOD_021_table_forbids_rejectAll)."
           "AC6 (One with One gives a single Exactly(2) arc, All with All gives All, AtLeast(1) with AtLeast(3) gives AtLeast(3), not AtLeast(4)) is lines 1 to 3 on those rows (MOD_021_table_nonvacuous, by decide); that the merged transition carries a single input arc on the place is the merge block's line. AC8 (One with All rejected) is line 4 on that pair (MOD_021_table_nonvacuous); the shape of the rejection message (seam, both cardinalities, place) is the merge block's line for channel composition and MOD-061's for fusion, each with a sole-offender premise (composition design, skeptic correction S3)."
           "AC1 (arc union), AC2 (disjoint timings rejected), AC3 (overlapping timings), AC4 (the action order), AC5 (one firing per fire) and AC7 (different arc types rejected) are the merge block's (MOD_021, kind B, composition wave W8, over refMerge). AC9 (token timestamp and FIFO order of tokens produced by merged firings) is CONC-003 and EXEC-020 under ruling D48 (a), which rewords AC9 to cite them; its one TokenAdded event per produced token is EVT-011's."
-  signoff "pending"
+  signoff "2026-11-13 0a4cf69a5fd0c3a6 ai"
   statement : (Card → Card → Option Card) → Prop :=
     fun mg =>
       (∀ a b n m, mod021_draw a = some n → mod021_draw b = some m →
@@ -341,6 +341,20 @@ variable {N A : Type}
 transition, [CORE-030]). -/
 def mod021_inOnce (d : CDef N A) : Prop := (d.core.inputs.map (·.place)).Nodup
 
+/-- A character Java's `Character.isWhitespace` accepts: tab to carriage return, the four
+information separators U+001C to U+001F, the space, and the Unicode space, line and paragraph
+separators other than the no-break spaces U+00A0, U+2007 and U+202F. -/
+def mod021_javaSpace (ch : Char) : Bool :=
+  let n := ch.toNat
+  (0x09 ≤ n && n ≤ 0x0D) || (0x1C ≤ n && n ≤ 0x20) || n == 0x1680 ||
+    (0x2000 ≤ n && n ≤ 0x200A && n != 0x2007) || n == 0x2028 || n == 0x2029 || n == 0x205F ||
+    n == 0x3000
+
+/-- **A named caller**: the name of `c` has a character that is not white space. Rust and
+TypeScript refuse to merge under an empty name, Java under a blank one
+(`String.isBlank`, which is `Character.isWhitespace` on every character). -/
+def mod021_named (c : CDef N A) : Prop := ∃ ch ∈ c.core.name.toList, mod021_javaSpace ch = false
+
 /-- The seam of a channel-merge diagnostic: `Channel composition '<name>'`. -/
 def mod021_seam (name : String) : String := "Channel composition '" ++ name ++ "'"
 
@@ -402,7 +416,7 @@ requirement MOD_021
   kind B
   scope "channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to"
   source verbatim "spec/11-modular-composition.md"
-  quote "The sentences cover a caller-side transition that was not added to the net builder before the compose call and has no arc on a port bound in the same compose call; for other caller-side transitions the implementations differ, and this requirement does not yet state the outcome."
+  quote "The sentences cover a caller-side transition whose name is neither empty nor made of white space only, that was not added to the net builder before the compose call and that has no arc on a port bound in the same compose call; for other caller-side transitions the implementations differ, and this requirement does not yet state the outcome."
         "*When* a channel merge succeeds, the merged transition *shall* have the caller-side transition's name and priority."
         "**Priority**: the merged transition has the caller-side transition's priority; the instance-side priority is ignored."
         "*When* a channel merge succeeds and neither side has two input arcs on one place, the merged transition *shall* have at most one input arc on each place: none where neither side has an input arc, an arc of the one side's cardinality where only one side has an input arc, and an arc of the cardinality the canonical input-arc merge table gives for the two where both sides have one."
@@ -432,12 +446,12 @@ requirement MOD_021
           "line 5: if Mg c i succeeds with d, the timings of c and i merge by rtMergeTiming to d's timing (Immediate yields to the other side, two equal timings collapse);"
           "line 6: if Mg c i succeeds with d, d's action is sq of c's action and i's action, in that order;"
           "line 7: if Mg c i succeeds with d, Build accepts d;"
-          "line 8: if the timings of c and i have no merge (neither is Immediate and they differ), Mg c i fails with a message that contains c's name and, when the two sides' sets of arc types agree on every place both have an input, inhibitor, read or reset arc on (KindsAgree), also tstr of c's timing and tstr of i's timing;"
-          "line 9: if c and i have different sets of arc types (input, inhibitor, read, reset) on some place on which both have such an arc (not KindsAgree), Mg c i fails; if moreover the timings merge and cm c i succeeds, the message contains c's name and, for some such place p, p and c's and i's sets of arc types on p written as sorted lists such as [input] and [read, reset];"
-          "line 10: if neither side has two input arcs on one place, the timings merge, cm c i succeeds, the arc types agree, and some place carries an input arc a of c and an input arc b of i with no merge in the table, then Mg c i fails with the rule (c) diagnostic for some such place p and its pair a, b (caller-side arc first), with seam Channel composition '<c's name>', spelled with atLeast(n) as Java and TypeScript do or with at_least(n) as Rust and Python do;"
-          "line 11: if neither side has two input arcs on one place, the timings merge, cm c i succeeds, the arc types agree, every place where both have an input arc has a merge in the table, and Build accepts every definition of the shape lines 1 to 6 describe (mod021_shaped), Mg c i succeeds."
+          "line 8: if c is named (mod021_named: its name has a character that is not white space) and the timings of c and i have no merge (neither is Immediate and they differ), Mg c i fails with a message that contains c's name and, when the two sides' sets of arc types agree on every place both have an input, inhibitor, read or reset arc on (KindsAgree), also tstr of c's timing and tstr of i's timing;"
+          "line 9: if c and i have different sets of arc types (input, inhibitor, read, reset) on some place on which both have such an arc (not KindsAgree), Mg c i fails; if moreover c is named, the timings merge and cm c i succeeds, the message contains c's name and, for some such place p, p and c's and i's sets of arc types on p written as sorted lists such as [input] and [read, reset];"
+          "line 10: if c is named, neither side has two input arcs on one place, the timings merge, cm c i succeeds, the arc types agree, and some place carries an input arc a of c and an input arc b of i with no merge in the table, then Mg c i fails with the rule (c) diagnostic for some such place p and its pair a, b (caller-side arc first), with seam Channel composition '<c's name>', spelled with atLeast(n) as Java and TypeScript do or with at_least(n) as Rust and Python do;"
+          "line 11: if c is named, neither side has two input arcs on one place, the timings merge, cm c i succeeds, the arc types agree, every place where both have an input arc has a merge in the table, and Build accepts every definition of the shape lines 1 to 6 describe (mod021_shaped), Mg c i succeeds."
   assumes "Model scope. A merge function takes the caller-side definition c and the instance-side channel definition i (CDef: name, input, inhibitor, read and reset arcs, output specification, timing, priority, action and the declared-place correspondence of MOD-031) and gives the merged definition or a rejection message, as Rust merge_transitions (rust/libpetri-core/src/rewriter.rs:611-698), Java SubnetRewriter.mergeTransitions (java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:529-598) and TypeScript mergeTransitions (typescript/src/core/internal/subnet-rewriter.ts:483-555) do; Python uses the Rust code. The witness is refMerge (Reference/ComposeMerge.lean) with the reference's timing rendering timingStr, and the block holds for every Build, sq and cm (MOD_021_reference). Rewriting i through the port bindings before the merge, putting the merged definition into the composed net and not adding the instance-side channel transition separately (clause 5) are MOD-020's (refCompose, Reference/ComposeBind.lean). The merged definition's declared-place correspondence is MOD-031's and no line here constrains it."
-          "Ruling D42 (m), clash mod-b#8: the caller-side transition is assumed not to be in the builder already and to have no arc on a port bound in the same compose call; the markdown now scopes the sentences to that case. Java and TypeScript then have nothing to replace and Rust has nothing to rewrite, so the three runtimes merge the same two definitions. Outside that case they differ (Java and TypeScript replace a caller already in the builder, Rust keeps it beside the merged one; Rust rewrites the caller's arcs through the port map, Java and TypeScript do not), and the outcome there is an open item of D42. Where the merged transition sits in declaration order (Rust: the slot of the channel transition; Java and TypeScript: before the surviving instance transitions) is not stated, and neither is the firing order that slot breaks ties in (EXEC-002)."
+          "Ruling D42 (m), clash mod-b#8: the caller-side transition is assumed not to be in the builder already and to have no arc on a port bound in the same compose call; the markdown now scopes the sentences to that case. Java and TypeScript then have nothing to replace and Rust has nothing to rewrite, so the three runtimes merge the same two definitions. Outside that case they differ (Java and TypeScript replace a caller already in the builder, Rust keeps it beside the merged one; Rust rewrites the caller's arcs through the port map, Java and TypeScript do not), and the outcome there is an open item of D42. The caller-side name: every runtime refuses a merge under an empty merged name, which is the caller-side name, before any other check (Rust assert!(!merged_name.is_empty()), rust/libpetri-core/src/rewriter.rs:615-618, a panic whose message names neither timing; TypeScript mergedName.length === 0, typescript/src/core/internal/subnet-rewriter.ts:488; Java mergedName.isBlank(), java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:536, which also refuses a name of white space only), while no transition builder refuses such a name (CORE-020). The markdown therefore scopes the sentences to a caller-side transition whose name is neither empty nor white space only, and lines 8 to 11, whose messages and acceptance that refusal would break, carry the premise mod021_named c (some character of the name is not white space in the sense of Java's Character.isWhitespace, mod021_javaSpace). Lines 1 to 7 speak only of a success and need no premise; the first half of line 9 holds for every name, since the refusal is a failure. A merge under a name of white space only is outside the sentences: Java refuses it and Rust and TypeScript merge it. The example merge with that refusal in front, mod021_emptyGuard, meets the block (mod021_emptyGuard_holds). Where the merged transition sits in declaration order (Rust: the slot of the channel transition; Java and TypeScript: before the surviving instance transitions) is not stated, and neither is the firing order that slot breaks ties in (EXEC-002)."
           "Ruling D77 (a), clashes mod-b#1 and mod-b#2: the merged timing follows the rule all three runtimes share (rtMergeTiming: Immediate yields to the other side, two equal timings collapse, every other pair is rejected; rust/libpetri-core/src/rewriter.rs:831-844, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:717-734, typescript/src/core/internal/subnet-rewriter.ts:641-653), not the intersection of firing intervals the markdown stated before; clause 2, AC2, AC3 and the test derivation are reworded to it. The interval rule is the wrong model of MOD_021_forbids_intervalTiming: it merges Deadline(100) with Delayed(50) to Window(50, 100), which every runtime rejects. The merged timing is always one of the two sides' timings (rtMergeTiming_side), so it is valid when both are (rtMergeTiming_valid, TIME-001) and it is reaped exactly when one of the sides is (rtMergeTiming_reapable, TIME-006). Java's deprecated Unconstrained timing (java/src/main/java/org/libpetri/core/Timing.java:138) is not Immediate to mergeTimings, so Unconstrained with Delayed(50) is rejected; it is out of scope here as in TIME-001."
           "Actions. sq stands for the runtimes' composed action, which runs the caller-side action and then the instance-side action against one context within one firing (rust/libpetri-core/src/rewriter.rs:866-883, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:765, typescript/src/core/internal/subnet-rewriter.ts:683). Line 6 pins the merged action to sq applied to the two sides' actions in that order; at a non-commutative sq such as list append the instance-first order is killed (MOD_021_mutant_instanceActionFirst_killed). That the composed action runs within one firing, as clause 4 and AC4 say, is not a line: one merged definition is one transition, and its firing is EXEC-001's and CORE-021's. The witness sq is seqAct f, which also drops the built-in passthrough on either side, an elision nothing can observe. Priority: no runtime offers an override (pick_priority, pickPriority return the caller's), so clause 3 is reworded to the caller's priority without the former MAY, and line 1 states it."
           "Input arcs. Line 2 and lines 10 and 11 assume that neither side has two input arcs on one place, which every built transition satisfies (CORE-030). On each place the table decides (MOD_021_table, every model of which is mergeCard). The position of a merged arc among the input arcs (the runtimes fold the caller's arcs and then the instance's, keeping the first-seen position: rewriter.rs:949, SubnetRewriter.java:845, subnet-rewriter.ts:846) is not normative (ruling D32) and not stated. Line 10's diagnostic names a real offending pair, the caller-side arc first, which is what that fold reports in all three runtimes; with one offending place the pair is fixed (mod021_offTable_sole)."
@@ -448,7 +462,7 @@ requirement MOD_021
           "The declared-place correspondence merge cm is MOD-031's: its content and its rejection are that block's, and this block reads it only in the premises of lines 9 to 11. The ν-net match a transition may carry (NU-060) is not modelled here: CDef has no match field. The markdown sentences carry the premise that at most one side carries a match, since Rust and TypeScript reject two matches before the arc types and the input arcs (merge_match_specs, rewriter.rs:708-724); lines 9 to 11 hold over CDef, where no side carries one. NU-060 (wave W9) adds the field, its check and that premise to the Lean lines."
           "AC1 is MOD_021_nonvacuous on the reference: caller T with input P and output Q merged with channel transition C with input R and output S gives one transition T with inputs P and R, output And(Q, S) and Immediate timing. AC2 is line 8: Delayed(100) against Deadline(50) is rejected with the timing message naming T, Delayed(100) and Deadline(50) (MOD_021_nonvacuous). AC3, reworded under ruling D77 (a), is lines 5 and 8 on its three cases (MOD_021_nonvacuous). AC4's order is line 6; that both actions run within one firing and that token movement is atomic is EXEC-001's and CORE-021's, since one merged definition is one transition. AC5 (one invocation per fire) follows for the same reason and is EXEC-001's. AC6 is line 2 with the table block on its rows (MOD_021_nonvacuous). AC7, reworded to the set reading, is line 9: input against reset on P is rejected naming T, P, [input] and [reset] (MOD_021_nonvacuous). AC8 is line 10: one() against all() on P gives the exact diagnostic (MOD_021_nonvacuous). AC9 is reworded under ruling D48 (a) to cite CORE-011, CONC-003 and EXEC-020, which own the stamp of a produced token and the order of deposited tokens; its one TokenAdded event per produced token is EVT-011's. The Depends on line now lists the requirements the reworded text cites."
           "Mutants: line 1 kills MOD_021_mutant_instanceName and MOD_021_mutant_instancePriority, line 2 MOD_021_mutant_concatInputs, line 3 MOD_021_mutant_appendReads, line 4 MOD_021_mutant_callerOutput, line 5 MOD_021_mutant_callerTiming, line 6 MOD_021_mutant_instanceActionFirst, line 7 MOD_021_mutant_skipBuild, line 8 MOD_021_mutant_acceptTimingConflict and MOD_021_mutant_timingNameOnly, line 9 MOD_021_mutant_noKindCheck, line 10 MOD_021_mutant_instanceSeam, line 11 MOD_021_mutant_conservative. A merge that rejects everything violates line 11 (MOD_021_forbids_rejectAll)."
-  signoff "pending"
+  signoff "2026-11-13 30c6b6651b9c75fc ai"
   statement : ∀ {N A : Type} [DecidableEq N] [ToString N], (Trans N → Option String) →
       (Act A → Act A → Act A) → CorrMergeFn N A → (Timing → String) → MergeFn N A → Prop :=
     fun Build sq cm tstr Mg =>
@@ -460,19 +474,20 @@ requirement MOD_021
       (∀ c i d, Mg c i = .ok d → rtMergeTiming c.timing i.timing = some d.timing) ∧
       (∀ c i d, Mg c i = .ok d → d.action = sq c.action i.action) ∧
       (∀ c i d, Mg c i = .ok d → Build d.toTrans = none) ∧
-      (∀ c i, rtMergeTiming c.timing i.timing = none →
+      (∀ c i, mod021_named c → rtMergeTiming c.timing i.timing = none →
         ∃ m, Mg c i = .error m ∧ MsgNames m c.core.name ∧
           (KindsAgree c.toTransDef i.toTransDef →
             MsgNames m (tstr c.timing) ∧ MsgNames m (tstr i.timing))) ∧
       ((∀ c i, ¬ KindsAgree c.toTransDef i.toTransDef → ∃ m, Mg c i = .error m) ∧
-        ∀ c i tm corr, rtMergeTiming c.timing i.timing = some tm → cm c i = .ok corr →
+        ∀ c i tm corr, mod021_named c → rtMergeTiming c.timing i.timing = some tm →
+          cm c i = .ok corr →
           ¬ KindsAgree c.toTransDef i.toTransDef →
           ∃ m p, Mg c i = .error m ∧ p ∈ kindPlaces c.toTransDef ∧ p ∈ kindPlaces i.toTransDef ∧
             arcKinds c.toTransDef p ≠ arcKinds i.toTransDef p ∧
             MsgNames m c.core.name ∧ MsgNames m (toString p) ∧
             MsgNames m (arcKinds c.toTransDef p).str ∧
             MsgNames m (arcKinds i.toTransDef p).str) ∧
-      (∀ c i tm corr, mod021_inOnce c → mod021_inOnce i →
+      (∀ c i tm corr, mod021_named c → mod021_inOnce c → mod021_inOnce i →
         rtMergeTiming c.timing i.timing = some tm → cm c i = .ok corr →
         KindsAgree c.toTransDef i.toTransDef →
         (∃ p a b, cardAt c.core.inputs p = some a ∧ cardAt i.core.inputs p = some b ∧
@@ -481,7 +496,7 @@ requirement MOD_021
           mergeCard a b = none ∧
           (Mg c i = .error (mod021_offTableMsg c.core.name ⟨p, a, b⟩) ∨
             Mg c i = .error (mod021_offTableMsgSnake c.core.name ⟨p, a, b⟩))) ∧
-      (∀ c i tm corr, mod021_inOnce c → mod021_inOnce i →
+      (∀ c i tm corr, mod021_named c → mod021_inOnce c → mod021_inOnce i →
         rtMergeTiming c.timing i.timing = some tm → cm c i = .ok corr →
         KindsAgree c.toTransDef i.toTransDef →
         (∀ p a b, cardAt c.core.inputs p = some a → cardAt i.core.inputs p = some b →
@@ -506,58 +521,62 @@ fun {N A} [DecidableEq N] [ToString N] Build sq cm tstr Mg =>
             (∀ (c i d : CDef N A), Mg c i = Except.ok d → d.action = sq c.action i.action) ∧
               (∀ (c i d : CDef N A), Mg c i = Except.ok d → Build d.toTrans = none) ∧
                 (∀ (c i : CDef N A),
-                    rtMergeTiming c.timing i.timing = none →
-                      ∃ m,
-                        Mg c i = Except.error m ∧
-                          MsgNames m c.core.name ∧
-                            (KindsAgree c.toTransDef i.toTransDef →
-                              MsgNames m (tstr c.timing) ∧ MsgNames m (tstr i.timing))) ∧
+                    mod021_named c →
+                      rtMergeTiming c.timing i.timing = none →
+                        ∃ m,
+                          Mg c i = Except.error m ∧
+                            MsgNames m c.core.name ∧
+                              (KindsAgree c.toTransDef i.toTransDef →
+                                MsgNames m (tstr c.timing) ∧ MsgNames m (tstr i.timing))) ∧
                   ((∀ (c i : CDef N A), ¬KindsAgree c.toTransDef i.toTransDef → ∃ m, Mg c i = Except.error m) ∧
                       ∀ (c i : CDef N A) (tm : Timing) (corr : Option (List (N × N))),
-                        rtMergeTiming c.timing i.timing = some tm →
-                          cm c i = Except.ok corr →
-                            ¬KindsAgree c.toTransDef i.toTransDef →
-                              ∃ m p,
-                                Mg c i = Except.error m ∧
-                                  p ∈ kindPlaces c.toTransDef ∧
-                                    p ∈ kindPlaces i.toTransDef ∧
-                                      arcKinds c.toTransDef p ≠ arcKinds i.toTransDef p ∧
-                                        MsgNames m c.core.name ∧
-                                          MsgNames m (toString p) ∧
-                                            MsgNames m (arcKinds c.toTransDef p).str ∧
-                                              MsgNames m (arcKinds i.toTransDef p).str) ∧
+                        mod021_named c →
+                          rtMergeTiming c.timing i.timing = some tm →
+                            cm c i = Except.ok corr →
+                              ¬KindsAgree c.toTransDef i.toTransDef →
+                                ∃ m p,
+                                  Mg c i = Except.error m ∧
+                                    p ∈ kindPlaces c.toTransDef ∧
+                                      p ∈ kindPlaces i.toTransDef ∧
+                                        arcKinds c.toTransDef p ≠ arcKinds i.toTransDef p ∧
+                                          MsgNames m c.core.name ∧
+                                            MsgNames m (toString p) ∧
+                                              MsgNames m (arcKinds c.toTransDef p).str ∧
+                                                MsgNames m (arcKinds i.toTransDef p).str) ∧
                     (∀ (c i : CDef N A) (tm : Timing) (corr : Option (List (N × N))),
-                        mod021_inOnce c →
-                          mod021_inOnce i →
-                            rtMergeTiming c.timing i.timing = some tm →
-                              cm c i = Except.ok corr →
-                                KindsAgree c.toTransDef i.toTransDef →
-                                  (∃ p a b,
-                                      cardAt c.core.inputs p = some a ∧
-                                        cardAt i.core.inputs p = some b ∧ mergeCard a b = none) →
-                                    ∃ p a b,
-                                      cardAt c.core.inputs p = some a ∧
-                                        cardAt i.core.inputs p = some b ∧
-                                          mergeCard a b = none ∧
-                                            (Mg c i =
-                                                Except.error
-                                                  (mod021_offTableMsg c.core.name
-                                                    { place := p, left := a, right := b }) ∨
-                                              Mg c i =
-                                                Except.error
-                                                  (mod021_offTableMsgSnake c.core.name
-                                                    { place := p, left := a, right := b }))) ∧
+                        mod021_named c →
+                          mod021_inOnce c →
+                            mod021_inOnce i →
+                              rtMergeTiming c.timing i.timing = some tm →
+                                cm c i = Except.ok corr →
+                                  KindsAgree c.toTransDef i.toTransDef →
+                                    (∃ p a b,
+                                        cardAt c.core.inputs p = some a ∧
+                                          cardAt i.core.inputs p = some b ∧ mergeCard a b = none) →
+                                      ∃ p a b,
+                                        cardAt c.core.inputs p = some a ∧
+                                          cardAt i.core.inputs p = some b ∧
+                                            mergeCard a b = none ∧
+                                              (Mg c i =
+                                                  Except.error
+                                                    (mod021_offTableMsg c.core.name
+                                                      { place := p, left := a, right := b }) ∨
+                                                Mg c i =
+                                                  Except.error
+                                                    (mod021_offTableMsgSnake c.core.name
+                                                      { place := p, left := a, right := b }))) ∧
                       ∀ (c i : CDef N A) (tm : Timing) (corr : Option (List (N × N))),
-                        mod021_inOnce c →
-                          mod021_inOnce i →
-                            rtMergeTiming c.timing i.timing = some tm →
-                              cm c i = Except.ok corr →
-                                KindsAgree c.toTransDef i.toTransDef →
-                                  (∀ (p : N) (a b : Card),
-                                      cardAt c.core.inputs p = some a →
-                                        cardAt i.core.inputs p = some b → mergeCard a b ≠ none) →
-                                    (∀ (d : CDef N A), mod021_shaped sq c i d → Build d.toTrans = none) →
-                                      ∃ d, Mg c i = Except.ok d
+                        mod021_named c →
+                          mod021_inOnce c →
+                            mod021_inOnce i →
+                              rtMergeTiming c.timing i.timing = some tm →
+                                cm c i = Except.ok corr →
+                                  KindsAgree c.toTransDef i.toTransDef →
+                                    (∀ (p : N) (a b : Card),
+                                        cardAt c.core.inputs p = some a →
+                                          cardAt i.core.inputs p = some b → mergeCard a b ≠ none) →
+                                      (∀ (d : CDef N A), mod021_shaped sq c i d → Build d.toTrans = none) →
+                                        ∃ d, Mg c i = Except.ok d
 -/
 #guard_msgs in #print MOD_021
 
@@ -598,22 +617,22 @@ def mod021b_line7 (Build : Trans N → Option String) (Mg : MergeFn N A) : Prop 
 /-- Line 8: timings with no merge reject, naming the caller, and both timings (rendered by
 `tstr`) when the arc types agree. -/
 def mod021b_line8 (tstr : Timing → String) (Mg : MergeFn N A) : Prop :=
-  ∀ c i, rtMergeTiming c.timing i.timing = none →
+  ∀ c i, mod021_named c → rtMergeTiming c.timing i.timing = none →
     ∃ m, Mg c i = .error m ∧ MsgNames m c.core.name ∧
       (KindsAgree c.toTransDef i.toTransDef →
         MsgNames m (tstr c.timing) ∧ MsgNames m (tstr i.timing))
 
 /-- Line 8 without the timings: timings with no merge reject, naming the caller. -/
 def mod021b_line8Name (Mg : MergeFn N A) : Prop :=
-  ∀ c i, rtMergeTiming c.timing i.timing = none →
+  ∀ c i, mod021_named c → rtMergeTiming c.timing i.timing = none →
     ∃ m, Mg c i = .error m ∧ MsgNames m c.core.name
 
 /-- Line 9: different arc types on one place reject; once the timings and the correspondences
 merge, the message names an offending place and both sides' sets of arc types on it. -/
 def mod021b_line9 (cm : CorrMergeFn N A) (Mg : MergeFn N A) : Prop :=
   (∀ c i, ¬ KindsAgree c.toTransDef i.toTransDef → ∃ m, Mg c i = .error m) ∧
-    ∀ c i tm corr, rtMergeTiming c.timing i.timing = some tm → cm c i = .ok corr →
-      ¬ KindsAgree c.toTransDef i.toTransDef →
+    ∀ c i tm corr, mod021_named c → rtMergeTiming c.timing i.timing = some tm →
+      cm c i = .ok corr → ¬ KindsAgree c.toTransDef i.toTransDef →
       ∃ m p, Mg c i = .error m ∧ p ∈ kindPlaces c.toTransDef ∧ p ∈ kindPlaces i.toTransDef ∧
         arcKinds c.toTransDef p ≠ arcKinds i.toTransDef p ∧
         MsgNames m c.core.name ∧ MsgNames m (toString p) ∧
@@ -630,7 +649,7 @@ def mod021_offTableNamed (Mg : MergeFn N A) (c i : CDef N A) (name : String) : P
 /-- Line 10, with the seam named by `seam` (the block takes the caller's name). -/
 def mod021b_line10At (seam : CDef N A → CDef N A → String) (cm : CorrMergeFn N A)
     (Mg : MergeFn N A) : Prop :=
-  ∀ c i tm corr, mod021_inOnce c → mod021_inOnce i →
+  ∀ c i tm corr, mod021_named c → mod021_inOnce c → mod021_inOnce i →
     rtMergeTiming c.timing i.timing = some tm → cm c i = .ok corr →
     KindsAgree c.toTransDef i.toTransDef →
     (∃ p a b, cardAt c.core.inputs p = some a ∧ cardAt i.core.inputs p = some b ∧
@@ -644,7 +663,7 @@ def mod021b_line10 (cm : CorrMergeFn N A) (Mg : MergeFn N A) : Prop :=
 /-- Line 11: acceptance. -/
 def mod021b_line11 (Build : Trans N → Option String) (sq : Act A → Act A → Act A)
     (cm : CorrMergeFn N A) (Mg : MergeFn N A) : Prop :=
-  ∀ c i tm corr, mod021_inOnce c → mod021_inOnce i →
+  ∀ c i tm corr, mod021_named c → mod021_inOnce c → mod021_inOnce i →
     rtMergeTiming c.timing i.timing = some tm → cm c i = .ok corr →
     KindsAgree c.toTransDef i.toTransDef →
     (∀ p a b, cardAt c.core.inputs p = some a → cardAt i.core.inputs p = some b →
@@ -869,14 +888,14 @@ theorem mod021_G_line7 : mod021b_line7 Build (mod021_mergeG Build sq cm tmf tmsg
 
 theorem mod021_G_line8Name (htm : ∀ a b, rtMergeTiming a b = none → tmf a b = none)
     (hn : ∀ n a b, MsgNames (tmsg n a b) n) :
-    mod021b_line8Name (mod021_mergeG Build sq cm tmf tmsg kc seam) := fun _ _ h =>
+    mod021b_line8Name (mod021_mergeG Build sq cm tmf tmsg kc seam) := fun _ _ _ h =>
   ⟨_, mod021_G_timing (htm _ _ h), hn _ _ _⟩
 
 theorem mod021_G_line8 {tstr : Timing → String}
     (htm : ∀ a b, rtMergeTiming a b = none → tmf a b = none)
     (hn : ∀ n a b, MsgNames (tmsg n a b) n)
     (hts : ∀ n a b, MsgNames (tmsg n a b) (tstr a) ∧ MsgNames (tmsg n a b) (tstr b)) :
-    mod021b_line8 tstr (mod021_mergeG Build sq cm tmf tmsg kc seam) := fun _ _ h =>
+    mod021b_line8 tstr (mod021_mergeG Build sq cm tmf tmsg kc seam) := fun _ _ _ h =>
   ⟨_, mod021_G_timing (htm _ _ h), hn _ _ _, fun _ => hts _ _ _⟩
 
 theorem mod021_G_line9 (hrt : ∀ a b t, rtMergeTiming a b = some t → tmf a b = some t)
@@ -885,7 +904,7 @@ theorem mod021_G_line9 (hrt : ∀ a b t, rtMergeTiming a b = some t → tmf a b 
       p ∈ kindPlaces c ∧ p ∈ kindPlaces i ∧ arcKinds c p ≠ arcKinds i p) :
     mod021b_line9 cm (mod021_mergeG Build sq cm tmf tmsg kc seam) := by
   refine ⟨fun c i hk => except_error_of_not_ok fun d h => ?_,
-    fun c i tm corr ht hc hK => ?_⟩
+    fun c i tm corr _ ht hc hK => ?_⟩
   · obtain ⟨_, _, _, -, -, hkn, -⟩ := mod021_G_ok h
     exact hk (hk1 _ _ hkn)
   · cases hk : kc c.toTransDef i.toTransDef with
@@ -899,7 +918,7 @@ theorem mod021_G_line9 (hrt : ∀ a b t, rtMergeTiming a b = some t → tmf a b 
 theorem mod021_G_line10 (hrt : ∀ a b t, rtMergeTiming a b = some t → tmf a b = some t)
     (hk0 : ∀ c i : TransDef N A, KindsAgree c i → kc c i = none) :
     mod021b_line10At seam cm (mod021_mergeG Build sq cm tmf tmsg kc seam) := by
-  intro c i tm corr hx hy ht hc hK ⟨p, a, b, ha, hb, hab⟩
+  intro c i tm corr _ hx hy ht hc hK ⟨p, a, b, ha, hb, hab⟩
   cases hi : mergeInputsE (c.core.inputs ++ i.core.inputs) with
   | ok ins => exact absurd hab ((mergeInputsE_ok_iff hx hy).1 ⟨ins, hi⟩ p a b ha hb)
   | error col =>
@@ -910,7 +929,7 @@ theorem mod021_G_line10 (hrt : ∀ a b t, rtMergeTiming a b = some t → tmf a b
 theorem mod021_G_line11 (hrt : ∀ a b t, rtMergeTiming a b = some t → tmf a b = some t)
     (hk0 : ∀ c i : TransDef N A, KindsAgree c i → kc c i = none) :
     mod021b_line11 Build sq cm (mod021_mergeG Build sq cm tmf tmsg kc seam) := by
-  intro c i tm corr hx hy ht hc hK hall hB
+  intro c i tm corr _ hx hy ht hc hK hall hB
   obtain ⟨ins, hi⟩ := (mergeInputsE_ok_iff hx hy).2 hall
   exact ⟨_, mod021_G_accepts (hrt _ _ _ ht) hc (hk0 _ _ hK) hi
     (hB _ (mod021_mergedDef_shaped hx hy ht hi))⟩
@@ -971,7 +990,7 @@ merge, the merge fails with the rule (c) diagnostic for `P`, `a` and `b`: `one()
 on `P` from caller `T` gives `Channel composition 'T': input arcs one() and all() collide on place
 'P' ...`. -/
 theorem mod021_offTable_sole (h : MOD_021 Build sq cm tstr Mg) {c i : CDef N A} {tm : Timing}
-    {corr : Option (List (N × N))} {p : N} {a b : Card} (hx : mod021_inOnce c)
+    {corr : Option (List (N × N))} {p : N} {a b : Card} (hn : mod021_named c) (hx : mod021_inOnce c)
     (hy : mod021_inOnce i) (ht : rtMergeTiming c.timing i.timing = some tm)
     (hc : cm c i = .ok corr) (hK : KindsAgree c.toTransDef i.toTransDef)
     (ha : cardAt c.core.inputs p = some a) (hb : cardAt i.core.inputs p = some b)
@@ -981,7 +1000,7 @@ theorem mod021_offTable_sole (h : MOD_021 Build sq cm tstr Mg) {c i : CDef N A} 
     Mg c i = .error (mod021_offTableMsg c.core.name ⟨p, a, b⟩) ∨
       Mg c i = .error (mod021_offTableMsgSnake c.core.name ⟨p, a, b⟩) := by
   obtain ⟨q, a', b', ha', hb', hab', hm⟩ :=
-    h.2.2.2.2.2.2.2.2.2.1 c i tm corr hx hy ht hc hK ⟨p, a, b, ha, hb, hab⟩
+    h.2.2.2.2.2.2.2.2.2.1 c i tm corr hn hx hy ht hc hK ⟨p, a, b, ha, hb, hab⟩
   obtain rfl := hsole q a' b' ha' hb' hab'
   rw [ha] at ha'
   rw [hb] at hb'
@@ -1001,6 +1020,12 @@ def mod021_sqEx : Act (List String) → Act (List String) → Act (List String) 
 
 /-- The example correspondence merge: it records none. -/
 def mod021_cmNone : CorrMergeFn String (List String) := fun _ _ => .ok none
+
+/-- An example caller named `T` is a named caller. -/
+theorem mod021_named_T (ins : List (NInSpec String)) (o : Option (Out String))
+    (inh reads resets : List String) (tm : Timing) (prio : Int) (act : Act (List String)) :
+    mod021_named (mergeExDef "T" ins o inh reads resets tm prio act) :=
+  ⟨'T', by simp [mergeExDef], by decide⟩
 
 /-- A success, read off a decided view of the merge. -/
 theorem mod021_ok_of_view {N A β : Type} {Mg : MergeFn N A} {c i : CDef N A}
@@ -1064,6 +1089,43 @@ def mod021_base : MergeFn String (List String) := refMerge mod021_buildAll mod02
 theorem mod021_base_holds : MOD_021 mod021_buildAll mod021_sqEx mod021_cmNone timingStr mod021_base :=
   MOD_021_reference _ _ _
 
+/-- The example merge with the runtimes' first check: it refuses an empty caller-side name before
+anything else, as Rust (`rewriter.rs:615-618`), Java (`SubnetRewriter.java:536`) and TypeScript
+(`subnet-rewriter.ts:488`) do. -/
+def mod021_emptyGuard : MergeFn String (List String) := fun c i =>
+  if c.core.name = "" then .error "mergeTransitions: mergedName must be a non-empty string"
+  else mod021_base c i
+
+/-- The merge that refuses an empty caller-side name meets the block: lines 8 to 11 claim nothing
+of a caller whose name is empty, so the runtimes' refusal is no violation. -/
+theorem mod021_emptyGuard_holds :
+    MOD_021 mod021_buildAll mod021_sqEx mod021_cmNone timingStr mod021_emptyGuard := by
+  obtain ⟨l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11⟩ := mod021_base_holds
+  have hok : ∀ c i d, mod021_emptyGuard c i = .ok d → mod021_base c i = .ok d := by
+    intro c i d h
+    unfold mod021_emptyGuard at h
+    split at h
+    · cases h
+    · exact h
+  have heq : ∀ c i, mod021_named c → mod021_emptyGuard c i = mod021_base c i := by
+    intro c i ⟨ch, hm, _⟩
+    unfold mod021_emptyGuard
+    rw [if_neg]
+    intro he
+    rw [he] at hm
+    simp at hm
+  refine ⟨fun c i d h => l1 c i d (hok _ _ _ h), fun c i d hx hy h => l2 c i d hx hy (hok _ _ _ h),
+    fun c i d h => l3 c i d (hok _ _ _ h), fun c i d h => l4 c i d (hok _ _ _ h),
+    fun c i d h => l5 c i d (hok _ _ _ h), fun c i d h => l6 c i d (hok _ _ _ h),
+    fun c i d h => l7 c i d (hok _ _ _ h), fun c i hn ht => heq c i hn ▸ l8 c i hn ht,
+    ⟨fun c i hk => ?_, fun c i tm corr hn ht hc hK => heq c i hn ▸ l9.2 c i tm corr hn ht hc hK⟩,
+    fun c i tm corr hn hx hy ht hc hK hoff => heq c i hn ▸ l10 c i tm corr hn hx hy ht hc hK hoff,
+    fun c i tm corr hn hx hy ht hc hK hall hB => heq c i hn ▸ l11 c i tm corr hn hx hy ht hc hK hall hB⟩
+  unfold mod021_emptyGuard
+  split
+  · exact ⟨_, rfl⟩
+  · exact l9.1 c i hk
+
 /-- A merge that rejects every pair. -/
 def mod021_rejectAllMerge : MergeFn String (List String) := fun _ _ => .error ""
 
@@ -1074,7 +1136,7 @@ theorem MOD_021_forbids_rejectAll :
     ¬ MOD_021 mod021_buildAll mod021_sqEx mod021_cmNone timingStr mod021_rejectAllMerge := by
   intro h
   obtain ⟨d, hd⟩ := h.2.2.2.2.2.2.2.2.2.2 (mergeExDef "T" [] none) (mergeExDef "C" [] none)
-    .immediate none (by simp [mod021_inOnce, mergeExDef]) (by simp [mod021_inOnce, mergeExDef])
+    .immediate none (mod021_named_T ..) (by simp [mod021_inOnce, mergeExDef]) (by simp [mod021_inOnce, mergeExDef])
     rfl rfl (fun p hp => by simp [kindPlaces, mergeExDef] at hp)
     (fun p a b ha => by simp [cardAt, mergeExDef] at ha) (fun _ _ => rfl)
   cases hd
@@ -1173,24 +1235,24 @@ omit [ToString N] in
 /-- Line 8 carries over. -/
 theorem mod021_post_line8 {tstr : Timing → String} (h : mod021b_line8 tstr Mg) :
     mod021b_line8 tstr (mod021_post g Mg) := by
-  intro c i ht
-  obtain ⟨m, hm, hn⟩ := h c i ht
+  intro c i hn0 ht
+  obtain ⟨m, hm, hn⟩ := h c i hn0 ht
   exact ⟨m, mod021_post_err.2 hm, hn⟩
 
 /-- Line 9 carries over. -/
 theorem mod021_post_line9 {cm : CorrMergeFn N A} (h : mod021b_line9 cm Mg) :
     mod021b_line9 cm (mod021_post g Mg) := by
-  refine ⟨fun c i hk => ?_, fun c i tm corr ht hc hK => ?_⟩
+  refine ⟨fun c i hk => ?_, fun c i tm corr hn0 ht hc hK => ?_⟩
   · obtain ⟨m, hm⟩ := h.1 c i hk
     exact ⟨m, mod021_post_err.2 hm⟩
-  · obtain ⟨m, p, hm, hn⟩ := h.2 c i tm corr ht hc hK
+  · obtain ⟨m, p, hm, hn⟩ := h.2 c i tm corr hn0 ht hc hK
     exact ⟨m, p, mod021_post_err.2 hm, hn⟩
 
 /-- Line 10 carries over. -/
 theorem mod021_post_line10 {cm : CorrMergeFn N A} {seam : CDef N A → CDef N A → String}
     (h : mod021b_line10At seam cm Mg) : mod021b_line10At seam cm (mod021_post g Mg) := by
-  intro c i tm corr hx hy ht hc hK hoff
-  obtain ⟨p, a, b, ha, hb, hab, hor⟩ := h c i tm corr hx hy ht hc hK hoff
+  intro c i tm corr hn hx hy ht hc hK hoff
+  obtain ⟨p, a, b, ha, hb, hab, hor⟩ := h c i tm corr hn hx hy ht hc hK hoff
   exact ⟨p, a, b, ha, hb, hab, hor.imp mod021_post_err.2 mod021_post_err.2⟩
 
 omit [ToString N] in
@@ -1198,8 +1260,8 @@ omit [ToString N] in
 theorem mod021_post_line11 {Build : Trans N → Option String} {sq : Act A → Act A → Act A}
     {cm : CorrMergeFn N A} (h : mod021b_line11 Build sq cm Mg) :
     mod021b_line11 Build sq cm (mod021_post g Mg) := by
-  intro c i tm corr hx hy ht hc hK hall hB
-  obtain ⟨d, hd⟩ := h c i tm corr hx hy ht hc hK hall hB
+  intro c i tm corr hn hx hy ht hc hK hall hB
+  obtain ⟨d, hd⟩ := h c i tm corr hn hx hy ht hc hK hall hB
   exact ⟨g c i d, by simp [mod021_post, hd, Except.map]⟩
 
 /-- Lines 8 to 11 of a merge carry over to every rewrite of its successes. -/
@@ -1514,7 +1576,7 @@ theorem MOD_021_mutant_skipBuild_killed :
       ¬ MOD_021 refBuild mod021_sqEx mod021_cmNone timingStr mod021_base := by
   obtain ⟨l1, l2, l3, l4, l5, l6, -, l8, l9, l10, l11⟩ := mod021_base_holds
   refine ⟨⟨l1, l2, l3, l4, l5, l6, l8, l9, l10,
-    fun c i tm corr hx hy ht hc hK hall _ => l11 c i tm corr hx hy ht hc hK hall fun _ _ => rfl⟩,
+    fun c i tm corr hn hx hy ht hc hK hall _ => l11 c i tm corr hn hx hy ht hc hK hall fun _ _ => rfl⟩,
     fun h => ?_⟩
   obtain ⟨d, hd, hv⟩ := mod021_ok_of_view (Mg := mod021_base)
     (c := mergeExDef "T" [] (some (.place "Q"))) (i := mergeExDef "C" [] (some (.place "Q")))
@@ -1560,7 +1622,7 @@ theorem MOD_021_mutant_acceptTimingConflict_killed :
   · obtain ⟨_, _, _, ht, -, -, -, rfl, -⟩ := mod021_G_ok hd
     exact (Option.some.inj ht).symm
   · obtain ⟨m, hm, -⟩ := h.2.2.2.2.2.2.2.1 (mergeExDef "T" [] none (tm := .deadline 100))
-      (mergeExDef "C" [] none (tm := .delayed 50)) (by decide)
+      (mergeExDef "C" [] none (tm := .delayed 50)) (mod021_named_T ..) (by decide)
     have hv : (mod021_acceptTimingMerge (mergeExDef "T" [] none (tm := .deadline 100))
         (mergeExDef "C" [] none (tm := .delayed 50))).toOption.isSome = true := by decide
     rw [hm] at hv
@@ -1602,7 +1664,7 @@ theorem MOD_021_mutant_timingNameOnly_killed :
       (mergeExDef "C" [] none (tm := .delayed 50)).toTransDef :=
     fun p hp => by simp [kindPlaces, mergeExDef] at hp
   obtain ⟨m, hm, -, hts⟩ := h.2.2.2.2.2.2.2.1 (mergeExDef "T" [] none (tm := .deadline 100))
-    (mergeExDef "C" [] none (tm := .delayed 50)) (by decide)
+    (mergeExDef "C" [] none (tm := .delayed 50)) (mod021_named_T ..) (by decide)
   have hmsg : mergeExMsg (mod021_timingNameOnlyMerge (mergeExDef "T" [] none (tm := .deadline 100))
       (mergeExDef "C" [] none (tm := .delayed 50))) = some "Channel composition 'T'" := by decide
   rw [hm] at hmsg
@@ -1686,7 +1748,7 @@ theorem MOD_021_mutant_instanceSeam_killed :
   have hkc : kindConflict (mergeExDef "T" [⟨"P", .one⟩] none).toTransDef
       (mergeExDef "C" [⟨"P", .all⟩] none).toTransDef = none := by decide
   obtain ⟨p, a, b, ha, hb, -, hor⟩ := h.2.2.2.2.2.2.2.2.2.1 (mergeExDef "T" [⟨"P", .one⟩] none)
-    (mergeExDef "C" [⟨"P", .all⟩] none) .immediate none
+    (mergeExDef "C" [⟨"P", .all⟩] none) .immediate none (mod021_named_T ..)
     (mod021_inOnce_ex _ _ _ _ _ _ _ _ _ (by decide)) (mod021_inOnce_ex _ _ _ _ _ _ _ _ _ (by decide))
     rfl rfl (kindConflict_eq_none_iff.1 hkc) ⟨"P", .one, .all, by decide, by decide, by decide⟩
   have hp : p = "P" := by
@@ -1753,18 +1815,18 @@ theorem MOD_021_mutant_conservative_killed :
     fun c i d hd => l4 c i d (mod021_conservative_ok hd),
     fun c i d hd => l5 c i d (mod021_conservative_ok hd),
     fun c i d hd => l6 c i d (mod021_conservative_ok hd), mod021_line7_buildAll _,
-    fun c i ht => ?_, ⟨fun c i hk => ?_, fun c i tm corr ht hc hK => ?_⟩,
-    fun c i tm corr hx hy ht hc hK hoff => ?_⟩, fun h => ?_⟩
-  · obtain ⟨m, hm, hn⟩ := l8 c i ht
+    fun c i hn0 ht => ?_, ⟨fun c i hk => ?_, fun c i tm corr hn0 ht hc hK => ?_⟩,
+    fun c i tm corr hn0 hx hy ht hc hK hoff => ?_⟩, fun h => ?_⟩
+  · obtain ⟨m, hm, hn⟩ := l8 c i hn0 ht
     exact ⟨m, mod021_conservative_err hm, hn⟩
   · obtain ⟨m, hm⟩ := l9.1 c i hk
     exact ⟨m, mod021_conservative_err hm⟩
-  · obtain ⟨m, p, hm, hn⟩ := l9.2 c i tm corr ht hc hK
+  · obtain ⟨m, p, hm, hn⟩ := l9.2 c i tm corr hn0 ht hc hK
     exact ⟨m, p, mod021_conservative_err hm, hn⟩
-  · obtain ⟨p, a, b, ha, hb, hab, hor⟩ := l10 c i tm corr hx hy ht hc hK hoff
+  · obtain ⟨p, a, b, ha, hb, hab, hor⟩ := l10 c i tm corr hn0 hx hy ht hc hK hoff
     exact ⟨p, a, b, ha, hb, hab, hor.imp mod021_conservative_err mod021_conservative_err⟩
   · obtain ⟨d, hd⟩ := h.2.2.2.2.2.2.2.2.2.2 (mergeExDef "T" [] (some (.place "Q")))
-      (mergeExDef "C" [] (some (.place "S"))) .immediate none
+      (mergeExDef "C" [] (some (.place "S"))) .immediate none (mod021_named_T ..)
       (mod021_inOnce_ex _ _ _ _ _ _ _ _ _ (by decide)) (mod021_inOnce_ex _ _ _ _ _ _ _ _ _ (by decide))
       rfl rfl (fun p hp => by simp [kindPlaces, mergeExDef] at hp)
       (fun p a b ha => by simp [cardAt, mergeExDef] at ha) (fun _ _ => rfl)

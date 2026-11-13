@@ -1,12 +1,12 @@
 /**
  * Input: `spec/runtime-defects.md`, the ledger table and the `### RD-NN. Title` entries with
- * their Requirements / Runtimes / Defect / Lean evidence / Status items.
+ * their Requirements / Runtimes / Defect / Lean evidence / Fix / Status items (Fix is optional).
  *
  * - Requirements: the IDs the item names, in order; they must equal the table row's IDs.
  * - Runtimes: names map to `Runtime` ("TypeScript" -> "typescript", "Python through Rust" ->
  *   "python", "all" -> every runtime), in `RUNTIMES` order; an unknown name fails the build.
  * - Lean evidence: the backticked names, or none when the item starts with "none".
- * - Status: `open` or `fixed in <version>`, matching the table row.
+ * - Status: `open`, `fixed in <version>` or `fixed, unreleased`, matching the table row.
  * Entries in ledger order.
  */
 import type { Defect, DefectStatus, ReqId, Runtime } from '../../model.js';
@@ -21,7 +21,7 @@ export const DEFECTS_FILE = 'spec/runtime-defects.md';
 const ENTRY_RE = /^### (RD-\d+)\.\s+(.+?)\s*$/;
 const ITEM_RE = /^- \*\*([^*]+?):\*\*\s*(.*)$/;
 const ID_RE = /\b[A-Z]{2,6}-\d{3}\b/g;
-const ITEMS = ['Requirements', 'Runtimes', 'Defect', 'Lean evidence', 'Status'] as const;
+const ITEMS = ['Requirements', 'Runtimes', 'Defect', 'Lean evidence', 'Fix', 'Status'] as const;
 type Item = (typeof ITEMS)[number];
 
 interface TableRow {
@@ -44,10 +44,11 @@ export function parseRuntimes(text: string): Runtime[] | null {
   return RUNTIMES.filter((r) => found.has(r));
 }
 
-/** `open.` or `fixed in 12.0.1.`; anything else is null. */
+/** `open.`, `fixed in 12.0.1.` or `fixed, unreleased.`; anything else is null. */
 export function parseDefectStatus(text: string): DefectStatus | null {
   const plain = text.trim().replace(/\.$/, '');
   if (plain === 'open') return { state: 'open' };
+  if (plain === 'fixed, unreleased') return { state: 'fixed', version: null };
   const m = /^fixed in (\S+)$/.exec(plain);
   return m?.[1] === undefined ? null : { state: 'fixed', version: m[1] };
 }
@@ -116,7 +117,7 @@ export function parseDefects(text: string, file: string = DEFECTS_FILE): Defect[
     const runtimes = parseRuntimes(get('Runtimes'));
     if (runtimes === null || runtimes.length === 0) throw at(`unknown runtime in "${get('Runtimes')}"; use Java, TypeScript, Rust, Python or all`);
     const status = parseDefectStatus(get('Status'));
-    if (status === null) throw at(`status "${get('Status')}" is neither "open" nor "fixed in <version>"`);
+    if (status === null) throw at(`status "${get('Status')}" is not "open", "fixed in <version>" or "fixed, unreleased"`);
 
     const row = table.get(id);
     if (row === undefined) throw at('missing from the ledger table');
@@ -127,7 +128,9 @@ export function parseDefects(text: string, file: string = DEFECTS_FILE): Defect[
     if (tableStatus === null || JSON.stringify(tableStatus) !== JSON.stringify(status)) throw at(`the table says "${row.status}", the entry "${get('Status')}"`);
 
     const evidenceText = get('Lean evidence');
-    defects.push({ id, title, requirements, runtimes, text: get('Defect'), evidence: evidenceNames(evidenceText), evidenceText, status });
+    const fix = items.get('Fix');
+    if (fix === '') throw at('empty "Fix" item');
+    defects.push({ id, title, requirements, runtimes, text: get('Defect'), evidence: evidenceNames(evidenceText), evidenceText, fix: fix ?? null, status });
   }
   const ids = new Set(defects.map((d) => d.id));
   for (const id of table.keys()) if (!ids.has(id)) throw inputError(file, null, `${id} is in the table but has no "### ${id}." entry`);

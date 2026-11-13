@@ -54,7 +54,7 @@ requirement TIME_006
           "AC1 (cannot fire before at) is line 1. AC2's 'not force-disabled for being observed late' is lines 2, 3 and 4. AC2's 'fires at the first opportunity at or after at' is liveness of the cycle loop ([EXEC-001], [EXEC-002]), which the atomic step relation of Phase 1 does not state; line 2 makes every such firing available from the bound on. 'Exactness is observable from the firing event' is the event log ([EVT-006], [EVT-007]), not this block; that a late Exact transition emits no TransitionTimedOut ([EVT-009]) follows from line 3, as only a reap emits it."
           "The interval bullets (earliest and latest bound at, hasDeadline true) are the Timing accessors (time006_interval). The construction bullet is [TIME-001] AC4 (Timing.Valid, ruling D11): Exact(at) is valid exactly when at is at most the maximum duration. The advice to use Delayed(at) or Window(at, at + slack) instead is not a requirement on the executor."
           "The test derivation (Exact(50ms) under a busy executor that cannot run a cycle until well past 50ms: it still fires and is not timed out) is the nonvacuous example TIME_006_nonvacuous: at 1000 ms, far past 50 plus the tolerance, the transition can fire and no reap of it is a step; at 10 ms an unrelated transition fires and the transition keeps its stamp (line 4)."
-  signoff "pending"
+  signoff "2026-11-13 9a5e081db9a5fa53 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ (X : TimedNet _) u a, TimingOf X u = .exact a →
       (while (fun s => Armed s u ∧ Elapsed s u < a),

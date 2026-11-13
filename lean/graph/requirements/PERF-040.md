@@ -13,7 +13,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12278["Libpetri.Spec.cites_precompiled_refines"]
+    n12462["Libpetri.Spec.cites_precompiled_refines"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -37,11 +37,11 @@ flowchart TD
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  n12278 --> c99
+  n12462 --> c99
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12278 root
+  class n12462 root
   class c0,c1,c2,c3,c4,c99,c100,c101,c105,c106,c108 collapsed
 ```
 

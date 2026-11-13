@@ -13,14 +13,12 @@ them for firing. The requirement is a predicate over an abstract ordering functi
 `O : ReadyIn → List Nat` (the ready order of every backend, as declaration indices). The
 evidence theorems check it against the reference order `refReadyOrder`, against the
 declaration-order scan, and against mutant orders: the pre-fix per-level drain in declaration
-order (`tid_order_diverges`), a tie broken by descending declaration order, a LIFO order, and
-two orders that misbehave only on the all-immediate fast path.
+order (`tid_order_diverges`), a tie broken by descending declaration order, a LIFO order, orders
+that misbehave only on the all-immediate fast path, and the general sort used on every input.
 
-The fast path (one priority, every transition `Immediate`) is not ruled (D14): the spec gives it
-declaration order, the open ruling may replace that by the general sort. The block constrains it
-only by what both outcomes share (the order holds exactly the ready transitions, and a tie of
-priority and stamp breaks by ascending declaration order); both outcomes satisfy the
-block (`EXEC_002_D14_neutral`).
+On the all-immediate fast path (one priority, every transition `Immediate`) the order is the
+ready transitions in ascending declaration order, whatever their stamps, as the section states
+and ruling D14 (a) accepts (`EXEC_002_mutant_fastOpen_killed`).
 -/
 
 namespace Libpetri.Spec
@@ -178,9 +176,7 @@ def exec002_sortOrder : ReadyOrder := fun I => sortBy I.key.lt I.readyList
 
 /-- **The reference ready order** (witness model). Off the fast path, the ready transitions
 sorted by the canonical key. On the fast path, the ready transitions in declaration order, as the
-section says the shipped backends do. That fast-path choice is one of the two outcomes of the
-open ruling D14 and is not required by the block: the sort on every input satisfies it too
-(`EXEC_002_D14_neutral`). -/
+section says every backend does (ruling D14 (a)). -/
 def refReadyOrder : ReadyOrder := fun I =>
   if I.FastPath then I.readyList else exec002_sortOrder I
 
@@ -192,40 +188,45 @@ requirement EXEC_002
   id "EXEC-002"
   title "Priority-Based Firing Order"
   kind F
-  scope "every executor backend; on the all-immediate fast path only what both outcomes of ruling D14 share"
+  scope "every executor backend, the all-immediate fast path included (ruling D14 (a))"
   source verbatim "spec/04-execution-model.md"
   quote "When multiple transitions are ready to fire (armed, past their earliest bound and not expired; see the glossary), they are sorted by:"
-        "Priority, descending: a higher priority fires first."
-        "Stamp, ascending (FIFO): among equal priority, the transition armed first fires first ([TIME-010])."
-        "Declaration order, ascending: among equal priority and equal stamp, the transition declared first fires first."
+        "**Priority**, descending: a higher priority fires first."
+        "**Stamp**, ascending (FIFO): among equal priority, the transition armed first fires first ([TIME-010])."
+        "**Declaration order**, ascending: among equal priority and equal stamp, the transition declared first fires first."
         "The ready order of a firing pass *shall* hold every ready transition exactly once and no other transition."
         "*Where* the net does not take the all-immediate fast path, the ready order *shall* offer a ready transition of higher priority before a ready transition of lower priority."
         "*Where* the net does not take the all-immediate fast path, the ready order *shall* offer, among ready transitions of equal priority, the one with the earlier stamp first."
         "The ready order *shall* offer, among ready transitions of equal priority and equal stamp, the earlier-declared one first."
         "The sort above describes the general path."
-        "Equal priority and equal stamp (transitions newly armed by the enablement update of the same orchestrator cycle share one stamp, [TIME-010]): the tie breaks by ascending declaration order, so the order is fully deterministic."
+        "Equal priority **and** equal stamp (transitions newly armed by the enablement update of the same orchestrator cycle share one stamp, [TIME-010]): the tie breaks by ascending declaration order, so the order is fully deterministic."
+        "When every transition is `Immediate` and all priorities are equal, backends fire straight from the enablement bitmap in ascending declaration order and do not read the enablement timestamp at all — including when two ready transitions carry different timestamps because one was held across cycles while in flight."
   reading "For every input of a pass, fast path included:"
           "the order holds every ready transition exactly once and nothing else;"
           "two transitions of equal priority and equal stamp come in ascending declaration order;"
-          "and off the all-immediate fast path, the order is strictly sorted by priority descending, then stamp ascending, then declaration order ascending."
+          "off the all-immediate fast path, the order is strictly sorted by priority descending, then stamp ascending, then declaration order ascending;"
+          "and on the all-immediate fast path, the order is the ready transitions in ascending declaration order, whatever their stamps."
   assumes "The model is an ordering function O from the inputs of one pass (ReadyIn: the net's transitions numbered in declaration order, their priorities, their timings, their stamps and which are ready) to the list of ready transitions in the order the pass offers them for firing. Ready is the glossary term (armed, past the earliest bound, not expired); the stamp is the firing-clock reading taken by the enablement update that most recently newly armed the transition (glossary: Armed, [TIME-010]); the field ReadyIn.clock holds it. In the block these are free inputs; ReadyIn.ofTSt reads them off a timed state of the reference step (the state's stamp, glossary Ready as the ready bit), and ClashesTime shows a bridged input reached by the timed reference step. Which reading becomes a stamp is TIME-010's, not this block's. Which of the offered transitions fires is EXEC-003, not this block."
-          "The four 'shall' sentences are the three lines of the formula. The first is line 1. The fourth, on every input, is line 2. The second and third, off the fast path, are line 3 together with lines 1 and 2: since the order holds every ready transition exactly once, being strictly sorted by the key (priority descending, stamp ascending, declaration order ascending) is the same as offering, of every two ready transitions, the one of higher priority first, of equal priority the one with the earlier stamp first, and of equal priority and stamp the earlier-declared one first (EXEC_002_iff_sentences). The three items of the sort list are the same key, item by item."
-          "'All-immediate fast path': ruling D14 is open. The section names the condition: 'When every transition is `Immediate` and all priorities are equal, backends fire straight from the enablement bitmap in ascending declaration order and do not read the enablement timestamp at all — including when two ready transitions carry different timestamps because one was held across cycles while in flight.' On the fast path the block asks only what both outcomes of D14 share: the first two lines. Whether the fast-path order is declaration order or the general sort when timestamps differ is not encoded; both satisfy the block (EXEC_002_D14_neutral). 'This is deliberate, and every backend takes the path under the same condition.' is part of that paragraph and is not encoded either."
+          "The four 'shall' sentences are the first three lines of the formula. The first is line 1. The fourth, on every input, is line 2. The second and third, off the fast path, are line 3 together with lines 1 and 2: since the order holds every ready transition exactly once, being strictly sorted by the key (priority descending, stamp ascending, declaration order ascending) is the same as offering, of every two ready transitions, the one of higher priority first, of equal priority the one with the earlier stamp first, and of equal priority and stamp the earlier-declared one first (EXEC_002_iff_sentences). The three items of the sort list are the same key, item by item."
+          "The all-immediate fast path is accepted as stated (ruling D14 (a)). The quoted fast-path sentence is line 4: on ReadyIn.FastPath (every transition of the net Immediate, all priorities equal) the order is ReadyIn.readyList, the ready transitions in ascending declaration order, and the stamps are not read, so two ready transitions with different stamps still come in declaration order. 'Fire straight from the enablement bitmap' is read as the offer order of the ready transitions; which transitions are ready (a transition whose firing is in flight in a net that is not re-entrant included) is a free input here. Lines 1 and 2 hold on the fast path as well and there follow from line 4. Every runtime scans in ascending declaration index on the fast path: rust/libpetri-runtime/src/precompiled_backend.rs and bitmap_backend.rs (collect_ready_immediate), java/src/main/java/org/libpetri/runtime/PrecompiledNetExecutor.java (fireReadyImmediate), typescript/src/runtime/precompiled-net-executor.ts (fireReadyImmediate). A backend without the fast path that sorts by stamp on every input breaks line 4 (EXEC_002_mutant_fastOpen_killed: on exec002_Ifs, all Immediate and one priority, transition 1 armed before 0, the sort offers [1, 0] where line 4 asks [0, 1]). 'This is deliberate, and every backend takes the path under the same condition.' is the one fixed condition ReadyIn.FastPath of lines 3 and 4, which the block uses for every backend. The note of ruling D14 (a) that composition does not preserve the fast path is MOD-012's, not this block's."
           "AC1 (priority 10 before priority 5) and AC2 (equal priority on the general path, the one armed first, with the earlier stamp, fires first) are the third line; AC3 (equal priority and equal stamp, ascending declaration order) is the second line, on every input. That transitions newly armed by the enablement update of one cycle share one stamp is TIME-010's stamp rule at the grain of a cycle, deferred to Phase 2 (RefExec); in the block the stamps are free inputs, so AC3 is checked on every pair with equal stamps. EXEC_002_nonvacuous checks the test derivation (priorities 5, 10, 5, all Immediate, armed together), AC2 and AC3 on the reference order, and the fast path."
-          "AC4 (every backend produces the identical ready order) follows on the general path: two ordering functions that satisfy the block agree on every input that does not take the fast path (EXEC_002_unique), because the key is total on distinct transitions. 'Stamp order is the general-path order' is line 3. That the shipped backends compute it is Q evidence, cited from Sched.lean (collect_ready_general_refines) and Refinement.lean (precompiled_refines_bitmap_immediate, the immediate fragment). AC4's 'Backends MUST NOT differ in which order they use, nor in the condition that selects it.' is covered only through the one fixed condition ReadyIn.FastPath, which the block uses for every backend; a backend whose own fast-path condition is narrower or wider is visible only where its order then breaks the first two lines or, off ReadyIn.FastPath, the third (a narrower condition that checks only the ready transitions is killed, EXEC_002_forbids_readyFast). Pinning the fast-path order, which would make every condition disagreement visible, waits for D14."
+          "AC4 (every backend produces the identical ready order) follows: two ordering functions that satisfy the block agree on every input (EXEC_002_unique), off the fast path because the key is total on distinct transitions, on it by line 4. 'Stamp order is the general-path order' is line 3, and 'on the all-immediate single-priority fast path every backend fires in declaration order instead' is line 4. That the shipped backends compute the general-path order is Q evidence, cited from Sched.lean (collect_ready_general_refines) and Refinement.lean (precompiled_refines_bitmap_immediate, the immediate fragment). AC4's 'Backends MUST NOT differ in which order they use, nor in the condition that selects it.' is the one fixed condition ReadyIn.FastPath, which the block uses for every backend: a backend whose own fast-path condition is narrower or wider breaks line 3 or line 4 on every input where the two orders then differ (a narrower condition that checks only the ready transitions is killed, EXEC_002_forbids_readyFast; one that never takes the fast path, EXEC_002_mutant_fastOpen_killed)."
           "'Fires first' is read as 'is offered first in the pass's order'; with tokens to compete for, the earlier transition takes them (EXEC-003). That a pass starts its firings in this order is a Phase 2 behaviour line over the executor, not this block."
-  signoff "pending"
+  signoff "2026-11-13 87b0ff5ab34db820 ai"
   statement : ReadyOrder → Prop :=
     fun O => ∀ I : ReadyIn,
       (O I).Perm I.readyList ∧
       (O I).Pairwise I.tieLt ∧
-      (¬ I.FastPath → (O I).Pairwise I.key.lt)
+      (¬ I.FastPath → (O I).Pairwise I.key.lt) ∧
+      (I.FastPath → O I = I.readyList)
 
 /- The pinned readable form of EXEC-002: a change to the formula shows up as a diff here. -/
 /--
 info: def Libpetri.Spec.EXEC_002 : ReadyOrder → Prop :=
 fun O =>
-  ∀ (I : ReadyIn), (O I).Perm I.readyList ∧ List.Pairwise I.tieLt (O I) ∧ (¬I.FastPath → List.Pairwise I.key.lt (O I))
+  ∀ (I : ReadyIn),
+    (O I).Perm I.readyList ∧
+      List.Pairwise I.tieLt (O I) ∧ (¬I.FastPath → List.Pairwise I.key.lt (O I)) ∧ (I.FastPath → O I = I.readyList)
 -/
 #guard_msgs in #print EXEC_002
 
@@ -255,38 +256,35 @@ theorem exec002_readyList_spec (I : ReadyIn) :
 @[evidence holds EXEC_002]
 theorem EXEC_002_reference : EXEC_002 refReadyOrder := fun I => by
   by_cases h : I.FastPath
-  · simp only [refReadyOrder, if_pos h]
-    exact ⟨(exec002_readyList_spec I).1, (exec002_readyList_spec I).2, fun hn => absurd h hn⟩
-  · simp only [refReadyOrder, if_neg h]
+  · rw [show refReadyOrder I = I.readyList from if_pos h]
+    exact ⟨(exec002_readyList_spec I).1, (exec002_readyList_spec I).2, fun hn => absurd h hn,
+      fun _ => rfl⟩
+  · rw [show refReadyOrder I = exec002_sortOrder I from if_neg h]
     obtain ⟨h1, h2, h3⟩ := exec002_sortOrder_spec I
-    exact ⟨h1, h2, fun _ => h3⟩
+    exact ⟨h1, h2, fun _ => h3, fun hf => absurd hf h⟩
 
-/-- The block does not decide D14: the reference (declaration order on the fast path) and the
-general sort on every input (the other outcome) both satisfy it. -/
-theorem EXEC_002_D14_neutral : EXEC_002 refReadyOrder ∧ EXEC_002 exec002_sortOrder :=
-  ⟨EXEC_002_reference, fun I =>
-    ⟨(exec002_sortOrder_spec I).1, (exec002_sortOrder_spec I).2.1,
-      fun _ => (exec002_sortOrder_spec I).2.2⟩⟩
-
-/-- AC4 on the general path: two ordering functions that satisfy EXEC-002 compute the same
-order on every input that does not take the fast path. -/
-@[evidence cites "EXEC-002" "AC4, general path only: two ready orders that satisfy the block (a permutation of the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC) are equal on every input outside the all-immediate fast path; on the fast path they agree on the ready set and on ties of priority and stamp only (D14 open)"]
+/-- AC4: two ordering functions that satisfy EXEC-002 compute the same order on every input,
+off the fast path by the canonical sort, on it by declaration order. -/
+@[evidence cites "EXEC-002" "AC4: two ready orders that satisfy the block are equal on every input: off the all-immediate fast path both are the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC, on it both are the ready set in declaration order (ruling D14 (a))"]
 theorem EXEC_002_unique {O₁ O₂ : ReadyOrder} (h₁ : EXEC_002 O₁) (h₂ : EXEC_002 O₂)
-    (I : ReadyIn) (hI : ¬ I.FastPath) : O₁ I = O₂ I :=
-  eq_of_perm_of_sorted I.key ((h₁ I).2.2 hI) ((h₂ I).2.2 hI) ((h₁ I).1.trans (h₂ I).1.symm)
+    (I : ReadyIn) : O₁ I = O₂ I := by
+  by_cases hI : I.FastPath
+  · rw [(h₁ I).2.2.2 hI, (h₂ I).2.2.2 hI]
+  · exact eq_of_perm_of_sorted I.key ((h₁ I).2.2.1 hI) ((h₂ I).2.2.1 hI)
+      ((h₁ I).1.trans (h₂ I).1.symm)
 
-/-- On the general path, an ordering function that satisfies EXEC-002 is the reference order. -/
-theorem EXEC_002_eq_ref {O : ReadyOrder} (h : EXEC_002 O) (I : ReadyIn) (hI : ¬ I.FastPath) :
+/-- An ordering function that satisfies EXEC-002 is the reference order. -/
+theorem EXEC_002_eq_ref {O : ReadyOrder} (h : EXEC_002 O) (I : ReadyIn) :
     O I = refReadyOrder I :=
-  EXEC_002_unique h EXEC_002_reference I hI
+  EXEC_002_unique h EXEC_002_reference I
 
 /-- A list that is a permutation of the ready list and strictly sorted by the key is the order
 every ordering function satisfying EXEC-002 computes off the fast path. -/
 theorem EXEC_002_forced {O : ReadyOrder} (h : EXEC_002 O) {I : ReadyIn} (hI : ¬ I.FastPath)
     {l : List Nat} (hp : l.Perm I.readyList) (hs : l.Pairwise I.key.lt) : O I = l :=
-  eq_of_perm_of_sorted I.key ((h I).2.2 hI) hs ((h I).1.trans hp.symm)
+  eq_of_perm_of_sorted I.key ((h I).2.2.1 hI) hs ((h I).1.trans hp.symm)
 
-/-! ### The four 'shall' sentences, pair by pair -/
+/-! ### The four 'shall' sentences, pair by pair, and the fast path -/
 
 /-- In a strictly sorted list, `a` comes before `b` when `a` is below `b`. -/
 theorem sublist_pair_of_pairwise {lt : Nat → Nat → Prop} (hasym : ∀ a b, lt a b → ¬ lt b a)
@@ -334,10 +332,11 @@ theorem not_both_pairs {x y : Nat} : ∀ {l : List Nat}, l.Nodup →
       exact hnd.1 (h1.subset (by simp))
 
 /-- The four 'shall' sentences of EXEC-002, each as a statement about pairs of ready
-transitions: the order holds every ready transition exactly once and nothing else; off the
-fast path, of two ready transitions the one of higher priority comes first; off the fast path,
-of two ready transitions of equal priority the one with the earlier stamp comes first; and of
-two ready transitions of equal priority and equal stamp the earlier-declared one comes first. -/
+transitions, and the fast-path sentence: the order holds every ready transition exactly once and
+nothing else; off the fast path, of two ready transitions the one of higher priority comes
+first; off the fast path, of two ready transitions of equal priority the one with the earlier
+stamp comes first; of two ready transitions of equal priority and equal stamp the
+earlier-declared one comes first; and on the fast path the order is the declaration order. -/
 def EXEC_002_sentences (O : ReadyOrder) : Prop :=
   ∀ I : ReadyIn,
     (O I).Perm I.readyList ∧
@@ -346,33 +345,34 @@ def EXEC_002_sentences (O : ReadyOrder) : Prop :=
     (¬ I.FastPath → ∀ a ∈ I.readyList, ∀ b ∈ I.readyList,
       I.prio a = I.prio b → I.clock a < I.clock b → [a, b].Sublist (O I)) ∧
     (∀ a ∈ I.readyList, ∀ b ∈ I.readyList,
-      I.prio a = I.prio b → I.clock a = I.clock b → a < b → [a, b].Sublist (O I))
+      I.prio a = I.prio b → I.clock a = I.clock b → a < b → [a, b].Sublist (O I)) ∧
+    (I.FastPath → O I = I.readyList)
 
-/-- The block is the four 'shall' sentences: an ordering function satisfies EXEC-002 exactly
-when it satisfies each sentence read pair by pair. The block's sortedness by the key is the
-second and third sentences together with the fourth, because the order holds every ready
-transition exactly once. -/
+/-- The block is the four 'shall' sentences and the fast-path sentence: an ordering function
+satisfies EXEC-002 exactly when it satisfies each sentence read pair by pair. The block's
+sortedness by the key is the second and third sentences together with the fourth, because the
+order holds every ready transition exactly once. -/
 theorem EXEC_002_iff_sentences (O : ReadyOrder) : EXEC_002 O ↔ EXEC_002_sentences O := by
   constructor
   · intro h I
-    obtain ⟨hp, ht, hk⟩ := h I
+    obtain ⟨hp, ht, hk, hf⟩ := h I
     have mem : ∀ {a}, a ∈ I.readyList → a ∈ O I := fun ha => hp.mem_iff.2 ha
     have asymm : ∀ a b, I.key.lt a b → ¬ I.key.lt b a := fun _ _ h1 h2 => I.key.lt_asymm h1 h2
     refine ⟨hp, fun hI a ha b hb hlt => ?_, fun hI a ha b hb he hc => ?_,
-      fun a ha b hb he hc hab => ?_⟩
+      fun a ha b hb he hc hab => ?_, hf⟩
     · exact sublist_pair_of_pairwise asymm (hk hI) (mem ha) (mem hb) (Or.inl hlt)
     · exact sublist_pair_of_pairwise asymm (hk hI) (mem ha) (mem hb) (Or.inr ⟨he, Or.inl hc⟩)
     · exact sublist_pair_of_pairwise_not (Nat.ne_of_lt hab)
         (fun h' => absurd (h' he.symm hc.symm) (Nat.lt_asymm hab)) ht (mem ha) (mem hb)
   · intro h I
-    obtain ⟨hp, h2, h3, h4⟩ := h I
+    obtain ⟨hp, h2, h3, h4, hf⟩ := h I
     have hnd : (O I).Nodup := hp.nodup_iff.2 I.readyList_nodup
     have mem : ∀ {a}, a ∈ O I → a ∈ I.readyList := fun ha => hp.mem_iff.1 ha
     have ends : ∀ {x y}, [x, y].Sublist (O I) → x ∈ I.readyList ∧ y ∈ I.readyList ∧ x ≠ y :=
       fun hs => ⟨mem (hs.subset (by simp)), mem (hs.subset (by simp)),
         fun e => by subst e; exact List.nodup_iff_sublist.1 hnd _ hs⟩
     refine ⟨hp, List.pairwise_iff_forall_sublist.2 fun {x y} hs => ?_,
-      fun hI => List.pairwise_iff_forall_sublist.2 fun {x y} hs => ?_⟩
+      fun hI => List.pairwise_iff_forall_sublist.2 fun {x y} hs => ?_, hf⟩
     · obtain ⟨hx, hy, hne⟩ := ends hs
       intro he hc
       rcases Nat.lt_or_gt_of_ne hne with hxy | hyx
@@ -421,6 +421,15 @@ theorem exec002_I3_general : ¬ exec002_I3.FastPath := by decide
 
 theorem exec002_Ifp_fast : exec002_Ifp.FastPath := by decide
 
+/-- A fast-path input whose stamps differ: two `Immediate` transitions of priority `0`, both
+ready; transition `1` was armed at `0` and transition `0` later at `3` (it was held across cycles
+while in flight), so declaration order is opposite to arming order. -/
+def exec002_Ifs : ReadyIn :=
+  { n := 2, prio := fun _ => 0, timing := fun _ => .immediate,
+    clock := fun t => if t = 0 then 3 else 0, ready := fun _ => true }
+
+theorem exec002_Ifs_fast : exec002_Ifs.FastPath := by decide
+
 /-- The order EXEC-002 forces on `exec002_Ia`: transition `1`, armed first, then `0`. -/
 theorem exec002_Ia_forced {O : ReadyOrder} (h : EXEC_002 O) : O exec002_Ia = [1, 0] :=
   EXEC_002_forced h exec002_Ia_general (by decide) tid_order_diverges.2
@@ -430,9 +439,9 @@ declaration order (equal stamp, AC3). -/
 theorem exec002_I3_forced {O : ReadyOrder} (h : EXEC_002 O) : O exec002_I3 = [1, 0, 2] :=
   EXEC_002_forced h exec002_I3_general (by decide) (by decide)
 
-/-- The order EXEC-002 forces on the fast-path input `exec002_Ifp`, under either outcome of
-D14: the two ready transitions `0` and `2`, tied on priority and stamp, in ascending
-declaration order. -/
+/-- The order EXEC-002 forces on the fast-path input `exec002_Ifp`: the two ready transitions
+`0` and `2`, tied on priority and stamp, in ascending declaration order (already by the first
+two lines). -/
 theorem exec002_Ifp_forced {O : ReadyOrder} (h : EXEC_002 O) : O exec002_Ifp = [0, 2] := by
   obtain ⟨hp, ht, -⟩ := h exec002_Ifp
   have hp' : (O exec002_Ifp).Perm [0, 2] := hp.trans (by decide)
@@ -449,6 +458,17 @@ theorem exec002_Ifp_forced {O : ReadyOrder} (h : EXEC_002 O) : O exec002_Ifp = [
       exact this rfl rfl
     have hnd := hp'.nodup_iff.2 (by decide)
     rcases hx with rfl | rfl <;> rcases hy with rfl | rfl <;> first | rfl | omega
+
+/-- The order EXEC-002 forces on the fast-path input `exec002_Ifs` (line 4): declaration order
+`[0, 1]`, though `1` was armed first. -/
+theorem exec002_Ifs_forced {O : ReadyOrder} (h : EXEC_002 O) : O exec002_Ifs = [0, 1] :=
+  ((h exec002_Ifs).2.2.2 exec002_Ifs_fast).trans (by decide)
+
+/-- The general sort on `exec002_Ifs` offers `1`, armed first, before `0`. -/
+theorem exec002_Ifs_sort : exec002_sortOrder exec002_Ifs = [1, 0] :=
+  eq_of_perm_of_sorted exec002_Ifs.key
+    (sortBy_pairwise (schedKey_strictTotal _) exec002_Ifs.readyList_nodup)
+    (by decide) ((sortBy_perm _ _).trans (by decide))
 
 /-! ### A backend that ignores priority -/
 
@@ -477,8 +497,8 @@ def EXEC_002_mutant_generalOnly (O : ReadyOrder) : Prop :=
   ∀ I : ReadyIn, ¬ I.FastPath → (O I).Perm I.readyList ∧ (O I).Pairwise I.key.lt
 
 /-- The reversed fast path kills the mutant: it satisfies the general-path-only reading, but on
-the fast-path input `exec002_Ifp` it offers `2` before `0`, though both outcomes of D14 break
-that tie of priority and stamp by ascending declaration order (AC3). -/
+the fast-path input `exec002_Ifp` it offers `2` before `0`, though that tie of priority and
+stamp breaks by ascending declaration order (AC3, line 2). -/
 @[evidence mutant EXEC_002]
 theorem EXEC_002_mutant_generalOnly_killed :
     EXEC_002_mutant_generalOnly exec002_revFast ∧ ¬ EXEC_002 exec002_revFast := by
@@ -523,6 +543,30 @@ theorem EXEC_002_forbids_readyFast : ¬ EXEC_002 exec002_readyFast := by
   have e1 : exec002_readyFast I = [0, 1] := by
     simp only [exec002_readyFast]; decide
   rw [e1] at e2; exact absurd e2 (by decide)
+
+/-! ### Mutant: the fast path open beyond the first two lines -/
+
+/-- Mutant reading of EXEC-002 without line 4: on the fast path only the first two lines hold,
+so the order of two ready transitions with different stamps is left open (the form of this
+block before ruling D14 (a)). -/
+def EXEC_002_mutant_fastOpen (O : ReadyOrder) : Prop :=
+  ∀ I : ReadyIn,
+    (O I).Perm I.readyList ∧
+    (O I).Pairwise I.tieLt ∧
+    (¬ I.FastPath → (O I).Pairwise I.key.lt)
+
+/-- The general sort on every input (a backend without the fast path) kills the mutant: it
+satisfies the mutant reading, but not EXEC-002. On the fast-path input `exec002_Ifs` it offers
+`[1, 0]` by stamp, where the section ('do not read the enablement timestamp at all') asks the
+declaration order `[0, 1]`. -/
+@[evidence mutant EXEC_002]
+theorem EXEC_002_mutant_fastOpen_killed :
+    EXEC_002_mutant_fastOpen exec002_sortOrder ∧ ¬ EXEC_002 exec002_sortOrder := by
+  refine ⟨fun I => ⟨(exec002_sortOrder_spec I).1, (exec002_sortOrder_spec I).2.1,
+    fun _ => (exec002_sortOrder_spec I).2.2⟩, fun h => ?_⟩
+  have := exec002_Ifs_forced h
+  rw [exec002_Ifs_sort] at this
+  exact absurd this (by decide)
 
 /-! ### Mutant: the pre-fix drain in declaration order within a priority level -/
 
@@ -639,7 +683,8 @@ come out as `[1, 0]` (third line). The test derivation of AC1 and AC3: prioritie
 `Immediate`, armed together, come out as P10, then the two P5 in declaration order,
 `[1, 0, 2]` (second and third lines). A transition that is not ready is left out (first line),
 off the fast path and on it; on the fast path the two ready transitions, tied, come out in
-declaration order (first and second lines). -/
+declaration order (first and second lines), and two ready transitions whose stamps differ come
+out in declaration order too, the later-armed `0` first (fourth line). -/
 @[evidence nonvacuous EXEC_002]
 theorem EXEC_002_nonvacuous :
     ¬ exec002_Ia.FastPath ∧ refReadyOrder exec002_Ia = [1, 0] ∧
@@ -647,10 +692,13 @@ theorem EXEC_002_nonvacuous :
       ¬ ({ exec002_I3 with ready := fun t => t != 1 } : ReadyIn).FastPath ∧
       refReadyOrder { exec002_I3 with ready := fun t => t != 1 } = [0, 2] ∧
       exec002_Ifp.FastPath ∧ exec002_Ifp.ready 1 = false ∧
-      refReadyOrder exec002_Ifp = [0, 2] := by
+      refReadyOrder exec002_Ifp = [0, 2] ∧
+      exec002_Ifs.FastPath ∧ exec002_Ifs.clock 1 < exec002_Ifs.clock 0 ∧
+      refReadyOrder exec002_Ifs = [0, 1] := by
   refine ⟨exec002_Ia_general, exec002_Ia_forced EXEC_002_reference, exec002_I3_general,
     exec002_I3_forced EXEC_002_reference, by decide,
     EXEC_002_forced EXEC_002_reference (by decide) (by decide) (by decide),
-    exec002_Ifp_fast, rfl, exec002_Ifp_forced EXEC_002_reference⟩
+    exec002_Ifp_fast, rfl, exec002_Ifp_forced EXEC_002_reference, exec002_Ifs_fast, by decide,
+    exec002_Ifs_forced EXEC_002_reference⟩
 
 end Libpetri.Spec

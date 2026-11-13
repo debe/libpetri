@@ -12,6 +12,7 @@ import {
   docLabel,
   parseFilters,
   renderReader,
+  signoffBadge,
   toggle,
 } from '../src/app/reader.js';
 import { formatRoute, R } from '../src/app/router.js';
@@ -256,5 +257,14 @@ describe('reader view', () => {
     view.dispose?.();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
     expect(ctx.navigations).toHaveLength(2);
+  });
+});
+
+describe('signoffBadge', () => {
+  it('names who signed: a person or an AI review', () => {
+    expect(signoffBadge({ state: 'signed', date: '2026-11-10', hash: '4f884470bf67c07e', by: 'person' }).textContent).toContain('Signed 2026-11-10');
+    const ai = signoffBadge({ state: 'signed', date: '2026-11-12', hash: '4f884470bf67c07e', by: 'ai' }).textContent ?? '';
+    expect(ai).toContain('AI-reviewed 2026-11-12');
+    expect(ai).not.toContain('Signed');
   });
 });

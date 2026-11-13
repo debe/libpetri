@@ -43,7 +43,7 @@ requirement IO_004
   assumes "A firing is read as one step from a marking to a marking (glossary: Fire); timing and priority play no part. 'Can fire' is read as 'some firing from m exists', whatever marking it leads to: removing the arc changes what the firing consumes from p, so only whether t fires is compared, not where it leads."
           "Correlated inputs (ruling D30, extending D16): the second, third and fourth quoted shall sentences exclude a correlated input of a ν-net match specification (NU-020), where an `AtLeast` arc requires and consumes the tokens of the chosen name only, as the section's last sentence says. The transitions of the model (Reference.Trans) carry no match specification, so every input place is one that is not a correlated input, and the second to fourth lines quantify over every `AtLeast` input arc. How a correlated input counts and consumes is NU-020's, not encoded here."
           "'The input arc on p' is the first input arc on p, as the glossary term Input arc reads it; `withoutInputArc` removes that one arc. [CORE-030] allows at most one input arc per place, so on a well-formed transition it is the only one."
-          "AC1 (construction with minimum < 1 is rejected): not encoded. It is a build-time check on the net definition, outside the firing relation. The statement quantifies over every n, n = 0 included; the reference semantics satisfies it there too (AtLeast(p, 0) never blocks and drains p)."
+          "AC1 (construction with minimum < 1 is rejected, also when building a transition from a spec written out without the constructor) is a property of construction, not of firing, so this formula does not encode it: its build half is the block IO_004_build in this file (every transition with an AtLeast(0) input arc fails to build), and its constructor half is Q-tested there. The statement here quantifies over every n, n = 0 included; the reference semantics satisfies it there too (AtLeast(p, 0) never blocks and drains p)."
           "AC2 (transition enables when the place has >= minimum tokens) is the second line: with p holding at least n tokens the arc does not stop t from firing. Read with [IO-005], the other arcs of t still decide."
           "AC3 (all tokens consumed on firing, not just minimum) is the third line, stated on the marking the firing leaves: p ends holding what was deposited there and nothing it held before. A reset arc on p ([CORE-034]) gives the same end count, so neither the third nor the fourth line needs a reset guard."
           "The fourth line is the guard IO-001 carries, so the block stands alone: the deposit a firing reports is not trusted for the count. On a place the output spec of t does not name, no firing of t can deposit ([CORE-035]), so the drain shows in the marking alone, as an empty place. Without it a firing that consumes nothing but reports a deposit in p equal to what p held would pass the third line."
@@ -51,7 +51,7 @@ requirement IO_004
           "A firing is one step at the count granularity: EXEC-003 AC5 (an `All` or `AtLeast` arc that fires later in a firing pass drains only the tokens the firing may drain, and leaves in place the tokens a synchronous action deposited earlier in the same pass) is below this granularity; that refinement is EXEC-003's subject and the reference executor's (RefExec, wave W5), not this block's."
           "The two bullets (`requiredCount()` returns `minimum`, `consumptionCount(available)` returns `available`) are the pure-function contract of [IO-007] and the glossary terms Required count and Consumption count; this block encodes their effect on firing (lines 1 to 4), not the functions themselves."
           "The output-spec build checks ([IO-011] to [IO-014]) and the output validation skip ([CONC-026]) do not touch input consumption; the block holds of every firing relation over every transition, built or not."
-  signoff "pending"
+  signoff "2026-11-13 7776d0592ec78630 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p n, InputArc t p (.atLeast n) →
       (while (fun m => TokenCount m p < n), never Fire F t) ∧
@@ -439,5 +439,76 @@ theorem IO_004_nonvacuous :
   · funext q; by_cases hq : q = 0 <;>
       simp [hq, eq_comm (a := 0), fireNC, depProd, nconsumed, nspecAt, io004_t2, io004_seven,
         io004_refilled, Card.consumesAll]
+
+/-! ## IO-004, AC1: the minimum check at build -/
+
+requirement IO_004_build
+  id "IO-004"
+  title "Input AtLeast"
+  kind F
+  scope "all transition builders"
+  source verbatim "spec/02-input-output-specs.md"
+  quote "Construction with minimum < 1 is rejected (error or panic), also when building a transition from a spec written out without the constructor, as for [IO-002]."
+  reading "For the transition builder Build (Build t = none: t builds; Build t = some msg: building t fails with msg):"
+          "every transition t one of whose input arcs is AtLeast(0) fails to build."
+  assumes "Build is the transition builder read as the message it rejects a transition with (none: the transition builds), as in IO-011, IO-013, EXEC-012 and IO_002_build; the witness is the reference builder refBuild (glossary: Build-time checks), whose count check (InputCountsPositive, stand-in message msgCount) rejects an input arc that requires fewer than one token. The cardinality of the model (Card) is a value written out directly, so a transition carrying AtLeast(0) is the spec written out without the constructor. The minimum ranges over the naturals, so minimum < 1 is minimum = 0."
+          "The quoted sentence has two halves. Its build half ('also when building a transition from a spec written out without the constructor') is the line. Its constructor half ('Construction with minimum < 1 is rejected (error or panic)') is not encoded, as the model has no constructor, only the value; it is Q-tested: Rust at_least() asserts minimum >= 1 (rust/libpetri-core/src/input.rs:71, test at :181), TypeScript atLeast() throws (typescript/src/core/in.ts:60, typescript/tests/core/in.test.ts:71), Java's AtLeast record constructor throws IllegalArgumentException (java/src/main/java/org/libpetri/core/Arc.java:114), which is also the only way to write the value in Java. Python reaches the Rust constructor."
+          "The runtimes whose spec can be written out without the constructor check it when the transition is built: Rust for the public In::AtLeast variant (rust/libpetri-core/src/transition.rs:391-402), TypeScript for an object literal (the input-count check in TransitionBuilder.build in typescript/src/core/transition.ts). A builder without the count check (io004_buildNoCount) builds such a transition and is forbidden (IO_004_build_forbids_noCount)."
+          "Only the failure is stated, not its message: the spec gives the check no message, and the reference fails it with the stand-in msgCount. That a transition whose input arcs all require at least one token, and which passes the other build-time checks, does build is CORE-020's line 4 (Builds includes InputCountsPositive), so a builder that rejects every transition meets this line and breaks that one."
+  signoff "2026-11-13 c73d27504afc359b ai"
+  statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Trans N → Option String) → Prop :=
+    fun Build => ∀ t : Trans _, ∀ s ∈ t.core.inputs, s.card = .atLeast 0 → Build t ≠ none
+
+/- The pinned readable form of the build block: a change to the formula shows up as a diff here. -/
+/--
+info: def Libpetri.Spec.IO_004_build : {N : Type} →
+  [DecidableEq N] → [ToString N] → (Reference.Trans N → Option String) → Prop :=
+fun {N} [DecidableEq N] [ToString N] Build =>
+  ∀ (t : Reference.Trans N), ∀ s ∈ t.core.inputs, s.card = Card.atLeast 0 → Build t ≠ none
+-/
+#guard_msgs in #print IO_004_build
+
+/-- ✓ The reference builder satisfies the build block: a transition with an `AtLeast(0)` input
+arc fails `InputCountsPositive`, so it does not pass `Builds`, and `refBuild` rejects exactly
+the transitions that do not (`refBuild_eq_none_iff`). -/
+@[evidence holds IO_004_build]
+theorem IO_004_build_reference {N : Type} [DecidableEq N] [ToString N] :
+    IO_004_build (refBuild (N := N)) := by
+  intro t s hs hc h
+  have hpos := ((refBuild_eq_none_iff t).1 h).1.2.1 s hs
+  simp [requiredCount, hc, Card.required] at hpos
+
+/-- **The reference builder without the count check**: [CORE-030]'s input-arc check, the
+[EXEC-012] input-and-read check, then the output-spec checks, as `refBuild` without its
+`InputCountsPositive` branch. -/
+def io004_buildNoCount {N : Type} [DecidableEq N] [ToString N] (t : Trans N) : Option String :=
+  if ¬ InputsDistinct t then some "CORE-030"
+  else match firstInputRead t with
+    | some p => some (msgInputRead t p)
+    | none =>
+      match t.out with
+      | none => none
+      | some o => checkOut t (inPlaces t) o
+
+/-- The transition of the build examples: one input arc `AtLeast(0)` on place `0`, written out
+without the constructor, no other arcs, no output spec. -/
+def io004_t0 : Trans Nat :=
+  { core := { name := "t0", inputs := [⟨0, .atLeast 0⟩], inhibitors := [], reads := [],
+              resets := [] },
+    out := none }
+
+/-- ✗ A builder without the count check violates the build block: it builds `io004_t0`, whose
+input arc is `AtLeast(0)`. -/
+@[evidence forbids IO_004_build]
+theorem IO_004_build_forbids_noCount : ¬ IO_004_build (io004_buildNoCount (N := Nat)) := by
+  intro h
+  exact h io004_t0 ⟨0, .atLeast 0⟩ (by simp [io004_t0]) rfl (by decide)
+
+/-- The build block is exercised by the reference builder: `io004_t0` has an `AtLeast(0)` input
+arc, and building it fails with the count check's stand-in message. -/
+@[evidence nonvacuous IO_004_build]
+theorem IO_004_build_nonvacuous :
+    (∃ s ∈ io004_t0.core.inputs, s.card = .atLeast 0) ∧ refBuild io004_t0 = some msgCount :=
+  ⟨⟨⟨0, .atLeast 0⟩, by simp [io004_t0], rfl⟩, by decide⟩
 
 end Libpetri.Spec

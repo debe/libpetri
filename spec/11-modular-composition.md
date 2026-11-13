@@ -249,9 +249,9 @@ In an implementation that keeps a run-time token type for each port (Java, Rust)
 
 *When* `instantiate` succeeds with prefix `p`, the instance's `prefix()` *shall* return `p`.
 
-*Where* an implementation keeps a run-time token type for each port (Java, Rust), *when* a port lookup names a port of the interface and requests the token type of the place that the port lookup returns, the lookup *shall* return that place.
+*Where* an implementation keeps a run-time token type for each port (Java, Rust), *when* a port lookup names a port of the interface and requests the token type the port was declared with, the lookup *shall* return the port's renamed place.
 
-*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names a port of the interface and requests a token type other than the type of the place that the port lookup returns, *then* the lookup *shall* fail.
+*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names a port of the interface and requests a token type other than the one the port was declared with, *then* the lookup *shall* fail.
 
 *Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names no port of the interface, *then* the lookup *shall* fail, whatever type it requests.
 
@@ -385,7 +385,7 @@ The enclosing net's builder MUST support a `compose(instance, bindings)` operati
 
 The result of composition over the enclosing builder MUST be observationally indistinguishable from a hand-written flat net containing the same places, transitions, and arcs.
 
-Within a single `compose(instance, bindings)` call, every interface port appears in the bindings at most once. Re-binding the same port name (whether to the same caller place or a different caller place) within one `compose(...)` call is a compose-time error; the error message MUST name the port. Symmetrically, the same caller-side `Transition` appears as the target of at most one channel binding within a single `compose(...)` call; re-binding a caller transition to two channels of the same instance in one call is a compose-time error naming the caller transition and both channels (no runtime enforces it yet, RD-11; see also [MOD-021]).
+Within a single `compose(instance, bindings)` call, every interface port appears in the bindings at most once. Re-binding the same port name (whether to the same caller place or a different caller place) within one `compose(...)` call is a compose-time error; the error message MUST name the port. Symmetrically, the same caller-side `Transition` appears as the target of at most one channel binding within a single `compose(...)` call; re-binding a caller transition to two channels of the same instance in one call is a compose-time error naming the caller transition and both channels (see also [MOD-021]).
 
 **Port-binding collision.** Two *different* ports of one instance MAY be bound to the same caller place. When that substitution would give one transition of the instance two input arcs on the caller place (the transition consumed from both ports), composition MUST reject the call at compose time, before the rewritten transition is rebuilt, with an error naming the instance prefix, a port exposing each of the two places (in either order), the caller place and the transition, e.g.
 
@@ -409,7 +409,7 @@ In the sentences below, two different bound port places of one instance, both bo
 
 *When* a coherent `compose(instance, bindings)` call that meets the caller obligations succeeds, the enclosing builder *shall* hold its earlier transitions followed by one transition per instance transition, among them, in the instance's order, every instance transition that no channel binding names with each bound port place replaced by its caller place in every arc and in the output specification and its name, timing, priority and action unchanged, and, for every channel binding, the [MOD-021] merge of its caller-side transition with the instance transition it names after the rewrite, and its places *shall* be its earlier places and the places its new transitions name.
 
-*If* one `compose(...)` call binds a port name more than once, *then* the call *shall* fail with an error naming a port it binds more than once.
+*If* one `compose(...)` call binds a port name more than once, no channel name more than once and no caller-side transition to more than one channel, *then* the call *shall* fail with an error naming a port it binds more than once.
 
 *If* a `compose(...)` call binds a port name that the instance does not declare, *then* the call *shall* fail.
 
@@ -492,7 +492,7 @@ A rejection MUST name the seam, both cardinalities, and the place, in this shape
 
 The result is one merged `Transition` in the flat net; firing it consumes/produces tokens per the unioned arc set in a single atomic step per [EXEC-001].
 
-In the sentences below, a *channel merge* merges a caller-side transition with the instance-side channel transition it is bound to, whose arcs the port bindings have already rewritten ([MOD-020]). The sentences cover a caller-side transition that was not added to the net builder before the compose call and has no arc on a port bound in the same compose call; for other caller-side transitions the implementations differ, and this requirement does not yet state the outcome.
+In the sentences below, a *channel merge* merges a caller-side transition with the instance-side channel transition it is bound to, whose arcs the port bindings have already rewritten ([MOD-020]). The sentences cover a caller-side transition whose name is neither empty nor made of white space only, that was not added to the net builder before the compose call and that has no arc on a port bound in the same compose call; for other caller-side transitions the implementations differ, and this requirement does not yet state the outcome.
 
 *When* a channel merge succeeds, the merged transition *shall* have the caller-side transition's name and priority.
 
@@ -550,9 +550,9 @@ Channel bindings have no token-type check at the channel level (transitions are 
 
 *Where* place identity carries the token type (Java), *if* a compose call binds no port twice and binds a port to a caller place whose token type differs from the token type of the port's place, *then* the compose call *shall* fail.
 
-*Where* place identity carries the token type (Java), *if* a compose call binds no port twice, binds only ports of the interface and binds some port to a caller place of another token type, *then* the error message of its failure *shall* name such a port, the token type of the port's place and the token type of the caller place.
+*Where* place identity carries the token type (Java), *if* a compose call binds no port twice, binds no channel twice, binds no caller-side transition to two channels, binds only ports of the interface and binds some port to a caller place of another token type, *then* the error message of its failure *shall* name such a port, the token type of the port's place and the token type of the caller place.
 
-*Where* place identity carries the token type (Java), *when* a compose call binds no channel, binds no port twice, binds only ports of the interface, binds each port it binds to a caller place of the token type of the port's place, sends no two different port places that one transition consumes from or that one output branch of a transition names to one caller place, and every transition rewritten through the bindings passes the transition builder's checks, the compose call *shall* succeed.
+*Where* place identity carries the token type (Java), *when* a coherent compose call ([MOD-020]) binds no channel, binds no port twice, binds only ports of the interface, binds each port it binds to a caller place of the token type of the port's place, sends no two different port places that one transition consumes from or that one output branch of a transition names to one caller place, and every transition rewritten through the bindings passes the transition builder's checks, the compose call *shall* succeed.
 
 **Acceptance Criteria:**
 1. `port("in", String) -> Place<String>` binding composes successfully.
@@ -576,7 +576,7 @@ In particular, downstream consumers, namely the executor (CONC, EXEC), the event
 
 *When* `build()` succeeds, a new builder on which the places of the built net are declared, its transitions are added by hand in the same order with the same name, arcs, output specification, timing, priority and action and no correspondence ([MOD-031]), and its terminal places ([EXEC-042]) are declared *shall* build a net with the same transitions in the same order, the same places, each listed as often, in any order, and the same set of terminal places.
 
-*When* `build()` succeeds and no `compose(...)` call binds a channel ([MOD-021]), the built net *shall* hold one transition for each transition added by hand and for each transition of a composed instance or of a directly composed subnet, in the order of the calls and, within one call, in the order of the subnet, each with the name, timing, priority and action it was added with.
+*When* `build()` succeeds, no `compose(...)` call binds a channel ([MOD-021]) and no composed instance has two transitions of one name, the built net *shall* hold one transition for each transition added by hand and for each transition of a composed instance or of a directly composed subnet, in the order of the calls and, within one call, in the order of the subnet, each with the name, timing, priority and action it was added with.
 
 **Acceptance Criteria:**
 1. Build the composed net and a hand-written equivalent net that declares its places in the order the composed net holds them; their compiled representations have identical place index, transition count, arc topology, bitmap masks, and timing arrays.
@@ -606,7 +606,7 @@ The single-argument form is **additive** sugar over [MOD-020]; it does NOT repla
 
 *If* the subnet of an instance passed to `compose(instance)` declares a channel, *then* `compose(instance)` *shall* fail with an error that names every channel the subnet declares.
 
-*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` succeeds on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, the builder *shall* keep its transitions and add the instance's transitions in order, each with every arc and output place on a renamed body place `p/x` moved to `x` when the builder held `x` at the call, by the implementation's `Place` equality, every other place kept, its name, timing, priority and action unchanged and its declared-to-actual place correspondence ([MOD-031]) moved the same way, *shall* add to its places exactly the places those transitions name, and *shall* leave its terminal places, retired ports, subnet membership and fusion sets as they were.
+*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` succeeds on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, the builder *shall* keep its transitions and add the instance's transitions in order, each with every arc and output place on a renamed body place `p/x` moved to `x` when the builder held `x` at the call, by the implementation's `Place` equality, every other place kept, its name, timing, priority and action unchanged and its declared-to-actual place correspondence ([MOD-031]) moved the same way or, when every entry of it then maps a place to itself, dropped as a whole as [MOD-031] allows, *shall* add to its places exactly the places those transitions name, and *shall* leave its terminal places, retired ports, subnet membership and fusion sets as they were.
 
 *Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` is called on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, `compose(instance)` *shall* succeed exactly when every instance transition, with each renamed body place `p/x` moved to `x` when the builder holds `x`, passes the transition builder's checks.
 
@@ -856,11 +856,11 @@ In the sentences below, a *retired place* is the renamed place of a port that a 
 
 *If* a transition that fusion rewrites without an input-arc collision, that passes the transition builder's checks before and after fusion, and that after fusion consumes from or reads no terminal place and names exactly one retired place, is added to a builder whose net builds and whose fusion sets share no place, before or after its other calls but after every auto-bound and direct composition ([MOD-024], [MOD-025]), and no composition of the builder binds one renamed place to two different caller places, *then* `build()` *shall* fail with the message `place '<place>' is port '<port>' of instance '<instance>', bound to host place '<caller>' at compose; reference '<caller>' instead`, where `<place>` is that retired place and `<port>`, `<instance>` and `<caller>` are the port, the instance prefix and the caller place of a binding by which the first composition that retired the place retired it.
 
-*When* a transition that fusion rewrites without an input-arc collision, that passes the transition builder's checks before and after fusion, and that after fusion names no retired place and consumes from or reads no terminal place, is added to a builder whose net builds and whose fusion sets share no place, before or after its other calls but after every auto-bound and direct composition, `build()` *shall* still succeed.
+*When* a transition that fusion rewrites without an input-arc collision, that passes the transition builder's checks before and after fusion, and that after fusion names no retired place and consumes from or reads no terminal place, is added to a builder whose net builds and whose fusion sets share no place, before or after its other calls but after every auto-bound and direct composition, and no composition of the builder binds one renamed place to two different caller places, `build()` *shall* still succeed.
 
-*When* one more place, a retired place included, is declared on a builder whose net builds, before or after its other calls but after every auto-bound and direct composition, `build()` *shall* still succeed.
+*When* one more place, a retired place included, is declared on a builder whose net builds, before or after its other calls but after every auto-bound and direct composition, and no composition of the builder binds one renamed place to two different caller places, `build()` *shall* still succeed.
 
-*When* a `compose(instance, bindings)` call without channel bindings takes the place of a direct composition ([MOD-025]) of the instance's transitions rewritten through its bindings on a builder whose net builds, with no auto-bound or direct composition after it, and the call binds every port at most once, only ports the instance declares, each port to a caller place of its port's token type ([MOD-022]) and one renamed place to one caller place only, the instance's transitions have distinct names and no input or output collision under the bindings ([MOD-020]), and no transition of that net names a place the call retires, `build()` *shall* still succeed.
+*When* a `compose(instance, bindings)` call without channel bindings takes the place of a direct composition ([MOD-025]) of the instance's transitions rewritten through its bindings on a builder whose net builds, with no auto-bound or direct composition after it, and the call binds every port at most once, only ports the instance declares, each port to a caller place of its port's token type ([MOD-022]) and one renamed place to one caller place only, no other composition of the builder binds one renamed place to two different caller places, the instance's transitions have distinct names and no input or output collision under the bindings ([MOD-020]), and no transition of that net names a place the call retires, `build()` *shall* still succeed.
 
 **Acceptance Criteria:**
 1. Compose instance `answer` with `in -> A_IN`, then add a host transition with a reset arc on
@@ -912,7 +912,7 @@ This requirement extends [CORE-042] (action binding separation) into the modular
 
 *When* `bindActions` is called on a module instance with prefix `p` and a mapping in which every key `k` names a transition `p/k` of the instance, the call *shall* return a derived instance.
 
-*When* `bindActions` on a module instance returns a derived instance, the derived instance *shall* have the prefix, the places, the interface and the port and channel handles of the receiver and, for each transition of the receiver, in the same order, a transition with the same name, arcs, output specification, timing, priority and declared-to-actual place correspondence ([MOD-031]).
+*When* `bindActions` on a module instance returns a derived instance, the derived instance *shall* have the prefix, the places, the interface and the port and channel handles of the receiver and exactly as many transitions as the receiver, each with the same name, arcs, output specification, timing, priority and declared-to-actual place correspondence ([MOD-031]) as the receiver's transition at the same position.
 
 *When* `bindActions` on a module instance with prefix `p` returns a derived instance and the mapping maps a key `k` to an action, the transition `p/k` *shall* carry that action in the derived instance.
 
@@ -970,7 +970,7 @@ A transition that carries no correspondence *shall* resolve every place to itsel
 
 *Where* an implementation resolves declared places in its context operations, *when* an action calls `inputs`, `input`, `inputToken`, `read` or the single or bulk `output` with a place, the call *shall* give the result, or report the error, that the same call gives on the same transition without a correspondence for the place that the transition's correspondence resolves the given place to.
 
-**Runtime defect (RD-30):** the Python binding adapter tries the given name first: when that name is itself an input place of the transition for `input` and `inputs`, a read place for `read` or an output place for `output`, the call answers for that place and does not resolve it, so it breaks the rule above only on such a place that the correspondence resolves to another place, and there only when the two places give different results. The fix is to try the correspondence first, as the MAY paragraph above asks of a binding adapter.
+The Python binding adapter resolves the given place through the correspondence first and looks up only the place it resolves to, as the MAY paragraph above asks of a binding adapter.
 
 **Acceptance Criteria:**
 1. A subnet whose transition action does `ctx.input(declaredIn)` / `ctx.output(declaredOut, …)`, instanced and composed with `bindPort("in", req).bindPort("out", resp)`, fires and produces on the actual `resp` place with no "place not in declared inputs/outputs" error.
@@ -1075,13 +1075,13 @@ The exporter *shall* draw, in any order, the same nodes, and the same edges othe
 **Priority:** SHOULD
 **Kind:** F
 
-The debug protocol's `Subscribed` response (live net inspection) SHOULD carry, in addition to the existing place and transition descriptors, an enumeration of **subnet instance descriptors**. The descriptors are computed from the names of the flat net alone. The **instance prefix** of a node name is the part of the name before its last `/`; a name without `/`, or whose only `/` is its first character, has none. Each descriptor describes one distinct instance prefix that some place or transition name carries, which is usually one top-level or nested instance of the composed net, and includes:
+The debug protocol's `Subscribed` response (live net inspection) SHOULD carry, in addition to the existing place and transition descriptors, an enumeration of **subnet instance descriptors**. The descriptors are computed from the names of the flat net alone. The **instance prefix** of a node name is the part of the name before its last `/`; a name without `/`, or whose only `/` is its first character, has none. The **listed places** of a net are the places that some arc or output specification of its transitions names: the debug protocol describes exactly these with a `PlaceInfo`, and a place that the builder holds but no arc or output names is not listed. Each descriptor describes one distinct instance prefix that some transition or listed place name carries, which is usually one top-level or nested instance of the composed net, and includes:
 
 1. The instance prefix string (e.g., `b1` or `outer/inner`).
 2. The originating subnet definition's name, where available.
 3. The parameter value supplied at instantiation, where available.
 4. The set of transitions whose instance prefix is the descriptor's prefix (full prefixed names).
-5. The set of places whose instance prefix is the descriptor's prefix (full prefixed names, reported as the exposed places). After composition these are the instance's own internal places (not those of instances nested in it) and its unbound ports: a bound port takes the name of the caller place it is bound to.
+5. The set of listed places whose instance prefix is the descriptor's prefix (full prefixed names, reported as the exposed places). After composition these are the instance's own internal places (not those of instances nested in it) and its unbound ports: a bound port takes the name of the caller place it is bound to.
 6. An optional parent-prefix field: the instance prefix of the descriptor's own prefix, which names the enclosing instance of a nested one.
 
 Current runtimes keep neither the definition name nor the parameter value after composition, so items 2 and 3 are absent.
@@ -1090,9 +1090,9 @@ An outer instance all of whose nodes sit in a nested instance has no descriptor 
 
 In addition, individual `PlaceInfo` and `TransitionInfo` entries in the debug protocol SHOULD carry an optional `instancePrefix` field derived from the name's prefix portion, so clients that do not parse names themselves can group nodes.
 
-*When* a debug session subscribed to a live net answers `Subscribed`, its subnet instance list *shall* hold exactly one descriptor for each distinct instance prefix that the name of some place or transition of the net carries, and no other descriptor.
+*When* a debug session subscribed to a live net answers `Subscribed`, its subnet instance list *shall* hold exactly one descriptor for each distinct instance prefix that the name of some transition or listed place of the net carries, and no other descriptor.
 
-*When* a debug session subscribed to a live net answers `Subscribed`, each subnet instance descriptor *shall* list as its transitions exactly the transitions of the net whose instance prefix is the descriptor's prefix, and as its places exactly the places of the net whose instance prefix is the descriptor's prefix.
+*When* a debug session subscribed to a live net answers `Subscribed`, each subnet instance descriptor *shall* list as its transitions exactly the transitions of the net whose instance prefix is the descriptor's prefix, and as its places exactly the listed places of the net whose instance prefix is the descriptor's prefix.
 
 *When* a debug session subscribed to a live net answers `Subscribed`, each subnet instance descriptor *shall* carry as its parent prefix the instance prefix of its own prefix, and no parent prefix when its own prefix has none.
 
@@ -1101,8 +1101,8 @@ In addition, individual `PlaceInfo` and `TransitionInfo` entries in the debug pr
 This requirement is observability-only; it does not change net behavior.
 
 **Acceptance Criteria:**
-1. A debug session subscribed to a live composed net receives a list of subnet instance descriptors with one entry per distinct instance prefix that some place or transition name carries.
-2. Each descriptor's transition and exposed-place sets enumerate exactly the transitions and places whose instance prefix is the descriptor's prefix.
+1. A debug session subscribed to a live composed net receives a list of subnet instance descriptors with one entry per distinct instance prefix that some transition or listed place name carries.
+2. Each descriptor's transition and exposed-place sets enumerate exactly the transitions and listed places whose instance prefix is the descriptor's prefix.
 3. Each `PlaceInfo` and `TransitionInfo` whose node name has an instance prefix carries that prefix as `instancePrefix`, and one whose name has none carries no `instancePrefix`.
 4. Nested instances are reported with their parent prefix.
 5. A debug session subscribed to a live net with no `/` in any name returns an empty subnet-instance list and no `instancePrefix` fields.
@@ -1219,17 +1219,17 @@ A **fusion set** declares that N places — possibly drawn from different module
 Fusion is the mechanism for modeling shared cross-instance state (e.g., a global rate limiter shared by three instances of a leaky-bucket subnet) without expressing the shared resource as an interface port on every subnet.
 
 A fusion set has:
-1. A name, used in diagnostics only. The first declared member is the canonical member, and it keeps its own name in the fused net ([MOD-061]).
+1. A name, used in diagnostics only. The first declared member is the canonical member, and it keeps its own name in the fused net ([MOD-061]). Whether an empty name is accepted is implementation-defined: Rust rejects it, TypeScript rejects it on the builder and accepts it in `FusionSet.of`, Java accepts it.
 2. A list of N member places in the order they were declared, N >= 1. A set with one member fuses nothing: its canonical member maps to itself.
 3. All members MUST have compatible token types per [CORE-003] (implementation-defined enforcement matching [MOD-022]). Java and Rust compare the run-time token types of the members; TypeScript keeps no run-time token type and checks none. The Python binding declares no fusion sets.
 
 *If* a fusion set is declared with no member, *then* declaring it *shall* fail.
 
-*When* a fusion set is declared with at least one member and no two of its members have different run-time token types, declaring it *shall* succeed and *shall* return the set with its name and with its members in the order they were declared.
+*When* a fusion set is declared with a non-empty name and at least one member and no two of its members have different run-time token types, declaring it *shall* succeed and *shall* return the set with its name and with its members in the order they were declared.
 
 *Where* an implementation keeps a run-time token type for places (Java and Rust), *if* two members of a fusion set have different token types, *then* declaring the set *shall* fail.
 
-**Order of operations relative to composition.** Port substitution per [MOD-020] and channel merging per [MOD-021] happen **first**, during each `compose(...)` call on the enclosing builder. Fusion sets are then applied to the resulting post-composition flat net during `build()` per [MOD-061]. Consequently, fusion membership is evaluated against **post-composition place identity**: a fusion set MAY validly name a caller-side place that became the destination of one or more port substitutions, and the resulting fused canonical place observes the unioned token bag of all arcs that, after composition, target the (now-substituted) caller place plus all arcs targeting other fusion members.
+**Order of operations relative to composition.** Port substitution per [MOD-020] and channel merging per [MOD-021] happen **first**, during each `compose(...)` call on the enclosing builder. Fusion sets are then applied to the resulting post-composition flat net during `build()` per [MOD-061]. Consequently, fusion membership is evaluated against **post-composition place identity**: a fusion set MAY validly name a caller-side place that became the destination of one or more port substitutions. In the fused net the canonical member is the place of every arc that, after composition, was on the (now-substituted) caller place or on another member of the set, so the tokens those arcs produce and consume meet on one place. A token put on a non-canonical member when the initial marking is set is not moved: it stays on that member's name, which the fused net does not declare ([MOD-061]).
 
 **Acceptance Criteria:**
 1. A fusion set can be declared with a name and a list of N (>= 1) member places.

@@ -34,21 +34,21 @@ Two further points about the cycle are checked by other requirements, not by thi
 
 *When* the executor begins a cycle or enters step 1, it *shall not* deposit a publication, inject an external event or start a transition until it has processed every finished action queued at that moment, whether the action completed, failed or timed out.
 
-*When* the executor enters step 2 of a cycle, it *shall not* run the next enablement update until it has injected or discarded every external event queued at that moment ([ENV-003], [ENV-013], [ENV-015]).
+*When* the executor enters step 2 of a cycle while it is neither closed nor terminated immediately, it *shall not* run the next enablement update until it has injected or discarded every external event queued at that moment ([ENV-003], [ENV-013], [ENV-015]).
 
 *If* the deadline step of a cycle reaps a transition, *then* the executor *shall not* start that transition before its next enablement update.
 
 *When* the executor starts a transition that has an input or reset arc, or deposits tokens outside a firing pass or inside a firing pass that has started a transition, it *shall not* wait for work until it has run an enablement update.
 
-*When* the executor runs an enablement update, it *shall* leave every transition that is not enabled without a clock, and every enabled transition armed or reaped unless the executor is not re-entrant and a firing of that transition is in flight ([CONC-002]).
+*When* the executor runs an enablement update, it *shall* leave every transition whose enablement check fails without a clock, and every transition whose enablement check passes armed or reaped unless the executor is not re-entrant and a firing of that transition is in flight ([CONC-002], [NU-020]).
 
 **Acceptance Criteria:**
 1. Each cycle runs steps 1 to 5 in order, except as the two exceptions above allow: the finished actions queued when the cycle begins are processed before any publication, injection or start; step 2 ends before the enablement update; the enablement update runs before the deadline step, and the deadline step before any start.
 2. No transition starts before the completions queued when the cycle began are processed, nor, since the last deposit made outside a firing pass, before an enablement update and then a deadline step have run.
-3. External events queued when step 2 began are injected, or discarded once the executor is closed or terminated ([ENV-013], [ENV-015]), before the next enablement update.
+3. External events queued when step 2 began, while the executor was neither closed nor terminated, are injected, or discarded once the executor is closed or terminated ([ENV-013], [ENV-015]), before the next enablement update. A step 2 that begins after a close or an immediate termination may leave the queued events in the queue; they are discarded by the end of the run ([ENV-013]).
 4. A transition reaped by a deadline step does not start before the next enablement update.
 5. After a deposit, or the start of a transition with an input or reset arc, the executor does not wait for work before an enablement update.
-6. After an enablement update, no transition that is not enabled holds a clock, and every enabled transition is armed or reaped, unless the executor is not re-entrant and a firing of that transition is in flight.
+6. After an enablement update, no transition whose enablement check fails holds a clock, and every transition whose enablement check passes is armed or reaped, unless the executor is not re-entrant and a firing of that transition is in flight.
 
 A firing's inputs leave the marking in step 5 and its outputs arrive in step 1 of a later cycle
 (or, for a synchronous action, inside the firing pass, invisibly to the rest of the pass,
@@ -501,7 +501,7 @@ The executor *shall* end a run only by finishing it, never as a side effect of a
 
 The executor *shall* report the termination reason `quiescent` only when nothing is armed, in flight or queued ([EXEC-040]), and `terminal` only when a terminal place is marked ([EXEC-042]).
 
-The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination or another caller-requested stop.
+The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination, another caller-requested stop, or a fault of the host runtime that ends the run with a raised error ([EXEC-030]).
 
 At a rest the run reached after a close or an immediate termination, `quiescent` and `closed` both conform, and after an immediate termination `stopped` conforms too.
 
@@ -564,10 +564,11 @@ orchestrator is parked in the wait, not from an action — and do so under a hos
 ([TIME-015]) as well as the built-in one, since the two report the interrupt differently.
 
 **Termination reasons.** Where an implementation exposes the reason as a value, the values are:
-`quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget
-or another caller-requested stop) and `interrupted` (a cancellation observed in the wait, where
-the runtime has one). `quiescent` and `terminal` are the two **completed** reasons: the returned
-marking is the one the net was designed to end in. The others are truncations.
+`quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget,
+another caller-requested stop, or a host fault that ends the run with a raised error) and
+`interrupted` (a cancellation observed in the wait, where the runtime has one). `quiescent` and
+`terminal` are the two **completed** reasons: the returned marking is the one the net was designed
+to end in. The others are truncations.
 
 ---
 

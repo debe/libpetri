@@ -12,8 +12,9 @@ The DOT IDs of the exported graph: every node's ID is a fixed function of what t
 for (`p_<s>`, `t_<s>`, `j_<s>__<kind>_<idx>`, with `<s>` the sanitised name), the junctions of a
 transition are numbered in depth-first pre-order with one counter, the edges of the output side
 use those numbers, no two nodes share an ID when the names of the net are ASCII and stay
-distinct after sanitising, and a junction never shares an ID with a place or a transition,
-whatever the names.
+distinct after sanitising, a junction never shares an ID with a place or a transition,
+whatever the names, every junction node belongs to a transition of the net, and a junction node
+is drawn with the category of its kind (`xor-junction`, `and-junction`).
 
 The requirement is a predicate over an abstract `Exporter` (glossary `GlossaryExport.lean`),
 not over an `Emitter`: an emitter's output carries no IDs, and the wiring is a property of the
@@ -72,7 +73,7 @@ requirement EXP_014
   id "EXP-014"
   title "Junction ID Format and Layout Stability"
   kind F
-  scope "every exporter, the DOT IDs and junction numbering of the exported graph"
+  scope "every exporter, the DOT IDs, the junction nodes and the junction numbering of the exported graph"
   source verbatim "spec/09-export.md"
   quote "Synthetic junction nodes MUST use IDs of the form `j_<transitionSanitized>__<kind>_<idx>`, where:"
         "`transitionSanitized` is the transition's name with non-`[A-Za-z0-9_]` characters replaced by `_` (the same `sanitize` function used for place and transition IDs)."
@@ -86,6 +87,8 @@ requirement EXP_014
         "*Where* the transition names of a net are pairwise distinct, the mapper *shall* give the junction node of a group with two or more children the index of that group in the depth-first pre-order of such groups in the transition's output spec, counting from 0, with one counter for both kinds."
         "*Where* the transition names of a net are pairwise distinct, the mapper *shall* draw as the output edges of a transition, compared by their ends, exactly the edges [EXP-012] draws for its output spec, each as often as [EXP-012] draws it, with each junction numbered by the index of its group."
         "The mapper *shall* draw no edge that starts or ends at a junction node it does not draw."
+        "The mapper *shall* draw no junction node for a transition the net does not have."
+        "The mapper *shall* give a junction node of kind `xor` the `xor-junction` category of the node table and a junction node of kind `and` the `and-junction` category."
         "*Where* the transition names of a net are pairwise distinct, its place and transition names hold only ASCII characters, and no two different place names, nor two different transition names, become equal when each character outside `[A-Za-z0-9_]` is replaced by `_`, the mapper *shall* give no two nodes of the graph the same ID."
         "AC1 covers the junctions of transitions whose name is not empty and holds only ASCII characters."
   reading "For every configuration cfg and net X, the graph E cfg X satisfies:"
@@ -94,19 +97,23 @@ requirement EXP_014
           "on such a net, the output side of each transition t (its output and reset+output edges from t or a junction of t), as (source, target) pairs, is the drawing rule of EXP-012 for t's output spec with these junction numbers (Drawing, no renumbering), each pair as often as Drawing has it, in any order;"
           "every junction an edge starts or ends at is the reference of a node of the graph;"
           "on such a net whose names meet the name assumption (ExportNet.IdNames: ASCII place and transition names, pairwise distinct after sanitize), the node IDs are pairwise distinct;"
-          "for every net, whatever its names, no junction node has the ID of a node that is not a junction (a place or a transition node)."
-  assumes "The model is an exporter E : Exporter (glossary): the typed graph (nodes with reference, ID, category and labels; edges; clusters) a configuration and a net are drawn as, before DOT text. The node references (place, transition, junction (t, kind, index)) are the graph's own data; this block constrains the IDs it gives them, the junction indices and kinds it uses and the ends of the output edges. Every other attribute of a node or edge is another block's subject (EXP-001 to EXP-013)."
+          "for every net, whatever its names, no junction node has the ID of a node that is not a junction (a place or a transition node);"
+          "every junction node stands for a junction of a transition of X: some transition of X has the name the junction carries;"
+          "and every junction node of kind k has the category of its kind, xor-junction for xor and and-junction for and (JKind.cat)."
+  assumes "The model is an exporter E : Exporter (glossary): the typed graph (nodes with reference, ID, category and labels; edges; clusters) a configuration and a net are drawn as, before DOT text. The node references (place, transition, junction (t, kind, index)) are the graph's own data; this block constrains the IDs it gives them, the junction indices and kinds it uses, the transition a junction node belongs to, the category of a junction node and the ends of the output edges. Every other attribute of a node or edge is another block's subject (EXP-001 to EXP-013)."
           "The ID function is the glossary's nodeId over sanitize, which keeps an ASCII letter, digit or underscore and replaces every other character by an underscore, and writes the index with toString (decimal, no leading zeros). By ruling D46 (a) the first line binds only nodes whose name is ASCII: on other names the runtimes differ (Rust keeps every Unicode letter and digit, Java replaces per code point as the model does, TypeScript per UTF-16 code unit, so a character outside the basic plane becomes two underscores) and the spec leaves them implementation-defined, which is the plain sentence quoted after the first shall sentence."
-          "The sixth line is guarantee 1 and the second shall sentence, for every name: all three runtimes keep the prefixes p_, t_ and j_ for every name, so a junction ID, which starts with j_, is no place or transition ID. Without it a mapper that writes non-ASCII names verbatim, without a prefix, meets the other five lines and gives the transition Ü and its junction one ID (EXP_014_forbids_rawNonAscii, exp014_rawNonAscii_rest). The reference meets it by EXP_014_guarantee1."
+          "The sixth line is guarantee 1 and the second shall sentence, for every name: all three runtimes keep the prefixes p_, t_ and j_ for every name, so a junction ID, which starts with j_, is no place or transition ID. Without it a mapper that writes non-ASCII names verbatim, without a prefix, meets every other line and gives the transition Ü and its junction one ID (EXP_014_forbids_rawNonAscii, exp014_rawNonAscii_rest). The reference meets it by EXP_014_guarantee1."
           "The second and third lines restate the numbering bullet and the third, fourth and fifth shall sentences: the junction nodes of a transition are one per group with two or more children, of that group's kind (and for And, xor for Xor, which the spec's example implies and the third shall sentence states), the index of a junction is the position of its group in the pre-order of those groups (OutTree.junctions, which skips a short group, so a collapsed group consumes no counter slot), and the output edges are exactly the edges of EXP-012's drawing rule wired to those indices, so an extra, missing or repeated output edge breaks the third line (EXP_014_forbids_dupOutEdge). EXP-012 compares junctions and edges only up to a one-to-one renumbering; these two lines fix the renumbering to the identity. Both lines read a transition by its name, so they are stated on nets with pairwise distinct transition names, which every net that builds has and which the shall sentences state as their condition; the input-arc half of X.Distinct (CORE-030) plays no part here."
           "The third line reads the output side by arc type: an output or reset+output edge from the transition or one of its junctions. An edge from a junction drawn with another arc type escapes it but not the fourth line, which still requires its junction end to be drawn; arc types are EXP-012's subject and the export agreement's (ExportAgrees)."
           "The fourth line is the sixth shall sentence: an edge whose end is a junction no node stands for would make Graphviz invent an unstyled node with a junction ID. Ghost edges (EXP-017) are included."
+          "The seventh line is the shall sentence on junction nodes for a transition the net does not have, for every net. Lines 2 and 3 read the junctions of each transition of X by its name, so without the seventh line an exporter that adds a junction node for a name no transition of X has (a junction left over from an earlier export, say) meets lines 1 to 6 on every net and draws a junction on a net with no output spec at all (EXP_014_forbids_strayJunction, exp014_strayJunction_rest). With line 2 on nets with distinct transition names, and with the junction clause of the export agreement (ExportAgrees, glossary), it carries EXP-012's 'and no other junction node' from one output spec to the whole graph. All three mappers make a junction node only while walking the output spec of a transition of the net (emit_output in the Rust crate libpetri-export, emitOutput in PetriNetGraphMapper.java and petri-net-mapper.ts), as the reference does."
+          "The eighth line is the shall sentence on the category of a junction node, and EXP-012's 'Style category xor-junction' and 'Style category and-junction' attributes: a junction node of kind k has the row JKind.cat k of the node table (Libpetri.Export.Styles, generated from spec/petri-net-styles.json). Java and TypeScript set the category from the kind (PetriNetGraphMapper.java, petri-net-mapper.ts); Rust draws the XOR_JUNCTION or AND_JUNCTION style by kind (mapper.rs), which is that row. An exporter that swaps the two rows violates it (EXP_014_forbids_junctionCatSwap). The other junction attributes (shape, glyph, size, font) are the table's constants and kind Q, as EXP-012 says."
           "The fifth line is the uniqueness shall sentence, the uniqueness that 'uniquely determined' claims, under the name assumption of ruling D46 (a) (kind A, ExportNet.IdNames, on a net with pairwise distinct transition names): ASCII names, and no two place names nor two transition names equal after sanitize. Without it two names such as b1/x and b1_x get one ID in every runtime. A place and a transition never share an ID (prefixes p_ and t_), and a junction ID is no place or transition ID (prefix j_) and determines its transition's sanitised name, kind and index (EXP_014_junctionId_inj, by reading the ID from its end: the index has no underscore, the kind word is three letters after a double underscore). Ruling D46 (a) also names non-empty names; uniqueness does not need that (an empty place name, an empty transition name and their junctions still get the IDs p_, t_ and j___<kind>_<idx>), so ExportNet.IdNames leaves it out and only AC1 is scoped to non-empty names. The assumption's 'no empty / segment' clause is EXP-016's and plays no part here."
           "The 'uniquely determined by the depth-first traversal' clause of the flat-counter paragraph is the second and third lines."
           "AC1 (all junction IDs match j_[A-Za-z0-9_]+__(xor|and)_[0-9]+) follows from the first line, for every exporter meeting EXP-014, for a junction of a transition whose name is non-empty and ASCII (EXP_014_ac1), which is what the last quoted plain sentence scopes AC1 to. An empty transition name builds in every runtime and gives j___xor_0, which the regex rejects; a non-ASCII name gives an implementation-defined ID, and Rust's j_é__xor_0 does not match the regex either."
           "Guarantee 2 and AC2 (two exports of one net are byte-equal) have no content over a Lean function, which is deterministic; across processes they fail today for Java and Rust (HashSet order, ruling R2 (exp-b)); kind Q. Guarantee 3 and AC3 (Java, TypeScript and Rust exports are byte-equal) are a property of three programs and kind Q by ruling D60 (c); the export corpus EP-2 replays the reference against the runtimes after the migration. The order of nodes and edges is not stated (List.Perm), only the numbering the spec pins."
           "The test derivation (export twice and diff; export in three languages and diff) is AC2 and AC3, kind Q. EXP_014_nonvacuous decides the spec's example AND(XOR(a,b), XOR(c,d)) on t Nested, a deeper tree that separates pre-order from breadth-first numbering, a collapsed group, sanitised place, transition and junction IDs, and a junction ID apart from the transition ID on a non-ASCII name, on the reference."
-  signoff "pending"
+  signoff "2026-11-13 93861fe2b59913fc ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (∀ n ∈ (E cfg X).nodes, AsciiName n.ref.refName → n.id = nodeId n.ref) ∧
@@ -119,7 +126,9 @@ requirement EXP_014
         ∃ n ∈ (E cfg X).nodes, n.ref = .junction u k i) ∧
       ((X.trans.map ExportTrans.name).Nodup → X.IdNames → ((E cfg X).nodes.map XNode.id).Nodup) ∧
       (∀ n ∈ (E cfg X).nodes, ∀ m ∈ (E cfg X).nodes,
-        n.ref.isJunction = true → m.ref.isJunction = false → n.id ≠ m.id)
+        n.ref.isJunction = true → m.ref.isJunction = false → n.id ≠ m.id) ∧
+      (∀ n ∈ (E cfg X).nodes, ∀ u k i, n.ref = .junction u k i → ∃ t ∈ X.trans, t.name = u) ∧
+      (∀ n ∈ (E cfg X).nodes, ∀ u k i, n.ref = .junction u k i → n.cat = k.cat)
 
 /- The pinned readable form of EXP-014: a change to the formula shows up as a diff here. -/
 /--
@@ -138,8 +147,12 @@ fun E =>
                 e.src = NodeRef.junction u k i ∨ e.dst = NodeRef.junction u k i →
                   ∃ n ∈ (E cfg X).nodes, n.ref = NodeRef.junction u k i) ∧
             ((List.map ExportTrans.name X.trans).Nodup → X.IdNames → (List.map XNode.id (E cfg X).nodes).Nodup) ∧
-              ∀ n ∈ (E cfg X).nodes,
-                ∀ m ∈ (E cfg X).nodes, n.ref.isJunction = true → m.ref.isJunction = false → n.id ≠ m.id
+              (∀ n ∈ (E cfg X).nodes,
+                  ∀ m ∈ (E cfg X).nodes, n.ref.isJunction = true → m.ref.isJunction = false → n.id ≠ m.id) ∧
+                (∀ n ∈ (E cfg X).nodes,
+                    ∀ (u : String) (k : JKind) (i : ℕ), n.ref = NodeRef.junction u k i → ∃ t ∈ X.trans, t.name = u) ∧
+                  ∀ n ∈ (E cfg X).nodes,
+                    ∀ (u : String) (k : JKind) (i : ℕ), n.ref = NodeRef.junction u k i → n.cat = k.cat
 -/
 #guard_msgs in #print EXP_014
 
@@ -280,10 +293,12 @@ theorem EXP_014_guarantee1 (S : ClusterStage) (cfg : ExportCfg) (X : ExportNet) 
 the numbering by `refExportWith_junctionsOf` and `refEmit_ofTrans_junctions`, the wiring by
 `refExportWith_outEdges` and `refEmit_draws`, the junction ends of every edge by
 `refEmit_ofTrans_ends` and the stage's `ghosts_ends`, unique IDs by
-`exp014_refNodeRefs_nodup` and `exp014_nodeId_inj`, and guarantee 1 by `EXP_014_guarantee1`. -/
+`exp014_refNodeRefs_nodup` and `exp014_nodeId_inj`, guarantee 1 by `EXP_014_guarantee1`, and the
+owner and category of a junction node by `refJunctionNode`, drawn only for the transitions of the
+net. -/
 theorem EXP_014_any (S : ClusterStage) : EXP_014 (refExportWith S) := by
   intro cfg X
-  refine ⟨?_, ?_, ?_, ?_, ?_, EXP_014_guarantee1 S cfg X⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, EXP_014_guarantee1 S cfg X, ?_, ?_⟩
   · intro n hn _
     exact refNodes_id hn
   · intro hX t ht
@@ -330,6 +345,18 @@ theorem EXP_014_any (S : ClusterStage) : EXP_014 (refExportWith S) := by
       exact List.map_congr_left fun n hn => refNodes_id hn
     rw [hid]
     exact (exp014_refNodeRefs_nodup hX).map_on fun r hr r' hr' h => exp014_nodeId_inj hN hr hr' h
+  · intro n hn u k i hr
+    rcases mem_refNodes.mp hn with ⟨p, _, rfl⟩ | ⟨t, _, rfl⟩ | ⟨t, ht, j, _, rfl⟩
+    · simp [refPlaceNode] at hr
+    · simp [refTransNode] at hr
+    · simp only [refJunctionNode, NodeRef.junction.injEq] at hr
+      exact ⟨t, ht, hr.1⟩
+  · intro n hn u k i hr
+    rcases mem_refNodes.mp hn with ⟨p, _, rfl⟩ | ⟨t, _, rfl⟩ | ⟨t, _, j, _, rfl⟩
+    · simp [refPlaceNode] at hr
+    · simp [refTransNode] at hr
+    · simp only [refJunctionNode, NodeRef.junction.injEq] at hr ⊢
+      rw [hr.2.1]
 
 end Reference
 
@@ -564,7 +591,7 @@ def exp014_rawNonAscii : Exporter := fun cfg X =>
 @[evidence forbids EXP_014]
 theorem EXP_014_forbids_rawNonAscii : ¬ EXP_014 exp014_rawNonAscii := by
   intro h
-  have := (h {} exp014UNet).2.2.2.2.2
+  have := (h {} exp014UNet).2.2.2.2.2.1
   revert this
   decide
 
@@ -577,9 +604,9 @@ theorem exp014_ref_ascii {cfg : ExportCfg} {X : ExportNet} (hN : X.IdNames) :
   · exact hN.2.1 t ht
   · exact hN.2.1 t ht
 
-/-- **Only the sixth line sees the verbatim mapper**: it meets the first five lines of EXP-014 on
-every configuration and net, since lines 1 and 5 bind ASCII names only and lines 2 to 4 read node
-references, never IDs. -/
+/-- **Only the sixth line sees the verbatim mapper**: it meets every other line of EXP-014 on
+every configuration and net, since lines 1 and 5 bind ASCII names only and lines 2 to 4, 7 and 8
+read node references and categories, never IDs. -/
 theorem exp014_rawNonAscii_rest (cfg : ExportCfg) (X : ExportNet) :
     let g := exp014_rawNonAscii cfg X
     (∀ n ∈ g.nodes, AsciiName n.ref.refName → n.id = nodeId n.ref) ∧
@@ -590,9 +617,11 @@ theorem exp014_rawNonAscii_rest (cfg : ExportCfg) (X : ExportNet) :
         (((t.out.map (Drawing t.name)).getD []).map fun d => (d.src, d.dst))) ∧
     (∀ e ∈ g.edges, ∀ u k i, (e.src = .junction u k i ∨ e.dst = .junction u k i) →
       ∃ n ∈ g.nodes, n.ref = .junction u k i) ∧
-    ((X.trans.map ExportTrans.name).Nodup → X.IdNames → (g.nodes.map XNode.id).Nodup) := by
-  obtain ⟨h1, h2, h3, h4, h5, -⟩ := (EXP_014_any _ : EXP_014 refExportFlat) cfg X
-  refine ⟨?_, ?_, h3, ?_, ?_⟩
+    ((X.trans.map ExportTrans.name).Nodup → X.IdNames → (g.nodes.map XNode.id).Nodup) ∧
+    (∀ n ∈ g.nodes, ∀ u k i, n.ref = .junction u k i → ∃ t ∈ X.trans, t.name = u) ∧
+    (∀ n ∈ g.nodes, ∀ u k i, n.ref = .junction u k i → n.cat = k.cat) := by
+  obtain ⟨h1, h2, h3, h4, h5, -, h7, h8⟩ := (EXP_014_any _ : EXP_014 refExportFlat) cfg X
+  refine ⟨?_, ?_, h3, ?_, ?_, ?_, ?_⟩
   · intro n hn ha
     simp only [exp014_rawNonAscii, List.mem_map] at hn
     obtain ⟨m, hm, rfl⟩ := hn
@@ -617,6 +646,161 @@ theorem exp014_rawNonAscii_rest (cfg : ExportCfg) (X : ExportNet) :
       simp [exp014_ref_ascii hN m hm]
     rw [heq]
     exact h5 hX hN
+  · intro n hn u k i hr
+    simp only [exp014_rawNonAscii, List.mem_map] at hn
+    obtain ⟨m, hm, rfl⟩ := hn
+    exact h7 m hm u k i hr
+  · intro n hn u k i hr
+    simp only [exp014_rawNonAscii, List.mem_map] at hn
+    obtain ⟨m, hm, rfl⟩ := hn
+    exact h8 m hm u k i hr
+
+/-- Concatenation of a list of strings. -/
+def exp014Big (L : List String) : String := L.foldr (· ++ ·) ""
+
+/-- Every string of `L` is at most as long as their concatenation. -/
+theorem exp014_le_big : ∀ (L : List String), ∀ x ∈ L, x.length ≤ (exp014Big L).length
+  | [], x, hx => by cases hx
+  | y :: L, x, hx => by
+    simp only [exp014Big, List.foldr_cons, String.length_append]
+    rcases List.mem_cons.mp hx with rfl | hx
+    · omega
+    · have := exp014_le_big L x hx
+      simp only [exp014Big] at this
+      omega
+
+/-- A string longer than every string of `L`, holding the non-ASCII `é`. -/
+def exp014Fresh (L : List String) : String := exp014Big L ++ "é"
+
+/-- `exp014Fresh L` is no string of `L`. -/
+theorem exp014_fresh_ne (L : List String) : ∀ x ∈ L, x ≠ exp014Fresh L := by
+  intro x hx h
+  have h1 := exp014_le_big L x hx
+  have h2 : (exp014Fresh L).length = (exp014Big L).length + 1 := by
+    have he : "é".length = 1 := by decide
+    simp [exp014Fresh, String.length_append, he]
+  rw [h] at h1
+  omega
+
+/-- `exp014Fresh L` is not an ASCII name. -/
+theorem exp014_fresh_not_ascii (L : List String) : ¬ AsciiName (exp014Fresh L) := by
+  intro h
+  have : 'é' ∈ (exp014Fresh L).toList := by simp [exp014Fresh, String.toList_append]
+  have := h _ this
+  revert this
+  decide
+
+/-- A stray junction node: an xor junction, numbered 0, of a name no transition of `X` has, with
+an ID no node of `g` has. -/
+def exp014StrayNode (X : ExportNet) (g : XGraph) : XNode :=
+  ⟨.junction (exp014Fresh (X.trans.map ExportTrans.name)) .xor 0,
+   exp014Fresh (g.nodes.map XNode.id), JKind.xor.cat, JKind.xor.glyph, none⟩
+
+/-- The clustered reference with one stray junction node added: a mapper whose junction left over
+from an earlier export (a leaked or static mapper context) reaches the next graph. -/
+def exp014_strayJunction : Exporter := fun cfg X =>
+  let g := refExport cfg X
+  { g with nodes := g.nodes ++ [exp014StrayNode X g] }
+
+/-- The stray node is no junction of a transition of the net. -/
+theorem exp014_stray_junctionsOf (cfg : ExportCfg) (X : ExportNet) (t : ExportTrans)
+    (ht : t ∈ X.trans) :
+    (exp014_strayJunction cfg X).junctionsOf t.name = (refExport cfg X).junctionsOf t.name := by
+  have hne : t.name ≠ exp014Fresh (X.trans.map ExportTrans.name) :=
+    exp014_fresh_ne _ _ (List.mem_map_of_mem ht)
+  simp only [exp014_strayJunction, XGraph.junctionsOf, List.filterMap_append]
+  have : (exp014StrayNode X (refExport cfg X)).ref.junctionOf t.name = none := by
+    simp only [exp014StrayNode, NodeRef.junctionOf]
+    rw [if_neg (Ne.symm hne)]
+  simp [this]
+
+/-- **Only the seventh line sees the stray junction**: the mutant meets every other line of
+EXP-014 on every configuration and net, since lines 2 and 3 read the junctions of the net's own
+transitions, line 4 the junctions edges touch, lines 1 and 5 bind ASCII names and the stray ID is
+fresh, and the stray node has the xor row. -/
+theorem exp014_strayJunction_rest (cfg : ExportCfg) (X : ExportNet) :
+    let g := exp014_strayJunction cfg X
+    (∀ n ∈ g.nodes, AsciiName n.ref.refName → n.id = nodeId n.ref) ∧
+    ((X.trans.map ExportTrans.name).Nodup → ∀ t ∈ X.trans,
+      (g.junctionsOf t.name).Perm ((t.out.map OutTree.junctions).getD []).zipIdx) ∧
+    ((X.trans.map ExportTrans.name).Nodup → ∀ t ∈ X.trans,
+      ((g.outEdges t.name).map fun e => (e.src, e.dst)).Perm
+        (((t.out.map (Drawing t.name)).getD []).map fun d => (d.src, d.dst))) ∧
+    (∀ e ∈ g.edges, ∀ u k i, (e.src = .junction u k i ∨ e.dst = .junction u k i) →
+      ∃ n ∈ g.nodes, n.ref = .junction u k i) ∧
+    ((X.trans.map ExportTrans.name).Nodup → X.IdNames → (g.nodes.map XNode.id).Nodup) ∧
+    (∀ n ∈ g.nodes, ∀ m ∈ g.nodes,
+      n.ref.isJunction = true → m.ref.isJunction = false → n.id ≠ m.id) ∧
+    (∀ n ∈ g.nodes, ∀ u k i, n.ref = .junction u k i → n.cat = k.cat) := by
+  obtain ⟨h1, h2, h3, h4, h5, h6, -, h8⟩ := EXP_014_reference cfg X
+  have hmem : ∀ n, n ∈ (exp014_strayJunction cfg X).nodes ↔
+      n ∈ (refExport cfg X).nodes ∨ n = exp014StrayNode X (refExport cfg X) := by
+    intro n
+    simp [exp014_strayJunction]
+  have hfresh : ∀ m ∈ (refExport cfg X).nodes, m.id ≠ (exp014StrayNode X (refExport cfg X)).id :=
+    fun m hm => exp014_fresh_ne _ _ (List.mem_map_of_mem hm)
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn ha
+    rcases (hmem n).mp hn with hn | rfl
+    · exact h1 n hn ha
+    · exact absurd ha (exp014_fresh_not_ascii _)
+  · intro hX t ht
+    rw [exp014_stray_junctionsOf cfg X t ht]
+    exact h2 hX t ht
+  · intro hX t ht
+    exact h3 hX t ht
+  · intro e he u k i hj
+    obtain ⟨n, hn, hr⟩ := h4 e he u k i hj
+    exact ⟨n, (hmem n).mpr (Or.inl hn), hr⟩
+  · intro hX hN
+    have := h5 hX hN
+    simp only [exp014_strayJunction, List.map_append, List.map_cons, List.map_nil]
+    rw [List.nodup_append]
+    refine ⟨this, List.nodup_singleton _, ?_⟩
+    intro a ha b hb
+    simp only [List.mem_singleton] at hb
+    subst hb
+    obtain ⟨m, hm, rfl⟩ := List.mem_map.mp ha
+    exact hfresh m hm
+  · intro n hn m hm hnj hmj
+    rcases (hmem n).mp hn with hn | rfl <;> rcases (hmem m).mp hm with hm | rfl
+    · exact h6 n hn m hm hnj hmj
+    · simp [exp014StrayNode, NodeRef.isJunction] at hmj
+    · exact (hfresh m hm).symm
+    · simp [exp014StrayNode, NodeRef.isJunction] at hmj
+  · intro n hn u k i hr
+    rcases (hmem n).mp hn with hn | rfl
+    · exact h8 n hn u k i hr
+    · simp only [exp014StrayNode, NodeRef.junction.injEq] at hr ⊢
+      rw [← hr.2.1]
+
+/-- ✗ A junction node for a name no transition of the net has violates EXP-014 on the empty net
+(line 7: the mutant draws a junction there, although the net has no transition and no output
+spec). -/
+@[evidence forbids EXP_014]
+theorem EXP_014_forbids_strayJunction : ¬ EXP_014 exp014_strayJunction := by
+  intro h
+  obtain ⟨t, ht, -⟩ := (h {} {}).2.2.2.2.2.2.1 (exp014StrayNode {} (refExport {} {}))
+    (by simp [exp014_strayJunction]) _ .xor 0 rfl
+  simp at ht
+
+/-- The reference with the rows of the two junction kinds swapped: an xor junction drawn with
+the `and-junction` row and an and junction with the `xor-junction` row. -/
+def exp014_junctionCatSwap : Exporter := fun cfg X =>
+  let g := refExportFlat cfg X
+  { g with nodes := g.nodes.map fun n => match n.ref with
+      | .junction _ k _ => { n with cat := (exp014FlipKind k).cat }
+      | _ => n }
+
+/-- ✗ Drawing an xor junction with the `and-junction` row violates EXP-014 on `XOR(a, b)` (line 8:
+the junction node of the `Xor` group has the `xor-junction` row). -/
+@[evidence forbids EXP_014]
+theorem EXP_014_forbids_junctionCatSwap : ¬ EXP_014 exp014_junctionCatSwap := by
+  intro h
+  have := (h {} (exp014Net (.xor [.place "a", .place "b"]))).2.2.2.2.2.2.2
+    { refJunctionNode "T" (.xor, 0) with cat := .andJunction } (by decide) "T" .xor 0 rfl
+  revert this
+  decide
 
 /-! ### Non-vacuity and the acceptance criteria -/
 

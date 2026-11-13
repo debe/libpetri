@@ -13,6 +13,7 @@ import {
   renderConf,
 } from '../src/app/conf.js';
 import { closeAllOverlays } from '../src/app/overlay.js';
+import { defectStatusWord } from '../src/app/status.js';
 import { R } from '../src/app/router.js';
 import { fixtureCtx } from './conf-graph-fixture.js';
 
@@ -41,6 +42,12 @@ describe('conformance matrix derivation', () => {
     expect(row('CORE-004').tests.java.state).toBe('tested');
     expect(row('IO-002').tests.java.state).toBe('untested');
     expect(ids(rows.filter((r) => r.defects.length > 0))).toEqual(['CORE-004']);
+  });
+
+  it('words a defect status: open, fixed in a release, or fixed and not released yet', () => {
+    expect(defectStatusWord({ state: 'open' })).toBe('open');
+    expect(defectStatusWord({ state: 'fixed', version: '2.0.0' })).toBe('fixed in 2.0.0');
+    expect(defectStatusWord({ state: 'fixed', version: null })).toBe('fixed, unreleased');
   });
 
   it('marks rows untested when no runtime has a test file', () => {

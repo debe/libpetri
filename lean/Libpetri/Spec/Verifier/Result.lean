@@ -204,7 +204,7 @@ abbrev Decider (K : Type) : Type :=
 
 /-! ## Unresolved places and untimed nets -/
 
-/-- **The places a property names** (`property_place_names`, `smt_verifier.rs:3947-3964`; Java
+/-- **The places a property names** (`property_place_names` in `smt_verifier.rs`; Java
 `propertyPlaces`, TypeScript `propertyPlaces`): the places of `MutualExclusion`, `PlaceBound`
 and `Unreachable`, the places and the waivers of `QuiescentCount`. The sinks of `DeadlockFree`
 and `TerminatesAtSink` and the conditional declarations are not read: an unresolved sink or

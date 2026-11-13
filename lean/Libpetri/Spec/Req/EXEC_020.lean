@@ -16,8 +16,8 @@ that is not reset, it is tokens the place held before, in the order it held them
 theorems check it against the reference queue firing (`RefQFire`), against an executor that
 writes several tokens into one claimed place (acceptance criterion 2), and against three mutant
 executors: one that deposits at the head of the queue, one that deposits in reverse emission
-order, and one that reorders the tokens left on an input place it also deposits to, with one
-mutant reading per mutant.
+order, one that reorders the tokens left on an input place it also deposits to, and one whose
+deposit replaces the queue of the place it emits to, with one mutant reading per mutant.
 
 Phase 1 has no completion and no admission: a reference queue firing is atomic, its emission is
 an offered deposit of the output spec, and so every firing stands for an admitted completion
@@ -54,11 +54,11 @@ requirement EXEC_020
           "Phase 1 has no completion and no admission. Every firing of the reference queue relation (RefQFire) deposits an emission whose places are an offered deposit of the output spec, so it stands for an admitted completion whose produced tokens pass output validation, which is the trigger of the quoted 'shall' sentence. Which completions the executor admits (not one whose firing ended with its timeout outcome, [EXEC-022] and [IO-013]; not one a stop on a terminal place abandoned, [EXEC-042]; not one an immediate termination abandoned, [ENV-015]; every in-flight one a close waits for, [ENV-013]) is the executor model of Phase 2 (RefExec) and is deferred to it, as is the moment of admission ([EXEC-001] step 1, or the firing pass for a synchronous action)."
           "The sentence 'If the completion of an action is not admitted, or output validation rejects the produced tokens, then the executor shall not deposit any token the action produced at completion.' is deferred to Phase 2: it speaks of completions that are not admitted and of a validation that fails, neither of which is a firing of the atomic Phase 1 relation. The joint model's QProjectsTo Q RefFire excludes every step whose emitted places are not an offered deposit, so at Phase 1 grain no step deposits an emission validation would reject; it is not a line of this block. It does not model the rejected completion itself: a firing that consumes, fails validation and deposits nothing (TransitionFailed, [EXEC-021], [EVT-008]) is not a step of the atomic relation, and neither is a firing of an executor with the validation skip of [CONC-026], which deposits a write that is not an offered deposit. Both are Phase 2 (RefExec)."
           "Tokens an action published before it completed ([IO-015]) are not modelled: the Phase 1 action emits only at the end of the firing. That they are not deposited again and survive a failed or abandoned completion is deferred to Phase 2."
-          "Line 1 is the quoted sentences: the emitted tokens are the tail of each queue, in emission order. Lines 2 and 3 say what 'its place's queue' is, the queue the deposit goes after: on a place the firing does not consume from or reset, the tokens already there (line 2); on an input place that is not reset, tokens the place held, kept in queue order (line 3, glossary Queue order: 'The tokens of a place are kept in the order they were added'). Line 3 does not say which tokens the firing consumes: oldest first is [EXEC-010], and a correlated input of a ν-net match ([NU-020], ruling D16) may take other tokens, which also leaves a sublist; the exact queue left is [EXEC-010] and [EXEC-013]. On a reset place base is unconstrained here; [EXEC-013], [CORE-034] and the count guard QProjectsTo Q RefFire make it empty. Without line 3 an executor that reorders the tokens left on an input place it also deposits to would satisfy the block (EXEC_020_mutant_restOrder_killed)."
-          "AC1 (an action produces V to P; V appears at the end of P's queue) is line 1 with line 2: the nonvacuous example EXEC_020_nonvacuous deposits 30 to a place already holding 40 and leaves 40 then 30."
+          "Line 1 is the quoted sentences: the emitted tokens are the tail of each queue, in emission order. Lines 2 and 3 say what 'its place's queue' is, the queue the deposit goes after: on a place the firing does not consume from or reset, the tokens already there (line 2); on an input place that is not reset, tokens the place held, kept in queue order (line 3, glossary Queue order: 'The tokens of a place are kept in the order they were added'). Line 3 does not say which tokens the firing consumes: oldest first is [EXEC-010], and a correlated input of a ν-net match ([NU-020], ruling D16) may take other tokens, which also leaves a sublist; the exact queue left is [EXEC-010] and [EXEC-013]. On a reset place base is unconstrained here; [EXEC-013], [CORE-034] and the count guard QProjectsTo Q RefFire make it empty. Without line 3 an executor that reorders the tokens left on an input place it also deposits to would satisfy the block (EXEC_020_mutant_restOrder_killed). Without line 2 an executor whose deposit replaces the queue of a place it emits to, instead of appending after the tokens already there, would satisfy the block with an empty base there (EXEC_020_forbids_overwrite, EXEC_020_mutant_overwrite_killed)."
+          "AC1 (an action produces V to P; V appears at the end of P's queue) is line 1 with line 2: the nonvacuous example EXEC_020_nonvacuous deposits 30 to a place already holding 40 and leaves 40 then 30; an executor that leaves only 30 there violates line 2 (EXEC_020_forbids_overwrite)."
           "AC2 (multiple tokens to the same place are added in order) is line 1 for an emission with several tokens to one place. The reference queue firing deposits one token per claimed place on an action outcome (Reference.deposit, as every branch-enumerating analysis, [IO-016]), and the count guard QProjectsTo Q RefFire imposes the same on every Q, so the joint model has no step with two tokens to one place until the projection compares places as a set, as [IO-015] does. AC2 is therefore witnessed outside the joint model, by executors that accept several tokens into one claimed place under that set comparison: the in-order one satisfies EXEC-020 and leaves 40, 30, 31 when 30 then 31 go to a place holding 40 (EXEC_020_allows_several), and the reverse-order one violates it (EXEC_020_forbids_reversed)."
           "AC3 (a completion that is not admitted deposits none of the action's tokens) and AC4 (a completion whose produced tokens fail validation deposits none of them) are the deferred sentence above, Phase 2."
-  signoff "pending"
+  signoff "2026-11-13 4ba459c6e8931283 ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → Prop :=
     fun Q => ∀ t M δ e M', Q t M δ e M' →
       ∃ base : QueueMarking _ _,
@@ -358,6 +358,53 @@ theorem EXEC_020_mutant_restOrder_killed :
     have hs0 := hs 0 (by decide) (by decide)
     rw [hm] at hs0
     exact exec020_ne_restReversed _ hs0 h0
+
+/-! ### Mutant: the deposit replaces the target queue -/
+
+/-- **Mutant executor: overwrite.** It consumes as the reference does, but a place the action
+emits to ends holding only the emitted tokens, in emission order, as if the deposit were a put
+instead of an append; every other place keeps the consumed queue. Its emissions are the
+reference's. -/
+def exec020_overwriteFire {N T : Type} [DecidableEq N] : QFireRel N T :=
+  exec020_resultFire exec020_offered fun B e p => if EmittedTo e p = [] then B p else EmittedTo e p
+
+/-- ✗ Overwriting the target queue violates EXEC-020 (line 2, AC1): firing `qexT .one` from
+`exec020M` with `30` emitted to place 2, which holds `40` and is neither an input nor a reset
+place, leaves `[30]` there; line 2 makes the queue before the deposit `[40]`, and `[40]`
+followed by `[30]` is not `[30]`. -/
+@[evidence forbids EXEC_020]
+theorem EXEC_020_forbids_overwrite : ¬ EXEC_020 (exec020_overwriteFire (N := Nat) (T := Nat)) := by
+  intro h
+  obtain ⟨base, hb, h2, -⟩ := h (qexT .one) exec020M _ [(2, 30)] _
+    ⟨by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩
+  have hp := hb 2
+  simp only [AppendedAtTail] at hp
+  rw [h2 2 (by decide) (by decide)] at hp
+  revert hp
+  decide
+
+/-- Mutant reading of EXEC-020: lines 1 and 3 only. The queue the deposit goes after is
+unconstrained on a place the firing neither consumes from nor resets. -/
+def EXEC_020_mutant_overwrite {N T : Type} [DecidableEq N] (Q : QFireRel N T) : Prop :=
+  ∀ t M δ e M', Q t M δ e M' →
+    ∃ base : QueueMarking N T,
+      (∀ p, AppendedAtTail base M' e p) ∧
+      (∀ p, p ∈ inPlaces t → ¬ ResetArc t p → (base p).Sublist (M p))
+
+/-- The overwriting executor kills the fourth mutant: it satisfies the mutant reading (with an
+empty `base` on the places it emits to and the reference consume elsewhere) but not EXEC-020. -/
+@[evidence mutant EXEC_020]
+theorem EXEC_020_mutant_overwrite_killed :
+    EXEC_020_mutant_overwrite (exec020_overwriteFire (N := Nat) (T := Nat)) ∧
+      ¬ EXEC_020 (exec020_overwriteFire (N := Nat) (T := Nat)) := by
+  refine ⟨?_, EXEC_020_forbids_overwrite⟩
+  rintro t M δ e M' ⟨-, -, -, rfl⟩
+  refine ⟨fun p => if EmittedTo e p = [] then qConsume M t p else [], fun p => ?_, fun p _ hr => ?_⟩
+  · simp only [AppendedAtTail]
+    by_cases h : EmittedTo e p = [] <;> simp [h]
+  · by_cases h : EmittedTo e p = []
+    · simp only [h, if_true]; exact exec020_qConsume_sublist M t hr
+    · simp [h]
 
 /-- The reference leaves `2, 3, 4` in place 0 of the self-loop example. -/
 example : qFire exec020_selfM exec020_selfT [(0, 4)] 0 = [2, 3, 4] := by decide

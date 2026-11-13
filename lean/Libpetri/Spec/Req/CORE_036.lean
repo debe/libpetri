@@ -42,18 +42,19 @@ requirement CORE_036
   quote "*While* an input place of the transition holds fewer tokens than the required count of its input arc, the transition *shall not* fire."
         "*While* a read place of the transition is unmarked, the transition *shall not* fire."
         "*While* an inhibitor place of the transition is marked, the transition *shall not* fire."
-        "*While* the transition is enabled, it *shall* be able to fire, whatever its output places and reset places hold."
+        "*While* the transition has no match specification ([NU-020]) and is enabled, it *shall* be able to fire, whatever its output places and reset places hold."
         "*When* the transition fires, each input place that is not a reset place *shall* lose the consumption count of its input arc, and gain what the firing deposits there."
         "*When* the transition fires, each place that is neither an input place nor a reset place *shall* lose no tokens, and gain what the firing deposits there."
         "*When* the transition fires, each reset place *shall* end holding exactly what the firing deposited there."
         "*When* the transition fires and the firing ends with its action, on an executor with output validation enabled ([CONC-026], the default), the places in which it deposits *shall* be exactly the places of one output branch of its output spec, each receiving one or more tokens."
         "*When* the transition fires and the firing ends with the timeout outcome, it *shall* deposit in every place as many tokens as the timeout outcome puts there ([IO-013], [IO-014])."
         "Deposits are compared per place: the order in which a firing deposits its tokens is not normative, and two deposits that put the same number of tokens in every place are the same deposit."
+        "As in [CORE-022], the transitions these sentences describe are transitions that build: a definition that building rejects is not a transition of any net and never fires."
   reading "For every transition t:"
           "t does not fire from a marking in which an input place p holds fewer tokens than the required count c of its input arc;"
           "t does not fire from a marking in which a read place p is unmarked;"
           "t does not fire from a marking in which an inhibitor place p is marked;"
-          "from every marking at which t is enabled, some firing of t exists (to some marking);"
+          "if t builds (Builds t: it passes every build-time check), then from every marking at which t is enabled some firing of t exists (to some marking);"
           "every firing of t that deposits d leaves an input place p that is not a reset place with what it held, minus the consumption count of its arc, plus what d puts in p;"
           "every firing of t that deposits d leaves a place p that is neither an input place nor a reset place of t with what it held plus what d puts in p;"
           "every firing of t that deposits d leaves a reset place p with exactly what d puts in p;"
@@ -65,21 +66,25 @@ requirement CORE_036
           "Effect column, Output ('Token produced on complete') is the outcome line, the last line of the reading, which reads the eighth, ninth and tenth sentences quoted together. A firing relation does not record how a firing ended. As IO-012 says, a firing ends with its action when it does not end with the timeout outcome, and a firing whose deposit puts in every place as many tokens as some timeout-outcome deposit of the transition from the same marking may have ended with the timeout outcome. So the eighth and ninth sentences are read as one disjunction: the deposit marks exactly the places of an output branch (eighth: the branch fixes which places receive tokens, one or more each, not how many; glossary: Output branch, Produced set), or it equals a timeout outcome per place (ninth: as many tokens in every place). A transition with no output spec has the one empty branch, so it deposits nothing. Read ('Token remains') is the sixth line. Inhibitor ('Disables transition') is the third line."
           "Tenth sentence (deposits are compared per place). Every line of the reading reads the deposit d only through Deposits d (the produced set of d is the set of places p with Deposits d p ≠ 0), so two deposits that put the same number of tokens in every place satisfy it alike and the order of d plays no part: core036_c8_perPlace shows it for the outcome line, and core036_perPlace_closed shows that closing any firing relation under per-place equal deposits keeps CORE-036. Lines 5 to 7 already compare per place."
           "The outcome line is scoped by CONC-026: F is read as the firing relation of an executor with output validation enabled, the default. With the CONC-026 skip enabled a firing that ends with its action deposits what the action wrote, as CONC-026 says, and the outcome line is not claimed of it; lines 1 to 7 hold of every executor."
-          "TimeoutOutcome reads the first Timeout node in pre-order. A transition that builds holds at most one Timeout node and no ForwardInput outside a Timeout child (IO-013, IO-014), so that node's outcome is the timeout outcome. Transitions that building rejects (IO-011 to IO-014) are not transitions of any net (CORE-022); the statement still ranges over every Trans, and the reference semantics satisfies it for all of them, so it needs no well-formedness premise. That at most one output branch matches a deposit (IO-012) is not part of CORE-036: the outcome line asks for some branch."
+          "The eleventh sentence (the transitions described are those that build) is read as CORE-022 reads it: 'transitions that build' is the glossary term Builds. It scopes line 4, the one existence claim: a definition that building rejects never fires (CORE-022, CONC-026), so no firing of it is asked, and an executor that holds only transitions that build satisfies CORE-036 (CORE_036_builtOnly). Lines 1 to 3 and 5 to 8 forbid or constrain firings; a transition that does not build has no firing in any executor, so on it they ask nothing of an executor, and they are stated over every Trans because the reference fires every transition and meets them on all of them. TimeoutOutcome reads the first Timeout node in pre-order. A transition that builds holds at most one Timeout node and no ForwardInput outside a Timeout child (IO-013, IO-014), so that node's outcome is the timeout outcome. That at most one output branch matches a deposit (IO-012) is not part of CORE-036: the outcome line asks for some branch."
+          "Transitions with a ν match specification (NU-020) are scoped out of the fourth sentence (ruling D30, as in CORE-022): such a transition can be enabled at count level (glossary: Enabled) and still unable to fire, because no single name satisfies every correlated input. The transitions of the model (Reference.Trans) carry no match specification, so line 4 quantifies over every transition that builds. On a correlated input the consumption count of the fifth sentence applies to the tokens of the chosen name (glossary: Correlated input), not to the whole place; line 5 reads it over the whole place, which is the same thing for a transition with no match specification. How the correlation condition decides a firing and what it consumes is NU-020's, not encoded here. Lines 1 to 3 need no exclusion, for the reason CORE-022 gives: a correlated input requires at least its required count of tokens of one name, so at least its required count of tokens."
+          "Which runtime firings are steps of F. A firing whose action fails, or whose completion fails output validation (EXEC-030, IO-015 AC2 and AC3), consumes its inputs and clears its reset places but deposits no outcome; it is not a firing in F (glossary: Fire), as in CORE-050, so the outcome line says nothing of it and line 4 asks only that some firing exists. Tokens an action publishes before the firing ends (ctx.flush(), Rust and Python only; IO-015) are not in the one-step model, as in EXEC-020 and CORE-050: the orchestrator deposits each flushed batch as a step of its own (CONC-001), the firing's deposit d is what the executor deposits when the firing ends, and F is read as the firings whose action publishes nothing mid-action. With a flush, IO-015 counts the flushed places towards the eighth sentence's branch, and a firing that ends with the timeout outcome keeps the flushed tokens besides the timeout outcome (glossary: Action), so on Xor(A, Timeout(B)) an action that flushes A and then times out leaves A and B; that is the ninth sentence read over the deposit at the firing's end, and neither case is encoded."
+          "What the outcome line loses. A firing relation does not record how a firing ended, so a firing that ended with the timeout outcome but deposits exactly the places of some output branch, with any counts, satisfies the first disjunct. On t: All(2) -> Timeout(ForwardInput(2, 1)), which consumes two tokens from 2, the deposit [1] (forwarding only the first consumed token, which IO-014 forbids) passes, although the timeout outcome is [1, 1] (core036_fwdFirst_accepted): [1] is also the places of the Timeout child read as an output branch. The ninth sentence's full strength, per place for every firing that ends with the timeout outcome, is carried over a relation T of timed-out firings by IO-013's fifth line ('every firing of t in T from m deposits, place by place, exactly the tokens of the timeout outcome') and IO-014's firing line; here the ninth sentence only widens what an action firing may look like."
+          "The ninth sentence in the runtimes. Every runtime deposits the timeout outcome without validating it against the output spec and on the places the rewritten output spec names, as given: on And(A, Timeout(d, B)) a timed-out firing deposits B (Java BitmapNetExecutor and PrecompiledNetExecutor processCompletedTransitions, and TypeScript bitmap-net-executor.ts and precompiled-net-executor.ts, skip validation when TransitionContext.isDetachedForTimeout(); Rust, and Python on it, skip it on the timeout path), and Java (TransitionContext outputToHarvest and forwardToHarvest, ExecutorSupport produceTimeoutOutputRecursive) and TypeScript (transition-context.ts outputToHarvest and forwardToHarvest) take the actual places without resolving them through the composition correspondence again. Two wrong executors are recorded in spec/runtime-defects.md as history of Java and TypeScript. RD-01: one that validates the timeout outcome against the whole output spec fails every timed-out firing of And(A, Timeout(d, B)); the statement does not catch it, because a failed firing is not in F and line 4 asks only that some firing exists; IO-013's T-lines do (IO_013_forbids_validateTimeout). RD-31: one that resolves the timeout branch's places through the correspondence a second time deposits, on a port collision (port a bound to b, port b bound to c), the timeout token meant for b on c; when c is an output place the deposit can pass the first disjunct of the outcome line, so the statement does not catch it either; IO-013's fifth line and MOD-031 do (mod031ctx_timeout_resolveTwice in MOD_031.lean)."
           "Read, 'provides value': the value of the read token is not visible at token-count granularity; that the action receives it is CORE-032 AC3, not encoded here."
           "Input token order (FIFO, CORE-030 AC2) and output token timestamps (CORE-035 AC2, IO-014 AC5) are below token-count granularity and not encoded here."
           "AC1 (each arc type behaves exactly as described in the table) is the whole statement: one line per cell of the 'Requires token?' column (lines 1 to 4) and of the 'Consumes?' and 'Effect' columns (lines 5 to 7 and the outcome line), as laid out in the assumptions above."
           "AC2 (an action that writes two tokens into one place of the branch it satisfies fires, and the marking receives all of them) is CORE_036_allows_multi: CORE-036 holds of a firing relation in which t: a → and(b, c) fires with the write b, b, c, and that firing leaves 2 tokens in b and 1 in c. That such a write is deposited at all is IO-015 and IO-016 AC4; CORE-036 only has to allow it."
           "AC3 (two firings that deposit the same number of tokens in every place, in different orders, deposit the same outcome) is core036_c8_perPlace and core036_perPlace_closed, and concretely CORE_036_allows_multi: the write c, b, b of the same transition is allowed alike and leaves the same marking."
           "InputArc names the first input arc on a place (glossary: Input arc); CORE-030 rejects a transition with two input arcs on one place at build, so for every well-formed transition it is the only one."
-  signoff "pending"
+  signoff "2026-11-13 153aed3781898e2a ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t,
       (∀ p c, InputArc t p c →
         while (fun m => TokenCount m p < requiredCount c), never Fire F t) ∧
       (∀ p, ReadArc t p → while (fun m => ¬ Marked m p), never Fire F t) ∧
       (∀ p, InhibitorArc t p → while (fun m => Marked m p), never Fire F t) ∧
-      (∀ m, Enabled t m → ∃ m', Fire F t m m') ∧
+      (Builds t → ∀ m, Enabled t m → ∃ m', Fire F t m m') ∧
       (∀ d p c, InputArc t p c → ¬ ResetArc t p →
         on (fun m m' => F t m d m'), shall (fun m m' =>
           TokenCount m' p = TokenCount m p - consumptionCount c (TokenCount m p) + Deposits d p)) ∧
@@ -100,7 +105,7 @@ fun {N} [DecidableEq N] F =>
     (∀ (p : N) (c : Card), InputArc t p c → while fun m => TokenCount m p < requiredCount c, never Fire F t) ∧
       (∀ (p : N), ReadArc t p → while fun m => ¬Marked m p, never Fire F t) ∧
         (∀ (p : N), InhibitorArc t p → while fun m => Marked m p, never Fire F t) ∧
-          (∀ (m : CountMarking N), Enabled t m → ∃ m', Fire F t m m') ∧
+          (Builds t → ∀ (m : CountMarking N), Enabled t m → ∃ m', Fire F t m m') ∧
             (∀ (d : List N) (p : N) (c : Card),
                 InputArc t p c →
                   ¬ResetArc t p →
@@ -141,9 +146,9 @@ def core036_c2 (F : FireRel N) (t : Trans N) : Prop :=
 def core036_c3 (F : FireRel N) (t : Trans N) : Prop :=
   ∀ p, InhibitorArc t p → while (fun m => Marked m p), never Fire F t
 
-/-- Line 4: an enabled transition can fire. -/
+/-- Line 4: an enabled transition that builds can fire. -/
 def core036_c4 (F : FireRel N) (t : Trans N) : Prop :=
-  ∀ m, Enabled t m → ∃ m', Fire F t m m'
+  Builds t → ∀ m, Enabled t m → ∃ m', Fire F t m m'
 
 /-- Line 5: an input place that is not a reset place loses its consumption count. -/
 def core036_c5 (F : FireRel N) (t : Trans N) : Prop :=
@@ -252,7 +257,7 @@ theorem core036_c3_of {g dep k} (hg : ∀ t m, g t m → core036_ihOk t m) (t : 
 deposit. -/
 theorem core036_c4_of {g dep k} (hg : ∀ t m, Enabled t m → g t m)
     (hd : ∀ t m, ∃ d, dep t m d) (t : Trans N) : core036_c4 (core036_model g dep k) t := by
-  intro m hen
+  intro _ m hen
   obtain ⟨d, hdm⟩ := hd t m
   exact ⟨_, d, hg t m hen, hdm, rfl⟩
 
@@ -385,8 +390,8 @@ theorem core036_perPlace_closed (F : FireRel N) (h : CORE_036 F) :
   refine ⟨fun p c hpc m m' hf => h1 p c hpc m m' (back m m' hf),
     fun p hp m m' hf => h2 p hp m m' (back m m' hf),
     fun p hp m m' hf => h3 p hp m m' (back m m' hf),
-    fun m hen => ?_, ?_, ?_, ?_, ?_⟩
-  · obtain ⟨m', d, hf⟩ := h4 m hen
+    fun hb m hen => ?_, ?_, ?_, ?_, ?_⟩
+  · obtain ⟨m', d, hf⟩ := h4 hb m hen
     exact ⟨m', d, d, fun _ => rfl, hf⟩
   · rintro d p c hpc hr m m' ⟨d', he, hf⟩
     rw [he p]; exact h5 d' p c hpc hr m m' hf
@@ -546,11 +551,11 @@ def CORE_036_mutant_dropCanFire {N : Type} [DecidableEq N] (F : FireRel N) : Pro
 def core036_neverFire : FireRel Nat := core036_gated (fun _ _ => False)
 
 /-- ✗ A transition that never fires violates CORE-036 (line 4): `core036_tNone` has no arcs, so
-it is enabled at every marking. -/
+it builds and is enabled at every marking. -/
 @[evidence forbids CORE_036]
 theorem CORE_036_forbids_never : ¬ CORE_036 core036_neverFire := by
   intro h
-  obtain ⟨_, _, hf, -⟩ := (h core036_tNone).2.2.2.1 (core036_const 0) (by decide)
+  obtain ⟨_, _, hf, -⟩ := (h core036_tNone).2.2.2.1 (by decide) (core036_const 0) (by decide)
   exact hf
 
 /-- The never-firing relation kills the mutant that drops line 4: every other clause is a
@@ -903,5 +908,61 @@ theorem CORE_036_nonvacuous :
     by decide, by decide, by decide, ?_, ?_, ?_⟩ <;>
   · rintro m' ⟨d, hen, -⟩
     exact absurd hen (by decide)
+
+/-! ### Transitions that build (the eleventh sentence) -/
+
+/-- **Not the reference semantics.** The reference firings of the transitions that build, and
+no firing at all of a definition the build rejects: the runtimes' reading at token-count
+granularity, since no executor holds a rejected definition. -/
+def core036_refFireBuilt {N : Type} [DecidableEq N] : FireRel N :=
+  fun t m d m' => Builds t ∧ RefFire t m d m'
+
+/- The reference restricted to transitions that build is the witness model of CORE-036's
+second `holds` theorem. -/
+#spec_witness core036_refFireBuilt
+
+/-- ✓ CORE-036 holds of the reference restricted to transitions that build
+(`core036_refFireBuilt`): it only removes firings from the reference, so lines 1 to 3 and 5 to 8
+are the reference's, and line 4 asks a firing only of a transition that builds, which keeps every
+reference firing. Without the `Builds t` premise line 4 would demand a firing of an enabled
+definition the build rejects, which the eleventh sentence says never fires, and would reject this
+relation. -/
+@[evidence holds CORE_036]
+theorem CORE_036_builtOnly {N : Type} [DecidableEq N] :
+    CORE_036 (core036_refFireBuilt (N := N)) := by
+  intro t
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8⟩ := (CORE_036_reference (N := N)) t
+  have back : ∀ m m', Fire core036_refFireBuilt t m m' → Fire RefFire t m m' :=
+    fun _ _ ⟨d, hf⟩ => ⟨d, hf.2⟩
+  refine ⟨fun p c hp m m' hf => h1 p c hp m m' (back m m' hf),
+    fun p hp m m' hf => h2 p hp m m' (back m m' hf),
+    fun p hp m m' hf => h3 p hp m m' (back m m' hf), fun hb m hen => ?_,
+    fun d p c hp hr m m' hf => h5 d p c hp hr m m' hf.2,
+    fun d p hp hr m m' hf => h6 d p hp hr m m' hf.2,
+    fun d p hp m m' hf => h7 d p hp m m' hf.2, fun d m m' hf => h8 d m m' hf.2⟩
+  obtain ⟨m', d, hf⟩ := h4 hb m hen
+  exact ⟨m', d, hb, hf⟩
+
+/-! ### What the outcome line loses -/
+
+/-- `t: All(2) → Timeout(ForwardInput(2, 1))`: its only output branch is the Timeout child's
+places `[1]`, and its timeout outcome forwards every token consumed from `2` into `1`. -/
+def core036_tFwdOnly : Trans Nat :=
+  core036_t [⟨2, .all⟩] [] [] [] (some (.timeout (.forward 2 1)))
+
+/-- The case the assumes names: the outcome line accepts the deposit `[1]` of
+`core036_tFwdOnly` after it consumed two tokens from `2` (forwarding only the first consumed
+token, which IO-014 forbids), because `[1]` marks exactly the places of the output branch `[1]`;
+the timeout outcome is `[1, 1]`. A firing relation does not record that the firing ended with the
+timeout outcome, so the ninth sentence's per-place count for it is IO-013's and IO-014's, stated
+over the timed-out firings. -/
+theorem core036_fwdFirst_accepted :
+    core036_outcome core036_tFwdOnly (Consumes core036_tFwdOnly core036_two) [1] ∧
+      TimeoutOutcome core036_tFwdOnly (Consumes core036_tFwdOnly core036_two) [1, 1] ∧
+      ¬ SamePerPlace [1] [1, 1] := by
+  have hc : Consumes core036_tFwdOnly core036_two 2 = 2 := by decide
+  refine ⟨.inl ⟨[1], by simp [OutputBranch, core036_tFwdOnly, core036_t, Out.branches],
+      fun p => by simp [Produced]⟩,
+    ⟨_, _, rfl, rfl, by simp [Out.timeoutDeposits, hc]⟩, fun h => absurd (h 1) (by decide)⟩
 
 end Libpetri.Spec

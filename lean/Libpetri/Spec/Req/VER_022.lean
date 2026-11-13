@@ -35,7 +35,8 @@ the contract guarantees. Three blocks, one per layer:
   closed net with match transitions is never decided by the graph route.
 
 The existence halves (an accepted closure gets a result; a contract that holds on a graph that
-closes within the class budget is `Proven`) are the coverage condition `Ver022Covers`, never a
+closes within the class budget is `Proven`, and a broken one there is `Violated`) are the coverage
+condition `Ver022Covers`, never a
 line of a block (the convention of `GlossaryExec.lean`), which the reference meets
 (`ver022_ref_covers`) and `VER_022_joint` carries.
 
@@ -385,9 +386,9 @@ requirement VER_022_meets
   assumes "A marking is a count marking by place name; the clause count is the sum over the clause's places, each counted once (`tokens_across`), and an absent upper bound is none. Line 1 holds the rest set as the parameter S, the variable VER-014's statement fixes, so 'implementations MUST decide it through that same predicate' is the line itself: the two blocks hold together of one S (VER_022_joint), and with VER-014's first line the stranding half is the plain list of the quoted definition (VER_022_meets_plain: every token lies on a clause, rest or environment place, a terminal marker, or an excused place of a marked terminal). 'Every other place is internal to the subnet and must be empty' is that list read the other way."
           "The contract's parts (initial marking, arrival groups, named count clauses, rest places, designed terminals, environment transitions, termination flag) are the fields of OpenNet.Contract; the per-language builders and their argument checks (min <= max, a group or clause naming at least one place, distinct clause and environment transition names) are kind N. The environment places envs are the closed net's, which VER_022_closure fixes."
           "AC2 (a clause whose upper bound is exceeded is violated whether or not a terminal is marked; a lower bound is waived while one is) is line 1: a judge that waives the upper bound under a marked terminal is killed (VER_022_meets_forbids_waiveUpper), and so is one that keeps the lower bound under a marked terminal (VER_022_meets_forbids_lowerAlways)."
-          "AC3 (a token on a place the contract does not name is reported as stranded, and the report names the place whenever its witness is confirmed, always on the graph route) is line 1 for the judgement: a judge that ignores stranded tokens is killed (VER_022_meets_forbids_ignoreStrand). That a confirmed violation names the place is VER_022's stranded-part line, and that an unconfirmed one names none is its unconfirmed-witness line; the report text is kind Q."
+          "AC3 (a token on a place the contract does not name is reported as stranded, and the report names the place whenever its witness is confirmed, always on the graph route) is line 1 for the judgement: a judge that ignores stranded tokens is killed (VER_022_meets_forbids_ignoreStrand). That a confirmed violation names the place is VER_022's stranded-part line, and that an unconfirmed one names none is its unconfirmed-witness line; that a closed graph with a stranded token is reported Violated at all is the third part of Ver022Covers (VER_022_covers_hideViolated); the report text is kind Q."
           "AC8, second and third sentences (a token left on an environment place is never reported stranded; a place environment transitions share with the subnet is judged like any other) is line 1 with envs the closed net's environment places, which VER_022_closure defines as the places only environment transitions touch: a judge that leaves the environment places out of the sinks is killed (VER_022_meets_forbids_envNotSink)."
-  signoff "pending"
+  signoff "2026-11-13 290fda3c67f29ec8 ai"
   statement : ∀ {N : Type} [DecidableEq N], MeetsRel N → StrandRel N → Prop :=
     fun M S => ∀ C envs m, M C envs m ↔
       (∀ c ∈ C.clauses, ∀ h, c.max = some h → clauseSum c m ≤ h) ∧
@@ -449,10 +450,10 @@ requirement VER_022_closure
           "the environment steps of X are the environment transitions' names, then the closure's."
   assumes "The subnet is a Reference.Net over place names (strings); its places are the declared ones and every place an arc or output spec names, as the PetriNet builder declares them. Names are the fixed strings of the spec (`env:arrivals[i]`, `env:optional[i]`, `env:arrive[i]:<place>`, `env:arrive?[i]:<place>`, `env:decline[i]`); the line 'The closure's names (...) and the environment transitions' names MUST NOT collide with the subnet's, and a collision is refused.' is lines 1 and 2. Rust, Java and TypeScript also refuse a closure name equal to an earlier claimed name or to an environment place and accept an environment place equal to an environment transition's name (one `taken` set of places and transitions); line 2's premise covers the first two, the third is kind N. The refusal is a panic (Rust) or an exception (Java, TypeScript), modelled as an error value; its message is kind N."
           "The arrival and decline transitions are moveT: one `one` input arc from the source, the target place as output (none for the decline), no other arc, immediate (never reapable; a closure with reapable arrivals is killed, VER_022_closure_forbids_reapable), as Rust, Java and TypeScript build them (closure.rs arrival_transition, OpenNetClosure.inject, closure.ts: an input arc `one`, an output place, default timing). The initial marking is ofList (C.init ++ sources): a place given twice keeps its last count, as the runtimes' marking builders set rather than add (Rust MarkingStateBuilder::tokens), and an init entry on a source name is overridden by the source; both are kind N. 'The sources are ordinary places, not the environment places of [VER-006], which never run dry and would make every quiescence property hold vacuously.' is line 3 with the reading of VER-022's verdict block, which reads quiescence on the closed net as an ordinary net: a closure that leaves the groups to an injection mode instead of sources is killed (VER_022_closure_forbids_envMode). 'A run is therefore quiescent only once every required arrival has happened and every optional one has been delivered or declined.' follows from line 3 (VER_022_quiescent_sources: at a marking where only reapable transitions are enabled both sources of each group are empty). A source of count 0 is left out with its transitions (ruling D20, VD-5 (4); VER-006: 'exactly as the [VER-022] closure omits it'): a closure that builds both sources always is killed (VER_022_closure_forbids_bothSources)."
-          "'Their actions never run, so one that declares outputs gets a placeholder action instead of a [CORE-043] refusal.' is about actions, which the untimed net model does not carry (kind N). The closed net's name `<net>+environment`, the carried terminal places of EXEC-042 and the order of the closed net's declared places are kind N; the terminal rewrite and the in-flight split that run after the closure are EXEC-042's and VER-004's."
+          "'Their actions never run, so one that declares outputs gets a placeholder action instead of a [CORE-043] refusal.' is about actions, which the untimed net model does not carry (kind N). The closed net's name `<net>+environment`, the carried terminal places of EXEC-042 and the order of the closed net's declared places are kind N; the terminal rewrite and the in-flight split that run after the closure are EXEC-042's and VER-004's. 'Contract places no arc touches join as places of their own and are listed in the report, so a clause over a place nothing writes counts zero there: a finding, never a refusal.' is line 6 for joining (a closure that leaves them out is killed, VER_022_closure_forbids_noUndeclared) and line 2 for never refusing; that a clause over such a place counts zero is VER_022_meets' clause sum at a marking that leaves the place at 0. That the report lists them (Rust ClosedNet.undeclared in closure.rs, rendered by the open-net report module of libpetri-verification as 'Not declared by the net: ...'; Java opennet/Report.java, TypeScript open-net/report.ts) is report text, kind Q."
           "AC5 (an arrival group that must deliver n tokens reaches quiescence only after all n; one that may deliver at most n also reaches quiescence after fewer) is lines 3 and 4: the mandatory source holds n and every quiescent marking has it empty (VER_022_quiescent_sources), the optional source holds n and may be emptied by declines; a closure without the mandatory source, or with the sources left to injection, is killed (VER_022_closure_forbids_envMode, VER_022_closure_forbids_noSeed), and VER_022_nonvacuous checks both readings end to end (two mandatory arrivals onto q with the clause q = exactly 2 are Proven, two optional ones Violated)."
           "AC8, first sentence (an environment transition's firings are marked as environment steps in the port trace) is line 7: the environment steps are the environment transitions' names, then the closure's; the port trace marks a firing whose name is among them (contract_violation), and its rendering is kind Q. The second and third sentences are VER_022_meets'."
-  signoff "pending"
+  signoff "2026-11-13 69e9612d110c8eec ai"
   statement : CloseFn → Prop :=
     fun Cl => ∀ net C,
       ((∃ n ∈ envNames C ++ closureNames C, n ∈ netNames net) → ∃ e, Cl net C = .error e) ∧
@@ -999,18 +1000,18 @@ requirement VER_022
           "a termination part appears only when C requires termination, and an unconfirmed witness comes from the SMT route (r's route is smt) and, if a stranding, names no place;"
           "if r is Unknown, its reason is not empty;"
           "if N declares a match transition and r is Proven or Violated, r's route is the SMT route."
-  assumes "The subnet is a Reference.Net over place names, untimed but for whether a transition is reapable (deadline or window timing), which quiescence reads; the closed net X is the value of the closure Cl, the variable VER_022_closure fixes, and M and S are the variables of VER_022_meets and VER-014 (VER_022_joint). Firing sequences and reachability are those of the firing relation F (RunF F, ReachF F); at F = RefFire they are Reference.Run and Reference.Reach, the untimed claim of VER-004, in which each firing is atomic. In the runtimes the verified net is X after the in-flight split of VER-004 (environment transitions staying atomic, their arcs counting as tests) and the terminal rewrite of EXEC-042 (each terminal place of the net inhibits every transition and joins the contract as a designed terminal excusing every place); the block is stated for a subnet with no terminal place and no transition to split, or under assumeAtomicFiring, and those rewrites are VER-004's and EXEC-042's. The sentence on the in-flight split ('The in-flight split of [VER-004] applies to the closed net before the terminal rewrite of [EXEC-042]: the environment transitions stay atomic and their arcs count as tests, and a closed net the split refuses, or one that a declared mint transition ([NU-010]) is not in, is `Unknown` before either route runs.') places these steps and is not a line of this block: the split and the terminal rewrite are VER-004's and EXEC-042's, the mint check is NU-010's, and Rust, Java and TypeScript run all three before either route (verify_open_net.rs:326-331, OpenNetVerifier.java, verify-open-net.ts), answering Unknown on a refused split or a declared mint transition the net does not hold. The mint half is NU_010_unknownMint, whose entry points include open-net verification. The split half is an open item for wave W11: VER_004_split states the split and when it refuses, and the line that a closed net the split refuses is Unknown here needs the closure Cl followed by that split, a cross-model line. That such an Unknown has a reason is line 6."
+  assumes "The subnet is a Reference.Net over place names, untimed but for whether a transition is reapable (deadline or window timing), which quiescence reads; the closed net X is the value of the closure Cl, the variable VER_022_closure fixes, and M and S are the variables of VER_022_meets and VER-014 (VER_022_joint). Firing sequences and reachability are those of the firing relation F (RunF F, ReachF F); at F = RefFire they are Reference.Run and Reference.Reach, the untimed claim of VER-004, in which each firing is atomic. In the runtimes the verified net is X after the in-flight split of VER-004 (environment transitions staying atomic, their arcs counting as tests) and the terminal rewrite of EXEC-042 (each terminal place of the net inhibits every transition and joins the contract as a designed terminal excusing every place); the block is stated for a subnet with no terminal place and no transition to split, or under assumeAtomicFiring, and those rewrites are VER-004's and EXEC-042's. The sentence on the in-flight split ('The in-flight split of [VER-004] applies to the closed net before the terminal rewrite of [EXEC-042]: the environment transitions stay atomic and their arcs count as tests, and a closed net the split refuses, or one that a declared mint transition ([NU-010]) is not in, is `Unknown` before either route runs.') places these steps and is not a line of this block: the split and the terminal rewrite are VER-004's and EXEC-042's, the mint check is NU-010's, and Rust, Java and TypeScript run all three before either route (verify_open_net.rs:326-331, OpenNetVerifier.java, verify-open-net.ts), answering Unknown on a refused split or a declared mint transition the net does not hold. The mint half is NU_010_unknownMint, whose entry points include open-net verification. The split half is stated by no block: VER_004_split states the split and when it refuses, and VER_003's line 4 makes a refusal Unknown for a decider over closed nets, but the line that a closed net the split refuses is Unknown here needs the closure Cl followed by that split, a cross-model line no block has; the runtime sites above are its evidence. That such an Unknown has a reason is line 6."
           "Both routes decide the untimed claim of VER-004: the graph is built untimed and the SMT route makes every transition immediate after naming the reapable ones. The reference has the graph route only, a list-based enumeration of X (Reference.succ) whose Proven needs the discovered markings closed under successors, and it returns Unknown where the runtimes ask the SMT pipeline, whose phases are oracle-backed (VER-003, VER-015 to VER-020). 'only the absence of violations needs the graph to close' is line 2: a verifier that proves the contract from a truncated graph is killed (VER_022_forbids_eager). That a class with no enabled transition is quiescent whether or not it was expanded, and that a cycle among explored edges is a real cycle, is line 4 read on a witness of a graph that did not close. The SMT route's queries (DeadlockFree with the clause, rest and environment places as sinks and each terminal as a conditional sink; QuiescentCount per clause with every terminal marker as a waiver; the ranking of VER-019 for termination, which bounds every run by r·M0 firings) are VER-002, VER-014 and VER-019 on X; 'Without a ranking termination is undecided, and the report names the firings the marking equation lets repeat.' is report text, kind Q."
           "Termination is read as the absence of an infinite firing sequence from the initial marking; on a finite closed graph that is the absence of a reachable cycle, which the graph route reads. The reference proves termination only when no firing sequence is as long as the number of discovered markings, and reports a lasso only when its stem and cycle replay; that a reachable cycle is always reported when termination is required is the exactness of a closed graph, not a line. 'A cycle of reapable transitions ([TIME-013]) counts too, since a run need not reap them.' is line 3: termination is read on the runs of F, which fire a reapable transition like any other, so reapability counts only where quiescence is read (lines 2 and 4); the graph route of every runtime reports any reachable cycle (graph_route.rs find_cycle), and VER_022_nonvacuous's spin is such a run. 'Violated lists every broken part the deciding route found' is the listing's completeness (kind Q); line 4 asks that what is listed holds. A witness's markings along the sequence are kind Q: the model keeps the end marking (endM) and, for a lasso, the cycle start. 'On the SMT route it is the deciding query's counterexample, which need not be shortest; one that does not replay as an ordered firing sequence ([VER-003]) is marked unconfirmed and names no stranded place.' and the EARS sentence on unconfirmed witnesses are line 5: an unconfirmed witness comes from the SMT route (killed: VER_022_forbids_graphUnconfirmed) and names no stranded place (VER_022_forbids_unconfirmedNamed), and line 4 has every clause part name a clause of the contract, confirmed or not (VER_022_forbids_cry). Its sequence and end marking are the solver's model, which the replay of VER-003 could not order, so no line asks them to be a run, quiescent or breaking: Rust keeps the counterexample's transitions and markings as they come (smt_route.rs read_violation). 'On the graph route a witness is a shortest one, and a termination witness is a lasso that marks where its cycle starts.' is line 4 for the lasso and its cycle start; that a graph witness is a shortest one is VER-017's shortest-trace line on the same graph (the reference's breadth-first exploration records a shortest sequence per marking), not a line here; the per-route attribution of a stranding (one part per place on the graph route, one part naming every stranded place on the SMT route) is kind N."
-          "AC1 (a subnet that meets its contract is Proven; with an edge that receives neither of its two places it is Violated, naming that edge's clause, with a port trace ending in the quiescent marking) has an existence half and a safety half. That a subnet meeting its contract is Proven is coverage, never a line (the convention of GlossaryExec.lean): the quoted EARS sentence on an accepted closure is the clause Ver022Covers, whose first part asks a result for every accepted closure and whose second asks Proven when the closed net declares no match transition, its graph closes within a class budget above 0, every reachable quiescent marking meets the contract and, where termination is required, no run fires forever. A graph closing within the class budget is read as GraphCloses: the breadth-first enumeration of the closed net's markings, stopped at the budget, is closed under successors; how a runtime counts classes against the budget is kind N. The reference meets Ver022Covers (ver022_ref_covers, carried by VER_022_joint); an always-Unknown verifier and an always-refusing one meet every line and fail it (VER_022_covers_unknown, VER_022_covers_refuse). The prose 'When the graph closes within the class budget the verdict is exact' is that clause for Proven; its Violated half, that a closed graph with a broken contract is reported Violated rather than Unknown, is in neither a line nor Ver022Covers (open item), and VER_022_nonvacuous shows it on the relay. The safety half is lines 2 and 4: the witness is a firing sequence to the quiescent marking that breaks the clause, environment steps included, and a verifier that drops them is killed (VER_022_forbids_noEnvSteps). The port trace is read off the witness with the environment steps of VER_022_closure and the token changes on contract places (contract_violation); its rendering is kind Q."
-          "AC4 (a reachable cycle is a termination violation with a lasso witness when termination is required, and no violation when it is waived) is lines 3, 4 and 5: VER_022_nonvacuous checks spin : p → p (a lasso whose cycle starts at once, and Proven under the waiver); a verifier that skips termination and one that reports it under the waiver are killed (VER_022_forbids_noTermination, VER_022_forbids_alwaysTerminate)."
+          "AC1 (a subnet that meets its contract is Proven; with an edge that receives neither of its two places it is Violated, naming that edge's clause, with a port trace ending in the quiescent marking) has an existence half and a safety half. That a subnet meeting its contract is Proven is coverage, never a line (the convention of GlossaryExec.lean): the quoted EARS sentence on an accepted closure is the clause Ver022Covers, whose first part asks a result for every accepted closure, whose second asks Proven when the closed net declares no match transition, its graph closes within a class budget above 0, every reachable quiescent marking meets the contract and, where termination is required, no run fires forever, and whose third asks Violated under the same first three conditions when some reachable quiescent marking does not meet the contract or, where termination is required, some run fires forever. A graph closing within the class budget is read as GraphCloses: the breadth-first enumeration of the closed net's markings, stopped at the budget, is closed under successors; how a runtime counts classes against the budget is kind N. The reference meets Ver022Covers (ver022_ref_covers, carried by VER_022_joint); an always-Unknown verifier, an always-refusing one and one that answers Unknown wherever the reference answers Violated meet every line and fail it (VER_022_covers_unknown, VER_022_covers_refuse, VER_022_covers_hideViolated). The prose 'When the graph closes within the class budget the verdict is exact' is that clause: its second part for Proven, its third part for Violated (a closed graph with a broken contract is reported Violated rather than Unknown), which VER_022_nonvacuous shows on the relay. AC1's Violated answer on the edge that receives neither place is that third part; which clause the witness names and its port trace are the safety half. The safety half is lines 2 and 4: the witness is a firing sequence to the quiescent marking that breaks the clause, environment steps included, and a verifier that drops them is killed (VER_022_forbids_noEnvSteps). The port trace is read off the witness with the environment steps of VER_022_closure and the token changes on contract places (contract_violation); its rendering is kind Q."
+          "AC4 (a reachable cycle is a termination violation with a lasso witness when termination is required, and no violation when it is waived) is lines 3, 4 and 5: VER_022_nonvacuous checks spin : p → p (a lasso whose cycle starts at once, and Proven under the waiver); a verifier that skips termination and one that reports it under the waiver are killed (VER_022_forbids_noTermination, VER_022_forbids_alwaysTerminate). That a reachable cycle on a closed graph is reported Violated rather than Unknown is the third part of Ver022Covers, which the reference meets by the pigeonhole (a run as long as the graph has markings revisits one, lassoOf_some)."
           "AC6 (a timed subnet gets the verdict of the untimed, reap-aware claim of VER-004: its class count equals that of the same subnet with every transition immediate, and its verdict equals that subnet's when no transition is reapable or under assumeNoReaping; on the SMT route a ν-net whose timing keeps a transition from firing is judged as if it could) is the model itself: a transition carries no timing but its reapable flag, so the verdict is that of the all-immediate subnet exactly when no flag is set or the option clears them (ruling D20, VD-5 (5)). Class counts are kind Q; the ν half is the SMT route's (VER-012, NU-053), outside the model."
           "AC7 (when the graph does not close the SMT route decides; the result is Unknown, naming the reason, when that route is disabled or leaves a part undecided) is line 6 for the reason: a verifier that gives none is killed (VER_022_forbids_blank). That the SMT route decides is the SMT route's, which the model does not have; that a result comes at all is the first part of Ver022Covers. '`Unknown`: says which parts no route decided, and why.' is that line for the why; that the reason names the class budget, the skipped graph and the undecided parts is kind Q; the reference, having no solver, is Unknown wherever the graph does not decide, as VER_022_nonvacuous shows."
           "AC9 (a closed net with match transitions is not decided by the graph; two independently minted names reaching a join that requires them equal strand both inputs: Violated on the SMT route, never Proven by enumeration, and Unknown naming the skipped graph when the SMT route is disabled) is lines 7 and 6: the reference skips the graph on such a net and returns Unknown naming it (VER_022_nonvacuous); a verifier that runs the graph anyway is killed (VER_022_forbids_matchBlind). 'The graph route MUST NOT run' is read on the result, the only thing a verifier shows: a Proven or Violated never comes from the graph route. Reference.Net carries no match specification, so the flag hasMatch stands for the declaration, whether a transition of the subnet or an environment transition of the contract carries it, as the runtimes test the closed net (verify_open_net.rs:260); this reading is kind N; the name-blind graph's two errors and the SMT route's Violated are the ν routes' (VER-012, NU-050, NU-053)."
           "AC10 (places whose locale, UTF-16 and code-point orders differ are listed in code-point order, in the violations of either route and in the quiescent marking the report prints) and the Report order paragraph are kind Q, VER-013's name order: the reference lists stranded parts in code-point order (the order of Lean strings), as VER_022_nonvacuous shows for Zeit and apfel, but the order is not a line."
-          "AC11 (the relay q → relay → out with relay at window(3, 5), one arrival on q and the clause out = exactly 1, is Violated on both routes because a late executor reaps the relay and rests with the token on q; with assumeNoReaping it is Proven on both and the report says so) is line 2 with VER_022_nonvacuous: the reference returns both verdicts on the graph route (the Proven one is also what Ver022Covers asks, since the relay's graph closes), and a verifier that reads quiescence strictly whatever the option says is killed (VER_022_forbids_plainQuiet). The SMT half is the SMT route's; the report sentence is kind Q. 'The reapable transitions are named on the closed net before the SMT route makes every transition immediate()' is the order of the SMT route (kind N): here reapability is a field of the transition and never changes. 'The option assumeNoReaping restores the plain reading, and the report of a closed net with a reapable transition says which reading the verdict used.' is line 2 for the reading and kind Q for the report."
+          "AC11 (the relay q → relay → out with relay at window(3, 5), one arrival on q and the clause out = exactly 1, is Violated on both routes because a late executor reaps the relay and rests with the token on q; with assumeNoReaping it is Proven on both and the report says so) is line 2 with VER_022_nonvacuous: the reference returns both verdicts on the graph route (both are also what Ver022Covers asks, since the relay's graph closes: Violated by its third part, which VER_022_covers_hideViolated checks on the relay, Proven by its second), and a verifier that reads quiescence strictly whatever the option says is killed (VER_022_forbids_plainQuiet). The SMT half is the SMT route's; the report sentence is kind Q. 'The reapable transitions are named on the closed net before the SMT route makes every transition immediate()' is the order of the SMT route (kind N): here reapability is a field of the transition and never changes. 'The option assumeNoReaping restores the plain reading, and the report of a closed net with a reapable transition says which reading the verdict used.' is line 2 for the reading and kind Q for the report."
           "The intro paragraph (a subnet verified in isolation, its ports played by the environment; the composition argument stays with the caller; unlike MOD-051 the contract is judged whole) is the scope of the three blocks. The Cost paragraphs (class counts by arity and by budget, the two SHOULDs on describing cost and budget-blindness, the SMT route's cost), the per-language Implementation notes, the report's byte identity with TypeScript and the CONC-002 restart note of a witness (ruling D8 (b)) are kind Q or N. Ruling D22 (a): VER-022 is MAY, and its shall sentences bind an implementation that offers open-net verification."
-  signoff "pending"
+  signoff "2026-11-13 6dfb601042b27d9b ai"
   statement : FireRel String → CloseFn → MeetsRel String → StrandRel String → OpenVerifier →
       Prop :=
     fun F Cl M S V => ∀ o N C,
@@ -1102,7 +1103,9 @@ def OpenNet.GraphCloses (o : OOptions) (X : Closed) : Prop :=
 accepts the subnet, `V` returns a result rather than refusing. (2) On a closed net with no match
 transition whose graph closes within a class budget above 0, where every reachable quiescent
 marking meets the contract under `M` and, if termination is required, no run fires forever, that
-result is `Proven`. -/
+result is `Proven`. (3) On such a closed net where some reachable quiescent marking does not meet
+the contract under `M` or, if termination is required, some run fires forever, that result is
+`Violated`. -/
 def Ver022Covers (F : FireRel String) (Cl : CloseFn) (M : MeetsRel String) (V : OpenVerifier) :
     Prop :=
   ∀ o N C X, Cl N.net C = .ok X →
@@ -1111,7 +1114,12 @@ def Ver022Covers (F : FireRel String) (Cl : CloseFn) (M : MeetsRel String) (V : 
       (∀ m, ReachF F X.net (get X.m0) m → Quiet o X.net m → M C X.envPlaces m) →
       (C.terminate = true → ¬ ∃ f : Nat → String → Nat, f 0 = get X.m0 ∧
         ∀ n, ∃ l, LStepF F X.net l (f n) (f (n + 1))) →
-      ∃ r, V o N C = .ok r ∧ r.verdict = .proven)
+      ∃ r, V o N C = .ok r ∧ r.verdict = .proven) ∧
+    (N.hasMatch = false → 0 < o.maxClasses → OpenNet.GraphCloses o X →
+      ((∃ m, ReachF F X.net (get X.m0) m ∧ Quiet o X.net m ∧ ¬ M C X.envPlaces m) ∨
+        (C.terminate = true ∧ ∃ f : Nat → String → Nat, f 0 = get X.m0 ∧
+          ∀ n, ∃ l, LStepF F X.net l (f n) (f (n + 1)))) →
+      ∃ r ws, V o N C = .ok r ∧ r.verdict = .violated ws)
 
 
 namespace OpenNet
@@ -1540,6 +1548,327 @@ theorem graphJudge_proven {o : OOptions} {C : Contract String} {X : Closed} (hc0
   unfold graphJudge
   rw [if_pos hE, if_pos hP]
 
+/-! ### The graph route reports a violation that a closed graph holds -/
+
+/-- A firing sequence and one more step. -/
+theorem vrun_snoc {net : Reference.Net String} : ∀ {tr : List String} {l : String}
+    {a b c : String → Nat}, Run net tr a b → LStep net l b c → Run net (tr ++ [l]) a c
+  | [], _, _, _, _, h, hs => by cases h; exact Run.cons hs (Run.nil _)
+  | _ :: _, _, _, _, _, h, hs => by
+    cases h with
+    | cons h1 hr => exact Run.cons h1 (vrun_snoc hr hs)
+
+theorem addSucc_trace {vis : List Node} {e : Node} :
+    ∀ (ss : List (String × Marking String)) (acc : List Node) (x : Node),
+      x ∈ ss.foldl (addSucc vis e) acc → x ∈ acc ∨ ∃ s ∈ ss, x = (s.2, e.2 ++ [s.1])
+  | [], acc, x, h => Or.inl h
+  | s :: ss, acc, x, h => by
+    simp only [List.foldl_cons] at h
+    rcases addSucc_trace ss _ x h with h | ⟨s', hs', he⟩
+    · unfold addSucc at h
+      split at h
+      · exact Or.inl h
+      · rcases List.mem_append.mp h with h | h
+        · exact Or.inl h
+        · exact Or.inr ⟨s, List.mem_cons_self, List.mem_singleton.mp h⟩
+    · exact Or.inr ⟨s', List.mem_cons_of_mem _ hs', he⟩
+
+theorem newSuccs_fold_trace {net : Reference.Net String} {vis : List Node} :
+    ∀ (fr acc : List Node) (x : Node),
+      x ∈ fr.foldl (fun acc e => (succ net e.1).foldl (addSucc vis e) acc) acc →
+        x ∈ acc ∨ ∃ e ∈ fr, ∃ s ∈ succ net e.1, x = (s.2, e.2 ++ [s.1])
+  | [], acc, x, h => Or.inl h
+  | e :: fr, acc, x, h => by
+    simp only [List.foldl_cons] at h
+    rcases newSuccs_fold_trace fr _ x h with h | ⟨e', he', hs⟩
+    · rcases addSucc_trace _ acc x h with h | h
+      · exact Or.inl h
+      · exact Or.inr ⟨e, List.mem_cons_self, h⟩
+    · exact Or.inr ⟨e', List.mem_cons_of_mem _ he', hs⟩
+
+/-- What the breadth-first exploration keeps, with its trace: a canonical marking and a firing
+sequence from `m0` to it. -/
+def FoundT (net : Reference.Net String) (m0 : Marking String) (x : Node) : Prop :=
+  Canon x.1 ∧ Run net x.2 (get m0) (get x.1)
+
+theorem explore_foundT {net : Reference.Net String} {m0 : Marking String} {cap : Nat} :
+    ∀ (k : Nat) (vis fr : List Node), (∀ x ∈ vis, FoundT net m0 x) →
+      (∀ x ∈ fr, FoundT net m0 x) → ∀ x ∈ explore net cap k vis fr, FoundT net m0 x
+  | 0, vis, _, hv, _ => by simpa [explore] using hv
+  | k + 1, vis, fr, hv, hf => by
+    have hn : ∀ x ∈ newSuccs net vis fr, FoundT net m0 x := by
+      intro x hx
+      rcases newSuccs_fold_trace fr [] x hx with h | ⟨e, he, s, hs, rfl⟩
+      · exact absurd h List.not_mem_nil
+      · obtain ⟨hce, hre⟩ := hf e he
+        obtain ⟨hc', hl⟩ := mem_succ hce (l := s.1) (m' := s.2) hs
+        exact ⟨hc', vrun_snoc hre hl⟩
+    simp only [explore]
+    split
+    · exact hv
+    · exact explore_foundT k _ _ (fun x hx => by
+        rcases List.mem_append.mp hx with h | h
+        · exact hv x h
+        · exact hn x h) hn
+
+theorem visited_foundT {net : Reference.Net String} {m0 : Marking String} {cap : Nat}
+    (hc : Canon m0) : ∀ x ∈ visited net m0 cap, FoundT net m0 x := by
+  have h : ∀ x ∈ ([(m0, [])] : List Node), FoundT net m0 x := by
+    intro x hx
+    rw [List.mem_singleton.mp hx]
+    exact ⟨hc, Run.nil _⟩
+  exact explore_foundT cap _ _ h h
+
+/-- A discovered marking's trace replays. -/
+theorem confirmB_of_foundT {net : Reference.Net String} {m0 : Marking String} {x : Node}
+    (hc : Canon m0) (h : FoundT net m0 x) : confirmB net m0 x.1 x.2 = true := by
+  obtain ⟨hcx, hr⟩ := h
+  simp only [confirmB, Bool.and_eq_true, decide_eq_true_eq]
+  exact ⟨⟨canonB_of_canon hc, canonB_of_canon hcx⟩,
+    (mem_replay_iff x.2 [m0] (by simpa using hc) hcx).mpr ⟨m0, List.mem_singleton_self _, hr⟩⟩
+
+/-- On a closed graph, a reachable quiescent marking that does not meet the contract gives the
+graph route a witness. -/
+theorem graphWits_meets {o : OOptions} {C : Contract String} {X : Closed} {vis : List Node}
+    (hc0 : Canon X.m0) (hcl : closedB X.net vis = true) (hft : ∀ x ∈ vis, FoundT X.net X.m0 x)
+    (h0 : X.m0 ∈ vis.map Prod.fst) {m : String → Nat} (hr : Reach X.net (get X.m0) m)
+    (hq : Quiet o X.net m) (hb : ¬ refMeets C X.envPlaces m) : graphWits o C X vis ≠ [] := by
+  obtain ⟨y, hy, rfl⟩ := closed_complete hcl (fun e he => (hft e he).1) h0 hr
+  obtain ⟨e, he, rfl⟩ := List.mem_map.mp hy
+  have hqe : quietB o X.net e.1 = true := quietB_iff.mpr hq
+  intro hnil
+  unfold graphWits at hnil
+  rw [List.append_eq_nil_iff, List.append_eq_nil_iff] at hnil
+  obtain ⟨⟨h1, h2⟩, -⟩ := hnil
+  rcases not_and_or.mp hb with hb | hb
+  · obtain ⟨c, hc, hnc⟩ : ∃ c ∈ C.clauses, ¬ ClauseHolds C c (get e.1) := by
+      by_contra hno
+      exact hb fun c hc => by_contra fun h => hno ⟨c, hc, h⟩
+    have hw : clauseWit o X C vis c ≠ [] := by
+      unfold clauseWit
+      split
+      · rename_i hf
+        have := List.find?_eq_none.mp hf e he
+        have hcb : clauseHoldsB C c e.1 = false :=
+          Bool.eq_false_iff.mpr fun h => hnc (clauseHoldsB_iff.mp h)
+        simp [hqe, hcb] at this
+      · rename_i e' hf
+        rw [if_pos (confirmB_of_foundT hc0 (hft e' (List.mem_of_find?_eq_some hf)))]
+        simp
+    exact hw (List.flatMap_eq_nil_iff.mp h1 c hc)
+  · obtain ⟨p, hp, hs⟩ : ∃ p, get e.1 p ≠ 0 ∧
+        refStrand (restSinks C X.envPlaces) (restCond C) (get e.1) p := by
+      by_contra hno
+      exact hb fun p hp hs => hno ⟨p, hp, hs⟩
+    have hpc : p ∈ strandCands o X C vis := by
+      unfold strandCands
+      rw [List.mem_insertionSort, mem_nub]
+      exact List.mem_flatMap.mpr ⟨e, List.mem_filter.mpr ⟨he, hqe⟩,
+        List.mem_filter.mpr ⟨List.mem_map.mpr ⟨_, mem_of_get_ne_zero hp, rfl⟩,
+          strandB_iff.mpr hs⟩⟩
+    have hw : strandWit o X C vis p ≠ [] := by
+      unfold strandWit
+      split
+      · rename_i hf
+        have := List.find?_eq_none.mp hf e he
+        simp [hqe, hp, strandB_iff.mpr hs] at this
+      · rename_i e' hf
+        rw [if_pos (confirmB_of_foundT hc0 (hft e' (List.mem_of_find?_eq_some hf)))]
+        simp
+    exact hw (List.flatMap_eq_nil_iff.mp h2 p hpc)
+
+/-- A run of layer `k`: its labels and markings line up, and every stretch of it is a firing
+sequence. -/
+def Chain (net : Reference.Net String) (m0 : Marking String) (k : Nat) (e : PNode) : Prop :=
+  e.2.1.length = k ∧ e.2.2.length = k + 1 ∧ e.2.2[0]? = some m0 ∧ e.2.2[k]? = some e.1 ∧
+    (∀ (i : Nat) (x : Marking String), e.2.2[i]? = some x → Canon x) ∧
+    ∀ (a b : Nat) (x y : Marking String), a ≤ b → e.2.2[a]? = some x → e.2.2[b]? = some y →
+      Run net ((e.2.1.drop a).take (b - a)) (get x) (get y)
+
+theorem tlayer_chain {net : Reference.Net String} {m0 : Marking String} (hc : Canon m0) :
+    ∀ k, ∀ e ∈ tlayer net m0 k, Chain net m0 k e
+  | 0, e, he => by
+    simp only [tlayer, List.mem_singleton] at he
+    subst he
+    refine ⟨rfl, rfl, rfl, rfl, fun i x hx => ?_, fun a b x y _ hx hy => ?_⟩
+    · cases i with
+      | zero =>
+        simp only [List.getElem?_cons_zero, Option.some.injEq] at hx
+        exact hx ▸ hc
+      | succ i => simp at hx
+    · cases a with
+      | succ a => simp at hx
+      | zero =>
+        cases b with
+        | succ b => simp at hy
+        | zero =>
+          simp only [List.getElem?_cons_zero, Option.some.injEq] at hx hy
+          subst hx hy
+          exact Run.nil _
+  | k + 1, e, he => by
+    simp only [tlayer, nextT] at he
+    rcases mem_ddFold_sub _ [] e he with h | h
+    · obtain ⟨e', he', hm⟩ := List.mem_flatMap.mp h
+      obtain ⟨s, hs, rfl⟩ := List.mem_map.mp hm
+      obtain ⟨hl1, hl2, h0, hk, hcan, hrun⟩ := tlayer_chain hc k e' he'
+      have hce : Canon e'.1 := hcan k e'.1 hk
+      obtain ⟨hcs, hst⟩ := mem_succ hce (l := s.1) (m' := s.2) hs
+      have hget : ∀ i x, (e'.2.2 ++ [s.2])[i]? = some x →
+          (i < k + 1 ∧ e'.2.2[i]? = some x) ∨ (i = k + 1 ∧ x = s.2) := by
+        intro i x hx
+        rw [List.getElem?_append, hl2] at hx
+        split at hx
+        · exact Or.inl ⟨by assumption, hx⟩
+        · rename_i hi
+          obtain ⟨n, hn⟩ : ∃ n, i - (k + 1) = n := ⟨_, rfl⟩
+          rw [hn] at hx
+          cases n with
+          | zero =>
+            simp only [List.getElem?_cons_zero, Option.some.injEq] at hx
+            exact Or.inr ⟨by omega, hx.symm⟩
+          | succ n => simp at hx
+      unfold Chain
+      dsimp only
+      refine ⟨by simp [hl1], by simp [hl2], ?_, ?_, fun i x hx => ?_, fun a b x y hab hx hy => ?_⟩
+      · rw [List.getElem?_append, hl2, if_pos (by omega)]; exact h0
+      · rw [List.getElem?_append, hl2, if_neg (by omega)]; simp
+      · rcases hget i x hx with ⟨-, h⟩ | ⟨-, rfl⟩
+        · exact hcan i x h
+        · exact hcs
+      · rcases hget b y hy with ⟨hb, hy'⟩ | ⟨rfl, rfl⟩
+        · have hx' : e'.2.2[a]? = some x := by
+            rcases hget a x hx with ⟨-, h⟩ | ⟨ha, -⟩
+            · exact h
+            · omega
+          rw [List.drop_append_of_le_length (by omega),
+            List.take_append_of_le_length (by rw [List.length_drop, hl1]; omega)]
+          exact hrun a b x y hab hx' hy'
+        · rcases hget a x hx with ⟨ha, hx'⟩ | ⟨rfl, rfl⟩
+          · have hlen : (e'.2.1.drop a ++ [s.1]).length ≤ k + 1 - a := by
+              simp only [List.length_append, List.length_drop, hl1, List.length_singleton]
+              omega
+            rw [List.drop_append_of_le_length (by omega), List.take_of_length_le hlen]
+            have := hrun a k x e'.1 (by omega) hx' hk
+            rw [List.take_of_length_le (by rw [List.length_drop, hl1])] at this
+            exact vrun_snoc this hst
+          · simp only [Nat.sub_self, List.take_zero]
+            exact Run.nil _
+    · exact absurd h List.not_mem_nil
+
+/-- **The pigeonhole, the other way**: on a closed graph, a run as long as the graph has markings
+revisits one, and its lasso replays. -/
+theorem lassoOf_some {net : Reference.Net String} {m0 : Marking String} {vis : List Node}
+    (hc : Canon m0) (hcl : closedB net vis = true) (hcan : ∀ e ∈ vis, Canon e.1)
+    (h0 : m0 ∈ vis.map Prod.fst) {e : PNode} (he : e ∈ tlayer net m0 vis.length) :
+    ∃ w, lassoOf net m0 e = some w := by
+  obtain ⟨hl1, hl2, h0', -, hcanE, hrun⟩ := tlayer_chain hc _ e he
+  have hsub : e.2.2 ⊆ vis.map Prod.fst := by
+    intro x hx
+    obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp hx
+    have hr : Reach net (get m0) (get x) :=
+      Reference.run_reach (hrun 0 i m0 x (Nat.zero_le _) h0' hi)
+    obtain ⟨y, hy, hyg⟩ := closed_complete hcl hcan h0 hr
+    obtain ⟨z, hz, rfl⟩ := List.mem_map.mp hy
+    have := ext (hcan z hz) (hcanE i x hi) (fun q => congrFun hyg q)
+    rw [← this]; exact List.mem_map_of_mem hz
+  have hnd : ¬ e.2.2.Nodup := fun hnd => by
+    have := (hnd.subperm hsub).length_le
+    simp only [List.length_map, hl2] at this
+    omega
+  have hfr : ∃ i j, firstRepeat e.2.2 = some (i, j) := by
+    cases hf : firstRepeat e.2.2 with
+    | some p => exact ⟨p.1, p.2, rfl⟩
+    | none =>
+      exfalso
+      apply hnd
+      rw [List.nodup_iff_getElem?_ne_getElem?]
+      intro i j hij hj heq
+      unfold firstRepeat at hf
+      have := List.findSome?_eq_none_iff.mp hf j (List.mem_range.mpr hj)
+      rw [Option.map_eq_none_iff, List.find?_eq_none] at this
+      exact this i (List.mem_range.mpr hij) (decide_eq_true heq)
+  obtain ⟨i, j, hij⟩ := hfr
+  have hsound : i < j ∧ j < e.2.2.length ∧ e.2.2[i]? = e.2.2[j]? := by
+    have hij' := hij
+    unfold firstRepeat at hij'
+    obtain ⟨j', hj', hm⟩ := List.exists_of_findSome?_eq_some hij'
+    obtain ⟨i', hi', hp⟩ := Option.map_eq_some_iff.mp hm
+    have hp' : i' = i ∧ j' = j := by simpa using hp
+    obtain ⟨hi1, hj1⟩ := hp'
+    subst hi1 hj1
+    have hpi := List.find?_some hi'
+    simp only [decide_eq_true_eq] at hpi
+    exact ⟨List.mem_range.mp (List.mem_of_find?_eq_some hi'), List.mem_range.mp hj', hpi⟩
+  obtain ⟨hlt, hjl, heq⟩ := hsound
+  cases hz : e.2.2[i]? with
+  | none => rw [List.getElem?_eq_none_iff] at hz; omega
+  | some z =>
+    have hzj : e.2.2[j]? = some z := heq ▸ hz
+    have hstem := hrun 0 i m0 z (Nat.zero_le _) h0' hz
+    simp only [List.drop_zero, Nat.sub_zero] at hstem
+    have hcyc := hrun i j z z hlt.le hz hzj
+    have hcz := hcanE i z hz
+    have hcond : (canonB m0 && canonB z && !((e.2.1.drop i).take (j - i)).isEmpty &&
+        decide (z ∈ replay net (e.2.1.take i) [m0]) &&
+        decide (z ∈ replay net ((e.2.1.drop i).take (j - i)) [z])) = true := by
+      simp only [Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_true']
+      refine ⟨⟨⟨⟨canonB_of_canon hc, canonB_of_canon hcz⟩, ?_⟩,
+        (mem_replay_iff _ [m0] (by simpa using hc) hcz).mpr ⟨m0, List.mem_singleton_self _, hstem⟩⟩,
+        (mem_replay_iff _ [z] (by simpa using hcz) hcz).mpr ⟨z, List.mem_singleton_self _, hcyc⟩⟩
+      cases hL : (e.2.1.drop i).take (j - i) with
+      | nil =>
+        have := congrArg List.length hL
+        simp only [List.length_take, List.length_drop, hl1, List.length_nil] at this
+        omega
+      | cons _ _ => rfl
+    simp only [lassoOf, hij, hz]
+    rw [if_pos hcond]
+    exact ⟨_, rfl⟩
+
+/-- On a closed graph, a run that fires forever gives the graph route a termination witness. -/
+theorem graphWits_term {o : OOptions} {C : Contract String} {X : Closed} {vis : List Node}
+    (hc0 : Canon X.m0) (hcl : closedB X.net vis = true) (hcan : ∀ e ∈ vis, Canon e.1)
+    (h0 : X.m0 ∈ vis.map Prod.fst) (ht : C.terminate = true)
+    (hf : ∃ f : Nat → String → Nat, f 0 = get X.m0 ∧ ∀ n, ∃ l, LStep X.net l (f n) (f (n + 1))) :
+    graphWits o C X vis ≠ [] := by
+  obtain ⟨f, hf0, hs⟩ := hf
+  obtain ⟨e, he, -⟩ := tlayer_run hc0 hf0 hs vis.length
+  obtain ⟨w, hw⟩ := lassoOf_some hc0 hcl hcan h0 he
+  have hne : (tlayer X.net X.m0 vis.length).isEmpty = false := by
+    cases hL : tlayer X.net X.m0 vis.length with
+    | nil => rw [hL] at he; exact absurd he List.not_mem_nil
+    | cons _ _ => rfl
+  have hT : termWit X.net X.m0 vis.length ≠ [] := by
+    unfold termWit
+    cases hF : (tlayer X.net X.m0 vis.length).findSome? (lassoOf X.net X.m0) with
+    | none =>
+      rw [List.findSome?_eq_none_iff] at hF
+      rw [hF e he] at hw
+      exact absurd hw (by simp)
+    | some w' => simp
+  intro hnil
+  unfold graphWits at hnil
+  have h3 := (List.append_eq_nil_iff.mp hnil).2
+  simp only [ht, hne, Bool.not_false, Bool.and_self, ↓reduceIte] at h3
+  exact hT h3
+
+/-- The graph route reports `Violated` on a closed graph where a reachable quiescent marking
+breaks the contract or, if termination is required, a run fires forever. -/
+theorem graphJudge_violated {o : OOptions} {C : Contract String} {X : Closed} (hc0 : Canon X.m0)
+    (hcl : closedB X.net (visited X.net X.m0 o.maxClasses) = true)
+    (hv : (∃ m, Reach X.net (get X.m0) m ∧ Quiet o X.net m ∧ ¬ refMeets C X.envPlaces m) ∨
+      (C.terminate = true ∧ ∃ f : Nat → String → Nat, f 0 = get X.m0 ∧
+        ∀ n, ∃ l, LStep X.net l (f n) (f (n + 1)))) :
+    ∃ ws, graphJudge o C X = ⟨.violated ws, .enumeration⟩ := by
+  have hft := visited_foundT (net := X.net) (cap := o.maxClasses) hc0
+  have hne : graphWits o C X (visited X.net X.m0 o.maxClasses) ≠ [] := by
+    rcases hv with ⟨m, hr, hq, hb⟩ | ⟨ht, hf⟩
+    · exact graphWits_meets hc0 hcl hft visited_init hr hq hb
+    · exact graphWits_term hc0 hcl (fun e he => (hft e he).1) visited_init ht hf
+  refine ⟨graphWits o C X (visited X.net X.m0 o.maxClasses), ?_⟩
+  unfold graphJudge
+  rw [if_neg (by rw [List.isEmpty_iff]; exact hne)]
+
 end OpenNet
 
 /-- ✓ **The reference verifier.** Example: the relay `q → relay → out` with `relay` at
@@ -1626,15 +1955,20 @@ theorem VER_022_reference : VER_022 RefFire refClose refMeets refStrand refOpenV
 
 /-- The reference meets the coverage of VER-022: it never refuses an accepted closure, and on a
 closed net with no match transition whose graph closes within the budget it proves a contract
-that holds (`graphJudge_proven`). -/
+that holds (`graphJudge_proven`) and reports one that is broken (`graphJudge_violated`). -/
 theorem ver022_ref_covers : Ver022Covers RefFire refClose refMeets refOpenVerify := by
   intro o N C X hX
-  refine ⟨⟨refJudge o N C X, by simp [refOpenVerify, hX]⟩, fun hm hb hcl hmeet hterm => ?_⟩
   obtain rfl := closeNet_ok hX
-  have hR : refJudge o N C (closeNet N.net C) = graphJudge o C (closeNet N.net C) := by
+  have hV : refOpenVerify o N C = .ok (refJudge o N C (closeNet N.net C)) := by
+    simp [refOpenVerify, hX]
+  have hR : N.hasMatch = false → 0 < o.maxClasses →
+      refJudge o N C (closeNet N.net C) = graphJudge o C (closeNet N.net C) := fun hm hb => by
     simp [refJudge, hm, Nat.pos_iff_ne_zero.mp hb]
-  refine ⟨refJudge o N C (closeNet N.net C), by simp [refOpenVerify, hX], ?_⟩
-  rw [hR, graphJudge_proven (canon_ofList _) hcl (fun m hr hq => hmeet m hr hq) hterm]
+  refine ⟨⟨_, hV⟩, fun hm hb hcl hmeet hterm => ?_, fun hm hb hcl hv => ?_⟩
+  · refine ⟨_, hV, ?_⟩
+    rw [hR hm hb, graphJudge_proven (canon_ofList _) hcl (fun m hr hq => hmeet m hr hq) hterm]
+  · obtain ⟨ws, hws⟩ := graphJudge_violated (canon_ofList _) hcl hv
+    exact ⟨_, ws, hV, by rw [hR hm hb, hws]⟩
 
 /-! ## Examples -/
 
@@ -2481,7 +2815,7 @@ theorem VER_022_covers_unknown :
     · exact absurd hV (by simp)
     · exact (Except.ok.inj hV).symm
   · obtain ⟨hX, hcl, hmeet, hterm⟩ := idle_covered
-    obtain ⟨r, hr, hp⟩ := (h {} ⟨idleNet, false⟩ (arrC 2 2) _ hX).2 rfl (by decide) hcl hmeet
+    obtain ⟨r, hr, hp⟩ := (h {} ⟨idleNet, false⟩ (arrC 2 2) _ hX).2.1 rfl (by decide) hcl hmeet
       (fun _ => hterm)
     simp only [verifyUnknown, hX, Except.ok.injEq] at hr
     subst hr
@@ -2498,6 +2832,50 @@ theorem VER_022_covers_refuse :
   · exact absurd hV (by simp [verifyRefuse])
   · obtain ⟨r, hr⟩ := (h {} ⟨relayNet, false⟩ relayC _ relay_close).1
     exact absurd hr (by simp [verifyRefuse])
+
+/-- Mutant: the reference, with every `Violated` answer replaced by an `Unknown` (AC1, AC3, AC4,
+AC11: the violations a closed graph shows are never reported). -/
+def verifyHideViolated : OpenVerifier := fun o N C =>
+  (refOpenVerify o N C).map fun r =>
+    match r.verdict with
+    | .violated _ => ⟨.unknown "a violation was found and not reported", .smt⟩
+    | _ => r
+
+/-- The answer is coverage, not a line: a verifier that answers `Unknown` wherever the reference
+answers `Violated` meets every line of VER-022 (its `Proven` answers are the reference's) and
+fails the third part of `Ver022Covers`. Example: the relay with one arrival on `q` and the clause
+`out = exactly 1` closes, its graph closes, and the quiescent marking with the token on `q` breaks
+the clause, so a verifier must answer `Violated` there. -/
+@[evidence cites "VER-022" "When the graph closes within the class budget the verdict is exact: a verifier that leaves every violation of a closed graph Unknown meets every line of the block and fails its coverage Ver022Covers"]
+theorem VER_022_covers_hideViolated :
+    VER_022 RefFire refClose refMeets refStrand verifyHideViolated ∧
+      ¬ Ver022Covers RefFire refClose refMeets verifyHideViolated := by
+  refine ⟨fun o N C => ?_, fun h => ?_⟩
+  · obtain ⟨h1, h2⟩ := VER_022_reference o N C
+    refine ⟨fun he => ?_, fun r X hV hX => ?_⟩
+    · obtain ⟨e, he'⟩ := h1 he
+      exact ⟨e, by simp [verifyHideViolated, he', Except.map]⟩
+    · cases hr0 : refOpenVerify o N C with
+      | error e => simp [verifyHideViolated, hr0, Except.map] at hV
+      | ok r0 =>
+        simp only [verifyHideViolated, hr0, Except.map, Except.ok.injEq] at hV
+        cases hv : r0.verdict with
+        | violated ws =>
+          rw [hv] at hV
+          subst hV
+          refine ⟨fun h => absurd h (by simp), fun h => absurd h (by simp),
+            fun ws h => absurd h (by simp), fun s h => ?_, fun _ h => ?_⟩
+          · simp only [OVerdict.unknown.injEq] at h; subst h; decide
+          · rcases h with h | ⟨_, h⟩ <;> exact absurd h (by simp)
+        | proven => rw [hv] at hV; subst hV; exact h2 r0 X hr0 hX
+        | unknown s => rw [hv] at hV; subst hV; exact h2 r0 X hr0 hX
+  · have hrel := ok_of_toOption VER_022_nonvacuous.1
+    have hcl : GraphCloses {} relayX := by unfold GraphCloses; decide
+    obtain ⟨r, ws, hr, hw⟩ := (h {} ⟨relayNet, false⟩ relayC _ relay_close).2.2 rfl (by decide) hcl
+      (Or.inl ⟨get relayQ, relay_reach, relay_quiet {} rfl, relay_breaks⟩)
+    simp only [verifyHideViolated, hrel, Except.map, Except.ok.injEq] at hr
+    subst hr
+    exact absurd hw (by simp)
 
 /-- ✓ **One model for all blocks.** The reference firing relation, the [VER-014] rest set, the
 reference judge, the reference closure and the reference verifier satisfy CORE-022, VER-014 and

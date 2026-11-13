@@ -469,7 +469,7 @@ requirement CORE_031
   quote "…" "…"                               -- one string per quoted sentence
   reading "…" "…"                             -- one string per formula line
   assumes "…"                                 -- zero or more
-  signoff "pending"                           -- or: signoff "2026-11-06 <statement hash>"
+  signoff "pending"                           -- or "2026-11-06 <statement hash>", "… ai"
   statement : FireRel N → Prop := …
 ```
 
@@ -511,17 +511,16 @@ elab (name := requirementCmd) "requirement " n:ident
     return s!"{← ppExpr ci.type} := {← ppExpr (ci.value?.getD ci.type)}"
   let h := statementHash stmt e.quotes e.reading e.assumes
   unless e.signoff == "pending" do
+    let bad := s!"signoff must be \"pending\", \"<YYYY-MM-DD> <statement hash>\" (a person \
+      signed) or \"<YYYY-MM-DD> <statement hash> ai\" (an AI review signed), not \
+      {repr e.signoff}; the statement hash is {h}"
     match e.signoff.splitOn " " with
-    | [date, given] =>
-      unless isDate date do
-        fail s!"signoff must be \"pending\" or \"<YYYY-MM-DD> <statement hash>\", not \
-          {repr e.signoff}; the statement hash is {h}"
+    | [date, given] | [date, given, "ai"] =>
+      unless isDate date do fail bad
       unless given == h do
         fail s!"signoff hash {given} does not match the statement hash {h}; the block changed \
           after sign-off: re-read it and sign off again with \"<YYYY-MM-DD> {h}\""
-    | _ =>
-      fail s!"signoff must be \"pending\" or \"<YYYY-MM-DD> <statement hash>\", not \
-        {repr e.signoff}; the statement hash is {h}"
+    | _ => fail bad
   modifyEnv (reqExt.addEntry · { e with hash := h })
 
 /-! ## Report -/
@@ -653,8 +652,8 @@ def legend : String :=
   **Kind**: B behaviour, F pure function, T timing, Q quality (tested, not proven), \
   A assumption, N configuration. **Source**: `verbatim` (the quote is in `spec/*.md` under the \
   ID's heading) or `proposed` (new text, not yet in the spec). **Sign-off**: `pending`, or the \
-  date and statement hash a reviewer signed; the build fails when the hash no longer matches \
-  the block.\n\n"
+  date and statement hash a reviewer signed, followed by `ai` when an AI review signed it \
+  rather than a person; the build fails when the hash no longer matches the block.\n\n"
 
 /-- The Markdown report. -/
 def renderMd (rs : Array Row) (cs : Array Evidence) : String := Id.run do

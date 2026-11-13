@@ -23,8 +23,8 @@ line 1 needs no proof of its own: MOD-006 decides acceptance from port names and
 (`mod004_line1_of_mod006`). Wrong builders are killed: one that rejects an `Input` port whose
 place no transition consumes from, one that rejects an `Output` port whose place a transition
 consumes from, one that rejects two ports of one direction over one place (the sentence ruling
-D35 dropped from MOD-003), one that moves the direction check to instantiation, and one that
-forgets the declared direction.
+D35 dropped from MOD-003), one that moves the direction check to instantiation, one whose
+instance correspondence depends on the directions, and one that forgets the declared direction.
 -/
 
 namespace Libpetri.Spec
@@ -50,16 +50,16 @@ requirement MOD_004
         "*When* building a subnet definition succeeds, the definition *shall* have a port with the name of each declared port, and each such port *shall* carry the declared direction."
   reading "For every naming model Nm (the renaming an instantiation uses, MOD-010; the lines do not read it), every subnet builder SB and every instantiation function Inst:"
           "if the port list ps has, port by port, the names and places of the ports of the subnet input S, then SB succeeds on S exactly when it succeeds on S with its ports replaced by ps;"
-          "if ps has, port by port, the names and places of the ports of the subnet definition S, then for every prefix p Inst succeeds on S under p exactly when it succeeds on S with its ports replaced by ps, and two such successes I and J hold the same places (as a set), the same transition definitions (in order), the same port handle and channel handle for every name, and the same names and places of ports (as a set);"
+          "if ps has, port by port, the names and places of the ports of the subnet definition S, then for every prefix p Inst succeeds on S under p exactly when it succeeds on S with its ports replaced by ps, and two such successes I and J hold the same places (as a set), the same transition definitions (whole, with timing, priority, action and correspondence, in order), the same port handle and channel handle for every name, and the same names and places of ports (as a set);"
           "if SB builds the definition D from S, then for every port q that S declares, D has a port with the name of q, and every port of D with the name of q has the direction of q."
   assumes "Kind B at MUST, rulings D20 and R-MA7 (2): the requirement was SHOULD, but its normative sentence is the MUST NOT on rejecting a subnet for a direction-versus-arc mismatch, so its priority is raised to MUST. No runtime changes: Rust, Java and TypeScript read a port's direction only in the doc generators (rust/libpetri-docgen/src/subnet_header.rs:98-100, java/src/main/java/org/libpetri/doclet/SubnetHeader.java:89-91) and in the verification harness of MOD-051 (rust/libpetri-verification/src/harness.rs:380-407, java/src/main/java/org/libpetri/core/SubnetDef.java:290-320, typescript/src/core/subnet-def.ts:273-284). In rust/libpetri-core/src the only uses of PortDirection are the declaration and the three port constructors (rust/libpetri-core/src/subnet_def.rs:350-362, rust/libpetri-core/src/interface.rs:172-184); Java encodes the direction as the record class of the port (java/src/main/java/org/libpetri/core/Interface.java:113-143), and no class of java/src/main/java/org/libpetri/core switches on it outside verify. Python rides on Rust."
           "Line 1 is the MUST NOT ('MUST NOT reject the subnet on direction-versus-arc mismatch') and AC2 and AC3 read for every builder: a subnet that builds with some directions builds with every other choice of directions, so no arc structure under a port can make its direction a reason to reject. It states acceptance only, not the message of a failure nor the built value: Rust keeps the ports of an interface in a hash map (rust/libpetri-core/src/interface.rs:104-107), so two builds need not list ports in one order, and which offender a message names is MOD-006's line 7. Line 1 depends on ruling D35 (a), which dropped MOD-003's sentence that two ports of one direction over one body place are rejected: no runtime implements that check (rust/libpetri-core/src/subnet_def.rs:388-404, java/src/main/java/org/libpetri/core/SubnetDef.java:630-643, typescript/src/core/subnet-def.ts:549-562), and a builder that does violates line 1 (MOD_004_forbids_sameDirCheck). Jointly with MOD-006 line 1 follows (mod004_line1_of_mod006), since MOD-006 decides acceptance from the body and the names and places of the ports; the line is kept so that MOD-004 says it on its own."
-          "Line 2 states for instantiate what line 1 states for the subnet builder, and adds what an instance holds: its places as a set (Rust collects them through a hash map, rust/libpetri-core/src/rewriter.rs:84-96), its transition definitions in order as transition definitions (TransDef, the part MOD-010 line 3 states; the correspondence of MOD-031 is MOD-031's), its port and channel handles name by name (MOD-011), and its interface ports as a set of names and places. It does not compare the prefix nor the messages of failures. The instance's interface ports carry the definition's directions in the reference (refInst keeps the ports); that the instance keeps them is not stated, since MOD-004 AC1 asks only that the direction be queryable on the definition's port and the instance handle of MOD-011 returns a place without a direction (rust/libpetri-core/src/instance.rs:109)."
+          "Line 2 states for instantiate what line 1 states for the subnet builder, and adds what an instance holds: its places as a set (Rust collects them through a hash map, rust/libpetri-core/src/rewriter.rs:84-96), its transition definitions in order and whole (arcs, timing, priority, action and the declared-to-actual correspondence of MOD-031; no runtime's rewriter reads a direction, rust/libpetri-core/src/rewriter.rs:180-181 and :277-310, so an instantiation that builds a correspondence from the directions is rejected, MOD_004_forbids_inputCorr), its port and channel handles name by name (MOD-011), and its interface ports as a set of names and places. It does not compare the prefix nor the messages of failures. The instance's interface ports carry the definition's directions in the reference (refInst keeps the ports); that the instance keeps them is not stated, since MOD-004 AC1 asks only that the direction be queryable on the definition's port and the instance handle of MOD-011 returns a place without a direction (rust/libpetri-core/src/instance.rs:109)."
           "Line 3 is AC1 (direction metadata is preserved and queryable via the port handle): the port handle is the interface's port, looked up by name (rust/libpetri-core/src/interface.rs:247-257 tests exactly this). The line asks that a port of every declared name exists and carries the declared direction, which the lookup by name then returns. It compares ports by name and not as a list, since Rust's interface is a hash map. A declaration with two ports of one name never builds (MOD-006 line 3), so line 3 asks nothing contradictory of a builder that meets MOD-006. That the definition holds exactly the declared ports, channels and body is MOD-001's line; a builder that stores every port as InOut meets lines 1 and 2 and is killed by line 3 alone (MOD_004_mutant_noDirection_killed)."
           "AC2 (a subnet whose Output port place is also written internally by transitions is accepted at build) and AC3 (a subnet whose Input port place is also read internally by transitions is accepted at build) are exercised on the reference by MOD_004_nonvacuous: the subnet relay, whose Output port place out is written by take and consumed by drain and whose Input port place in is read by peek and consumed by take, builds, and so does the same subnet with the two directions swapped. For every builder that meets MOD-006 over the reference net builder, relay builds with every choice of directions (mod004_relay_builds). The block alone does not force a build: a builder that rejects everything meets lines 1 to 3, and acceptance is MOD-006's line 6."
           "AC4 (where a warning channel exists, an obvious mismatch MAY emit a warning but MUST NOT raise an error) is line 1 for the error half: MOD_004_nonvacuous builds watch, an Input port whose place no transition consumes from, and the same subnet with an Output port that no transition produces into. The warning half is not stated: no runtime emits such a warning (no warn call in the subnet or interface sources of any language), and a warning channel is not modelled. The sentence 'Implementations MAY emit a build-time warning when declared direction conflicts with the arc structure' is a MAY with no runtime witness, recorded as kind N in the plan."
           "The sentence that direction does not constrain arc flow at run time ('Actual token flow at run time is governed exclusively by arcs declared per CORE-030..CORE-035') is line 2's 'the same transitions': an instance's transitions, and so its firing (MOD-010's mod010_firesAsBody), do not depend on any direction. That composition does not read direction either (prose of the reworded first sentence) is a property of the composition functions of MOD-020 to MOD-025 and is not stated here; the composition wave states their lines on names and places only."
-  signoff "pending"
+  signoff "2026-11-13 64f5c60f41ba81c3 ai"
   statement : ∀ {N A : Type}, Naming N → SubnetMake N A → InstFn N A → Prop :=
     fun {N A} _Nm SB Inst =>
       (∀ (S : SubnetIn N A) (ps : List (Port N)),
@@ -70,7 +70,7 @@ requirement MOD_004
         ((∃ I, Inst S p = .ok I) ↔ ∃ I, Inst { S with ports := ps } p = .ok I) ∧
         ∀ I J, Inst S p = .ok I → Inst { S with ports := ps } p = .ok J →
           (∀ x, x ∈ I.places ↔ x ∈ J.places) ∧
-          I.defs.map CDef.toTransDef = J.defs.map CDef.toTransDef ∧
+          I.defs = J.defs ∧
           (∀ n, I.port n = J.port n) ∧ (∀ n, I.chan n = J.chan n) ∧
           ∀ k, k ∈ I.iface.map Port.undirected ↔ k ∈ J.iface.map Port.undirected) ∧
       (∀ (S : SubnetIn N A) D, SB S = .ok D → ∀ q ∈ S.ports,
@@ -105,7 +105,7 @@ fun {N A} _Nm SB Inst =>
                       p =
                     Except.ok J →
                   (∀ (x : N), x ∈ I.places ↔ x ∈ J.places) ∧
-                    List.map CDef.toTransDef I.defs = List.map CDef.toTransDef J.defs ∧
+                    I.defs = J.defs ∧
                       (∀ (n : String), I.port n = J.port n) ∧
                         (∀ (n : String), I.chan n = J.chan n) ∧
                           ∀ (k : String × N),
@@ -134,7 +134,7 @@ def mod004_line2 (Inst : InstFn N A) : Prop :=
     ((∃ I, Inst S p = .ok I) ↔ ∃ I, Inst { S with ports := ps } p = .ok I) ∧
     ∀ I J, Inst S p = .ok I → Inst { S with ports := ps } p = .ok J →
       (∀ x, x ∈ I.places ↔ x ∈ J.places) ∧
-      I.defs.map CDef.toTransDef = J.defs.map CDef.toTransDef ∧
+      I.defs = J.defs ∧
       (∀ n, I.port n = J.port n) ∧ (∀ n, I.chan n = J.chan n) ∧
       ∀ k, k ∈ I.iface.map Port.undirected ↔ k ∈ J.iface.map Port.undirected
 
@@ -566,6 +566,31 @@ theorem MOD_004_forbids_sameDirCheck :
   have := (h.1 mod004_twoInputs [⟨"a", .input, "in"⟩, ⟨"b", .output, "in"⟩] rfl).2 ⟨_, rfl⟩
   obtain ⟨D, hD⟩ := this
   cases hD
+
+/-- The correspondence of `d` without the entries whose declared place an `Input` port exposes. -/
+def mod004_dropInputCorr [DecidableEq N] (ports : List (Port N)) (d : CDef N A) : CDef N A :=
+  { d with corr := d.corr.map (List.filter fun e =>
+      !(ports.any fun q => decide (q.dir = .input) && decide (q.place = e.1))) }
+
+/-- An instantiation that renames as the reference does but leaves the places of `Input` ports out
+of each transition's correspondence, as if composition rebound them later. -/
+def mod004_inputCorrInst [DecidableEq N] (Nm : Naming N) : InstFn N A := fun S p =>
+  (refInst Nm S p).map fun I => { I with defs := I.defs.map (mod004_dropInputCorr S.ports) }
+
+/-- ✗ An instantiation whose correspondence depends on the port directions violates MOD-004
+(line 2): `relay` with `in` an `Input` port and the same `relay` with `in` an `Output` port
+instantiate under `r1` with the same places, arcs and handles, but `take`, which names `in`, loses
+the entry for `in` in the first. Its arcs, names, timing, priority and action are the
+reference's, so only the whole-definition comparison rejects it. -/
+@[evidence forbids MOD_004]
+theorem MOD_004_forbids_inputCorr :
+    ¬ MOD_004 strNaming (refSubnetBuild (A := Unit) (refNetBuild (N := String)))
+      (mod004_inputCorrInst strNaming) := by
+  intro h
+  have := (h.2.1 (mod004_relayDefD .input .output) [⟨"in", .output, "in"⟩, ⟨"out", .input, "out"⟩]
+    "r1" rfl).2 _ _ rfl rfl
+  have := congrArg (List.map (·.corr)) this.2.1
+  revert this; decide
 
 /-! ### Mutant: line 1 dropped (direction may decide acceptance) -/
 

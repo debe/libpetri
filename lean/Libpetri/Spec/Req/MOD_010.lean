@@ -45,14 +45,14 @@ requirement MOD_010
   source verbatim "spec/11-modular-composition.md"
   quote "*If* the prefix given to `instantiate` is empty or contains `/`, *then* `instantiate` *shall* fail."
         "*When* `instantiate` is given a non-empty prefix that contains no `/` and the body of the subnet definition declares no terminal place ([EXEC-042]), `instantiate` *shall* succeed."
-        "*If* the prefix given to `instantiate` is non-empty and contains no `/` and the body of the subnet definition declares a terminal place ([EXEC-042]), *then* `instantiate` *shall* fail with an error that names one of those terminal places."
         "*When* `instantiate` succeeds with prefix `p`, the renamed body *shall* hold exactly the body's places and, in the body's order, the body's transitions, each renamed from `x` to `p/x`, with every arc and output specification of a transition naming the renamed places and its timing, priority and action unchanged."
+        "*If* the prefix given to `instantiate` is non-empty and contains no `/` and the body of the subnet definition declares a terminal place ([EXEC-042]), *then* `instantiate` *shall* fail with an error that names one of those terminal places."
   reading "For every naming model Nm (how a prefix renames a place) and every instantiation function Inst:"
           "if the prefix p is not valid (empty, or containing '/'), Inst fails on every subnet definition;"
           "if p is valid and the definition's body declares no terminal place (and every port exposes a body place and every channel a body transition), Inst succeeds;"
-          "if p is valid and the definition's body declares a terminal place, Inst fails with a message that names (contains, MsgNames) the name of one of the body's terminal places;"
-          "if Inst returns an instance I under p, the places of I are, as a set, the body's places each renamed by Nm.pre p, and the definitions of I, as transition definitions, are the body's definitions in order, each mapped by TransDef.map (Nm.pre p) (preS p): every input, inhibitor, read, reset and output-specification place renamed by Nm.pre p, the name x renamed to p/x, timing, priority and action unchanged."
-  assumes "Ruling D25 (a): a prefix is valid when it is non-empty and contains no '/' (ValidPrefix), as Rust, Java and TypeScript check before renaming (rust/libpetri-core/src/subnet_def.rs:90-101, java/src/main/java/org/libpetri/core/SubnetDef.java:450-461, typescript/src/core/subnet-def.ts:595-605; Python calls the Rust check). The separator sentence ('Implementations MUST use exactly \"/\"') is preS: the renamed name of x under p is p ++ \"/\" ++ x, for transition names directly and for place names through the naming model's law pre_name. The order of the prefix check and the terminal-place check is not stated, which is why line 4 has the premise that the prefix is valid; the message of line 1 is not stated."
+          "if Inst returns an instance I under p, the places of I are, as a set, the body's places each renamed by Nm.pre p, and the definitions of I, as transition definitions, are the body's definitions in order, each mapped by TransDef.map (Nm.pre p) (preS p): every input, inhibitor, read, reset and output-specification place renamed by Nm.pre p, the name x renamed to p/x, timing, priority and action unchanged;"
+          "if p is valid and the definition's body declares a terminal place, Inst fails with a message that names (contains, MsgNames) the name of one of the body's terminal places."
+  assumes "Ruling D25 (a): a prefix is valid when it is non-empty and contains no '/' (ValidPrefix), as Rust, Java and TypeScript check before renaming (rust/libpetri-core/src/subnet_def.rs:90-101, java/src/main/java/org/libpetri/core/SubnetDef.java:450-461, typescript/src/core/subnet-def.ts:595-605; Python calls the Rust check). The separator sentence ('Implementations MUST use exactly \"/\"') is preS: the renamed name of x under p is p ++ \"/\" ++ x, for transition names directly and for place names through the naming model's law pre_name. The order of the prefix check and the terminal-place check is not stated, which is why line 4 has the premise that the prefix is valid; the message of line 1 is not stated. Lines 3 and 4 are the markdown's fourth and third shall sentences: the block states what a success returns before the terminal-place rejection, the order the other blocks cite (MOD-010 line 3 for the shape, line 4 for EXEC-042 AC6)."
           "Places are the abstract N, the key type of the place model (PlaceKeyed.K, CORE-002), and the naming model Nm says how a prefix renames a key. Its law pre_name (the renamed place's name is p/name, item 2) pins the rename at every naming model, so a model that renames x to x/p is not a naming model; its law pre_inj (valid prefixes rename injectively and to disjoint sets) is what the prefix check buys. strNaming (TypeScript, Rust, Python: a place is its name, renamed to p/name) and typedNaming (Java: the name renamed, the token type kept) are the runtime naming models; the holds theorem holds for every naming model. Transition names are strings and are renamed by preS under every naming model."
           "Line 4 is EXEC-042 AC6 for instantiate (a subnet body that declares terminal places is rejected with an error that names the place), the composition MUST that EXEC-042's block leaves to the composition model; its direct-composition half is MOD-025 line 7. To name is to contain as a substring (MsgNames, as in MOD-006). Every runtime rejects the body before renaming and names its first terminal place (rust/libpetri-core/src/subnet_def.rs:103-104 through reject_subnet_terminals, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:91 and :130-135, typescript/src/core/internal/subnet-rewriter.ts:106-107; Python calls the Rust check); the line asks for one of them. An instantiation without the terminal check meets lines 1 to 3 (MOD_010_mutant_noTerminalCheck_killed), and one that rejects without naming the place breaks line 4 (MOD_010_forbids_unnamedTerminal). Line 2's premises that every port exposes a body place and every channel a body transition hold of every subnet definition the subnet builder accepts (MOD-006). All three runtimes fail instantiate on a port whose place or a channel whose transition is missing from the renamed body (rust/libpetri-core/src/subnet_def.rs:124-153, java/src/main/java/org/libpetri/core/SubnetDef.java:117-141, typescript/src/core/subnet-def.ts:129-153), which is unreachable from a built definition; the premises keep line 2 true of those runtimes on the definitions the Lean type allows beyond the built ones."
           "Line 3 compares the places as a set: Rust collects the renamed places through a hash map (rust/libpetri-core/src/rewriter.rs:84-96), and the order of places is not normative (ruling D32). It compares the transitions as a list: every runtime rewrites them in the body's order (rust/libpetri-core/src/rewriter.rs:98-102). It states the definitions' TransDef part only: the declared-to-actual correspondence a rewrite pass records (CDef.corr) is MOD-031's, and the instance's handles, prefix and interface (port, chan, pfx, iface) are MOD-011's and MOD-024's."
@@ -61,18 +61,18 @@ requirement MOD_010
           "Item 1 and AC4 (a params value of the wrong type is rejected) are API shape: the parameters value is not modelled, its type is checked by the host language at compile time where it has generics and at construction otherwise, tested and not proven. AC3 (the renamed body is immutable) is a quality property of the host values (Lean values are immutable; CORE-041 states builder stability), tested and not proven."
           "AC1 (instantiate(\"buf1\", params) over a body containing place slots produces buf1/slots) is MOD_010_nonvacuous on the reference, by decide; so is line 4 on a body with the terminal place done."
           "AC2 (two instantiations of one definition under different prefixes have disjoint place and transition name sets) follows from lines 1 and 3 and the naming model's laws (mod010_disjoint, for every model of the block, on place names and transition names; AC1 at every naming model is mod010_placeName), so it has no mutant of its own (skeptic correction S4 of the composition design). The nested form outer/inner/originalName is MOD-013's (preS_assoc)."
-  signoff "pending"
+  signoff "2026-11-13 016d6819870b4bff ai"
   statement : ∀ {N A : Type}, Naming N → InstFn N A → Prop :=
     fun {N A} Nm Inst =>
       (∀ (S : SubnetDef N A) p, ¬ ValidPrefix p → ∃ msg, Inst S p = .error msg) ∧
       (∀ (S : SubnetDef N A) p, ValidPrefix p → S.terminals = [] →
         (∀ q ∈ S.ports, q.place ∈ S.places) →
         (∀ c ∈ S.chans, c.trans ∈ S.defs.map (·.core.name)) → ∃ I, Inst S p = .ok I) ∧
-      (∀ (S : SubnetDef N A) p, ValidPrefix p → S.terminals ≠ [] →
-        ∃ msg, Inst S p = .error msg ∧ ∃ x ∈ S.terminals, MsgNames msg (Nm.name x)) ∧
       (∀ (S : SubnetDef N A) p I, Inst S p = .ok I →
         (∀ x, x ∈ I.places ↔ x ∈ S.places.map (Nm.pre p)) ∧
-        I.defs.map CDef.toTransDef = S.defs.map (fun d => d.toTransDef.map (Nm.pre p) (preS p)))
+        I.defs.map CDef.toTransDef = S.defs.map (fun d => d.toTransDef.map (Nm.pre p) (preS p))) ∧
+      (∀ (S : SubnetDef N A) p, ValidPrefix p → S.terminals ≠ [] →
+        ∃ msg, Inst S p = .error msg ∧ ∃ x ∈ S.terminals, MsgNames msg (Nm.name x))
 
 /- The pinned readable form of MOD-010: a change to the formula shows up as a diff here. -/
 /--
@@ -84,13 +84,14 @@ fun {N A} Nm Inst =>
           S.terminals = [] →
             (∀ q ∈ S.ports, q.place ∈ S.places) →
               (∀ c ∈ S.chans, c.trans ∈ List.map (fun x => x.core.name) S.defs) → ∃ I, Inst S p = Except.ok I) ∧
-      (∀ (S : SubnetDef N A) (p : String),
-          ValidPrefix p →
-            S.terminals ≠ [] → ∃ msg, Inst S p = Except.error msg ∧ ∃ x ∈ S.terminals, MsgNames msg (Nm.name x)) ∧
-        ∀ (S : SubnetDef N A) (p : String) (I : Instance N A),
+      (∀ (S : SubnetDef N A) (p : String) (I : Instance N A),
           Inst S p = Except.ok I →
             (∀ (x : N), x ∈ I.places ↔ x ∈ List.map (Nm.pre p) S.places) ∧
-              List.map CDef.toTransDef I.defs = List.map (fun d => TransDef.map (Nm.pre p) (preS p) d.toTransDef) S.defs
+              List.map CDef.toTransDef I.defs =
+                List.map (fun d => TransDef.map (Nm.pre p) (preS p) d.toTransDef) S.defs) ∧
+        ∀ (S : SubnetDef N A) (p : String),
+          ValidPrefix p →
+            S.terminals ≠ [] → ∃ msg, Inst S p = Except.error msg ∧ ∃ x ∈ S.terminals, MsgNames msg (Nm.name x)
 -/
 #guard_msgs in #print MOD_010
 
@@ -110,23 +111,22 @@ def mod010_line2 (Inst : InstFn N A) : Prop :=
     (∀ q ∈ S.ports, q.place ∈ S.places) →
     (∀ c ∈ S.chans, c.trans ∈ S.defs.map (·.core.name)) → ∃ I, Inst S p = .ok I
 
-/-- Line 4 of MOD-010 (EXEC-042 AC6): under a valid prefix, a body that declares a terminal place
-fails, with a message naming one of its terminal places. -/
-def mod010_line4 (Nm : Naming N) (Inst : InstFn N A) : Prop :=
-  ∀ (S : SubnetDef N A) p, ValidPrefix p → S.terminals ≠ [] →
-    ∃ msg, Inst S p = .error msg ∧ ∃ x ∈ S.terminals, MsgNames msg (Nm.name x)
-
 /-- Line 3 of MOD-010: what a success returns. -/
 def mod010_line3 (Nm : Naming N) (Inst : InstFn N A) : Prop :=
   ∀ (S : SubnetDef N A) p I, Inst S p = .ok I →
     (∀ x, x ∈ I.places ↔ x ∈ S.places.map (Nm.pre p)) ∧
     I.defs.map CDef.toTransDef = S.defs.map (fun d => d.toTransDef.map (Nm.pre p) (preS p))
 
-/-- MOD-010 is its four lines (line 4, the terminal-place rejection, sits third in the
-statement). -/
+/-- Line 4 of MOD-010 (EXEC-042 AC6): under a valid prefix, a body that declares a terminal place
+fails, with a message naming one of its terminal places. -/
+def mod010_line4 (Nm : Naming N) (Inst : InstFn N A) : Prop :=
+  ∀ (S : SubnetDef N A) p, ValidPrefix p → S.terminals ≠ [] →
+    ∃ msg, Inst S p = .error msg ∧ ∃ x ∈ S.terminals, MsgNames msg (Nm.name x)
+
+/-- MOD-010 is its four lines, in order. -/
 theorem mod010_iff (Nm : Naming N) (Inst : InstFn N A) :
     MOD_010 Nm Inst ↔
-      mod010_line1 Inst ∧ mod010_line2 Inst ∧ mod010_line4 Nm Inst ∧ mod010_line3 Nm Inst :=
+      mod010_line1 Inst ∧ mod010_line2 Inst ∧ mod010_line3 Nm Inst ∧ mod010_line4 Nm Inst :=
   Iff.rfl
 
 end Lines
@@ -142,8 +142,8 @@ place `done`, with a message that names `done`. -/
 theorem MOD_010_reference {N A : Type} (Nm : Naming N) : MOD_010 Nm (refInst (A := A) Nm) := by
   refine ⟨fun S p hp => ⟨_, refInst_invalid Nm S hp⟩,
     fun S p hp ht _ _ => ⟨_, refInst_valid Nm S hp ht⟩,
-    fun S p hp ht => ⟨_, refInst_terminals_named Nm S hp ht, instTermMsg_names Nm S ht⟩,
-    fun S p I hI => ?_⟩
+    fun S p I hI => ?_,
+    fun S p hp ht => ⟨_, refInst_terminals_named Nm S hp ht, instTermMsg_names Nm S ht⟩⟩
   obtain ⟨-, -, -, hpl, hd, -⟩ := refInst_ok hI
   refine ⟨fun x => by rw [hpl], ?_⟩
   rw [hd, List.map_map]
@@ -203,12 +203,12 @@ theorem mod010_disjoint {Nm : Naming N} {Inst : InstFn N A} (h : MOD_010 Nm Inst
   have vp := mod010_ok_valid h.1 hI
   have vq := mod010_ok_valid h.1 hJ
   refine ⟨fun x hx y hy hxy => ?_, fun n hn hm => ?_⟩
-  · obtain ⟨a, -, ha⟩ := (mod010_placeName h.2.2.2 hI).1 x hx
-    obtain ⟨b, -, hb⟩ := (mod010_placeName h.2.2.2 hJ).1 y hy
+  · obtain ⟨a, -, ha⟩ := (mod010_placeName h.2.2.1 hI).1 x hx
+    obtain ⟨b, -, hb⟩ := (mod010_placeName h.2.2.1 hJ).1 y hy
     rw [ha, hb] at hxy
     exact hne (preS_inj _ _ _ _ vp vq hxy).1
-  · obtain ⟨a, rfl⟩ := mod010_name h.2.2.2 hI hn
-    obtain ⟨b, hb⟩ := mod010_name h.2.2.2 hJ hm
+  · obtain ⟨a, rfl⟩ := mod010_name h.2.2.1 hI hn
+    obtain ⟨b, hb⟩ := mod010_name h.2.2.1 hJ hm
     exact hne (preS_inj _ _ _ _ vp vq hb).1
 
 /-- **The RefFire link.** Every model of MOD-010 renames firings faithfully: every transition of
@@ -221,7 +221,7 @@ theorem mod010_firesAsBody [DecidableEq N] {Nm : Naming N} {Inst : InstFn N A}
   intro S p I hI d hd
   have vp := mod010_ok_valid h.1 hI
   have hm : d.toTransDef ∈ S.defs.map (fun d => d.toTransDef.map (Nm.pre p) (preS p)) := by
-    rw [← (h.2.2.2 S p I hI).2]; exact List.mem_map_of_mem hd
+    rw [← (h.2.2.1 S p I hI).2]; exact List.mem_map_of_mem hd
   obtain ⟨d₀, hd₀, he⟩ := List.mem_map.1 hm
   refine ⟨d₀, hd₀, fun m dep m' => ?_⟩
   have ht : d.toTransDef.toTrans = mapT (Nm.pre p) (preS p) d₀.toTransDef.toTrans := by
@@ -384,7 +384,7 @@ theorem MOD_010_forbids_dot : ¬ MOD_010 strNaming dotInst := by
   intro h
   have hI := instVia_of_chk (chk := refChk) (pl := dotS) (dm := fun p => CDef.map (dotS p) (dotS p))
     (S := mod010_exS) (p := "buf1") (by decide)
-  have := ((h.2.2.2 _ _ _ hI).1 "buf1/slots").2 (by decide)
+  have := ((h.2.2.1 _ _ _ hI).1 "buf1/slots").2 (by decide)
   exact absurd this (by decide)
 
 /-- ✗ An instantiation that leaves the reset arcs unrenamed violates MOD-010 (line 3): the
@@ -397,7 +397,7 @@ theorem MOD_010_forbids_missesResets :
     let e := d.map (strNaming.pre p) (preS p)
     { e with core := { e.core with resets := d.core.resets } }) (S := mod010_exS) (p := "buf1")
     (by decide)
-  have := congrArg (List.map (·.core.resets)) (h.2.2.2 _ _ _ hI).2
+  have := congrArg (List.map (·.core.resets)) (h.2.2.1 _ _ _ hI).2
   exact absurd this (by decide)
 
 /-- ✗ An instantiation that rejects a body with a terminal place without naming the place violates
@@ -407,7 +407,7 @@ name the terminal place `done`. -/
 theorem MOD_010_forbids_unnamedTerminal :
     ¬ MOD_010 strNaming (plainMsgInst (A := Unit) strNaming) := by
   intro h
-  obtain ⟨msg, hm, x, hx, hn⟩ := h.2.2.1 mod010_exT "a" (by decide) (by simp [mod010_exT])
+  obtain ⟨msg, hm, x, hx, hn⟩ := h.2.2.2 mod010_exT "a" (by decide) (by simp [mod010_exT])
   have he : plainMsgInst (A := Unit) strNaming mod010_exT "a" = .error "rejected" := by
     unfold plainMsgInst instVia
     rw [if_neg (by decide)]
@@ -443,7 +443,7 @@ theorem MOD_010_mutant_noTerminalCheck_killed :
     refine ⟨fun x => by rw [hpl], ?_⟩
     rw [hd, List.map_map]
     rfl
-  · obtain ⟨msg, hm, -⟩ := h.2.2.1 mod010_exT "a" (by decide) (by simp [mod010_exT])
+  · obtain ⟨msg, hm, -⟩ := h.2.2.2 mod010_exT "a" (by decide) (by simp [mod010_exT])
     have hok : termLooseInst (A := Unit) strNaming mod010_exT "a" = .ok _ :=
       instVia_of_chk (chk := fun _ p => decide (ValidPrefix p)) (by decide)
     rw [hok] at hm
@@ -455,7 +455,9 @@ section MutantPrefix
 
 variable {N A : Type}
 
-/-- Mutant reading: MOD-010 without line 1, so an instantiation need not check the prefix. -/
+/-- Mutant reading: MOD-010 without line 1, so an instantiation need not check the prefix. Line 4
+is left out too: the killer's rejection text names no place, and line 4 has its own kill
+(`MOD_010_forbids_unnamedTerminal`). -/
 def MOD_010_mutant_dropPrefixCheck (Nm : Naming N) (Inst : InstFn N A) : Prop :=
   mod010_line2 Inst ∧ mod010_line3 Nm Inst
 
@@ -482,8 +484,9 @@ section MutantAccept
 
 variable {N A : Type}
 
-/-- Mutant reading: MOD-010 without line 2, the rejections and the shape of a success only (skeptic
-correction S2 of the composition design: a partial function needs an acceptance line). -/
+/-- Mutant reading: MOD-010 without line 2, the prefix rejection and the shape of a success only
+(skeptic correction S2 of the composition design: a partial function needs an acceptance line).
+Line 4 is left out too: the killer's rejection text names no place. -/
 def MOD_010_mutant_noAcceptance (Nm : Naming N) (Inst : InstFn N A) : Prop :=
   mod010_line1 Inst ∧ mod010_line3 Nm Inst
 
@@ -508,7 +511,7 @@ variable {N A : Type}
 
 /-- Mutant reading of line 3 (item 2 without item 4): a success renames every place and every
 transition name under the prefix, and says nothing about the arcs. Lines 1 and 2 are as in
-MOD-010. -/
+MOD-010; line 4 is left out, since the killer's rejection text names no place. -/
 def MOD_010_mutant_namesOnly (Nm : Naming N) (Inst : InstFn N A) : Prop :=
   mod010_line1 Inst ∧ mod010_line2 Inst ∧
   ∀ (S : SubnetDef N A) p I, Inst S p = .ok I →
@@ -534,7 +537,7 @@ theorem MOD_010_mutant_namesOnly_killed :
       (dm := fun p (d : CDef String Unit) =>
         { d with core := { d.core with name := preS p d.core.name } })
       (S := mod010_exS) (p := "buf1") (by decide)
-    have := congrArg (List.map (·.core.inputs.map (·.place))) (h.2.2.2 _ _ _ hI).2
+    have := congrArg (List.map (·.core.inputs.map (·.place))) (h.2.2.1 _ _ _ hI).2
     exact absurd this (by decide)
 
 end Libpetri.Spec

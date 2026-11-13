@@ -29,8 +29,8 @@ flowchart TD
     n2579["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g2["Libpetri/Spec/Req/TIME_006.lean"]
-    n20506["Libpetri.Spec.time006_graph_interval"]
-    n20510["Libpetri.Spec.time006_interval"]
+    n20888["Libpetri.Spec.time006_graph_interval"]
+    n20892["Libpetri.Spec.time006_interval"]
   end
   n2436 --> n2442
   n2436 --> n2444
@@ -67,17 +67,17 @@ flowchart TD
   n2489 --> n2445
   n2568 --> n237
   n2568 --> n2449
-  n20506 --> n2489
-  n20506 --> n2568
-  n20510 --> n2436
-  n20510 --> n2445
-  n20510 --> n2447
-  n20510 --> n2449
-  n20510 --> n2450
+  n20888 --> n2489
+  n20888 --> n2568
+  n20892 --> n2436
+  n20892 --> n2445
+  n20892 --> n2447
+  n20892 --> n2449
+  n20892 --> n2450
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20506,n20510 root
+  class n20888,n20892 root
 ```
 
 Axioms used:

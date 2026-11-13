@@ -56,7 +56,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 [glossary.md](glossary.md) defines the terms of the CORE and IO firing semantics. It is unnumbered, holds no requirements and is not counted above.
 
-[runtime-defects.md](runtime-defects.md) is the runtime defect ledger: each place where a runtime breaks a requirement the spec keeps, numbered `RD-NN` until a runtime change fixes it. It is unnumbered, holds no requirements and is not counted above.
+[runtime-defects.md](runtime-defects.md) is the runtime defect ledger: each place where a runtime breaks or broke a requirement the spec keeps, numbered `RD-NN`, with its status, open or fixed, and the change that fixed it. It is unnumbered, holds no requirements and is not counted above.
 
 ---
 

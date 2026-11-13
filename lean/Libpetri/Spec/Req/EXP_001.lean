@@ -82,7 +82,7 @@ requirement EXP_001
           "An output arc and a reset arc of one transition on one place may be drawn as one combined reset+output edge (EXP-013). Lines 6 and 7 allow the combined arc type only where the transition has both arcs on the place, so an exporter that draws a plain output arc as a combined edge because another transition resets the place violates line 6 (EXP_001_forbids_globalResets), and one that draws a standalone reset arc as a combined edge violates line 7 (EXP_001_forbids_resetAsCombined). That the combined edge replaces the plain output edge and the standalone reset edge in exactly that case is EXP-013's line."
           "How many edges an arc gets: line 5 counts the input, inhibitor and read edges (one per arc, so an exporter that draws every such edge twice violates it, EXP_001_forbids_doubled); the output edges and the standalone reset edges of a transition into a place are counted by EXP-013 (one per leaf naming the place, one per reset arc on a place no leaf names), under the same distinct-names condition, and which output edges pass through which junctions is EXP-012's. Lines 4, 6 and 7 ask for at least one edge per arc. The labels (EXP-006, EXP-018), the style rows (EXP-004) and the categories of the nodes (EXP-002, EXP-003, EXP-008) are other blocks' lines. Ghost edges and clusters (EXP-016, EXP-017) add to the graph and are not read here; the block holds of the reference exporter with every cluster stage (EXP_001_any)."
           "The implementation notes name the format each runtime renders (DOT in all three) and the test derivation (a net with all arc types, exported and checked) is EXP_001_nonvacuous on the reference exporter: the worked net of EXP-013, which has every arc kind."
-  signoff "pending"
+  signoff "2026-11-13 a588bcf52468b6b3 ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (∀ t ∈ X.trans, ∀ p : String,
@@ -728,7 +728,7 @@ theorem EXP_001_nonvacuous :
 
 /-! ### Ruling D60: the two readings of the place set
 
-Candidate readings, not requirement blocks (as `ClashesTime.lean` records its open readings): the
+Candidate readings, not requirement blocks (as `ClashesTime.lean` records its candidate readings): the
 registry's `ambiguity` role needs two requirement blocks, so the two readings stay candidate
 definitions, and `EXP_001_placeSet` records their disagreement without an evidence tag.
 `Spec/ClashesExport.lean` keeps it that way: its `clashExport_placeSet` shows that EXP-001 and

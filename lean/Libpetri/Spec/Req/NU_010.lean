@@ -32,8 +32,9 @@ Four blocks share the ID:
 * `NU_010_classify` (kind F), over a fragment classifier `C : Classifier`
   (`Spec/GlossaryNuVer.lean`): only a declared mint gets the mint role, an undeclared writer of a
   coloured place gets no role, a transition whose timeout writes a coloured place is never a
-  mint, a transition with a match specification or a coloured input is never a mint, and a
-  declared mint inside the fragment rules gets the mint role.
+  mint, a transition with a match specification or a coloured input is never a mint, a declared
+  mint inside the fragment rules gets the mint role, and a transition with no match
+  specification and no coloured input whose timeout writes a coloured place gets no role.
 
 A fifth block, `NU_010_unknownMint` (kind F, `Spec/Req/NU_010_ac6.lean`), states AC6: a name
 given to the verifier as a mint transition that is not a transition of the net is refused, with
@@ -67,7 +68,7 @@ requirement NU_010_unique
           "'The executor installs the minter, one counter shared by all its transitions ([NU-011])': that the counter is one per executor, shared by every transition, is NU_011_format's last line (the i-th call, counting across all firings and transitions, returns t#s:i). A minter with one counter per transition that puts the transition into the name meets this line and the replay line, and NU_011_format rules it out. 'So the names follow the order of the freshName() calls, not the order of the firings' is the replay line."
           "'Absent an executor-installed minter, a fallback still guarantees uniqueness': which minter an action context uses when no executor installed one is configuration (kind N), and the fallback is not a line. Its uniqueness is cited by nu010_fallback_unique. The fallback is a process-wide counter that other action contexts may advance between two calls; Rust and TypeScript mint t#n (rust/libpetri-core/src/context.rs:204-212, typescript/src/core/transition-context.ts:19 and :308), Java mints t#<detached scope>:n (java/src/main/java/org/libpetri/core/TransitionContext.java:488-497). The theorem shows that both formats give pairwise distinct names in every run, from any counter value. The fallback is not replay-stable, and the body does not claim it is."
           "AC1 (two freshName() calls, within one firing or across firings, return unequal names) is the line. NU_010_unique_nonvacuous works it: two calls in one firing and one in the next return fork#s:0, fork#s:1 and fork#s:2. A counter reset at each firing boundary (NU_010_unique_forbids_resetPerFiring) and a counter per transition with the transition left out of the name (NU_010_unique_forbids_perTransition) are forbidden. The test derivation's three source tokens giving three distinct names is the same example; the join of each pair is NU_010_contract_nonvacuous."
-  signoff "pending"
+  signoff "2026-11-13 fb41e4666108fdc8 ai"
   statement : MintSys → Prop :=
     fun Sy => ∀ s evs xs, MintRun Sy (Sy.init s) evs xs → xs.Nodup
 
@@ -92,7 +93,7 @@ requirement NU_010_replay
           "The line starts every run from the initial state for the scope. A restored execution is NU-011's: every runtime resumes under a new scope (NU_011_lineage, with the host assumption NU_011_host), and the other mechanism NU-011 names, a restored high-water mark, is used by no runtime and is outside NU_011_format. Replay of a restored execution is the replay of a run under its own scope, which this line covers."
           "'What replays is the sequence within a minting scope': the default scope is drawn at random per executor (NU-011), so a host that needs the whole name reproduced pins the scope, and a test compares names structurally. The line fixes the scope; the default scope and its randomness are NU-011's."
           "AC3 (for a fixed sequence of calling transitions and a fixed scope, the sequence of minted names is reproducible) is the line. NU_010_replay_nonvacuous works it: [fork, fork] in one firing and [fork | fork] over two firings both return fork#s:0, fork#s:1. A minter that may return any unused name is unique but not reproducible (NU_010_replay_forbids_anyUnused, and NU_010_replay_mutant_uniqueOnly shows that uniqueness alone allows it); a counter that also moves at each firing boundary is unique and a function of its state, but keyed on the firings (NU_010_replay_forbids_boundaryTick)."
-  signoff "pending"
+  signoff "2026-11-13 9dffc6d46a47f3cc ai"
   statement : MintSys → Prop :=
     fun Sy => ∀ s evs evs' xs ys, calls evs = calls evs' →
       MintRun Sy (Sy.init s) evs xs → MintRun Sy (Sy.init s) evs' ys → xs = ys
@@ -125,8 +126,8 @@ requirement NU_010_contract
           "What the assumption buys is nu010_contract_fresh: with the reference minter, a firing that keeps the contract writes a name held in no coloured place, whenever every held name was minted earlier in the run or under another scope of the restore lineage (NU-011). That is Reference.MintContract, and Reference.mintContract_iff_routeB makes it Novel.RouteB.Contract at Role.mint, the premise of Route B's soundness ([NU-050]). On the reference ν executor the contract both routes' runs keep is this MintContract too: NuLink.nuContract_mint_iff (Route B) and NuLinkA.nuContract_mint_iff (Route A), which NU_050_soundB and NU_050_soundA cite. The assumption is load-bearing: a declared mint that copies its input breaks the Route B simulation (Novel.RouteB.copyingMint_breaks_simulation)."
           "Which transitions are declared mints ('by naming it as a mint transition on the verifier (`mintTransitions` / `mint_transitions`)', or 'by its consuming a declared budget place ([NU-040])') is the declaration the verifier computes (declared_mints, rust/libpetri-verification/src/name_fragment.rs:135-152); the classifier takes it as an input (NU_010_classify), the budget half is NU-040's line, and the named half (the names given to the verifier are declared) is a line of the verifier pipeline (open); a name given to the verifier that is not a transition of the net is refused (AC6, NU_010_unknownMint in Spec/Req/NU_010_ac6.lean). 'into a coloured place ([NU-051], [NU-054]) it writes without consuming one': the scope of the block is a declared mint with no input arc on a coloured place, as both quoted sentences now say. A declared mint that consumes a coloured place, such as a matched join that takes a permit from a declared budget place and relays its chosen name (NU-054) to a coloured relay target, writes a name it did not mint, and the contract does not bind it: NU-040 declares every transition with an input arc on a budget place (rust/libpetri-verification/src/name_fragment.rs:140-152), but the classifier gives such a transition the join or consume role and never the mint role (NU_010_classify's fourth line), so no verdict reads it as a mint."
           "AC2 (a fork that stamps both AND-branches with one minted name produces sibling tokens that a NU-020 join later correlates) is NU_010_contract_nonvacuous: the reference fork mints fork#s:0, writes it into places 1 and 2, keeps the contract, and the reference join on 1 and 2 then fires with that name and takes one token from each."
-          "AC4 (the stock fork() copies its input: placeBound(DONE, 0) is not Proven unless mA and mB are declared; declared, Route B proves it and the report names mA, mB under the mint contract) is a verdict and report line of the verifier pipeline ([NU-050], wave W10); the counterexample to the undeclared reading is Novel.RouteB.copyingMint_breaks_simulation."
-  signoff "pending"
+          "AC4 (the stock fork() copies its input: placeBound(DONE, 0) is not Proven unless mA and mB are declared; declared, Route B proves it and the report names mA, mB under the mint contract) is a verdict and report line ([NU-050]) that no block states (kind Q): Rust rust/libpetri/tests/nu_mint_contract a_copying_producer_is_not_read_as_a_mint_unless_declared and Java NuMintContractTest aCopyingProducerIsNotReadAsAMintUnlessDeclared check it, and refNuEntry_declared (NU_010_ac6.lean) shows that the reference entry point leaves a declaration of real transitions to the routes; the counterexample to the undeclared reading is Novel.RouteB.copyingMint_breaks_simulation."
+  signoff "2026-11-13 71f124af5f453a48 ai"
   statement : ∀ {C Nm : Type}, List Nm → (C → List Nm) → Prop :=
     fun minted wr =>
       (∀ c, ∀ w ∈ wr c, w ∈ minted) ∧
@@ -152,22 +153,25 @@ requirement NU_010_classify
         "*If* the timeout outcome of a transition writes a coloured place, *then* the fragment classifier *shall not* give it the mint role."
         "The fragment classifier *shall not* give the mint role to a transition that has a match specification or an input arc on a coloured place."
         "*If* a declared mint has no match specification, no input arc on a coloured place and no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, writes a coloured place in some outcome and on timeout writes no coloured place, *then* the fragment classifier *shall* give it the mint role, in both BASE and EXTENDED."
+        "*If* a transition without a match specification has no input arc on a coloured place and its timeout outcome writes a coloured place, *then* the fragment classifier *shall* give it no role."
   reading "For every coloured set col, fragment mode, list of timeout writes tw and transition T:"
           "C gives an undeclared T no mint role;"
           "if T has no match keys, none of its input arcs is on a coloured place, some branch outcome of T deposits into a coloured place and T is not declared, C gives T no role;"
           "if some timeout write of T is into a coloured place, C gives T no mint role, declared or not;"
           "if C gives T the mint role, T has no match keys and none of its input arcs is on a coloured place;"
-          "if T is declared, has no match keys, no input arc on a coloured place and no reset, read or inhibitor arc on a coloured place, every branch puts one token and no drained batch into each coloured place it writes, some branch deposits into a coloured place and no timeout write is into a coloured place, C gives T the mint role."
-  assumes "The model is one fragment classifier C, per transition, as the glossary term Fragment classifier reads it (GlossaryNuVer): from the coloured set, the mode, whether the transition is a declared mint, its timeout writes and the transition, a role or none. No role means the net falls back to the name-blind over-approximation ([NU-050]); Rust's classify returns no fragment as soon as one transition is refused (rust/libpetri-verification/src/name_fragment.rs:240-265). That step, from one transition with no role to the net leaving Route B, is a line of the verifier pipeline (W10, open), not of the classifier. The witness refClassify is Novel.RouteB.classifyS. Whether a transition is declared ('by naming it as a mint transition on the verifier', or 'by its consuming a declared budget place ([NU-040])') is an input; the budget half is NU-040's line and the named half a line of the verifier pipeline (open); a name given to the verifier that is not a transition of the net is refused (AC6, NU_010_unknownMint in Spec/Req/NU_010_ac6.lean)."
+          "if T is declared, has no match keys, no input arc on a coloured place and no reset, read or inhibitor arc on a coloured place, every branch puts one token and no drained batch into each coloured place it writes, some branch deposits into a coloured place and no timeout write is into a coloured place, C gives T the mint role;"
+          "if T has no match keys, none of its input arcs is on a coloured place, every timeout write of T is into a place some outcome of T deposits into, and some timeout write is into a coloured place, C gives T no role, declared or not."
+  assumes "The model is one fragment classifier C, per transition, as the glossary term Fragment classifier reads it (GlossaryNuVer): from the coloured set, the mode, whether the transition is a declared mint, its timeout writes and the transition, a role or none. No role means the net falls back to the name-blind over-approximation ([NU-050]); Rust's classify returns no fragment as soon as one transition is refused (classify in rust/libpetri-verification/src/name_fragment.rs, its per-transition early returns). That step, from one transition with no role to the net leaving Route B, is the pipeline's, not the classifier's, and no block states it: the pipeline model (Verifier/Pipeline.lean) does not model Route B's entry. The witness refClassify is Novel.RouteB.classifyS. Whether a transition is declared ('by naming it as a mint transition on the verifier', or 'by its consuming a declared budget place ([NU-040])') is an input; the budget half is NU-040's line and the named half a line of the verifier pipeline (open); a name given to the verifier that is not a transition of the net is refused (AC6, NU_010_unknownMint in Spec/Req/NU_010_ac6.lean)."
           "'Consumes' and 'without consuming one' are read as an input arc, the ColouredInputs of the glossary. A reset, read or inhibitor arc on a coloured place gives the transition no role at all (NU_051's fourth line), so the lines hold under either reading of reset arcs, and the fifth line asks for no such arc."
           "The fourth line is the shape of a mint in the body ('read a transition as a **mint**, one that writes a fresh name'; a declared mint writes into each coloured place 'it writes without consuming one'): a matched join takes its name from its keys ([NU-020]) and a coloured consumer is NU-051's, so neither is ever a mint, even when the declaration names it (declared_mints declares every transition that consumes a declared budget place, a join taking a permit included). A classifier that tests the declaration before the match specification gives such a join the mint role under BASE, where no admission line of NU-054 speaks for it; the fourth line forbids it (NU_010_classify_mutant_joinMint_killed)."
           "The fifth line is the admission ('Declared, it is Proven by Route B' in AC4 rests on it), on NU-051's pattern for the consume role: without it a classifier that refuses every transition meets the other lines (NU_010_classify_forbids_never). Its conditions are those of the shipped classifier (Novel.RouteB.classifyT and classifyS; rust/libpetri-verification/src/name_fragment.rs classify, the produces_coloured branch): the arc rule and the branch rule are NU-051's ColouredTestArc and SingleColouredWrites, and the mode plays no part."
           "'A transition that writes a coloured place without consuming one and is not declared keeps the net off both routes, and the verifier answers through the name-blind over-approximation' is the second line for Route B. Its Route A half is Novel.RouteA.shipped_mint, cited by NU_010_routeA_mint: a Mint row of the shipped Route A plan is declared and its timeout writes no coloured place. No Route A classifier is abstracted here, as for NU-051."
-          "'What the executor writes on timeout ([IO-013], [IO-014]) is never a mint, declared or not: a `ForwardInput` copies a consumed token, name included, and an `Out.Place` writes a unit token, which has no name' is the third line: a timeout write into a coloured place keeps the mint role away whatever it writes (TW.unit or TW.forward)."
-          "AC5 (t1 and t2 forward their requests into a and b on timeout, a join on a and b: placeBound(done, 0) is not Proven on either route, with t1 and t2 declared or with budget a declared budget place) is the third line on the classifier (NU_010_classify_nonvacuous refuses a declared mint whose timeout writes a coloured place) and, for Route A, Novel.RouteA.Retro.forward_mint_refused; the verdict itself is a line of the verifier pipeline (W10), and the false Proven the refusal prevents is Novel.RouteA.Retro.forward_mint_false_proven."
-          "'A declared mint that is not a transition of the net MUST be refused, by a failure or an `Unknown`, with the same reason naming it at every entry point' and AC6 (a name given to the verifier as a mint transition that is not a transition of the net is refused with a reason naming it, and a name that is a transition is not refused with that reason) are the block NU_010_unknownMint (Spec/Req/NU_010_ac6.lean, nu.md skeptic S3): a call that names an unknown mint transition is refused, with the reason `declared mint transition 'x' not in the net (NU-010)` (rust/libpetri-verification/src/name_fragment.rs:161-176) unless a refusal that does not read the declaration comes first, and a call whose mint names are all transitions is not refused with that reason unless the same call with no mint named is. How each language and entry point fails (an exception, Unknown, a panic, a ValueError) is configuration (kind N), and 'the same way' is read as 'with the same reason text' (ruling D20). The report sentences ('The report of a verdict from either route names the transitions whose mint contract it assumes', and the pointer when Route B declines only for an undeclared writer, name_fragment.rs:211-220) are report lines of the pipeline (W10)."
-          "AC4 is NU_010_contract's (a verdict line of W10); its classifier halves are the first line (the stock fork() undeclared is never a mint) and the fifth (declared, it is a mint), both in NU_010_classify_nonvacuous."
-  signoff "pending"
+          "'What the executor writes on timeout ([IO-013], [IO-014]) is never a mint, declared or not: a `ForwardInput` copies a consumed token, name included, and an `Out.Place` writes a unit token, which has no name' is the third line: a timeout write into a coloured place keeps the mint role away whatever it writes (TW.unit or TW.forward). The sixth line says what the transition gets instead when it has no match keys and no coloured input: no role, declared or not, as in every runtime (the produces_coloured branch of classify in rust/libpetri-verification/src/name_fragment.rs, typescript/src/verification/analysis/name-fragment.ts:306, java/src/main/java/org/libpetri/analysis/NameFragment.java:444, each refusing a keyless writer with a coloured timeout write before the ordinary branch). The third line alone allows the ordinary role, whose name step is the identity (VER_012), so the name a timeout forward deposits would never reach the name layer: NU_010_classify_mutant_timeoutOrdinary_killed. A coloured consumer's and a join's timeout writes are NU-051's and NU-054's lines."
+          "The outcomes of a transition are Route B's rows (Novel.RouteB.NuTrans.rows: the action branches, then the timeout deposits, rust/libpetri-verification/src/branch_outcomes.rs outcomes), and the timeout writes are the separate argument tw (Rust timeout_writes), as in NU_051. A timeout write therefore lands in a place some row writes; the model takes rows and tw apart, so the sixth line asks it as a premise (every timeout write is into a place of some row). Without it a tw that names a place no row writes would reach the ordinary branch of classifyT, a pair no runtime builds."
+          "AC5 (t1 and t2 forward their requests into a and b on timeout, a join on a and b: placeBound(done, 0) is not Proven on either route, with t1 and t2 declared or with budget a declared budget place) is the third and sixth lines on the classifier (NU_010_classify_nonvacuous refuses a declared mint whose timeout writes a coloured place, and NU_010_classify_mutant_timeoutOrdinary_killed forbids reading it as ordinary, which the other five lines and NU-051 and NU-054 allow) and, for Route A, Novel.RouteA.Retro.forward_mint_refused; the verdict itself is stated by no block (kind Q: Rust rust/libpetri/tests/nu_mint_contract a_timeout_forward_into_a_match_key_is_never_a_mint, Java NuMintContractTest aTimeoutForwardIntoAMatchKeyIsNeverAMint_routeB and _routeA), and the false Proven the refusal prevents is Novel.RouteA.Retro.forward_mint_false_proven."
+          "'A declared mint that is not a transition of the net MUST be refused, by a failure or an `Unknown`, with the same reason naming it at every entry point' and AC6 (a name given to the verifier as a mint transition that is not a transition of the net is refused with a reason naming it, and a name that is a transition is not refused with that reason) are the block NU_010_unknownMint (Spec/Req/NU_010_ac6.lean, nu.md skeptic S3): a call that names an unknown mint transition is refused, with the reason `declared mint transition 'x' not in the net (NU-010)` (unknown_mint_reason in rust/libpetri-verification/src/name_fragment.rs) unless a refusal that does not read the declaration comes first, and a call whose mint names are all transitions is not refused with that reason unless the same call with no mint named is. How each language and entry point fails (an exception, Unknown, a panic, a ValueError) is configuration (kind N), and 'the same way' is read as 'with the same reason text' (ruling D20). The report sentences ('The report of a verdict from either route names the transitions whose mint contract it assumes', and the pointer when Route B declines only for an undeclared writer, undeclared_mints_pointer in name_fragment.rs) are report lines (kind N) that no block states; Rust rust/libpetri/tests/nu_mint_contract a_copying_producer_is_not_read_as_a_mint_unless_declared checks the contract line, and rust/libpetri-verification/tests/mint_declarations a_route_b_decline_for_an_undeclared_mint_points_at_mint_transitions the pointer."
+          "AC4 is NU_010_contract's (a verdict line no block states, kind Q); its classifier halves are the first line (the stock fork() undeclared is never a mint) and the fifth (declared, it is a mint), both in NU_010_classify_nonvacuous."
+  signoff "2026-11-13 fd54872eff1e4beb ai"
   statement : Classifier → Prop :=
     fun C =>
       (∀ col mode tw T, C col mode false tw T ≠ some .mint) ∧
@@ -179,7 +183,10 @@ requirement NU_010_classify
         T.keys = none ∧ ColouredInputs col T = []) ∧
       (∀ col mode tw T, T.keys = none → ColouredInputs col T = [] → ¬ ColouredTestArc col T →
         SingleColouredWrites col T → (∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) →
-        (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some .mint)
+        (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some .mint) ∧
+      (∀ col mode declared tw T, T.keys = none → ColouredInputs col T = [] →
+        (∀ w ∈ tw, ∃ r ∈ T.rows, w.1 ∈ r.places) → (∃ w ∈ tw, col w.1 = true) →
+        C col mode declared tw T = none)
 
 /- The pinned readable form of NU_010_classify: a change to the formula shows up as a diff here. -/
 /--
@@ -197,14 +204,20 @@ fun C =>
         (∀ (col : PlaceId → Bool) (mode : Novel.RouteB.Mode) (declared : Bool) (tw : List (PlaceId × Novel.RouteB.TW))
             (T : Novel.RouteB.NuTrans),
             C col mode declared tw T = some Novel.RouteB.Role.mint → T.keys = none ∧ ColouredInputs col T = []) ∧
-          ∀ (col : PlaceId → Bool) (mode : Novel.RouteB.Mode) (tw : List (PlaceId × Novel.RouteB.TW))
-            (T : Novel.RouteB.NuTrans),
-            T.keys = none →
-              ColouredInputs col T = [] →
-                ¬ColouredTestArc col T →
-                  SingleColouredWrites col T →
-                    (∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) →
-                      (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some Novel.RouteB.Role.mint
+          (∀ (col : PlaceId → Bool) (mode : Novel.RouteB.Mode) (tw : List (PlaceId × Novel.RouteB.TW))
+              (T : Novel.RouteB.NuTrans),
+              T.keys = none →
+                ColouredInputs col T = [] →
+                  ¬ColouredTestArc col T →
+                    SingleColouredWrites col T →
+                      (∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) →
+                        (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some Novel.RouteB.Role.mint) ∧
+            ∀ (col : PlaceId → Bool) (mode : Novel.RouteB.Mode) (declared : Bool)
+              (tw : List (PlaceId × Novel.RouteB.TW)) (T : Novel.RouteB.NuTrans),
+              T.keys = none →
+                ColouredInputs col T = [] →
+                  (∀ w ∈ tw, ∃ r ∈ T.rows, w.1 ∈ r.places) →
+                    (∃ w ∈ tw, col w.1 = true) → C col mode declared tw T = none
 -/
 #guard_msgs in #print NU_010_classify
 
@@ -524,6 +537,21 @@ theorem NU_010_contract_mutant_otherPlaces_killed :
 
 /-! ## The classifier: holds, worked example, forbidden classifiers -/
 
+/-- A transition with no match keys and no coloured input that writes a coloured place is a mint
+or refused by `classifyT`. -/
+theorem nu010_classifyT_keylessWriter {col : PlaceId → Bool} {mode : Novel.RouteB.Mode}
+    {T : Novel.RouteB.NuTrans} (hk : T.keys = none) (hci : ColouredInputs col T = [])
+    (hw : ∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) :
+    Novel.RouteB.classifyT col mode true T = none ∨
+      Novel.RouteB.classifyT col mode true T = some .mint := by
+  unfold ColouredInputs at hci
+  unfold Novel.RouteB.classifyT
+  simp only [hk, hci, List.isEmpty_nil, Bool.not_true]
+  have hany : T.rows.any (fun r => r.places.any col) = true := by
+    obtain ⟨r, hr, p, hp, hc⟩ := hw
+    exact List.any_eq_true.2 ⟨r, hr, List.any_eq_true.2 ⟨p, hp, hc⟩⟩
+  split_ifs <;> simp_all
+
 /-- An undeclared transition with no match keys and no coloured input that writes a coloured
 place gets no role from the shipped classifier: `classifyT` calls it a mint or refuses it, and
 `classifyS` refuses an undeclared mint. -/
@@ -531,16 +559,27 @@ theorem nu010_classifyS_undeclaredWriter {col : PlaceId → Bool} {mode : Novel.
     {tw : List (PlaceId × Novel.RouteB.TW)} {T : Novel.RouteB.NuTrans} (hk : T.keys = none)
     (hci : ColouredInputs col T = []) (hw : ∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) :
     Novel.RouteB.classifyS col mode false tw T = none := by
-  have hT : Novel.RouteB.classifyT col mode true T = none ∨
-      Novel.RouteB.classifyT col mode true T = some .mint := by
-    unfold ColouredInputs at hci
-    unfold Novel.RouteB.classifyT
-    simp only [hk, hci, List.isEmpty_nil, Bool.not_true]
-    have hany : T.rows.any (fun r => r.places.any col) = true := by
-      obtain ⟨r, hr, p, hp, hc⟩ := hw
-      exact List.any_eq_true.2 ⟨r, hr, List.any_eq_true.2 ⟨p, hp, hc⟩⟩
-    split_ifs <;> simp_all
-  rcases hT with h | h <;> simp [Novel.RouteB.classifyS, h]
+  rcases nu010_classifyT_keylessWriter (mode := mode) hk hci hw with h | h <;>
+    simp [Novel.RouteB.classifyS, h]
+
+/-- A transition with no match keys and no coloured input whose timeout writes a coloured place
+that one of its outcomes writes gets no role from the shipped classifier, declared or not:
+`classifyT` calls it a mint or refuses it, and `classifyS` refuses a mint with a coloured
+timeout write. -/
+theorem nu010_classifyS_timeoutWriter {col : PlaceId → Bool} {mode : Novel.RouteB.Mode}
+    {declared : Bool} {tw : List (PlaceId × Novel.RouteB.TW)} {T : Novel.RouteB.NuTrans}
+    (hk : T.keys = none) (hci : ColouredInputs col T = [])
+    (hrw : ∀ w ∈ tw, ∃ r ∈ T.rows, w.1 ∈ r.places) (hcw : ∃ w ∈ tw, col w.1 = true) :
+    Novel.RouteB.classifyS col mode declared tw T = none := by
+  obtain ⟨w, hw, hc⟩ := hcw
+  obtain ⟨r, hr, hp⟩ := hrw w hw
+  have hall : tw.all (fun w => !col w.1) = false := by
+    rw [Bool.eq_false_iff]
+    intro ha
+    have := List.all_eq_true.1 ha w hw
+    simp [hc] at this
+  rcases nu010_classifyT_keylessWriter (mode := mode) hk hci ⟨r, hr, w.1, hp, hc⟩ with h | h <;>
+    simp [Novel.RouteB.classifyS, h, hall]
 
 open Novel.RouteB in
 /-- The shipped classifier gives the mint role only to a transition with no match keys and no
@@ -598,13 +637,15 @@ theorem nu010_classifyS_declaredMint {col : PlaceId → Bool} {mode : Mode}
 /-- ✓ The shipped classifier satisfies the block: an undeclared transition is never a mint
 (`classifyS_undeclared`), an undeclared writer of a coloured place gets no role, a mint writes
 no coloured place on timeout (`classifyS_mint`), a mint has no match keys and no coloured input,
-and a declared mint inside the fragment rules is a mint. -/
+a declared mint inside the fragment rules is a mint, and a keyless transition with no coloured
+input whose timeout writes a coloured place gets no role. -/
 @[evidence holds NU_010_classify]
 theorem NU_010_classify_reference : NU_010_classify refClassify := by
   refine ⟨fun _ _ _ _ => Novel.RouteB.classifyS_undeclared,
     fun _ _ _ _ hk hci hw => nu010_classifyS_undeclaredWriter hk hci hw, ?_,
     fun _ _ _ _ _ h => nu010_classifyS_mintShape h,
-    fun _ _ _ _ hk hci hta hsw hw htw => nu010_classifyS_declaredMint hk hci hta hsw hw htw⟩
+    fun _ _ _ _ hk hci hta hsw hw htw => nu010_classifyS_declaredMint hk hci hta hsw hw htw,
+    fun _ _ _ _ _ hk hci hrw hcw => nu010_classifyS_timeoutWriter hk hci hrw hcw⟩
   intro col mode declared tw T ⟨w, hw, hc⟩ h
   have := (Novel.RouteB.classifyS_mint h).2 w hw
   rw [hc] at this
@@ -669,13 +710,13 @@ theorem NU_010_classify_forbids_timeoutMint : ¬ NU_010_classify nu010_noTimeout
 def nu010_neverClassify : Classifier := fun _ _ _ _ _ => none
 
 /-- ✗ Worked example (AC4): a classifier that refuses every transition never gives a wrong role,
-so the first four lines hold. But the declared `mB` of AC4, which consumes the uncoloured place 2
+so the other lines hold. But the declared `mB` of AC4, which consumes the uncoloured place 2
 and writes the coloured place 1 once, would then never be read as a mint, and Route B could
 never prove the net. The fifth line fails. -/
 @[evidence forbids NU_010_classify]
 theorem NU_010_classify_forbids_never : ¬ NU_010_classify nu010_neverClassify := by
   intro h
-  have := h.2.2.2.2 nu010_col .base [] Novel.RouteB.tM rfl (by decide)
+  have := h.2.2.2.2.1 nu010_col .base [] Novel.RouteB.tM rfl (by decide)
     (fun ⟨p, _, hp⟩ => by simp [Novel.RouteB.tM] at hp)
     (by simp [SingleColouredWrites, Novel.RouteB.tM])
     ⟨⟨[1], []⟩, by decide, 1, by decide, by decide⟩ (by simp)
@@ -735,22 +776,27 @@ def NU_010_classify_mutant_noShape (C : Classifier) : Prop :=
     C col mode declared tw T ≠ some .mint) ∧
   (∀ col mode tw T, T.keys = none → ColouredInputs col T = [] → ¬ ColouredTestArc col T →
     SingleColouredWrites col T → (∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) →
-    (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some .mint)
+    (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some .mint) ∧
+  (∀ col mode declared tw T, T.keys = none → ColouredInputs col T = [] →
+    (∀ w ∈ tw, ∃ r ∈ T.rows, w.1 ∈ r.places) → (∃ w ∈ tw, col w.1 = true) →
+    C col mode declared tw T = none)
 
 /-- ✗ Worked example: the matched join `j` on place 1 takes a permit from a declared budget place,
 so it counts as declared. The shipped classifier gives it the join role (`nu010_permitJoin_ref`);
 a classifier that tests the declaration before the match specification gives it the mint role
 under BASE, so the name layer would mint a fresh name for it instead of taking the matched name
-from its key. That classifier meets the other four lines: the join is declared and writes nothing
+from its key. That classifier meets the other five lines: the join is declared and writes nothing
 on timeout. The fourth line rules it out: a transition with a match specification is never a
 mint. -/
 @[evidence mutant NU_010_classify]
 theorem NU_010_classify_mutant_joinMint_killed :
     NU_010_classify_mutant_noShape nu010_joinMintClassify ∧
       ¬ NU_010_classify nu010_joinMintClassify := by
-  obtain ⟨h1, h2, h3, -, h5⟩ := NU_010_classify_reference
+  obtain ⟨h1, h2, h3, -, h5, h6⟩ := NU_010_classify_reference
   refine ⟨⟨fun col mode tw T hm => ?_, fun col mode tw T hk hci hw =>
-      nu010_joinMint_none_iff.2 (h2 col mode tw T hk hci hw), ?_, ?_⟩, fun h => ?_⟩
+      nu010_joinMint_none_iff.2 (h2 col mode tw T hk hci hw), ?_, ?_,
+      fun col mode d tw T hk hci hrw hcw =>
+        nu010_joinMint_none_iff.2 (h6 col mode d tw T hk hci hrw hcw)⟩, fun h => ?_⟩
   · rcases nu010_joinMint_mint hm with h | ⟨hd, -⟩
     · exact h1 col mode tw T h
     · cases hd
@@ -764,6 +810,80 @@ theorem NU_010_classify_mutant_joinMint_killed :
     rw [h5 col mode tw T hk hci hta hsw hw htw]
   · have := (h.2.2.2.1 nu010_col .base true [] nu010_permitJoin (by decide)).1
     exact absurd this (by simp [nu010_permitJoin])
+
+/-- A classifier that reads a declared keyless writer of a coloured place as an ordinary
+transition where the shipped classifier refuses it for its coloured timeout write. Everywhere
+else it is the shipped classifier. -/
+def nu010_timeoutOrdClassify : Classifier := fun col mode d tw T =>
+  match refClassify col mode d tw T with
+  | none =>
+    if d = true ∧ T.keys = none ∧ Novel.RouteB.classifyT col mode true T = some .mint then
+      some .ordinary
+    else none
+  | some r => some r
+
+/-- Where the shipped classifier gives a role, the mutant gives the same one. -/
+theorem nu010_timeoutOrd_some {col mode d tw T} {r : Novel.RouteB.Role}
+    (h : refClassify col mode d tw T = some r) : nu010_timeoutOrdClassify col mode d tw T = some r := by
+  unfold nu010_timeoutOrdClassify; rw [h]
+
+/-- The mutant gives the mint role only where the shipped classifier does. -/
+theorem nu010_timeoutOrd_mint {col mode d tw T}
+    (h : nu010_timeoutOrdClassify col mode d tw T = some .mint) :
+    refClassify col mode d tw T = some .mint := by
+  unfold nu010_timeoutOrdClassify at h
+  cases hr : refClassify col mode d tw T with
+  | none => rw [hr] at h; simp only at h; split_ifs at h; cases h
+  | some r => rw [hr] at h; exact h
+
+/-- The classifier block without its sixth line (no role for a keyless writer whose timeout
+writes a coloured place). -/
+def NU_010_classify_mutant_noTimeoutNone (C : Classifier) : Prop :=
+  (∀ col mode tw T, C col mode false tw T ≠ some .mint) ∧
+  (∀ col mode tw T, T.keys = none → ColouredInputs col T = [] →
+    (∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) → C col mode false tw T = none) ∧
+  (∀ col mode declared tw T, (∃ w ∈ tw, col w.1 = true) →
+    C col mode declared tw T ≠ some .mint) ∧
+  (∀ col mode declared tw T, C col mode declared tw T = some .mint →
+    T.keys = none ∧ ColouredInputs col T = []) ∧
+  (∀ col mode tw T, T.keys = none → ColouredInputs col T = [] → ¬ ColouredTestArc col T →
+    SingleColouredWrites col T → (∃ r ∈ T.rows, ∃ p ∈ r.places, col p = true) →
+    (∀ w ∈ tw, col w.1 = false) → C col mode true tw T = some .mint)
+
+/-- The AC5 shape: the declared `mB` whose timeout writes a unit token into the coloured place 1.
+The shipped classifier refuses it, the mutant reads it as ordinary. -/
+theorem nu010_timeoutOrd_ac5 :
+    refClassify nu010_col .base true [(1, .unit)] Novel.RouteB.tM = none ∧
+      nu010_timeoutOrdClassify nu010_col .base true [(1, .unit)] Novel.RouteB.tM =
+        some .ordinary :=
+  ⟨rfl, rfl⟩
+
+/-- ✗ Worked example (AC5): the declared `mB` whose timeout writes a unit token into the coloured
+place 1. The shipped classifier refuses it; a classifier that reads it as ordinary instead
+(`nu010_timeoutOrd_ac5`) never
+gives it the mint role, so the first five lines hold. But the ordinary role's name step is the
+identity, so the name a timeout forward deposits into a join's coloured input never reaches the
+name layer: the join can never fire on Route B and `placeBound(done, 0)` comes out `Proven`,
+the false `Proven` AC5 forbids. The sixth line rules it out: such a transition gets no role. -/
+@[evidence mutant NU_010_classify]
+theorem NU_010_classify_mutant_timeoutOrdinary_killed :
+    NU_010_classify_mutant_noTimeoutNone nu010_timeoutOrdClassify ∧
+      ¬ NU_010_classify nu010_timeoutOrdClassify := by
+  obtain ⟨h1, h2, h3, h4, h5, -⟩ := NU_010_classify_reference
+  refine ⟨⟨fun col mode tw T hm => h1 col mode tw T (nu010_timeoutOrd_mint hm), ?_,
+      fun col mode d tw T hw hm => h3 col mode d tw T hw (nu010_timeoutOrd_mint hm),
+      fun col mode d tw T hm => h4 col mode d tw T (nu010_timeoutOrd_mint hm),
+      fun col mode tw T hk hci hta hsw hw htw =>
+        nu010_timeoutOrd_some (h5 col mode tw T hk hci hta hsw hw htw)⟩, fun h => ?_⟩
+  · intro col mode tw T hk hci hw
+    unfold nu010_timeoutOrdClassify
+    rw [h2 col mode tw T hk hci hw]
+    simp
+  · have := h.2.2.2.2.2 nu010_col .base true [(1, .unit)] Novel.RouteB.tM rfl (by decide)
+      (fun w hw => ⟨⟨[1], []⟩, by decide, by simp at hw; simp [hw, Novel.RouteB.Row.places]⟩)
+      ⟨(1, .unit), by simp, rfl⟩
+    rw [nu010_timeoutOrd_ac5.2] at this
+    cases this
 
 /-- Route A refuses an undeclared mint, and a mint whose timeout writes a coloured place: a
 `Mint` row of the shipped Route A plan is declared and its timeout writes no coloured place

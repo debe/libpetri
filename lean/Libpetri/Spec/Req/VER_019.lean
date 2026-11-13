@@ -236,7 +236,7 @@ requirement VER_019
           "AC4 (a net without a ranking, with the repeatable-vector line or its fallback, then the fixpoint query) is line 4, VER_019_ring_no_ranking (no weighting is accepted on the ring t0, t1, t2) and the report lines pinned below."
           "AC5 (with the phase disabled, verdicts and reports are those of the pipeline without it) is VER_019_order line 5 with VER_019_order_disabled: the model here is the phase when it runs."
           "The Encoding paragraph (the script's selectors, idle steps, the empty post-caps) is the constraint system BmcModel of Bmc.lean, whose exactness at the bound (bmc_exact_at_bound) VER_019_proven_sound uses; the SMT-LIB text and its goldens are VER-013's (P4). The measurements are not requirements. The test derivation is AC1 to AC4 as above, under the options it names (enumeration budget 0, VER-018 off, assumeAtomicFiring for the queue, the linear bound off for the ring), which the pipeline sets outside the model."
-  signoff "pending"
+  signoff "2026-11-13 0417695269924143 ai"
   statement : FBRankingCheck → FBDepthLoop → FBPhaseFn → Prop :=
     fun C D P =>
       (∀ (n : Nat) (rows : List Novel.FiringBound.Row) (a0 : AMarking) (r : Weight) (K : Int),
@@ -1078,7 +1078,7 @@ requirement VER_019_order
           "The fourth quoted sentence is line 7: an aside goes on to the next step (VER_019_order_continues). It is the 'the pipeline shall continue' of the first block's quoted sentences, and the 'continue to the fixpoint query' of its sentence on a net without a ranking, through lines 2 and 3."
           "The fifth quoted sentence is lines 8 and 9. 'Neither a counterexample nor counterexampleConfirmed' is the empty trace and the absent flag of line 8, as the result record of VER-003 has them where no replay applies. That the proof skips the certificate check, which the prose says, is the hand-over itself: the step returns a decision, which ends the run before the certificate check step. The route a decision reports (the SMT pipeline) is the step's route in the list, not a line here. The bound K is not part of the verdict: it reaches the report, which is not modelled."
           "The order of the runtimes' list is pinned by rtStepNames_order, and the step names are the same in Rust (step!), Java (enter) and TypeScript (enter)."
-  signoff "pending"
+  signoff "2026-11-13 b1113f3045b5d811 ai"
   statement : List String → FBGate → FBGate → FBWrap → Prop :=
     fun names seG fbG W =>
       Verifier.Before names ver019_seStep ver019_fbStep ∧

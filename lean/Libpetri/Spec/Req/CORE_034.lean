@@ -47,7 +47,7 @@ requirement CORE_034
           "The third line is also the frame of a reset arc: it rules out a reset that also empties a place the transition has no arc to, and a reset whose removed tokens feed a Forward or timeout deposit (they are not consumed; IO-013/IO-014 forward only consumed tokens). It compares against the same transition without the arc rather than spelling out the whole marking change; the effect of the other arcs is CORE-030, CORE-031, CORE-032 and IO-013's subject."
           "The comparison is over firing relations, not over which output specs build: a transition and the same transition without its reset arcs have the same output spec, so the build-time checks of IO-011 to IO-014 accept both or neither."
           "Token counts only: which tokens are removed, and EXEC-003 AC5 (a reset later in the same firing pass leaves same-pass deposits in place) are below this granularity; that refinement is EXEC-003's subject, not this block's."
-  signoff "pending"
+  signoff "2026-11-13 93e6155b06c813c7 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p, ResetArc t p →
       (∀ d, on (fun m m' => F t m d m'), shall (fun _ m' => TokenCount m' p = Deposits d p)) ∧

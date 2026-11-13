@@ -1501,7 +1501,7 @@
       "specIds": [
         {
           "id": "EXEC-021",
-          "fragment": "the timeout outcome is not validated against the output spec (ruling D24 (a)): no executor satisfies the block and also fails a timed-out firing of And(1, Timeout(d, 2)) whose outcome 2 the join-relay check accepts and output validation rejects, which is what the Java and TypeScript executors do (a recorded executor defect)"
+          "fragment": "the timeout outcome is not validated against the output spec (ruling D24 (a)): no executor satisfies the block and also fails a timed-out firing of And(1, Timeout(d, 2)) whose outcome 2 the join-relay check accepts and output validation rejects; such a validating executor is the behaviour RD-01 recorded"
         }
       ]
     },
@@ -1551,7 +1551,7 @@
       "specIds": [
         {
           "id": "EXEC-002",
-          "fragment": "stamp order is not overridden by timing kind: on an input reached by the timed reference step, with two ready transitions of equal priority, a Delayed one armed at 0 and an Immediate one armed at 5, every order that satisfies the block offers the Delayed one first, so no such order also satisfies TIME-014 bullet 2 read as an ordering rule (candidate reading, ruling D9 open)"
+          "fragment": "stamp order is not overridden by timing kind: on an input reached by the timed reference step, with two ready transitions of equal priority, a Delayed one armed at 0 and an Immediate one armed at 5, every order that satisfies the block offers the Delayed one first, so no such order also satisfies TIME-014 bullet 2 read as an ordering rule (the candidate reading that ruling D9 (b) does not take)"
         }
       ]
     },
@@ -1571,7 +1571,7 @@
       "specIds": [
         {
           "id": "TIME-015",
-          "fragment": "AC10, repeated readings only: on the timed reference step, under any policy, a delay of 0 ms (a clock that returns the same reading on consecutive cycles) leaves the marking, the reading and every stamp unchanged, so repeated readings add only identity steps; clock jumps are not covered (ruling D12 open)"
+          "fragment": "AC10, repeated readings only: on the timed reference step, under any policy, a delay of 0 ms (a clock that returns the same reading on consecutive cycles) leaves the marking, the reading and every stamp unchanged, so repeated readings add only identity steps, which is all AC10 claims under ruling D12 (a): stuttering invariance, not the outcome of a finer clock"
         }
       ]
     },
@@ -1581,7 +1581,7 @@
       "specIds": [
         {
           "id": "TIME-015",
-          "fragment": "AC10 depends on which strictly increasing clock it is compared against (ruling D12 open): on a Window(3, 5) transition with tolerance 0, the timed reference step fires it under a clock advancing 1 ms per reading, while under the strictly increasing readings 0 then 10, an increment wider than the window (latest - elapsed + tolerance), no reachable state marks the output place; a repeated reading is an identity step (refTStepW_delay_zero) and changes nothing"
+          "fragment": "why ruling D12 (a) limits AC10 to repeated readings: the outcome depends on which strictly increasing clock a run is compared against. On a Window(3, 5) transition with tolerance 0, the timed reference step fires it under a clock advancing 1 ms per reading, while under the strictly increasing readings 0 then 10, an increment wider than the window (latest - elapsed + tolerance), no reachable state marks the output place; a repeated reading is an identity step (refTStepW_delay_zero) and changes nothing"
         }
       ]
     },
@@ -1861,7 +1861,17 @@
       "specIds": [
         {
           "id": "ENV-002",
-          "fragment": "while the run has not finished and the executor is not draining, closed or stopped, the executor shall accept an injection into a registered environment place: an executor that refuses every registered place meets every line of the block and fails its coverage clause Env002Covers in ExecCoversW5"
+          "fragment": "while the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked, the executor shall accept an injection into a registered environment place: an executor that refuses every registered place meets every line of the block and fails its coverage clause Env002Covers in ExecCoversW5"
+        }
+      ]
+    },
+    {
+      "name": "env002_covers_terminalRefuse",
+      "module": "Libpetri/Spec/Req/ENV_002.lean",
+      "specIds": [
+        {
+          "id": "ENV-002",
+          "fragment": "while the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked, the executor shall accept an injection into a registered environment place: TypeScript, which refuses once a terminal place is marked, meets every line of the block and its coverage clause Env002Covers"
         }
       ]
     },
@@ -2125,7 +2135,7 @@
       "specIds": [
         {
           "id": "EVT-009",
-          "fragment": "AC1: never for an Exact transition; read with an executor that reaps only at deadline steps, no step other than a deadline step emits a TransitionTimedOut, so neither does the late start of an Exact transition"
+          "fragment": "AC1: never for an Exact transition; read with TIME-013's executor companion, whose line 6 says a step other than a deadline step reaps nothing, no step other than a deadline step emits a TransitionTimedOut, so neither does the late start of an Exact transition"
         }
       ]
     },
@@ -2205,7 +2215,17 @@
       "specIds": [
         {
           "id": "EXEC-002",
-          "fragment": "AC4, general path only: two ready orders that satisfy the block (a permutation of the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC) are equal on every input outside the all-immediate fast path; on the fast path they agree on the ready set and on ties of priority and stamp only (D14 open)"
+          "fragment": "AC4: two ready orders that satisfy the block are equal on every input: off the all-immediate fast path both are the ready set strictly sorted by priority DESC, stamp ASC, declaration order ASC, on it both are the ready set in declaration order (ruling D14 (a))"
+        }
+      ]
+    },
+    {
+      "name": "exec020_covers_neverCommits",
+      "module": "Libpetri/Spec/Req/EXEC_cycle.lean",
+      "specIds": [
+        {
+          "id": "EXEC-020",
+          "fragment": "when the executor admits the completion of an action and output validation does not reject the produced tokens, the executor shall add each produced token at the tail of its place's queue: an executor that never commits meets every line of the executor companion and fails its coverage clause Exec020Covers in ExecCoversW5"
         }
       ]
     },
@@ -3202,6 +3222,16 @@
       ]
     },
     {
+      "name": "VER_006_routeB_env",
+      "module": "Libpetri/Spec/Req/VER_006.lean",
+      "specIds": [
+        {
+          "id": "VER-006",
+          "fragment": "AC8: Route B models an environment place under AlwaysAvailable / Bounded(k) only as an inexhaustible input, so its count in a state class is not the environment's; when a verdict would depend on that count or name layer (the property reads an environment place, a quiescence property only when quiescence is reachable; an inhibitor arc tests one; one is coloured; conflict priority prunes on one two transitions consume) Route B declines naming the place"
+        }
+      ]
+    },
+    {
       "name": "VER_007_preserves_reach",
       "module": "Libpetri/Spec/Req/VER_007.lean",
       "specIds": [
@@ -3332,12 +3362,32 @@
       ]
     },
     {
+      "name": "VER_013_stop_after",
+      "module": "Libpetri/Spec/Req/VER_013.lean",
+      "specIds": [
+        {
+          "id": "VER-013",
+          "fragment": "While a stop is recorded"
+        }
+      ]
+    },
+    {
       "name": "VER_013_stop_failing",
       "module": "Libpetri/Spec/Req/VER_013.lean",
       "specIds": [
         {
           "id": "VER-013",
           "fragment": "AC2"
+        }
+      ]
+    },
+    {
+      "name": "VER_013_stop_noStop",
+      "module": "Libpetri/Spec/Req/VER_013.lean",
+      "specIds": [
+        {
+          "id": "VER-013",
+          "fragment": "AC8"
         }
       ]
     },
@@ -3397,7 +3447,7 @@
       "specIds": [
         {
           "id": "VER-016",
-          "fragment": "AC3: a certificate over (M, n) passing init, consecution and safety against the raw counter step relation StepCntRel from (a0, 0), with a violation that reads the marking only, proves the property for every marking of ReachAInj; the composition of the candidate is not covered"
+          "fragment": "AC3: a certificate over (M, n) passing init, consecution and safety against the raw counter step relation over deposit rows (CntStep) from (a0, 0), with a violation that reads the marking only, proves the property for every marking of ReachADInj; the composition of the candidate is not covered"
         }
       ]
     },
@@ -3668,6 +3718,16 @@
         {
           "id": "VER-021",
           "fragment": "test derivation: one XOR branch unreachable beside a reachable one"
+        }
+      ]
+    },
+    {
+      "name": "VER_022_covers_hideViolated",
+      "module": "Libpetri/Spec/Req/VER_022.lean",
+      "specIds": [
+        {
+          "id": "VER-022",
+          "fragment": "When the graph closes within the class budget the verdict is exact: a verifier that leaves every violation of a closed graph Unknown meets every line of the block and fails its coverage Ver022Covers"
         }
       ]
     },

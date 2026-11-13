@@ -26,8 +26,10 @@ events, one that ignores its filter, batches over the batch size, an overflow th
 event that does not fit, back-pressure, a close that does nothing), a store that ignores the
 channel capacity, the unbounded channel of the debug stores, a receive that returns an event
 before it is appended, stores whose receives do not report the end (after an overflow, after a
-close, later after a close, after a drop), and stores whose receives report the end before they
-have taken what the channel held (after an overflow, after a drop).
+close, later after a close, after a drop, after a receive that took part of the channel following
+an overflow or a drop), stores whose receives report the end before they have taken what the
+channel held (after an overflow, after a drop), and a receive that returns fewer events than it
+took.
 -/
 
 namespace Libpetri.Spec
@@ -104,6 +106,7 @@ requirement EVT_031
   quote "*Where* an event store provides live subscriptions, the events a subscription has received at any point, taken over all its batches in the order it received them, *shall* be events that match its filters and were appended to the store after the subscription was created and before that point, in append order, each at most once."
         "Each batch a subscription receives *shall* hold at least one event and at most `batch_size` events, so that with `batch_size = 1` it receives one event per batch."
         "Each subscription *shall* have a finite channel capacity."
+        "*When* a receive has taken the first event of its batch, it *shall* add further events until the batch holds `batch_size` events, `batch_timeout_ms` have elapsed since it took that first event, or no further event can arrive, and *shall* then return the batch; with `batch_timeout_ms = 0` it *shall* add only the events already in the channel."
         "*When* an append of an event that matches the filters of a subscription finds its channel full, the store *shall* end that subscription: the subscription *shall* receive no event appended from then on, and, if none of its receives is pending at that append, its receives *shall* take the events its channel holds and then report the end of the stream, unless the subscription is closed first."
         "Until the store is dropped, an append *shall* be accepted at every point; in particular it *shall not* wait for room in the channel of a subscription."
         "*When* a subscription is closed while none of its receives is pending, it *shall* receive no further event, and its next receive *shall* report the end of the stream."
@@ -113,24 +116,25 @@ requirement EVT_031
           "2. every batch i received in a run of S is non-empty, and i subscribed with a batch size of at least its length;"
           "3. every subscription made in a run of S has a finite channel capacity;"
           "4. if an append of an event that the filter of i matches finds the channel of i full (i subscribed with capacity c, and its backlog, the matching events appended since it subscribed that no receive took, has reached c), then over the whole run i received only matching events appended before that append;"
-          "5. after such an append made while no receive of i was pending, followed by any labels none of which is i's own, S allows receives of i that return some batches, followed by a receive that reports the end;"
+          "5. after such an append made while no receive of i was pending, followed by any labels after which no receive of i is pending (receives of i that took part of the channel among them), S allows receives of i that return some batches, followed by a receive that reports the end;"
           "6. if moreover i had not ended before that append (by an earlier such append, a close made while no receive of i was pending, or the drop), then whenever a receive of i reports the end after it with no close of i in between, the events i received in between are exactly the events its channel held: the matching events appended since it subscribed, less as many as its receives took;"
           "7. after every run of S in which the store was not dropped, S allows one more append;"
           "8. after a close of a subscription i made before, while no receive of i was pending, i receives nothing;"
           "9. after such a close, followed by any labels none of which is i's own, S allows a receive of i that reports the end;"
-          "10. after the drop of the store, for every subscription i made before with no receive pending, followed by any labels none of which is i's own, S allows receives of i that return some batches, followed by a receive that reports the end;"
-          "11. if moreover i had not ended before the drop, then whenever a receive of i reports the end after the drop with no close of i in between, the events i received in between are exactly the events its channel held at the drop."
-  assumes "The model is the observation of one store with live subscriptions, S : SubSem E (Reference/Subscriptions.lean): the label sequences it allows. A label is a store operation (op), a subscribe with a filter, a channel capacity (none: unbounded) and a batch size, the start of a receive (await), a take of the oldest event from the channel by the pending receive (pull), a returned batch (recv), a reported end of the stream (finish, Python's StopAsyncIteration), a close, or the drop of the store. The observation functions received, batches, subParams, matchingAfter, backlog and pending, and the block-local evt031Own and evt031Quiet (the labels of a subscription), evt031NoClose, evt031Recvs (receives returning given batches), evt031Held (the events the channel holds, by the labels) and evt031Ended (an overflow, a close with no receive pending, or the drop happened), read the labels only. The event type E is a parameter: the lines say nothing about what an event holds."
+          "10. after the drop of the store, for every subscription i made before with no receive pending, followed by any labels after which no receive of i is pending, S allows receives of i that return some batches, followed by a receive that reports the end;"
+          "11. if moreover i had not ended before the drop, then whenever a receive of i reports the end after the drop with no close of i in between, the events i received in between are exactly the events its channel held at the drop;"
+          "12. at every point of every run of S where no receive of i is pending, what i has received so far, its batches concatenated, is exactly the first of the matching events appended after i subscribed, as many as its receives took from the channel: each receive returns the events it took."
+  assumes "The model is the observation of one store with live subscriptions, S : SubSem E (Reference/Subscriptions.lean): the label sequences it allows. A label is a store operation (op), a subscribe with a filter, a channel capacity (none: unbounded) and a batch size, the start of a receive (await), a take of the oldest event from the channel by the pending receive (pull), a returned batch (recv), a reported end of the stream (finish, Python's StopAsyncIteration), a close, or the drop of the store. The observation functions received, batches, subParams, matchingAfter, pulls, backlog and pending, and the block-local evt031Own and evt031Quiet (the labels of a subscription), evt031NoClose, evt031Recvs (receives returning given batches), evt031Held (the events the channel holds, by the labels) and evt031Ended (an overflow, a close with no receive pending, or the drop happened), read the labels only. The event type E is a parameter: the lines say nothing about what an event holds. Lines 1 and 12 are stated at every point of a run, so S need not be closed under prefixes."
           "Filters: a filter is a predicate on events. Which events a filter by type, transition and place matches is the matching rule of [EVT-030]; the Python binding evaluates both with one FilterSpec (rust/libpetri-py/src/events.rs), and this block does not restate the rule. AC1 and the first quoted sentence are line 1: a sublist of the matching events appended after the subscribe is filtered, in append order and at most once, and AC2 (forward-only) is its 'after'. Line 1 is stated at every point of a run, not on whole runs only, so a receive cannot return an event before that event is appended (mutant EVT_031_mutant_early); S need not be closed under prefixes."
-          "Batches: AC3 and the second quoted sentence are line 2; a store whose receive may return an empty batch meets every other line and the batch-size half of line 2, and fails it (EVT_031_mutant_emptyBatch); evt031_unary derives one event per batch from a batch size of 1, whatever the timeout, which is the runtime's behaviour (the batch loop runs only when batch_size > 1). The batch timeout, 'flushing early after batch_timeout_ms' in AC3 and the markdown sentence '*When* a receive has taken the first event of its batch, it *shall* add further events until the batch holds `batch_size` events, `batch_timeout_ms` have elapsed since it took that first event, or no further event can arrive, and *shall* then return the batch; with `batch_timeout_ms = 0` it *shall* add only the events already in the channel.', is kind T on tokio's clock, which has no seam ([TIME-015] lists no Python seam, by design): it cannot be tested on virtual time and is not modelled. Its untimed clause, a timeout of 0 adding only the events already in the channel, is not stated either, because the subscribe label carries no timeout. The model lets a receive return a non-empty batch at any moment, which every timeout meets, and lines 5 and 10 allow any batching of what the channel holds, so a receive that takes every buffered event up to batch_size, as the runtime's does, meets them (EVT_031_allows_greedy)."
+          "Batches: AC3 and the second quoted sentence are line 2; a store whose receive may return an empty batch meets every other line and the batch-size half of line 2, and fails it (EVT_031_mutant_emptyBatch); evt031_unary derives one event per batch from a batch size of 1, whatever the timeout, which is the runtime's behaviour (the batch loop runs only when batch_size > 1). The fourth quoted sentence, on how a receive builds its batch, is line 12 for its untimed content: a receive returns the batch of the events it took, so where no receive of i is pending, what i received is the first matching events appended after it subscribed, as many as its receives took (pull takes the oldest event of the channel, which holds the matching events in append order until the subscription ends). A receive that takes two events and returns a batch holding only the first, so that the second is lost although the channel never overflowed, fails line 12 (EVT_031_mutant_lossyBatch); line 1 alone allows it, since a sublist may leave events out, and lines 6 and 11 count every taken event as received. The rest of that sentence is the batch timeout: when a receive stops adding events (batch_size events, batch_timeout_ms elapsed since the first event, or no further event can arrive) and 'flushing early after batch_timeout_ms' in AC3 are kind T on tokio's clock, which has no seam ([TIME-015] lists no Python seam, by design): they cannot be tested on virtual time and are not modelled. Its untimed clause, a timeout of 0 adding only the events already in the channel, is not stated either, because the subscribe label carries no timeout. The model lets a receive return a non-empty batch at any moment, which every timeout meets, and lines 5 and 10 allow any batching of what the channel holds, so a receive that takes every buffered event up to batch_size, as the runtime's does, meets them (EVT_031_allows_greedy). A receive that its caller abandons while it is pending (a cancelled Python await) is not a label of the model, so no line speaks of the events such a receive had taken."
           "Capacity: the third quoted sentence is line 3. The witness evt031PySub is the reference with a finite capacity on every subscribe, the form of the Python store, whose channel_capacity is a positive integer. The reference alone also allows an unbounded channel (none), the debug stores' form of [EVT-024], and it violates line 3 (EVT_031_mutant_unboundedChannel)."
-          "Overflow (AC4 and ruling D86 (a)): the fourth quoted sentence is lines 4, 5 and 6. Line 4 names the full channel by observations: the backlog of i (matching events appended since it subscribed, less those its receives took) has reached its capacity, and the appended event matches the filter of i. Line 5 says the stream can end, at any later point, rather than hang; line 6 says it does not end before the receives have taken what the channel held, which evt031Held reads from the labels while the subscription has not ended. A close of i after the overflow ends the stream at once (lines 8 and 9), which is the clause 'unless the subscription is closed first' and why line 6 has no close of i in between. evt031_overflow_drains derives from lines 5 and 6 that the drain S allows returns exactly what the channel held. A receive pending at the overflowing append is outside the lines, as the qualifier of the sentence says. Python's capacity is always finite; line 4 speaks only of a finite one."
-          "Append: the fifth quoted sentence is line 7: S allows an append after every run before the drop, whatever the reason a store might refuse one, and in particular an append does not wait for room in a full channel (ruling D86 (a)). In this label model a refused append and a waiting one look the same, and the Python store refuses an append only after a drop."
-          "Close (AC4 and ruling D86 (d)): the sixth quoted sentence is lines 8 and 9, for a subscription that exists. A close made while a receive of the subscription is pending does nothing in Python (close() takes the receiver only when its lock is free; clash evt-c#8), so the pending receive keeps waiting; the lines require no receive pending, and the case is recorded in the markdown as outside the requirement. Line 9 lets other labels, such as appends, come between the close and the receive. The end of the stream is reported the same way after a close, a drop and an overflow; telling them apart would be a runtime change, so no line does."
-          "Drop: the seventh quoted sentence is lines 10 and 11. For a subscription that ended before the drop, lines 5 and 6 (an overflow) or line 9 (a close) already say when its stream ends. After a drop the store takes no further append or subscribe, which the reference meets (refSub_dropped_no_op) and no line restates. The Python store provides no clear(); the model allows one and it changes no subscription."
+          "Overflow (AC4 and ruling D86 (a)): the fifth quoted sentence is lines 4, 5 and 6. Line 4 names the full channel by observations: the backlog of i (matching events appended since it subscribed, less those its receives took) has reached its capacity, and the appended event matches the filter of i. Line 5 says the stream can end, at every later point where no receive of i is pending, rather than hang: right after the overflow (EVT_031_mutant_overflowHangs) and also after receives that took part of the channel (EVT_031_mutant_partialHangs); line 6 says it does not end before the receives have taken what the channel held, which evt031Held reads from the labels while the subscription has not ended. A close of i after the overflow ends the stream at once (lines 8 and 9), which is the clause 'unless the subscription is closed first' and why line 6 has no close of i in between. evt031_overflow_drains derives from lines 5 and 6 that the drain S allows returns exactly what the channel held. A receive pending at the overflowing append is outside the lines, as the qualifier of the sentence says. Python's capacity is always finite; line 4 speaks only of a finite one."
+          "Append: the sixth quoted sentence is line 7: S allows an append after every run before the drop, whatever the reason a store might refuse one, and in particular an append does not wait for room in a full channel (ruling D86 (a)). In this label model a refused append and a waiting one look the same, and the Python store refuses an append only after a drop."
+          "Close (AC4 and ruling D86 (d)): the seventh quoted sentence is lines 8 and 9, for a subscription that exists. A close made while a receive of the subscription is pending does nothing in Python (close() takes the receiver only when its lock is free; clash evt-c#8), so the pending receive keeps waiting; the lines require no receive pending, and the case is recorded in the markdown as outside the requirement. Line 9 lets other labels, such as appends, come between the close and the receive. The end of the stream is reported the same way after a close, a drop and an overflow; telling them apart would be a runtime change, so no line does."
+          "Drop: the eighth quoted sentence is lines 10 and 11. Line 10 says the stream can end at every later point where no receive of the subscription is pending (EVT_031_mutant_dropHangs, and EVT_031_mutant_dropPartialHangs after a receive that took part of the channel); line 11 says it does not end before the receives have taken what the channel held. For a subscription that ended before the drop, lines 5 and 6 (an overflow) or line 9 (a close) already say when its stream ends. After a drop the store takes no further append or subscribe, which the reference meets (refSub_dropped_no_op) and no line restates. The Python store provides no clear(); the model allows one and it changes no subscription."
           "Liveness is out of scope: no line says that a matching event is eventually received, only what a receive may hand over, that an end can be reached, and what is handed over before it. A store that allows no run at all meets every line; EVT_031_nonvacuous shows the premises of the lines are met by the witness. Configuration is kind N and not a line: Python's defaults (batch_size 64, batch_timeout_ms 10, channel_capacity 4096) and its rejection of a batch_size or channel_capacity of 0 with ValueError, which the model reflects by allowing no such subscribe. subscribe_stream is subscribe with batch size 1 and no list wrapper, so the same lines cover it. Subscriptions are numbered in the order they are made."
           "Status: the requirement is Proposed (Java and TypeScript pending). Ruling D47 (c) gives it a block now that D86 fixes the policy; the block binds every implementation that provides live subscriptions. The test derivation is EVT_031_nonvacuous: an event appended before the subscribe and a non-matching one are not delivered, the two matching ones come in one batch of size 2, and a close is followed by the end."
-  signoff "pending"
+  signoff "2026-11-13 fd6ccdd7391fc5db ai"
   statement : ∀ {E : Type}, SubSem E → Prop :=
     fun S =>
       (∀ tr tr', S (tr ++ tr') → ∀ i, received i tr <+ matchingAfter i tr) ∧
@@ -142,7 +146,7 @@ requirement EVT_031
         received i (pre ++ .op (.append e) :: suf) <+ matchingAfter i pre) ∧
       (∀ pre e mid i f c n, S (pre ++ .op (.append e) :: mid) →
         subParams i pre = some (f, some c, n) → f e = true → c ≤ backlog i pre →
-        pending i pre = false → evt031Quiet i mid = true →
+        pending i pre = false → pending i (pre ++ .op (.append e) :: mid) = false →
         ∃ bs, S (pre ++ .op (.append e) :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i]))) ∧
       (∀ pre e mid i f c n, S (pre ++ .op (.append e) :: (mid ++ [.finish i])) →
         subParams i pre = some (f, some c, n) → f e = true → c ≤ backlog i pre →
@@ -155,11 +159,13 @@ requirement EVT_031
         pending i pre = false → evt031Quiet i mid = true →
         S (pre ++ .close i :: (mid ++ [.await i, .finish i]))) ∧
       (∀ pre mid i, S (pre ++ .drop :: mid) → (subParams i pre).isSome = true →
-        pending i pre = false → evt031Quiet i mid = true →
+        pending i pre = false → pending i (pre ++ .drop :: mid) = false →
         ∃ bs, S (pre ++ .drop :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i]))) ∧
       (∀ pre mid i, S (pre ++ .drop :: (mid ++ [.finish i])) → (subParams i pre).isSome = true →
         evt031Ended i pre = false → pending i pre = false → evt031NoClose i mid = true →
-        received i mid = evt031Held i pre)
+        received i mid = evt031Held i pre) ∧
+      (∀ tr tr', S (tr ++ tr') → ∀ i, pending i tr = false →
+        received i tr = (matchingAfter i tr).take (pulls i tr))
 
 /- The pinned readable form of EVT-031: a change to the formula shows up as a diff here. -/
 /--
@@ -184,7 +190,7 @@ fun {E} S =>
                   f e = true →
                     c ≤ backlog i pre →
                       pending i pre = false →
-                        evt031Quiet i mid = true →
+                        pending i (pre ++ SubLbl.op (StoreOp.append e) :: mid) = false →
                           ∃ bs,
                             S
                               (pre ++
@@ -212,16 +218,21 @@ fun {E} S =>
                         S (pre ++ SubLbl.drop :: mid) →
                           (subParams i pre).isSome = true →
                             pending i pre = false →
-                              evt031Quiet i mid = true →
+                              pending i (pre ++ SubLbl.drop :: mid) = false →
                                 ∃ bs,
                                   S
                                     (pre ++
                                       SubLbl.drop :: (mid ++ evt031Recvs i bs ++ [SubLbl.await i, SubLbl.finish i]))) ∧
-                      ∀ (pre mid : List (SubLbl E)) (i : Nat),
-                        S (pre ++ SubLbl.drop :: (mid ++ [SubLbl.finish i])) →
-                          (subParams i pre).isSome = true →
-                            evt031Ended i pre = false →
-                              pending i pre = false → evt031NoClose i mid = true → received i mid = evt031Held i pre
+                      (∀ (pre mid : List (SubLbl E)) (i : Nat),
+                          S (pre ++ SubLbl.drop :: (mid ++ [SubLbl.finish i])) →
+                            (subParams i pre).isSome = true →
+                              evt031Ended i pre = false →
+                                pending i pre = false →
+                                  evt031NoClose i mid = true → received i mid = evt031Held i pre) ∧
+                        ∀ (tr tr' : List (SubLbl E)),
+                          S (tr ++ tr') →
+                            ∀ (i : Nat),
+                              pending i tr = false → received i tr = List.take (pulls i tr) (matchingAfter i tr)
 -/
 #guard_msgs in #print EVT_031
 
@@ -541,6 +552,24 @@ theorem evt031_run_keep {i : Nat} :
       simp only [List.append_assoc] at he' ⊢
       rw [he']
 
+/-- Labels after a subscription is unregistered or its receiver closed leave it so, whatever they
+are. -/
+theorem evt031_frame_run {i : Nat} :
+    ∀ {mid tr : List (SubLbl E)} {s s' : SubSt E} {u : Reference.Sub E},
+      Inv tr s → run {} s mid = some s' → s.subs i = some u →
+      (u.linked = false ∨ u.rx = false) →
+      ∃ u', s'.subs i = some u' ∧ (u'.linked = false ∨ u'.rx = false)
+  | [], _, s, s', u, _, h, hu, hend => by
+    simp [run] at h; subst h; exact ⟨u, hu, hend⟩
+  | l :: mid, _, s, s', u, hI, h, hu, hend => by
+    simp only [run] at h
+    cases h1 : step {} s l with
+    | none => simp [h1] at h
+    | some s1 =>
+      simp only [h1, Option.bind_some] at h
+      obtain ⟨u1, hu1, hend1, -⟩ := frame_step hI h1 hu hend
+      exact evt031_frame_run (inv_step hI h1) h hu1 hend1
+
 /-- After a reference run, an unregistered subscription with an open receiver and no batch under
 way, whose next labels close nothing of it and end with a receive reporting the end, received in
 those labels exactly what its channel held. -/
@@ -773,32 +802,32 @@ theorem evt031_ref_end {tr : List (SubLbl E)} {s : SubSt E} {i : Nat} {u : Refer
   rw [run_append, hs, Option.bind_some]
   exact evt031_drain_run u.chan s u hu rfl hpu (hJ.idle hpu) hJ.bsz_pos hend hJ.closed
 
-/-- After a label `l` that leaves subscription `i` unregistered or closed, with no receive of `i`
-pending, and any labels none of which is `i`'s own, the receives of `i` can hand over its channel
-and then report the end. -/
+/-- After a label `l` that leaves subscription `i` unregistered or closed, and any labels after
+which no receive of `i` is pending, the receives of `i` can hand over its channel and then report
+the end. -/
 theorem evt031_ref_end_after {pre mid : List (SubLbl E)} {l : SubLbl E} {s1 s' : SubSt E}
     {i : Nat} {u1 : Reference.Sub E}
     (hs1 : run {} SubSt.init (pre ++ [l]) = some s1) (hrun : run {} s1 mid = some s')
     (hu1 : s1.subs i = some u1) (hend : u1.linked = false ∨ u1.rx = false)
-    (hp : pending i (pre ++ [l]) = false) (hq : evt031Quiet i mid = true) :
+    (hp : pending i (pre ++ l :: mid) = false) :
     ∃ bs, refSub (pre ++ l :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i])) := by
-  obtain ⟨u', hu', -, -, hend'⟩ := evt031_run_other hrun hu1 hq hend
+  obtain ⟨u', hu', hend'⟩ := evt031_frame_run (inv_run hs1) hrun hu1 hend
   have hs' : run {} SubSt.init ((pre ++ [l]) ++ mid) = some s' := by
     rw [run_append, hs1, Option.bind_some]; exact hrun
   have hp' : pending i ((pre ++ [l]) ++ mid) = false := by
-    rw [evt031_pending_quiet i _ mid hq]; exact hp
+    simpa [List.append_assoc] using hp
   refine ⟨u'.chan.map fun e => [e], ?_⟩
   have := evt031_ref_end hs' hu' hp' hend'
   rw [evt031_recvs_single]
   simpa [List.append_assoc] using this
 
-/-- Line 5 on the reference: after an append that finds the channel of `i` full, with no receive
-of `i` pending, and labels none of which is `i`'s own, the receives of `i` can drain its channel
-and report the end. -/
+/-- Line 5 on the reference: after an append that finds the channel of `i` full, and labels after
+which no receive of `i` is pending, the receives of `i` can drain its channel and report the
+end. -/
 theorem evt031_ref_overflow_end {pre mid : List (SubLbl E)} {i : Nat} {e : E} {f : E → Bool}
     {c n : Nat} (h : refSub (pre ++ .op (.append e) :: mid))
     (hpar : subParams i pre = some (f, some c, n)) (hf : f e = true) (hc : c ≤ backlog i pre)
-    (hp : pending i pre = false) (hq : evt031Quiet i mid = true) :
+    (hpm : pending i (pre ++ .op (.append e) :: mid) = false) :
     ∃ bs, refSub (pre ++ .op (.append e) :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i])) := by
   obtain ⟨s, s1, s', hs, hI, h1, hrun⟩ := refSub_split h
   cases hs0 : s.subs i with
@@ -816,9 +845,7 @@ theorem evt031_ref_overflow_end {pre mid : List (SubLbl E)} {i : Nat} {e : E} {f
       · rw [hd]; simp [hl]
     have hrun1 : run {} SubSt.init (pre ++ [.op (.append e)]) = some s1 := by
       rw [run_snoc, hs, Option.bind_some]; exact h1
-    have hp1 : pending i (pre ++ [.op (.append e)]) = false := by
-      rw [pending_snoc]; simpa [lblPend] using hp
-    exact evt031_ref_end_after hrun1 hrun hs1 hend hp1 hq
+    exact evt031_ref_end_after hrun1 hrun hs1 hend hpm
 
 /-- Line 6 on the reference: after an append that finds the channel of a subscription `i` that
 was not ended full, with no receive of `i` pending, a receive of `i` reports the end only once
@@ -872,12 +899,10 @@ theorem evt031_ref_close_end {pre mid : List (SubLbl E)} {i : Nat}
   rw [hc2] at this
   simpa [evt031Drain, List.append_assoc] using this
 
-/-- Line 10 on the reference: after the store is dropped, a subscription made before with no
-receive pending can, after labels none of which is its own, drain its channel and report the
-end. -/
+/-- Line 10 on the reference: after the store is dropped, a subscription made before can, after
+labels after which no receive of it is pending, drain its channel and report the end. -/
 theorem evt031_ref_drop_end {pre mid : List (SubLbl E)} {i : Nat} (h : refSub (pre ++ .drop :: mid))
-    (hi : (subParams i pre).isSome = true) (hp : pending i pre = false)
-    (hq : evt031Quiet i mid = true) :
+    (hi : (subParams i pre).isSome = true) (hpm : pending i (pre ++ .drop :: mid) = false) :
     ∃ bs, refSub (pre ++ .drop :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i])) := by
   obtain ⟨s, s1, s', hs, hI, h1, hrun⟩ := refSub_split h
   cases hu : s.subs i with
@@ -890,9 +915,7 @@ theorem evt031_ref_drop_end {pre mid : List (SubLbl E)} {i : Nat} (h : refSub (p
       · cases h1
     have hrun1 : run {} SubSt.init (pre ++ [.drop]) = some s1 := by
       rw [run_snoc, hs, Option.bind_some]; exact h1
-    have hp1 : pending i (pre ++ [.drop]) = false := by
-      rw [pending_snoc]; simpa [lblPend] using hp
-    exact evt031_ref_end_after hrun1 hrun hu1 (Or.inl rfl) hp1 hq
+    exact evt031_ref_end_after hrun1 hrun hu1 (Or.inl rfl) hpm
 
 /-- Line 11 on the reference: after the store is dropped, a subscription that was not ended, with
 no receive pending, reports the end only once it received exactly what its channel held. -/
@@ -915,13 +938,185 @@ theorem evt031_ref_drop_drain {pre mid : List (SubLbl E)} {i : Nat}
     have hh := evt031_held hJ hl hr hp
     rw [this]; exact hh
 
+/-- In the state `s` after the labels `tr`, what each subscription received, its batch under way
+and its channel are a prefix of the matching events appended since it subscribed: nothing is lost
+before what the channel still holds. -/
+def evt031Pref (tr : List (SubLbl E)) (s : SubSt E) : Prop :=
+  ∀ i u, s.subs i = some u →
+    received i tr ++ u.cur ++ u.chan <+: (appendsAfter i tr).filter u.filt
+
+omit [DecidableEq E] in
+/-- A step that keeps the filter of `i`, and after which what it returns to `i` and what `i` still
+holds are a prefix of what `i` held, keeps the prefix of `evt031Pref`. -/
+theorem evt031_pref_keep {tr : List (SubLbl E)} {i : Nat} {l : SubLbl E}
+    {u u1 : Reference.Sub E} (hJ : InvAt tr i u)
+    (hP : received i tr ++ u.cur ++ u.chan <+: (appendsAfter i tr).filter u.filt)
+    (hf : u1.filt = u.filt)
+    (hl : (lblBatch i l).getD [] ++ u1.cur ++ u1.chan <+: u.cur ++ u.chan) :
+    received i (tr ++ [l]) ++ u1.cur ++ u1.chan <+:
+      (appendsAfter i (tr ++ [l])).filter u1.filt := by
+  rw [received_snoc, appendsAfter_snoc, hJ.params, hf]
+  simp only [Option.isSome_some, if_true, List.filter_append]
+  have h1 : received i tr ++ ((lblBatch i l).getD [] ++ u1.cur ++ u1.chan) <+:
+      received i tr ++ (u.cur ++ u.chan) := (List.prefix_append_right_inj _).mpr hl
+  simp only [List.append_assoc] at h1 hP ⊢
+  exact h1.trans (hP.trans (List.prefix_append _ _))
+
+/-- One reference step keeps `evt031Pref`. -/
+theorem evt031_pref_step {tr : List (SubLbl E)} {s s1 : SubSt E} {l : SubLbl E}
+    (hI : Inv tr s) (hP : evt031Pref tr s) (h : step {} s l = some s1) :
+    evt031Pref (tr ++ [l]) s1 := by
+  intro i u1 hu1
+  have keep : ∀ u, s.subs i = some u → u1.filt = u.filt →
+      (lblBatch i l).getD [] ++ u1.cur ++ u1.chan <+: u.cur ++ u.chan →
+      received i (tr ++ [l]) ++ u1.cur ++ u1.chan <+:
+        (appendsAfter i (tr ++ [l])).filter u1.filt :=
+    fun u hu hf hl => evt031_pref_keep (hI.some_ i u hu) (hP i u hu) hf hl
+  have own : ∀ j (g : Reference.Sub E → Option (Reference.Sub E)), modSub s j g = some s1 →
+      (j ≠ i → lblBatch i l = none) →
+      (j = i → ∀ u, g u = some u1 → u1.filt = u.filt ∧
+        (lblBatch i l).getD [] ++ u1.cur ++ u1.chan <+: u.cur ++ u.chan) →
+      received i (tr ++ [l]) ++ u1.cur ++ u1.chan <+:
+        (appendsAfter i (tr ++ [l])).filter u1.filt := by
+    intro j g hm hb hg
+    obtain ⟨u, u', hu, hgu, rfl⟩ := modSub_eq_some hm
+    by_cases hji : j = i
+    · subst hji
+      simp only [updSub_self, Option.some.injEq] at hu1; subst hu1
+      obtain ⟨hf, hl⟩ := hg rfl u hgu
+      exact keep u hu hf hl
+    · simp only [updSub_ne _ _ hji] at hu1
+      exact keep u1 hu1 rfl (by simp [hb hji])
+  cases l with
+  | op o =>
+    simp only [step] at h
+    split at h
+    · cases h
+    · cases o with
+      | clear =>
+        simp at h; subst h
+        exact keep u1 hu1 rfl (by simp [lblBatch])
+      | append e =>
+        simp [blocks] at h; subst h
+        simp only [Option.map_eq_some_iff] at hu1
+        obtain ⟨u, hu, rfl⟩ := hu1
+        have hJ := hI.some_ i u hu
+        rcases deliver_cases e u with ⟨hd, hl, hf, hr, -⟩ | hd | ⟨hd, -⟩
+        · rw [hd]
+          have heq := hJ.eq hl hr
+          rw [received_snoc, appendsAfter_snoc, hJ.params]
+          simp only [Option.isSome_some, if_true, List.filter_append, ← heq]
+          simp [lblBatch, storeOps, lblOp, appended, hf]
+        · exact keep u hu (by rw [hd]) (by rw [hd]; simp [lblBatch])
+        · exact keep u hu (by rw [hd]) (by rw [hd]; simp [lblBatch])
+  | subscribe j f c b =>
+    simp only [step] at h
+    split at h
+    · rename_i hc
+      simp at hc
+      obtain ⟨⟨⟨-, rfl⟩, -⟩, -⟩ := hc
+      simp at h; subst h
+      by_cases hji : s.n = i
+      · subst hji
+        simp [updSub_self] at hu1; subst hu1
+        have hn := hI.none_ _ (hI.fresh _ (Nat.le_refl _))
+        have hR : received s.n (tr ++ [SubLbl.subscribe s.n f c b]) = [] := by
+          rw [received_snoc]; simp [received, hn.2.1, lblBatch]
+        rw [hR]; simp
+      · simp only [updSub_ne _ _ hji] at hu1
+        exact keep u1 hu1 rfl (by simp [lblBatch])
+    · cases h
+  | await j =>
+    refine own j _ h (fun _ => rfl) fun hji u hg => ?_
+    subst hji
+    cases hp : u.pending <;> simp [hp] at hg
+    subst hg; simp [lblBatch]
+  | pull j =>
+    refine own j _ h (fun _ => rfl) fun hji u hg => ?_
+    subst hji
+    split at hg
+    · split at hg
+      · cases hg
+      · rename_i e r hch
+        simp at hg; subst hg
+        simp [lblBatch, hch]
+    · cases hg
+  | recv j b =>
+    refine own j _ h (fun hji => by simp [lblBatch, hji]) fun hji u hg => ?_
+    subst hji
+    split at hg
+    · rename_i hc
+      simp at hc
+      obtain ⟨-, rfl⟩ := hc
+      simp at hg; subst hg
+      simp [lblBatch]
+    · cases hg
+  | finish j =>
+    refine own j _ h (fun _ => rfl) fun hji u hg => ?_
+    subst hji
+    split at hg
+    · simp at hg; subst hg; simp [lblBatch]
+    · cases hg
+  | close j =>
+    refine own j _ h (fun _ => rfl) fun hji u hg => ?_
+    subst hji
+    split at hg
+    · simp at hg; subst hg; simp [lblBatch]
+    · simp at hg; subst hg; simp [lblBatch]
+  | drop =>
+    simp only [step] at h
+    split at h
+    · simp at h; subst h
+      simp only [Option.map_eq_some_iff] at hu1
+      obtain ⟨u, hu, rfl⟩ := hu1
+      exact keep u hu rfl (by simp [lblBatch])
+    · cases h
+
+/-- Every reference run keeps `evt031Pref`. -/
+theorem evt031_pref_run (tr : List (SubLbl E)) :
+    ∀ {s : SubSt E}, run {} SubSt.init tr = some s → evt031Pref tr s := by
+  obtain ⟨r, rfl⟩ : ∃ r, tr = r.reverse := ⟨tr.reverse, by simp⟩
+  induction r with
+  | nil =>
+    intro s h i u hu
+    simp [run] at h; subst h; simp [SubSt.init] at hu
+  | cons l r ih =>
+    intro s h
+    rw [List.reverse_cons] at h ⊢
+    generalize r.reverse = pre at h ih ⊢
+    rw [run_snoc] at h
+    cases h0 : run {} SubSt.init pre with
+    | none => simp [h0] at h
+    | some s0 =>
+      simp only [h0, Option.bind_some] at h
+      exact evt031_pref_step (inv_run h0) (ih h0) h
+
+/-- Line 12 on the reference: where no receive of `i` is pending, what `i` received is the first
+matching events appended since it subscribed, as many as its receives took. -/
+theorem evt031_ref_taken {tr : List (SubLbl E)} (h : refSub tr) (i : Nat)
+    (hp : pending i tr = false) : received i tr = (matchingAfter i tr).take (pulls i tr) := by
+  obtain ⟨s, hs, hI⟩ := refSub_run h
+  cases hu : s.subs i with
+  | none =>
+    have hn := hI.none_ i hu
+    simp [received, hn.2.1, hn.2.2.1]
+  | some u =>
+    have hJ := hI.some_ i u hu
+    have hcur : u.cur = [] := hJ.idle (hJ.pend.trans hp)
+    have hpre := evt031_pref_run tr hs i u hu
+    have hpl := hJ.pulled
+    rw [hcur, List.append_nil] at hpre hpl
+    simp only [matchingAfter, hJ.params]
+    rw [← hpl]
+    exact List.prefix_iff_eq_take.mp ((List.prefix_append _ _).trans hpre)
+
 end Reference
 
 /-- The witness satisfies EVT-031: it delivers, at every point, only matching events appended
 after the subscribe and before that point, in order and once, in non-empty batches within the
 batch size, over finite channels; an overflow ends the subscription and its stream, which ends
 only after the channel is drained; an append never waits; a close with no receive pending and a
-drop end the stream. -/
+drop end the stream; a receive returns the events it took. -/
 @[evidence holds EVT_031]
 theorem EVT_031_reference {E : Type} [DecidableEq E] : EVT_031 (evt031PySub (E := E)) := by
   have cap_ext : ∀ {pre mid : List (SubLbl E)} {l : SubLbl E} {bs : List (List E)} {i : Nat},
@@ -934,21 +1129,22 @@ theorem EVT_031_reference {E : Type} [DecidableEq E] : EVT_031 (evt031PySub (E :
   refine ⟨fun tr _ h i => refSub_received (refSub_prefix h.1) i,
     fun _ h _ _ hb => ?_, fun _ h _ _ _ _ hp => evt031_capOk_params h.2 hp,
     fun _ _ _ _ _ _ _ h hp hf hc => refSub_overflow_ends h.1 hp hf hc,
-    fun _ _ _ _ _ _ _ h hp hf hc hpe hq => ?_,
+    fun _ _ _ _ _ _ _ h hp hf hc _ hpm => ?_,
     fun _ _ _ _ _ _ _ h hp hf hc hE hpe hn => evt031_ref_overflow_drain h.1 hp hf hc hE hpe hn,
     fun _ h hd e => ⟨refSub_append_enabled h.1 hd _, by simpa [evt031CapOk] using h.2⟩,
     fun _ _ _ h _ hp => refSub_close_ends h.1 hp,
     fun _ _ _ h _ hp hq => ⟨evt031_ref_close_end h.1 hp hq, ?_⟩,
-    fun _ _ _ h hi hp hq => ?_,
-    fun _ _ _ h hi hE hp hn => evt031_ref_drop_drain h.1 hi hE hp hn⟩
+    fun _ _ _ h hi _ hpm => ?_,
+    fun _ _ _ h hi hE hp hn => evt031_ref_drop_drain h.1 hi hE hp hn,
+    fun _ _ h i hp => evt031_ref_taken (refSub_prefix h.1) i hp⟩
   · obtain ⟨f, c, n, hp, hne, hle⟩ := refSub_batch h.1 hb
     exact ⟨hne, f, c, n, hp, hle⟩
-  · obtain ⟨bs, hb⟩ := evt031_ref_overflow_end h.1 hp hf hc hpe hq
+  · obtain ⟨bs, hb⟩ := evt031_ref_overflow_end h.1 hp hf hc hpm
     exact ⟨bs, hb, cap_ext h.2⟩
   · have := h.2
     simp only [List.all_append, List.all_cons, Bool.and_eq_true] at this ⊢
     simp_all [evt031CapOk]
-  · obtain ⟨bs, hb⟩ := evt031_ref_drop_end h.1 hi hp hq
+  · obtain ⟨bs, hb⟩ := evt031_ref_drop_end h.1 hi hpm
     exact ⟨bs, hb, cap_ext h.2⟩
 
 /-! ### Consequences -/
@@ -984,7 +1180,11 @@ theorem evt031_overflow_drains {E : Type} {S : SubSem E} (hS : EVT_031 S)
     ∃ bs, bs.flatten = evt031Held i pre ∧
       S (pre ++ .op (.append e) :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i])) := by
   obtain ⟨-, -, -, -, l5, l6, -⟩ := hS
-  obtain ⟨bs, hb⟩ := l5 pre e mid i f c n h hpar hf hc hp hq
+  have hpm : pending i (pre ++ .op (.append e) :: mid) = false := by
+    have := evt031_pending_quiet i (pre ++ [.op (.append e)]) mid hq
+    rw [List.append_assoc, List.singleton_append] at this
+    rw [this, pending_snoc]; simpa [lblPend] using hp
+  obtain ⟨bs, hb⟩ := l5 pre e mid i f c n h hpar hf hc hp hpm
   refine ⟨bs, ?_, hb⟩
   have hb' : S (pre ++ .op (.append e) :: ((mid ++ evt031Recvs i bs ++ [.await i]) ++
       [.finish i])) := by simpa [List.append_assoc] using hb
@@ -1000,7 +1200,7 @@ theorem evt031_overflow_drains {E : Type} {S : SubSem E} (hS : EVT_031 S)
 
 /-! ### The lines one by one
 
-The eleven lines of EVT-031 as separate predicates (`evt031_iff`), so that a mutant reading can
+The twelve lines of EVT-031 as separate predicates (`evt031_iff`), so that a mutant reading can
 name every line but one. -/
 
 section Lines
@@ -1031,11 +1231,12 @@ def Evt031L4 (S : SubSem E) : Prop :=
     subParams i pre = some (f, some c, n) → f e = true → c ≤ backlog i pre →
     received i (pre ++ .op (.append e) :: suf) <+ matchingAfter i pre
 
-/-- Line 5: after an overflowing append, the stream can end. -/
+/-- Line 5: after an overflowing append, the stream can end at every later point where no
+receive is pending. -/
 def Evt031L5 (S : SubSem E) : Prop :=
   ∀ pre e mid i f c n, S (pre ++ .op (.append e) :: mid) →
     subParams i pre = some (f, some c, n) → f e = true → c ≤ backlog i pre →
-    pending i pre = false → evt031Quiet i mid = true →
+    pending i pre = false → pending i (pre ++ .op (.append e) :: mid) = false →
     ∃ bs, S (pre ++ .op (.append e) :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i]))
 
 /-- Line 6: after an overflowing append, the stream ends only once the channel is drained. -/
@@ -1060,10 +1261,11 @@ def Evt031L9 (S : SubSem E) : Prop :=
     pending i pre = false → evt031Quiet i mid = true →
     S (pre ++ .close i :: (mid ++ [.await i, .finish i]))
 
-/-- Line 10: after the drop, the stream of a subscription with no receive pending can end. -/
+/-- Line 10: after the drop, the stream of a subscription with no receive pending can end at
+every later point where no receive is pending. -/
 def Evt031L10 (S : SubSem E) : Prop :=
   ∀ pre mid i, S (pre ++ .drop :: mid) → (subParams i pre).isSome = true →
-    pending i pre = false → evt031Quiet i mid = true →
+    pending i pre = false → pending i (pre ++ .drop :: mid) = false →
     ∃ bs, S (pre ++ .drop :: (mid ++ evt031Recvs i bs ++ [.await i, .finish i]))
 
 /-- Line 11: after the drop, the stream ends only once the channel is drained. -/
@@ -1072,10 +1274,16 @@ def Evt031L11 (S : SubSem E) : Prop :=
     evt031Ended i pre = false → pending i pre = false → evt031NoClose i mid = true →
     received i mid = evt031Held i pre
 
-/-- EVT-031 is the conjunction of its eleven lines. -/
+/-- Line 12: where no receive is pending, a subscription received exactly the first matching
+events, as many as its receives took. -/
+def Evt031L12 (S : SubSem E) : Prop :=
+  ∀ tr tr', S (tr ++ tr') → ∀ i, pending i tr = false →
+    received i tr = (matchingAfter i tr).take (pulls i tr)
+
+/-- EVT-031 is the conjunction of its twelve lines. -/
 theorem evt031_iff (S : SubSem E) :
     EVT_031 S ↔ Evt031L1 S ∧ Evt031L2 S ∧ Evt031L3 S ∧ Evt031L4 S ∧ Evt031L5 S ∧ Evt031L6 S ∧
-      Evt031L7 S ∧ Evt031L8 S ∧ Evt031L9 S ∧ Evt031L10 S ∧ Evt031L11 S :=
+      Evt031L7 S ∧ Evt031L8 S ∧ Evt031L9 S ∧ Evt031L10 S ∧ Evt031L11 S ∧ Evt031L12 S :=
   Iff.rfl
 
 end Lines
@@ -1086,8 +1294,8 @@ The store allows the witness's runs and one more: a subscription whose receive r
 batch, followed by a pending receive and the drop. Each of the other lines holds of it: the run
 holds no append and no close, so lines 4 to 9 have no instance in it, it ends with a drop, so
 line 7 has none, the receive is pending at the drop, so line 10 has none, and it reports no end,
-so line 11 has none; it receives nothing, so line 1 holds, and its one batch is within the batch
-size, so the bound of line 2 holds. -/
+so line 11 has none; it receives nothing and takes nothing, so lines 1 and 12 hold, and its one
+batch is within the batch size, so the bound of line 2 holds. -/
 
 /-- The run with the empty batch. -/
 def evt031EmptyRun : List (SubLbl Nat) :=
@@ -1096,11 +1304,11 @@ def evt031EmptyRun : List (SubLbl Nat) :=
 /-- The witness, and besides its runs the run with the empty batch. -/
 def evt031EmptyBatch : SubSem Nat := fun tr => evt031PySub tr ∨ tr = evt031EmptyRun
 
-/-- The mutant reading without the non-empty half of line 2: lines 1 and 3 to 11, and the batch
+/-- The mutant reading without the non-empty half of line 2: lines 1 and 3 to 12, and the batch
 size bound of line 2. -/
 def Evt031NoNonEmpty {E : Type} (S : SubSem E) : Prop :=
   Evt031L1 S ∧ Evt031L2Bound S ∧ Evt031L3 S ∧ Evt031L4 S ∧ Evt031L5 S ∧ Evt031L6 S ∧
-    Evt031L7 S ∧ Evt031L8 S ∧ Evt031L9 S ∧ Evt031L10 S ∧ Evt031L11 S
+    Evt031L7 S ∧ Evt031L8 S ∧ Evt031L9 S ∧ Evt031L10 S ∧ Evt031L11 S ∧ Evt031L12 S
 
 theorem evt031Empty_received (i : Nat) : received i evt031EmptyRun = [] := by
   by_cases h : 0 = i <;> simp [received, batches, lblBatch, evt031EmptyRun, h]
@@ -1126,11 +1334,11 @@ line 2, and violates EVT-031 (line 2, 'at least one event'). -/
 @[evidence mutant EVT_031]
 theorem EVT_031_mutant_emptyBatch :
     Evt031NoNonEmpty evt031EmptyBatch ∧ ¬ EVT_031 evt031EmptyBatch := by
-  obtain ⟨r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11⟩ := EVT_031_reference (E := Nat)
+  obtain ⟨r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12⟩ := EVT_031_reference (E := Nat)
   have hmem : ∀ {l : SubLbl Nat} {pre suf : List (SubLbl Nat)},
       l ∉ evt031EmptyRun → evt031EmptyBatch (pre ++ l :: suf) → evt031PySub (pre ++ l :: suf) :=
     fun hl h => h.resolve_right (evt031Empty_split hl)
-  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, fun h => ?_⟩
+  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, fun h => ?_⟩
   · intro tr tr' h i
     rcases h with h | h
     · exact r1 tr tr' h i
@@ -1184,6 +1392,17 @@ theorem EVT_031_mutant_emptyBatch :
     · exfalso
       have : SubLbl.finish i ∈ evt031EmptyRun := by rw [← h]; simp
       simp [evt031EmptyRun] at this
+  · intro tr tr' h i hp
+    rcases h with h | h
+    · exact r12 tr tr' h i hp
+    · have hr := received_append i tr tr'
+      have hq := pulls_append i tr tr'
+      rw [h, evt031Empty_received] at hr
+      have h0 : pulls i evt031EmptyRun = 0 := by
+        by_cases hi : 0 = i <;> simp [pulls, lblPull, evt031EmptyRun, hi]
+      rw [h, h0] at hq
+      rw [(List.append_eq_nil_iff.mp hr.symm).1, show pulls i tr = 0 by omega]
+      simp
   · have := (h.2.1 evt031EmptyRun (Or.inr rfl) 0 [] (by decide)).1
     exact this rfl
 
@@ -1382,7 +1601,7 @@ theorem EVT_031_mutant_overflowHangs :
     unfold Evt031Overflows evt031OverflowHangs; decide
   refine ⟨hr, fun h => ?_⟩
   obtain ⟨bs, -, hc⟩ := h.2.2.2.2.1 [.subscribe 0 subAll (some 1) 4, .op (.append 1)] 2 [] 0
-    subAll 1 4 hr rfl rfl (by decide) (by decide) rfl
+    subAll 1 4 hr rfl rfl (by decide) (by decide) (by decide)
   simp only [List.cons_append, List.nil_append, evt031EndCause] at hc
   rw [evt031EndCause_recvs] at hc
   cases hc
@@ -1563,7 +1782,7 @@ theorem EVT_031_mutant_dropHangs :
     unfold Evt031DropsWithBuffer evt031DropHangs; decide
   refine ⟨hr, fun h => ?_⟩
   obtain ⟨bs, -, hc⟩ := h.2.2.2.2.2.2.2.2.2.1 [.subscribe 0 subAll (some 4) 1, .op (.append 1)] []
-    0 hr rfl (by decide) rfl
+    0 hr rfl (by decide) (by decide)
   have := evt031EndsAfter_after evt031IsDrop (l := .drop) rfl 0
     (evt031Recvs 0 bs ++ [.await 0]) [.subscribe 0 subAll (some 4) 1, .op (.append 1)] false
   simp only [List.append_assoc, List.cons_append, List.nil_append] at this hc
@@ -1593,8 +1812,95 @@ theorem EVT_031_mutant_dropDiscards :
   have hr : Evt031EndsEarlyAfterDrop evt031DropDiscards :=
     Or.inr ⟨[.subscribe 0 subAll (some 4) 1, .op (.append 1)], 0, by decide, rfl, by decide, rfl⟩
   refine ⟨hr, fun h => ?_⟩
-  have := h.2.2.2.2.2.2.2.2.2.2 [.subscribe 0 subAll (some 4) 1, .op (.append 1)] [.await 0] 0 hr
+  have := h.2.2.2.2.2.2.2.2.2.2.1 [.subscribe 0 subAll (some 4) 1, .op (.append 1)] [.await 0] 0 hr
     rfl (by decide) (by decide) rfl
+  revert this; decide
+
+/-- A store that allows what the witness allows, except that once the labels `P` have happened
+the stream of subscription 0 never reports its end. -/
+def evt031HangsAfter (P : List (SubLbl Nat)) : SubSem Nat := fun tr =>
+  evt031PySub tr ∧ ∀ X, tr = P ++ X → SubLbl.finish 0 ∉ X
+
+/-- A store that hangs after `P` allows `P` itself when the witness does. -/
+theorem evt031HangsAfter_self {P : List (SubLbl Nat)} (h : evt031PySub P) :
+    evt031HangsAfter P P := by
+  refine ⟨h, fun X hX => ?_⟩
+  rw [List.self_eq_append_right.mp hX]
+  simp
+
+/-- An overflow at the third append (capacity 2, batch size 4), then a receive that takes one of
+the two events the channel holds and returns it: no receive is pending, one event is left. -/
+def evt031PartialRun : List (SubLbl Nat) :=
+  [.subscribe 0 subAll (some 2) 4, .op (.append 1), .op (.append 2), .op (.append 3), .await 0,
+   .pull 0, .recv 0 [1]]
+
+/-- The store allows a receive to take part of the channel after an overflow. -/
+def Evt031DrainsPartlyAfterOverflow (S : SubSem Nat) : Prop := S evt031PartialRun
+
+/-- ✗ A store whose stream hangs after a receive took part of the channel following an overflow
+violates EVT-031 (line 5, at every later point where no receive is pending). -/
+@[evidence mutant EVT_031]
+theorem EVT_031_mutant_partialHangs :
+    Evt031DrainsPartlyAfterOverflow (evt031HangsAfter evt031PartialRun) ∧
+      ¬ EVT_031 (evt031HangsAfter evt031PartialRun) := by
+  have hr : evt031HangsAfter evt031PartialRun evt031PartialRun :=
+    evt031HangsAfter_self (by decide)
+  refine ⟨hr, fun h => ?_⟩
+  obtain ⟨bs, hb⟩ := h.2.2.2.2.1 [.subscribe 0 subAll (some 2) 4, .op (.append 1), .op (.append 2)]
+    3 [.await 0, .pull 0, .recv 0 [1]] 0 subAll 2 4 hr rfl rfl (by decide) (by decide) (by decide)
+  exact hb.2 (evt031Recvs 0 bs ++ [.await 0, .finish 0]) (by simp [evt031PartialRun]) (by simp)
+
+/-- A drop while the channel holds two events (batch size 2), then a receive that takes one of
+them and returns it: no receive is pending, one event is left. -/
+def evt031DropPartialRun : List (SubLbl Nat) :=
+  [.subscribe 0 subAll (some 4) 2, .op (.append 1), .op (.append 2), .drop, .await 0, .pull 0,
+   .recv 0 [1]]
+
+/-- The store allows a receive to take part of the channel after the drop. -/
+def Evt031DrainsPartlyAfterDrop (S : SubSem Nat) : Prop := S evt031DropPartialRun
+
+/-- ✗ A store whose stream hangs after a receive took part of the channel following the drop
+violates EVT-031 (line 10, at every later point where no receive is pending). -/
+@[evidence mutant EVT_031]
+theorem EVT_031_mutant_dropPartialHangs :
+    Evt031DrainsPartlyAfterDrop (evt031HangsAfter evt031DropPartialRun) ∧
+      ¬ EVT_031 (evt031HangsAfter evt031DropPartialRun) := by
+  have hr : evt031HangsAfter evt031DropPartialRun evt031DropPartialRun :=
+    evt031HangsAfter_self (by decide)
+  refine ⟨hr, fun h => ?_⟩
+  obtain ⟨bs, hb⟩ := h.2.2.2.2.2.2.2.2.2.1
+    [.subscribe 0 subAll (some 4) 2, .op (.append 1), .op (.append 2)]
+    [.await 0, .pull 0, .recv 0 [1]] 0 hr rfl (by decide) (by decide)
+  exact hb.2 (evt031Recvs 0 bs ++ [.await 0, .finish 0]) (by simp [evt031DropPartialRun]) (by simp)
+
+/-- A run in which a receive takes two events from the channel and returns a batch holding only
+the first: event 2 is appended while the channel has room, taken, and never received, and after
+the drop the stream ends without it. -/
+def evt031LossyRun : List (SubLbl Nat) :=
+  [.subscribe 0 subAll (some 4) 2, .op (.append 1), .op (.append 2), .await 0, .pull 0, .pull 0,
+   .recv 0 [1], .drop, .await 0, .finish 0]
+
+/-- The witness, and besides its runs the lossy run. -/
+def evt031Lossy : SubSem Nat := fun tr => evt031PySub tr ∨ tr = evt031LossyRun
+
+/-- The store allows a receive to return fewer events than it took. -/
+def Evt031LosesTaken (S : SubSem Nat) : Prop := S evt031LossyRun
+
+/-- What the lossy run shows: the witness forbids it, subscription 0 received event 1 only,
+although its receive took both matching events, and it had not ended before the drop. -/
+theorem evt031LossyRun_facts :
+    ¬ evt031PySub evt031LossyRun ∧ received 0 evt031LossyRun = [1] ∧
+      matchingAfter 0 evt031LossyRun = [1, 2] ∧ pulls 0 evt031LossyRun = 2 ∧
+      evt031Ended 0 (evt031LossyRun.take 7) = false := by
+  decide
+
+/-- ✗ A receive that takes an event from the channel and leaves it out of the batch it returns
+(an off-by-one in the batch loop) violates EVT-031 (line 12, the fourth quoted sentence). -/
+@[evidence mutant EVT_031]
+theorem EVT_031_mutant_lossyBatch : Evt031LosesTaken evt031Lossy ∧ ¬ EVT_031 evt031Lossy := by
+  refine ⟨Or.inr rfl, fun h => ?_⟩
+  have := h.2.2.2.2.2.2.2.2.2.2.2 (evt031LossyRun.take 7) (evt031LossyRun.drop 7)
+    (by rw [List.take_append_drop]; exact Or.inr rfl) 0 (by decide)
   revert this; decide
 
 /-! ### The witness: what the lines leave open -/
@@ -1629,7 +1935,8 @@ def evt031TestRun : List (SubLbl Nat) :=
    .op (.append 4), .await 0, .pull 0, .pull 0, .recv 0 [2, 4], .close 0, .await 0, .finish 0]
 
 /-- The test derivation on the witness: the earlier event and the odd one are not delivered, the
-two even events come in one batch of two, and the close is followed by the end. An overflow run
+two even events come in one batch of two, which is both events the receive took, and the close is
+followed by the end. An overflow run
 and a drop run meet the premises of lines 4 to 6 and 10 and 11: the backlog reaches the capacity
 at the second append of a subscription that has not ended, its channel holds event 1, and the
 receives take it before the end. -/
@@ -1637,14 +1944,14 @@ receives take it before the end. -/
 theorem EVT_031_nonvacuous :
     evt031PySub evt031TestRun ∧ appended (storeOps evt031TestRun) = [0, 1, 2, 4] ∧
       matchingAfter 0 evt031TestRun = [2, 4] ∧ batches 0 evt031TestRun = [[2, 4]] ∧
-      pending 0 (evt031TestRun.take 9) = false ∧
+      pending 0 (evt031TestRun.take 9) = false ∧ pulls 0 (evt031TestRun.take 9) = 2 ∧
       evt031PySub subRunOverflow ∧ 1 ≤ backlog 0 (subRunOverflow.take 2) ∧
       evt031Ended 0 (subRunOverflow.take 2) = false ∧
       evt031Held 0 (subRunOverflow.take 2) = [1] ∧ received 0 subRunOverflow = [1] ∧
       evt031PySub subRunDrop ∧ evt031Ended 0 (subRunDrop.take 2) = false ∧
       evt031Held 0 (subRunDrop.take 2) = [1] ∧ received 0 subRunDrop = [1] := by
   refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
-    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
+    by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel, by decide +kernel, by decide +kernel,
     by decide +kernel, by decide +kernel⟩
 

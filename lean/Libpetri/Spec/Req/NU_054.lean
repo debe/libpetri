@@ -34,7 +34,7 @@ Three blocks share the ID here:
 The witnesses are `refNuBuild` and `RefNuFire` (`Reference/Nu.lean`) and the shipped classifier
 `refClassify` (`Novel.RouteB.classifyS`). The failure outcome of a firing that breaks the check
 (a `TransitionFailed` event, the checked batch withheld, the relay error before the [IO-016]
-multiplicity warning) is wave W11's `NU_054_fail` block, on RefExec's fail label; it is not here.
+multiplicity warning) is the block `NU_054_fail` (`NU_054_fail.lean`), on RefExec's fail label; it is not here.
 
 Rulings: D24 (a) (the timeout outcome is not validated against the output spec, but the relay
 check runs on it), D37 (a) (a key projection is partial: a token may have no name).
@@ -67,7 +67,7 @@ requirement NU_054_build
           "The converse for relays (a transition whose relay targets are distinct output places builds when it passes every other check) is NU_020_build's last line, whose NuBuilds names every check a matched transition passes. The third line here is its self-loop case, which the spec states as a permission ('A relay target MAY also be one of the join's own match keys'); it is a line so that a builder that refuses a relay target on a key is a forbidden model under this ID (NU_054_build_forbids_noSelfLoop; that builder also breaks NU_020_build). 'Every other build-time check' is the list of the glossary entry Build-time checks, which names the match-key checks of NU-020 and the relay checks here after the output-spec checks (clash nu-a#9, ruling D20 (a)); NuBuilds is that list."
           "Under composition the relay targets are remapped with the keys ([NU-030], [NU-060]); a rewrite that maps two relay targets of one join onto one place yields a relay target declared twice, which the first line rejects at rebuild, since NB is the one builder every construction path goes through (NU_020_build's reading of 'on every construction path'). The rewrite itself is NU-030's and the composition model's (wave W8)."
           "AC1 (a relay target that is not an output of the transition, or is declared twice, is rejected at transition build with an error naming the transition and the place) is the first two lines and the fourth; NU_054_build_nonvacuous shows both rejections, each message naming the transition and the place, and the self-loop accepted."
-  signoff "pending"
+  signoff "2026-11-13 83a503773740d307 ai"
   statement : ∀ {N K : Type} [DecidableEq N] [ToString N], (NuTrans N K → Option String) → Prop :=
     fun NB =>
       (∀ t ms, t.mspec = some ms → ¬ ms.relayPlaces.Nodup → NB t ≠ none) ∧
@@ -114,13 +114,13 @@ requirement NU_054_check
         "*While* output validation is on, *when* a transition with a match specification fires, every token the firing deposits into one of its relay targets *shall* have a name under that relay target's key projection, whichever output branch or timeout outcome deposited it."
   reading "For every transition t that builds (NuBuilds) with match specification ms and every firing of t in R (an executor with output validation on) with chosen name n that emits e: for every relay target (p, f) of ms and every token x that e puts on p, if f gives x a name m, then m = n."
           "For every such firing: for every relay target (p, f) of ms and every token x that e puts on p, f gives x a name."
-  assumes "The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel), as for NU_020_enable: R t M c δ e M' says that t fires from M with chosen name c, delivers δ, its action emits e (every token it deposits, whatever wrote it) and the firing leaves M'. The lines speak of firings that complete: a completion whose emission breaks the check is not a firing of R. The lines quantify over firings with a chosen name some n; that every matched firing has one is NU_020_enable's first line (a firing of a transition with a match specification has a chosen name, and it is eligible), so a model that fired a matched transition with no chosen name is forbidden there and cannot satisfy these lines vacuously. The two lines together are the relay check RelayOk of the reference (RefNuFire), split so that each half has its own forbidden model. The reference runs it on every outcome the output spec offers, an action branch or the timeout outcome (ruling D24 (a): the timeout outcome is not validated against the output spec, but the relay check runs on it, rust/libpetri-runtime/src/executor_core/executor.rs:1283-1299). Java and TypeScript fail such a timeout (RD-01): they validate the timeout outcome against the whole output spec, so the timeout outcome of an output spec such as And(A, Timeout(d, B)) never fires there."
+  assumes "The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel), as for NU_020_enable: R t M c δ e M' says that t fires from M with chosen name c, delivers δ, its action emits e (every token it deposits, whatever wrote it) and the firing leaves M'. The lines speak of firings that complete: a completion whose emission breaks the check is not a firing of R. The lines quantify over firings with a chosen name some n; that every matched firing has one is NU_020_enable's first line (a firing of a transition with a match specification has a chosen name, and it is eligible), so a model that fired a matched transition with no chosen name is forbidden there and cannot satisfy these lines vacuously. The two lines together are the relay check RelayOk of the reference (RefNuFire), split so that each half has its own forbidden model. The reference runs it on every outcome the output spec offers, an action branch or the timeout outcome (ruling D24 (a): the timeout outcome is not validated against the output spec, but the relay check runs on it, rust/libpetri-runtime/src/executor_core/executor.rs:1293-1300, java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java:1915-1918, typescript/src/runtime/bitmap-net-executor.ts:1259-1260), so the timeout outcome of an output spec such as And(A, Timeout(d, B)) fires in every runtime. An executor that validated the timeout outcome against the whole output spec, the Java and TypeScript behaviour RD-01 recorded, would never fire it."
           "A relay target of the branch the firing produced is a relay target the emission puts a token on; a relay target the branch does not write receives nothing, so the lines quantify over every relay target of the match. The lines speak of transitions that build (NuBuilds), as CONC_008_nu does: the runtimes fire only transitions that built, and a transition that builds declares each relay target once (NU_054_build), so one projection per place is checked, as the runtimes' relay_for lookup does (it reads the first relay entry per place). Without the premise a faithful model of that lookup would be forbidden on a match that declares one relay target twice, which never builds."
           "The key projection of a relay target is read as the check reads it (ruling D37 (a): partial). A token whose value is absent (null, undefined, None, the unit token an Out.place leaf deposits in a timeout branch), a value of another type, and a projection that throws or raises all give no name. That the check reports an absent value 'without calling the projection', that a Rust projection is infallible by type, and that a panicking projection propagates like a panic in the action are side effects and failure mechanisms (kind N), not lines: the tests pin them (rust/libpetri-runtime/src/nu_relay_tests.rs:228-255; typescript/src/runtime/executor-support.ts:183-192; java/src/main/java/org/libpetri/runtime/ExecutorSupport.java:288-294)."
-          "What a failing firing does is wave W11's NU_054_fail block, on RefExec's fail label (ruling D17): it 'fails the firing like any other validation failure, with an error naming the transition, the place, the matched name and the name found', deposits none of the checked batch while tokens of a batch published earlier with ctx.flush() stay, emits no IO-016 AC4 multiplicity WARN because the relay check runs first, and in Rust makes a refused ctx.flush() return Err carrying the relay message; a batch published mid-action is checked when it is published. 'The check is on by default and is skipped only where output validation itself is skipped ([CONC-026])' is the precondition 'While output validation is on' of both quoted sentences: R is the firing relation of an executor with output validation on, and RefExec's validation switch, which skips the check with the rest of output validation, is W11's. 'The runtime check is independent of the mode' holds because the lines take no fragment mode."
-          "Clash nu-c#8 (ruling D24 (a)): with the relay check a timed-out firing whose timeout outcome writes a unit token, or a forward of another input, into a relay target deposits nothing, where IO-013's quoted sentence says a timed-out firing deposits the tokens of the child. The exception belongs in IO-013's and IO-014's text, re-pinned by wave W11's integrator; this block states the check."
-          "AC2 (a join whose action writes into a relay target a token projecting to another name, or to no name, fails that firing; the same net with a conforming action fires normally; both backends in every language agree; a projection that throws fails with the no-name error; no IO-016 AC4 WARN): the refusal is the two lines, worked in NU_054_check_nonvacuous; 'the same net with a conforming action fires normally' is the conjunct NuCovers of the consistency theorem (every enabled matched transition fires with every offered emission that passes the check), shown on the example by NU_054_check_nonvacuous; the failure event, the error text and the WARN order are NU_054_fail's (W11); 'both executor backends in every language agree' is a test obligation (kind Q)."
-  signoff "pending"
+          "What a failing firing does is the block NU_054_fail (NU_054_fail.lean), on RefExec's fail label (ruling D17): it 'fails the firing like any other validation failure, with an error naming the transition, the place, the matched name and the name found', deposits none of the checked batch while tokens of a batch published earlier with ctx.flush() stay, emits no IO-016 AC4 multiplicity WARN because the relay check runs first, and in Rust makes a refused ctx.flush() return Err carrying the relay message; a batch published mid-action is checked when it is published. 'The check is on by default and is skipped only where output validation itself is skipped ([CONC-026])' is the precondition 'While output validation is on' of both quoted sentences: R is the firing relation of an executor with output validation on, and the validation skip, under which the relay check accepts everything with the rest of output validation, is NU_054_fail's (Cfg.SkipsValidation). 'The runtime check is independent of the mode' holds because the lines take no fragment mode."
+          "Clash nu-c#8 (ruling D24 (a)): with the relay check a timed-out firing whose timeout outcome writes a unit token, or a forward of another input, into a relay target deposits nothing, where IO-013's quoted sentence says a timed-out firing deposits the tokens of the child. The exception is in IO-013's text (a firing whose timeout outcome fails the relay check fails and deposits none of the tokens of child), which the block IO_013 accounts for through NU_054_check and NU_054_fail, and in IO-014's paragraph on forwarding (a forward into a relay target is checked like every other token of the timeout outcome); this block states the check."
+          "AC2 (a join whose action writes into a relay target a token projecting to another name, or to no name, fails that firing; the same net with a conforming action fires normally; both backends in every language agree; a projection that throws fails with the no-name error; no IO-016 AC4 WARN): the refusal is the two lines, worked in NU_054_check_nonvacuous; 'the same net with a conforming action fires normally' is the conjunct NuCovers of the consistency theorem (every enabled matched transition fires with every offered emission that passes the check), shown on the example by NU_054_check_nonvacuous; the failure event is NU_054_fail's, and the error text and the WARN order are test evidence there (kind Q, NU_054_fail's assumes); 'both executor backends in every language agree' is a test obligation (kind Q)."
+  signoff "2026-11-13 4e6b72f5f96a12fd ai"
   statement : ∀ {N V Nm : Type} [DecidableEq N] [LinearOrder Nm], NuFireRel N V Nm → Prop :=
     fun R =>
       (∀ t ms, t.mspec = some ms → NuBuilds t → ∀ n δ e,
@@ -173,19 +173,20 @@ requirement NU_054_verifier
   reading "For every coloured set col, mint declaration, list of timeout writes tw and transition T with match keys ks: under BASE, if some outcome (row) of T writes a coloured place, T gets no role."
           "Under EXTENDED, if some outcome of T writes a coloured place that is not one of T's relay targets, T gets no role."
           "In either mode, if some timeout write into a coloured place is not a forward of one of the places ks, T gets no role."
-          "Under EXTENDED, if T has no reset, read or inhibitor arc on a coloured place, every row puts one token and no drained batch into each coloured place it writes, every coloured place a row writes is a relay target of T, every coloured input of T is on a place of ks, every place of ks is consumed through an input of count One or Exactly, and every timeout write into a coloured place forwards a place of ks, then T gets the join role with some counted keys whose places are ks, in order, and with T's relay targets."
-          "Under EXTENDED, if T gets the join role with relay list rel, then rel is T's relay targets."
+          "Under EXTENDED, if T has no reset, read or inhibitor arc on a coloured place, every row puts one token and no drained batch into each coloured place it writes, every coloured place a row writes is a relay target of T, every coloured input of T is on a place of ks, every place of ks is consumed through an input of count One or Exactly, and every timeout write into a coloured place forwards a place of ks, then T gets the join role with some counted keys whose places are ks, in some order, and with a relay list holding exactly T's relay targets."
+          "Under EXTENDED, if T gets the join role with relay list rel, then a place is in rel exactly when it is one of T's relay targets."
           "Under BASE, if T gets the join role with relay list rel, then rel is empty."
           "Under BASE, T gets the role that T with its relay list emptied gets."
-  assumes "The classifier is per transition, as in NU_051 (glossary: Fragment classifier): no role means the net falls back to the sound over-approximation with an 'EXTENDED declined' note ([NU-050]). The coloured set is an argument; that the relay targets of every join are unioned into it under EXTENDED, before the fragment rules are checked, and that BASE colours the match keys alone, is the coloured-set computation of the verifier pipeline (wave W10). 'Under BASE the relay declarations are ignored by the analyzer' is the seventh line for the classifier (a relay declaration changes no BASE role, whatever the coloured set), with the first and sixth lines (the declarations neither let a coloured output in nor reach the role), and the pipeline's BASE coloured set for the rest."
+  assumes "The classifier is per transition, as in NU_051 (glossary: Fragment classifier): no role means the net falls back to the sound over-approximation with an 'EXTENDED declined' note ([NU-050]). The coloured set is an argument; that the relay targets of every join are unioned into it under EXTENDED, before the fragment rules are checked, and that BASE colours the match keys alone, is the coloured-set computation, which no block states: the verifier pipeline model (Verifier/Pipeline.lean, the block VER_003) does not model how a ν verifier builds the coloured set. It is Q-tested: Rust name_fragment.rs extended_colours_relay_targets_and_the_join_carries_them and a_relay_target_no_join_consumes_is_coloured_and_its_read_arc_rejects, and name_coloured_encoder.rs a_relay_target_no_join_consumes_is_coloured_and_produced_by_the_join (under EXTENDED a relay target is coloured, also one no join consumes). 'Under BASE the relay declarations are ignored by the analyzer' is the seventh line for the classifier (a relay declaration changes no BASE role, whatever the coloured set), with the first and sixth lines (the declarations neither let a coloured output in nor reach the role), and the pipeline's BASE coloured set for the rest."
           "The outcomes of a transition are Route B's rows (Novel.RouteB.NuTrans.rows: the action branches, then the timeout deposits), the timeout writes are the separate argument tw (Rust timeout_writes), as in NU_051. A unit token is TW.unit; a forward of an input is TW.forward with the input's place. 'No reset, read or inhibitor arc on a coloured place' and 'one token, and never a drained batch' are NU_051's ColouredTestArc and SingleColouredWrites."
-          "The fourth line is the classification the relay exists for ('Relay targets change the classification only under EXTENDED'): it is the admission, on NU_051's pattern for the consume role, and makes a classifier that never gives a relaying join a role a forbidden model (NU_054_verifier_forbids_never). Its conditions are those of the shipped classifier (Novel.RouteB.classifyT and classifyS, rust/libpetri-verification/src/name_fragment.rs classify): the markdown names the coloured-output, off-key, test-arc and timeout rules; 'consumes each match key at a fixed count' is the key-count rule of the matched-join fragment (keyCount: One gives 1, Exactly(n) gives n, All and AtLeast are refused), which the markdown does not spell out and which the sentence states as the runtimes do. The counted keys (place and count per key) are the join's enabling counts, Route B's subject (NU-055); the line fixes only that their places are the keys."
+          "The fourth line is the classification the relay exists for ('Relay targets change the classification only under EXTENDED'): it is the admission, on NU_051's pattern for the consume role, and makes a classifier that never gives a relaying join a role a forbidden model (NU_054_verifier_forbids_never). Its conditions are those of the shipped classifier (Novel.RouteB.classifyT and classifyS, rust/libpetri-verification/src/name_fragment.rs classify): the markdown names the coloured-output, off-key, test-arc and timeout rules; 'consumes each match key at a fixed count' is the key-count rule of the matched-join fragment (keyCount: One gives 1, Exactly(n) gives n, All and AtLeast are refused), which the markdown does not spell out and which the sentence states as the runtimes do. The counted keys (place and count per key) are the join's enabling counts, Route B's subject (NU-055); the line fixes only that their places are the keys, in some order."
+          "The fourth and fifth lines read the relay targets as a set and the counted keys up to order, as the quotes do ('with the relay targets it declares', 'exactly the relay targets the transition declares'). The runtimes give the counted keys in code-point order of the place names and hold the relay targets as a set: Rust name_fragment.rs classify sorts coloured_in and collects relay_to into a BTreeSet; Java NameFragment.classify sorts colouredIn by CodePointOrder and copies relayTo into a Set (NameFragment.java:394-395); TypeScript name-fragment.ts classify sorts colouredIn by compareCodePoints and builds relayTo as a Set (verification/analysis/name-fragment.ts:251-283). The reference refClassify keeps the declared order of both; nu054_sortedClassify, which sorts both as the runtimes do, meets the block too (NU_054_verifier_sorted). Which order the counted keys take matters only to Route B's enabling test with a zero-count key (Novel.RouteB.joinEnab_perm_of_pos, zeroKey_order_matters), which is NU-055's concern, not the classifier's."
           "The fragment rules of the relay that are coloured-place rules of NU-051 are NU_051's lines, which apply to a relay target once it is coloured: 'a relay target that the same join also consumes through an input that is not one of its match keys' is NU_051's fifth line, 'a relay target carrying a read, inhibitor or reset arc on any transition' its fourth. 'A relay target no join consumes is still coloured: its consumers take the [NU-051] consume role and any other producer the mint role, when it is a declared mint ([NU-010])' is NU_051's and NU-010's lines over that coloured set. 'A coloured output of a join that is not a relay target, or a relay target produced with a count other than one, is outside the fragment' is the second line here and the branch rule (Novel.RouteB.classifyT: each coloured place a branch writes takes exactly one token, never a drained batch)."
           "The name step of a relaying join ('A join firing on symbol s removes s from its keys as before, then adds s once to each relay target in the fired branch'; a branch with no relay target drains s; an Xor join may relay on one branch and drain on another; the step mints nothing and commutes with renaming) is Route B's executable model, not a line: Novel.RouteB.joinStep with relOut (Name.lean, Graph.lean), joinStep_sym, and routeB_equivariant for the relay role. The Route A update of a relaying join (the per-colour guards and update terms, no update term on a key that is also a relay target) and the colour-slot weights are NU-053's encoding and the script goldens (VER-013), test-cited (kind Q). The canonical key format and byte parity are VER-012's subject."
-          "'A verifier that meets a relay declaration under BASE MUST say in its report that the declaration was ignored and name EXTENDED' and the 'EXTENDED declined' note are report lines (kind N) of the verifier pipeline (W10); clash nu-c#7 (ruling D20 (a)) made the body's SHOULD the MUST of AC5."
-          "The timeout rule is stated for the coloured places the timeout writes; under EXTENDED those include the relay targets, so it is the spec's 'a join whose Timeout branch writes a relay target by anything other than a forward of one of its match keys'. The run-time reason ('an Out.place leaf writes a unit token with no name, and a forward of another input carries that input's name, so that firing fails and deposits nothing') is NU_054_check with NU_054_fail (W11)."
-          "AC3 (a relay join chain decided through Route B), AC5 (the BASE verdict unchanged, the report naming the ignored declaration), AC6 (Route A and Route B agree on small relay fixtures) and AC7 (no canonical key changes for a net without relay declarations) are verdict, report and fixture lines of the verifier pipeline and the conformance corpus (W10, kind Q). Their classifier halves are lines here: AC3's 'rather than falling back' for the join is the fourth line, AC5's 'the verdict it got without one' is the seventh (the BASE classification, and so the BASE net the verdict is computed on, does not see the declaration), shown in NU_054_verifier_nonvacuous. AC4's rejections are the second and third lines and NU_051's fourth and fifth (its 'neither Route B nor Route A decides it' has a Route B witness only: Novel.RouteA.shippedGate does not model the join-timeout refusal, Plan.lean:419-425, so the Route A half is test-cited); NU_054_verifier_nonvacuous shows the unit-token timeout refused and the timeout forwarding a match key admitted."
-  signoff "pending"
+          "'A verifier that meets a relay declaration under BASE MUST say in its report that the declaration was ignored and name EXTENDED' and the 'EXTENDED declined' note are report lines (kind N), which no block states; they are Q-tested (the BASE note: Rust tests/nu_join_relay fig12c_under_base_ignores_the_declaration_and_says_so, Java JoinRelayTest, TypeScript tests/verification/nu-join-relay.test.ts, Python tests/test_nu_join_relay.py test_base_ignores_the_declaration_and_says_so; the 'EXTENDED declined' note: NU_051's assumes); clash nu-c#7 (ruling D20 (a)) made the body's SHOULD the MUST of AC5."
+          "The timeout rule is stated for the coloured places the timeout writes; under EXTENDED those include the relay targets, so it is the spec's 'a join whose Timeout branch writes a relay target by anything other than a forward of one of its match keys'. The run-time reason ('an Out.place leaf writes a unit token with no name, and a forward of another input carries that input's name, so that firing fails and deposits nothing') is NU_054_check with NU_054_fail."
+          "AC3 (a relay join chain decided through Route B), AC5 (the BASE verdict unchanged, the report naming the ignored declaration), AC6 (Route A and Route B agree on small relay fixtures) and AC7 (no canonical key changes for a net without relay declarations) are verdict, report and fixture lines, which no block states (kind Q): AC3, AC5 and AC6 are tested in Rust tests/nu_join_relay (chain_reaches_done_and_is_deadlock_free_via_route_b, fig12c_under_base_ignores_the_declaration_and_says_so, routes_agree_on_the_relay_fixtures), with the same queries in Java JoinRelayTest and TypeScript tests/verification/nu-join-relay.test.ts, over spec/verification-fixtures/nu-relay-fixtures.json; AC7 is about VER-012's canonical keys, and no test names it. Their classifier halves are lines here: AC3's 'rather than falling back' for the join is the fourth line, AC5's 'the verdict it got without one' is the seventh (the BASE classification, and so the BASE net the verdict is computed on, does not see the declaration), shown in NU_054_verifier_nonvacuous. AC4's rejections are the second and third lines and NU_051's fourth and fifth (its 'neither Route B nor Route A decides it' has a Route B witness only: Novel.RouteA.shippedGate does not model the join-timeout refusal, Plan.lean:419-425, so the Route A half is test-cited); NU_054_verifier_nonvacuous shows the unit-token timeout refused and the timeout forwarding a match key admitted."
+  signoff "2026-11-13 2862561078975af1 ai"
   statement : Classifier → Prop :=
     fun C =>
       (∀ col declared tw (T : Novel.RouteB.NuTrans) ks, T.keys = some ks →
@@ -202,9 +203,10 @@ requirement NU_054_verifier
         (∀ r ∈ T.rows, ∀ p ∈ r.places, col p = true → p ∈ T.relays) →
         (∀ s ∈ ColouredInputs col T, s.place ∈ ks) → KeysFixedCount T ks →
         (∀ w ∈ tw, col w.1 = true → ∃ k ∈ ks, w.2 = Novel.RouteB.TW.forward k) →
-        ∃ cin, cin.map Prod.fst = ks ∧ C col .extended declared tw T = some (.join cin T.relays)) ∧
+        ∃ cin rel, (cin.map Prod.fst).Perm ks ∧ (∀ p, p ∈ rel ↔ p ∈ T.relays) ∧
+          C col .extended declared tw T = some (.join cin rel)) ∧
       (∀ col declared tw (T : Novel.RouteB.NuTrans) ks cin rel, T.keys = some ks →
-        C col .extended declared tw T = some (.join cin rel) → rel = T.relays) ∧
+        C col .extended declared tw T = some (.join cin rel) → ∀ p, p ∈ rel ↔ p ∈ T.relays) ∧
       (∀ col declared tw (T : Novel.RouteB.NuTrans) ks cin rel, T.keys = some ks →
         C col .base declared tw T = some (.join cin rel) → rel = []) ∧
       (∀ col declared tw (T : Novel.RouteB.NuTrans) ks, T.keys = some ks →
@@ -237,15 +239,16 @@ fun C =>
                     (∀ s ∈ ColouredInputs col T, s.place ∈ ks) →
                       KeysFixedCount T ks →
                         (∀ w ∈ tw, col w.1 = true → ∃ k ∈ ks, w.2 = Novel.RouteB.TW.forward k) →
-                          ∃ cin,
-                            List.map Prod.fst cin = ks ∧
-                              C col Novel.RouteB.Mode.extended declared tw T =
-                                some (Novel.RouteB.Role.join cin T.relays)) ∧
+                          ∃ cin rel,
+                            (List.map Prod.fst cin).Perm ks ∧
+                              (∀ (p : PlaceId), p ∈ rel ↔ p ∈ T.relays) ∧
+                                C col Novel.RouteB.Mode.extended declared tw T =
+                                  some (Novel.RouteB.Role.join cin rel)) ∧
           (∀ (col : PlaceId → Bool) (declared : Bool) (tw : List (PlaceId × Novel.RouteB.TW)) (T : Novel.RouteB.NuTrans)
               (ks : List PlaceId) (cin : List (PlaceId × ℕ)) (rel : List PlaceId),
               T.keys = some ks →
                 C col Novel.RouteB.Mode.extended declared tw T = some (Novel.RouteB.Role.join cin rel) →
-                  rel = T.relays) ∧
+                  ∀ (p : PlaceId), p ∈ rel ↔ p ∈ T.relays) ∧
             (∀ (col : PlaceId → Bool) (declared : Bool) (tw : List (PlaceId × Novel.RouteB.TW))
                 (T : Novel.RouteB.NuTrans) (ks : List PlaceId) (cin : List (PlaceId × ℕ)) (rel : List PlaceId),
                 T.keys = some ks →
@@ -516,7 +519,7 @@ theorem NU_054_verifier_reference : NU_054_verifier refClassify := by
       unfold Novel.RouteB.classifyT
       simp only [h1, h2, hk, Bool.not_true, Bool.false_eq_true, ↓reduceIte, Bool.and_false, h3, h4,
         hcin, Option.map_some]
-    refine ⟨cin, hfst, ?_⟩
+    refine ⟨cin, T.relays, hfst ▸ List.Perm.refl _, fun _ => Iff.rfl, ?_⟩
     have h5 : tw.all (fun w => !col w.1 || cin.any fun k => w.2 == Novel.RouteB.TW.forward k.1)
         = true := by
       rw [List.all_eq_true]
@@ -530,8 +533,9 @@ theorem NU_054_verifier_reference : NU_054_verifier refClassify := by
         simp only [Bool.not_true, Bool.false_or, List.any_eq_true, beq_iff_eq]
         exact ⟨x, hx, hf⟩
     simp only [refClassify, Novel.RouteB.classifyS, hT, h5, if_true]
-  · intro col declared tw T ks cin rel _ h
-    simpa using nu054_classifyT_join_rel (Novel.RouteB.classifyS_sub h)
+  · intro col declared tw T ks cin rel _ h p
+    have : rel = T.relays := by simpa using nu054_classifyT_join_rel (Novel.RouteB.classifyS_sub h)
+    rw [this]
   · intro col declared tw T ks cin rel _ h
     simpa using nu054_classifyT_join_rel (Novel.RouteB.classifyS_sub h)
   · intro col declared tw T ks _
@@ -692,6 +696,73 @@ theorem NU_054_verifier_nonvacuous :
       refClassify nu054_colBase .base false [] (nu054_vj1 []) =
         some (.join [(0, 1), (1, 1)] []) := by
   refine ⟨by decide, by decide, by decide, by decide, by decide, by decide, by decide⟩
+
+/-! ## A classifier that sorts, as the runtimes do -/
+
+/-- A join role with its counted keys and its relay targets sorted by place, as the runtimes give
+them (Rust `coloured_in.sort()` and a `BTreeSet` of relay targets, Java and TypeScript sort by
+code point and hold a set). Every other role is unchanged. -/
+def nu054_sortRole : Novel.RouteB.Role → Novel.RouteB.Role
+  | .join cin rel =>
+      .join (cin.insertionSort fun a b => a.1 ≤ b.1) (rel.insertionSort fun a b => a ≤ b)
+  | r => r
+
+/-- The shipped classifier with every join role sorted (`nu054_sortRole`). -/
+def nu054_sortedClassify : Classifier := fun col mode declared tw T =>
+  (refClassify col mode declared tw T).map nu054_sortRole
+
+/-- A sorted role that is a join comes from a join, with the same places up to order. -/
+theorem nu054_sortRole_join {r : Novel.RouteB.Role} {cin : List (PlaceId × ℕ)} {rel : List PlaceId}
+    (h : nu054_sortRole r = .join cin rel) :
+    ∃ cin0 rel0, r = .join cin0 rel0 ∧ rel = rel0.insertionSort (fun a b => a ≤ b) := by
+  cases r with
+  | join cin0 rel0 =>
+    simp only [nu054_sortRole, Novel.RouteB.Role.join.injEq] at h
+    exact ⟨cin0, rel0, rfl, h.2.symm⟩
+  | _ => simp [nu054_sortRole] at h
+
+/-- ✓ The block reads the counted keys up to order and the relay targets as a set: the classifier
+that sorts both, as the runtimes do, meets it as the reference does. A block that asked for the
+declared order would forbid all three runtimes on a join whose keys or relay targets are declared
+out of order. -/
+theorem NU_054_verifier_sorted : NU_054_verifier nu054_sortedClassify := by
+  obtain ⟨r1, r2, r3, r4, r5, r6, r7⟩ := NU_054_verifier_reference
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro col declared tw T ks hk h
+    simp [nu054_sortedClassify, r1 col declared tw T ks hk h]
+  · intro col declared tw T ks hk h
+    simp [nu054_sortedClassify, r2 col declared tw T ks hk h]
+  · intro col mode declared tw T ks hk h
+    simp [nu054_sortedClassify, r3 col mode declared tw T ks hk h]
+  · intro col declared tw T ks hk harc hw hrel hoff hkc htw
+    obtain ⟨cin, rel, hp, hr, hc⟩ := r4 col declared tw T ks hk harc hw hrel hoff hkc htw
+    refine ⟨cin.insertionSort (fun a b => a.1 ≤ b.1), rel.insertionSort (fun a b => a ≤ b),
+      ((List.perm_insertionSort _ cin).map Prod.fst).trans hp,
+      fun p => (List.perm_insertionSort _ rel).mem_iff.trans (hr p), ?_⟩
+    simp [nu054_sortedClassify, hc, nu054_sortRole]
+  · intro col declared tw T ks cin rel hk h p
+    obtain ⟨r, hr, hs⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨cin0, rel0, rfl, rfl⟩ := nu054_sortRole_join hs
+    exact (List.perm_insertionSort _ rel0).mem_iff.trans (r5 col declared tw T ks cin0 rel0 hk hr p)
+  · intro col declared tw T ks cin rel hk h
+    obtain ⟨r, hr, hs⟩ := Option.map_eq_some_iff.mp h
+    obtain ⟨cin0, rel0, rfl, rfl⟩ := nu054_sortRole_join hs
+    rw [r6 col declared tw T ks cin0 rel0 hk hr]
+    rfl
+  · intro col declared tw T ks hk
+    simp only [nu054_sortedClassify, r7 col declared tw T ks hk]
+
+/-- The sorted classifier on `j1` with its keys and relay targets declared out of order: keys
+`[1, 0]` and relay targets `[3, 2]` come back as `[(0, 1), (1, 1)]` and `[2, 3]`, a role the
+reference does not give, which the fourth and fifth lines accept. -/
+theorem nu054_sorted_reorders :
+    nu054_sortedClassify (fun p => [0, 1, 2, 3].contains p) .extended false []
+        { nu054_vj1 [3, 2] with keys := some [1, 0], rows := [⟨[2, 3], []⟩] } =
+      some (.join [(0, 1), (1, 1)] [2, 3]) ∧
+    refClassify (fun p => [0, 1, 2, 3].contains p) .extended false []
+        { nu054_vj1 [3, 2] with keys := some [1, 0], rows := [⟨[2, 3], []⟩] } =
+      some (.join [(1, 1), (0, 1)] [3, 2]) := by
+  refine ⟨by decide, by decide⟩
 
 /-! ## Forbidden models: building -/
 
@@ -972,7 +1043,7 @@ fails. -/
 @[evidence forbids NU_054_verifier]
 theorem NU_054_verifier_forbids_never : ¬ NU_054_verifier nu054_never := by
   intro h
-  obtain ⟨cin, -, hc⟩ := h.2.2.2.1 nu054_colExt false [] (nu054_vj1 [2]) [0, 1] rfl
+  obtain ⟨cin, rel, -, -, hc⟩ := h.2.2.2.1 nu054_colExt false [] (nu054_vj1 [2]) [0, 1] rfl
     (by rintro ⟨p, -, hp | hp | hp⟩ <;> simp [nu054_vj1] at hp)
     (by simp [SingleColouredWrites, nu054_vj1])
     (by decide)
@@ -993,7 +1064,7 @@ although it declares the relay target 2; the fifth line fails. -/
 theorem NU_054_verifier_forbids_dropRelays : ¬ NU_054_verifier nu054_dropRelays := by
   intro h
   have := h.2.2.2.2.1 nu054_colExt false [] (nu054_vj1 [2]) [0, 1] [(0, 1), (1, 1)] [] rfl
-    (by decide)
+    (by decide) 2
   revert this; decide
 
 /-- A classifier that gives every join it admits the relay targets the transition declares, in

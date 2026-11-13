@@ -67,7 +67,7 @@ requirement EXP_006
           "AC1 (non-One cardinality is displayed on the arc) is encoded in its label half by lines 2, 3 and 4: every buildable non-One cardinality has a cardinality label (EXP_006_labels_nonOne). Its 'on the arc' half is EXP-018's label lines (see above)."
           "AC2 (One cardinality has no cardinality label, by default) is line 1. The edge label is not modelled here, so this block does not rule out a One input edge drawn with some other label (for example 1); EXP-018's line 3 does, under which an uncorrelated One edge carries no label. EXP-018 labels a correlated One input edge ⟨n⟩, which is not a cardinality label, so it does not contradict AC2 (ruling D41 (a), clash exp-a#6, clashExport_corrOne). The word 'default' is read as 'the label of an uncorrelated One input edge'; no configuration option of EXP-007 changes the cardinality label in any runtime."
           "The test derivation (a net with Exactly(3) and AtLeast(5) inputs, labels show the counts) is EXP_006_nonvacuous on the reference labeller: ×3 and ≥5."
-  signoff "pending"
+  signoff "2026-11-13 489541afb6b0730a ai"
   statement : (Card → Option String) → Prop :=
     fun L =>
       L .one = none ∧

@@ -24,7 +24,9 @@ naming the first binding that retired it (line 2). A transition that, after fusi
 retired place does not make it fail (line 3), and neither does declaring a place (line 4). And a
 retirement by itself rejects nothing: a compose call builds wherever the direct composition of the
 same rewritten transitions, which retires nothing, builds and no transition names a place the call
-retires (line 5).
+retires (line 5). Every line leaves out scripts in which a composition binds one renamed place to
+two different caller places (`OneCallerPerPort`, ruling D35 (a)): what the runtimes do then is
+not defined, and Rust's choice follows a randomly seeded hash order.
 
 The witness is the composition model's build script `buildScript` (`Reference/ComposeBuild.lean`);
 the block holds of it for every naming, token-type check, transition-builder check and channel
@@ -126,18 +128,18 @@ requirement MOD_027
   source verbatim "spec/11-modular-composition.md"
   quote "*If* no composition of the builder binds one renamed place to two different caller places and a transition of the builder after fusion, one added to the builder or one a composition added, names a retired place in an arc of any kind or in its output specification, *then* `build()` *shall* fail, whatever the order in which the transition and the composition that retired the place were added."
         "*If* a transition that fusion rewrites without an input-arc collision, that passes the transition builder's checks before and after fusion, and that after fusion consumes from or reads no terminal place and names exactly one retired place, is added to a builder whose net builds and whose fusion sets share no place, before or after its other calls but after every auto-bound and direct composition ([MOD-024], [MOD-025]), and no composition of the builder binds one renamed place to two different caller places, *then* `build()` *shall* fail with the message `place '<place>' is port '<port>' of instance '<instance>', bound to host place '<caller>' at compose; reference '<caller>' instead`, where `<place>` is that retired place and `<port>`, `<instance>` and `<caller>` are the port, the instance prefix and the caller place of a binding by which the first composition that retired the place retired it."
-        "*When* a transition that fusion rewrites without an input-arc collision, that passes the transition builder's checks before and after fusion, and that after fusion names no retired place and consumes from or reads no terminal place, is added to a builder whose net builds and whose fusion sets share no place, before or after its other calls but after every auto-bound and direct composition, `build()` *shall* still succeed."
-        "*When* one more place, a retired place included, is declared on a builder whose net builds, before or after its other calls but after every auto-bound and direct composition, `build()` *shall* still succeed."
-        "*When* a `compose(instance, bindings)` call without channel bindings takes the place of a direct composition ([MOD-025]) of the instance's transitions rewritten through its bindings on a builder whose net builds, with no auto-bound or direct composition after it, and the call binds every port at most once, only ports the instance declares, each port to a caller place of its port's token type ([MOD-022]) and one renamed place to one caller place only, the instance's transitions have distinct names and no input or output collision under the bindings ([MOD-020]), and no transition of that net names a place the call retires, `build()` *shall* still succeed."
+        "*When* a transition that fusion rewrites without an input-arc collision, that passes the transition builder's checks before and after fusion, and that after fusion names no retired place and consumes from or reads no terminal place, is added to a builder whose net builds and whose fusion sets share no place, before or after its other calls but after every auto-bound and direct composition, and no composition of the builder binds one renamed place to two different caller places, `build()` *shall* still succeed."
+        "*When* one more place, a retired place included, is declared on a builder whose net builds, before or after its other calls but after every auto-bound and direct composition, and no composition of the builder binds one renamed place to two different caller places, `build()` *shall* still succeed."
+        "*When* a `compose(instance, bindings)` call without channel bindings takes the place of a direct composition ([MOD-025]) of the instance's transitions rewritten through its bindings on a builder whose net builds, with no auto-bound or direct composition after it, and the call binds every port at most once, only ports the instance declares, each port to a caller place of its port's token type ([MOD-022]) and one renamed place to one caller place only, no other composition of the builder binds one renamed place to two different caller places, the instance's transitions have distinct names and no input or output collision under the bindings ([MOD-020]), and no transition of that net names a place the call retires, `build()` *shall* still succeed."
   reading "For every naming Nm, token-type map tyOf, transition-builder check Build and build script S (a list of builder calls, made on a new builder, gives the net build() returns or a rejection message), where a call retires a place q when it is an explicit compose call or MOD-024's auto-bound form and binds a port whose renamed place is q to a caller place other than q (RetiresPort; PortRetiredBy ops q: some call of ops retires q), a call is blind when it is neither an auto-composition nor a direct composition, a script has one caller per port when no call binds one renamed place to two different caller places, [add d] is the call that adds the transition definition d, d' is d after fusion (fuseDef under the substitution SubstSpec asks of the fusion sets the calls declare), the twin of compose I ports is the direct composition of I's transitions rewritten through the bindings (mod027Twin) and the composition accepts compose I ports when the MOD-020 and MOD-022 checks but the transition builder's pass (mod027Accepts tyOf):"
           "line 1: if ops has one caller per port and S ops builds the net c, no transition of c names a place some call of ops retired, in any arc or in its output specification, and no transition added by a call of ops names one after fusion, for any substitution fusion asks for;"
           "line 2: if pre ++ post has one caller per port, S (pre ++ post) builds c, every call of post is blind, the declared fusion sets are pairwise disjoint, d and d' pass Build, d' consumes from or reads no terminal place of c, d' names P, P is retired and every retired place d' names is P, then for some retirement r of P made by the first call of pre ++ post that retires P, S (pre ++ [add d] ++ post) fails with mod027Msg Nm r;"
-          "line 3: if S (pre ++ post) builds c, every call of post is blind, the declared fusion sets are pairwise disjoint, d and d' pass Build, d' consumes from or reads no terminal place of c and d' names no retired place, then S (pre ++ [add d] ++ post) builds;"
-          "line 4: if S (pre ++ post) builds and every call of post is blind, then S (pre ++ [declare q] ++ post) builds, for every place q;"
-          "line 5: if every call of post is blind, compose I ports [] has one caller per port and the composition accepts it, S (pre ++ [twin] ++ post) builds c and no transition of c names a place compose I ports [] retires, then S (pre ++ [compose I ports []] ++ post) builds."
+          "line 3: if pre ++ post has one caller per port, S (pre ++ post) builds c, every call of post is blind, the declared fusion sets are pairwise disjoint, d and d' pass Build, d' consumes from or reads no terminal place of c and d' names no retired place, then S (pre ++ [add d] ++ post) builds;"
+          "line 4: if pre ++ post has one caller per port, S (pre ++ post) builds and every call of post is blind, then S (pre ++ [declare q] ++ post) builds, for every place q;"
+          "line 5: if every call of post is blind, pre ++ post and compose I ports [] have one caller per port, the composition accepts it, S (pre ++ [twin] ++ post) builds c and no transition of c names a place compose I ports [] retires, then S (pre ++ [compose I ports []] ++ post) builds."
   assumes "Model scope. A build script is one implementation's net builder driven through its calls and then built, read as a function from the list of calls to the net or a rejection (ScriptFn, Reference/ComposeBuild.lean); a panic or exception at a call or at build() is a rejection. The runtimes record retired ports in compose and check them in build(): Rust PetriNetBuilder (rust/libpetri-core/src/petri_net.rs, recording at :1109-1130, build at :678-700, the check reject_bound_port_references at :711-731), Java PetriNet.Builder (java/src/main/java/org/libpetri/core/PetriNet.java, recording at :721-731, build at :1000-1006, checkRetiredPorts at :1016-1038, after fusion at :1186), TypeScript PetriNetBuilder (typescript/src/core/petri-net.ts, recording at :586-592, build at :732-739, rejectBoundPortReferences at :932-950, after fusion at :834). Python builds its Net through the Rust builder, so the Rust panic surfaces as StructureError, as the implementation notes say. tyOf is the token type MOD-022 checks at compose (a constant where no type is kept). The witness is the reference script buildScript; mod027_ref shows the block for every naming, token-type check, transition-builder check and channel merge (MOD-021). A script ends at its first rejected call. A caller that catches a failed compose and goes on with the same builder is out of scope: Rust consumes the builder (compose takes self by value, rust/libpetri-core/src/petri_net.rs:374) and Python makes it unusable (rust/libpetri-py/src/model.rs, PyPetriNetBuilder::take_builder), while Java (java/src/main/java/org/libpetri/core/PetriNet.java:729-734, :894-895) and TypeScript (typescript/src/core/petri-net.ts:591, :645-646) may keep the retired-port records and merged transitions of the failed call. So a retired place is one that a composition the script completed bound."
           "What is retired. RetiresPort is the paragraph 'The builder MUST remember every port place a composition retired this way' and the sentence after it: a binding of an explicit compose call, or of MOD-024's auto-bound form (every declared port bound to its own unrenamed body place, which always differs from the renamed place, pre_ne_self), whose caller place differs from the port's renamed place under the implementation's Place equality (CORE-002: the place type N, by name in Rust, TypeScript and Python, by name and token type in Java). A port bound to its own renamed place, a port that is not bound, a place that direct composition (MOD-025) merges by name, a body place that MOD-024's inference merges and a fusion member (MOD-061) are no retirements. What the builder remembers is not observable through a build script; the lines state what build() does with it, and the reference keeps exactly these records, the first one per place first (mod027Inv)."
-          "Ruling D35 (a): what a composition does when it binds one renamed place to two different caller places is not defined. Rust keeps one of the two bindings in hash order and may then not retire the place (rust/libpetri-core/src/petri_net.rs:1050-1068, :1113-1124), so lines 1, 2 and 5 leave such scripts out (OneCallerPerPort); lines 3 and 4 hold without it. OneCallerPerPort also leaves out one port bound twice to two places, which the Map-based binding APIs cannot express and MOD-020 rejects. With two ports bound to one caller place, the message may name either port: Java the first in interface order (putIfAbsent over iface.ports(), java/src/main/java/org/libpetri/core/PetriNet.java:722-731), Rust and TypeScript the one their map from renamed place to port name keeps (rust/libpetri-core/src/petri_net.rs:1103-1107, typescript/src/core/petri-net.ts:578-579). So line 2 names some binding by which the first retiring call retired the place."
+          "Ruling D35 (a): what a composition does when it binds one renamed place to two different caller places is not defined. Rust keeps the binding that comes last in the iteration order of its std HashMap of bindings, whose hasher is seeded at random (RandomState; rust/libpetri-core/src/petri_net.rs:377, :1050-1068), and retires the renamed place only when the binding it kept is to another place (:1113-1124). So the same calls may build in one run and fail in the next: a subnet whose ports in1 and in2 both expose IN, composed as answer with in1 bound to answer/IN and in2 to A_IN, then a host transition resetting answer/IN, builds when answer/IN wins and fails with the MOD-027 message when A_IN wins, so the same script with one more place declared, or one more transition that names no retired place, may fail where the script without it built. Java and TypeScript fill their binding maps differently (java/src/main/java/org/libpetri/core/PetriNet.java:718, :720-731, typescript/src/core/petri-net.ts:549, :587-592). A build script is then not a function of its calls, so every line leaves such scripts out (OneCallerPerPort): lines 1 to 4 ask it of the script without the inserted call, which the inserted transition or place does not change, and line 5 of the compose call and of the calls around it. OneCallerPerPort also leaves out one port bound twice to two places, which the Map-based binding APIs cannot express and MOD-020 rejects. With two ports bound to one caller place, the message may name either port: Java the first in interface order (putIfAbsent over iface.ports(), java/src/main/java/org/libpetri/core/PetriNet.java:722-731), Rust and TypeScript the one their map from renamed place to port name keeps (rust/libpetri-core/src/petri_net.rs:1103-1107, typescript/src/core/petri-net.ts:578-579). So line 2 names some binding by which the first retiring call retired the place."
           "Line 1 and the built net. The second half of line 1 reads the calls: a transition added by a call of the script (Op.trans) is in every builder after it, since in the reference and in Rust a call only appends (step_prefix), so after fusion it is a transition of the net build() checks; a builder that dropped it, or rewrote its arc onto the caller place, and built would break line 1. The first half reads the built net, and covers the transitions a composition added. Ruling D42 (m): the caller-side definition of a channel binding is not already in the builder and has no arc on a port bound in the same call (MOD-021). Rust rewrites such a caller arc through the binding and builds, Java and TypeScript keep it and fail at build() (rust/libpetri-core/src/petri_net.rs:1188, java/src/main/java/org/libpetri/core/PetriNet.java:881-882, typescript/src/core/petri-net.ts:634); the caller-side definition is part of the compose call, not an added transition, so both meet line 1, and the difference is MOD-021's. A caller-side transition already added stays beside the merged one in Rust (transition() appends, rust/libpetri-core/src/petri_net.rs:319-338); Java and TypeScript replace it by the merge (java/src/main/java/org/libpetri/core/PetriNet.java:894-895, typescript/src/core/petri-net.ts:645-646), which is built from the caller side as given, with the union of the arcs and And(caller, instance) as output, so it names every place the replaced transition named, and the second half of line 1 holds in all three. Transition names are unique where a name keys something (rulings D10 and D23)."
           "What a transition names. namedPlaces holds the input, inhibitor, read and reset places and the places of every branch of the output specification, XOR branches included (outPlaces). The source of a forward output is not among them, but IO-014 requires every forward source to be an input place of the transition (WellFormedOut), so the input arc names it and the transition builder's check rejects a forward from a place with no input arc."
           "Messages (skeptic correction S3 of the composition design). Line 2 states the message of a sole offender only. Rust and Java run the EXEC-042 terminal check before the retired check (rust/libpetri-core/src/petri_net.rs:693-698, java/src/main/java/org/libpetri/core/PetriNet.java:1003-1004), TypeScript runs it after (typescript/src/core/petri-net.ts:735-739), and with several retired places named the runtimes report different ones (Rust sorts the output places, rust/libpetri-core/src/petri_net.rs:718-719). So line 2 asks that the rest of the net builds and that the transition after fusion consume from or read no terminal place and name exactly one retired place; which offender a failure names otherwise is not fixed. The message text is the same in the three runtimes (rust/libpetri-core/src/petri_net.rs:725-729, java/src/main/java/org/libpetri/core/PetriNet.java:1032-1036, typescript/src/core/petri-net.ts:937-942) and the markdown; names are printed through the naming Nm. 'When two compositions retire the same place, the first record is kept' is line 2's first retiring call: every runtime records a place once (rust/libpetri-core/src/petri_net.rs:1126-1129, Java putIfAbsent, TypeScript a has-check before set)."
@@ -145,7 +147,7 @@ requirement MOD_027
           "The rule rejects nothing else. Lines 3, 4 and 5 are frame lines, stated more generally than the markdown, whose matching sentences are 'A net that merely declares the retired place, without any arc naming it, is not rejected by this rule' and AC4 to AC7: no other build-time rejection of such a transition, place or compose call is allowed. This is an intended addition. It matches the runtimes: Rust build() rejects only a fusion overlap, a terminal clash and a retired reference (rust/libpetri-core/src/petri_net.rs:673-700). Line 5 says that a retirement by itself rejects nothing: the twin of a compose call adds the same transitions and places and retires nothing, so the two builders differ only in the records. Whether a net without retired places builds is the business of other blocks (CORE-040, EXEC-042, MOD-020, MOD-022, MOD-025, MOD-061); line 5 ties the net with the retirement to it. Its hypotheses are MOD-020's acceptance conditions without channel bindings, the transition builder's check on the rewritten transitions coming from the twin's direct composition, which runs it."
           "Per builder. 'A retired place is recorded per builder' and 'The record is not carried on the built net' hold by construction: a ComposedNet has no field for retired ports, and the script of a new builder that re-declares a built net (MOD-023) holds no compose call, so it retires nothing."
           "Acceptance criteria. AC1 is line 2 with the transition added last, and line 1; MOD_027_nonvacuous shows it (answer composed with in bound to A_IN, then hub_kill resetting answer/IN, fails with the message). AC2 is line 2 with the transition added before the compose call (a compose call is blind) and the second example. AC3 is lines 1 and 2, since namedPlaces holds every arc place and every place of the output specification; the examples show a read arc and an XOR branch on answer/IN failing with the message. AC4 is line 3 with the example in which hub_kill resets A_IN and the net builds (that the instance's transition now takes from A_IN is MOD-020's rewrite); the base script, answer composed with in bound to A_IN, builds by line 5 wherever its twin builds. AC5 and AC6 are line 3, since a port bound to its own renamed place and a port that is not bound are no retirements; the examples show both. AC7 is line 3 for its first half (after fusion the transition names the canonical member X, which is not retired; its base builds by line 5 as in AC4) and line 1 for its second half (after fusion the arc on the other member names the retired canonical member), with both outcomes on the reference. The test derivation is AC1, AC2 and AC4."
-  signoff "pending"
+  signoff "2026-11-13 602e0c54cff31f85 ai"
   statement : ∀ {N A T : Type} [DecidableEq N], Naming N → (N → T) →
       (Trans N → Option String) → ScriptFn N A → Prop :=
     fun {N A _T} [DecidableEq N] Nm tyOf Build S =>
@@ -162,15 +164,17 @@ requirement MOD_027
         (∀ q ∈ d'.namedPlaces, PortRetiredBy (pre ++ post) q → q = P) →
         ∃ r, FirstRetirement (pre ++ post) r ∧ r.place = P ∧
           S (pre ++ .trans d :: post) = .error (mod027Msg Nm r)) ∧
-      (∀ pre post (d : CDef N A) c σ d', S (pre ++ post) = .ok c → (∀ op ∈ post, Op.Blind op) →
+      (∀ pre post (d : CDef N A) c σ d', OneCallerPerPort (pre ++ post) →
+        S (pre ++ post) = .ok c → (∀ op ∈ post, Op.Blind op) →
         FusionDisjoint (fusionsOf (pre ++ post)) → SubstSpec (fusionsOf (pre ++ post)) σ →
         Build d.toTrans = none → fuseDef σ d = .ok d' → Build d'.toTrans = none →
         (∀ p ∈ c.terminals, ¬ d'.ConsumesOrReads p) →
         (∀ q ∈ d'.namedPlaces, ¬ PortRetiredBy (pre ++ post) q) →
         ∃ c', S (pre ++ .trans d :: post) = .ok c') ∧
-      (∀ pre post q c, S (pre ++ post) = .ok c → (∀ op ∈ post, Op.Blind op) →
-        ∃ c', S (pre ++ .place q :: post) = .ok c') ∧
+      (∀ pre post q c, OneCallerPerPort (pre ++ post) → S (pre ++ post) = .ok c →
+        (∀ op ∈ post, Op.Blind op) → ∃ c', S (pre ++ .place q :: post) = .ok c') ∧
       (∀ pre post (I : Instance N A) (ports : List (String × N)) c, (∀ op ∈ post, Op.Blind op) →
+        OneCallerPerPort (pre ++ post) →
         OneCallerPerPort [Op.compose I ports []] → mod027Accepts tyOf I ports →
         S (pre ++ Op.composeDirect (mod027Twin I ports) :: post) = .ok c →
         (∀ q, PortRetiredBy [Op.compose I ports []] q → ∀ d ∈ c.trans, q ∉ d.namedPlaces) →
@@ -206,26 +210,29 @@ fun {N A _T} [DecidableEq N] Nm tyOf Build S =>
                                   FirstRetirement (pre ++ post) r ∧
                                     r.place = P ∧ S (pre ++ Op.trans d :: post) = Except.error (mod027Msg Nm r)) ∧
       (∀ (pre post : List (Op N A)) (d : CDef N A) (c : ComposedNet N A) (σ : N → N) (d' : CDef N A),
-          S (pre ++ post) = Except.ok c →
-            (∀ op ∈ post, op.Blind) →
-              FusionDisjoint (fusionsOf (pre ++ post)) →
-                SubstSpec (fusionsOf (pre ++ post)) σ →
-                  Build d.toTrans = none →
-                    fuseDef σ d = Except.ok d' →
-                      Build d'.toTrans = none →
-                        (∀ p ∈ c.terminals, ¬d'.ConsumesOrReads p) →
-                          (∀ q ∈ d'.namedPlaces, ¬PortRetiredBy (pre ++ post) q) →
-                            ∃ c', S (pre ++ Op.trans d :: post) = Except.ok c') ∧
-        (∀ (pre post : List (Op N A)) (q : N) (c : ComposedNet N A),
+          OneCallerPerPort (pre ++ post) →
             S (pre ++ post) = Except.ok c →
-              (∀ op ∈ post, op.Blind) → ∃ c', S (pre ++ Op.place q :: post) = Except.ok c') ∧
+              (∀ op ∈ post, op.Blind) →
+                FusionDisjoint (fusionsOf (pre ++ post)) →
+                  SubstSpec (fusionsOf (pre ++ post)) σ →
+                    Build d.toTrans = none →
+                      fuseDef σ d = Except.ok d' →
+                        Build d'.toTrans = none →
+                          (∀ p ∈ c.terminals, ¬d'.ConsumesOrReads p) →
+                            (∀ q ∈ d'.namedPlaces, ¬PortRetiredBy (pre ++ post) q) →
+                              ∃ c', S (pre ++ Op.trans d :: post) = Except.ok c') ∧
+        (∀ (pre post : List (Op N A)) (q : N) (c : ComposedNet N A),
+            OneCallerPerPort (pre ++ post) →
+              S (pre ++ post) = Except.ok c →
+                (∀ op ∈ post, op.Blind) → ∃ c', S (pre ++ Op.place q :: post) = Except.ok c') ∧
           ∀ (pre post : List (Op N A)) (I : Instance N A) (ports : List (String × N)) (c : ComposedNet N A),
             (∀ op ∈ post, op.Blind) →
-              OneCallerPerPort [Op.compose I ports []] →
-                mod027Accepts tyOf I ports →
-                  S (pre ++ Op.composeDirect (mod027Twin I ports) :: post) = Except.ok c →
-                    (∀ (q : N), PortRetiredBy [Op.compose I ports []] q → ∀ d ∈ c.trans, q ∉ d.namedPlaces) →
-                      ∃ c', S (pre ++ Op.compose I ports [] :: post) = Except.ok c'
+              OneCallerPerPort (pre ++ post) →
+                OneCallerPerPort [Op.compose I ports []] →
+                  mod027Accepts tyOf I ports →
+                    S (pre ++ Op.composeDirect (mod027Twin I ports) :: post) = Except.ok c →
+                      (∀ (q : N), PortRetiredBy [Op.compose I ports []] q → ∀ d ∈ c.trans, q ∉ d.namedPlaces) →
+                        ∃ c', S (pre ++ Op.compose I ports [] :: post) = Except.ok c'
 -/
 #guard_msgs in #print MOD_027
 
@@ -281,7 +288,8 @@ def mod027_line2 (Nm : Naming N) (Build : Trans N → Option String) (S : Script
 /-- Line 3: a transition that, after fusion, names no retired place leaves the build
 successful. -/
 def mod027_line3 (Build : Trans N → Option String) (S : ScriptFn N A) : Prop :=
-  ∀ pre post (d : CDef N A) c σ d', S (pre ++ post) = .ok c → (∀ op ∈ post, Op.Blind op) →
+  ∀ pre post (d : CDef N A) c σ d', OneCallerPerPort (pre ++ post) →
+    S (pre ++ post) = .ok c → (∀ op ∈ post, Op.Blind op) →
     FusionDisjoint (fusionsOf (pre ++ post)) → SubstSpec (fusionsOf (pre ++ post)) σ →
     Build d.toTrans = none → fuseDef σ d = .ok d' → Build d'.toTrans = none →
     (∀ p ∈ c.terminals, ¬ d'.ConsumesOrReads p) →
@@ -290,13 +298,14 @@ def mod027_line3 (Build : Trans N → Option String) (S : ScriptFn N A) : Prop :
 
 /-- Line 4: declaring one more place leaves the build successful. -/
 def mod027_line4 (S : ScriptFn N A) : Prop :=
-  ∀ pre post (q : N) c, S (pre ++ post) = .ok c → (∀ op ∈ post, Op.Blind op) →
-    ∃ c', S (pre ++ .place q :: post) = .ok c'
+  ∀ pre post (q : N) c, OneCallerPerPort (pre ++ post) → S (pre ++ post) = .ok c →
+    (∀ op ∈ post, Op.Blind op) → ∃ c', S (pre ++ .place q :: post) = .ok c'
 
 /-- Line 5: a compose call the composition accepts builds where its twin builds and no transition
 names a place the call retires. -/
 def mod027_line5 {T : Type} (tyOf : N → T) (S : ScriptFn N A) : Prop :=
   ∀ pre post (I : Instance N A) (ports : List (String × N)) c, (∀ op ∈ post, Op.Blind op) →
+    OneCallerPerPort (pre ++ post) →
     OneCallerPerPort [Op.compose I ports []] → mod027Accepts tyOf I ports →
     S (pre ++ Op.composeDirect (mod027Twin I ports) :: post) = .ok c →
     (∀ q, PortRetiredBy [Op.compose I ports []] q → ∀ d ∈ c.trans, q ∉ d.namedPlaces) →
@@ -1361,7 +1370,7 @@ recorded place, such a definition is kept, and the further check survives an ins
 a transition that names no retired place after fusion keeps the build successful. -/
 theorem mod027_gen_line3 (hQ : Mod027Quiet g) (hK1 : Mod027KeepsOne k) (hE : Mod027ExtraTrans extra) :
     mod027_line3 Build (mod027ScriptBy Nm tyOf Build Mg g k extra) := by
-  intro pre post d c σ d' hc hb hdis hσ hbd hfd hbd' hterm hnot
+  intro pre post d c σ d' _ hc hb hdis hσ hbd hfd hbd' hterm hnot
   unfold mod027ScriptBy at hc ⊢
   cases hy : (pre ++ post).foldlM (scriptStep Nm tyOf Build Mg) Bld.empty with
   | error m => rw [hy] at hc; cases hc
@@ -1416,7 +1425,7 @@ theorem mod027_gen_line3 (hQ : Mod027Quiet g) (hK1 : Mod027KeepsOne k) (hE : Mod
 one more place keeps the build successful. -/
 theorem mod027_gen_line4 (hE : Mod027ExtraPlace extra) :
     mod027_line4 (mod027ScriptBy Nm tyOf Build Mg g k extra) := by
-  intro pre post q c hc hb
+  intro pre post q c _ hc hb
   unfold mod027ScriptBy at hc ⊢
   cases hy : (pre ++ post).foldlM (scriptStep Nm tyOf Build Mg) Bld.empty with
   | error m => rw [hy] at hc; cases hc
@@ -1444,7 +1453,7 @@ accepts builds where its twin builds and no transition names a place the call re
 theorem mod027_gen_line5 (hG : Mod027Local g) (hKL : Mod027KeepLocal k) (hKM : Mod027KeepMono k)
     (hE : Mod027ExtraTwin extra) :
     mod027_line5 tyOf (mod027ScriptBy Nm tyOf Build Mg g k extra) := by
-  intro pre post I ports c hb _ hA hc hnot
+  intro pre post I ports c hb _ _ hA hc hnot
   unfold mod027ScriptBy at hc ⊢
   cases hy : (pre ++ Op.composeDirect (mod027Twin I ports) :: post).foldlM
       (scriptStep Nm tyOf Build Mg) Bld.empty with
@@ -2140,7 +2149,7 @@ theorem mod027_not_line1 {S : ScriptFn String Unit} {ops : List (Op String Unit)
 /-- A script that builds the twin of `answer` bound to `A_IN` followed by `post`, with no
 transition naming `answer/IN`, and fails the compose call followed by `post`, breaks line 5. -/
 theorem mod027_not_line5 {S : ScriptFn String Unit} {post : List (Op String Unit)}
-    (hb : ∀ op ∈ post, Op.Blind op)
+    (hb : ∀ op ∈ post, Op.Blind op) (hone : mod027SingleBinds post = true)
     (htw : (S (Op.composeDirect (mod027Twin buildExInst [("in", "A_IN")]) :: post)).toOption.map
       (fun c => c.trans.all fun d => decide ("answer/IN" ∉ d.namedPlaces)) = some true)
     (hbad : (S (mod027ExBind "A_IN" :: post)).toOption = none) :
@@ -2152,7 +2161,8 @@ theorem mod027_not_line5 {S : ScriptFn String Unit} {post : List (Op String Unit
     rw [hc] at htw
     simp only [Except.toOption, Option.map_some, Option.some.injEq] at htw
     obtain ⟨c', hc'⟩ := h5 [] post buildExInst [("in", "A_IN")] c hb
-      (mod027_oneCaller_of_single (by decide)) mod027_ex_accepts hc
+      (mod027_oneCaller_of_single hone) (mod027_oneCaller_of_single (by decide))
+      mod027_ex_accepts hc
       (by
         intro q hq d hd
         have hq' := mod027_ex_retiredBy (X := "A_IN")
@@ -2327,7 +2337,8 @@ theorem MOD_027_mutant_noLine3_killed :
         .ok ((buildExKill "answer/IN").map (refSubst [⟨"f", ["X", "answer/IN"]⟩]) id) :=
       fuseDef_untouched _ _ (by decide)
     obtain ⟨c', hc'⟩ := h.2.2.1 [mod027ExBind "A_IN"] [.fuse ⟨"f", ["X", "answer/IN"]⟩]
-      (buildExKill "answer/IN") c _ _ hS (by simp [Op.Blind]) (hfus ▸ hdis) (hfus ▸ hσ)
+      (buildExKill "answer/IN") c _ _ (mod027_oneCaller_of_single (by decide)) hS
+      (by simp [Op.Blind]) (hfus ▸ hdis) (hfus ▸ hσ)
       (by decide) hfd (by decide) (by simp [ht])
       (by
         intro q hq hr
@@ -2360,7 +2371,8 @@ theorem MOD_027_mutant_noLine4_killed :
   cases hS : mod027Sc4 [mod027ExBind "A_IN"] with
   | error m => rw [hS] at hok; cases hok
   | ok c =>
-    obtain ⟨c', hc'⟩ := h.2.2.2.1 [mod027ExBind "A_IN"] [] "answer/IN" c (by simpa using hS)
+    obtain ⟨c', hc'⟩ := h.2.2.2.1 [mod027ExBind "A_IN"] [] "answer/IN" c
+      (mod027_oneCaller_of_single (by decide)) (by simpa using hS)
       (by simp)
     have hbad : (mod027Sc4 ([mod027ExBind "A_IN"] ++ [.place "answer/IN"])).toOption = none := by
       decide
@@ -2383,7 +2395,8 @@ theorem MOD_027_mutant_noLine5_killed :
     mod027_gen_line2 mod027HitDef_names mod027KeepAll_one,
     mod027_gen_line3 mod027HitDef_quiet mod027KeepAll_one (mod027ExtraAny_trans strNaming),
     mod027_gen_line4 (mod027ExtraAny_place strNaming)⟩,
-    fun h => mod027_not_line5 (post := []) (by simp) (by decide) (by decide) h.2.2.2.2⟩
+    fun h => mod027_not_line5 (post := []) (by simp) (by decide) (by decide) (by decide)
+      h.2.2.2.2⟩
 
 set_option maxRecDepth 20000 in
 /-- ✗ A builder without the retired check violates MOD-027 (line 1): composing `answer` with `in`
@@ -2406,6 +2419,6 @@ written directly on `A_IN` build with that fusion set and after fusion nothing n
 theorem MOD_027_forbids_fuseRetired :
     ¬ MOD_027 strNaming (fun _ : String => ()) refBuild mod027Sc5b := fun h =>
   mod027_not_line5 (post := [.trans (buildExKill "answer/IN"), .fuse ⟨"f", ["X", "answer/IN"]⟩])
-    (by simp [Op.Blind]) (by decide) (by decide) h.2.2.2.2
+    (by simp [Op.Blind]) (by decide) (by decide) (by decide) h.2.2.2.2
 
 end Libpetri.Spec

@@ -88,7 +88,7 @@ requirement CORE_054
           "The produce action writes through the context: every emission it completes with is a buffer built by successful output calls (refProduce_throughCtx), so CORE-062's and CORE-063's context lines and ctx_deposits_outputs apply to it."
           "AC1 (the specified place receives a token with the fixed value) is lines 1 and 2 at the action, and at the firing through CORE-050: on a transition whose output specification is Place p, an enabled firing ends with the completion of produce p v (core054_fires), and every firing that ends with it deposits exactly one token of value v in p and nothing elsewhere (core054_emits). Lines 3 and 4 have no acceptance criterion of CORE-054; they are CORE-062 AC5 and CORE-063 AC3 at the produce action."
           "The test derivation (produce action with value \"hello\" to place P; P receives \"hello\") is CORE_054_nonvacuous: on a transition consuming one token from place 0 and producing to Place 1, the reference action firing under refProduce for the value \"hello\" deposits one token carrying \"hello\" in place 1, and on place 2, which the transition does not name, the reference action fails."
-  signoff "pending"
+  signoff "2026-11-13 acb467a056e6b53c ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → (N → V → ActionRel N T) → Prop :=
     fun value produce =>
       (∀ p v t δ, OutputArc t p → (∃ x, value x = v) → ∃ r, produce p v t δ r) ∧

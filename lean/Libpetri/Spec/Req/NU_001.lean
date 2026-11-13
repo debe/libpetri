@@ -92,7 +92,7 @@ requirement NU_001
           "AC1 (two names constructed from the same underlying value are equal; from different values, unequal) is the first line. AC2 (a stable total order on names, consistent across a single implementation) is the second, third and fourth lines: a strict total order on names, with stability read as above. AC4 (a one-to-one renaming that keeps the chosen name the chosen name changes no firing) is the renaming line NU_001_rename's."
           "The test derivation's first two checks (NameId(\"a\") constructed twice is equal; NameId(\"a\") precedes NameId(\"b\")) follow from the statement for every implementation (NU_001_testDerivation) and are NU_001_nonvacuous on the reference. At runtime the Rust unit tests equality_by_value and total_order_is_lexicographic in rust/libpetri-core/src/name.rs run them."
           "Implementations also hash names (Rust's derived Hash, Java's record hashCode, a JavaScript Map key); a hash consistent with the name equality adds no observation, and is not modelled."
-  signoff "pending"
+  signoff "2026-11-13 61b6b5dab6a7eee4 ai"
   statement : NameImpl → Prop :=
     fun I =>
       (∀ a b : String, I.eq (I.ofValue a) (I.ofValue b) ↔ a = b) ∧
@@ -570,7 +570,7 @@ requirement NU_001_rename
           "The reference RefNuFire meets the line by NU-021's equivariance lemma refNuFire_transfer at the pairing 'equal values' (NU_001_rename_reference). The verifier's name symmetry is the same property one layer down: Route B's join enabling and steps are invariant under renamings (Novel.RouteB.joinEnab_inv, joinStep_sym, mintStep_sym) and its canonical key under permutations of name symbols (Novel.CanonicalKey.canonicalKey_comp)."
           "AC4 (a one-to-one renaming of the names a join's keys project, which makes the renamed chosen name the chosen name of the renamed join, does not change which tokens the join consumes or the marking it leaves) is this line, and the test derivation's renaming check is NU_001_rename_nonvacuous on the reference. No test in any language yet runs a join with its keys composed with a swap of names, so AC4 has no runtime test; it is recorded here as open. AC1 to AC3 are accounted for by the F block NU_001."
           "The sentences 'A name (NameId) is an opaque correlation identity, constructed from an underlying string value.' and 'The name order exists solely for that tie-break and carries no domain meaning.' are this line's design text. Transitions without a match project no name, so the line speaks of matched transitions only; timing, priority and the firing pass are not in the model, as for NU-020."
-  signoff "pending"
+  signoff "2026-11-13 6a5b71a3dce3b00b ai"
   statement : ∀ {N V Nm : Type} [DecidableEq N] [LinearOrder Nm], NuFireRel N V Nm → Prop :=
     fun R =>
       ∀ t ms, t.mspec = some ms → ∀ σ, Function.Injective σ → ∀ n δ e,

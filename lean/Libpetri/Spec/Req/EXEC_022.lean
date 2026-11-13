@@ -23,10 +23,10 @@ D24 (a): the timeout outcome is not validated against the output spec, and the j
 The block has eight lines:
 
 1. an expiry step happens only for a firing in flight whose action has not reported, that is not
-   synchronous, and whose timeout outcome is the token-level outcome of its `Timeout` child
-   (`exec022_QOutcome`: a minted token for each `Place`, every consumed token for each
-   `ForwardInput`, in consumption order, as the same token), under a configuration whose timeout
-   outcomes are token-level ones;
+   synchronous and whose output spec has a `Timeout` node, under every configuration; under a
+   configuration whose timeout outcomes are token-level ones, its timeout outcome is the
+   token-level outcome of that node's child (`exec022_QOutcome`: a minted token for each `Place`,
+   every consumed token for each `ForwardInput`, in consumption order, as the same token);
 2. the expiry step deposits nothing, queues no publication, and records exactly the announced
    outcome (an error on a firing a relay check already rejected, [NU-054]);
 3. a `tdeposit` step deposits exactly the timeout outcome the firing recorded, at the tails;
@@ -149,7 +149,7 @@ requirement EXEC_022
         "Output the action published before the budget ran out stays in the marking ([EXEC-020], [IO-015])."
         "The timeout outcome is not validated against the output spec, and the join-relay check of [NU-054] still runs on it ([EXEC-021])."
   reading "For every executor R, every configuration C and every firing identity i:"
-          "if the timeout outcomes C accepts are token-level timeout outcomes (exec022_OutcomeSound), an expiry step of i with timeout outcome e happens only for a firing i in flight whose action has not reported (no outcome set), that is not synchronous, and for which e is the token-level timeout outcome of its transition's Timeout child for what it delivered (exec022_QOutcome);"
+          "an expiry step of i with timeout outcome e happens only for a firing i in flight whose action has not reported (no outcome set), that is not synchronous, and whose transition's output spec has a Timeout node (hasTimeoutB), and, if the timeout outcomes C accepts are token-level timeout outcomes (exec022_OutcomeSound), e is the token-level timeout outcome of that node's child for what the firing delivered (exec022_QOutcome);"
           "an expiry step of i with timeout outcome e changes neither the marking nor the queue of publications not yet deposited, and after it every firing i holds the outcome e (an error, if a flushed batch of it failed the join-relay check);"
           "a step that deposits the timeout outcome of i (tdeposit) deposits exactly the outcome e the firing recorded, each token at the tail of its place in order;"
           "a flush step of i from a state in which every firing i holds a timeout outcome changes neither the marking nor the queue of publications;"
@@ -162,26 +162,26 @@ requirement EXEC_022
           "Ruling D18 (b), host time. The budget's duration is not in the model: an expiry is a free outside step, offered at any point while the firing's action has not reported. The sentence 'While the budget of a firing has not elapsed, the executor shall not end the firing with its timeout outcome.' is encoded in its step form only: line 5 says that a timeout outcome is recorded by the expiry step and by no other step, so the firing ends with its timeout outcome only at the model's event of its budget running out (EXEC_022_forbids_clockTimeout: a budget timed on the firing clock, a delay step that records the timeout outcome). That the expiry comes only once the duration has elapsed is a test-only point (kind Q), checked by the runtimes' timing tests, because the budget elapses in real time on the host's timer inside a per-action wait (Rust executor_core/executor.rs 1684, Java ExecutorSupport.java 570, TypeScript bitmap-net-executor.ts 1139-1140) and not on the firing clock ([TIME-015], spec/03-timing.md 631-646). A host counter in the state would make it a line; the ruling chose not to add one. The sentence 'The budget is host time ...' is the reason, and states no executor step. The kind is T, the plan's primary kind for this ID: the block is the race between an action and its budget, read without the clock; every line is a step or trace line, and the duration itself is the Q point above."
           "The tie (ruling D18 (b), clash exec#3): 'When the action completes at the instant the budget runs out, either side may win.' is read as: both the return and the expiry are offered from the same state. Rust's biased select! prefers the completion, Java and TypeScript take whichever completes the shared future first. EXEC_022_allows_completionFirst and EXEC_022_allows_timeoutFirst show the reference offering both from one state; the lines then fix what follows either side."
           "Every line is a safety line, so an executor that never offers an expiry step meets the block. When an asynchronous firing whose spec has a Timeout node expires is AC2's test-only point under ruling D18 (b). That the expiry is offered at all, and that a recorded timeout outcome the join-relay check accepts is then deposited, is coverage: Exec022Covers, a clause of the consistency theorem's ExecCoversW5 (ConsistencyExec.lean), which the reference meets (refExec_timeoutCovers); EXEC_022_allows_timeoutFirst shows the reference offering the expiry and the deposit."
-          "Line 1 alone reads the premise exec022_OutcomeSound C. The reference takes the timeout outcome the configuration accepts (C.timeoutOut), as it takes the verdicts of output validation from C, so the line can say that the outcome is the Timeout child's only of a configuration whose check accepts nothing else; under another configuration line 1 constrains the guard of the expiry and not its outcome. Real configurations come from the build. No Cfg.WF field or link lemma shows yet that the configuration a net builds has a sound timeoutOut; that link is deferred to the cross-model wave W11. EXEC-021 reads its premise Cfg.SetValidated the same way and discharges it for built validators by cfgValidate_setValidated. Lines 2 to 8 hold under every configuration."
-          "The first shall sentence is line 1's not-synchronous and Timeout-node conjuncts. 'Completed before it handed control back' is the sync flag of the firing (Firing.sync): the pass waits for the action's return (Rust's inline run_sync branch, executor_core/executor.rs 1491-1572; Java and TypeScript invoke the action inline and race only the future it returns, so an action whose future is already complete never times out, clash exec#2). A Timeout node is required by exec022_QOutcome, which reads the node's child. EXEC_022_forbids_syncTimeout and EXEC_022_forbids_noTimeoutNode break it."
+          "Line 1's last conjunct alone reads the premise exec022_OutcomeSound C; its guards (firing open, not synchronous, a Timeout node) hold under every configuration. The reference takes the timeout outcome the configuration accepts (C.timeoutOut), as it takes the verdicts of output validation from C, so the line can say that the outcome is the Timeout child's only of a configuration whose check accepts nothing else; under another configuration line 1 constrains the guard of the expiry and not its outcome. Real configurations come from the build. No Cfg.WF field or link lemma shows yet that the configuration a net builds has a sound timeoutOut; that link is still open: the module doc of ConsistencyAll.lean (spec_consistent_all) lists it among the links not yet made. EXEC-021 reads its premise Cfg.SetValidated the same way and discharges it for built validators by cfgValidate_setValidated. Lines 2 to 8 hold under every configuration."
+          "The first shall sentence is line 1's not-synchronous and Timeout-node conjuncts. 'Completed before it handed control back' is the sync flag of the firing (Firing.sync): the pass waits for the action's return (Rust's inline run_sync branch, executor_core/executor.rs 1491-1572; Java and TypeScript invoke the action inline and race only the future it returns, so an action whose future is already complete never times out, clash exec#2). A Timeout node is line 1's hasTimeoutB conjunct. Neither conjunct reads the premise exec022_OutcomeSound, so the sentence binds under every configuration: EXEC_022_forbids_syncTimeout and EXEC_022_forbids_noTimeoutNode break it under a configuration whose timeout-outcome check accepts every outcome."
           "The third shall sentence is line 1's 'no outcome set' conjunct and line 7. Line 7 triggers on a return of i taken while firing i is open, that is, the action completed before the firing ended: after it no expiry and no timeout deposit of i follows, whatever the steps between do (EXEC_022_forbids_timeoutAfterReturn: an expiry after the return; EXEC_022_forbids_errorAsTimeout: an action error read as the budget's timeout and deposited as the timeout outcome). A late return of an abandoned action, after the expiry, is not a completion that came first, so it does not trigger line 7; that it changes nothing is lines 5 and 6."
           "The fourth shall sentence, 'If a firing has already ended, by the return of its action or by its budget running out, then the executor shall not change how it ended.', is line 5's first half: every step keeps an outcome a firing recorded (exec022_Recorded). EXEC_022_forbids_lateError breaks it: a late error of the abandoned action replaces the timeout outcome, and the firing then fails and its forwarded tokens are lost (TypeScript: a rejection handler on the action's own promise next to the race; Java: exceptionally on actionFuture instead of on its timed copy). The firing record documents the same frame (Firing.out: set once, by its return or by the expiry of its budget)."
           "The fifth shall sentence is line 1's last conjunct together with lines 2, 3 and 5: the expiry announces the token-level outcome e (line 1), records exactly e (line 2), no other step records a timeout outcome and none changes it (line 5), and the deposit is the recorded outcome (line 3). EXEC_022_forbids_mergeAtExpiry breaks line 2: the expiry announces e and records the action's unpublished writes with it (the Java and TypeScript slip of producing the timeout branch before context.detachForTimeout()). A minted token's value is free (the executor mints it; Rust mints the unit token stamped by the firing clock, TIME-015 AC13, below this model). A forwarded token is the consumed token itself (tokens are identities in the queue model), so 'keeping its value and created_at' is token identity, and 'in consumption order' is the order of what the start delivered (QDelivered.inputs, the FIFO prefix of EXEC-010). Outcomes are compared place by place, so an executor emitting the children of an And in another order deposits the same marking and meets the line. Forwarding only the first consumed token breaks it (EXEC_022_forbids_forwardFirst)."
           "The sixth shall sentence is lines 3 and 8: the tdeposit step appends exactly the recorded outcome at the tails (EXEC_022_forbids_merge: the action's unpublished output merged into the deposit), and after it no commit, fail or tdeposit of the firing follows (EXEC_022_forbids_doubleDeposit: a deposit that leaves the firing in flight and its queue entry in place deposits the outcome twice). With lines 1, 2 and 5, a deposited timeout outcome is the token-level outcome the expiry announced. That a recorded timeout outcome is deposited at all, and not left queued, is coverage: the second clause of Exec022Covers in the consistency theorem's ExecCoversW5."
-          "The seventh shall sentence is lines 2, 4 and 6. Line 2: the expiry step deposits nothing and queues no publication, so the tokens the action wrote and had not published are dropped, not published (EXEC_022_forbids_flushAtTimeout). Line 4: a later flush of the abandoned action deposits and queues nothing (EXEC_022_forbids_lateFlush: a flush callback that does not check whether its firing was abandoned, the slip open to Rust and Python, whose flush closure can outlive the cancelled action: executor_core/executor.rs set_flush_fn checks only the relay slot, and Context::flush_fn in libpetri-core hands out a clone that a spawned task or a Python context can keep; Java and TypeScript have no mid-action publication). Line 6: after the expiry no commit step deposits the completion of the abandoned action (EXEC_022_forbids_lateCompletion: a late return accepted and committed). The lines constrain the executor and not the abandoned action: a late return or flush may still be a step, provided it changes neither the marking, the queue, nor how the firing ended. A publish step of i after the expiry is not banned: it deposits a batch the action flushed before the budget ran out (ruling D17), which the plain sentence 'Output the action published before the budget ran out stays in the marking ([EXEC-020], [IO-015]).' states; that it stays is the marking frame, EXEC-020's and EXEC-031's subject."
-          "The sentence 'The timeout outcome is not validated against the output spec, and the join-relay check of [NU-054] still runs on it ([EXEC-021]).' is ruling D24 (a). It is EXEC-021's lines 3 and 5 (a timed-out firing fails only when the relay check rejects its outcome; a tdeposit happens only when the relay check accepts it), not restated here. Java and TypeScript validate the timeout outcome against the whole spec and fail And(A, Timeout(d, B)) on every timeout; under D24 (a) that is a recorded executor defect (RD-01 in spec/runtime-defects.md), which breaks EXEC-021, not a line of this block (their timeout firing ends with a fail step, which this block does not constrain)."
+          "The seventh shall sentence is lines 2, 4 and 6. Line 2: the expiry step deposits nothing and queues no publication, so the tokens the action wrote and had not published are dropped, not published (EXEC_022_forbids_flushAtTimeout). Line 4: a later flush of the abandoned action deposits and queues nothing (EXEC_022_forbids_lateFlush: a flush callback that does not check whether its firing was abandoned). Rust and Python meet line 4 although their flush closure can outlive the cancelled action (Context::flush_fn in libpetri-core hands out a clone that a spawned task or a Python context can keep): the closure shares a gate with the firing's task (FlushGate, executor_core/executor.rs), the task marks the firing ended when the action returns or its budget runs out, before it sends the completion, and the closure checks that mark and sends under one lock, so a flush after the expiry is refused with an error and deposits nothing. A flush callback that skips that check is EXEC_022_forbids_lateFlush, the behaviour RD-15 in spec/runtime-defects.md recorded for Rust and Python. Java and TypeScript have no mid-action publication. Line 6: after the expiry no commit step deposits the completion of the abandoned action (EXEC_022_forbids_lateCompletion: a late return accepted and committed). The lines constrain the executor and not the abandoned action: a late return or flush may still be a step, provided it changes neither the marking, the queue, nor how the firing ended. A publish step of i after the expiry is not banned: it deposits a batch the action flushed before the budget ran out (ruling D17), which the plain sentence 'Output the action published before the budget ran out stays in the marking ([EXEC-020], [IO-015]).' states; that it stays is the marking frame, EXEC-020's and EXEC-031's subject."
+          "The sentence 'The timeout outcome is not validated against the output spec, and the join-relay check of [NU-054] still runs on it ([EXEC-021]).' is ruling D24 (a). It is EXEC-021's lines 3 and 5 (a timed-out firing fails only when the relay check rejects its outcome; a tdeposit happens only when the relay check accepts it), not restated here. An executor that validates the timeout outcome against the whole spec fails And(A, Timeout(d, B)) on every timeout, the behaviour RD-01 in spec/runtime-defects.md recorded for Java and TypeScript; that breaks EXEC-021 and no line of this block (its timeout firing ends with a fail step, which this block does not constrain). Every runtime deposits the timeout branch on the places the rewritten output spec names, as given (MOD-031): Rust directly, Java and TypeScript because outputToHarvest and forwardToHarvest of their TransitionContext take actual places and Java reads a ForwardInput's source through the raw input (ExecutorSupport.java produceTimeoutOutputRecursive, executor-support.ts produceTimeoutOutput). An executor that resolves the branch's places through the correspondence a second time puts, in a composed net whose correspondence collides, a token on another place than the Timeout child names, or forwards one taken from another input, so the outcome the expiry records, and line 3 then deposits, is not the child's token-level outcome and line 1 fails: the behaviour RD-31 in spec/runtime-defects.md recorded for Java and TypeScript."
           "The relay check on flushed batches belongs to NU-054: a batch the check rejects is dropped, marks the firing relayBad, and the firing then fails as it does for a violation found at completion. Line 2 reads that rule at the expiry, so the expiry of a relayBad firing records an error and not the timeout outcome (Rust reads relay_slot after the select!, executor_core/executor.rs 1711-1715; EXEC_022_forbids_relayIgnoredAtExpiry: the slot read in the action's arm only, so the timeout outcome of a relay-rejected firing is deposited). That the later batches of a relayBad firing are dropped is NU-054's and not line 4's: line 4 reads a firing that holds a timeout outcome."
           "Lines 6 to 8 identify the firing by its identity. Identities are drawn once from one supply (XSt.nextId); the premise IdsIssued says every firing in flight at the start of the run has an identity the supply has already handed out, true at the start of every run (nothing is in flight) and kept by every reference step (exec022_idsIssued_step). Without it a later start could reuse an identity, as in EXEC-031."
           "AC1 (an action that completes in 50ms with a 100ms timeout completes normally) and AC2 (an action that hands control back and takes 200ms with a 100ms timeout ends with the timeout branch and an ActionTimedOut event) are host-time behaviour under ruling D18 (b): which side wins is decided by the host's timer, outside the model, so their timing is test-only (kind Q). What the model says of each outcome is line 7 for AC1 (after the return, no timeout outcome; the completion's validation is EXEC-021's) and lines 1 to 6 for AC2, with the event EVT-010's; EXEC_022_allows_completionFirst and EXEC_022_allows_timeoutFirst are the two outcomes on one example, and EXEC_022_nonvacuous runs both to their deposits."
           "AC3 (ForwardInput in the timeout child forwards every consumed token, one output token per consumed token, in consumption order, each keeping its created_at) is line 1's exec022_QOutcome with lines 2 and 3: EXEC_022_nonvacuous consumes 7 and 8 and deposits [7, 8] in the forward's target; EXEC_022_forbids_forwardFirst forwards 7 alone."
           "AC4 (output the action wrote and had not published before the budget expired is discarded, not merged with the timeout branch; output it published before stays) is lines 2, 3, 4 and 6: EXEC_022_nonvacuous writes 50 to place 1 before the expiry, and place 1 stays empty after the timeout deposit; the published half is ruling D17, as in the seventh shall sentence above."
           "The test derivation (slow action with a timeout, verify the timeout branch tokens and the event) is EXEC_022_nonvacuous's timeout run, without the event (EVT-010, wave W7)."
-  signoff "pending"
+  signoff "2026-11-13 2b1674ad41b418cd ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C i,
-      (exec022_OutcomeSound C → ∀ e, on (fun s s' => R C s (.expire i e) s'), shall (fun s _ =>
-        ∃ f ∈ s.fl, f.id = i ∧ f.out = none ∧ f.sync = false ∧
-          exec022_QOutcome f.t f.deliv e)) ∧
+      (∀ e, on (fun s s' => R C s (.expire i e) s'), shall (fun s _ =>
+        ∃ f ∈ s.fl, f.id = i ∧ f.out = none ∧ f.sync = false ∧ hasTimeoutB f.t = true ∧
+          (exec022_OutcomeSound C → exec022_QOutcome f.t f.deliv e))) ∧
       (∀ e, on (fun s s' => R C s (.expire i e) s'), shall (fun s s' =>
         s'.M = s.M ∧ s'.pq = s.pq ∧
           ∀ f ∈ s'.fl, f.id = i → f.out = some (if f.relayBad then .err else .timedOut e))) ∧
@@ -206,10 +206,12 @@ requirement EXEC_022
 info: def Libpetri.Spec.EXEC_022 : {N T : Type} → [DecidableEq N] → XRel N T → Prop :=
 fun {N T} [DecidableEq N] R =>
   ∀ (C : Cfg N T) (i : ℕ),
-    (exec022_OutcomeSound C →
-        ∀ (e : List (N × T)),
-          on fun s s' => R C s (XLbl.expire i e) s', shall fun s x =>
-            ∃ f ∈ s.fl, f.id = i ∧ f.out = none ∧ f.sync = false ∧ exec022_QOutcome f.t f.deliv e) ∧
+    (∀ (e : List (N × T)),
+        on fun s s' => R C s (XLbl.expire i e) s', shall fun s x =>
+          ∃ f ∈ s.fl,
+            f.id = i ∧
+              f.out = none ∧
+                f.sync = false ∧ hasTimeoutB f.t = true ∧ (exec022_OutcomeSound C → exec022_QOutcome f.t f.deliv e)) ∧
       (∀ (e : List (N × T)),
           on fun s s' => R C s (XLbl.expire i e) s', shall fun s s' =>
             s'.M = s.M ∧
@@ -732,11 +734,11 @@ against a timeout outcome, and a timeout deposit removes it, for the rest of the
 theorem exec022_xstepW (P : XPol N T) :
     EXEC_022 (fun C s l s' => xstepW P C s l = some s') := by
   intro C i
-  refine ⟨fun hC e s s' h => ?_, fun e s s' h => ?_, fun s s' h => ?_, fun s s' h hall => ?_,
+  refine ⟨fun e s s' h => ?_, fun e s s' h => ?_, fun s s' h => ?_, fun s s' h hall => ?_,
     fun l s s' h => ?_, fun s0 tr hs hr => ?_, fun s0 tr hs hr => ?_, fun s0 tr hs hr => ?_⟩
-  · obtain ⟨f, hf, ho, hsy, -, hto, -⟩ := expireStep_some h
-    exact ⟨f, List.mem_of_find?_eq_some hf, by simpa using List.find?_some hf, ho, hsy,
-      hC _ _ _ hto⟩
+  · obtain ⟨f, hf, ho, hsy, hT, hto, -⟩ := expireStep_some h
+    exact ⟨f, List.mem_of_find?_eq_some hf, by simpa using List.find?_some hf, ho, hsy, hT,
+      fun hC => hC _ _ _ hto⟩
   · obtain ⟨-, -, -, -, -, -, rfl⟩ := expireStep_some h
     refine ⟨rfl, rfl, fun g' hg' hid => ?_⟩
     obtain ⟨g, -, ⟨hgi, rfl⟩ | ⟨-, rfl⟩⟩ := exec022_mem_upd hg'
@@ -847,9 +849,6 @@ def exec022_cfg (t : Trans Nat) : Cfg Nat Nat :=
 
 /-- The configuration with the timeout transition. -/
 def exec022_C : Cfg Nat Nat := exec022_cfg (exec022_t exec022_spec)
-
-/-- The configuration with a transition whose output spec has no `Timeout` node (`Place(1)`). -/
-def exec022_Cplain : Cfg Nat Nat := exec022_cfg (exec022_t (.place 1))
 
 /-- The configuration with the timeout transition and a join-relay check that rejects every
 token for place `1` (the action's own output place) and accepts the timeout outcome. -/
@@ -1153,31 +1152,33 @@ def exec022_expireMut {N T : Type} [DecidableEq N] (opn async node : Bool)
   | .expire i e => exec022_expireW opn async node (out C) s i e
   | l => xstep C s l
 
-/-- A token-level timeout outcome has a `Timeout` node. -/
-theorem exec022_QOutcome_hasTimeout {N T : Type} [DecidableEq N] {t : Trans N}
-    {δ : QDelivered N T} {e : List (N × T)} (h : exec022_QOutcome t δ e) :
-    hasTimeoutB t = true := by
-  obtain ⟨o, c, -, ho, hc, -⟩ := h
-  simp [hasTimeoutB, ho, hc]
+/-- The example configuration for `t` with a timeout-outcome check that accepts every outcome:
+not sound (`exec022_OutcomeSound` fails), so only line 1's guards, not its outcome, read it. -/
+def exec022_Cany (t : Trans Nat) : Cfg Nat Nat :=
+  { exec022_cfg t with timeoutOut := fun _ _ _ => true }
 
 /-- ✗ A timeout of a synchronous firing violates EXEC-022 (line 1, the first shall sentence):
 `t` starts synchronously, and the expiry rule without the `sync` guard ends it with its timeout
-outcome while the pass waits for its action. -/
+outcome while the pass waits for its action. The configuration's timeout-outcome check accepts
+every outcome, so the guard binds whatever the configuration. -/
 @[evidence forbids EXEC_022]
 theorem EXEC_022_forbids_syncTimeout :
     ¬ EXEC_022 (N := Nat) (T := Nat)
       (fun C s l s' => exec022_expireMut true false true (·.timeoutOut) C s l = some s') := by
   intro h
   obtain ⟨s, s', -, hs, hp⟩ := step_of_check (exec022_expireMut true false true (·.timeoutOut))
-    (C := exec022_C) (o := xrun exec022_C exec022_s0 (exec022_pre true))
+    (C := exec022_Cany (exec022_t exec022_spec))
+    (o := xrun (exec022_Cany (exec022_t exec022_spec)) exec022_s0 (exec022_pre true))
     (l := .expire 0 exec022_out) (p := fun s _ => exec022_all0 s (·.sync)) (by decide)
-  obtain ⟨f, hf, hid, -, hsy, -⟩ := (h exec022_C 0).1 (exec022_cfg_sound _) _ s s' hs
+  obtain ⟨f, hf, hid, -, hsy, -⟩ := (h (exec022_Cany (exec022_t exec022_spec)) 0).1 _ s s' hs
   have := exec022_of_all0 hp hf hid
   simp [hsy] at this
 
 /-- ✗ A timeout of a transition without a `Timeout` node violates EXEC-022 (line 1, the first
 shall sentence): `t` has the output spec `Place(1)`, and the expiry rule without the node guard
-and the outcome check ends its asynchronous firing with an empty timeout outcome. -/
+and the outcome check ends its asynchronous firing with an empty timeout outcome. The
+configuration's timeout-outcome check accepts every outcome, so the guard binds whatever the
+configuration. -/
 @[evidence forbids EXEC_022]
 theorem EXEC_022_forbids_noTimeoutNode :
     ¬ EXEC_022 (N := Nat) (T := Nat)
@@ -1185,12 +1186,13 @@ theorem EXEC_022_forbids_noTimeoutNode :
         some s') := by
   intro h
   obtain ⟨s, s', -, hs, hp⟩ := step_of_check (exec022_expireMut true true false
-      (fun _ _ _ _ => true)) (C := exec022_Cplain)
-    (o := xrun exec022_Cplain exec022_s0 (exec022_pre false)) (l := .expire 0 [])
+      (fun _ _ _ _ => true)) (C := exec022_Cany (exec022_t (.place 1)))
+    (o := xrun (exec022_Cany (exec022_t (.place 1))) exec022_s0 (exec022_pre false))
+    (l := .expire 0 [])
     (p := fun s _ => exec022_all0 s fun f => !hasTimeoutB f.t) (by decide)
-  obtain ⟨f, hf, hid, -, -, hq⟩ := (h exec022_Cplain 0).1 (exec022_cfg_sound _) _ s s' hs
+  obtain ⟨f, hf, hid, -, -, hT, -⟩ := (h (exec022_Cany (exec022_t (.place 1))) 0).1 _ s s' hs
   have := exec022_of_all0 hp hf hid
-  simp [exec022_QOutcome_hasTimeout hq] at this
+  simp [hT] at this
 
 /-- The `Timeout` child, if it is a `ForwardInput`, as its two places. -/
 def exec022_fwdOf (t : Trans Nat) : Option (Nat × Nat) :=
@@ -1238,10 +1240,10 @@ theorem EXEC_022_forbids_forwardFirst :
     (o := xrun exec022_C exec022_s0 exec022_race) (l := .expire 0 [(2, 7)])
     (p := fun s _ => exec022_all0 s fun f =>
       exec022_fwdOf f.t == some (0, 2) && f.deliv.inputs 0 == [7, 8]) (by decide)
-  obtain ⟨f, hf, hid, -, -, hq⟩ := (h exec022_C 0).1 (exec022_cfg_sound _) _ s s' hs
+  obtain ⟨f, hf, hid, -, -, -, hq⟩ := (h exec022_C 0).1 _ s s' hs
   have := exec022_of_all0 hp hf hid
   simp only [Bool.and_eq_true, beq_iff_eq] at this
-  exact exec022_firstOnly_not this.1 this.2 hq
+  exact exec022_firstOnly_not this.1 this.2 (hq (exec022_cfg_sound _))
 
 /-- ✗ A timeout after the return violates EXEC-022 (line 7, the third shall sentence): the
 action returns, and the expiry rule without the `opn` guard still ends the firing with its

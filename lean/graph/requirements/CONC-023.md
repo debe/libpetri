@@ -11,36 +11,36 @@ flowchart TD
   subgraph g0["Libpetri/Sched.lean"]
     n142["Libpetri.LevelBlocks"]
     n145["Libpetri.LevelBlocks.mk"]
-    n4793["Libpetri.SchedKey"]
-    n4794["Libpetri.SchedKey.clock"]
-    n4795["Libpetri.SchedKey.lt"]
-    n4796["🔒 Libpetri.SchedKey.lt_asymm"]
-    n4800["Libpetri.SchedKey.prio"]
-    n21984["🔒 Libpetri.collect_ready_general_refines"]
-    n22045["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n22121["🔒 Libpetri.levelBlocks_sorted"]
-    n22146["🔒 Libpetri.pairwise_imp_mem"]
+    n4796["Libpetri.SchedKey"]
+    n4797["Libpetri.SchedKey.clock"]
+    n4798["Libpetri.SchedKey.lt"]
+    n4799["🔒 Libpetri.SchedKey.lt_asymm"]
+    n4803["Libpetri.SchedKey.prio"]
+    n22415["🔒 Libpetri.collect_ready_general_refines"]
+    n22476["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n22552["🔒 Libpetri.levelBlocks_sorted"]
+    n22577["🔒 Libpetri.pairwise_imp_mem"]
   end
-  n142 --> n4793
+  n142 --> n4796
   n145 --> n142
-  n145 --> n4794
-  n145 --> n4800
-  n4794 --> n4793
-  n4795 --> n4794
-  n4795 --> n4800
-  n4796 --> n4795
-  n4800 --> n4793
-  n21984 --> n22045
-  n21984 --> n22121
-  n22045 --> n4796
-  n22121 --> n145
-  n22121 --> n4795
-  n22121 --> n22146
+  n145 --> n4797
+  n145 --> n4803
+  n4797 --> n4796
+  n4798 --> n4797
+  n4798 --> n4803
+  n4799 --> n4798
+  n4803 --> n4796
+  n22415 --> n22476
+  n22415 --> n22552
+  n22476 --> n4799
+  n22552 --> n145
+  n22552 --> n4798
+  n22552 --> n22577
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n21984 root
-  class n4796,n21984,n22045,n22121,n22146 locked
+  class n22415 root
+  class n4799,n22415,n22476,n22552,n22577 locked
 ```
 
 Axioms used:

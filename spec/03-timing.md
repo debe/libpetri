@@ -733,9 +733,11 @@ other.
    not an acceptable default; the no-clock path MUST stay as direct as it was, in the spirit
    of [PERF-010].
 10. **A coarse clock is not a broken clock.** A host clock whose readings are constant across
-    several consecutive cycles — millisecond-derived, or replay-derived — drives a net
-    containing `delayed`, `window` and `deadline` transitions to the same outcome as a
-    strictly increasing clock.
+    several consecutive cycles (millisecond-derived, or replay-derived) drives a net
+    containing `delayed`, `window` and `deadline` transitions to the same outcome as the same
+    clock with each repeated reading taken once: a repeated reading is not a time step. The
+    criterion claims no more than that. A clock that advances in steps wider than a window can
+    pass the window unseen, so a coarse clock is not claimed to reach the outcome of a finer one.
 11. **Reentrant admission.** With a clock installed, `inject()` called from inside the wait
     enqueues without being applied there, and the tokens appear in the following cycle's
     external-events phase in the order a default run would have admitted them. A host that

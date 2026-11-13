@@ -20,14 +20,15 @@ line 8 is a step form `on R, shall Q` read on the update steps of the executor:
 * a cycle that begins ends step 2 before its enablement update (line 3);
 * the finished actions queued when a cycle begins or step 1 is entered are processed before any
   publication, injection or start (line 4);
-* the external events queued when step 2 begins are injected or discarded before the next
-  enablement update (line 5);
+* the external events queued when step 2 begins, the executor neither closed nor stopped, are
+  injected or discarded before the next enablement update (line 5);
 * a transition the deadline step reaps does not start before the next enablement update
   (line 6);
 * the loop does not wait while a deposit, or a consuming start, since the last enablement update
   is unprocessed (line 7, step 6 under ruling D13 (a));
-* the enablement update leaves every enabled transition armed or reaped, unless it may not start
-  again while in flight, and every disabled one without a clock (line 8, step 3).
+* the enablement update leaves every transition whose enablement check passes armed or reaped,
+  unless it may not start again while in flight, and every other one without a clock (line 8,
+  step 3).
 
 The evidence: the reference executor satisfies every line from every state (`EXEC_001_reference`,
 through one invariant per trace line, `Exec001.aun_of_inv`); one decided mutant run per line
@@ -122,9 +123,11 @@ def passesStep1 (e : XStep N T) : Bool :=
   | .publish _ | .inject _ | .start _ _ => true
   | _ => false
 
-/-- The step enters step 2 (phase `events`) with the event of ticket `k` in the event queue. -/
+/-- The step enters step 2 (phase `events`) of an executor that is neither closed nor stopped
+(mode open or draining), with the event of ticket `k` in the event queue. -/
 def entersStep2With (k : Nat) (e : XStep N T) : Bool :=
-  e.2.2.phase == .events && e.1.phase != .events && (e.2.2.eq.map Prod.fst).contains k
+  e.2.2.phase == .events && e.1.phase != .events && !e.2.2.mode.closing &&
+    (e.2.2.eq.map Prod.fst).contains k
 
 /-- The step takes the event of ticket `k` off the queue: it injects or discards it, or an
 immediate termination ([ENV-015]) discards the whole queue. -/
@@ -176,19 +179,19 @@ requirement EXEC_001
         "*When* the executor begins a cycle or deposits tokens outside a firing pass, it *shall not* start a transition until it has run a deadline step."
         "*When* the executor begins a cycle, it *shall not* run an enablement update until it has ended step 2."
         "*When* the executor begins a cycle or enters step 1, it *shall not* deposit a publication, inject an external event or start a transition until it has processed every finished action queued at that moment, whether the action completed, failed or timed out."
-        "*When* the executor enters step 2 of a cycle, it *shall not* run the next enablement update until it has injected or discarded every external event queued at that moment ([ENV-003], [ENV-013], [ENV-015])."
+        "*When* the executor enters step 2 of a cycle while it is neither closed nor terminated immediately, it *shall not* run the next enablement update until it has injected or discarded every external event queued at that moment ([ENV-003], [ENV-013], [ENV-015])."
         "*If* the deadline step of a cycle reaps a transition, *then* the executor *shall not* start that transition before its next enablement update."
         "*When* the executor starts a transition that has an input or reset arc, or deposits tokens outside a firing pass or inside a firing pass that has started a transition, it *shall not* wait for work until it has run an enablement update."
-        "*When* the executor runs an enablement update, it *shall* leave every transition that is not enabled without a clock, and every enabled transition armed or reaped unless the executor is not re-entrant and a firing of that transition is in flight ([CONC-002])."
+        "*When* the executor runs an enablement update, it *shall* leave every transition whose enablement check fails without a clock, and every transition whose enablement check passes armed or reaped unless the executor is not re-entrant and a firing of that transition is in flight ([CONC-002], [NU-020])."
   reading "For every executor R and every configuration C, every run of R under C from any state satisfies lines 1 to 7, and every update step of R under C satisfies line 8:"
           "after each step that begins a cycle (leaves the firing pass or the wait for a running phase that is neither) or deposits tokens outside a firing pass (a commit, a timeout deposit, a publication or an injection taken in a phase other than the firing pass), no deadline step happens before the next enablement update;"
           "after each such step, no start happens before the next deadline step;"
           "after each step that begins a cycle, no enablement update happens before the next end of step 2;"
           "for every firing identity i: after each step that begins a cycle or enters step 1 with i in the completion queue, no publication, injection or start happens before a commit, a fail or a timeout deposit of i;"
-          "for every ticket k: after each step that enters step 2 with the event of ticket k in the event queue, no enablement update happens before that event is injected or discarded, or an immediate termination discards the queue;"
+          "for every ticket k: after each step that enters step 2 of an executor that is neither closed nor stopped, with the event of ticket k in the event queue, no enablement update happens before that event is injected or discarded, or an immediate termination discards the queue;"
           "for every transition name n: after each deadline step that reaps n, no start of n happens before the next enablement update;"
           "after each deposit outside a firing pass, each deposit inside a firing pass that has started a transition, and each start of a transition of the net that has an input or reset arc, no park step happens before the next enablement update;"
-          "every update step from s to s' leaves, for every name n and the transition u the net holds under n, u armed or reaped in s' if it is enabled at the marking of s' and the executor is re-entrant or no firing of n is in flight, and n without a stamp if u is not enabled."
+          "every update step from s to s' leaves, for every name n and the transition u the net holds under n, u armed or reaped in s' if its enablement check passes at the marking of s' (u is enabled there) and the executor is re-entrant or no firing of n is in flight, and n without a stamp if its enablement check fails (u is not enabled)."
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A run (XRun) is a list of consecutive steps (source, label, target) of R, from any state, so every trace line also holds of a run observed from the middle. The labels are the steps of EXEC-001: step 1 settles finished firings (commit, fail, tdeposit) and ends with endCompletions; step 1b deposits mid-action publications (publish, Rust and Python, the markdown sentence 'Between steps 1 and 2'); step 2 injects or discards queued external events (inject, discard) and ends with endEvents; step 3 is update; step 4 is deadline ns, which reaps exactly the names ns; the termination test is finish or begin; step 5 is start, lose and endPass; step 6 is park (the loop blocks) and wake. The loop phase of the state says which step the loop is in, and each phase is entered by the step that ends the one before, so 'enters step 1' is a step whose target is in phase completions and whose source is not, and 'begins a cycle' is a step whose source is the pass or the wait and whose target is a running phase that is neither. The witness is the reference executor RefExec (Reference/Exec.lean), checked rule by rule against the Rust executor."
           "Every line is a prohibition or, for line 8, a condition on the state an update leaves: nothing here obliges a step to happen. That the loop goes on (the wait wakes on each arrival, a run ends only on its termination test) is CONC-010's and EXEC-040's subject, and a run with no trigger is unconstrained by lines 1 to 7."
           "Transition names are taken to be pairwise distinct (ruling D10, Cfg.WF.names, which the statement does not assume): lines 6 to 8 work on names, and lines 7 and 8 judge the transition the net holds under the name (findT, the first one with that name). On a net with distinct names this is the transition the start label started; the clock status is kept per name in every runtime."
@@ -196,15 +199,15 @@ requirement EXEC_001
           "The first two EARS sentences are lines 1 and 2: after a cycle begins or a deposit is made outside a pass, a deadline step needs an update first (line 1) and a start needs a deadline step first (line 2), so the update, then the deadline step, then the starts. An executor that skips the update after step 2 and reaps on stale statuses breaks line 1 (EXEC_001_forbids_skipUpdate), and so does one whose wait jumps to the deadline step (EXEC_001_forbids_wakeToDeadline); one whose pass may begin before the deadline step (fire before reap, the run clash013_refresh_rescue of ClashesTime lifts to it) breaks line 2 (EXEC_001_forbids_fireBeforeReap)."
           "The third EARS sentence is line 3: a cycle that begins ends step 2 (endEvents) before its update, so no cycle skips steps 1, 1b and 2. A timer wake that goes straight back to the enablement update (the fast path a Java or TypeScript loop takes if it continues to updateDirtyTransitions when awaitWork returns on its timer, or Rust's Phase 6 timer arm jumping to Phase 3) breaks it (EXEC_001_forbids_wakeToUpdate)."
           "The fourth EARS sentence is line 4, the reading of AC2's first clause and of AC1's first clause: the finished firings queued when a cycle begins or step 1 is entered are processed (committed, failed or their timeout outcome deposited, EXEC-020, EXEC-021, EXEC-022, EXEC-030) before any publication, injection or start, so step 1 comes before steps 1b and 2 and before the pass. The cycle trigger catches an executor that skips step 1; the step 1 trigger one that enters it from elsewhere. A firing that finishes later, while step 1 runs, is a new item; the reference processes it too, as Rust drains its completion channel, but the line does not ask for it. A run that ends step 1 with a firing still queued and then starts a transition breaks the line (EXEC_001_forbids_endWithQueued)."
-          "The fifth EARS sentence is line 5, the phase-entry reading of AC3: an event queued when step 2 begins is injected (ENV-003) or, once the executor is closed or stopped, discarded (ENV-013), before the next update. An immediate termination (ENV-015, Java) discards the whole queue at once (the label terminateNow), which releases the line as a discard does. An update that runs with an event still queued breaks the line (EXEC_001_forbids_updateBeforeInject)."
+          "The fifth EARS sentence is line 5, the phase-entry reading of AC3's first sentence: an event queued when step 2 begins, with the executor neither closed nor stopped (mode open or draining, Mode.closing false), is injected (ENV-003) or, when a close comes before its injection, discarded (ENV-013), before the next update. An immediate termination (ENV-015, Java) discards the whole queue at once (the label terminateNow), which releases the line as a discard does. An update that runs with an event still queued, the executor open, breaks the line (EXEC_001_forbids_updateBeforeInject). A step 2 entered while the executor is already closed or stopped does not trigger the line, which is AC3's second sentence: Java and TypeScript then return from step 2 at once and leave the queued events in the queue (BitmapNetExecutor.java processExternalEvents, 'if (closed.get()) return', and the same test in PrecompiledNetExecutor.java; bitmap-net-executor.ts and precompiled-net-executor.ts processExternalEvents), they go on running enablement updates while an action is in flight (shouldTerminate waits for the firings in flight), and they discard the events when the loop ends (drainPendingExternalEvents in the finally block of the Java loop, after the loop in TypeScript). That every event still queued at a close is discarded, at the latest when the loop ends, is ENV-013's line, not this block's. The reference discards them in step 2 (discardStep), which the line allows as well. The decided run exec001_closedStep2_run shows a step 2 of that kind: a request is accepted, a caller closes the executor, step 2 ends with the event queued and the update follows; line 5 holds on it, and the reading without the closed exemption fails on it. Once step 2 has begun with the executor open, a close that comes during it leaves the line in force: Java and TypeScript test the close only on entry to step 2 and inject the rest of the queue, and the reference discards it."
           "The sixth EARS sentence is line 6, the reading of AC4. With the reference ready order a transition that is expired at the cycle reading is not Ready (glossary: Ready, the wording of step 5), so it is not in the order of that pass; the line is what stops a deadline step that only reports the reap and keeps the clock, so that the transition stays armed and an order that tests only the earliest bound would start it in the same cycle: EXEC_001_forbids_reapWithoutDisarm. When a reaped transition may be armed again (only after a write of one of its arc places, ruling D6) is TIME-013's companion line, not this block."
           "The seventh EARS sentence is line 7, the reading of AC5 and of step 6 under ruling D13 (a): the loop may wait while actions are in flight, but not while a deposit or a consuming start since the last update is unprocessed. Rust runs another cycle after any start and after any dirty bit (fired_any or has_dirty_bits), Java and TypeScript after any dirty bit (hasDirtyBits), and all mark dirty the places a firing consumes from and the places a deposit writes. The start trigger is restricted to transitions with an input or reset arc (a reset arc on an empty place counts, as its start is a write): after a pass whose starts consume nothing, Java and TypeScript may wait at once and Rust runs one more cycle first; no marking, status or event tells the two apart, and both are allowed. A deposit inside a pass counts when the pass has started a transition, which every synchronous deposit inside its own pass does (it follows the start of its firing); the state of an arbitrary executor may hold a firing that is settled inside a pass before any start, and the line does not speak of it. A settle in the wait that goes back to sleep without a new cycle breaks the line (EXEC_001_forbids_parkAfterSettle), and so does a pass that ends in the wait after a synchronous deposit when no transition of the net consumes (the dirty bit of the deposit lost, EXEC_001_forbids_passDepositPark). Which arrivals wake the wait, and that nothing Ready or Expired at the cycle reading may be waited on, are CONC-010's."
-          "The eighth EARS sentence is line 8, the reading of AC6 and of step 3 ('re-evaluate which transitions are enabled based on current marking'): after an update, a transition enabled at the marking is armed or reaped (an update keeps a reaped transition reaped until a write of one of its arc places, ruling D6) unless the executor is not re-entrant and a firing of it is in flight (Cfg.reentrant, ruling D8 (b), CONC-002), and a transition that is not enabled holds no clock. Which stamp an armed transition holds (kept, fresh, or fresh after a restart) is TIME-010's and TIME-012's. An update that re-evaluates nothing, for instance a dirty set cleared before it is read, breaks the line (EXEC_001_forbids_emptyUpdate)."
+          "The eighth EARS sentence is line 8, the reading of AC6 and of step 3 ('re-evaluate which transitions are enabled based on current marking'). The sentence speaks of the enablement check (glossary: Enablement check), which the line reads as Enabled (enabledNA): the transitions of the model (Reference.Trans) carry no match specification (rulings D16 and D30), and for a transition without one the enablement check passes exactly when the transition is enabled (CONC-008). For a transition with a match specification the enablement check also needs a name every correlated input holds (the ν-match check of NU-020); every runtime arms a ν join only when that check finds a name (Rust bitmap_backend.rs can_enable with find_match_binding, Java canEnable with its MatchEngine), so a count-enabled ν join with no matching name holds no clock, as the sentence says. That case is NU-020's and is not encoded here. After an update, a transition enabled at the marking is armed or reaped (an update keeps a reaped transition reaped until a write of one of its arc places, ruling D6) unless the executor is not re-entrant and a firing of it is in flight (Cfg.reentrant, ruling D8 (b), CONC-002), and a transition that is not enabled holds no clock. Which stamp an armed transition holds (kept, fresh, or fresh after a restart) is TIME-010's and TIME-012's. An update that re-evaluates nothing, for instance a dirty set cleared before it is read, breaks the line (EXEC_001_forbids_emptyUpdate)."
           "Where the wait sits: no line forbids a park between an update and the end of the next firing pass when nothing was deposited since; CONC-010's park guard (nothing Ready or Expired at the cycle reading, nothing queued) makes such a park indistinguishable from an empty pass followed by the wait."
-          "Ruling D61 (c) and ruling D13 (a), the markdown paragraph on two further points about the cycle: the model takes the update's reading, which stamps what it newly arms, and a reading of its own at the deadline step, never an earlier one (XSt.cyc, atDeadline); the deadline step, the ready order of the pass and the park decision judge at the deadline step's reading. A runtime that takes one reading per cycle (Rust) or a second one after its update that steps 4 and 5 share (TypeScript) is a run of the model; Java's firing pass judges readiness at a third reading of its own, which the ruling does not allow: a recorded executor defect, RD-16 in spec/runtime-defects.md. Those reading lines are TIME-010's companion, TIME-013's companion, TIME-014 line 3 and CONC-010's, and the termination test (finish or begin) made after the update and the deadline step is EXEC-040's and EXEC-041's subject. A terminal place stops the run from any phase (EXEC-042), so a finish may end a cycle anywhere; no line asks for a step after it."
+          "Ruling D61 (c) and ruling D13 (a), the markdown paragraph on two further points about the cycle: the model takes the update's reading, which stamps what it newly arms, and a reading of its own at the deadline step, never an earlier one (XSt.cyc, atDeadline); the deadline step, the ready order of the pass and the park decision judge at the deadline step's reading. A runtime that takes one reading per cycle (Rust and Java, whose update, deadline step, firing pass and decision to wait share cycle_now and cycleNanos) or a second one after its update that steps 4 and 5 and the decision to wait share (TypeScript's cycleNowMs) is a run of the model; a firing pass that judges readiness at a reading of its own, which the ruling does not allow, is the behaviour RD-16 in spec/runtime-defects.md recorded for Java. Those reading lines are TIME-010's companion, TIME-013's companion, TIME-014 line 3 and CONC-010's, and the termination test (finish or begin) made after the update and the deadline step is EXEC-040's and EXEC-041's subject. A terminal place stops the run from any phase (EXEC-042), so a finish may end a cycle anywhere; no line asks for a step after it."
           "Step 3's clause 'Only transitions affected by token changes need re-evaluation' is a permission, kind Q: the reference re-evaluates every name at the update, the runtimes only the dirty ones, and the dirty scan restores exact enablement (exec001_dirty_set_exact, a citation of updateEnablement_sync); the agreement with RefExec's full re-evaluation is link L9 of ExecLink. The step 3 text cites CONC-005 for the clause (the dirty set), not CONC-004 (the bitmask check). Step 5's ready order is EXEC-002's and TIME-014's; step 1's validation is EXEC-021's; the events each step emits are the EVT blocks'."
-          "AC1 (each cycle runs steps 1 to 5 in order, except as the two exceptions allow) is lines 1 to 4 under ruling D70 (a): queued completions before step 1b, step 2 and the pass (line 4), step 2 ended before the update (line 3), the update before the deadline step (line 1) and the deadline step before any start (line 2), from every cycle that begins. AC2 is line 4 for its first clause and lines 1 and 2 for a deposit made outside a pass. AC3 is line 5, AC4 line 6, AC5 line 7 and AC6 line 8. The test derivation (trace a simple net and check the step order on the event log) is EXEC_001_nonvacuous, five decided reference runs that exercise every trigger and every banned step of the lines, and every release they name: the update, the deadline step, the end of step 2, the commit of a queued firing, the injection, the discard and the immediate termination of a queued event, and the update after a reap followed by the start of the reaped transition."
-  signoff "pending"
+          "AC1 (each cycle runs steps 1 to 5 in order, except as the two exceptions allow) is lines 1 to 4 under ruling D70 (a): queued completions before step 1b, step 2 and the pass (line 4), step 2 ended before the update (line 3), the update before the deadline step (line 1) and the deadline step before any start (line 2), from every cycle that begins. AC2 is line 4 for its first clause and lines 1 and 2 for a deposit made outside a pass. AC3 is line 5 for its first sentence, and its second sentence (a step 2 entered while the executor is closed or terminated may leave the queued events in place, to be discarded by the end of the run) is the exemption of line 5's trigger, with ENV-013 for the discard; AC4 is line 6, AC5 line 7 and AC6 line 8. The test derivation (trace a simple net and check the step order on the event log) is EXEC_001_nonvacuous, five decided reference runs that exercise every trigger and every banned step of the lines, and every release they name: the update, the deadline step, the end of step 2, the commit of a queued firing, the injection, the discard and the immediate termination of a queued event, and the update after a reap followed by the start of the reaped transition."
+  signoff "2026-11-13 e0db038ae801add5 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ s0 tr, XRun R C s0 tr →
@@ -850,7 +853,7 @@ theorem line5 (P : XPol N T) (C : Cfg N T) (k : Nat) :
     (fun s l s' h ht => by
       simp only [entersStep2With, Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq,
         List.contains_iff_mem] at ht
-      exact Or.inl ⟨ht.1.1, ht.2⟩)
+      exact Or.inl ⟨ht.1.1.1, ht.2⟩)
 
 /-- Line 6 holds of the executor of every `P`. -/
 theorem line6 (P : XPol N T) (C : Cfg N T) (n : String) :
@@ -1128,10 +1131,10 @@ def exec001_runW : List (XLbl Nat Nat) :=
     exec001_quiet ++ [.begin, .endPass, .delay 3, .wake] ++ exec001_quiet ++
     [.begin, .start "u" false]
 
-/-- The discard run: a request queues `5` for place `2` with ticket `0`, a caller closes the
-executor, and step 2 discards the event before the update. -/
+/-- The discard run: a request queues `5` for place `2` with ticket `0`, step 2 begins with the
+executor open, a caller closes the executor, and step 2 discards the event before the update. -/
 def exec001_runD : List (XLbl Nat Nat) :=
-  [.request 2 5 .accepted, .close, .endCompletions, .endPublications, .discard 0, .endEvents,
+  [.request 2 5 .accepted, .endCompletions, .endPublications, .close, .discard 0, .endEvents,
    .update]
 
 /-- The termination run: a request queues `5` for place `2` with ticket `0`, step 2 begins, and
@@ -1156,7 +1159,8 @@ first update arms the enabled `t` and leaves `w` without a clock (line 8). The s
 (`exec001_runS`) deposits inside the pass that started `t`, and an update follows (line 7's
 second trigger). On the timed net (`exec001_runW`) the deadline step reaps `u` (line 6), and `u`
 starts only after an injection into its place and the next update. The runs `exec001_runD` and
-`exec001_runT` release line 5 by a discard and by an immediate termination. -/
+`exec001_runT` release line 5 by a discard after a close during step 2 and by an immediate
+termination. -/
 @[evidence nonvacuous EXEC_001]
 theorem EXEC_001_nonvacuous :
     (∃ tr, XRun RefExec (exec001_cfg false) (xinit exec001_m1 0) tr ∧
@@ -1332,6 +1336,44 @@ theorem EXEC_001_forbids_updateBeforeInject :
     (q := fun tr => !decide (AfterUntilNever (entersStep2With 0) (dequeuesEvent 0) isUpdate tr))
     (by decide +kernel)
   simp [((h _).1 _ tr hr).2.2.2.2.1 0] at hq
+
+/-! ### A step 2 entered while closed (line 5's exemption, AC3) -/
+
+/-- An executor whose step 2 returns at once while the executor is closed or stopped, leaving the
+queued events in the queue (Java's and TypeScript's `processExternalEvents`, `if (closed) return`,
+the events discarded when the loop ends). -/
+def exec001_closedSkipStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
+    XLbl N T → Option (XSt N T)
+  | .endEvents =>
+      if s.mode.closing then
+        (xstep C { s with eq := [] } .endEvents).map fun s' => { s' with eq := s.eq }
+      else xstep C s .endEvents
+  | l => xstep C s l
+
+/-- The trigger of line 5 without the closed exemption: the step enters step 2 with the event of
+ticket `k` queued, whatever the mode. -/
+def exec001_entersStep2Any {N T : Type} (k : Nat) (e : XStep N T) : Bool :=
+  e.2.2.phase == .events && e.1.phase != .events && (e.2.2.eq.map Prod.fst).contains k
+
+/-- Line 5's exemption is load-bearing: on the run of a Java-like executor whose step 2 is entered
+after a close, with the event of ticket `0` queued, and ends at once with the event still queued,
+followed by the update, line 5 holds, and the reading without the exemption (trigger
+`exec001_entersStep2Any`) fails. -/
+theorem exec001_closedStep2_run :
+    ∃ tr, XRun (fun C s l s' => exec001_closedSkipStep C s l = some s') (exec001_cfg false)
+        (xinit exec001_m1 0) tr ∧
+      AfterUntilNever (entersStep2With 0) (dequeuesEvent 0) isUpdate tr ∧
+      ¬ AfterUntilNever (exec001_entersStep2Any 0) (dequeuesEvent 0) isUpdate tr := by
+  obtain ⟨tr, hr, hq⟩ := Exec001.run_of_check (g := exec001_closedSkipStep)
+    (C := exec001_cfg false) (s := xinit exec001_m1 0)
+    (ls := [.request 2 5 .accepted, .close, .endCompletions, .endPublications, .endEvents,
+      .update])
+    (q := fun tr => decide (AfterUntilNever (entersStep2With 0) (dequeuesEvent 0) isUpdate tr) &&
+      !decide (AfterUntilNever (exec001_entersStep2Any 0) (dequeuesEvent 0) isUpdate tr))
+    (by decide +kernel)
+  simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq, decide_eq_false_iff_not]
+    at hq
+  exact ⟨tr, hr, hq⟩
 
 /-! ### Violation: a reap that keeps the clock, and a pass on the earliest bound (line 6) -/
 

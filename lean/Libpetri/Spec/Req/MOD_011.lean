@@ -22,12 +22,17 @@ The second block, `MOD_011_typed`, binds the implementations that keep a run-tim
 for each port (Java, Rust; ruling D36 (a)). It is stated over a typed port lookup
 `PortAs : Instance N A → String → T → Except String N` and the run-time token type `tyOf : N → T`
 a place handle carries, and says that the typed lookup is the port lookup followed by a type
-check: it returns the port's place when the requested type is that place's type, and fails when
-the type differs or the port name is unknown.
+check: it returns the port's renamed place when the requested type is the type that place
+carries, and fails when the type differs or the port name is unknown. Both runtimes are read at
+the typed naming model `typedNaming`, a place handle being its name and its token type: for Java
+the place record, for Rust the renamed name with the `TypeId` its port captured. There the type
+the handle carries is the type the port was declared with (`mod011_typed_declared`), which is
+how the spec words the check; a type read off the place's name alone is not what Rust checks
+(`MOD_011_typed_forbids_byPlaceName`).
 
 The witnesses are the reference instantiation `refInst Nm` ([MOD-010]) and the reference typed
 lookup `refPortAs tyOf` (below). Jointly with [MOD-010] the handles name nodes of the renamed
-body (`mod011_handles_resolve`), and on Java's naming model the typed lookup accepts exactly the
+body (`mod011_handles_resolve`), and on the typed naming model the typed lookup accepts exactly the
 type the port was declared with (`mod011_typed_declared`). Wrong handles are killed, one per
 line: a port lookup that returns the unrenamed place, a channel lookup that returns the
 unrenamed transition name, lookups that invent a place or transition for an unknown name, an
@@ -63,9 +68,9 @@ requirement MOD_011
           "Lines 1 and 2 are premised on distinct port names and distinct channel names. Every subnet definition the subnet builder accepts has them (MOD-006 lines 3 and 4); the Lean type SubnetDef allows definitions beyond the built ones, on which the reference answers with the first port or channel of the name and the runtimes' maps keep the last one. The handle answers whether or not the port's place was later bound by a composition: it is fixed at instantiation (rust/libpetri-core/src/petri_net.rs:703-705)."
           "That the handles name nodes of the renamed body (the port's place is a renamed body place, the channel's transition a renamed body transition) is a joint consequence with MOD-010, for every model of both blocks (mod011_handles_resolve): MOD-010 line 3 gives the renamed body and its line 2 the success on a built definition."
           "Item 3 and AC5 (params() returns the parameter value supplied at instantiation): the parameters value is not modelled (InstFn, Spec/GlossaryCompose.lean); Java, TypeScript and Rust return the value they were given, and Python's definitions take no parameters, so its Instance has no params(). Tested, not proven."
-          "Item 1's type parameter, the MUST sentence on the token type and AC2 (port(\"input\", Integer) is rejected) are the second block, MOD_011_typed, scoped to the implementations that keep a run-time token type for each port (ruling D36 (a)). The compile-time claim is withdrawn: no runtime reports a mismatched port type when compiling."
+          "Item 1's type parameter, the MUST sentence on the token type and AC2 (port(\"input\", Integer) is rejected) are the second block, MOD_011_typed, scoped to the implementations that keep a run-time token type for each port (ruling D36 (a)). The requirement makes no compile-time claim: no runtime reports a mismatched port type when compiling."
           "AC1 (port(\"input\", String) returns the renamed Place<String>) is line 1 (MOD_011_nonvacuous on the reference: port input on place slots under r1 gives r1/slots) and, with its type, mod011_typed_declared. AC3 (channel(\"attempt\") returns the renamed transition whose original name was attempt) is line 2 (MOD_011_nonvacuous: r1/attempt). AC4 (an unknown port or channel name produces an error) is lines 3 and 4."
-  signoff "pending"
+  signoff "2026-11-13 7b4595c6b793ff8b ai"
   statement : ∀ {N A : Type}, Naming N → InstFn N A → Prop :=
     fun {N A} Nm Inst =>
       (∀ (S : SubnetDef N A) p I, Inst S p = .ok I → (S.ports.map (·.name)).Nodup →
@@ -239,7 +244,7 @@ theorem mod011_handles_resolve {N A : Type} {Nm : Naming N} {Inst : InstFn N A}
         Nm.name x = preS p (Nm.name q.place)) ∧
       (∀ c ∈ S.chans, ∃ t, I.chan c.name = some t ∧ t ∈ I.defs.map (·.core.name)) := by
   obtain ⟨I, hI⟩ := h10.2.1 S p hp ht hpl htr
-  obtain ⟨hplaces, hdefs⟩ := h10.2.2.2 S p I hI
+  obtain ⟨hplaces, hdefs⟩ := h10.2.2.1 S p I hI
   refine ⟨I, hI, h11.2.2.2.2 S p I hI, fun q hq => ⟨Nm.pre p q.place, h11.1 S p I hI hpn q hq,
     (hplaces _).2 (List.mem_map_of_mem (hpl q hq)), Nm.pre_name p q.place⟩,
     fun c hc => ⟨preS p c.trans, h11.2.1 S p I hI hcn c hc, ?_⟩⟩
@@ -518,19 +523,19 @@ requirement MOD_011_typed
   kind F
   scope "implementations that keep a run-time token type for each port (Java, Rust)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *when* a port lookup names a port of the interface and requests the token type of the place that the port lookup returns, the lookup *shall* return that place."
-        "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names a port of the interface and requests a token type other than the type of the place that the port lookup returns, *then* the lookup *shall* fail."
+  quote "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *when* a port lookup names a port of the interface and requests the token type the port was declared with, the lookup *shall* return the port's renamed place."
+        "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names a port of the interface and requests a token type other than the one the port was declared with, *then* the lookup *shall* fail."
         "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names no port of the interface, *then* the lookup *shall* fail, whatever type it requests."
-  reading "For every run-time token type tyOf of a place and every typed port lookup PortAs, for every instance I, name n and requested type ty:"
-          "if the port handle I.port n gives the place x and tyOf x = ty, PortAs I n ty returns x;"
-          "if I.port n gives the place x and tyOf x ≠ ty, PortAs I n ty fails;"
+  reading "For every reader tyOf of the token type a place handle carries and every typed port lookup PortAs, for every instance I, name n and requested type ty:"
+          "if the port handle I.port n gives the place x (the port's renamed place, MOD_011 line 1) and ty is tyOf x, the type x carries (on typedNaming the type the port was declared with, mod011_typed_declared), PortAs I n ty returns x;"
+          "if I.port n gives the place x and ty is not tyOf x (on typedNaming a type other than the one the port was declared with), PortAs I n ty fails;"
           "if I.port n gives nothing, PortAs I n ty fails."
-  assumes "Ruling D36 (a): the type check is scoped to the implementations that keep a run-time token type for each port. Java's Instance.port(name, tokenType) compares the requested class with the token type of the renamed place it returns and throws IllegalArgumentException on a difference (java/src/main/java/org/libpetri/core/Instance.java:98-110). Rust's Instance::port::<T>(name) compares TypeId::of::<T>() with the TypeId the port captured from the Place<T> handle it was declared with (Port::new, rust/libpetri-core/src/interface.rs:53-64) and panics on a difference (rust/libpetri-core/src/instance.rs:109-131). TypeScript's port<T>(name) takes T as an annotation it does not check (typescript/src/core/instance.ts:79-85) and Python's port_place_name(name) takes no type; neither is in scope. The messages are not stated."
-          "tyOf is the token type a place handle carries: for Java the place record's tokenType (typedNaming's second component, Prod.snd), for Rust the port's captured TypeId read as the type of the place handle the port lookup returns. The rename keeps it (typedNaming keeps the type), so the type of the returned place is the type the port was declared with: on typedNaming, every model of MOD-011 and of this block accepts exactly the declared type of the port's body place (mod011_typed_declared)."
-          "The block is stated for every instance, not only for one instantiate returns: Java and Rust check the type on whatever instance the lookup is called on. Which place the port lookup returns, and that it fails on an unknown name, is the handle block MOD_011 (lines 1 and 3)."
-          "The sentence's compile-time half ('compile-time error in languages with generics') is withdrawn under ruling D36 (a): no runtime reports a mismatched port type when compiling, since an instance's handle map is not typed by its interface."
-          "AC1 with its type (port(\"input\", String) on an instance whose interface declared input: Input<String> returns the renamed Place<String>) is line 1, and AC2 (port(\"input\", Integer) on the same instance is rejected) is line 2: MOD_011_typed_nonvacuous on the reference at Java's naming model, and mod011_typed_declared for every model of both blocks."
-  signoff "pending"
+  assumes "Ruling D36 (a): the type check is scoped to the implementations that keep a run-time token type for each port. Java's Instance.port(name, tokenType) compares the requested class with the token type of the renamed place it returns, which keeps the token type of the body place the port was declared on, and throws IllegalArgumentException on a difference (java/src/main/java/org/libpetri/core/Instance.java:98-110). Rust's Instance::port::<T>(name) compares TypeId::of::<T>() with port_types[name], the TypeId that Port::new captured from the Place<T> handle the port was declared with (rust/libpetri-core/src/interface.rs:53-64), copied per port name at instantiation (rust/libpetri-core/src/subnet_def.rs:122-139); it panics on a difference and otherwise returns Place::<T>::new on the renamed name (rust/libpetri-core/src/instance.rs:109-131). TypeScript's port<T>(name) takes T as an annotation it does not check (typescript/src/core/instance.ts:79-85) and Python's port_place_name(name) takes no type; neither is in scope. The messages are not stated."
+          "Both runtimes are read at the typed naming model typedNaming, a place handle being its name and its token type, and tyOf is Prod.snd. For Java the handle is the place record (name, tokenType). For Rust it is the pair of the renamed name (port_handles[name]) and the captured TypeId (port_types[name]); on success the Place<T> Rust returns has the requested T, equal to the captured one, so it is that pair. The type is the port's, not a function of the place's name: Rust identifies places by name (MOD-024, strNaming in MOD_011), and one place name can carry two token types, for two definitions instantiated under one prefix whose ports declare the body place slots as Place<String> and as Place<i32>, or for two ports over one body place (MOD-003 AC5) that captured different TypeIds. A lookup that reads the type off the place's name is forbidden (MOD_011_typed_forbids_byPlaceName). On typedNaming the rename keeps the type, so the type the handle carries is the type the port was declared with, the spec's wording: every model of MOD-011 and of this block accepts exactly the declared type of the port's body place (mod011_typed_declared)."
+          "The block is stated for every instance, not only for one instantiate returns: Java and Rust check the type on whatever instance the lookup is called on. Which place the port lookup returns, the port's renamed place, and that it fails on an unknown name, is the handle block MOD_011 (lines 1 and 3)."
+          "The requirement makes no compile-time claim (ruling D36 (a)): no runtime reports a mismatched port type when compiling, since an instance's handle map is not typed by its interface."
+          "AC1 with its type (port(\"input\", String) on an instance whose interface declared input: Input<String> returns the renamed Place<String>) is line 1, and AC2 (port(\"input\", Integer) on the same instance is rejected) is line 2: MOD_011_typed_nonvacuous on the reference at typedNaming, and mod011_typed_declared for every model of both blocks."
+  signoff "2026-11-13 c66a65952dec31b4 ai"
   statement : ∀ {N A T : Type}, (N → T) → PortAsFn N A T → Prop :=
     fun {N A T} tyOf PortAs =>
       (∀ (I : Instance N A) n x (ty : T), I.port n = some x → tyOf x = ty → PortAs I n ty = .ok x) ∧
@@ -584,8 +589,9 @@ theorem MOD_011_typed_reference {N A T : Type} [DecidableEq T] (tyOf : N → T) 
   · simp [refPortAs, hx, ht]
   · simp [refPortAs, hx]
 
-/-- **AC1 and AC2 at the declared type.** On Java's naming model (a place is a name and a token
-type, and the prefix keeps the type), every model of MOD-011 and of the typed block gives, for a
+/-- **AC1 and AC2 at the declared type.** On the typed naming model (a place handle is a name and a
+token type, and the prefix keeps the type: Java's place record, Rust's renamed name with the
+`TypeId` its port captured), every model of MOD-011 and of the typed block gives, for a
 port `q` of a definition with distinct port names instantiated under `p`, the renamed place when
 the requested type is the type of the place the port was declared on, and a failure for any
 other type: a port `input` declared on a `String` place answers `port("input", String)` with
@@ -608,20 +614,20 @@ inductive Mod011Ty where
   | int
   deriving DecidableEq, Repr
 
-/-- The example transition `attempt` at Java's naming model: an input arc on the `String` place
+/-- The example transition `attempt` at the typed naming model: an input arc on the `String` place
 `slots` and the output place `out`. -/
 def mod011_exDefT : CDef (String × Mod011Ty) Unit :=
   { core := ⟨"attempt", [⟨("slots", .str), .one⟩], [], [], []⟩, out := some (.place ("out", .str)),
     timing := .immediate, priority := 0, action := .other () }
 
-/-- The example of AC1 and AC2 at Java's naming model: the place `slots` of type `String`, the
+/-- The example of AC1 and AC2 at the typed naming model: the place `slots` of type `String`, the
 transition `attempt`, the port `input` on `slots` and the channel `attempt`. -/
 def mod011_exT : SubnetDef (String × Mod011Ty) Unit :=
   { name := "retry", places := [("slots", .str), ("out", .str)], defs := [mod011_exDefT],
     ports := [⟨"input", .input, ("slots", .str)⟩], chans := [⟨"attempt", "attempt"⟩] }
 
 /-- ✓ Every line of the typed block is exercised by the reference: instantiating `retry` under
-`r1` on Java's naming model and asking for the port `input` as a `String` gives the place
+`r1` on the typed naming model and asking for the port `input` as a `String` gives the place
 `r1/slots` of type `String` (AC1), asking for it as an `Integer` fails (AC2), and asking for the
 undeclared port `output` fails (AC4). -/
 @[evidence nonvacuous MOD_011_typed]
@@ -718,5 +724,51 @@ theorem MOD_011_typed_mutant_unknown_killed :
   · exact ⟨"type", by simp [freshPortAs, hx, ht]⟩
   · obtain ⟨msg, hm⟩ := h.2.2 mod011_exI "output" .str rfl
     exact nomatch hm
+
+
+/-! ### The type is the port's, not the place name's -/
+
+/-- A typed lookup (places by name and type) that reads the token type off the place's name: it
+takes the type of the first place of the instance with the name of the port's place, and returns
+that name at the requested type. This is the type check keyed on the place by name, which Rust
+does not do: Rust compares with the `TypeId` its port captured. -/
+def byPlaceNamePortAs {A T : Type} [DecidableEq T] : PortAsFn (String × T) A T := fun I n ty =>
+  match I.port n with
+  | none => .error "no port"
+  | some x =>
+    match I.places.find? (·.1 == x.1) with
+    | none => .error "no place"
+    | some y => if y.2 = ty then .ok (x.1, ty) else .error "type"
+
+/-- An instance with one place name carrying two token types (two ports over one body place that
+were declared at different types, MOD-003 AC5, as Rust allows): the port `a` names `r1/slots` as a
+`String` and the port `b` names it as an `Integer`. -/
+def mod011_exI2 : Instance (String × Mod011Ty) Unit where
+  pfx := "r1"
+  places := [("r1/slots", .str), ("r1/slots", .int)]
+  defs := []
+  port n := if n = "a" then some ("r1/slots", .str) else
+    if n = "b" then some ("r1/slots", .int) else none
+  chan _ := none
+  iface := []
+
+/-- The reference typed lookup keys the type on the port: on the instance whose place `r1/slots`
+two ports name at two types, it accepts the port `a` as a `String` and the port `b` as an
+`Integer`, each at its own declared type. -/
+theorem mod011_typed_perPort :
+    refPortAs Prod.snd mod011_exI2 "a" Mod011Ty.str = .ok ("r1/slots", .str) ∧
+      refPortAs Prod.snd mod011_exI2 "b" Mod011Ty.int = .ok ("r1/slots", .int) :=
+  ⟨rfl, rfl⟩
+
+/-- ✗ A typed lookup that reads the token type off the place's name violates the typed block
+(line 1): on the instance whose place `r1/slots` the port `a` names as a `String` and the port `b`
+as an `Integer`, asking for `b` as an `Integer` fails, since the first place named `r1/slots` is
+the `String` one. -/
+@[evidence forbids MOD_011_typed]
+theorem MOD_011_typed_forbids_byPlaceName :
+    ¬ MOD_011_typed Prod.snd (byPlaceNamePortAs (A := Unit) (T := Mod011Ty)) := by
+  intro h
+  have := h.1 mod011_exI2 "b" ("r1/slots", .int) .int rfl rfl
+  exact nomatch this
 
 end Libpetri.Spec

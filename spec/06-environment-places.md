@@ -47,7 +47,7 @@ The set of registered environment places is fixed when the executor is built; no
 
 *Where* an executor's inject takes an environment-place handle (Java, TypeScript), the executor *shall not* answer an injection into a registered environment place with an error, in any state of the run.
 
-*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *while* the run has not finished and the executor is not draining, closed or stopped, the executor *shall* accept an injection into a registered environment place.
+*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *while* the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked ([EXEC-042]), the executor *shall* accept an injection into a registered environment place.
 
 An executor whose inject takes a place name (Rust, Python) deposits an injected token into the place the name resolves to, whether or not that place is registered; for it, registration decides only whether the run waits at quiescence ([ENV-010]) and which arcs the dead-arc report lists ([CORE-037]).
 
@@ -77,14 +77,14 @@ The executor *shall not* change its queue of accepted events in any other way th
 
 The executor *shall not* move its ticket supply back, so that no two accepted calls share a ticket.
 
-*When* the executor accepts an `inject()` call, the orchestrator *shall* inject its token before the run finishes, unless after accepting it the executor is closed ([ENV-013]), is terminated immediately ([ENV-015]) or stops because a terminal place is marked ([EXEC-042]).
+*When* the executor accepts an `inject()` call, the orchestrator *shall* inject its token before the run finishes, unless after accepting it the executor is closed ([ENV-013]), is terminated immediately ([ENV-015]), stops because a terminal place is marked ([EXEC-042]) or ends its run on a cancellation it observes in its wait ([EXEC-041]).
 
 *While* the orchestrator is in the external-events step of a cycle ([EXEC-001] step 2), no terminal place is marked, the executor is neither closed ([ENV-013]) nor terminated immediately ([ENV-015]) and its queue of accepted events is not empty, the orchestrator *shall* inject the oldest entry.
 
 **Acceptance Criteria:**
 1. inject() can be called from a different thread than the orchestrator.
 2. Multiple concurrent inject() calls do not cause data races.
-3. Injected tokens are eventually processed by the orchestrator, unless the executor is closed, terminated immediately or stops because a terminal place is marked before it processes them.
+3. Injected tokens are eventually processed by the orchestrator, unless the executor is closed, terminated immediately, stops because a terminal place is marked or ends its run on a cancellation it observes in its wait before it processes them.
 
 **Depends on:** [ENV-002], [ENV-013], [ENV-015], [CONC-010], [EXEC-001], [EXEC-041], [EXEC-042]
 **Test derivation:** Spawn 10 threads; each injects a token; verify all 10 tokens processed.
@@ -306,6 +306,8 @@ The executor provides a `close()` method for immediate shutdown. After `close()`
 3. In-flight actions are allowed to complete, unless a terminal place is marked ([EXEC-042]).
 4. The executor terminates after in-flight actions complete, unless a terminal place is marked first ([EXEC-042]).
 
+In Java and TypeScript the executor takes the close when `close()` sets its closed flag, except that a call that lands while the loop is injecting queued events in the external-events step ([EXEC-001] step 2) is taken when that injection ends: the events it injects come before the close, and the events still queued after it are discarded.
+
 Calling `close()` after `drain()` escalates from graceful to immediate shutdown.
 
 A close does not stop the firing pass. While an action is in flight, a closed executor keeps running its cycles and may start ready transitions, whose actions are then in flight too; it terminates at the first termination test ([EXEC-040]) that finds no action in flight. A close alone therefore does not bound a run whose firings overlap; an immediate termination ([ENV-015]) does. A run budget ([ENV-016]) bounds only the caller's wait. In Java and TypeScript an awaited `inject()` of an event still queued at the close is answered when the loop ends.
@@ -511,8 +513,9 @@ orchestrator loop **without** waiting for in-flight actions, unlike `close()` ([
 them complete. After it is invoked:
 1. New `inject()` calls are rejected (return error / false), as after [ENV-013].
 2. Queued external events are discarded (completed with false).
-3. The loop stops at the end of its current cycle; it does NOT wait for in-flight actions, and their
-   results are discarded rather than admitted to the marking.
+3. The loop stops at the end of its current cycle, or at the termination test of that cycle
+   ([EXEC-040]) if it finds no action in flight there; it does NOT wait for in-flight actions, and
+   their results are discarded rather than admitted to the marking.
 4. In-flight actions keep running where the runtime cannot cancel them ([IO-013]); their consumed
    tokens are lost ([EXEC-031]).
 
@@ -521,7 +524,9 @@ It is an explicit escape hatch and MUST NOT be invoked implicitly by `close()`.
 The executor is **stopped** from the moment `terminateNow()` takes effect. The call takes effect
 between two steps of the loop ([EXEC-001]): a call that lands while a step is under way takes
 effect when that step ends. The current cycle is the one under way when the call takes effect; it
-ends where the next cycle would start, before its step 1. A request that lands before the call
+ends where the next cycle would start, before its step 1. If the termination test of the current
+cycle ([EXEC-040]) finds no action in flight, the run ends there, as a closed run does ([ENV-013]),
+and the firing pass of that cycle does not run. A request that lands before the call
 takes effect may still be accepted; its event is then discarded, and its admission completes with
 `false` ([ENV-004]).
 
@@ -549,9 +554,14 @@ step of the loop).
 *When* the executor is stopped and its loop reaches the start of a cycle, it *shall* end the run
 without waiting for the actions still in flight.
 
-*When* the executor ends a run because it is stopped, it *shall* end it at the start of a cycle,
-*shall* return the marking it holds at that point without restoring the tokens that the firings in
-flight consumed, and *shall* discard every external event still queued ([ENV-004]).
+*When* a stopped executor ends its run, it *shall* return the marking it holds at that point
+without restoring the tokens that the firings in flight consumed, and *shall* discard every
+external event still queued ([ENV-004]); unless a terminal place is marked ([EXEC-042]), it *shall*
+end the run only at the start of a cycle or at a termination test ([EXEC-040]) that finds no
+action in flight.
+
+*While* the executor is stopped, no terminal place is marked and no action is in flight, it
+*shall* take no step at a termination test ([EXEC-040]) other than ending its run.
 
 *While* the executor is stopped, it *shall not* deposit a batch that an action published
 mid-action ([IO-015]), except to finish a step 1b that was under way when the call took effect.

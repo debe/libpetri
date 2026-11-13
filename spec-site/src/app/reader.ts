@@ -24,6 +24,7 @@ import { href, type QueryParams, queryList, R, reqGraph, type RouteOf } from './
 import { impactOf } from './graph.js';
 import { openSearch, shortTheorem } from './search.js';
 import {
+  defectStatusWord,
   LEAN_META,
   leanState,
   openDefects,
@@ -55,7 +56,9 @@ export function signoffBadge(signoff: Signoff): HTMLElement {
     return statusBadge({ glyph: '○', word: 'Not signed', tone: 'open', explain: "No reviewer has signed this block's statement yet." });
   }
   return h('span', { class: 'reader__signed' },
-    statusBadge({ glyph: '●', word: `Signed ${signoff.date}`, tone: 'ok', explain: 'A reviewer signed this exact statement. The build fails if the statement changes.' }),
+    signoff.by === 'ai'
+      ? statusBadge({ glyph: '●', word: `AI-reviewed ${signoff.date}`, tone: 'ok', explain: 'An AI review checked this exact statement against the spec text, the evidence and the runtimes, and signed it on the maintainer\'s behalf. The build fails if the statement changes.' })
+      : statusBadge({ glyph: '●', word: `Signed ${signoff.date}`, tone: 'ok', explain: 'A person signed this exact statement. The build fails if the statement changes.' }),
     ' ',
     h('code', { class: 'reader__hash', title: signoff.hash }, signoff.hash.slice(0, 9)),
   );
@@ -286,7 +289,7 @@ function fileHref(ctx: AppContext, block: SpecBlock): string {
 export function openDefectDrawer(ctx: AppContext, defect: Defect): void {
   const status: StatusMeta = defect.status.state === 'open'
     ? { glyph: '⚠', word: 'Open', tone: 'defect', explain: 'The runtime breaks the rule; ledger entry open' }
-    : { glyph: '✓', word: `Fixed in ${defect.status.version}`, tone: 'ok', explain: 'Fixed; kept in the ledger as history' };
+    : { glyph: '✓', word: defect.status.version === null ? 'Fixed, unreleased' : `Fixed in ${defect.status.version}`, tone: 'ok', explain: 'Fixed; kept in the ledger as history' };
   openDrawer({
     title: `${defect.id} ${defect.title}`,
     content: h('div', { class: 'defect-card' },
@@ -297,6 +300,10 @@ export function openDefectDrawer(ctx: AppContext, defect: Defect): void {
       ),
       h('h3', { class: 'defect-card__h' }, 'Defect'),
       h('div', { class: 'defect-card__text' }, blocks(ctx, defect.text)),
+      defect.fix === null ? null : [
+        h('h3', { class: 'defect-card__h' }, 'Fix'),
+        h('div', { class: 'defect-card__text' }, blocks(ctx, defect.fix)),
+      ],
       h('h3', { class: 'defect-card__h' }, 'Lean evidence'),
       defect.evidence.length > 0
         ? h('ul', { class: 'defect-card__thms' }, defect.evidence.map((t) => h('li', null,
@@ -826,7 +833,7 @@ function sideColumn(ctx: AppContext, block: SpecBlock): HTMLElement {
             h('ul', { class: 'reader__defects' }, fixed.map((d) => h('li', { class: 'reader__defect' },
               h('button', { type: 'button', class: 'reader__link-button', 'aria-haspopup': 'dialog', on: { click: () => openDefectDrawer(ctx, d) } }, d.id),
               ' ',
-              statusBadge({ glyph: '✓', word: d.status.state === 'fixed' ? `fixed in ${d.status.version}` : 'fixed', tone: 'ok', explain: 'Fixed; kept in the ledger as history' }),
+              statusBadge({ glyph: '✓', word: defectStatusWord(d.status), tone: 'ok', explain: 'Fixed; kept in the ledger as history' }),
               h('span', { class: 'reader__defect-title' }, d.title),
             )))),
     ),

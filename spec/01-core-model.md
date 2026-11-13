@@ -58,7 +58,7 @@ A place has a declared token type, and a token is compatible with a place when i
 
 *When* a transition fires from a marking in which every token is compatible with its place, every token its action receives from one of its input places or read places *shall* be compatible with that place.
 
-*When* a transition can fire from a marking and deposit tokens to a list of places, it *shall* also be able to fire from that marking, delivering the same tokens to its action, and deposit to the same places, in the same order, any tokens compatible with them.
+*When* a transition can fire from a marking and deposit tokens to a list of places, it *shall* also be able to fire from that marking, delivering the same tokens to its action, and deposit to the same places, in the same order, any tokens compatible with them, except that a relay target of a match specification takes only tokens carrying the matched name ([NU-054]).
 
 **Acceptance Criteria:**
 1. A firing whose action outputs a token with a compatible value to a place succeeds.
@@ -421,7 +421,7 @@ In EARS form, for every transition:
 
 *While* an inhibitor place of the transition is marked, the transition *shall not* fire.
 
-*While* the transition is enabled, it *shall* be able to fire, whatever its output places and reset places hold.
+*While* the transition has no match specification ([NU-020]) and is enabled, it *shall* be able to fire, whatever its output places and reset places hold.
 
 *When* the transition fires, each input place that is not a reset place *shall* lose the consumption count of its input arc, and gain what the firing deposits there.
 

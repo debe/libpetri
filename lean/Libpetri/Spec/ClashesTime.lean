@@ -4,31 +4,39 @@ import Libpetri.Spec.Req.EXEC_002
 set_option linter.missingDocs true
 
 /-!
-# Open clashes of the TIME and EXEC slice, Phase 1
+# Clashes of the TIME and EXEC slice, Phase 1
 
-Three clashes of the plan's section 8 are still open after the rulings, and one Phase 2
-obligation is recorded with them. Each gets the evidence
-the registry allows until it is ruled; none of them encodes a ruling.
+Three clashes of the plan's section 8 and one Phase 2 obligation are recorded here. Two of the
+clashes are ruled: D9 (b) restricts TIME-014's second bullet to a `Delayed` transition before its
+earliest bound, and D12 (a) reads TIME-015 AC10 as stuttering invariance only. The TIME_014 and
+TIME_015 blocks encode those rulings; the theorems here are the evidence they rest on, and none
+of them is a requirement block. The third clash, EXEC-040 condition 1, is evidence for the spec
+text as it stands.
 
-* **TIME-014 bullet 2 against EXEC-002 (ruling D9 open).** "Among equal priority, Immediate
+* **TIME-014 bullet 2 against EXEC-002 (ruling D9 (b)).** "Among equal priority, Immediate
   transitions fire before Delayed ones" has two readings. Read as an ordering rule
   (`TIME_014_bullet2_order`), it contradicts EXEC-002's stamp order once the `Delayed`
   transition is ready and was armed first (`TIME_014_bullet2_order_conflicts_EXEC_002`). Read
   through its parenthesis, "since Delayed transitions are not ready until their earliest bound"
   (`TIME_014_bullet2_ready`), it asks only that a transition that is not ready is not in the
-  order, which the reference order meets (`TIME_014_bullet2_ambiguity`). Both readings are
-  plain definitions over the ready-order interface of EXEC-002, not requirement blocks (ruling
-  5): TIME-014 has no block until D9 is ruled, and a candidate reading is not evidence that
-  TIME-014 holds. The registry's `conflict` and `ambiguity` roles name requirement blocks only,
-  so the conflict is recorded as a citation of EXEC-002 (what it shows is a fact about
-  EXEC-002's order on a reachable input), and the ambiguity and the negative examples of the
-  two readings are documented theorems without an evidence tag. No theorem here cites TIME-014.
-* **TIME-015 AC10, a coarse clock (ruling D12 open).** On the timed reference step a clock that
-  repeats its reading changes nothing (`refTStepW_delay_zero`). What decides the outcome is the
-  size of the increment: a `Window(3, 5)` transition with tolerance `0` fires under a clock that
-  advances 1 ms per reading and is reaped, its token stranded, under one whose next reading after
-  `0` is `10`, an increment wider than the window (`time015_ac10_coarse_jump`). Both clocks are
-  strictly increasing, so AC10's outcome depends on which strictly increasing clock it is
+  order, which the reference order meets (`TIME_014_bullet2_ambiguity`). Ruling D9 (b) takes the
+  second reading: the bullet speaks of a `Delayed` transition before its earliest bound, and once
+  both are ready the order of EXEC-002 applies. The TIME_014 block (`TIME_014.lean`) states the
+  bullet so, and its assumes name the conflict as the reason the ordering reading is not taken.
+  Both readings here stay plain definitions over the ready-order interface of EXEC-002, not
+  requirement blocks (ruling 5), and a candidate reading is not evidence that TIME-014 holds. The
+  registry's `conflict` and `ambiguity` roles name requirement blocks only, so the conflict is
+  recorded as a citation of EXEC-002 (what it shows is a fact about EXEC-002's order on a
+  reachable input), and the ambiguity and the negative examples of the two readings are
+  documented theorems without an evidence tag. No theorem here cites TIME-014.
+* **TIME-015 AC10, a coarse clock (ruling D12 (a)).** Under ruling D12 (a), AC10 claims
+  stuttering invariance only. On the timed reference step a clock that repeats its reading
+  changes nothing (`refTStepW_delay_zero`, and `time015_stutter` in `TIME_015.lean`), which is
+  all AC10 claims. Coarse jumps are not claimed, and `time015_ac10_coarse_jump` shows why: the
+  size of the increment decides the outcome. A `Window(3, 5)` transition with tolerance `0` fires
+  under a clock that advances 1 ms per reading and is reaped, its token stranded, under one whose
+  next reading after `0` is `10`, an increment wider than the window. Both clocks are strictly
+  increasing, so the outcome of a coarse clock depends on which strictly increasing clock it is
   compared against. TIME-015's block is written in another module, so the evidence is a
   citation.
 * **TIME-013, the reap before the firing pass (Phase 2 obligation).** The atomic step relation
@@ -52,18 +60,18 @@ open Libpetri.Novel.TimedScg (Timing)
 
 /-! ## TIME-014 bullet 2: two readings -/
 
-/-- **Candidate reading of TIME-014's second bullet as an ordering rule** (ruling D9 open; not
-a requirement block, ruling 5). The bullet: "Among equal priority, Immediate transitions fire
-before Delayed ones (since Delayed transitions are not ready until their earliest bound)."
-Together with the first bullet, "Higher priority transitions are preferred.", read on the ready
-order of EXEC-002: for every input of a pass that does not take the all-immediate fast path,
-and every two ready transitions `a` and `b`, if `a` has the higher priority, `a` comes before
+/-- **Candidate reading of TIME-014's second bullet as an ordering rule** (the reading that ruling
+D9 (b) does not take; not a requirement block, ruling 5). The bullet: "Among equal priority,
+Immediate transitions fire before Delayed ones (since Delayed transitions are not ready until their
+earliest bound)." Together with the first bullet, "Higher priority transitions are preferred.", read
+on the ready order of EXEC-002: for every input of a pass that does not take the all-immediate fast
+path, and every two ready transitions `a` and `b`, if `a` has the higher priority, `a` comes before
 `b`; if they have equal priority, `a` is `Immediate` and `b` is `Delayed`, `a` comes before `b`.
-'Fire before' is read as 'is offered before in the pass's order', and the parenthesis as a
-reason, not a restriction, so the second line ranges over every ready pair of equal priority,
-one `Immediate` and one `Delayed`, competing or not. Under this reading the bullet conflicts with
-EXEC-002 (`TIME_014_bullet2_order_conflicts_EXEC_002`) on an input the timed reference step
-reaches (`clash014_reached`). -/
+'Fire before' is read as 'is offered before in the pass's order', and the parenthesis as a reason,
+not a restriction, so the second line ranges over every ready pair of equal priority, one
+`Immediate` and one `Delayed`, competing or not. Under this reading the bullet conflicts with
+EXEC-002 (`TIME_014_bullet2_order_conflicts_EXEC_002`) on an input the timed reference step reaches
+(`clash014_reached`). -/
 def TIME_014_bullet2_order : ReadyOrder → Prop :=
   fun O => ∀ I : ReadyIn, ¬ I.FastPath → ∀ a ∈ I.readyList, ∀ b ∈ I.readyList,
     (I.prio b < I.prio a → [a, b].Sublist (O I)) ∧
@@ -84,16 +92,16 @@ fun O =>
 -/
 #guard_msgs in #print TIME_014_bullet2_order
 
-/-- **Candidate reading of TIME-014's second bullet through readiness** (ruling D9 open; not a
-requirement block, ruling 5). The bullet is read through its parenthesis: a `Delayed`
-transition before its earliest bound is not ready, so it is not in the pass's order, and a ready
-`Immediate` transition of equal priority is in it and fires first; once both are ready the
-bullet adds nothing to EXEC-002. On the ready order of EXEC-002, for every input of a pass that
-does not take the all-immediate fast path: the order holds every ready transition exactly once
-and nothing else, and of two ready transitions the one with the higher priority comes first.
-The bullet's content comes from the bridge `ReadyIn.ofTSt`, which takes the ready bit from
-glossary Ready (`time014_ready_bullet2`). The reference order of EXEC-002 meets this reading and
-breaks the ordering reading (`TIME_014_bullet2_ambiguity`). -/
+/-- **Candidate reading of TIME-014's second bullet through readiness** (the reading that ruling D9
+(b) takes; not a requirement block, ruling 5). The bullet is read through its parenthesis: a
+`Delayed` transition before its earliest bound is not ready, so it is not in the pass's order, and a
+ready `Immediate` transition of equal priority is in it and fires first; once both are ready the
+bullet adds nothing to EXEC-002. On the ready order of EXEC-002, for every input of a pass that does
+not take the all-immediate fast path: the order holds every ready transition exactly once and
+nothing else, and of two ready transitions the one with the higher priority comes first. The
+bullet's content comes from the bridge `ReadyIn.ofTSt`, which takes the ready bit from glossary
+Ready (`time014_ready_bullet2`). The reference order of EXEC-002 meets this reading and breaks the
+ordering reading (`TIME_014_bullet2_ambiguity`). -/
 def TIME_014_bullet2_ready : ReadyOrder → Prop :=
   fun O => ∀ I : ReadyIn, ¬ I.FastPath →
     (O I).Perm I.readyList ∧
@@ -113,14 +121,15 @@ fun O =>
 second bullet. -/
 theorem time014_ready_of_EXEC_002 {O : ReadyOrder} (h : EXEC_002 O) : TIME_014_bullet2_ready O :=
   fun I hI => ⟨(h I).1, fun _ ha _ hb hlt =>
-    sublist_pair_of_pairwise (fun _ _ h1 h2 => I.key.lt_asymm h1 h2) ((h I).2.2 hI)
+    sublist_pair_of_pairwise (fun _ _ h1 h2 => I.key.lt_asymm h1 h2) ((h I).2.2.1 hI)
       ((h I).1.mem_iff.2 ha) ((h I).1.mem_iff.2 hb) (Or.inl hlt)⟩
 
 /-- The bullet's content under the readiness reading, on an input bridged from a timed state: a
 transition of the list that has not reached its earliest bound is not offered, and a transition
 of the list that is Ready is offered. With a `Delayed` transition before its bound and a ready
 `Immediate` one, the pass offers the `Immediate` one and not the `Delayed` one. Not a citation
-of TIME-014: it holds of a candidate reading, and ruling D9 is open. -/
+of TIME-014: it holds of a candidate reading; the TIME_014 block states the bullet as ruling
+D9 (b) reads it. -/
 theorem time014_ready_bullet2 {N : Type} [DecidableEq N] {O : ReadyOrder}
     (h : TIME_014_bullet2_ready O) (X : TimedNet N) (prio : Trans N → Int) (s : TSt N)
     (ts : List (Trans N)) (hI : ¬ (ReadyIn.ofTSt X prio s ts).FastPath) (i : Nat)
@@ -201,7 +210,7 @@ transition `0`, and the ordering reading asks for `0` before `1`. A citation of 
 TIME-014: it shows that EXEC-002's stamp order does not yield to the timing kind on a reachable
 input, which is why the ordering reading of the bullet cannot be ruled in without changing
 EXEC-002. -/
-@[evidence cites "EXEC-002" "stamp order is not overridden by timing kind: on an input reached by the timed reference step, with two ready transitions of equal priority, a Delayed one armed at 0 and an Immediate one armed at 5, every order that satisfies the block offers the Delayed one first, so no such order also satisfies TIME-014 bullet 2 read as an ordering rule (candidate reading, ruling D9 open)"]
+@[evidence cites "EXEC-002" "stamp order is not overridden by timing kind: on an input reached by the timed reference step, with two ready transitions of equal priority, a Delayed one armed at 0 and an Immediate one armed at 5, every order that satisfies the block offers the Delayed one first, so no such order also satisfies TIME-014 bullet 2 read as an ordering rule (the candidate reading that ruling D9 (b) does not take)"]
 theorem TIME_014_bullet2_order_conflicts_EXEC_002 :
     ¬ ∃ O : ReadyOrder, EXEC_002 O ∧ TIME_014_bullet2_order O := by
   rintro ⟨O, h, h'⟩
@@ -362,7 +371,7 @@ def TReach (X : TimedNet Nat) (s : TSt Nat) : TSt Nat → Prop :=
 
 /-- Under any policy, a delay of `0` (the clock repeats its reading) leaves the state as it
 is. -/
-@[evidence cites "TIME-015" "AC10, repeated readings only: on the timed reference step, under any policy, a delay of 0 ms (a clock that returns the same reading on consecutive cycles) leaves the marking, the reading and every stamp unchanged, so repeated readings add only identity steps; clock jumps are not covered (ruling D12 open)"]
+@[evidence cites "TIME-015" "AC10, repeated readings only: on the timed reference step, under any policy, a delay of 0 ms (a clock that returns the same reading on consecutive cycles) leaves the marking, the reading and every stamp unchanged, so repeated readings add only identity steps, which is all AC10 claims under ruling D12 (a): stuttering invariance, not the outcome of a finer clock"]
 theorem refTStepW_delay_zero {N : Type} [DecidableEq N] {P : Policy N} {X : TimedNet N}
     {s s' : TSt N} (h : RefTStepW P X s (.delay 0) s') : s' = s := by
   cases h
@@ -415,7 +424,7 @@ reading meets it; repeating a reading plays no part. From the initial state, thr
 `0` (a repeated reading) leaves the state as it is, and one delay of `10` (the strictly
 increasing readings 0, then 10) brings `u` past `latest + tolerance = 5` without a reading in
 the window, and from there no run of the reference step ever marks place `1`. -/
-@[evidence cites "TIME-015" "AC10 depends on which strictly increasing clock it is compared against (ruling D12 open): on a Window(3, 5) transition with tolerance 0, the timed reference step fires it under a clock advancing 1 ms per reading, while under the strictly increasing readings 0 then 10, an increment wider than the window (latest - elapsed + tolerance), no reachable state marks the output place; a repeated reading is an identity step (refTStepW_delay_zero) and changes nothing"]
+@[evidence cites "TIME-015" "why ruling D12 (a) limits AC10 to repeated readings: the outcome depends on which strictly increasing clock a run is compared against. On a Window(3, 5) transition with tolerance 0, the timed reference step fires it under a clock advancing 1 ms per reading, while under the strictly increasing readings 0 then 10, an increment wider than the window (latest - elapsed + tolerance), no reachable state marks the output place; a repeated reading is an identity step (refTStepW_delay_zero) and changes nothing"]
 theorem time015_ac10_coarse_jump :
     RefTStep clashT_X clashT_s0 (.delay 1) (clashT_at 1) ∧
       RefTStep clashT_X (clashT_at 1) (.delay 1) (clashT_at 2) ∧

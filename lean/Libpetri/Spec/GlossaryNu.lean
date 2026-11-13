@@ -375,9 +375,10 @@ name, nu.md S8): from every marking at which a matched transition is enabled on 
 `n` the `Selected` name, every emission whose places an output branch or timeout outcome offers
 under the correlated takes of `n`, and which passes the relay check, is the emission of some
 firing that chooses `n`. Without it the relation that never fires satisfies every ν line. The
-timeout outcome is offered as ruling D24 (a) reads it; Java and TypeScript fail a timeout whose
-output spec puts the timeout under an `And`, such as `And(A, Timeout(d, B))` (RD-01), so that
-offer is not met there. -/
+timeout outcome is offered as ruling D24 (a) reads it, so a timeout whose output spec puts the
+timeout under an `And`, such as `And(A, Timeout(d, B))`, deposits `B`; an executor that validates
+the timeout outcome against the whole output spec (the Java and TypeScript behaviour RD-01
+recorded) does not meet that offer. -/
 def NuCovers [DecidableEq N] [LinearOrder Nm] (NF : NuFireRel N V Nm) : Prop :=
   ∀ (t : NuTrans N (KeyFn V Nm)) ms, t.mspec = some ms → ∀ M n, Selected (matchIn ms t M) n →
     Enabled t.base (qCount M) → ∀ e : List (N × Stamped V),

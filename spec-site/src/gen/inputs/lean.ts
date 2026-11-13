@@ -45,14 +45,14 @@ const rawBlock = objWith(
 const rawCitation = objWith({ theorem: str, role: str, module: str, id: str, fragment: str }, { doc: str });
 const rawReport = objWith({ title: str, requirements: arr(rawBlock), citations: arr(rawCitation) }, {});
 
-const SIGNED_RE = /^(\d{4}-\d{2}-\d{2}) ([0-9a-f]{16})$/;
+const SIGNED_RE = /^(\d{4}-\d{2}-\d{2}) ([0-9a-f]{16})( ai)?$/;
 const HASH_RE = /^[0-9a-f]{16}$/;
 
-/** `"pending"` or `"2026-11-10 104625b4eefcf18b"`; anything else is null. */
+/** `"pending"`, `"2026-11-10 104625b4eefcf18b"` or the same with ` ai`; anything else is null. */
 export function parseSignoff(text: string): Signoff | null {
   if (text === 'pending') return { state: 'pending' };
   const m = SIGNED_RE.exec(text);
-  return m === null ? null : { state: 'signed', date: m[1] ?? '', hash: m[2] ?? '' };
+  return m === null ? null : { state: 'signed', date: m[1] ?? '', hash: m[2] ?? '', by: m[3] === undefined ? 'person' : 'ai' };
 }
 
 function evidenceRole(role: string): EvidenceRole | undefined {
@@ -74,7 +74,7 @@ export function parseLeanReport(text: string, file: string = LEAN_REPORT_FILE): 
     const kind = reqKind(b.kind);
     if (kind === undefined) throw at(`unknown kind "${b.kind}"; add it to REQ_KINDS in src/model.ts`);
     const signoff = parseSignoff(b.signoff);
-    if (signoff === null) throw at(`signoff "${b.signoff}" is neither "pending" nor "<date> <16 hex>"`);
+    if (signoff === null) throw at(`signoff "${b.signoff}" is neither "pending" nor "<date> <16 hex>[ ai]"`);
     if (!HASH_RE.test(b.hash)) throw at(`hash "${b.hash}" is not 16 hex digits`);
     const evidence = b.evidence.map((e, j): Evidence => {
       const role = evidenceRole(e.role);

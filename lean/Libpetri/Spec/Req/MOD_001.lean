@@ -15,14 +15,17 @@ the net builder `NB` of a subnet's body and the subnet builder `SB : SubnetMake 
 when building a subnet definition fails; MOD-001 says what a successful build returns.
 
 When the subnet builder builds, the definition holds exactly the declared ports (name, direction
-and place) and exactly the declared channels, both compared as sets; its body holds the places
-and terminal places of the net the net builder builds, and the declared transition definitions
-in the order added, none renamed; and the definition keeps its declared name. A subnet whose
+and place) and exactly the declared channels, each as often as declared and in any order; its body
+holds the places and terminal places of the net the net builder builds, and the declared
+transition definitions (as a set, and in the order added when their names are distinct), none
+renamed; and the definition keeps its declared name. A subnet whose
 interface declares no port and no channel builds whenever its body builds.
 
 The witness is MOD-006's reference subnet builder `refSubnetBuild NB`; the block holds of it for
 every net builder `NB`. A builder that keeps the ports in another order, as Rust's hash map does,
-meets it too (`MOD_001_allows_portOrder`). Wrong builders are killed, one per line. Jointly with
+meets it too (`MOD_001_allows_portOrder`). Wrong builders are killed, one per line, and so are a
+builder that registers the channels twice (`MOD_001_forbids_dupChans`) and one that drops the
+transitions whose name occurs twice (`MOD_001_forbids_dropDupNamed`). Jointly with
 CORE-040 and MOD-006, every definition the subnet builder returns has its ports on body places and
 its channels on body transitions, so instantiating it under a valid prefix succeeds when it
 declares no terminal place (`mod001_instantiable`, `mod001_mod010`).
@@ -48,25 +51,26 @@ requirement MOD_001
         "*When* building the subnet definition succeeds, the subnet definition *shall* keep the name it was declared with."
         "*When* the net builder builds the body and the interface declares no port and no channel, building the subnet definition *shall* succeed."
   reading "For every net builder NB of subnet bodies and every subnet builder SB:"
-          "if SB builds S as the definition D, a port is a port of D exactly when it is a port of S (same name, direction and place);"
-          "if SB builds S as D, a channel is a channel of D exactly when it is a channel of S (same name and transition name);"
-          "if SB builds S as D and NB builds the body of S as b, a place is a place of D exactly when it is a place of b, a place is a terminal place of D exactly when it is a terminal place of b, and, when the transition names of S are pairwise distinct, the transition definitions of D are those of S, in the same order;"
+          "if SB builds S as the definition D, the ports of D are the ports of S (same name, direction and place), each as often as in S, in any order;"
+          "if SB builds S as D, the channels of D are the channels of S (same name and transition name), each as often as in S, in any order;"
+          "if SB builds S as D and NB builds the body of S as b, a place is a place of D exactly when it is a place of b, a place is a terminal place of D exactly when it is a terminal place of b, a transition definition is one of D exactly when it is one of S, and, when the transition names of S are pairwise distinct, the transition definitions of D are those of S, in the same order;"
           "if SB builds S as D, the name of D is the name of S;"
           "if NB builds the body of S and S declares no port and no channel, SB succeeds on S."
   assumes "A subnet builder (SubnetMake) and the body net builder NB are read as in MOD-006: SB is the build call of one implementation's subnet-definition builder, NB the net builder it builds the body with, typed as a CORE-040 net builder over defsTB so that CORE-040, EXEC-042, MOD-006 and this block speak of the same function. All three runtimes return the declared name, the built body itself and an interface made of the declared ports and channels (rust/libpetri-core/src/subnet_def.rs:378-430, java/src/main/java/org/libpetri/core/SubnetDef.java:624-662, typescript/src/core/subnet-def.ts:539-580); Python rides on Rust. The holds theorem holds for every NB."
-          "Lines 1 and 2 compare ports and channels as sets (membership both ways), not as lists: Rust keeps the interface in hash maps (rust/libpetri-core/src/interface.rs:104-107), so its iteration order is not the declaration order (MOD_001_allows_portOrder). A port is its name, direction and place, so a builder that forgets a direction violates line 1. A channel is its name and the name of its transition (ruling D23, settled by D10); Java and TypeScript keep the transition object, which under the unique-names assumption is the same thing. Duplicate names never reach a success (MOD-006 lines 3 and 4), so the set reading loses nothing."
-          "Line 3 states the body against the net b that NB builds; that a success comes with a body NB builds at all is MOD-006 line 5, not repeated here. The places include every place an arc of a body transition names (CORE-040), so a port on such a place exposes a place of the definition. Places and terminal places are compared as sets (CORE-040 fixes their collection, not their order). The transition definitions are stated against the declaration, as a list in the order added, under the premise that their names are pairwise distinct, the unique-names assumption of rulings D10 and D23 (TIME-010; RD-10 in spec/runtime-defects.md records that no builder checks names): without it Java and TypeScript keep a transition object added twice once (a set), Rust twice (a vector). A definition carries its correspondence (MOD-031) unchanged, because the line equates the whole definitions. Jointly with CORE-040 the definitions are the built body's transitions (mod001_instantiable)."
+          "Lines 1 and 2 compare ports and channels as permutations (List.Perm), not as lists: Rust keeps the interface in hash maps (rust/libpetri-core/src/interface.rs:104-107), so its iteration order is not the declaration order (MOD_001_allows_portOrder), while Java and TypeScript copy the declared lists. A permutation keeps the count of each entry, so a definition that lists a declared port or channel twice violates line 1 or 2 (MOD_001_forbids_dupChans), which a comparison of sets would let through; no runtime duplicates an entry, since a success has pairwise distinct port names and channel names (MOD-006 lines 3 and 4) and the Rust maps are keyed by those names. A port is its name, direction and place, so a builder that forgets a direction violates line 1. A channel is its name and the name of its transition (ruling D23, settled by D10); Java and TypeScript keep the transition object, which under the unique-names assumption is the same thing. Duplicate names never reach a success (MOD-006 lines 3 and 4), so a declaration S never lists one port or channel twice on a success either."
+          "Line 3 states the body against the net b that NB builds; that a success comes with a body NB builds at all is MOD-006 line 5, not repeated here. The places include every place an arc of a body transition names (CORE-040), so a port on such a place exposes a place of the definition. Places and terminal places are compared as sets (CORE-040 fixes their collection, not their order). The transition definitions are stated against the declaration in two parts. Unconditionally, as a set: a transition definition is one of D exactly when it was declared, so no declared transition is dropped and none is added, even when two share a name (MOD_001_forbids_dropDupNamed). As a list in the order added, under the premise that their names are pairwise distinct, the unique-names assumption of rulings D10 and D23 (TIME-010; no builder checks names): without it Java and TypeScript keep a transition object added twice once (an insertion-ordered set, java/src/main/java/org/libpetri/core/PetriNet.java:286, typescript/src/core/petri-net.ts:159), Rust twice (a vector, rust/libpetri-core/src/petri_net.rs:337), and all three meet the set part. A definition carries its correspondence (MOD-031) unchanged, because the line equates the whole definitions. Jointly with CORE-040 the definitions are the built body's transitions (mod001_instantiable)."
           "Line 4 keeps the definition's name, which the runtimes use in their messages (MOD-006) and which direct composition records as the subnet a node belongs to (MOD-026)."
           "Line 5 is AC3's 'possibly empty' set of ports and channels: an empty interface is no reason to reject. Jointly with MOD-006 line 6 it is implied there, but this block states it of its own."
-          "AC1 (a subnet definition can be constructed with a body net and an interface) is line 5 together with MOD-006 line 6 (the acceptance line) and the nonvacuity example. AC2 (the body follows all CORE construction rules and is itself immutable per CORE-041): the construction rules are the net builder's (CORE-040, EXEC-042) and MOD-006 line 5 rejects a body they refuse; immutability is a quality property of host values (Lean values are immutable; builder stability is CORE-041's line), tested and not proven. AC3 (the interface enumerates a possibly empty set of ports and a possibly empty set of channels) is lines 1, 2 and 5. AC4 (the definition exposes body() and iface()) is lines 1 to 3: what they hold; the accessor names are API surface, tested and not proven. AC5 (immutable after construction) is a quality property, as for AC2."
-          "The MAY sentence on a typed Params value is not modelled: the parameter type is compile-time typing (MOD-010 AC4), and Python offers unparameterised definitions only (rust/libpetri-py/src/model.rs:626, :907), which the MAY allows. The test derivation (two places, one transition, one port; body, interface, port set and channel set accessible and unmodifiable) is the nonvacuity example for the accessible part and AC2/AC5 for the unmodifiable part."
-  signoff "pending"
+          "AC1 (a subnet definition can be constructed with a body net and an interface) is line 5 together with MOD-006 line 6 (the acceptance line) and the nonvacuity example. AC2 (the body follows all CORE construction rules and is itself immutable per CORE-041): the construction rules are the net builder's (CORE-040, EXEC-042) and MOD-006 line 5 rejects a body they refuse; immutability is a quality property of host values (Lean values are immutable; builder stability is CORE-041's line), tested and not proven. AC3 (the interface enumerates a possibly empty set of ports and a possibly empty set of channels) is lines 1, 2 and 5 for what a built interface holds and for the empty interface, and MOD-006 line 6 for a non-empty interface that builds. AC4 (the definition exposes body() and iface()) is lines 1 to 3: what they hold; the accessor names are API surface, tested and not proven. AC5 (immutable after construction) is a quality property, as for AC2."
+          "The MAY sentence on a typed Params value and the sentence 'When unparameterised, the parameter type is the implementation's unit/void type' are not modelled: the parameter type is compile-time typing (MOD-010 AC4), and Python offers unparameterised definitions only (rust/libpetri-py/src/model.rs:626, :907), which the MAY allows. The test derivation (two places, one transition, one port; body, interface, port set and channel set accessible and unmodifiable) is the nonvacuity example for the accessible part and AC2/AC5 for the unmodifiable part."
+  signoff "2026-11-13 ae54063c8dcfb969 ai"
   statement : ∀ {N A : Type}, NetBuilder (defsTB N A) → SubnetMake N A → Prop :=
     fun {N A} NB SB =>
-      (∀ (S : SubnetIn N A) D, SB S = .ok D → ∀ q, q ∈ D.ports ↔ q ∈ S.ports) ∧
-      (∀ (S : SubnetIn N A) D, SB S = .ok D → ∀ c, c ∈ D.chans ↔ c ∈ S.chans) ∧
+      (∀ (S : SubnetIn N A) D, SB S = .ok D → D.ports.Perm S.ports) ∧
+      (∀ (S : SubnetIn N A) D, SB S = .ok D → D.chans.Perm S.chans) ∧
       (∀ (S : SubnetIn N A) D b, SB S = .ok D → NB S.body = .ok b →
         (∀ p, p ∈ D.places ↔ p ∈ b.places) ∧ (∀ p, p ∈ D.terminals ↔ p ∈ b.terminals) ∧
+        (∀ d, d ∈ D.defs ↔ d ∈ S.defs) ∧
         ((S.defs.map (·.core.name)).Nodup → D.defs = S.defs)) ∧
       (∀ (S : SubnetIn N A) D, SB S = .ok D → D.name = S.name) ∧
       (∀ (S : SubnetIn N A) b, NB S.body = .ok b → S.ports = [] → S.chans = [] →
@@ -76,14 +80,15 @@ requirement MOD_001
 /--
 info: def Libpetri.Spec.MOD_001 : {N A : Type} → NetBuilder (defsTB N A) → SubnetMake N A → Prop :=
 fun {N A} NB SB =>
-  (∀ (S : SubnetIn N A) (D : SubnetDef N A), SB S = Except.ok D → ∀ (q : Port N), q ∈ D.ports ↔ q ∈ S.ports) ∧
-    (∀ (S : SubnetIn N A) (D : SubnetDef N A), SB S = Except.ok D → ∀ (c : Chan), c ∈ D.chans ↔ c ∈ S.chans) ∧
+  (∀ (S : SubnetIn N A) (D : SubnetDef N A), SB S = Except.ok D → D.ports.Perm S.ports) ∧
+    (∀ (S : SubnetIn N A) (D : SubnetDef N A), SB S = Except.ok D → D.chans.Perm S.chans) ∧
       (∀ (S : SubnetIn N A) (D : SubnetDef N A) (b : BuiltNet N A),
           SB S = Except.ok D →
             NB S.body = Except.ok b →
               (∀ (p : N), p ∈ D.places ↔ p ∈ b.places) ∧
                 (∀ (p : N), p ∈ D.terminals ↔ p ∈ b.terminals) ∧
-                  ((List.map (fun x => x.core.name) S.defs).Nodup → D.defs = S.defs)) ∧
+                  (∀ (d : CDef N A), d ∈ D.defs ↔ d ∈ S.defs) ∧
+                    ((List.map (fun x => x.core.name) S.defs).Nodup → D.defs = S.defs)) ∧
         (∀ (S : SubnetIn N A) (D : SubnetDef N A), SB S = Except.ok D → D.name = S.name) ∧
           ∀ (S : SubnetIn N A) (b : BuiltNet N A),
             NB S.body = Except.ok b → S.ports = [] → S.chans = [] → ∃ D, SB S = Except.ok D
@@ -94,19 +99,21 @@ fun {N A} NB SB =>
 
 section Lines
 
-/-- Line 1 of MOD-001: a built definition holds exactly the declared ports. -/
+/-- Line 1 of MOD-001: a built definition holds exactly the declared ports, each as often as
+declared, in any order. -/
 def mod001_line1 (SB : SubnetMake N A) : Prop :=
-  ∀ (S : SubnetIn N A) D, SB S = .ok D → ∀ q, q ∈ D.ports ↔ q ∈ S.ports
+  ∀ (S : SubnetIn N A) D, SB S = .ok D → D.ports.Perm S.ports
 
-/-- Line 2 of MOD-001: a built definition holds exactly the declared channels. -/
+/-- Line 2 of MOD-001: a built definition holds exactly the declared channels, each as often as
+declared, in any order. -/
 def mod001_line2 (SB : SubnetMake N A) : Prop :=
-  ∀ (S : SubnetIn N A) D, SB S = .ok D → ∀ c, c ∈ D.chans ↔ c ∈ S.chans
+  ∀ (S : SubnetIn N A) D, SB S = .ok D → D.chans.Perm S.chans
 
 /-- Line 3 of MOD-001: a built definition's body is the built net, unrenamed. -/
 def mod001_line3 (NB : NetBuilder (defsTB N A)) (SB : SubnetMake N A) : Prop :=
   ∀ (S : SubnetIn N A) D b, SB S = .ok D → NB S.body = .ok b →
     (∀ p, p ∈ D.places ↔ p ∈ b.places) ∧ (∀ p, p ∈ D.terminals ↔ p ∈ b.terminals) ∧
-    ((S.defs.map (·.core.name)).Nodup → D.defs = S.defs)
+    (∀ d, d ∈ D.defs ↔ d ∈ S.defs) ∧ ((S.defs.map (·.core.name)).Nodup → D.defs = S.defs)
 
 /-- Line 4 of MOD-001: a built definition keeps its declared name. -/
 def mod001_line4 (SB : SubnetMake N A) : Prop :=
@@ -166,13 +173,13 @@ theorem refSubnetBuild_lines (NB : NetBuilder (defsTB N A)) :
     mod001_line1 (refSubnetBuild NB) ∧ mod001_line2 (refSubnetBuild NB) ∧
       mod001_line3 NB (refSubnetBuild NB) ∧ mod001_line4 (refSubnetBuild NB) ∧
       mod001_line5 NB (refSubnetBuild NB) := by
-  refine ⟨fun S D h q => ?_, fun S D h c => ?_, fun S D b h hb => ?_, fun S D h => ?_,
+  refine ⟨fun S D h => ?_, fun S D h => ?_, fun S D b h hb => ?_, fun S D h => ?_,
     fun S b hb hp hc => ⟨_, refSubnetBuild_empty hb hp hc⟩⟩
-  · obtain ⟨b, -, rfl⟩ := refSubnetBuild_eq_ok h; exact Iff.rfl
-  · obtain ⟨b, -, rfl⟩ := refSubnetBuild_eq_ok h; exact Iff.rfl
+  · obtain ⟨b, -, rfl⟩ := refSubnetBuild_eq_ok h; exact List.Perm.refl _
+  · obtain ⟨b, -, rfl⟩ := refSubnetBuild_eq_ok h; exact List.Perm.refl _
   · obtain ⟨b', hb', rfl⟩ := refSubnetBuild_eq_ok h
     rw [hb] at hb'; cases hb'
-    exact ⟨fun _ => Iff.rfl, fun _ => Iff.rfl, fun _ => rfl⟩
+    exact ⟨fun _ => Iff.rfl, fun _ => Iff.rfl, fun _ => Iff.rfl, fun _ => rfl⟩
   · obtain ⟨b, -, rfl⟩ := refSubnetBuild_eq_ok h; rfl
 
 end Ref
@@ -236,13 +243,13 @@ theorem postSB_eq_ok {NB : NetBuilder (defsTB N A)} {g : SubnetDef N A → Subne
 
 /-- Line 1 for a post-processing builder that keeps the ports. -/
 theorem post_line1 {NB : NetBuilder (defsTB N A)} {g : SubnetDef N A → SubnetDef N A}
-    (hg : ∀ D, (g D).ports = D.ports) : mod001_line1 (postSB NB g) := fun S D h q => by
-  obtain ⟨b, -, rfl⟩ := postSB_eq_ok h; rw [hg]; exact Iff.rfl
+    (hg : ∀ D, (g D).ports = D.ports) : mod001_line1 (postSB NB g) := fun S D h => by
+  obtain ⟨b, -, rfl⟩ := postSB_eq_ok h; rw [hg]; exact List.Perm.refl _
 
 /-- Line 2 for a post-processing builder that keeps the channels. -/
 theorem post_line2 {NB : NetBuilder (defsTB N A)} {g : SubnetDef N A → SubnetDef N A}
-    (hg : ∀ D, (g D).chans = D.chans) : mod001_line2 (postSB NB g) := fun S D h c => by
-  obtain ⟨b, -, rfl⟩ := postSB_eq_ok h; rw [hg]; exact Iff.rfl
+    (hg : ∀ D, (g D).chans = D.chans) : mod001_line2 (postSB NB g) := fun S D h => by
+  obtain ⟨b, -, rfl⟩ := postSB_eq_ok h; rw [hg]; exact List.Perm.refl _
 
 /-- Line 3 for a post-processing builder that keeps the body. -/
 theorem post_line3 {NB : NetBuilder (defsTB N A)} {g : SubnetDef N A → SubnetDef N A}
@@ -252,7 +259,7 @@ theorem post_line3 {NB : NetBuilder (defsTB N A)} {g : SubnetDef N A → SubnetD
   rw [hb] at hb'; cases hb'
   obtain ⟨h1, h2, h3⟩ := hg (builtDef S b)
   rw [h1, h2, h3]
-  exact ⟨fun _ => Iff.rfl, fun _ => Iff.rfl, fun _ => rfl⟩
+  exact ⟨fun _ => Iff.rfl, fun _ => Iff.rfl, fun _ => Iff.rfl, fun _ => rfl⟩
 
 /-- Line 4 for a post-processing builder that keeps the name. -/
 theorem post_line4 {NB : NetBuilder (defsTB N A)} {g : SubnetDef N A → SubnetDef N A}
@@ -281,11 +288,11 @@ theorem MOD_001_allows_portOrder :
         D.ports.map (·.name) = ["out", "in"]) ∧
       (∃ D, refSubnetBuild refNetBuild mod006_exS = .ok D ∧
         D.ports.map (·.name) = ["in", "out"]) := by
-  refine ⟨⟨fun S D h q => ?_, post_line2 fun _ => rfl,
+  refine ⟨⟨fun S D h => ?_, post_line2 fun _ => rfl,
     post_line3 fun _ => ⟨rfl, rfl, rfl⟩, post_line4 fun _ => rfl, post_line5⟩,
     ⟨_, rfl, rfl⟩, ⟨_, rfl, rfl⟩⟩
   obtain ⟨b, -, rfl⟩ := postSB_eq_ok h
-  simp [revPorts, builtDef]
+  exact List.reverse_perm S.ports
 
 /-! ### Mutants, one per line -/
 
@@ -340,7 +347,8 @@ theorem MOD_001_mutant_anyPorts_killed :
       ¬ MOD_001 refNetBuild (postSB (N := String) (A := Unit) refNetBuild forgetDir) := by
   refine ⟨⟨post_line2 fun _ => rfl, post_line3 fun _ => ⟨rfl, rfl, rfl⟩, post_line4 fun _ => rfl,
     post_line5⟩, fun h => ?_⟩
-  have := (h.1 mod006_exS _ rfl ⟨"in", .input, "slots"⟩).2 (by simp [mod006_exS])
+  have := ((h.1 mod006_exS _ rfl).mem_iff (a := (⟨"in", .input, "slots"⟩ : Port String))).2
+    (by simp [mod006_exS])
   simp [forgetDir, builtDef, mod006_exS] at this
 
 /-- The mutant without line 2 is killed by the builder that drops the channels: it meets every
@@ -351,7 +359,8 @@ theorem MOD_001_mutant_anyChans_killed :
       ¬ MOD_001 refNetBuild (postSB (N := String) (A := Unit) refNetBuild dropChans) := by
   refine ⟨⟨post_line1 fun _ => rfl, post_line3 fun _ => ⟨rfl, rfl, rfl⟩, post_line4 fun _ => rfl,
     post_line5⟩, fun h => ?_⟩
-  have := (h.2.1 mod006_exS _ rfl ⟨"go", "take"⟩).2 (by simp [mod006_exS])
+  have := ((h.2.1 mod006_exS _ rfl).mem_iff (a := (⟨"go", "take"⟩ : Chan))).2
+    (by simp [mod006_exS])
   simp [dropChans] at this
 
 /-- The mutant without line 3 is killed by the builder that returns the body already renamed
@@ -420,8 +429,46 @@ theorem MOD_001_forbids_revDefs :
   have hb : refNetBuild mod001_exTwo.body = .ok mod001_exTwo.body.collect :=
     refNetBuild_of_terminals_nil rfl
   have := congrArg (List.map (·.core.name))
-    ((h.2.2.1 mod001_exTwo _ _ rfl hb).2.2 (by decide))
+    ((h.2.2.1 mod001_exTwo _ _ rfl hb).2.2.2 (by decide))
   revert this; decide
+
+/-! ### Duplicated and dropped entries -/
+
+/-- Register every channel twice when assembling the interface. -/
+def dupChans (D : SubnetDef N A) : SubnetDef N A := { D with chans := D.chans ++ D.chans }
+
+/-- ✗ A builder that registers every channel twice violates MOD-001 (line 2): for `buf` it builds
+a definition with two channels `go` on `take`, where `buf` declares one. It fails and succeeds
+exactly where the reference does, so only a comparison that counts entries rejects it. -/
+@[evidence forbids MOD_001]
+theorem MOD_001_forbids_dupChans :
+    ¬ MOD_001 refNetBuild (postSB (N := String) (A := Unit) refNetBuild dupChans) := by
+  intro h
+  have := (h.2.1 mod006_exS _ rfl).length_eq
+  revert this; decide
+
+/-- Keep only the transition definitions whose name occurs once. -/
+def dropDupNamed (D : SubnetDef N A) : SubnetDef N A :=
+  { D with defs := D.defs.filter fun d => (D.defs.map (·.core.name)).count d.core.name == 1 }
+
+/-- `buf` with the transition `take` added twice. -/
+def mod001_exDup : SubnetIn String Unit := { mod006_exS with defs := [mod006_take, mod006_take] }
+
+/-- ✗ A builder that drops every transition whose name occurs more than once violates MOD-001
+(line 3): `buf` with `take` added twice builds, and its definition holds no transition at all,
+although `take` was declared. With distinct names it keeps every transition, so the in-order
+part of line 3 alone does not reject it. No runtime drops a transition: Rust keeps both copies,
+Java and TypeScript one. -/
+@[evidence forbids MOD_001]
+theorem MOD_001_forbids_dropDupNamed :
+    ¬ MOD_001 refNetBuild (postSB (N := String) (A := Unit) refNetBuild dropDupNamed) := by
+  intro h
+  have hb : refNetBuild mod001_exDup.body = .ok mod001_exDup.body.collect :=
+    refNetBuild_of_terminals_nil rfl
+  have := ((h.2.2.1 mod001_exDup _ _ rfl hb).2.2.1 mod006_take).2 (by simp [mod001_exDup])
+  have he : (dropDupNamed (builtDef mod001_exDup mod001_exDup.body.collect)).defs = [] := by
+    decide
+  rw [he] at this; simp at this
 
 /-! ### Joint with CORE-040 and MOD-006: a built definition can be instantiated -/
 
@@ -442,16 +489,16 @@ theorem mod001_instantiable [DecidableEq N] {NB : NetBuilder (defsTB N A)} {SB :
     obtain ⟨msg, hm⟩ := h6.2.2.2.2.1 S e hb
     rw [hD] at hm; cases hm
   | ok b =>
-    obtain ⟨hpl, -, hdefs⟩ := h1.2.2.1 S D b hD hb
+    obtain ⟨hpl, -, -, hdefs⟩ := h1.2.2.1 S D b hD hb
     have hD' := hdefs hdn
     have htr : b.trans = S.defs.map (·.toTransDef) := hc.1 S.body b hb hdn
     refine ⟨b, rfl, by rw [hD', htr], fun q hq => ?_, fun c hcm => ?_⟩
-    · have hqS := (h1.1 S D hD q).1 hq
+    · have hqS := (h1.1 S D hD).mem_iff.1 hq
       refine (hpl _).2 ?_
       refine Classical.byContradiction fun hn => ?_
       obtain ⟨msg, hm⟩ := h6.1 S b hb q hqS hn
       rw [hD] at hm; cases hm
-    · have hcS := (h1.2.1 S D hD c).1 hcm
+    · have hcS := (h1.2.1 S D hD).mem_iff.1 hcm
       rw [hD']
       refine Classical.byContradiction fun hn => ?_
       obtain ⟨msg, hm⟩ := h6.2.1 S b hb c hcS (by rw [htr, List.map_map]; exact hn)

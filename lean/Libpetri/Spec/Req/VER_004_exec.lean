@@ -12,21 +12,26 @@ The third block of VER-004, beside `VER_004_timed` (kind A) and `VER_004_split` 
 
 `VER_004_exec` is a predicate over a pair `(E, S)`: `E : XRel PlaceId T`, the executor relation
 the EXEC, CONC and ENV blocks constrain (witness `RefExec`), and `S : SplitFn PlaceId`, the
-in-flight split of `VER_004_split` (witness `Split.refSplit`). Its one line says: when the split
-succeeds without the opt-out, every state a run of `E` reaches is covered by the split: the
-counts of the state, with each action in flight of a transition the split leaves atomic completed
-by one of its rows, are a marking the split net reaches, with the split actions in flight exactly
-as in the executor. The split net is read as `Novel.InFlight.SStep` over the split list `S`
-returns, gated by the strict stop of [EXEC-042].
+in-flight split of `VER_004_split` (witness `Split.refSplit`). It says: when the split succeeds
+without the opt-out and every row the run deposits is an outcome of its transition, every state a
+run of `E` reaches is covered by the split: the counts of the state, with each action in flight of
+a transition the split leaves atomic completed by one of its rows, plus one token on
+`inflight:<t>` for each action of a split transition `t` in flight, are a marking the verified net
+`Y` that `S` returns reaches under `Reference.Reach` (the first conclusion), and the same counts, with the split
+actions pending, are reached in the flat split net `Novel.InFlight.SStep` over the rows, every step
+gated by the strict stop of [EXEC-042] (the second conclusion).
 
 The holds theorem (`VER_004_exec_reference`) chains the L5 count projection of
 `Reference/ExecLink.lean` (`count_projection`: a `RefExec` run is an `InFlight.XStep` run, the
 moved deposits of each firing pass completed at its end) with `InFlight.split_covers_executor`,
 whose criterion `refSplit`'s split list meets: a transition `refSplit` leaves atomic has no output
 place that a terminal marks or any transition tests by an inhibitor, a reset or a drain
-(`ver004b_untested`, `ver004b_live`). It is proved in general: `VER_004_exec_of` derives block B
-for every executor meeting the L5 agreement conjunct `CountAgrees` and every split meeting
-`VER_004_split`, so the consistency theorem gets block B from those two.
+(`ver004b_untested`, `ver004b_live`). The first conclusion is the named lift `ver004b_lift`: a flat split-net
+run over outcome rows is a run of the named split net `splitTimed cfg sp X`, the in-flight places
+counting the pending starts; `VER_004_split` pins `Y` to that net (`ver004b_split_Y`). It is proved
+in general: `VER_004_exec_of` derives block B for every executor meeting the L5 agreement conjunct
+`CountAgrees` and every split meeting `VER_004_split`, so the consistency theorem gets block B from
+those two.
 
 Corollaries from the statement alone: `VER_004_exec_rest` (where nothing is in flight the
 executor's counts are a split-net marking with nothing pending, the rest the run loop waits for,
@@ -34,14 +39,12 @@ ruling D13) and `VER_004_exec_safety` (a split-net `Proven` of an upward-closed 
 holds at every executor state, actions in flight included).
 
 Wrong models: the split that never splits (`ver004b_atomicSplit`, AC4's point: the executor marks
-`bad` while `t` is in flight, which no atomic run does), the executor that ignores inhibitor
-arcs (`ver004b_noInhExec`) and the executor that ignores the terminal stop of [EXEC-042]
-(`ver004b_noStopExec`, which the strict-stop gate of the split net rejects).
-
-The line reads only the split list `S` returns, never the verified net: a split that returns the
-right list with a wrong net meets block B, and the F block `VER_004_split` rejects it (its line on
-the split net pins the net). The two are conjoined in the consistency theorem. The worked example (`VER_004_exec_nonvacuous`) is the [VER-004]
-witness net of `InFlight.inflight_witness` run on the reference executor.
+`bad` while `t` is in flight, which no atomic run does), the split that returns the right list with
+the unsplit net (`ver004b_wrongNetSplit`: its net never marks `inflight:t`), the executor that
+ignores inhibitor arcs (`ver004b_noInhExec`) and the executor that ignores the terminal stop of
+[EXEC-042] (`ver004b_noStopExec`, which the strict-stop gate of the second conclusion rejects). The worked example
+(`VER_004_exec_nonvacuous`) is the [VER-004] witness net of `InFlight.inflight_witness` run on the
+reference executor.
 -/
 
 namespace Libpetri.Spec
@@ -49,7 +52,10 @@ namespace Libpetri.Spec
 open Libpetri Libpetri.Reference Libpetri.Novel.Seam
 open Libpetri.Spec.Verifier (Options)
 open Libpetri.Spec.Verifier.Split (SplitCfg splits isCompletion outs nonMonotone drainPlaces
-  refSplit splitTimed)
+  refSplit splitTimed splitNet startHalf endHalf completionOut fwdSrcs transPlaces allPlaces Fresh
+  OneFwd FwdFromInputs firstRefusal firstRefusal_none refusal_none_fresh multiFwd
+  multiFwdIn_true_none multiFwdIn_findTimeout fwdSrcs_findTimeout branches_completionOut
+  findTimeout_completionOut timeoutDeposits_completionOut mem_splitNet_of reach_run run_frame)
 open Libpetri.Reference.Link (toTransition)
 
 /-! ## Vocabulary -/
@@ -69,6 +75,21 @@ def SplitExemptFree (cfg : SplitCfg PlaceId) (net : Reference.Net PlaceId) : Pro
 /-- The split list as a test on transition names. -/
 def splitTest (sp : List String) : String → Bool := fun n => decide (n ∈ sp)
 
+/-- **The rows are outcomes** ([IO-016], the reading every analysis uses): every row of `R` is a
+transition of the net whose deposit has, place by place, the counts of a deposit its output spec
+offers (`Reference.deposit`, one token per place of a branch, or the `Timeout` child's deposit),
+at every marking, the consumed counts read there (`Consumes`). A write of two tokens to a place its
+branch names once (IO-016 AC4) and a partial write under the CONC-026 skip are not outcomes. A
+failed action's empty row is one only where the empty deposit is an outcome. -/
+def OutcomeRows (net : Reference.Net PlaceId) (R : List Novel.InFlight.Row) : Prop :=
+  ∀ r ∈ R, ∃ u ∈ net.transitions, r.1 = toTransition u.core ∧
+    ∀ m : CountMarking PlaceId, ∃ ch d, Reference.deposit (Consumes u m) u.out ch = some d ∧
+      SamePerPlace r.2 d
+
+/-- The marking `a` with one more token on `inflight:<t>` for each entry `t` of `L`. -/
+def withInflight (cfg : SplitCfg PlaceId) (a : AMarking) (L : List String) : AMarking :=
+  fun p => a p + (L.map cfg.inflight).count p
+
 /-! ## The block -/
 
 requirement VER_004_exec
@@ -79,31 +100,37 @@ requirement VER_004_exec
   source verbatim "spec/07-verification.md"
   quote "*While* `assumeAtomicFiring` is not set and the split succeeds, *where* no firing fails (no action fails, and output validation and the relay check reject no output or timeout outcome), no action publishes an output before it completes and no token is injected, a marking the executor reaches from the initial marking, with each action in flight of a transition that is not split completed with one of its outcomes, *shall* be reachable in the split net from the initial marking, with one token on `inflight:<t>` for each action of a split transition `t` in flight."
         "That is a sound over-approximation for all three."
-  reading "For every executor relation E and split S, every executor configuration C, split configuration cfg, options o, rows R, initial marking M0, run of E from the initial state of M0 and completion ds:"
-          "if the transition names of C are distinct, no transition of C is a completion step or an environment step of cfg, every terminal place of C is a terminal place of cfg, every row of R is a transition of C's net with a deposit among its output places, every transition has a row in R, o does not set assumeAtomicFiring, S returns the verified net and the split list sp, every commit, timeout deposit and fail of the run deposits a row of R (RowsCover: no publication, no injection), and ds completes each action in flight at the end of the run whose transition is not in sp with one row of it,"
-          "then the split net over R with split set sp (InFlight.SStep, every step gated by the strict stop) reaches, from the counts of M0, the counts at the end of the run with ds deposited, with pending exactly the actions in flight whose transition is in sp (as a multiset)."
-  assumes "The model is the pair (E, S). E : XRel PlaceId T is the executor relation the EXEC, CONC and ENV blocks constrain, read at flat place names (PlaceId) as the L5 conjunct CountAgrees is; the witness is RefExec. S : SplitFn PlaceId is the split of VER_004_split; the witness is Split.refSplit. The witness pair is (RefExec, refSplit) (VER_004_exec_reference, through VER_004_exec_of: block B holds of every E meeting the L5 conjunct CountAgrees and every S meeting VER_004_split): the L5 count projection (ExecLink count_projection: moving each in-pass deposit behind the last start of its pass makes a RefExec run an InFlight.XStep run with the same counts and the firings in flight pending) followed by InFlight.split_covers_executor, whose criterion refSplit's split list meets (ver004b_untested: an atomic transition's outputs are tested by no inhibitor, reset or drain; ver004b_live: it marks no terminal place)."
-          "The split net of the line is the step relation InFlight.SStep over the rows R with split set sp: a transition outside sp fires atomically, one in sp starts (a token on inflight:<t>, the pending list) and later completes with a row, and the strict stop (NoTerm C, the terminal rewrite of EXEC-042) gates every step. The line reads only the split list sp that S returns, not the verified net Y: a split that returns the right list with a wrong net meets this line, and the F block VER_004_split rules it out (its line on the split net pins Y to splitTimed cfg sp X); the consistency theorem conjoins the two. That it is the named net splitTimed cfg sp X of VER_004_split read under Reference.Reach is an open link (the named lift, deferred): it needs every row to be an outcome of its transition at the marking it fires from (a forward reads the consumed count) and has no counterpart for a failed action, whose empty row SStep accepts and no named completion step deposits. So the line covers failed firings in the flat reading, which is more than the quoted sentence asks: the sentence excludes them ('no firing fails': no action fails, and output validation, the relay check of NU-054 and the Java and TypeScript timeout-outcome validation of RD-01 reject nothing), since a named split net has no step that consumes an atomic transition's inputs and deposits nothing. A firing whose action succeeds but whose outcome is rejected fails the same way as one whose action fails: it consumes its inputs and deposits nothing (EVT-008), which the flat line reads as the empty row. For an upward-closed property a failed firing only leaves fewer tokens on places tested monotonically, but a quiescence Proven need not hold of a run in which a firing failed (an open item for AC3 and AC4)."
-          "The sentence's 'no action ... publishes an output before it completes' (ruling D28 (a), ctx.flush() in Rust and Python) and 'no token is injected' are the RowsCover hypothesis: a publish step and an inject step make it false, so a run with either is outside the line (InFlight.XStep has no counterpart for them; environment places are VER-006's closure, injections into the executor are ENV's and L8's). The rows are a per-run hypothesis, as OfferedEmission is for L2. ExecRows asks only that a row's places be output places of its transition (a write to an undeclared place fails even with output validation skipped, CONC-026 and CORE-063), not that the row be an outcome: a write of two tokens to a place its branch names once (IO-016 AC4) or a partial write under the CONC-026 skip is a row too, and the flat line covers it. The named split net deposits only outcomes, one token per place of a branch (IO-016), so the deferred named lift needs those runs excluded, as IO-016 excludes them from every analysis. 'Reaches from the initial marking' is a run from xinit M0 r0, the reference initial state."
-          "'That is a sound over-approximation for all three.' (ruling D8 (b): whether a transition starts again while an earlier firing of it is in flight is implementation-defined, Cfg.reentrant) is the line for every C, Cfg.reentrant true (Rust, Python) and false (Java, TypeScript) alike: InFlight.SStep lets a split transition start again with inflight:<t> marked, and XStep's pending list is a multiset. The CONC-002 report note and AC8 are report text (kind Q), as VER_004_split's assumes say."
-          "Hypotheses that are not in the sentence, and why. Distinct transition names (ruling D10) make the rows' names unique, premise 1 of InFlight. SplitExemptFree: Split.isCompletion and cfg.envTrans exempt a transition from the split by its shape whatever its outputs; an executor net whose own transition looked like a completion step (named complete:<x>, one input one(inflight:<x>)) or was listed as an environment step would keep an action's gap the split does not model, so the line is stated for nets without them (an open item of wave W11). Every terminal place of C counts as a terminal of cfg: the split reads the terminals it is given."
-          "AC4 is the line with VER-003's Proven line: a Proven of an upward-closed property on the split net holds at every executor state, actions in flight included (VER_004_exec_safety), and a quiescence Proven covers the executor's rests, where nothing is in flight (VER_004_exec_rest: the run loop waits for its actions in flight before it rests, ruling D13). AC4's example (the AC4 inhibitor net, the executor marks the inhibited output while t is in flight) is VER_004_exec_nonvacuous on the inhibitor net of InFlight.inflight_witness, and ver004b_atomicSplit shows the atomic net does not cover it (AC4's 'Disable the split and confirm each test fails'). That a Violated is not a false alarm is not claimed (completeness, VER-003 and VER-023). The test derivation's AC4 clause (run each net on both executors with an action that sleeps) is this example."
-          "Not in the model: ν firings (RefExec has no ν kernel; a matched firing is a count firing of its transition (NuRestrictsTo), so the line reads it as one, and the split refuses a ν-join or a coloured write it would split, as the VER-004 refusal sentence says), timing (InFlight.SStep is untimed; that the timed executor's rests are reap-quiescent is VER_004_timed and ExecLink L6), priorities (the conflict-priority demand of NU-052 only adds split transitions, which the line allows: split_covers_executor holds for every split set meeting the criterion), and the report notes (kind N, Q)."
-  signoff "pending"
+  reading "For every executor relation E and split S, every executor configuration C, split configuration cfg, options o, verified net Y, split list sp, rows R, initial marking M0, run of E from the initial state of M0 and completion ds:"
+          "if the transition names of C are distinct, no transition of C is a completion step or an environment step of cfg, every terminal place of C is a terminal place of cfg, every forward source of C is an input place of its transition, every row of R is an outcome of a transition of C's net at every marking (OutcomeRows), every transition has a row in R, o does not set assumeAtomicFiring, S returns the verified net Y and the split list sp, every commit, timeout deposit and fail of the run deposits a row of R (RowsCover: no publication, no injection), and ds completes each action in flight at the end of the run whose transition is not in sp with one row of it,"
+          "then Y reaches (Reference.Reach), from the counts of M0, the counts at the end of the run with ds deposited and one more token on inflight:<t> for each action in flight whose transition t is in sp,"
+          "and the split net over R with split set sp (InFlight.SStep, every step gated by the strict stop) reaches, from the counts of M0, the counts at the end of the run with ds deposited, with pending exactly the actions in flight whose transition is in sp (as a multiset)."
+  assumes "The model is the pair (E, S). E : XRel PlaceId T is the executor relation the EXEC, CONC and ENV blocks constrain, read at flat place names (PlaceId) as the L5 conjunct CountAgrees is; the witness is RefExec. S : SplitFn PlaceId is the split of VER_004_split; the witness is Split.refSplit. The witness pair is (RefExec, refSplit) (VER_004_exec_reference, through VER_004_exec_of: block B holds of every E meeting the L5 conjunct CountAgrees and every S meeting VER_004_split): the L5 count projection (ExecLink count_projection: moving each in-pass deposit behind the last start of its pass makes a RefExec run an InFlight.XStep run with the same counts and the firings in flight pending) followed by InFlight.split_covers_executor, whose criterion refSplit's split list meets (ver004b_untested: an atomic transition's outputs are tested by no inhibitor, reset or drain; ver004b_live: it marks no terminal place), and then the named lift ver004b_lift (a flat split-net run over outcome rows is a Reference.Reach run of the named split net, each pending start a token on its in-flight place), with ver004b_split_Y (VER_004_split pins Y: the net itself when nothing is split, splitTimed cfg sp X otherwise)."
+          "The split net of the quoted sentence is Y, the verified net S returns, read under Reference.Reach (the third reading line); VER_004_split pins it to splitTimed cfg sp X, and a split that returns the right list with a wrong net fails that line (VER_004_exec_forbids_wrongNet: with the unsplit net, inflight:t is never marked). Reference.Net carries no terminal list, so the terminal rewrite of EXEC-042 that follows the split ('The split comes before the terminal rewrite') is the last line: the flat split net InFlight.SStep over the rows R with split set sp, in which a transition outside sp fires atomically, one in sp starts (the pending list) and later completes with a row, and the strict stop (NoTerm C) gates every step; an executor that ignores the terminal stop fails it (VER_004_exec_forbids_noStop). 'Reaches from the initial marking' is a run from xinit M0 r0, the reference initial state, and the split net's initial marking is the counts of M0 (the split leaves the initial marking as it is, splitAbs)."
+          "'No firing fails' (no action fails, and output validation and the relay check of NU-054 reject nothing; a timeout outcome meets only the relay check, ruling D24 (a)) is OutcomeRows together with RowsCover. A firing that fails, or whose outcome is rejected, consumes its inputs and deposits nothing (EVT-008), which RowsCover reads as the empty row, and OutcomeRows accepts the empty row only for a transition whose output spec offers the empty deposit (such as a transition with no output spec), where a failure leaves the marking a successful firing leaves; so the line covers no failed firing the sentence excludes except those, and of them it says what it says of a success. OutcomeRows also excludes the rows output validation rejects (IO-016): a write of two tokens to a place its branch names once (IO-016 AC4) and a partial write under the CONC-026 skip. A row must be an outcome at every marking, its consumed counts read there, because the L5 projection forgets the marking each row was deposited from. A transition the split leaves atomic whose Timeout forwards an all or atLeast input (IO-014) deposits as many tokens as it drained, so no fixed row is an outcome of it at every marking, and a net with one is outside the line (an open item: it needs the projection to carry the marking of each deposit, a change to the shared ExecLink). A split transition with such a forward is refused (the VER-004 refusal sentence). FwdFromInputs (every forward source is an input place of its transition) is the builder's check (IO-014 AC3), true of every built net: a forward from a place that is no input would deposit nothing on a timeout, while its completion step deposits one token."
+          "The sentence's 'no action ... publishes an output before it completes' (ruling D28 (a), ctx.flush() in Rust and Python) and 'no token is injected' are the RowsCover hypothesis: a publish step and an inject step make it false, so a run with either is outside the line (InFlight.XStep has no counterpart for them; environment places are VER-006's closure, injections into the executor are ENV's and L8's). The rows are a per-run hypothesis, as OfferedEmission is for L2."
+          "'That is a sound over-approximation for all three.' (ruling D8 (b): whether a transition starts again while an earlier firing of it is in flight is implementation-defined, Cfg.reentrant) is the line for every C, Cfg.reentrant true (Rust, Python) and false (Java, TypeScript) alike: InFlight.SStep and the named split net let a split transition start again with inflight:<t> marked, and XStep's pending list is a multiset. The CONC-002 report note and AC8 are report text (kind Q), as VER_004_split's assumes say."
+          "Hypotheses that are not in the sentence, and why. Distinct transition names (ruling D10) make the rows' names unique, premise 1 of InFlight. SplitExemptFree: Split.isCompletion and cfg.envTrans exempt a transition from the split by its shape whatever its outputs; an executor net whose own transition looked like a completion step (named complete:<x>, one input one(inflight:<x>)) or was listed as an environment step would keep an action's gap the split does not model, so the line is stated for nets without them, and no block states the split for such nets (an open item). Every terminal place of C counts as a terminal of cfg: the split reads the terminals it is given. FwdFromInputs and OutcomeRows are above."
+          "AC4 is the line with VER-003's Proven line: a Proven of an upward-closed property on the split net holds at every executor state, actions in flight included (VER_004_exec_safety), and a quiescence Proven covers the executor's rests, where nothing is in flight (VER_004_exec_rest: the run loop waits for its actions in flight before it rests, ruling D13). AC4's example (the AC4 inhibitor net, the executor marks the inhibited output while t is in flight) is VER_004_exec_nonvacuous on the inhibitor net of InFlight.inflight_witness, where the named split net reaches the executor's counts with one token on inflight:t, and ver004b_atomicSplit shows the atomic net does not cover it (AC4's 'Disable the split and confirm each test fails'). That a Violated is not a false alarm is not claimed (completeness, VER-003 and VER-023). The test derivation's AC4 clause (run each net on both executors with an action that sleeps) is this example."
+          "Not in the model: ν firings (RefExec has no ν kernel; a matched firing is a count firing of its transition (NuRestrictsTo), so the line reads it as one, and the split refuses a ν-join or a coloured write it would split, as the VER-004 refusal sentence says), timing (InFlight.SStep and Reference.Reach are untimed; that the timed executor's rests are reap-quiescent is VER_004_timed and ExecLink L6), priorities (the conflict-priority demand of NU-052 only adds split transitions, which the line allows: split_covers_executor holds for every split set meeting the criterion), and the report notes (kind N, Q)."
+  signoff "2026-11-13 b40cc4a794c3b2a9 ai"
   statement : ∀ {T : Type}, XRel PlaceId T → SplitFn PlaceId → Prop :=
     fun {T} E S =>
       ∀ (C : Cfg PlaceId T) (cfg : SplitCfg PlaceId) (o : Options) (Y : TimedNet PlaceId)
         (sp : List String) (R : List Novel.InFlight.Row) (M0 : QMarking PlaceId T) (r0 : Nat)
         (tr : List (XStep PlaceId T)) (ds : List Novel.InFlight.Row),
         NamesDistinct C.X → SplitExemptFree cfg C.X.net → (∀ p ∈ C.terminals, p ∈ cfg.terminals) →
-        ExecRows C.X.net R → (∀ u ∈ C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ R) →
+        FwdFromInputs C.X.net → OutcomeRows C.X.net R →
+        (∀ u ∈ C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ R) →
         o.assumeAtomicFiring = false → S cfg o C.X = .ok (Y, sp) →
         XRun E C (xinit M0 r0) tr → (∀ y ∈ tr, RowsCover R y) →
         Novel.InFlight.Completes R
           ((flNames (XRun.last (xinit M0 r0) tr)).filter fun n => !splitTest sp n) ds →
-        ∃ pend, pend.Perm ((flNames (XRun.last (xinit M0 r0) tr)).filter (splitTest sp)) ∧
-          Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0)
-            ⟨Novel.InFlight.addAll (qCount (XRun.last (xinit M0 r0) tr).M) ds, pend⟩
+        Reference.Reach Y.net (qCount M0)
+            (withInflight cfg (Novel.InFlight.addAll (qCount (XRun.last (xinit M0 r0) tr).M) ds)
+              ((flNames (XRun.last (xinit M0 r0) tr)).filter (splitTest sp))) ∧
+          ∃ pend, pend.Perm ((flNames (XRun.last (xinit M0 r0) tr)).filter (splitTest sp)) ∧
+            Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0)
+              ⟨Novel.InFlight.addAll (qCount (XRun.last (xinit M0 r0) tr).M) ds, pend⟩
 
 /- The pinned readable form of block B of VER-004: a change to the formula shows up as a diff
 here. -/
@@ -116,18 +143,23 @@ fun {T} E S =>
     NamesDistinct C.X →
       SplitExemptFree cfg C.X.net →
         (∀ p ∈ C.terminals, p ∈ cfg.terminals) →
-          ExecRows C.X.net R →
-            (∀ u ∈ C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ R) →
-              o.assumeAtomicFiring = false →
-                S cfg o C.X = Except.ok (Y, sp) →
-                  XRun E C (xinit M0 r0) tr →
-                    (∀ y ∈ tr, RowsCover R y) →
-                      Novel.InFlight.Completes R
-                          (List.filter (fun n => !splitTest sp n) (flNames (XRun.last (xinit M0 r0) tr))) ds →
-                        ∃ pend,
-                          pend.Perm (List.filter (splitTest sp) (flNames (XRun.last (xinit M0 r0) tr))) ∧
-                            Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0)
-                              { a := Novel.InFlight.addAll (qCount (XRun.last (xinit M0 r0) tr).M) ds, pend := pend }
+          FwdFromInputs C.X.net →
+            OutcomeRows C.X.net R →
+              (∀ u ∈ C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ R) →
+                o.assumeAtomicFiring = false →
+                  S cfg o C.X = Except.ok (Y, sp) →
+                    XRun E C (xinit M0 r0) tr →
+                      (∀ y ∈ tr, RowsCover R y) →
+                        Novel.InFlight.Completes R
+                            (List.filter (fun n => !splitTest sp n) (flNames (XRun.last (xinit M0 r0) tr))) ds →
+                          Reach Y.net (qCount M0)
+                              (withInflight cfg (Novel.InFlight.addAll (qCount (XRun.last (xinit M0 r0) tr).M) ds)
+                                (List.filter (splitTest sp) (flNames (XRun.last (xinit M0 r0) tr)))) ∧
+                            ∃ pend,
+                              pend.Perm (List.filter (splitTest sp) (flNames (XRun.last (xinit M0 r0) tr))) ∧
+                                Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0)
+                                  { a := Novel.InFlight.addAll (qCount (XRun.last (xinit M0 r0) tr).M) ds,
+                                    pend := pend }
 -/
 #guard_msgs in #print VER_004_exec
 
@@ -200,7 +232,277 @@ theorem ver004b_live {T : Type} {C : Cfg PlaceId T} {cfg : SplitCfg PlaceId}
     List.count_eq_zero.mpr fun hm => hd τ hm (List.mem_append_left _ (hterm τ hτ))
   simp [Novel.InFlight.addD, ha τ hτ, h0]
 
+/-- Outcome rows are rows of the net: an outcome deposits only into output places. -/
+theorem ver004b_outcome_exec {net : Reference.Net PlaceId} {R : List Novel.InFlight.Row}
+    (h : OutcomeRows net R) : ExecRows net R := by
+  intro r hr
+  obtain ⟨u, hu, hru, ho⟩ := h r hr
+  refine ⟨u, hu, hru, fun p hp => ?_⟩
+  obtain ⟨ch, d, hd, hs⟩ := ho (fun _ => 0)
+  have hc : 0 < d.count p := by
+    have := hs p
+    simp only [Deposits, depProd] at this
+    rw [← this]
+    exact List.count_pos_iff.mpr hp
+  obtain ⟨o, hou, hx⟩ := Verifier.mem_deposit hd (List.count_pos_iff.mp hc)
+  simp [outs, hou, hx]
+
 end Ref
+
+/-! ## The named lift: a flat split-net run over outcome rows is a run of the split net -/
+
+section Lift
+
+/-- A place a transition does not name is not one of its reset or input places. -/
+theorem ver004b_not_arc {u : Reference.Trans PlaceId} {q : PlaceId} (hq : q ∉ transPlaces u) :
+    q ∉ u.core.resets ∧ nspecAt u.core q = none := by
+  refine ⟨fun hr => hq (by simp [transPlaces, hr]), ?_⟩
+  unfold nspecAt
+  rw [List.find?_eq_none]
+  intro s hs hsq
+  exact hq (by
+    have : s.place = q := by simpa using hsq
+    simp only [transPlaces, List.mem_append, List.mem_map]
+    exact Or.inl (Or.inl (Or.inl (Or.inl ⟨s, hs, this⟩))))
+
+/-- Extra tokens on places a transition does not name leave its enablement as it is. -/
+theorem ver004b_enabledNA_add {m e : PlaceId → Nat} {u : Reference.Trans PlaceId}
+    (he : ∀ p ∈ transPlaces u, e p = 0) :
+    enabledNA (fun p => m p + e p) u.core = enabledNA m u.core := by
+  have hi : ∀ s ∈ u.core.inputs, e s.place = 0 := fun s hs => he _ (by
+    simp only [transPlaces, List.mem_append, List.mem_map]
+    exact Or.inl (Or.inl (Or.inl (Or.inl ⟨s, hs, rfl⟩))))
+  have hh : ∀ p ∈ u.core.inhibitors, e p = 0 := fun p hp => he p (by simp [transPlaces, hp])
+  have hr : ∀ p ∈ u.core.reads, e p = 0 := fun p hp => he p (by simp [transPlaces, hp])
+  unfold enabledNA
+  rw [Bool.eq_iff_iff]
+  simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq, beq_iff_eq]
+  constructor
+  · rintro ⟨⟨h1, h2⟩, h3⟩
+    refine ⟨⟨fun s hs => ?_, fun p hp => ?_⟩, fun p hp => ?_⟩
+    · have := h1 s hs; rw [hi s hs, Nat.add_zero] at this; exact this
+    · have := h2 p hp; rw [hh p hp, Nat.add_zero] at this; exact this
+    · have := h3 p hp; rw [hr p hp, Nat.add_zero] at this; exact this
+  · rintro ⟨⟨h1, h2⟩, h3⟩
+    refine ⟨⟨fun s hs => ?_, fun p hp => ?_⟩, fun p hp => ?_⟩
+    · rw [hi s hs, Nat.add_zero]; exact h1 s hs
+    · rw [hh p hp, Nat.add_zero]; exact h2 p hp
+    · rw [hr p hp, Nat.add_zero]; exact h3 p hp
+
+/-- Extra tokens on places a transition does not name leave its consumption as it is. -/
+theorem ver004b_nconsumed_add {m e : PlaceId → Nat} {u : Reference.Trans PlaceId}
+    (he : ∀ p ∈ transPlaces u, e p = 0) :
+    nconsumed (fun p => m p + e p) u.core = nconsumed m u.core := by
+  funext p
+  unfold nconsumed
+  cases hs : nspecAt u.core p with
+  | none => rfl
+  | some s =>
+    have hpl : s.place = p := by simpa using List.find?_some hs
+    have hmem : s ∈ u.core.inputs := List.mem_of_find?_eq_some hs
+    have h0 : e p = 0 := he p (by
+      rw [← hpl]
+      simp only [transPlaces, List.mem_append, List.mem_map]
+      exact Or.inl (Or.inl (Or.inl (Or.inl ⟨s, hmem, rfl⟩))))
+    simp [h0]
+
+/-- Extra tokens on places a transition does not name stay where they are when it fires. -/
+theorem ver004b_fireNC_add {m e : PlaceId → Nat} {u : Reference.Trans PlaceId}
+    {prod : PlaceId → Nat} (he : ∀ p ∈ transPlaces u, e p = 0) :
+    fireNC (fun p => m p + e p) u.core prod = fun p => fireNC m u.core prod p + e p := by
+  funext p
+  unfold fireNC
+  rw [ver004b_nconsumed_add he]
+  by_cases hp : e p = 0
+  · simp [hp]
+  · have hres : p ∉ u.core.resets := fun h => hp (he p (by simp [transPlaces, h]))
+    have hin : nconsumed m u.core p = 0 := by
+      unfold nconsumed
+      cases hs : nspecAt u.core p with
+      | none => rfl
+      | some s =>
+        exfalso
+        have hpl : s.place = p := by simpa using List.find?_some hs
+        have hmem : s ∈ u.core.inputs := List.mem_of_find?_eq_some hs
+        exact hp (he p (by
+          rw [← hpl]
+          simp only [transPlaces, List.mem_append, List.mem_map]
+          exact Or.inl (Or.inl (Or.inl (Or.inl ⟨s, hmem, rfl⟩)))))
+    simp only [hres, if_false, hin]
+    omega
+
+/-- **The completion step deposits what the transition deposits**, whatever it consumed: an
+outcome of `t` is an outcome of `complete:<t>` when every forward of `t`'s `Timeout` is from a
+`one` input (`Split.fires_split` read at the deposit alone). -/
+theorem ver004b_deposit_endHalf {u : Reference.Trans PlaceId} {m : PlaceId → Nat}
+    {ch : Novel.ForwardDeposit.Choice} {d : List PlaceId}
+    (hone : ∀ o, u.out = some o → ∀ ch, o.findTimeout = some ch →
+      ∀ s ∈ fwdSrcs ch, ∃ spec, nspecAt u.core s = some spec ∧ spec.card = .one)
+    (hd : Reference.deposit (nconsumed m u.core) u.out ch = some d) (c' : PlaceId → Nat) :
+    ∃ ch', Reference.deposit c' (u.out.map completionOut) ch' = some d := by
+  cases hout : u.out with
+  | none =>
+    rw [hout] at hd
+    refine ⟨ch, ?_⟩
+    have hfree : ∀ c c' : PlaceId → Nat,
+        Reference.deposit c none ch = Reference.deposit c' none ch := by
+      intro c c'
+      cases ch with
+      | action i => cases i <;> rfl
+      | timedOut _ => rfl
+    exact (hfree _ _).trans hd
+  | some o =>
+    rw [hout] at hd
+    cases ch with
+    | action i =>
+      refine ⟨.action i, ?_⟩
+      simpa [Reference.deposit, branches_completionOut] using hd
+    | timedOut j =>
+      refine ⟨.timedOut j, ?_⟩
+      simp only [Reference.deposit, Option.map_some] at hd ⊢
+      rw [findTimeout_completionOut]
+      cases hft : o.findTimeout with
+      | none => rw [hft] at hd; simp at hd
+      | some c =>
+        rw [hft] at hd
+        simp only [Option.map_some, Option.bind_some] at hd ⊢
+        rw [timeoutDeposits_completionOut (nconsumed m u.core) _ c (fun s hs => by
+          obtain ⟨spec, hsp, hc⟩ := hone o hout c hft s hs
+          simp [nconsumed, hsp, hc, Card.consumesAll, Card.required])]
+        exact hd
+
+/-- The in-flight tokens of split transitions of the net lie on no place a transition of the net
+names. -/
+theorem ver004b_inflight_zero {cfg : SplitCfg PlaceId} {sp : List String}
+    {net : Reference.Net PlaceId} (hF : Fresh cfg sp net) {L : List String}
+    (hL : ∀ n ∈ L, ∃ u ∈ net.transitions, u.core.name = n ∧ n ∈ sp)
+    {u : Reference.Trans PlaceId} (hu : u ∈ net.transitions) :
+    ∀ p ∈ transPlaces u, (L.map cfg.inflight).count p = 0 := by
+  intro p hp
+  rw [List.count_eq_zero]
+  intro hm
+  obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hm
+  obtain ⟨u', hu', rfl, hsp⟩ := hL n hn
+  exact hF u' hu' hsp (List.mem_append_right _ (List.mem_flatMap.mpr ⟨u, hu, hp⟩))
+
+/-- `withInflight` reads its list as a multiset. -/
+theorem ver004b_withInflight_perm {cfg : SplitCfg PlaceId} {a : AMarking} {L L' : List String}
+    (h : L.Perm L') : withInflight cfg a L = withInflight cfg a L' := by
+  funext p
+  simp only [withInflight, (h.map cfg.inflight).count_eq p]
+
+/-- **The named lift.** Over rows that are outcomes, every state the flat split net reaches is,
+with one token on `inflight:<t>` per pending `t`, a marking the named split net reaches: an atomic
+row is a firing of its transition, a start is a firing of the start half (its only output
+`inflight:<t>`), a completion a firing of `complete:<t>`. The pending names are split transitions
+of the net. `Yn` is any net holding each atomic transition and both halves of each split one. -/
+theorem ver004b_lift {cfg : SplitCfg PlaceId} {sp : List String} {net Yn : Reference.Net PlaceId}
+    {R : List Novel.InFlight.Row} {live : AMarking → Prop} {a0 : AMarking}
+    (hO : OutcomeRows net R)
+    (hA : ∀ u ∈ net.transitions, u.core.name ∉ sp → u ∈ Yn.transitions)
+    (hS : ∀ u ∈ net.transitions, u.core.name ∈ sp →
+      startHalf cfg u ∈ Yn.transitions ∧ endHalf cfg u ∈ Yn.transitions)
+    (hF : Fresh cfg sp net) (hone : OneFwd sp net) {x : Novel.InFlight.XState}
+    (hx : Novel.InFlight.SReach R (splitTest sp) live a0 x) :
+    Reference.Reach Yn a0 (withInflight cfg x.a x.pend) ∧
+      ∀ n ∈ x.pend, ∃ u ∈ net.transitions, u.core.name = n ∧ n ∈ sp := by
+  induction hx with
+  | refl =>
+    have h0 : withInflight cfg a0 [] = a0 := by funext p; simp [withInflight]
+    exact ⟨by rw [h0]; exact Relation.ReflTransGen.refl, fun _ h => absurd h List.not_mem_nil⟩
+  | @tail y z _ hst ih =>
+    obtain ⟨hreach, hpend⟩ := ih
+    have he := fun {u} (hu : u ∈ net.transitions) => ver004b_inflight_zero hF hpend hu
+    cases hst with
+    | atomic r hr hsp _ hen =>
+      obtain ⟨u, hu, hru, hout⟩ := hO r hr
+      have hname : r.1.name = u.core.name := by rw [hru]; rfl
+      have hn : u.core.name ∉ sp := by
+        intro h; simp [splitTest, hname, h] at hsp
+      obtain ⟨ch, d, hd, hsame⟩ := hout (withInflight cfg y.a y.pend)
+      have hdp : depProd r.2 = depProd d := funext hsame
+      refine ⟨Relation.ReflTransGen.tail hreach
+        ⟨_, u, hA u hu hn, rfl, d, ?_, ⟨ch, hd⟩, ?_⟩, hpend⟩
+      · show enabledNA (fun p => y.a p + _) u.core = true
+        rw [ver004b_enabledNA_add (he hu), ← enabledA_toTransition, ← hru]
+        exact hen
+      · show (fun p => _ + _) = fireNC (fun p => y.a p + _) u.core (depProd d)
+        rw [ver004b_fireNC_add (he hu), ← hdp, ← fireAD_toTransition, ← hru]
+    | start r hr hsp _ hen =>
+      obtain ⟨u, hu, hru, -⟩ := hO r hr
+      have hname : r.1.name = u.core.name := by rw [hru]; rfl
+      have hn : u.core.name ∈ sp := by simpa [splitTest, hname] using hsp
+      have hq := ver004b_not_arc (fun h => hF u hu hn
+        (List.mem_append_right _ (List.mem_flatMap.mpr ⟨u, hu, h⟩)))
+      have key : ∀ p, fireNC y.a u.core (depProd [cfg.inflight u.core.name]) p =
+          fireNC y.a u.core (depProd []) p + (if cfg.inflight u.core.name = p then 1 else 0) := by
+        intro p
+        unfold fireNC
+        by_cases hpq : cfg.inflight u.core.name = p
+        · subst hpq
+          simp [hq.1, nconsumed, hq.2, depProd]
+        · by_cases hres : p ∈ u.core.resets
+          · simp [hres, depProd, hpq]
+          · simp [hres, depProd, hpq]
+      refine ⟨Relation.ReflTransGen.tail hreach
+        ⟨_, startHalf cfg u, (hS u hu hn).1, rfl, [cfg.inflight u.core.name], ?_, ⟨.action 0, rfl⟩,
+          ?_⟩, ?_⟩
+      · show enabledNA (fun p => y.a p + _) u.core = true
+        rw [ver004b_enabledNA_add (he hu), ← enabledA_toTransition, ← hru]
+        exact hen
+      · show (fun p => _ + _) = fireNC (fun p => y.a p + _) u.core _
+        rw [ver004b_fireNC_add (he hu)]
+        funext p
+        simp only [List.map_cons, List.count_cons, hname, beq_iff_eq]
+        rw [key p, hru, Novel.InFlight.startA, fireAD_toTransition]
+        split_ifs <;> omega
+      · intro n hn'
+        rcases List.mem_cons.mp hn' with rfl | hn'
+        · exact ⟨u, hu, hname.symm, by rw [hname]; exact hn⟩
+        · exact hpend n hn'
+    | complete r hr _ hp =>
+      obtain ⟨u, hu, hru, hout⟩ := hO r hr
+      have hname : r.1.name = u.core.name := by rw [hru]; rfl
+      obtain ⟨u', hu', hu'n, hn⟩ := hpend _ hp
+      rw [hname] at hn hp
+      obtain ⟨ch, d, hd, hsame⟩ := hout (withInflight cfg y.a y.pend)
+      obtain ⟨ch', hd'⟩ := ver004b_deposit_endHalf (hone u hu hn) hd
+        (nconsumed (withInflight cfg y.a y.pend) (endHalf cfg u).core)
+      have hperm := ((List.perm_cons_erase hp).map cfg.inflight)
+      have hcnt : ∀ p, (y.pend.map cfg.inflight).count p =
+          ((y.pend.erase u.core.name).map cfg.inflight).count p +
+            (if cfg.inflight u.core.name = p then 1 else 0) := by
+        intro p
+        rw [hperm.count_eq p, List.map_cons, List.count_cons]
+        simp only [beq_iff_eq]
+      have h1 : 1 ≤ withInflight cfg y.a y.pend (cfg.inflight u.core.name) := by
+        have := hcnt (cfg.inflight u.core.name)
+        simp only [if_true] at this
+        simp only [withInflight]
+        omega
+      refine ⟨Relation.ReflTransGen.tail hreach
+        ⟨_, endHalf cfg u, (hS u hu hn).2, rfl, d, ?_, ⟨ch', hd'⟩, ?_⟩, ?_⟩
+      · simp [endHalf, enabledNA, Card.required]
+        exact h1
+      · funext p
+        have hs := hsame p
+        simp only [Deposits, depProd] at hs
+        have hc := hcnt p
+        simp only [withInflight, Novel.InFlight.addD, fireNC, endHalf, nconsumed, nspecAt,
+          List.find?, depProd, hname] at hc ⊢
+        by_cases hpq : cfg.inflight u.core.name = p
+        · subst hpq
+          simp only [List.not_mem_nil, if_false, decide_true, if_true, Card.consumesAll,
+            Card.required] at hc ⊢
+          simp only [Bool.false_eq_true, if_false] at hc ⊢
+          omega
+        · simp only [List.not_mem_nil, if_false, hpq, decide_false] at hc ⊢
+          omega
+      · intro n hn'
+        rw [hname] at hn'
+        exact hpend n (List.mem_of_mem_erase hn')
+
+end Lift
 
 /-- **A split that meets the split block splits exactly `splits`** whenever it succeeds without
 the opt-out (`VER_004_split` lines 2 to 4: nothing to split, a refusal, the split net). -/
@@ -222,15 +524,60 @@ theorem ver004b_split_sp {S : SplitFn PlaceId} {P : SplitPlanFn PlaceId}
       simp only [Except.ok.injEq, Prod.mk.injEq] at hS
       exact hS.2.symm
 
+/-- **The split block pins the verified net** whenever the split succeeds without the opt-out:
+the net itself with nothing split, or the split net of a refusal-free split list. -/
+theorem ver004b_split_Y {S : SplitFn PlaceId} {P : SplitPlanFn PlaceId}
+    (h : VER_004_split S P) {cfg : SplitCfg PlaceId} {o : Options} {X Y : TimedNet PlaceId}
+    {sp : List String} (hat : o.assumeAtomicFiring = false) (hS : S cfg o X = .ok (Y, sp)) :
+    (sp = [] ∧ Y = X) ∨ (firstRefusal cfg X.net sp = none ∧ Y = splitTimed cfg sp X) := by
+  by_cases hnil : splits cfg X.net = []
+  · rw [h.2.1 cfg o X hat hnil] at hS
+    simp only [Except.ok.injEq, Prod.mk.injEq] at hS
+    exact Or.inl ⟨hS.2.symm, hS.1.symm⟩
+  · cases hr : ver004FirstRefused cfg X.net (splits cfg X.net) with
+    | some t =>
+      obtain ⟨e, he, -⟩ := h.2.2.1 cfg o X t hat hr
+      rw [he] at hS
+      exact absurd hS (by simp)
+    | none =>
+      rw [h.2.2.2.1 cfg o X hat hnil hr] at hS
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hS
+      obtain ⟨rfl, rfl⟩ := hS
+      exact Or.inr ⟨(ver004_firstRefused_none_iff _ _ _).mp hr, rfl⟩
+
+/-- A refusal-free split list of a built net: the in-flight places are fresh and every forward
+of a split transition's `Timeout` is from a `one` input (as in `Split.refSplit_run`). -/
+theorem ver004b_fresh_one {cfg : SplitCfg PlaceId} {net : Reference.Net PlaceId}
+    {sp : List String} (hnone : firstRefusal cfg net sp = none) (hb : FwdFromInputs net) :
+    Fresh cfg sp net ∧ OneFwd sp net := by
+  have hfr : ∀ t ∈ net.transitions, t.core.name ∈ sp → Verifier.Split.refusal cfg net t = none :=
+    fun t ht hn => firstRefusal_none hnone ht hn
+  refine ⟨fun t ht hn hm => ?_, fun t ht hn oo ho ch hch s hs => ?_⟩
+  · exact (refusal_none_fresh (hfr t ht hn)).1
+      (List.mem_append_left _ (List.mem_map_of_mem hm))
+  · have hm := (refusal_none_fresh (hfr t ht hn)).2.2
+    simp only [multiFwd, ho, Option.bind_some] at hm
+    rcases multiFwdIn_true_none (multiFwdIn_findTimeout hm hch) s hs with hn' | hs'
+    · obtain ⟨i, hi, hip⟩ := hb t ht oo ho s (fwdSrcs_findTimeout hch s hs)
+      have : (nspecAt t.core s).isSome := by
+        unfold nspecAt
+        rw [List.find?_isSome]
+        exact ⟨i, hi, by simp [hip]⟩
+      rw [hn'] at this
+      exact absurd this (by simp)
+    · exact hs'
+
 /-- **Block B follows from the L5 conjunct and the split block.** Every executor that meets the
 L5 agreement conjunct `CountAgrees` (its runs are `InFlight.XStep` runs by their counts) and every
 split that meets `VER_004_split` (with any plan) meet block B: the split's list is `splits`, whose
-atomic transitions meet the criterion of `InFlight.split_covers_executor`. So the consistency
-theorem gets block B from the two. -/
+atomic transitions meet the criterion of `InFlight.split_covers_executor`, and its net is the named
+split net, which the flat split-net run lifts to (`ver004b_lift`). So the consistency theorem gets
+block B from the two. -/
 theorem VER_004_exec_of {T : Type} {E : XRel PlaceId T} {S : SplitFn PlaceId}
     {P : SplitPlanFn PlaceId} (hE : CountAgrees E) (hSP : VER_004_split S P) :
     VER_004_exec E S := by
-  intro C cfg o Y sp R M0 r0 tr ds hD hex hterm hrows hR hat hS ht hc hds
+  intro C cfg o Y sp R M0 r0 tr ds hD hex hterm hfw hO hR hat hS ht hc hds
+  have hrows := ver004b_outcome_exec hO
   have hsp : sp = splits cfg C.X.net := ver004b_split_sp hSP hat hS
   obtain ⟨pend, hx, hpp⟩ := hE C R hR M0 r0 tr ht hc
   have hfree : ∀ r ∈ R, splitTest sp r.1.name = false →
@@ -249,8 +596,17 @@ theorem VER_004_exec_of {T : Type} {E : XRel PlaceId T} {S : SplitFn PlaceId}
     fun r hr hn _ ha => ver004b_live hterm (hfree r hr hn) ha
   have hds' : Novel.InFlight.Completes R (pend.filter fun n => !splitTest sp n) ds :=
     ⟨hds.1.trans (hpp.filter _).symm, hds.2⟩
-  exact ⟨_, hpp.filter _, Novel.InFlight.split_covers_executor
-    (ver004b_namesUnique hD hrows) hcrit hlive hx ds hds'⟩
+  have hsr := Novel.InFlight.split_covers_executor
+    (ver004b_namesUnique hD hrows) hcrit hlive hx ds hds'
+  refine ⟨?_, _, hpp.filter _, hsr⟩
+  rw [← ver004b_withInflight_perm (hpp.filter _)]
+  rcases ver004b_split_Y hSP hat hS with ⟨rfl, rfl⟩ | ⟨hnone, rfl⟩
+  · exact (ver004b_lift hO (fun _ hu _ => hu) (fun _ _ hn => absurd hn List.not_mem_nil)
+      (fun _ _ hn => absurd hn List.not_mem_nil) (fun _ _ hn => absurd hn List.not_mem_nil)
+      hsr).1
+  · obtain ⟨hF, hone⟩ := ver004b_fresh_one hnone hfw
+    exact (ver004b_lift hO (fun _ hu hn => (mem_splitNet_of hu).1 hn)
+      (fun _ hu hn => (mem_splitNet_of hu).2 hn) hF hone hsr).1
 
 /-- **The reference executor and the reference split meet block B of VER-004.** Take
 `t : p → q` with an asynchronous action and `u : r, inhibitor p, inhibitor q → bad`, from
@@ -275,19 +631,26 @@ theorem VER_004_exec_rest {T : Type} {E : XRel PlaceId T} {S : SplitFn PlaceId}
     {Y : TimedNet PlaceId} {sp : List String} {R : List Novel.InFlight.Row}
     {M0 : QMarking PlaceId T} {r0 : Nat} {tr : List (XStep PlaceId T)}
     (hD : NamesDistinct C.X) (hex : SplitExemptFree cfg C.X.net)
-    (hterm : ∀ p ∈ C.terminals, p ∈ cfg.terminals) (hrows : ExecRows C.X.net R)
+    (hterm : ∀ p ∈ C.terminals, p ∈ cfg.terminals) (hfw : FwdFromInputs C.X.net)
+    (hO : OutcomeRows C.X.net R)
     (hR : ∀ u ∈ C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ R)
     (hat : o.assumeAtomicFiring = false) (hS : S cfg o C.X = .ok (Y, sp))
     (ht : XRun E C (xinit M0 r0) tr) (hc : ∀ y ∈ tr, RowsCover R y)
     (hfl : (XRun.last (xinit M0 r0) tr).fl = []) :
-    Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0)
-      ⟨qCount (XRun.last (xinit M0 r0) tr).M, []⟩ := by
+    Reference.Reach Y.net (qCount M0) (qCount (XRun.last (xinit M0 r0) tr).M) ∧
+      Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0)
+        ⟨qCount (XRun.last (xinit M0 r0) tr).M, []⟩ := by
   have hn : flNames (XRun.last (xinit M0 r0) tr) = [] := by simp [flNames, hfl]
-  obtain ⟨pend, hpp, hx⟩ := h C cfg o Y sp R M0 r0 tr [] hD hex hterm hrows hR hat hS ht hc
+  obtain ⟨hY, pend, hpp, hx⟩ := h C cfg o Y sp R M0 r0 tr [] hD hex hterm hfw hO hR hat hS ht hc
     ⟨by simp [hn], fun _ h => absurd h List.not_mem_nil⟩
   rw [hn, List.filter_nil, List.perm_nil] at hpp
   rw [hpp, Novel.InFlight.addAll_nil] at hx
-  exact hx
+  rw [hn, List.filter_nil, Novel.InFlight.addAll_nil] at hY
+  have h0 : withInflight cfg (qCount (XRun.last (xinit M0 r0) tr).M) [] =
+      qCount (XRun.last (xinit M0 r0) tr).M := by
+    funext p; simp [withInflight]
+  rw [h0] at hY
+  exact ⟨hY, hx⟩
 
 /-- **A safety `Proven` of the split net holds at every executor state** ([VER-004] AC4), from
 the statement alone: if the split net never reaches a marking with an upward-closed property
@@ -298,18 +661,20 @@ theorem VER_004_exec_safety {T : Type} {E : XRel PlaceId T} {S : SplitFn PlaceId
     {M0 : QMarking PlaceId T} {r0 : Nat} {tr : List (XStep PlaceId T)}
     {ds : List Novel.InFlight.Row}
     (hD : NamesDistinct C.X) (hex : SplitExemptFree cfg C.X.net)
-    (hterm : ∀ p ∈ C.terminals, p ∈ cfg.terminals) (hrows : ExecRows C.X.net R)
+    (hterm : ∀ p ∈ C.terminals, p ∈ cfg.terminals) (hfw : FwdFromInputs C.X.net)
+    (hO : OutcomeRows C.X.net R)
     (hR : ∀ u ∈ C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ R)
     (hat : o.assumeAtomicFiring = false) (hS : S cfg o C.X = .ok (Y, sp))
     (ht : XRun E C (xinit M0 r0) tr) (hc : ∀ y ∈ tr, RowsCover R y)
     (hds : Novel.InFlight.Completes R
       ((flNames (XRun.last (xinit M0 r0) tr)).filter fun n => !splitTest sp n) ds)
     {bad : AMarking → Prop} (hup : Novel.InFlight.UpClosed bad)
-    (hproven : ∀ x, Novel.InFlight.SReach R (splitTest sp) (NoTerm C) (qCount M0) x → ¬ bad x.a) :
+    (hproven : ∀ m, Reference.Reach Y.net (qCount M0) m → ¬ bad m) :
     ¬ bad (qCount (XRun.last (xinit M0 r0) tr).M) := by
   intro hb
-  obtain ⟨pend, -, hx⟩ := h C cfg o Y sp R M0 r0 tr ds hD hex hterm hrows hR hat hS ht hc hds
-  exact hproven _ hx (hup _ _ (Novel.InFlight.le_addAll _ ds) hb)
+  obtain ⟨hY, -⟩ := h C cfg o Y sp R M0 r0 tr ds hD hex hterm hfw hO hR hat hS ht hc hds
+  refine hproven _ hY (hup _ _ (fun p => ?_) hb)
+  exact (Novel.InFlight.le_addAll _ ds p).trans (Nat.le_add_right _ _)
 
 /-! ## The worked example: the inhibitor net of `InFlight.inflight_witness`
 
@@ -451,17 +816,23 @@ example. -/
 theorem ver004b_premises :
     NamesDistinct ver004b_C.X ∧ SplitExemptFree ver004b_cfg ver004b_C.X.net ∧
       (∀ p ∈ ver004b_C.terminals, p ∈ ver004b_cfg.terminals) ∧
-      ExecRows ver004b_C.X.net ver004b_R ∧
+      FwdFromInputs ver004b_C.X.net ∧ OutcomeRows ver004b_C.X.net ver004b_R ∧
       (∀ u ∈ ver004b_C.X.net.transitions, ∃ d, (toTransition u.core, d) ∈ ver004b_R) := by
-  refine ⟨by unfold NamesDistinct; decide, ?_, fun _ h => absurd h List.not_mem_nil, ?_, ?_⟩
+  refine ⟨by unfold NamesDistinct; decide, ?_, fun _ h => absurd h List.not_mem_nil, ?_, ?_, ?_⟩
   · intro u hu
     simp only [ver004b_C, List.mem_cons, List.not_mem_nil, or_false] at hu
     rcases hu with rfl | rfl <;> exact ⟨by decide, by simp [ver004b_cfg]⟩
+  · intro u hu o ho s hs
+    simp only [ver004b_C, List.mem_cons, List.not_mem_nil, or_false] at hu
+    rcases hu with rfl | rfl <;>
+      · simp only [ver004b_t, ver004b_u, Option.some.injEq] at ho
+        subst ho
+        simp [fwdSrcs] at hs
   · intro r hr
     simp only [ver004b_R, List.mem_cons, List.not_mem_nil, or_false] at hr
     rcases hr with rfl | rfl
-    · exact ⟨ver004b_t, by simp [ver004b_C], rfl, by simp [outs, ver004b_t, Verifier.outPlaces]⟩
-    · exact ⟨ver004b_u, by simp [ver004b_C], rfl, by simp [outs, ver004b_u, Verifier.outPlaces]⟩
+    · exact ⟨ver004b_t, by simp [ver004b_C], rfl, fun _ => ⟨.action 0, [1], rfl, fun _ => rfl⟩⟩
+    · exact ⟨ver004b_u, by simp [ver004b_C], rfl, fun _ => ⟨.action 0, [3], rfl, fun _ => rfl⟩⟩
   · intro u hu
     simp only [ver004b_C, List.mem_cons, List.not_mem_nil, or_false] at hu
     rcases hu with rfl | rfl
@@ -487,21 +858,22 @@ theorem VER_004_exec_nonvacuous :
         .ok (splitTimed ver004b_cfg ["t"] ver004b_C.X, ["t"]) ∧
       flNames (XRun.last (xinit ver004b_M 0) tr) = ["t"] ∧
       qCount (XRun.last (xinit ver004b_M 0) tr).M 3 = 1 ∧
+      Reference.Reach (splitTimed ver004b_cfg ["t"] ver004b_C.X).net (qCount ver004b_M)
+        (withInflight ver004b_cfg (qCount (XRun.last (xinit ver004b_M 0) tr).M) ["t"]) ∧
       Novel.InFlight.SReach ver004b_R (splitTest ["t"]) (NoTerm ver004b_C) (qCount ver004b_M)
         ⟨qCount (XRun.last (xinit ver004b_M 0) tr).M, ["t"]⟩ := by
   obtain ⟨tr, ht, hc, hn, -, -, h3⟩ := ver004b_run
-  obtain ⟨hD, hex, hterm, hrows, hR⟩ := ver004b_premises
+  obtain ⟨hD, hex, hterm, hfw, hO, hR⟩ := ver004b_premises
   refine ⟨tr, xtrace_run ht, hc, ver004b_split, hn, h3, ?_⟩
-  obtain ⟨pend, hpp, hx⟩ := VER_004_exec_reference ver004b_C ver004b_cfg {} _ ["t"] ver004b_R
-    ver004b_M 0 tr [] hD hex hterm hrows hR rfl ver004b_split (xtrace_run ht) hc
+  obtain ⟨hY, pend, hpp, hx⟩ := VER_004_exec_reference ver004b_C ver004b_cfg {} _ ["t"] ver004b_R
+    ver004b_M 0 tr [] hD hex hterm hfw hO hR rfl ver004b_split (xtrace_run ht) hc
     ⟨by simp [hn, splitTest], fun _ h => absurd h List.not_mem_nil⟩
-  rw [hn] at hpp
-  have hpe : pend = ["t"] := by
-    have : (List.filter (splitTest ["t"]) ["t"]) = ["t"] := by decide
-    rw [this] at hpp
-    exact List.perm_singleton.mp hpp
+  have hf : (List.filter (splitTest ["t"]) ["t"]) = ["t"] := by decide
+  rw [hn, hf, Novel.InFlight.addAll_nil] at hY
+  rw [hn, hf] at hpp
+  have hpe : pend = ["t"] := List.perm_singleton.mp hpp
   rw [hpe, Novel.InFlight.addAll_nil] at hx
-  exact hx
+  exact ⟨hY, hx⟩
 
 /-! ## Violations -/
 
@@ -548,12 +920,38 @@ theorem VER_004_exec_forbids_atomicSplit :
     ¬ VER_004_exec (RefExec (N := PlaceId) (T := Nat)) ver004b_atomicSplit := by
   intro h
   obtain ⟨tr, ht, hc, hn, -, -, h3⟩ := ver004b_run
-  obtain ⟨hD, hex, hterm, hrows, hR⟩ := ver004b_premises
-  obtain ⟨pend, -, hx⟩ := h ver004b_C ver004b_cfg {} _ [] ver004b_R ver004b_M 0 tr
-    [(toTransition ver004b_t.core, [1])] hD hex hterm hrows hR rfl rfl (xtrace_run ht) hc
+  obtain ⟨hD, hex, hterm, hfw, hO, hR⟩ := ver004b_premises
+  obtain ⟨-, pend, -, hx⟩ := h ver004b_C ver004b_cfg {} _ [] ver004b_R ver004b_M 0 tr
+    [(toTransition ver004b_t.core, [1])] hD hex hterm hfw hO hR rfl rfl (xtrace_run ht) hc
     ⟨by simp [hn, splitTest, toTransition, ver004b_t], by simp [ver004b_R]⟩
   have := (ver004b_atomic_never _ hx).2.1
   simp [Novel.InFlight.addAll, h3] at this
+
+/-- The split that returns the right list with the wrong net: `refSplit`'s split list, but the
+net unsplit. -/
+def ver004b_wrongNetSplit : SplitFn PlaceId := fun cfg o X =>
+  match refSplit cfg o X with
+  | .ok (_, sp) => .ok (X, sp)
+  | .error e => .error e
+
+/-- ✗ **A split that returns the right list with the unsplit net does not cover the executor**:
+on the example it names `t` as split, but its net never marks `inflight:t` (no transition of the
+net names place `10`), while the executor has `t` in flight. -/
+@[evidence forbids VER_004_exec]
+theorem VER_004_exec_forbids_wrongNet :
+    ¬ VER_004_exec (RefExec (N := PlaceId) (T := Nat)) ver004b_wrongNetSplit := by
+  intro h
+  obtain ⟨tr, ht, hc, hn, -, -, -⟩ := ver004b_run
+  obtain ⟨hD, hex, hterm, hfw, hO, hR⟩ := ver004b_premises
+  have hW : ver004b_wrongNetSplit ver004b_cfg {} ver004b_C.X = .ok (ver004b_C.X, ["t"]) := rfl
+  obtain ⟨hY, -⟩ := h ver004b_C ver004b_cfg {} _ ["t"] ver004b_R ver004b_M 0 tr [] hD hex hterm
+    hfw hO hR rfl hW (xtrace_run ht) hc
+    ⟨by simp [hn, splitTest], fun _ h => absurd h List.not_mem_nil⟩
+  obtain ⟨l, hrun⟩ := reach_run hY
+  have h10 : (10 : PlaceId) ∉ allPlaces ver004b_C.X.net := by decide
+  have := run_frame h10 hrun
+  rw [hn] at this
+  simp [withInflight, ver004b_cfg, splitTest, qCount, ver004b_M, Novel.InFlight.addAll] at this
 
 /-! ### An executor that ignores inhibitor arcs -/
 
@@ -644,16 +1042,23 @@ theorem VER_004_exec_forbids_noInh : ¬ VER_004_exec ver004b_noInhExec (refSplit
     intro hl
     cases l <;> simp_all [ver004b_labelsV, ver004b_toTest]
   have hsplit : refSplit ver004b_cfg {} ver004b_CV.X = .ok (ver004b_CV.X, []) := rfl
-  obtain ⟨pend, -, hx⟩ := h ver004b_CV ver004b_cfg {} _ [] ver004b_RV ver004b_M 0 tr
+  obtain ⟨-, pend, -, hx⟩ := h ver004b_CV ver004b_cfg {} _ [] ver004b_RV ver004b_M 0 tr
     [(toTransition ver004b_v.core, [3])] (by unfold NamesDistinct; decide)
     (fun u hu => by
       simp only [ver004b_CV, ver004b_XV, List.mem_cons, List.not_mem_nil, or_false] at hu
       subst hu; exact ⟨by decide, by simp [ver004b_cfg]⟩)
     (fun _ h => absurd h List.not_mem_nil)
+    (fun u hu o ho s hs => by
+      simp only [ver004b_CV, ver004b_XV, List.mem_cons, List.not_mem_nil, or_false] at hu
+      subst hu
+      simp only [ver004b_v, Option.some.injEq] at ho
+      subst ho
+      simp [fwdSrcs] at hs)
     (fun r hr => by
       simp only [ver004b_RV, List.mem_cons, List.not_mem_nil, or_false] at hr
       subst hr
-      exact ⟨ver004b_v, by simp [ver004b_CV, ver004b_XV], rfl, by simp [outs, ver004b_v, Verifier.outPlaces]⟩)
+      exact ⟨ver004b_v, by simp [ver004b_CV, ver004b_XV], rfl,
+        fun _ => ⟨.action 0, [3], rfl, fun _ => rfl⟩⟩)
     (fun u hu => by
       simp only [ver004b_CV, ver004b_XV, List.mem_cons, List.not_mem_nil, or_false] at hu
       subst hu; exact ⟨[3], by simp [ver004b_RV]⟩)
@@ -859,17 +1264,25 @@ theorem VER_004_exec_forbids_noStop :
     · exact hcommit _ _ _ _ _ hfl1 (by simp [ver004b_RS])
     · exact hother y (Or.inr (by rw [← xtrace_labels htrB]; exact List.mem_map_of_mem hy))
     · exact hcommit _ _ _ _ _ hfl3 (by simp [ver004b_RS])
-  obtain ⟨pend, -, hx⟩ := h ver004b_CS ver004b_cfgS {} _ ["t"] ver004b_RS ver004b_MS 0 tr []
+  obtain ⟨-, pend, -, hx⟩ := h ver004b_CS ver004b_cfgS {} _ ["t"] ver004b_RS ver004b_MS 0 tr []
     (by unfold NamesDistinct; decide)
     (fun u hu => by
       simp only [ver004b_CS, List.mem_cons, List.not_mem_nil, or_false] at hu
       rcases hu with rfl | rfl <;> exact ⟨by decide, by simp [ver004b_cfgS, ver004b_cfg]⟩)
     (fun p hp => by simpa [ver004b_CS, ver004b_cfgS] using hp)
+    (fun u hu o ho s hs => by
+      simp only [ver004b_CS, List.mem_cons, List.not_mem_nil, or_false] at hu
+      rcases hu with rfl | rfl <;>
+        · simp only [ver004b_tS, ver004b_uS, Option.some.injEq] at ho
+          subst ho
+          simp [fwdSrcs] at hs)
     (fun r hr => by
       simp only [ver004b_RS, List.mem_cons, List.not_mem_nil, or_false] at hr
       rcases hr with rfl | rfl
-      · exact ⟨ver004b_tS, by simp [ver004b_CS], rfl, by simp [outs, ver004b_tS, Verifier.outPlaces]⟩
-      · exact ⟨ver004b_uS, by simp [ver004b_CS], rfl, by simp [outs, ver004b_uS, Verifier.outPlaces]⟩)
+      · exact ⟨ver004b_tS, by simp [ver004b_CS], rfl,
+          fun _ => ⟨.action 0, [4, 1], rfl, fun _ => rfl⟩⟩
+      · exact ⟨ver004b_uS, by simp [ver004b_CS], rfl,
+          fun _ => ⟨.action 0, [3], rfl, fun _ => rfl⟩⟩)
     (fun u hu => by
       simp only [ver004b_CS, List.mem_cons, List.not_mem_nil, or_false] at hu
       rcases hu with rfl | rfl

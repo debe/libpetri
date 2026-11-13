@@ -14,7 +14,7 @@ state-class graph. Entry `D i j` bounds `θᵢ - θⱼ` (the struct's doc commen
 `dbm.rs:74-77`);
 `f64::INFINITY` is `⊤` of `WithTop ℚ`. The zone of `D` is its solution set `Sat D`.
 
-* `canonicalize` (`dbm.rs:107-133`, `canonicalize_in_place`, `dbm.rs:318-339`) is in-place
+* `canonicalize` and `canonicalize_in_place` (`dbm.rs`) are in-place
   Floyd–Warshall. Each inner step replaces `D i j` by `D i k + D k j` when that is smaller and
   both are finite. That is `relax`: `min (D i j) (D i k + D k j)`, where `⊤ + x = ⊤` covers the
   finiteness guard. `canon` runs the relaxations in the Rust loop order (`fwSteps`: `k`, then

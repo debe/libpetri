@@ -121,7 +121,7 @@ requirement PERF_030
           "AC2 (for 100 places and 50 transitions, at most (1 + 50 × k) × 2 + 1 words at 64-bit words, 203 for k = 2 and 503 for k = 5, and at most (1 + 50 × k) × 4 + 2 words at 32-bit words, 406 for k = 2) is PERF_030_ac2 and PERF_030_ac2_32: the reference on perf030Net, a net with 100 places and 50 transitions, keeps 203 words at 64 bits and 406 at 32 bits, and perf030_ac2_bound and perf030_ac2_bound_32 give the bounds for every k. The former wording ('< 1KB') was false of the reference: 203 words of 8 bytes are 1624 bytes (perf030_old_ac2_bytes)."
           "The test derivation (compile a 100-place, 50-transition net, sum the words that the presence bitmap, the mask arrays and the dirty set hold and compare the sum with AC2) is PERF_030_ac2 and PERF_030_ac2_32 on the reference. A runtime test that sums the allocated lengths of those arrays in an implementation is a quality test (kind Q); no test cites PERF-030 today."
           "The block is about the bitmap executor's three structures. The sparse masks of the precompiled executor are PERF-042's; its flat arrays are PERF-040's (kind Q)."
-  signoff "pending"
+  signoff "2026-11-13 29912da2d6f403c4 ai"
   statement : ∀ {N : Type} [DecidableEq N], Nat → BitmapLayout N → Prop :=
     fun ws L => 0 < ws →
       (∀ n, L.presence n ≤ ceilDiv (placeCountOf n) ws) ∧

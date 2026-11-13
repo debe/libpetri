@@ -175,8 +175,14 @@ export interface Evidence {
 
 export type Signoff =
   | { readonly state: 'pending' }
-  /** Parsed from `"2026-11-10 104625b4eefcf18b"`: date and the statement hash signed. */
-  | { readonly state: 'signed'; readonly date: string; readonly hash: string };
+  /**
+   * Parsed from `"2026-11-10 104625b4eefcf18b"` (a person signed) or
+   * `"2026-11-12 104625b4eefcf18b ai"` (an AI review signed): date, statement hash and signer.
+   */
+  | { readonly state: 'signed'; readonly date: string; readonly hash: string; readonly by: Signer };
+
+/** Who signed a block: a person, or an AI review the maintainer delegated sign-off to. */
+export type Signer = 'person' | 'ai';
 
 /** One Lean requirement block. An ID may have several (companion blocks). */
 export interface LeanBlock {
@@ -240,9 +246,10 @@ export interface CoverageRow {
 // Runtime defects (spec/runtime-defects.md)
 // ---------------------------------------------------------------------------------------------
 
+/** `version` is the first release with the fix; null while the fix is not released yet. */
 export type DefectStatus =
   | { readonly state: 'open' }
-  | { readonly state: 'fixed'; readonly version: string };
+  | { readonly state: 'fixed'; readonly version: string | null };
 
 export interface Defect {
   /** `RD-01`. */
@@ -257,6 +264,8 @@ export interface Defect {
   readonly evidence: readonly TheoremName[];
   /** Markdown of the `**Lean evidence:**` item as written (for the "none beyond" wording). */
   readonly evidenceText: string;
+  /** Markdown of the optional `**Fix:**` item; null when the entry has none. */
+  readonly fix: string | null;
   readonly status: DefectStatus;
 }
 

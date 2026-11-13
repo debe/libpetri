@@ -1711,12 +1711,10 @@ A query *shall* read a graph it built or reused as the route reads it without th
   structural fingerprint, which is why it hits although the binding clones the net on every
   call. An empty cache is falsy, since it defines `__len__`. The `initial_marking` dict is read in
   insertion order, so a witness starts in the caller's order.
-- Under `Arrivals` ([VER-006]) the implementations differ. Java does not use the cache for the
-  query and the report says so (`SmtVerifier.java`, the enumeration step). Rust and Python key
-  the fingerprint of the closed net, so the closure is in the key and a repeated query hits.
-  TypeScript keys the caller's net with the closed initial marking, whose arrival sources are new
-  `Place` objects on every call, so every such query misses, builds, and adds an entry, with no
-  report line (runtime defect RD-28).
+- Under `Arrivals` ([VER-006]) the implementations differ. Java and TypeScript do not use the
+  cache for a query whose `Arrivals` closure closes the net, and the report says so, with the same
+  line in both (`SmtVerifier.java` and `smt-verifier.ts`, the enumeration step). Rust and Python
+  key the fingerprint of the closed net, so the closure is in the key and a repeated query hits.
 
 **Depends on:** [VER-001], [VER-002], [VER-003], [VER-004], [VER-006], [VER-010], [VER-012],
 [VER-013], [VER-014], [VER-015], [VER-024], [EXEC-042]

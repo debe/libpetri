@@ -38,7 +38,7 @@ requirement CORE_035
           "The third line is the marking side of 'only in its output places': on every place [CORE-030] and [CORE-034] do not cover (a pure output place, a read-only or inhibitor-only place, a place with no arc), the firing adds exactly its deposit. A place the firing does not deposit in is therefore unchanged, and an output place keeps its earlier tokens (no overwrite, no double or deduplicated deposit). On read places this coincides with [CORE-032]'s third clause."
           "AC1 (after the transition fires, produced tokens appear in the output place) is the second line, with the first saying the place is an output place."
           "AC2 (output tokens carry the current timestamp): not encoded. The firing relation works on token counts and carries no token timestamps; timestamps are [CORE-011] and the timed semantics' subject."
-  signoff "pending"
+  signoff "2026-11-13 7ce7e918319b593c ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t d,
       (on (fun m m' => F t m d m'), shall (fun _ _ => ∀ p, Produced d p → OutputArc t p)) ∧

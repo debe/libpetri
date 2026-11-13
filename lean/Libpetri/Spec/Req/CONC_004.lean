@@ -65,7 +65,7 @@ requirement CONC_004
           "AC2 (a transition with 3 inputs and 2 reads needs only 1-2 bitwise operations) is a quality property and is not encoded; the operation count holds for one word (W = 1, clash conc-a#4). The answer of the check for such a transition is the line at CONC_004_nonvacuous, whose transition has 3 input places, 2 read places and 1 inhibitor place."
           "AC3 (the check is O(W), W = ceil(numPlaces / word_size)) is a quality property, PERF-002's subject, and is not encoded."
           "The test derivation (constant check time per transition on a 100-place net) is a performance test, PERF-002's, and is not encoded."
-  signoff "pending"
+  signoff "2026-11-13 6e1dc524b499bce4 ai"
   statement : ∀ {N : Type}, EnableCheck N → Prop :=
     fun C => ∀ t bits, C.presence t bits = true ↔ MaskCheck t bits
 

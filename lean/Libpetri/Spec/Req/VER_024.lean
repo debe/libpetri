@@ -721,7 +721,7 @@ requirement VER_024
           "AC3 (a safety property builds the full graph) and AC4 (partialOrderReduction(false) gives the graph of VER-017) are VER_024_route, line 1."
           "AC5 (the same class count in every implementation) is VER_024_select: the selection, with its order, is a function of the net and the marking (VER_024_select_unique_list), so the reduced graph is."
           "AC6 (the report line Stubborn-set reduction (VER-024): on) is report text, kind Q. The default (on) is a quoted sentence of VER_024_route, kind N (ver024_defaultOn); the option names of the Implementation notes are kind N."
-  signoff "pending"
+  signoff "2026-11-13 48e64fd98bd49532 ai"
   statement : SelFn → Prop :=
     fun Sel =>
       (∀ net a, ∀ i ∈ Sel net a, enAt net a i = true) ∧
@@ -1121,7 +1121,7 @@ requirement VER_024_select
           "The order of conditions is a function (conds): input and read places together, sorted by place id, then inhibitor places sorted by place id. Place ids follow the code-point order of place names (the flattener's order, VER-013), so the sort is the code-point order of the spec; that link from names to ids is an assumption about the flattener, not a line, and the runtimes sort by name directly. No place carries both an input and a read of one transition (ruling D15), so the merged order has no tie; two input specs on one place are excluded by the builders. The runtimes build the same list (stubborn_sets.rs:66-88, StubbornSets.java:59-78, stubborn-sets.ts:59-76). Three wrong orders are killed: Novel/Stubborn.lean's firstBlocker order, inputs then reads (VER_024_select_forbids_inputsFirst); the merged list in descending place order (VER_024_select_forbids_descending); inhibitors before inputs and reads (VER_024_select_forbids_inhibitorsFirst)."
           "Transition names are distinct (rulings D10 and D23), a premise of every line: with two equal names the tie-break does not single out one seed, and the runtimes index transitions by name. The runtimes' early cut (a closure stops counting once it reaches the best count so far) and their stop at a count of 1 change no choice, so they are not in the model."
           "Line 5 is the expansion order. A class keeps its enabled transitions in the canonical clock order of VER-010 AC1, ascending by name in code-point order; the breadth-first build iterates that list and the selection only filters it (state_class_graph.rs:193, StateClassGraph.java:580, state-class-graph.ts:166). With lines 2 to 4 it fixes the list of transitions a class expands, so with the order of each transition's outcomes (the net's, VER-021) it fixes the reduced graph, the order in which its classes are found, and which classes a truncated build expands (AC5; the order mutant is killed by VER_024_select_forbids_netOrder)."
-  signoff "pending"
+  signoff "2026-11-13 2b7d225579be0e67 ai"
   statement : SelFn → Prop :=
     fun Sel =>
       ∀ net a, (net.map fun e => e.1.name).Nodup →
@@ -1486,7 +1486,7 @@ requirement VER_024_route
           "The third quoted sentence (on by default) is configuration, kind N: the constant ver024_defaultOn, pinned below. All four runtimes default to on (smt_verifier.rs:253, SmtVerifier.java:189, smt-verifier.ts:166, Python verify(..., partial_order_reduction=True)); that they default alike is checked by the verdict-parity fixtures. The option names are kind N (Implementation notes)."
           "The cache is VER-017's sequential state machine (Verifier.Graph.cacheQuery): a query reads and writes only the entry of its own key (cacheQuery_frame). With the reduced bit in the key, a safety query and a quiescence query with the reduction off use keys whose bit is false, so they never read or write an entry whose bit is true (VER_024_route_apart, from the statement alone). Line 2 pins only the reduced field: which other fields the key has (the net or its structural fingerprint, the split, the initial marking) and the reuse rules are VER-017's cache block."
           "AC3 (a safety property builds the full graph whatever the setting) and AC4 (with partialOrderReduction(false), VER-017's graph, witness and class count) are line 1 with the property or the option set; that the full graph is VER-017's is VER-017's subject."
-  signoff "pending"
+  signoff "2026-11-13 60a35bb2a87a4c8b ai"
   statement : ∀ {K N M : Type}, ReduceFn K → CacheKeyFn N M K → Prop :=
     fun U key =>
       (∀ φ opt dr, U φ opt dr = true ↔ quiescenceProp φ = true ∧ opt = true ∧ dr = false) ∧

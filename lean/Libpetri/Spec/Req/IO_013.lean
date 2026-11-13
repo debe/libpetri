@@ -84,7 +84,10 @@ requirement IO_013
           "'The tokens of child' is the glossary term Timeout outcome, as the reference reads it (Out.timeoutDeposits): one token per Place leaf of child, the product at every And, and one token in to per token consumed from from at every ForwardInput (IO-014), counted per place, so the order of the deposit list does not matter (CORE-036). Token values and created_at (the minted tokens of AC3, forwarded values and their stamps, IO-014 AC5) are below the count granularity."
           "The eighth line is the paragraph 'One fixed timeout deposit'. Its message is msgXorInTimeout, byte for byte. Any Xor at any depth of the Timeout child counts, under an And or a ForwardInput's sibling included (hasXor). It runs after the Timeout count check, as the premise timeoutCount o ≤ 1 states: with two Timeout nodes the message is the first line's. The preamble's order puts the IO-011 check before it, so on a spec that names a place twice in one output branch the eighth line only requires that building fails, and on a transition with two input arcs on one place likewise (CORE-030). 'The executor, not the action, makes the deposit' is the reason the markdown gives and is not a separate constraint."
           "'The timeout outcome of a transition that builds therefore deposits in one fixed set of places' is a consequence, not a clause: on a transition that builds the Timeout child holds no Xor node, so Out.timeoutDeposits of the child has one entry and the fifth and sixth lines name one deposit (theorem IO_013_one_fixed_deposit, from the glossary's timeoutOutcome_unique). Without the check the reference offers one timeout outcome per alternative of an Xor in the child (IO_013_reference_xorChild_two_outcomes)."
-          "The seventh line is AC5 for a firing that does not report the timeout outcome: it ended with its action, whose produced set is one output branch (IO-015, exact explanation; how many tokens per place is IO-016's). A deposit that merges a timeout outcome with output the action wrote and reports it as an action firing is neither, unless its places happen to form a whole output branch, in which case it is a legal action firing and no observation of the marking can tell the two apart. The line is a requirement on an executor with output validation enabled, the default (CONC-026); F models such an executor, as RefFire does. With the skip enabled an action firing deposits the action's write and the line is not claimed of it, while the timed-out lines hold under every executor: CONC-026 skips nothing on the timeout outcome."
+          "The seventh line is AC5 for a firing that does not report the timeout outcome: it ended with its action, whose produced set is one output branch (IO-015, exact explanation; how many tokens per place is IO-016's). A deposit that merges a timeout outcome with output the action wrote and reports it as an action firing is neither, unless its places happen to form a whole output branch, in which case it is a legal action firing and no observation of the marking can tell the two apart. The line is a requirement on an executor with output validation enabled, the default (CONC-026); F models such an executor, as RefFire does. With the skip enabled an action firing deposits the action's write and the line is not claimed of it. The skip changes nothing on the timeout outcome (CONC-026), so the timed-out lines (fourth to sixth) do not depend on it; every runtime holds them (below)."
+          "The timed-out lines in the runtimes. No runtime validates the timeout outcome against the output spec: Rust, and Python on it, skip validation on the timeout path, and Java (BitmapNetExecutor and PrecompiledNetExecutor processCompletedTransitions) and TypeScript (bitmap-net-executor.ts and precompiled-net-executor.ts) skip it, and the IO-016 multiplicity warning, when TransitionContext.isDetachedForTimeout(), running only the NU-054 relay check; so on And(A, Timeout(d, B)), which builds, a timed-out firing deposits B (ruling D24 (a)). An executor that validates the timeout outcome against the whole output spec fails every such timed-out firing and breaks the sixth line, from every enabled marking every timeout outcome is the deposit of some firing in T (io013_validatingFire and io013_validatedTimedOut, IO_013_forbids_validateTimeout; the behaviour RD-01 in spec/runtime-defects.md recorded of Java and TypeScript)."
+          "Every runtime deposits the timeout outcome on the places the rewritten output spec names, as given: Java (TransitionContext outputToHarvest and forwardToHarvest, and ExecutorSupport produceTimeoutOutputRecursive, which reads a ForwardInput's from place with rawInput) and TypeScript (transition-context.ts outputToHarvest and forwardToHarvest) take those places as the actual places and do not resolve them through the composition correspondence again, and Rust deposits on them directly. An executor that resolves them a second time, on a correspondence collision (port a bound to b, port b bound to c), deposits the timeout token meant for b on c and breaks the fifth line, the deposit equals the timeout outcome place by place (the behaviour RD-31 recorded of Java and TypeScript). The correspondence is not in this model, whose transition is the rewritten one, so the statement cannot see the second resolution; that wrong executor is shown in MOD_031.lean (mod031ctx_timeout_resolveTwice), and the runtimes are tested on it (java AbstractNetExecutorEngineTest OutputTimeoutTests outTimeout_portCollision_depositsOnTheBoundPlace_MOD031_IO013; typescript tests/core/compose-action-place-alias.test.ts 'the timeout branch deposits on the bound place under a port-name collision')."
+          "The sentence 'A firing of a transition with a match specification whose timeout outcome fails the relay check of [NU-054] does not end with the timeout outcome: it fails ([EVT-008]) and deposits none of the tokens of `child`.' is ruling D24 (a) (clash nu-c#8). It narrows the second quote and the sixth line to firings the relay check accepts. Trans carries no match specification, so a transition with one is outside this block, and on every transition here no relay check applies; the exception is stated by NU_054_check (the check) and NU_054_fail (the failed firing deposits nothing of the timeout outcome)."
           "AC1 (duration must be positive) is a build-time validation of the duration, which the model does not carry; not encoded."
           "AC2 (action completes within duration, normal output validation) is the produced-set disjunct of the seventh line; the validation itself is IO-015's subject."
           "AC3 (action exceeds duration, every place the timeout child names receives tokens: one minted token for a Place, the forwarded tokens for a ForwardInput) is the fifth and sixth lines, read on token counts."
@@ -95,7 +98,7 @@ requirement IO_013
           "AC8 is the eighth and third lines: its two rejected specs (Timeout(d, Xor(A, B)), Xor(C, Timeout(d, And(A, Xor(B, D))))) fail with the Xor message, and its two accepted specs (Xor(A, Timeout(d, B)) and, with i an input place, Timeout(d, And(A, ForwardInput(i, B)))) build, under the reference builder (IO_013_ac8_rejected, IO_013_ac8_builds)."
           "The test derivation's build cases are AC7's and AC8's; its timing case (an action sleeping past its budget, the event) is outside the model: the duration and the event store are not in it."
           "Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling."
-  signoff "pending"
+  signoff "2026-11-13 4dd548dd2797bcc8 ai"
   statement : ∀ {N : Type} [DecidableEq N], (Trans N → Option String) → FireRel N → FireRel N → Prop :=
     fun Build F T =>
       (∀ t o, OutputSpec t = some o → 2 ≤ timeoutCount o →
@@ -539,6 +542,35 @@ theorem IO_013_forbids_noEffect :
     Or.inr ⟨⟨_, by decide, ⟨0, rfl⟩, rfl⟩, rfl⟩
   obtain ⟨-, -, hm'⟩ := h.2.2.1 io013_and IO_013_ac7_builds.2.2.1 [1] _ _ hT
   exact absurd (congrFun hm' 1) (by decide)
+
+/-- A wrong executor's timed-out firings (the behaviour RD-01 recorded of Java and TypeScript): a
+reference timed-out firing deposits only when its timeout outcome passes output validation against the whole output spec, so only
+when its produced set is one output branch. -/
+def io013_validatedTimedOut : FireRel Nat :=
+  fun t m d m' => refTimeoutOutcomeFire t m d m' ∧
+    ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b
+
+/-- A wrong executor's firings (the behaviour RD-01 recorded of Java and TypeScript): the reference
+action firings, and the timed-out firings whose timeout outcome passes validation. -/
+def io013_validatingFire : FireRel Nat :=
+  fun t m d m' => RefFire t m d m' ∧
+    (io013_validatedTimedOut t m d m' ∨ ∃ b, OutputBranch t b ∧ ∀ p, Produced d p ↔ p ∈ b)
+
+/-- ✗ Validating the timeout outcome against the whole output spec (sixth line; the behaviour
+RD-01 recorded):
+`And(Place(0), Timeout(Place(1)))` builds and is enabled at the empty marking, but its timeout
+outcome `[1]` is not its output branch `{0, 1}`, so no firing ends with it. -/
+@[evidence forbids IO_013]
+theorem IO_013_forbids_validateTimeout :
+    ¬ IO_013 refBuild io013_validatingFire io013_validatedTimedOut := by
+  intro h
+  obtain ⟨_, -, b, hb, hp⟩ :=
+    h.2.2.2.2.1 io013_and IO_013_ac7_builds.2.2.1 io013_empty (by decide) [1] io013_timeout_and
+  have : b = [0, 1] := by
+    simpa [OutputBranch, io013_and, io013_trans, Out.branches, cross] using hb
+  subst this
+  have := (hp 0).2 (by simp)
+  simp [Produced] at this
 
 /-! ### Mutant readings: one per line -/
 

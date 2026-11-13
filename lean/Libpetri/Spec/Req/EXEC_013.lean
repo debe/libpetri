@@ -11,8 +11,9 @@ The order of the parts of one firing: input consumption, then read peeks, then r
 all before the action, whose outputs land last. The requirement is a predicate over an abstract
 queue firing relation `Q : QFireRel N T` (glossary `GlossaryQueue.lean`), so that it can be
 checked against the reference queue firing (`RefQFire`), against a firing that does not drain,
-and against three mutant readings: reset draining before the read peek, reset draining before
-input consumption, and the action's outputs deposited before the drain.
+against a firing that an unmarked reset place blocks, and against three mutant readings: reset
+draining before the read peek, reset draining before input consumption, and the action's outputs
+deposited before the drain.
 
 Token counts are CORE-034's subject (AC1 and AC2 on counts); the clock restart of AC3 is
 TIME-012's. Which tokens an input consumes is EXEC-010's, where the queue left on an input place
@@ -50,14 +51,14 @@ requirement EXEC_013
           "Line 1 is the first quoted sentence and the single-firing consequence of the second and third: the drain comes before the action's outputs land, so every token the action emits to a reset place survives it, and the place ends with exactly those tokens, in emission order. A drain after the action's outputs would leave the place empty (exec013_outputsFirst violates it). The other half of 'before its action starts', that the drained marking is the intermediate marking other transitions see while the action runs (the unquoted body sentence 'Like input consumption, the drain lands in the intermediate marking, so it restarts the clocks of transitions it disables there'), is TIME-012's and the Phase 2 executor model's (RefExec), not a line here. On token counts line 1 is CORE-034's first line."
           "Line 2 is the fourth quoted sentence's 'input consumption, then reset draining': an input place that is also a reset place hands the action as many tokens as the input arc's consumption count (IO-007) on the pre-firing counts, taken from its pre-firing queue in queue order; a drain first would hand it nothing (exec013_drainFirst violates it). Which tokens they are (the oldest, except for a correlated ν input) is EXEC-010's subject; the queue an input place that is not a reset place keeps, and the tail append of the emitted tokens, are EXEC-010's and EXEC-020's. What is delivered from a place that is not an input place (for instance the drained tokens of a reset place that is not an input place) is not constrained by this block, nor by any other requirement block: the spec has no shall sentence on it, so that the action receives nothing from such a place is not encoded."
           "Line 3 is the fifth quoted sentence, which is the 'read peeks, then reset draining' half of the fourth: the read token of a place that is both a read place and a reset place is the head of its queue before the drain. The read bag is nonempty and every token in it is that head; how many copies a transition with several read arcs on one place receives is CORE-032's and EXEC-012's subject and is not fixed here."
-          "Line 4 is the sixth quoted sentence's 'the firing shall proceed': an unmarked reset place blocks no firing, so every firing the counts allow (enabled, an offered deposit, glossary Enabled, Consumes and OutputSpec) is a firing of Q. Its 'the drain shall remove nothing' is line 1 at an unmarked reset place: the place ends with exactly the emitted tokens, which is the empty queue followed by them (EXEC_013_unmarked_removes_nothing)."
+          "Line 4 is the sixth quoted sentence's 'the firing shall proceed': an unmarked reset place blocks no firing, so every firing the counts allow (enabled, an offered deposit, glossary Enabled, Consumes and OutputSpec) is a firing of Q. Its 'the drain shall remove nothing' is line 1 at an unmarked reset place: the place ends with exactly the emitted tokens, which is the empty queue followed by them (EXEC_013_unmarked_removes_nothing). A firing that treats an unmarked reset place as blocking keeps lines 1 to 3 and is killed by line 4 alone (EXEC_013_forbids_resetBlocks)."
           "The body sentence 'A token a synchronous action deposited earlier in the same firing pass survives the drain ([EXEC-003] AC5).' is about a firing pass of several firings; a single queue firing has no earlier firing, so it is EXEC-003's subject and the Phase 2 cycle relation's, not encoded."
           "AC1 (reset place with 5 tokens, all removed) is line 1 at a reset place that is not an output place: it ends empty (EXEC_013_nonvacuous, the five-token place 3). On token counts it is CORE-034's first line (cited on CORE_034_reference)."
-          "AC2 (reset place empty, no error) is line 4 and line 1 at an unmarked reset place (EXEC_013_nonvacuous). On token counts it is CORE-034's second line: a reset arc does not affect whether its transition can fire (cited on CORE_034_reference)."
+          "AC2 (reset place empty, no error) is line 4 and line 1 at an unmarked reset place (EXEC_013_nonvacuous); a firing that refuses to fire with an unmarked reset place violates it (EXEC_013_forbids_resetBlocks). On token counts it is CORE-034's second line: a reset arc does not affect whether its transition can fire (cited on CORE_034_reference)."
           "AC3 (the reset place is also an input or read place of another enabled transition, whose clock restarts) is read in TIME-012's form and is not encoded here: the queue firing has no clocks. TIME-012 says the other transition loses its clock in the intermediate marking and is newly armed with a fresh clock when it is enabled again; AC3's bare 'restarts' is read as that, not as a restart of a transition that the drain leaves disabled. The evidence is TIME-012's AC3 example TIME_012_ac3 (cited there)."
           "AC4 (reset draining after read peeking; a read arc and a reset arc on one place observe the pre-reset front token; the overall order is input consumption, read peeks, reset draining) is lines 2 and 3; the mutants exec013_resetFirst (draining before the peek) and exec013_drainFirst (draining before input consumption) are killed by lines 3 and 2."
           "The test derivation's clock-restart check is AC3's and is TIME-012's subject."
-  signoff "pending"
+  signoff "2026-11-13 d6c6647e059af795 ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → Prop :=
     fun Q => ∀ t, NoInputRead t →
       (∀ δ e, on (fun M M' => Q t M δ e M'), shall (fun _ M' =>
@@ -213,6 +214,24 @@ theorem EXEC_013_forbids_noDrain : ¬ EXEC_013 (exec013_noDrain (N := Nat) (T :=
   have := (h exec013_t (by decide)).1 _ _ _ _ hq 3 (by decide)
   revert this
   decide
+
+/-! ### Violation: an unmarked reset place blocks the firing -/
+
+/-- A queue firing that treats an unmarked reset place as blocking: the reference firing, but
+only when every reset place of the transition is marked. Being a restriction of the reference,
+it satisfies lines 1 to 3. -/
+def exec013_resetBlocks {N T : Type} [DecidableEq N] : QFireRel N T := fun t M δ e M' =>
+  RefQFire t M δ e M' ∧ ∀ p ∈ t.core.resets, M p ≠ []
+
+/-- ✗ A firing that an unmarked reset place blocks violates EXEC-013 (line 4, AC2): `exec013_t`
+is enabled at `exec013_M` and offers the deposit of `exec013_e`, but its reset place `4` is
+unmarked, so the blocking relation has no such firing. -/
+@[evidence forbids EXEC_013]
+theorem EXEC_013_forbids_resetBlocks : ¬ EXEC_013 (exec013_resetBlocks (N := Nat) (T := Nat)) := by
+  intro h
+  obtain ⟨δ, M', hq⟩ := (h exec013_t (by decide)).2.2.2 exec013_M exec013_e
+    ⟨4, by decide, by decide⟩ (by decide) ⟨.action 0, rfl⟩
+  exact hq.2 4 (by decide) (by decide)
 
 /-! ### Mutant: reset draining before the read peek -/
 

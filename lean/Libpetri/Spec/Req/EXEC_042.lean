@@ -16,8 +16,8 @@ Two blocks under one ID.
   terminal place is marked the executor takes no step but `finish terminal` (the strict stop) and
   answers to a snapshot request that change nothing; the settle or publish step that marks a
   terminal place deposits the whole outcome or batch; an injection into a terminal place marks
-  it; a step that marks a terminal place takes no firing out of flight but the one it settles;
-  the `finish terminal` step happens only when a terminal place is marked, keeps the marking and
+  it; a step that leaves a terminal place marked, outside steps included, takes no firing out of
+  flight but the one it settles; the `finish terminal` step happens only when a terminal place is marked, keeps the marking and
   the firings in flight (abandoned), and refuses the queued external events.
 * `EXEC_042_build` (kind F): the build-time check (AC5), over an abstract net builder
   `NB : NetBuilder B` (`Reference/Build.lean`), checked against the reference net builder
@@ -69,7 +69,7 @@ requirement EXEC_042
           "a commit or tdeposit step of a firing i whose target state is not live deposits exactly the whole outcome e the firing ended with (its returned emission, or its timeout outcome), each token at the tail of its place;"
           "a publish step of a firing i whose target state is not live deposits exactly the whole batch b at the head of the publication queue, which is firing i's, each token at the tail of its place;"
           "an inject step of ticket k, where the event at the head of the event queue has ticket k and is for a terminal place, leads to a state that is not live;"
-          "an executor step whose target state is not live keeps in flight every firing that was in flight before it, except the firing it settles;"
+          "a step whose target state is not live, an outside step included, keeps in flight (by its id) every firing that was in flight before it, except the firing it settles;"
           "a finish terminal step starts in a state that is not live, leaves the marking unchanged, keeps the firings in flight, and empties the queue of external events."
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. The terminal places are the configuration's (Cfg.terminals); a state is live (glossary Live) when none of them holds a token. Outside steps (XLbl.outside: time passing, an action writing, flushing, returning or timing out, a caller requesting an injection, draining, closing or terminating) are not the executor's; every other label is a step of the executor's loop, except the answer to a snapshot request (EXEC-041's naming, and the quoted sentence 'Answering a snapshot request changes nothing and is not a step of the loop'). The witness is the reference executor RefExec (Reference/Exec.lean), whose every rule but finish terminal requires a live state."
           "Naming: 'ends the run with the termination reason terminal' is the finish terminal step (EXEC-041 names the reasons). 'Processes a completion' is a settle step (commit, fail, tdeposit), 'a publication' a publish step, 'an external event' an inject or discard step. A deposit from an action's completion is a commit step (in step 1, or inside the firing pass for a synchronous action, EXEC-001), a deposit of a timeout outcome a tdeposit step (EXEC-022), a deposit from a mid-action publication a publish step (IO-015), an external injection an inject step."
@@ -78,7 +78,7 @@ requirement EXEC_042
           "Line 2 is the second quoted shall sentence for a completion and 'the deposit that marks the terminal place completes atomically': the step that marks a terminal place deposits the firing's whole outcome, not the outputs up to the first token in a terminal place (EXEC_042_forbids_partialDeposit). That every commit and tdeposit deposits its whole outcome is EXEC-020's, EXEC-021's and EXEC-022's; this line states it for the step that ends the run. Which label deposits which outcome (a commit a returned emission, a tdeposit a timeout outcome) is not this line's: EXEC-021 line 1 ties a commit to a returned emission, and EXEC-022 ties a tdeposit to a timeout outcome. Outside the model: an event store throwing on TokenAdded while Java deposits a completion (processSyncOutput and processCompletedTransitions, BitmapNetExecutor.java:1788-1817 and 1897-1927), which Java reports as a failure of a partly deposited firing; if a token of the deposited prefix marked a terminal place, the stop is latched with a partial outcome. The model's deposit is atomic and has no host callback that can throw, so line 2 reads the model's deposits only (as EXEC-030's assumes do for its line 1)."
           "Line 3 is the second quoted shall sentence for a published batch and the check point 'a mid-action publication ([IO-015])': a publish step that marks a terminal place deposits the whole batch at the head of the publication queue (EXEC_042_forbids_partialPublish). The publishing firing is still running when its batch marks the place; it is abandoned like any other action in flight (the quoted bullet), so its later writes and its returned emission are never deposited. EXEC_042_nonvacuous publishes a batch of a that marks 9 and 3, with a and b both still in flight, and finishes terminal. A batch still queued at the stop is discarded: the reference's finish terminal empties the publication queue (EXEC-020)."
           "Line 4 is 'A terminal place MAY be an environment place: injecting into it ends the run.' and its shall sentence: an inject step of a queued event for a terminal place marks that place, so the state is not live and line 1 ends the run there (AC3). An executor that drops such an event instead of injecting it, so that a terminal environment place can never be marked from outside, violates it (EXEC_042_forbids_dropTerminalInject). That every inject step deposits its event's token at the tail of its place is ENV-003's; line 4 states only that the place is marked."
-          "Line 5 is 'keep every firing still in flight as abandoned work in flight' from the deposit on: a step that marks a terminal place takes no firing out of flight except the one it settles (a commit, fail or tdeposit of that firing). An executor that cancels the firings in flight at the deposit that marks a terminal place (clearing its in-flight map at the latch) violates it (EXEC_042_forbids_cancelInFlight), although its finish terminal keeps the list it finds, which is then empty. Between that deposit and the finish, line 1 leaves only outside steps and unchanged snapshot answers; what outside steps (an action returning or timing out) do to the list of firings is not this block's."
+          "Line 5 is 'keep every firing still in flight as abandoned work in flight' from the deposit on, and with line 6 the quoted 'A snapshot taken afterwards ([ENV-014]) still reports abandoned work as work in flight.': every step whose target state is not live takes no firing out of flight except the one it settles (a commit, fail or tdeposit of that firing). The line covers outside steps too: between the deposit and the finish, line 1 leaves only outside steps and unchanged snapshot answers, so an action of an abandoned firing that returns, writes, flushes or times out after the stop must not take its firing out of the list. It compares ids because those outside steps rewrite the firing's record (its buffer or outcome) while it stays in flight; the reference keeps the list of ids on every outside step (exec042_fl_keep_id, from xstepW_outside_frame). An executor that cancels the firings in flight at the deposit that marks a terminal place (clearing its in-flight map at the latch) violates it (EXEC_042_forbids_cancelInFlight), although its finish terminal keeps the list it finds, which is then empty. An executor whose completion callback deregisters a late action (whenComplete(() -> inFlight.remove(t)) or .then(() => inFlight.delete(t))) violates it (EXEC_042_forbids_retDropAfterStop): on AC2's run, b's action returns after the stop, finish terminal then keeps an empty list, and a snapshot would report no work in flight. The runtimes keep the firing: Rust changes in_flight_count only in its orchestrator loop (rust/libpetri-runtime/src/executor_core/executor.rs), Java removes from inFlight only in processCompletedTransitions and fireTransitionGuarded (BitmapNetExecutor.java), TypeScript deletes from inFlight only in processCompletedTransitions and its fire guard (typescript/src/runtime/bitmap-net-executor.ts); none of these runs after the stop."
           "Line 6 is the third, fifth and sixth quoted shall sentences: the finish terminal step happens only when a terminal place is marked (EXEC_042_forbids_terminalAtRest), keeps the marking, so the tokens the abandoned firings consumed stay consumed (EXEC_042_forbids_rollbackOnStop), keeps the firings in flight, which a snapshot taken afterwards reports as in flight (EXEC_042_forbids_dropInFlight), and empties the queue of external events, which refuses them (EXEC_042_forbids_keepQueued). Emptying the queue is how this level reads 'refuse': a refused event and a dropped one look the same here, and the completion signal of each event cleared by finish terminal is false (ENV-004, design R17), a line the ENV-004 block owes. The reference also empties the publication queue (EXEC-020: a queued publication is discarded)."
           "The fourth quoted shall sentence ('without waiting for the actions still in flight') says that finish terminal is offered at once, firings in flight or not. That is coverage, which a safety line cannot state, so no line of this block encodes it; coverage belongs to the consistency theorem, whose coverage conjunct ExecCoversW5 (ConsistencyExec.lean) carries it. An executor that offers finish terminal only once every action in flight has returned (exec042_wait, a stop written in the shape of a close) satisfies this block (exec042_wait_meets) and the wave 0 ExecCovers, and fails that conjunct. The conjunct is Exec042Covers (finish terminal offered from every running state that is not live): the reference meets it (exec042_ref_covers, from exec042_finish_offered) and exec042_wait does not (exec042_wait_not_covered, on AC2's run with b's action not returned)."
           "Late results: after the stop the run is over, so no step deposits anything (EXEC-041: no executor step after finish). Before the finish, line 1 forbids settling a completion, and an action's own steps (write, ret, expire) leave the marking unchanged (CONC-001). Together: once a terminal place is marked, every later step of a run is an outside step, an unchanged snapshot answer or finish terminal (exec042_stop_absorbs, under CONC-001's frame of outside steps; exec042_ref_stop_absorbs for the reference)."
@@ -93,7 +93,7 @@ requirement EXEC_042
           "AC5 (a transition that consumes or reads a terminal place is rejected when the net is built) is the build block EXEC_042_build."
           "AC6 (compose and instantiate reject a subnet body that declares a terminal place, with an error that names the place) is stated by the composition blocks over the composition model (RefCompose): MOD-010 line 4 for instantiate (the failure and the message naming one of the body's terminal places) and MOD-025 line 7 for direct composition (the failure; its message is tested, not proven). Composing an instance needs no line of its own: an instance exists only after instantiate succeeded."
           "AC7, AC8 and AC9 (the verification paragraph: DeadlockFree with terminal places, byte-identical scripts without them, the QuiescentCount lower bound) are the verifier's; their evidence is the cites of Novel/InFlight.lean (split_covers_executor, split_stop_sound, quiescent_count_stop_sound, terminal_stop_witness) and the TerminalRewrite theorems, not encoded here. AC9's executor half (both executors end with a = ok = 0) is AC2's run up to renaming (s is place 0, a is place 1, ok is place 2, done is place 9, f is transition a with an extra output 3, t is transition b): EXEC_042_nonvacuous's AC2 run ends with places 1 and 2 empty."
-  signoff "pending"
+  signoff "2026-11-13 0ddd70ad84852d31 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (while (fun s => ¬ Live C s), never (fun s s' =>
@@ -107,9 +107,10 @@ requirement EXEC_042
       (∀ k, on (fun s s' => R C s (.inject k) s' ∧
           ∃ p x, s.eq.head? = some (k, p, x) ∧ p ∈ C.terminals),
         shall (fun _ s' => ¬ Live C s')) ∧
-      (∀ l, on (fun s s' => l.outside = false ∧ R C s l s' ∧ ¬ Live C s'),
+      (∀ l, on (fun s s' => R C s l s' ∧ ¬ Live C s'),
         shall (fun s s' => ∀ f ∈ s.fl,
-          (∀ i, l = .commit i ∨ l = .fail i ∨ l = .tdeposit i → f.id ≠ i) → f ∈ s'.fl)) ∧
+          (∀ i, l = .commit i ∨ l = .fail i ∨ l = .tdeposit i → f.id ≠ i) →
+            ∃ g ∈ s'.fl, g.id = f.id)) ∧
       (on (fun s s' => R C s (.finish .terminal) s'), shall (fun s s' =>
         ¬ Live C s ∧ s'.M = s.M ∧ s'.fl = s.fl ∧ s'.eq = []))
 
@@ -134,9 +135,10 @@ fun {N T} [DecidableEq N] R =>
               on fun s s' => R C s (XLbl.inject k) s' ∧ ∃ p x, s.eq.head? = some (k, p, x) ∧ p ∈ C.terminals, shall
                 fun x s' => ¬Live C s') ∧
             (∀ (l : XLbl N T),
-                on fun s s' => l.outside = false ∧ R C s l s' ∧ ¬Live C s', shall fun s s' =>
+                on fun s s' => R C s l s' ∧ ¬Live C s', shall fun s s' =>
                   ∀ f ∈ s.fl,
-                    (∀ (i : ℕ), l = XLbl.commit i ∨ l = XLbl.fail i ∨ l = XLbl.tdeposit i → f.id ≠ i) → f ∈ s'.fl) ∧
+                    (∀ (i : ℕ), l = XLbl.commit i ∨ l = XLbl.fail i ∨ l = XLbl.tdeposit i → f.id ≠ i) →
+                      ∃ g ∈ s'.fl, g.id = f.id) ∧
               on fun s s' => R C s (XLbl.finish Cause.terminal) s', shall fun s s' =>
                 ¬Live C s ∧ s'.M = s.M ∧ s'.fl = s.fl ∧ s'.eq = []
 -/
@@ -227,12 +229,28 @@ theorem exec042_fl_keep {C : Cfg N T} {s s' : XSt N T} {l : XLbl N T}
   | wake => rw [(wakeStep_some h).2.2]; exact hf
   | _ => simp [XLbl.outside] at ho
 
+/-- Every rule of the reference, outside steps included, keeps in flight (by id) every firing but
+the one it settles: an executor rule by `exec042_fl_keep`; an outside step (a write, flush,
+return or expiry rewrites the firing's record through `updFiring`; time passing, a request, drain,
+close and terminate leave the list alone) keeps the list of ids (`xstepW_outside_frame`). -/
+theorem exec042_fl_keep_id {C : Cfg N T} {s s' : XSt N T} {l : XLbl N T}
+    (h : RefExec C s l s') :
+    ∀ f ∈ s.fl, (∀ i, l = .commit i ∨ l = .fail i ∨ l = .tdeposit i → f.id ≠ i) →
+      ∃ g ∈ s'.fl, g.id = f.id := by
+  intro f hf hne
+  cases ho : l.outside
+  · exact ⟨f, exec042_fl_keep h ho f hf hne, rfl⟩
+  · have hm : s'.fl.map (·.id) = s.fl.map (·.id) := (xstepW_outside_frame h ho).2.2.2.1
+    have hmem : f.id ∈ s'.fl.map (·.id) := by rw [hm]; exact List.mem_map_of_mem hf
+    obtain ⟨g, hg, he⟩ := List.mem_map.1 hmem
+    exact ⟨g, hg, he⟩
+
 end Reference
 
 /-- ✓ The reference executor satisfies EXEC-042: every rule but `finish terminal` requires a live
 state (`exec042_live_of_step`), `commit` and `tdeposit` deposit the whole outcome (`depositAt`),
-`publish` the whole head batch, `inject` appends its token to its place, every rule keeps in
-flight every firing but the one it settles (`exec042_fl_keep`), and `finish terminal` requires a
+`publish` the whole head batch, `inject` appends its token to its place, every rule, outside
+steps included, keeps in flight every firing but the one it settles (`exec042_fl_keep_id`), and `finish terminal` requires a
 non-live state and changes only the phase and the two queues. -/
 @[evidence holds EXEC_042]
 theorem EXEC_042_reference {N T : Type} [DecidableEq N] :
@@ -240,7 +258,7 @@ theorem EXEC_042_reference {N T : Type} [DecidableEq N] :
   intro C
   refine ⟨fun s s' ⟨l, ho, hl, _, h⟩ hn => hn (exec042_live_of_step h ho hl),
     fun i s s' hh => ?_, fun i s s' hh => ?_, fun k s s' hh => ?_,
-    fun l s s' ⟨ho, h, _⟩ => exec042_fl_keep h ho, fun s s' h => ?_⟩
+    fun l s s' ⟨h, _⟩ => exec042_fl_keep_id h, fun s s' h => ?_⟩
   · obtain ⟨h, -⟩ := hh
     rcases h with h | h
     · obtain ⟨f, e, hf, he, -, -, -, rfl⟩ := commitStep_some h
@@ -470,7 +488,7 @@ theorem exec042_sub {N T : Type} [DecidableEq N] {R R' : XRel N T}
     fun i s s' ⟨hh, hL⟩ => h2 i s s' ⟨hh.imp (hR _ _ _ _) (hR _ _ _ _), hL⟩,
     fun i s s' ⟨hh, hL⟩ => h3 i s s' ⟨hR _ _ _ _ hh, hL⟩,
     fun k s s' ⟨hh, hq⟩ => h4 k s s' ⟨hR _ _ _ _ hh, hq⟩,
-    fun l s s' ⟨ho, hh, hL⟩ => h5 l s s' ⟨ho, hR _ _ _ _ hh, hL⟩,
+    fun l s s' ⟨hh, hL⟩ => h5 l s s' ⟨hR _ _ _ _ hh, hL⟩,
     fun s s' hh => h6 s s' (hR _ _ _ _ hh)⟩
 
 /-- An executor whose stop waits for the actions in flight: `finish terminal` is offered only
@@ -553,9 +571,10 @@ def EXEC_042_mutant_checkAtBoundary {N T : Type} [DecidableEq N] (R : XRel N T) 
     (∀ k, on (fun s s' => R C s (.inject k) s' ∧
         ∃ p x, s.eq.head? = some (k, p, x) ∧ p ∈ C.terminals),
       shall (fun _ s' => ¬ Live C s')) ∧
-    (∀ l, on (fun s s' => l.outside = false ∧ R C s l s' ∧ ¬ Live C s'),
+    (∀ l, on (fun s s' => R C s l s' ∧ ¬ Live C s'),
       shall (fun s s' => ∀ f ∈ s.fl,
-        (∀ i, l = .commit i ∨ l = .fail i ∨ l = .tdeposit i → f.id ≠ i) → f ∈ s'.fl)) ∧
+        (∀ i, l = .commit i ∨ l = .fail i ∨ l = .tdeposit i → f.id ≠ i) →
+          ∃ g ∈ s'.fl, g.id = f.id)) ∧
     (on (fun s s' => R C s (.finish .terminal) s'), shall (fun s s' =>
       ¬ Live C s ∧ s'.M = s.M ∧ s'.fl = s.fl ∧ s'.eq = []))
 
@@ -571,7 +590,7 @@ theorem EXEC_042_mutant_checkAtBoundary_killed :
     fun i s s' h => (EXEC_042_reference C).2.1 i s s' h,
     fun i s s' h => (EXEC_042_reference C).2.2.1 i s s' h,
     fun k s s' h => (EXEC_042_reference C).2.2.2.1 k s s' h,
-    fun l s s' ⟨ho, h, hL⟩ => ?_,
+    fun l s s' ⟨h, hL⟩ => ?_,
     fun s s' h => (EXEC_042_reference C).2.2.2.2.2 s s' h⟩, fun h => ?_⟩
   · cases l with
     | start n sy => exact hns n sy rfl
@@ -580,8 +599,8 @@ theorem EXEC_042_mutant_checkAtBoundary_killed :
     | start n sy =>
       intro f hf _
       obtain ⟨_, _, _, _, _, _, _, _, _, rfl⟩ := startStep_some h
-      exact List.mem_append_left _ hf
-    | _ => exact (EXEC_042_reference C).2.2.2.2.1 _ s s' ⟨ho, h, hL⟩
+      exact ⟨f, List.mem_append_left _ hf, rfl⟩
+    | _ => exact (EXEC_042_reference C).2.2.2.2.1 _ s s' ⟨h, hL⟩
   · obtain ⟨s, s', -, hs, hp⟩ := step_of_check exec042_checkAtBoundaryStep (C := exec042_C)
       (o := exec042_at (exec042_runSync ++ [.commit 0])) (l := .start "b" false)
       (p := fun s _ => !liveB exec042_C s) (by decide)
@@ -759,11 +778,40 @@ theorem EXEC_042_forbids_cancelInFlight :
   simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_iff, List.any_eq_true,
     bne_iff_ne, ne_eq] at hp
   obtain ⟨⟨hl, he⟩, f, hf, hid⟩ := hp
-  have hk := (h exec042_C).2.2.2.2.1 (.commit 0) s s' ⟨rfl, hs, by simp [Live, hl]⟩ f hf
+  have hk := (h exec042_C).2.2.2.2.1 (.commit 0) s s' ⟨hs, by simp [Live, hl]⟩ f hf
     (fun i hi => by
       rcases hi with hi | hi | hi <;> cases hi
       exact hid)
   simp [he] at hk
+
+/-- An executor whose bookkeeping deregisters a late action: an action returning while a terminal
+place is marked takes its own firing out of the list of firings in flight (a completion callback
+such as `whenComplete(() -> inFlight.remove(t))`); its late result is still never deposited.
+Otherwise the reference. -/
+def exec042_retDropStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
+    XLbl N T → Option (XSt N T)
+  | .ret i ok => (xstep C s (.ret i ok)).map fun s₁ =>
+      if liveB C s then s₁ else { s₁ with fl := s₁.fl.filter (·.id != i) }
+  | l => xstep C s l
+
+/-- ✗ An executor that drops an abandoned firing when its action returns after the stop violates
+EXEC-042 (line 5): on the AC2 run, `a`'s completion marks `9` while `b` is in flight; `b`'s action
+then returns, and `b` leaves the list of firings in flight, so `finish terminal` keeps an empty
+list and a snapshot afterwards would report no work in flight although `b` was abandoned. -/
+@[evidence forbids EXEC_042]
+theorem EXEC_042_forbids_retDropAfterStop :
+    ¬ EXEC_042 (fun C s l s' => exec042_retDropStep (N := Nat) (T := Nat) C s l = some s') := by
+  intro h
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check exec042_retDropStep (C := exec042_C)
+    (o := exec042_at (exec042_runAsync ++ [.commit 0])) (l := .ret 1 true)
+    (p := fun s s' => !liveB exec042_C s' && s.fl.any (·.id == 1) && s'.fl.all (·.id != 1))
+    (by decide)
+  simp only [Bool.and_eq_true, Bool.not_eq_true', List.any_eq_true, List.all_eq_true,
+    beq_iff_eq, bne_iff_ne, ne_eq] at hp
+  obtain ⟨⟨hl, f, hf, hid⟩, hall⟩ := hp
+  obtain ⟨g, hg, hgid⟩ := (h exec042_C).2.2.2.2.1 (.ret 1 true) s s' ⟨hs, by simp [Live, hl]⟩ f hf
+    (fun i hi => by rcases hi with hi | hi | hi <;> cases hi)
+  exact hall g hg (hgid.trans hid)
 
 /-! ### Violations of the finish line -/
 
@@ -857,7 +905,7 @@ requirement EXEC_042_build
           "Lines 2 and 3 are the second shall sentence and the body's 'A net MAY declare terminal places': a terminal place on an inhibitor arc, on a reset arc or on an output is allowed, so a builder that rejects every declared terminal place (EXEC_042_build_mutant_rejectAll_killed) violates line 2, and one that drops the declarations, so that the run has no terminal place, violates line 3 (EXEC_042_build_forbids_dropTerminals). Line 3 reads the terminal places as a set; the reference keeps them once each in declaration order (refNetBuild_terminals)."
           "Scope: as for CORE-040, a builder used without composition (MOD-020, MOD-025) and without fusion sets (MOD-060, MOD-061), whose own rejections (fusion overlap, a reference to a bound port place) would make line 2 fail; the second shall sentence names that scope ('a net built without composition and without fusion sets'), so it is no stronger than line 2; what a composed net does with terminal places is the composition model's, and AC6 (compose and instantiate reject a subnet body that declares a terminal place) is MOD-010 line 4 and MOD-025 line 7. With no terminal place declared, line 2 is CORE-040's line 4."
           "AC5 (a transition that consumes or reads a terminal place is rejected when the net is built) is line 1; EXEC_042_build_nonvacuous rejects a net whose transition reads the terminal place and builds one whose transition has it as inhibitor and output."
-  signoff "pending"
+  signoff "2026-11-13 ca476acb02bf289b ai"
   statement : ∀ {N A : Type} [DecidableEq N] (B : TBuilder N A), NetBuilder B → Prop :=
     fun B NB => ∀ inp : NetIn B,
       (inp.TerminalClash → ∃ e, NB inp = .error e) ∧

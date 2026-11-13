@@ -60,10 +60,10 @@ requirement EVT_012
           "Main block and companion (rulings D33 (a) and D38 (a)): this block reads an event only through its kind and the place it names (removedCount counts the events of kind TokenRemoved that name the place), which every executor's event carries. The token an event carries is read only by the second block of EVT-012, EVT_012_payload, scoped to the executors whose TokenRemoved event carries it: in Rust and Python the event carries the token only when the event store captures tokens (rust/libpetri-event/src/net_event.rs TokenRemoved, token an Option; event_store.rs CAPTURES_TOKENS, false by default; executor_core/event_payload.rs token_removed_event). Line 1 is the payload line with the tokens forgotten (evt012_of_payload)."
           "Removed is read as the executor model reads a start (EXEC-003, EXEC-010, EXEC-013): the start step consumes the input tokens and drains the reset places of the pass-visible marking, so a token a synchronous action deposited earlier in the same pass is neither removed nor reported, and a read arc removes nothing. Line 1 is the first two quoted sentences: one event per removed token, naming its place, whether an input arc or a reset arc removed it. An executor that reports no event for the tokens a reset arc drains breaks it (EVT_012_mutant_noResets); one that also reports the token a read arc reads breaks it, since the read place keeps its queue (EVT_012_forbids_readPeek). AC1 (emitted for every token removal) and AC2 (the place name identifies the source place) are line 1."
           "Line 2 is the third quoted sentence: nothing but a start emits a TokenRemoved event, neither the boot of a run (the events before its first step) nor a step with another label. An executor that reports the initial marking as removed at boot breaks it (EVT_012_mutant_bootRemoved), and so does one that reports a queued injection it discards after a close as a removal (EVT_012_mutant_atDiscard). No runtime removes a token elsewhere: Java emits TokenRemoved only in the consume of a start (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java 1672-1724), TypeScript likewise (typescript/src/runtime/bitmap-net-executor.ts 1063 and 1085), and Rust only from consume_for_firing (rust/libpetri-runtime/src/executor_core/executor.rs 603-629), which Python runs on."
-          "Not fixed here: the order of the TokenRemoved events across places (the reference emits the input places in declaration order, then the reset places; the payload order, inputs before resets, is EVT-006's under ruling D38 (a)), and that the TokenRemoved events of a start precede its TransitionStarted (EVT-006's first line). The timestamp the event carries is not modelled (the epoch clock is the CORE-011 slice). Correlated inputs of a match specification (ruling D16) take tokens that are not the oldest: the reference executor has no match specification, so the lines read every input place, and the correlated take is NU-020's (wave W9)."
-          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020: a store that reports itself not enabled receives nothing, storeSink); no host callback throws inside a start (an append or a key function that throws in the middle of a consume is out of scope); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java 570-578, BitmapNetExecutor.java 1749-1752 and 2509-2512; LogCaptureScope.java 87-110), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
-          "The test derivation (fire a transition consuming a token, verify the TokenRemoved event) is EVT_012_nonvacuous: a start that takes two of the three tokens of an exactly(2) input, drains the old token of a reset place that also holds a same-pass deposit, and reads a read place emits two TokenRemoved events naming the input place, one naming the reset place and none naming the read place; a commit step emits events, none of them a TokenRemoved."
-  signoff "pending"
+          "Not fixed here: the order of the TokenRemoved events across places (the reference emits the input places in declaration order, then the reset places, each place once at its first arc, as the runtimes walk the arcs; the payload order, inputs before resets, is EVT-006's under ruling D38 (a)), and that the TokenRemoved events of a start precede its TransitionStarted (EVT-006's first line). The timestamp the event carries is not modelled (the epoch clock is the CORE-011 slice). Correlated inputs of a match specification (ruling D16) take tokens that are not the oldest: the reference executor has no match specification, so the lines read every input place, and the correlated take is NU-020's (wave W9)."
+          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020: a store that reports itself not enabled receives nothing, storeSink); no host callback throws inside a start (an append or a key function that throws in the middle of a consume is out of scope); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
+          "The test derivation (fire a transition consuming a token, verify the TokenRemoved event) is EVT_012_nonvacuous: a start that takes two of the three tokens of an exactly(2) input, drains the old token of a reset place that also holds a same-pass deposit, and reads a read place emits two TokenRemoved events naming the input place, one naming the reset place and none naming the read place; a commit step emits events, none of them a TokenRemoved. A place named by two reset arcs is drained once, by its first arc (the builders append reset arcs without a check, and the runtimes walk them in declaration order: the reset-arc loop of BitmapNetExecutor.java fireTransition, bitmap-net-executor.ts 1080-1090, bitmap_backend.rs 835-857), so line 1 counts each drained token once: EVT_012_nonvacuous_repeatedReset fires a transition with reset arcs on places 0, 1 and 0 again and gets one event for the one token of place 0."
+  signoff "2026-11-13 9c56a0df36d1cdf1 ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C,
       (∀ H n sy evs, on (fun s s' => E.step C H s (.start n sy) evs s'), shall (fun s s' =>
@@ -102,7 +102,7 @@ requirement EVT_012_payload
           "The model is an executor with events E : EvExec N T, as in the first block; the witness is refEvExec polJT. The line is the quoted sentence: per place, the tokens of the TokenRemoved events naming it, in emission order, followed by what the place holds after the start, are its queue before the start, so the reported tokens are the oldest of the queue, oldest first, and exactly the removed ones. The count line of the first block follows from it (evt012_of_payload). An executor that reports the right number of tokens per place but newest first meets the first block and breaks this line (EVT_012_payload_mutant_reversed)."
           "As in the first block, the removal is read on the pass-visible marking (EXEC-003): a reset place keeps the tokens a synchronous action deposited earlier in the pass, and they are not reported; read arcs remove nothing. Line 2 of the first block (no TokenRemoved event outside a start) is not restated. The order across places, the place of TransitionStarted among the events and the TransitionStarted payload are EVT-006's. Correlated inputs (ruling D16) are NU-020's: a correlated input of a match specification removes the frontmost token that matches the chosen name, which need not stand at the head of the queue, so the removed tokens keep their queue order but, followed by the kept tokens, are a reordering of the queue, not the queue (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java 1666-1673, removeFirstMatching; typescript/src/runtime/bitmap-net-executor.ts 1047-1068; rust/libpetri-runtime/src/precompiled_backend.rs 1185-1192, ring_remove_matching). The quoted sentence scopes its second half to the other places, and a transition of the model has no match specification, so every place the line reads is of that kind; the queue order of the tokens a correlated input removes is left to NU-020; timestamps are not modelled; the shared assumptions of the first block (store enabled, no host callback throws inside a start, events are values, distinct names) apply."
           "The test derivation is EVT_012_payload_nonvacuous: the exactly(2) input reports 10 then 11 of 10, 11, 12 and keeps 12, and the reset place reports its old token 20 and keeps the same-pass 9."
-  signoff "pending"
+  signoff "2026-11-13 053841e9c6f028d4 ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C H n sy evs,
       on (fun s s' => E.step C H s (.start n sy) evs s'), shall (fun s s' =>
@@ -288,6 +288,53 @@ theorem EVT_012_payload_nonvacuous :
   obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := hp
   exact ⟨s, s', _, ⟨hs, rfl⟩, h1, h2, h3, h4, h5⟩
 
+/-- Transition `r` of the repeated-reset example: takes the token of place 2 and has three reset
+arcs, on places 0, 1 and 0 again, in that declaration order. -/
+def evt012_tR : Trans Nat :=
+  { core := { name := "r", inputs := [⟨2, .one⟩], inhibitors := [], reads := [],
+              resets := [0, 1, 0] },
+    out := none }
+
+/-- The repeated-reset example: the one transition `r` over places 0, 1 and 2. -/
+def evt012_dupCfg : Cfg Nat Nat :=
+  { X := { net := { places := [0, 1, 2], transitions := [evt012_tR] },
+           timing := fun _ => .immediate, tol := 0 },
+    prio := fun _ => 0, terminals := [], envs := [], reentrant := false,
+    validate := fun _ _ => true, relay := fun _ _ _ => true, timeoutOut := fun _ _ _ => false,
+    res := 0 }
+
+/-- The initial marking of the repeated-reset example: 10 in place 0, 20 in place 1, 30 in
+place 2. -/
+def evt012_dupM0 : QMarking Nat Nat := fun p =>
+  if p = 0 then [10] else if p = 1 then [20] else if p = 2 then [30] else []
+
+/-- The state before `r` starts: one cycle up to the firing pass. -/
+def evt012_dupBeforeStart : Option (XSt Nat Nat) :=
+  xrun evt012_dupCfg (xinit evt012_dupM0 0)
+    [.endCompletions, .endPublications, .endEvents, .update, .deadline [], .begin]
+
+/-- ✓ A place named by two reset arcs is drained once, at its first arc: `r` takes 30 from place
+2 and has reset arcs on places 0, 1 and 0 again. Its start reports 30, then 10 for place 0, then
+20 for place 1, one event for the one token of place 0, which ends empty, and the reset places in
+the order of their first arcs, as the runtimes walk them. -/
+@[evidence nonvacuous EVT_012]
+theorem EVT_012_nonvacuous_repeatedReset :
+    ∃ s s' evs, (refEvExec polJT).step evt012_dupCfg [] s (.start "r" false) evs s' ∧
+      evs = [.tokenRemoved 2 30, .tokenRemoved 0 10, .tokenRemoved 1 20,
+        .transitionStarted "r" [(2, 30), (0, 10), (1, 20)]] ∧
+      removedCount evs 0 = 1 ∧ s.M 0 = [10] ∧ s'.M 0 = [] := by
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check xstep (C := evt012_dupCfg)
+    (o := evt012_dupBeforeStart) (l := .start "r" false)
+    (p := fun s s' =>
+      let evs := refEmitW polJT evt012_dupCfg [] s (.start "r" false) s'
+      evs == [.tokenRemoved 2 30, .tokenRemoved 0 10, .tokenRemoved 1 20,
+          .transitionStarted "r" [(2, 30), (0, 10), (1, 20)]] &&
+        removedCount evs 0 == 1 && s.M 0 == [10] && s'.M 0 == [])
+    (by decide +kernel)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := hp
+  exact ⟨s, s', _, ⟨hs, rfl⟩, h1, h2, h3, h4⟩
+
 /-! ## Wrong executors: the reference's steps, another emission -/
 
 section Mutants
@@ -322,7 +369,8 @@ theorem evt012_atStart_line2 (f : Cfg N T → XSt N T → String → List (NetEv
 def evt012_noResetsEvs (_C : Cfg N T) (s : XSt N T) (n : String) : List (NetEvent N T) :=
   match s.order with
   | t :: _ =>
-    (inPlaces t).dedup.flatMap (fun p => (qInputs (vis s) t p).map (NetEvent.tokenRemoved p)) ++
+    (dedupFirst (inPlaces t)).flatMap
+        (fun p => (qInputs (vis s) t p).map (NetEvent.tokenRemoved p)) ++
       [.transitionStarted n (removedListDecl (vis s) t)]
   | [] => []
 
@@ -347,9 +395,9 @@ def evt012_readPeek : EvExec N T :=
 def evt012_reversedEvs (_C : Cfg N T) (s : XSt N T) (n : String) : List (NetEvent N T) :=
   match s.order with
   | t :: _ =>
-    (inPlaces t).dedup.flatMap
+    (dedupFirst (inPlaces t)).flatMap
         (fun p => (qInputs (vis s) t p).reverse.map (NetEvent.tokenRemoved p)) ++
-      t.core.resets.dedup.flatMap
+      (dedupFirst t.core.resets).flatMap
         (fun p => (drained (vis s) t p).reverse.map (NetEvent.tokenRemoved p)) ++
       [.transitionStarted n (removedListDecl (vis s) t)]
   | [] => []
@@ -389,9 +437,9 @@ theorem evt012_removedAt_reversedEvs {C : Cfg N T} {s : XSt N T} {t : Trans N}
     removedAt (evt012_reversedEvs C s n) p =
       (qInputs (vis s) t p).reverse ++ (drained (vis s) t p).reverse := by
   simp only [evt012_reversedEvs, ho, removedAt_append,
-    removedAt_flatMap (fun q => (qInputs (vis s) t q).reverse) _ (List.nodup_dedup _),
-    removedAt_flatMap (fun q => (drained (vis s) t q).reverse) _ (List.nodup_dedup _),
-    List.mem_dedup]
+    removedAt_flatMap (fun q => (qInputs (vis s) t q).reverse) _ (nodup_dedupFirst _),
+    removedAt_flatMap (fun q => (drained (vis s) t q).reverse) _ (nodup_dedupFirst _),
+    mem_dedupFirst]
   have h0 : removedAt ([.transitionStarted n (removedListDecl (vis s) t)] :
       List (NetEvent N T)) p = [] := rfl
   rw [h0, List.append_nil]

@@ -31,14 +31,15 @@ is written in) is a property of the DOT text; the typed graph keeps one flat edg
 styling is a visual constant. Sibling cluster order is stated by no requirement and differs between
 the runtimes (ruling R2 (exp-b)); the model keeps Rust's order of first appearance.
 
-**Empty segments (ruling D46).** A key with an empty `/`-segment (from a name such as `a//x` or
-`http://host/x`) makes the Rust builder panic (`expect` in `partition`: `register_prefix_chain` skips
-the empty segment and so never registers the key itself) and the Java builder throw; TypeScript
-draws a cluster for the empty segment. This is a recorded runtime defect (RD-12 in
-`spec/runtime-defects.md`). The model stays total and
-coherent there (`keyChain` cuts at every `/`, so every key and its parent are clusters), and the
-blocks assume `NoEmptySegment` of every key in use, under which `keyChain` is Rust's chain
-(`registerChain`, decided on examples below).
+**Empty segments (ruling D46).** A key with an empty `/`-segment (from a name such as `a//x`,
+`/a/x` or `http://host/x`) has the same chain in the model and in the Java, TypeScript and Rust
+builders: `register_prefix_chain` and its mirrors register `keyChain` (every non-empty prefix
+ending just before a `/`, outermost first, then the key itself), so every key and its parent are
+clusters. The scope sentence of [EXP-016] leaves such keys out, and the blocks assume
+`NoEmptySegment` of every key in use (its name assumption). `registerChain` below is a wrong chain
+that skips empty segments and never registers the key itself (the Rust chain RD-12 recorded in
+`spec/runtime-defects.md`); on the examples below it agrees with `keyChain` where `NoEmptySegment`
+holds and differs where it fails.
 -/
 
 namespace Libpetri.Spec
@@ -754,7 +755,7 @@ theorem refExport_source_none (h : cfg.cluster = .none) : refExport cfg X = refE
 
 end Exporter
 
-/-! ## Rust's prefix chain, and the empty-segment defect -/
+/-! ## A wrong prefix chain that skips empty segments -/
 
 /-- The `/`-segments of a name, empty ones included (`str::split('/')`). -/
 def splitSlash : List Char → List (List Char)
@@ -764,10 +765,12 @@ def splitSlash : List Char → List (List Char)
     | s :: ss => if c = '/' then [] :: s :: ss else (c :: s) :: ss
     | [] => [[c]]
 
-/-- `register_prefix_chain` of the Rust builder (and its Java and TypeScript mirrors): the
-non-empty segments joined by `/`, each partial join once. It skips an empty segment, so on a key
-with one it never registers the key itself; the builder then fails at the node's key (`expect`),
-the recorded defect behind the D46 assumption (RD-12 in `spec/runtime-defects.md`). -/
+/-- A wrong `register_prefix_chain`: the non-empty segments joined by `/`, each partial join once.
+It skips an empty segment, so on a key with one it never registers the key itself, and a builder
+using it fails at the node's key (`expect`). It is the chain RD-12 in `spec/runtime-defects.md`
+recorded of the Rust builder. The Java, TypeScript and Rust builders register `keyChain` instead
+(`register_prefix_chain` in Rust, `registerPrefixChain` in Java and TypeScript), so none of them
+fails on such a key. -/
 def registerChain (k : String) : List String :=
   ((splitSlash k.toList).foldl
       (fun (acc : List Char × List (List Char)) seg =>
@@ -777,13 +780,14 @@ def registerChain (k : String) : List String :=
           (b, acc.2 ++ [b]))
       ([], [])).2.map String.ofList
 
-/-- On keys without an empty segment the model's chain is Rust's. -/
+/-- On keys without an empty segment the wrong chain is the model's chain. -/
 example : registerChain "outer/inner/leaf" = keyChain "outer/inner/leaf" ∧
     keyChain "outer/inner/leaf" = ["outer", "outer/inner", "outer/inner/leaf"] ∧
     registerChain "b1" = keyChain "b1" ∧ NoEmptySegment "outer/inner/leaf" := by decide
 
-/-- On a name with an empty segment (`a//x`, key `a/`) Rust's chain lacks the key, so the Rust
-builder panics; the model keeps a cluster for it. `NoEmptySegment` rules the key out. -/
+/-- On a name with an empty segment (`a//x`, key `a/`) the wrong chain lacks the key, so a builder
+using it fails there; the model and the runtimes keep a cluster for it. `NoEmptySegment` rules the
+key out. -/
 example : instancePrefix "a//x" = some "a/" ∧ registerChain "a/" = ["a"] ∧
     keyChain "a/" = ["a", "a/"] ∧ ¬ NoEmptySegment "a/" := by decide
 

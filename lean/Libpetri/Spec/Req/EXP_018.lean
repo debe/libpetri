@@ -74,7 +74,7 @@ requirement EXP_018
           "AC3 (the label combines with cardinality as ⟨n⟩ ×n, ⟨n⟩ *, ⟨n⟩ ≥m) is line 2 with EXP-006's pinned forms; a mapper that replaces the cardinality label by ⟨n⟩ violates it (EXP_018_forbids_replace)."
           "AC4 (the emitted DOT for a ν-net is byte-identical across the Java, TypeScript and Rust exporters) is kind Q: a Lean function is deterministic and cross-language equality is a property of three programs (ruling D60 (c)); the export corpus EP-2 replays the reference against the runtimes after the migration."
           "The test derivation (a join with match correlating two One inputs, both correlated edges teal and labelled ⟨n⟩, a third non-correlated input unchanged) is EXP_018_nonvacuous on the reference, with a second transition whose correlated Exactly(2), All and AtLeast(3) inputs show ⟨n⟩ ×2, ⟨n⟩ * and ⟨n⟩ ≥3 next to an uncorrelated Exactly(2) input labelled ×2."
-  signoff "pending"
+  signoff "2026-11-13 d54927ab0c3ea7a8 ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (∀ t ∈ X.trans, ∀ s ∈ t.core.inputs, ∃ e ∈ (E cfg X).edges,

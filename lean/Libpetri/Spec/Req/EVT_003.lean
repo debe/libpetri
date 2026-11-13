@@ -21,8 +21,8 @@ D38 (a) and D13 (a) split the requirement into two blocks with the same spec ID:
   the loop (from a phase of the loop to a finished phase) emits exactly one, and no other step
   emits one. Line 2: in the event trace of a run, no orchestrator
   event (anything but a log message or an `ActionTimedOut`) comes after an `ExecutionCompleted`.
-  Line 3: a finish with the termination reason `quiescent` happens only when no firing is in
-  flight.
+  Line 3: a step that leaves the loop into the finished phase `done quiescent`, whatever it is
+  labelled, happens only when no firing is in flight.
 * `EVT_003_duration`, the Java and TypeScript companion (kind F) over the total duration the event
   carries: it is at least the time the run took on the executor's firing clock.
 
@@ -31,8 +31,9 @@ emission variants; the witness of the second is `refDurOf`, the firing clock's r
 event minus its reading when the executor was built, as Java and TypeScript measure it. The
 wrong executors step as the reference (or finish quiescent too early) and emit otherwise: one
 that announces the end only of a quiescent run, one that announces it each time the loop parks,
-one that reports a late completion after the end, and one that finishes quiescent with firings in
-flight. The wrong duration is left at zero.
+one that reports a late completion after the end, one that finishes quiescent with firings in
+flight, and one that enters the quiescent end with firings in flight under a label that is not a
+finish. The wrong duration is left at zero.
 
 The worked example (`evt003_cfg`): transition `a` takes the token of place 0 and puts one into
 place 9, a terminal place; transition `b` takes the token of place 1 and has an action budget
@@ -61,17 +62,17 @@ requirement EVT_003
   reading "For every executor with events E and every configuration C:"
           "the events a run emits before its first step contain no ExecutionCompleted event, whatever the initial marking, and for every history H a step labelled l from state s to state s' that appends the events evs appends exactly one ExecutionCompleted event if it leaves the loop (s is in a phase of the loop and s' in a finished phase), whatever its label and termination reason, and none otherwise;"
           "for every initial marking M0, every initial reading r0 and every event trace tr of a run of E from M0 at r0 (the events the run emits before its first step, then the events of each step), no event of tr after an ExecutionCompleted event is an orchestrator event, that is an event other than a log message or an ActionTimedOut event;"
-          "for every history H, a finish step with the termination reason quiescent happens only from a state with no firing in flight."
-  assumes "The model is an executor with events E : EvExec N T (Reference/Events.lean): the events a run emits before its first step, and a step relation E.step C H s l evs s' saying that the step labelled l leads from s to s' and appends the events evs, given the events H emitted before it. Trace E C M0 r0 tr says that tr is what E emits on some run from the initial state of M0. A trace is a finite prefix of a run, so line 2 holds after every step. A run finishes with a step finish c, whose cause c is the termination reason of EXEC-041 (quiescent, terminal, closed or stopped). Line 1 reads 'finishes' off the states, not off the label: a step finishes the run when it leaves the loop, from a phase of the loop (isExecPhase) to a finished phase, whatever it is labelled, so an executor that leaves its loop without a finish step still owes the event. The witness is the reference executor with events refEvExec under both emission variants (polJT for Java and TypeScript, polRust for Rust and Python): every finish emits ExecutionCompleted last, after the Java and TypeScript snapshot of the marking, and no other step emits one. refEvExec_erase (Reference/EventsLink.lean) shows that it steps exactly as RefExec, so lines 1 and 2 constrain what is emitted; line 3 constrains when a quiescent finish may happen."
+          "for every history H, a step labelled l from state s to state s' that appends the events evs and leaves the loop with the termination reason quiescent (s is in a phase of the loop and s' in the finished phase done quiescent), whatever its label, happens only from a state with no firing in flight."
+  assumes "The model is an executor with events E : EvExec N T (Reference/Events.lean): the events a run emits before its first step, and a step relation E.step C H s l evs s' saying that the step labelled l leads from s to s' and appends the events evs, given the events H emitted before it. Trace E C M0 r0 tr says that tr is what E emits on some run from the initial state of M0. A trace is a finite prefix of a run, so line 2 holds after every step. A run finishes with a step finish c, whose cause c is the termination reason of EXEC-041 (quiescent, terminal, closed or stopped). Line 1 reads 'finishes' off the states, not off the label: a step finishes the run when it leaves the loop, from a phase of the loop (isExecPhase) to a finished phase, whatever it is labelled, so an executor that leaves its loop without a finish step still owes the event. Line 3 reads the quiescent finish the same way: a step from a phase of the loop into the finished phase done quiescent, whose cause is the termination reason the caller reads (EXEC-041, its first line), whatever it is labelled. The witness is the reference executor with events refEvExec under both emission variants (polJT for Java and TypeScript, polRust for Rust and Python): every finish emits ExecutionCompleted last, after the Java and TypeScript snapshot of the marking, and no other step emits one. refEvExec_erase (Reference/EventsLink.lean) shows that it steps exactly as RefExec, so lines 1 and 2 constrain what is emitted; line 3 constrains when a quiescent finish may happen."
           "Line 1 is the first two quoted sentences. An executor that announces the end only of a quiescent run, and emits nothing when a terminal place stops the run, breaks it (EVT_003_mutant_quiescentOnly); so does one that announces the end each time the loop parks to wait for an event, because a reactive net that waits has not finished (EVT_003_mutant_atPark); so does one that can leave its loop at the end of a firing pass without a finish step and so emits nothing (EVT_003_mutant_leavesWithoutFinish), the shape of TypeScript's executeLoop, which emits ExecutionCompleted after its while loop with no try/finally (typescript/src/runtime/bitmap-net-executor.ts 523-590), if a cycle threw. The reference leaves its loop only by a finish (EXEC-041, its last line), so on it the two readings agree (evt003_ref_leaves). The boot half of line 1 (no ExecutionCompleted before the first step) has no mutant of its own: an executor that announces the end at the boot breaks line 2 as well as soon as a later step emits an orchestrator event (EVT_003_mutant_bootCompleted keeps line 3 and the step half of line 1)."
           "Line 2 is the third quoted sentence. 'Another event of that run' reads the trace of one run: a second run of the same executor is a run of its own, with its own ExecutionStarted (EVT-002). An executor that reports a late completion of an abandoned firing after the end breaks it (EVT_003_mutant_lateCompletion). Log messages and ActionTimedOut events are left out on purpose (rulings D74 (a) and R7 (a) of the events design): Java and TypeScript emit ActionTimedOut from the action's own timer, off the orchestrator loop (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java 1751, PrecompiledNetExecutor.java 2378; typescript/src/runtime/bitmap-net-executor.ts 1142-1154), with no check that the run is still going, so a firing a terminal stop abandoned can time out after ExecutionCompleted (EVT_003_allows_inFlightAtTerminal); an abandoned action can still log. The reference emits ActionTimedOut after the end under polJT for the same reason. Whether ActionTimedOut after the end is itself allowed is EVT-010's (ruling D65)."
-          "Line 3 is the fourth quoted sentence: only a quiescent finish has nothing in flight (ruling D74 (a)). An executor that finishes quiescent while firings are still in flight breaks it (EVT_003_mutant_earlyQuiescent). The other termination reasons do not wait: a terminal stop abandons the firings in flight (EXEC-042) and an immediate termination does too (ENV-015), and the reference emits ExecutionCompleted at such a stop with a firing in flight (EVT_003_allows_inFlightAtTerminal), so a reading that waits for every transition to complete before the event would forbid the run EXEC-042 asks for. Line 3 follows from EXEC-041's line on the quiescent reason (Rest, ruling D13 (a)); here it is the event's reading: the ExecutionCompleted of a quiescent run comes after the end of every firing. AC2 (at a quiescent finish no firing is in flight; a terminal stop or an immediate termination may leave firings in flight) is line 3, EVT_003_allows_inFlightAtTerminal and EVT_003_allows_inFlightAtStop (an immediate termination finishes the run stopped with a firing still in flight, and its finish emits one ExecutionCompleted)."
+          "Line 3 is the fourth quoted sentence: only a quiescent finish has nothing in flight (ruling D74 (a)). An executor that finishes quiescent while firings are still in flight breaks it (EVT_003_mutant_earlyQuiescent); so does one that enters done quiescent with firings in flight under a step that is not labelled a finish (EVT_003_mutant_relabelQuiescent), the shape of an executor that computes the termination reason from the state after its loop exits rather than from the step that ended it, as TypeScript does (typescript/src/runtime/bitmap-net-executor.ts 571-573 sets quiescent whenever the run is neither terminal nor closed). Line 3 does not lean on EXEC-041's last line (a step that leaves the loop is a finish): reading it off the phases, it holds on its own. On the reference the two readings agree: it leaves the loop only by a finish (evt003_ref_leaves), a finish c enters done c (EXEC-041, its first line), and a quiescent finish needs Rest (evt003_line3_emitExec). The other termination reasons do not wait: a terminal stop abandons the firings in flight (EXEC-042) and an immediate termination does too (ENV-015), and the reference emits ExecutionCompleted at such a stop with a firing in flight (EVT_003_allows_inFlightAtTerminal), so a reading that waits for every transition to complete before the event would forbid the run EXEC-042 asks for. Line 3 follows from EXEC-041's line on the quiescent reason (Rest, ruling D13 (a)); here it is the event's reading: the ExecutionCompleted of a quiescent run comes after the end of every firing. AC2 (at a quiescent finish no firing is in flight; a terminal stop or an immediate termination may leave firings in flight) is line 3, EVT_003_allows_inFlightAtTerminal and EVT_003_allows_inFlightAtStop (an immediate termination finishes the run stopped with a firing still in flight, and its finish emits one ExecutionCompleted)."
           "AC1 (emitted exactly once per run that finishes, whatever the termination reason, and followed by no event of the run other than a log message or an ActionTimedOut) is lines 1 and 2 together: in every trace there is at most one ExecutionCompleted (evt003_atMostOnce, since it is itself an orchestrator event), and a run that finishes has exactly one (evt003_exactlyOnce). A run that has not finished has none: a loop that the timeout policy of a caller's run budget leaves running has not finished (EXEC-041's run budget sentence), so TypeScript, whose run() rejects under the default abandon policy while the loop goes on (typescript/src/runtime/bitmap-net-executor.ts 493-518), emits the event when the loop finishes, not when the caller's run ends."
           "The event carries no termination reason, and a consumer reads the reason as EXEC-041 says (the return value, the queryable reason, or a raised error). The ExecutionCompleted event is the end-of-run marker every runtime emits for every reason, not the completion signal EXEC-041 forbids to share between a quiesced and a truncated run: no line here reads the event as proof that the net quiesced. Interrupted (Java's cancellation observed in the wait) is not a cause of the model; Java emits ExecutionCompleted on that path too, after a WARN log message (BitmapNetExecutor.java 1080-1096), which meets line 2. All runtimes emit the event once, at the end of the loop: Java in the finally block of the run loop (BitmapNetExecutor.java 1062-1096, PrecompiledNetExecutor.java 1923-1924), TypeScript after the loop (bitmap-net-executor.ts 570-588, precompiled-net-executor.ts 635-640), Rust at the end of run_sync and of the asynchronous run (rust/libpetri-runtime/src/executor_core/executor.rs 476-482 and 1234-1240), which Python runs on."
           "The payload is not modelled in this block (ruling D38 (a)): the timestamp (the epoch clock is the CORE-011 slice) and the net name are listed in the markdown without a shall sentence; the execution ID on the event is EVT-002's third block, EVT_002_lifecycleId; the total duration is this requirement's second block, EVT_003_duration. Rust and Python events carry neither ID nor duration (rust/libpetri-event/src/net_event.rs ExecutionCompleted)."
-          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020; Java swallows a failing append of ExecutionCompleted, BitmapNetExecutor.java 1097-1098); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java 570-578, BitmapNetExecutor.java 1749-1752 and 2509-2512; LogCaptureScope.java 87-110), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
+          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020; Java swallows a failing append of ExecutionCompleted, BitmapNetExecutor.java 1097-1098); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
           "The test derivation (run a net to quiescence, verify the last event is ExecutionCompleted, emitted once) is EVT_003_nonvacuous: a run that fires one transition and quiesces ends with ExecutionCompleted, emitted once. 'Last' holds of a quiescent run; after a terminal stop an ActionTimedOut of an abandoned firing may follow (EVT_003_allows_inFlightAtTerminal). The duration check of the test derivation is the second block's."
-  signoff "pending"
+  signoff "2026-11-13 6ab2e9a77baa85da ai"
   statement : ∀ {N T : Type}, EvExec N T → Prop :=
     fun {N T} E => ∀ C,
       ((∀ M0, ∀ e ∈ E.boot C M0, e.kind ≠ .executionCompleted) ∧
@@ -81,8 +82,8 @@ requirement EVT_003
       (∀ M0 r0 tr, Trace E C M0 r0 tr →
         (after (fun e : NetEvent N T => e.kind == .executionCompleted), never
           (fun e : NetEvent N T => e.isOrch)) tr) ∧
-      (∀ H evs, on (fun s s' => E.step C H s (.finish .quiescent) evs s'), shall
-        (fun s _ => s.fl = []))
+      (∀ H l evs, on (fun s s' => E.step C H s l evs s' ∧ isExecPhase s.phase = true ∧
+          s'.phase = .done .quiescent), shall (fun s _ => s.fl = []))
 
 /- The pinned readable form of EVT-003: a change to the formula shows up as a diff here. -/
 /--
@@ -96,8 +97,9 @@ fun {N T} E =>
               if (isExecPhase s.phase && !isExecPhase s'.phase) = true then 1 else 0) ∧
       (∀ (M0 : QMarking N T) (r0 : ℕ) (tr : List (NetEvent N T)),
           Trace E C M0 r0 tr → (after fun e => e.kind == NetEventKind.executionCompleted, never fun e => e.isOrch) tr) ∧
-        ∀ (H evs : List (NetEvent N T)),
-          on fun s s' => E.step C H s (XLbl.finish Cause.quiescent) evs s', shall fun s x => s.fl = []
+        ∀ (H : List (NetEvent N T)) (l : XLbl N T) (evs : List (NetEvent N T)),
+          on fun s s' => E.step C H s l evs s' ∧ isExecPhase s.phase = true ∧ s'.phase = Phase.done Cause.quiescent,
+            shall fun s x => s.fl = []
 -/
 #guard_msgs in #print EVT_003
 
@@ -128,7 +130,8 @@ def evt003_line2 (E : EvExec N T) : Prop :=
 
 /-- Line 3 of `EVT_003` alone: a quiescent finish happens only with no firing in flight. -/
 def evt003_line3 (E : EvExec N T) : Prop :=
-  ∀ C H evs, on (fun s s' => E.step C H s (.finish .quiescent) evs s'), shall (fun s _ => s.fl = [])
+  ∀ C H l evs, on (fun s s' => E.step C H s l evs s' ∧ isExecPhase s.phase = true ∧
+    s'.phase = .done .quiescent), shall (fun s _ => s.fl = [])
 
 /-- `EVT_003` is its three lines. -/
 theorem evt003_iff (E : EvExec N T) :
@@ -418,15 +421,24 @@ theorem evt003_line2_emitExec {boot : Cfg N T → QMarking N T → List (NetEven
     exact hout C H s l s' hs (exec041_ref_outside hs hd)
 
 omit [Ord N] in
-/-- Line 3 for every executor that steps as the reference: its quiescent finish needs rest, and
-rest has nothing in flight. -/
+/-- Line 3 for every executor that steps as the reference: a step of the reference that leaves
+the loop into `done quiescent` is a finish (`evt003_ref_leaves`) whose cause is quiescent
+(EXEC-041, its first line), and that finish needs rest, which has nothing in flight. -/
 theorem evt003_line3_emitExec (boot : Cfg N T → QMarking N T → List (NetEvent N T))
     (emit : Cfg N T → List (NetEvent N T) → XSt N T → XLbl N T → XSt N T → List (NetEvent N T)) :
     evt003_line3 (emitExec boot emit) := by
-  rintro C H evs s s' ⟨hs, -⟩
-  obtain ⟨-, -, hq, -⟩ := xstepW_finishQuiescent hs
-  simp only [finishQ, restB, Bool.and_eq_true, List.isEmpty_iff] at hq
-  exact hq.1.1.1.1.2
+  rintro C H l evs s s' ⟨⟨hs, -⟩, hx, hd⟩
+  have hl : exec041_isFinish l = true := by
+    rw [← evt003_ref_leaves hs]; unfold evt003_leaves; rw [hx, hd]; rfl
+  cases l with
+  | finish c =>
+    have hc := ((EXEC_041_reference (N := N) (T := T) C).1 c s s' hs).2
+    rw [hd] at hc
+    cases hc
+    obtain ⟨-, -, hq, -⟩ := xstepW_finishQuiescent hs
+    simp only [finishQ, restB, Bool.and_eq_true, List.isEmpty_iff] at hq
+    exact hq.1.1.1.1.2
+  | _ => simp [exec041_isFinish] at hl
 
 /-- The reference boot emits no `ExecutionCompleted`. -/
 theorem evt003_refBoot_noDone (P : EvPol) (C : Cfg N T) (M0 : QMarking N T) :
@@ -840,9 +852,9 @@ theorem evt003_leavesWithoutFinish_lines23 :
   · rintro C H s l evs s' ⟨h | ⟨rfl, hph, -⟩, rfl⟩ hd
     · exact evt003_ref_outsideQuiet polJT C H s (exec041_ref_outside h hd) s'
     · rw [hph] at hd; exact absurd hd (by decide)
-  · rintro C H evs s s' ⟨h | ⟨hl, -, -⟩, -⟩
-    · exact evt003_line3_emitExec (refBoot polJT) (refEmitW polJT) C H _ s s' ⟨h, rfl⟩
-    · cases hl
+  · rintro C H l evs s s' ⟨⟨h | ⟨-, -, rfl⟩, he⟩, hx, hd⟩
+    · exact evt003_line3_emitExec (refBoot polJT) (refEmitW polJT) C H l evs s s' ⟨⟨h, he⟩, hx, hd⟩
+    · simp at hd
 
 /-! ### Announcing the end at the boot (line 1, boot half) -/
 
@@ -862,6 +874,54 @@ theorem evt003_bootCompleted_keeps :
   ⟨fun C H l _ s s' ⟨hs, he⟩ => by
     dsimp only; rw [he, evt003_ref_leaves hs]; exact evt003_ref_count polJT C H s l s',
    evt003_line3_emitExec _ _⟩
+
+/-! ### Entering `done quiescent` under another label (line 3) -/
+
+/-- The executor that ends the run in the finished phase `done quiescent` at the termination test
+as soon as nothing is queued, without waiting for the firings in flight, under the label
+`endPass`, which is not a finish, and emits there what the reference emits at a quiescent finish;
+every other step is the reference's. It is the shape of an executor that computes the
+termination reason from the state after its loop exits rather than from the step that ended
+it. -/
+def evt003_relabelQuiescent : EvExec N T where
+  boot := refBoot polJT
+  step := fun C H s l evs s' =>
+    (xstep C s l = some s' ∧ evs = refEmitW polJT C H s l s') ∨
+    (l = .endPass ∧ s.phase = .test ∧ s.cq = [] ∧ s.pq = [] ∧ s.eq = [] ∧
+      s' = { s with phase := .done .quiescent, eq := [] } ∧
+      evs = refEmitW polJT C H s (.finish .quiescent) s')
+
+/-- Every labelled run of the relabelling executor emits what a labelled run of the executor that
+finishes quiescent too early emits: its relabelled step is that executor's early finish. -/
+theorem evt003_relabel_into {C : Cfg N T} :
+    ∀ {H : List (NetEvent N T)} {s : XSt N T} {run : List (EvStep N T)},
+      LRun evt003_relabelQuiescent C H s run →
+        ∃ run', LRun evt003_earlyQuiescent C H s run' ∧ EvStep.events run' = EvStep.events run
+  | _, _, [], _ => ⟨[], trivial, rfl⟩
+  | H, s, st :: rest, ⟨hsrc, hst, hr⟩ => by
+    obtain ⟨run', hr', he⟩ := evt003_relabel_into hr
+    rcases hst with ⟨h, hev⟩ | ⟨-, hph, hcq, hpq, heq, hs', hev⟩
+    · refine ⟨st :: run', ⟨hsrc, ⟨Or.inl h, hev⟩, hr'⟩, ?_⟩
+      simp [EvStep.events] at he ⊢; exact he
+    · refine ⟨⟨st.src, .finish .quiescent, st.evs, st.dst⟩ :: run',
+        ⟨hsrc, ⟨Or.inr ⟨rfl, hph, hcq, hpq, heq, hs'⟩, hev⟩, hr'⟩, ?_⟩
+      simp [EvStep.events] at he ⊢; exact he
+
+/-- The relabelling executor keeps lines 1 and 2: its relabelled step leaves the loop and emits
+the end once, and its runs emit what runs of the executor that finishes quiescent too early
+emit. -/
+theorem evt003_relabelQuiescent_lines12 :
+    evt003_lines12 (evt003_relabelQuiescent (N := N) (T := T)) := by
+  refine ⟨fun C => ⟨evt003_refBoot_noDone polJT C, fun H l evs s s' hs => ?_⟩, ?_⟩
+  · rcases hs with ⟨h, he⟩ | ⟨-, hph, -, -, -, rfl, he⟩
+    · rw [he, evt003_ref_count polJT C H s l s', evt003_ref_leaves h]
+    · rw [he, evt003_ref_count polJT C H s _ _]
+      simp [evt003_leaves, hph, isExecPhase, exec041_isFinish]
+  · rintro C M0 r0 tr ⟨run, hr, rfl⟩
+    obtain ⟨run', hr', he⟩ := evt003_relabel_into hr
+    have := evt003_earlyQuiescent_lines12.2 C M0 r0 _ ⟨run', hr', rfl⟩
+    rw [he] at this
+    exact this
 
 end Mutants
 
@@ -942,8 +1002,35 @@ theorem EVT_003_mutant_earlyQuiescent :
     simp only [hr, Option.map_some, Option.some.injEq, Bool.and_eq_true, decide_eq_true_eq,
       List.isEmpty_iff, Bool.not_eq_true', List.isEmpty_eq_false_iff] at hc
     obtain ⟨⟨⟨⟨hph, hcq⟩, hpq⟩, heq⟩, hfl⟩ := hc
-    have := (h evt003_cfg).2.2 [] _ s { s with phase := .done .quiescent, eq := [] }
-      ⟨Or.inr ⟨rfl, hph, hcq, hpq, heq, rfl⟩, rfl⟩
+    have := (h evt003_cfg).2.2 [] (.finish .quiescent) _ s
+      { s with phase := .done .quiescent, eq := [] }
+      ⟨⟨Or.inr ⟨rfl, hph, hcq, hpq, heq, rfl⟩, rfl⟩, by rw [hph]; rfl, rfl⟩
+    exact hfl this
+
+/-- ✗ Entering `done quiescent` with firings in flight under a label that is not a finish
+violates EVT-003 (line 3): with tokens in places 0 and 1, `a` and `b` both start, and at the next
+termination test nothing is queued, so the executor's `endPass` step enters `done quiescent`,
+the termination reason the caller reads (EXEC-041), with both firings still in flight. Line 3
+reads the quiescent finish off the phases, as line 1 reads every finish, so the label does not
+hide it. The step leaves the loop and emits the end once, and the runs emit what those of the
+executor that finishes quiescent too early emit, so it keeps lines 1 and 2. -/
+@[evidence mutant EVT_003]
+theorem EVT_003_mutant_relabelQuiescent :
+    evt003_lines12 (evt003_relabelQuiescent (N := Nat) (T := Nat)) ∧
+      ¬ EVT_003 (evt003_relabelQuiescent (N := Nat) (T := Nat)) := by
+  refine ⟨evt003_relabelQuiescent_lines12, fun h => ?_⟩
+  have hc : (xrun evt003_cfg (xinit evt003_m01 0) evt003_toTest).map (fun s =>
+      decide (s.phase = .test) && s.cq.isEmpty && s.pq.isEmpty && s.eq.isEmpty &&
+        !s.fl.isEmpty) = some true := by
+    decide +kernel
+  cases hr : xrun evt003_cfg (xinit evt003_m01 0) evt003_toTest with
+  | none => simp [hr] at hc
+  | some s =>
+    simp only [hr, Option.map_some, Option.some.injEq, Bool.and_eq_true, decide_eq_true_eq,
+      List.isEmpty_iff, Bool.not_eq_true', List.isEmpty_eq_false_iff] at hc
+    obtain ⟨⟨⟨⟨hph, hcq⟩, hpq⟩, heq⟩, hfl⟩ := hc
+    have := (h evt003_cfg).2.2 [] .endPass _ s { s with phase := .done .quiescent, eq := [] }
+      ⟨Or.inr ⟨rfl, hph, hcq, hpq, heq, rfl, rfl⟩, by rw [hph]; rfl, rfl⟩
     exact hfl this
 
 /-- ✗ Leaving the loop without a finish step violates EVT-003 (line 1): with the token 8 in
@@ -1028,7 +1115,7 @@ requirement EVT_003_duration
           "Java and TypeScript measure the duration from the construction of the executor, not from the start of the run: Java as clockNanos() - startNanos with startNanos taken in the constructor (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java 354 and 2551, PrecompiledNetExecutor.java 355 and 2941-2942), TypeScript as nowMs() - startMs with startMs taken in the constructor (typescript/src/runtime/bitmap-net-executor.ts 360 and 587, precompiled-net-executor.ts 377 and 639). The witness refDurOf is that difference, e - b. It meets the line because b ≤ r. For the first run of a fresh executor it is the run's own time plus the time between construction and run(); for a later run of the same executor it also counts the earlier runs and the time between them. The line is a bound, so both are allowed (EVT_003_duration_nonvacuous)."
           "The line is the quoted sentence and AC3 (where the event carries a total duration, it is at least the time the run took on the executor's firing clock). An executor that leaves the duration at zero breaks it on every run during which the clock advances (EVT_003_duration_forbids_zero). The test derivation checks the bound with a firing clock that advances during the run; under an injected clock that does not move, the duration may be 0 and still meet the line."
           "The model is a restriction: the duration is a function of the three readings only, so a duration that depends on anything else (the number of firings, a second clock) cannot be written as an assignment. Rust and Python are out of scope: their ExecutionCompleted event has no duration field (rust/libpetri-event/src/net_event.rs ExecutionCompleted carries the net name and timestamp only). When the event is emitted is the first block's; the shared assumptions of the executor event blocks (store enabled, events are values) apply."
-  signoff "pending"
+  signoff "2026-11-13 ad794fa3f6d75029 ai"
   statement : (Nat → Nat → Nat → Nat) → Prop :=
     fun dur => ∀ b r e, b ≤ r → r ≤ e → e - r ≤ dur b r e
 

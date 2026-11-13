@@ -71,7 +71,7 @@ requirement CORE_052
           "Consequence with CORE-050 and IO-015 (core052_xor_never_fires), the Note: fork writes every place of the spec, so on Xor(a, b) with a ≠ b its emission fills no output branch and no reference action firing ends with the fork action; the executor's output validation rejects the completion (EXEC-021). Under the validation skip of CONC-026 the completion is not checked, which is CONC-026's. The block does not restate this; it follows from line 1 and refActionFire."
           "That every output place must accept the input value's type (Java's javadoc) is CORE-003's compatibility, owed by the net's author; a null value is propagated as a value like any other. That fork is a built-in with a constructor (fork() in each language, BuiltinAction in Python) is API shape. Whether it runs synchronously (Rust is_sync) is CONC-011's."
           "AC1 (requires exactly one input place) is line 2 with line 1's premise. AC2 (exactly one token carrying the input value in each output place and none elsewhere) is line 1. AC3 (throws or errors if the transition does not declare exactly one input place) is line 2. AC4 (on two or more consumed tokens, fails or copies the oldest as in AC2) is line 3. The test derivation (fork with one input and three outputs; all three receive the same value) is CORE_052_nonvacuous: on And(Place 1, And(Place 2, Place 3)) the reference fork completes with 7 in places 1, 2 and 3, and the reference action firing deposits them."
-  signoff "pending"
+  signoff "2026-11-13 b67572cce63eec54 ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → ActionFn N T → Prop :=
     fun val Fork => ∀ t δ,
       (∀ i x, core052_soleInput t i → δ.inputs i = [x] →

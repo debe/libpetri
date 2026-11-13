@@ -98,7 +98,7 @@ requirement NU_060
           "AC1 (composing a transition that carries a match with a side that carries none preserves the match on the flat net) is line 1 with NU_060_neverDrops: a success carries the caller's match when the caller has one and the instance's when the instance has one (NU_060_nonvacuous: a matched join keyed on P and R merged with a passthrough side keeps its keys P and R; a plain caller merged with a matched channel transition keyed on U and V keeps U and V). Putting the merged definition into the composed net is MOD-020's. Dropping the match is NU_060_forbids_dropMatch, keeping the caller's match only NU_060_forbids_callerOnly."
           "AC2 (a merge of two transitions that both carry a match is rejected with an error naming the caller-side transition, whatever places the two matches correlate) is line 2 (NU_060_nonvacuous: join T keyed on P and R against a channel transition keyed on U and V is rejected naming T)."
           "Mutants: line 1 is load-bearing (NU_060_mutant_line2Only_killed: a merge that drops every match but rejects two matches meets line 2 alone); line 2 is load-bearing (NU_060_mutant_line1Only_killed: caller wins meets line 1 alone); the naming in line 2 is load-bearing (NU_060_mutant_anyMessage_killed: a rejection with an empty message)."
-  signoff "pending"
+  signoff "2026-11-13 616cb528cb206c85 ai"
   statement : ∀ {N A K : Type}, MergeFn N A → NuMergeFn N A K → Prop :=
     fun Mg NMg =>
       (∀ c i, (c.mspec = none ∨ i.mspec = none) →

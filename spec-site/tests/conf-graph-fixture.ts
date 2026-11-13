@@ -76,6 +76,7 @@ const defects: readonly Defect[] = [
     text: 'The arc is ignored.',
     evidence: [],
     evidenceText: 'None.',
+    fix: null,
     status: { state: 'open' },
   },
   {
@@ -86,6 +87,7 @@ const defects: readonly Defect[] = [
     text: 'Lost.',
     evidence: [],
     evidenceText: 'None.',
+    fix: null,
     status: { state: 'fixed', version: '2.0.0' },
   },
 ];

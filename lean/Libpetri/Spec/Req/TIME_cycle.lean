@@ -23,7 +23,7 @@ cycle relation ("Phase 2" in their assumes):
   their restart, and keeps the others; no other step undoes the restart; a transition the pass
   drops loses its clock.
 * `TIME_013_cycle`: the deadline step reaps every expired transition at its reading and nothing
-  else; an update leaves a reaped transition reaped, and only a write of one of its arc places, by
+  else, and no other step reaps; an update leaves a reaped transition reaped, and only a write of one of its arc places, by
   a firing or by an injected token, ends its reaped state (design R9).
 * `TIME_015_cycle`: the host reading never goes back, and a completed wait is followed by an update
   before any start.
@@ -276,6 +276,19 @@ theorem tc_updSt_newly {C : Cfg N T} {s : XSt N T} {n : String} {k : Nat} {r : B
         · exact absurd h (by simp)
     | reaped => simp [hs, refXPol] at h
 
+omit [DecidableEq N] in
+/-- Every update, under any policy, leaves no restart pending: a name it leaves armed has its
+restart flag clear. -/
+theorem tc_updSt_flag {P : XPol N T} {C : Cfg N T} {s : XSt N T} {n : String} {k : Nat}
+    {r : Bool} (h : updSt P C s n = .armed k r) : r = false := by
+  unfold updSt at h
+  cases hf : findT C n with
+  | none => simp [hf] at h
+  | some u =>
+    simp only [hf] at h
+    cases hs : s.st n <;> simp only [hs] at h <;> (repeat' split at h) <;>
+      first | (cases h; rfl) | cases h
+
 /-- The reference update on a name whose transition the net holds and that is armed: with a
 restart pending and the transition enabled it takes the update's reading, with its clock running
 and the transition enabled it keeps its stamp. -/
@@ -292,6 +305,47 @@ theorem tc_updSt_reaped {C : Cfg N T} {s : XSt N T} {n : String} {u : Trans N}
     (hf : findT C n = some u) (hs : s.st n = .reaped) : updSt refXPol C s n = .reaped := by
   unfold updSt
   simp [hf, hs, refXPol]
+
+omit [DecidableEq N] in
+/-- An update, under any policy, takes no name into the reaped status. -/
+theorem tc_updSt_reaped_origin {P : XPol N T} {C : Cfg N T} {s : XSt N T} {n : String}
+    (h : updSt P C s n = .reaped) : s.st n = .reaped := by
+  unfold updSt at h
+  cases hf : findT C n with
+  | none => simp [hf] at h
+  | some u =>
+    simp only [hf] at h
+    cases hs : s.st n <;> simp only [hs] at h <;> (repeat' split at h) <;>
+      first | rfl | cases h
+
+/-- **Only a deadline step reaps**: under any policy, a name reaped after a step other than a
+deadline step was reaped before it. -/
+theorem tc_reaped_not_deadline {P : XPol N T} {C : Cfg N T} {s s' : XSt N T} {l : XLbl N T}
+    (h : xstepW P C s l = some s') (hl : ∀ ns, l ≠ .deadline ns) {n : String}
+    (hr : s'.st n = .reaped) : s.st n = .reaped := by
+  have hun : ∀ {ps : List N} {st : String → Status}, unreap C ps st n = .reaped →
+      st n = .reaped := fun h' => by
+    unfold unreap at h'
+    split at h'
+    · split at h' <;> simp_all
+    · exact h'
+  have haft : ∀ {t : Trans N}, afterStart P C s t n = .reaped → s.st n = .reaped := fun h' => by
+    unfold afterStart at h'
+    split at h'
+    · exact absurd h' (by simp)
+    · split at h'
+      · split at h' <;> exact absurd h' (by simp)
+      · exact h'
+  rcases tc_st_step h with ⟨-, he⟩ | ⟨ns, rfl, -⟩ | ⟨m, -, he⟩ |
+      ⟨m, sy, t, rest, -, -, -, -, he⟩ | ⟨-, he⟩
+  · rw [he] at hr; exact tc_updSt_reaped_origin hr
+  · exact absurd rfl (hl ns)
+  · rw [he] at hr
+    by_cases hc : n = m
+    · simp [hc] at hr
+    · simpa [hc] using hr
+  · rw [he] at hr; exact haft (hun hr)
+  · rw [he] at hr; exact hun hr
 
 /-- Only an update and a deadline step change the cycle reading (ruling D61 (c): the reference
 deadline step takes its own reading, never earlier than the update's). -/
@@ -579,24 +633,24 @@ requirement TIME_010_cycle
         "*When* the executor runs the enablement update of a cycle ([EXEC-001] step 3), it *shall* take the current reading of the firing clock, and the deadline step of that cycle ([EXEC-001] step 4) *shall* judge expiry at that reading or at a later reading it takes itself."
         "The firing pass and the decision to wait of a cycle *shall* judge elapsed time at the reading of its deadline step, and no other step of the cycle *shall* take a new reading for these judgements."
   reading "For every executor R and every configuration C:"
-          "an update step that leaves a name armed with stamp k, when before it the name was off, reaped, or armed with a restart pending, has k equal to the cycle reading the update takes;"
+          "an update step that leaves a name armed with stamp k, when before it the name was off, reaped, or armed with a restart pending, has k equal to the cycle reading the update takes and leaves no restart pending for the name;"
           "every step other than an update leaves the stamp of every name as it was, or leaves the name without a stamp;"
           "an update step takes the host's present reading of the firing clock as the cycle reading;"
           "a deadline step keeps the cycle reading, or replaces it by the host's present reading when that reading is not earlier;"
           "every step other than an update and a deadline step leaves the cycle reading as it was."
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A name's clock status is off, armed with a stamp and a restart flag, or reaped; stampOf reads the stamp of an armed status. The state holds two readings of the one firing clock: now, the host's present reading, which only the outside delay step advances (TIME-015's companion line 1), and cyc, the cycle reading, which the enablement update sets (line 3) and the deadline step may move to a later reading (line 4); the deadline step, the ready order of the pass and the park decision judge at it (design R21). The witness is the reference executor RefExec (Reference/Exec.lean), whose update re-evaluates every name (updSt)."
-          "This is the companion of the Phase 1 block TIME_010 (ruling D33 (a), design NR-1). That block states the clock on the atomic timed step, where a firing and the update that arms what it enables are one step; it defers to the cycle relation the reading a new stamp takes. Line 1 is that reading: a transition is newly armed when the update finds it enabled while it is not armed (off or reaped), or finds it enabled with a restart pending ([TIME-012]), and the new stamp is the cycle reading of that update. An executor that stamps with the reading of the cycle in which the arming firing started (the reading of the previous update) breaks line 1 (TIME_010_cycle_forbids_stampAtStart)."
+          "This is the companion of the Phase 1 block TIME_010 (ruling D33 (a), design NR-1). That block states the clock on the atomic timed step, where a firing and the update that arms what it enables are one step; it defers to the cycle relation the reading a new stamp takes. Line 1 is that reading: a transition is newly armed when the update finds it enabled while it is not armed (off or reaped), or finds it enabled with a restart pending ([TIME-012]), and the new stamp is the cycle reading of that update. An executor that stamps with the reading of the cycle in which the arming firing started (the reading of the previous update) breaks line 1 (TIME_010_cycle_forbids_stampAtStart). A newly armed transition's clock runs from that stamp, so the update leaves no restart pending for it: an executor whose update newly arms a name with a restart pending (a restart mark that leaks, cleared only on the branch that restamps rather than at the end of the enablement scan as the runtimes do) has the next update restamp a running clock with no firing and no write, as TIME-012's companion line 3 asks of a marked name, and breaks line 1 (TIME_010_cycle_forbids_flagNew)."
           "Line 2 is the new sentence that only the enablement update arms: a deposit, an injection, a firing or the return of an action never arms a transition or moves its stamp, though a start, a drop or a reap may take a clock away (TIME-012, TIME-013). An executor that arms what a commit enables at the moment of the commit, the moment an action completed, breaks line 2 (TIME_010_cycle_forbids_armOnCommit). Together the two lines give the quoted sentences on when the update sees a deposit: a synchronous deposit inside the pass is first armed by the next cycle's update, an asynchronous completion or an injected token by the update of the cycle whose step 1 or step 2 takes it in. TIME_010_cycle_nonvacuous shows both: b, enabled by a synchronous deposit in the pass of cycle reading 0, is stamped 5 by the update at reading 5; enabled by an asynchronous completion that returned at 3 and was committed at 7, it is stamped 7."
           "That an update does arm an enabled transition that is off is EXEC-001's line 8 (UpdateExact), with re-entrancy CONC-002's; that a reaped transition stays reaped until a write is TIME-013's companion. The first case of 'newly armed', a transition enabled in the initial marking, is the first update of a run from the initial state (xinit has every name off, design R19), which stamps it with the start reading."
           "The quoted 'shall not fire' sentences of TIME-010 are not lines here: a start needs a stamp (EXEC-003 line 1), and the earliest bound is judged at the cycle reading by the ready order of the pass (TIME-014 line 1 and its consequence TIME_014_not_before_earliest). The elapsed time is the glossary definition, read at the cycle reading (viewAt s s.cyc). AC1 and AC2 are the Phase 1 block's examples; on the executor the restart of AC2 is TIME-011, and the stamp the update takes on re-enablement is line 1."
-          "Lines 3 to 5 are the two sentences on readings, ruling D61 (c): the enablement update takes the present reading, which is the stamp of what it newly arms (line 1); the deadline step judges expiry at that reading or at a later reading it takes itself, never at an earlier one (line 4); from the deadline step on the cycle reading is fixed, so the firing pass and the decision to wait judge at the deadline step's reading (line 5), as the ready order of the pass (TIME-014 line 1) and the park decision (CONC-010) read it. An update that keeps the reading of an older cycle breaks line 3 (TIME_010_cycle_forbids_staleUpdate), a deadline step that judges at a reading earlier than the update's breaks line 4 (TIME_010_cycle_forbids_deadlineRewind), and a pass that reads the clock again when it begins breaks line 5 (TIME_010_cycle_forbids_rereadAtBegin). With TIME-015's companion line 1 (the host reading never goes back) the readings of successive cycles are non-decreasing. These lines are TIME-010's, a MUST, and not TIME-015's, a SHOULD on the injectable clock: they hold of every executor on any firing clock."
-          "The reference stamps at the update's reading and takes a reading of its own at the deadline step, the host's present one or the update's when the present is earlier (atDeadline: the second case of line 4 on every reachable state, where the cycle reading is never ahead of the present). Rust takes one reading per cycle and judges the deadline step, the pass and the park decision at it (executor_core/executor.rs:1064, :1070, :1102, :1145): a reference run with no delay between the update and the deadline step. TypeScript takes the update's reading and a second reading that its deadline step and its pass share (bitmap-net-executor.ts:715, :553): a reference run with a delay between them. Java takes three readings per cycle (BitmapNetExecutor.java:1292, :1451, :1528): its update and its deadline step are instances of lines 3 and 4, but its firing pass judges readiness at a third reading, which line 5 with TIME-014 line 1 rules out; that is a recorded executor defect, RD-16 in spec/runtime-defects.md."
+          "Lines 3 to 5 are the two sentences on readings, ruling D61 (c): the enablement update takes the present reading, which is the stamp of what it newly arms (line 1); the deadline step judges expiry at that reading or at a later reading it takes itself, never at an earlier one (line 4); from the deadline step on the cycle reading is fixed, so the firing pass and the decision to wait judge at the deadline step's reading (line 5), as the ready order of the pass (TIME-014 line 1) and the park decision (CONC-010) read it. An update that keeps the reading of an older cycle breaks line 3 (TIME_010_cycle_forbids_staleUpdate), a deadline step that judges at a reading earlier than the update's breaks line 4 (TIME_010_cycle_forbids_deadlineRewind), a pass that reads the clock again when it begins breaks line 5 (TIME_010_cycle_forbids_rereadAtBegin), and so does a decision to wait that reads it again (TIME_010_cycle_forbids_rereadAtPark). With TIME-015's companion line 1 (the host reading never goes back) the readings of successive cycles are non-decreasing. These lines are TIME-010's, a MUST, and not TIME-015's, a SHOULD on the injectable clock: they hold of every executor on any firing clock."
+          "The reference stamps at the update's reading and takes a reading of its own at the deadline step, the host's present one or the update's when the present is earlier (atDeadline: the second case of line 4 on every reachable state, where the cycle reading is never ahead of the present). Rust takes one reading per cycle and judges the deadline step, the pass and the park decision at it (executor_core/executor.rs:1074, :1080, :1112, :1155), and so does Java (cycleNanos, BitmapNetExecutor.java:1056, :1058, :1069, :2050, :2154; PrecompiledNetExecutor.java:1868, :1870, :1881, :2705, :2800): a reference run with no delay between the update and the deadline step. TypeScript takes two readings per cycle, the update's and a second one that its deadline step, its pass and its decision to wait share (bitmap-net-executor.ts:715, :553, :1445; precompiled-net-executor.ts:764, :609, :1675): a reference run with a delay between the update and the deadline step. A firing pass that judges readiness at a reading of its own, which line 5 with TIME-014 line 1 rules out (TIME_010_cycle_forbids_rereadAtBegin), and a decision to wait that judges the next boundary at a reading of its own, which line 5 rules out as well (TIME_010_cycle_forbids_rereadAtPark), are the behaviour spec/runtime-defects.md recorded as RD-16 (Java's pass and decision to wait) and RD-32 (TypeScript's decision to wait, where the later reading also made the wait block with no timer). A judgement at a later reading only shortens a wait, which CONC-010 accepts for its own lines, but the quoted sentence's 'no other step of the cycle shall take a new reading' still rules such a reading out."
           "Transition names are taken to be pairwise distinct (ruling D10, Cfg.WF.names, which the statement does not assume): the status is kept per name."
-  signoff "pending"
+  signoff "2026-11-13 c15509725d495cb2 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ n k r, on (fun s s' => R C s .update s'), shall (fun s s' =>
-        s'.st n = .armed k r → (∀ k₀, s.st n ≠ .armed k₀ false) → k = s'.cyc)) ∧
+        s'.st n = .armed k r → (∀ k₀, s.st n ≠ .armed k₀ false) → k = s'.cyc ∧ r = false)) ∧
       (∀ l n, l ≠ .update → on (fun s s' => R C s l s'), shall (fun s s' =>
         stampOf (s'.st n) = none ∨ stampOf (s'.st n) = stampOf (s.st n))) ∧
       (on (fun s s' => R C s .update s'), shall (fun s s' => s'.cyc = s.now)) ∧
@@ -612,7 +666,7 @@ fun {N T} [DecidableEq N] R =>
   ∀ (C : Cfg N T),
     (∀ (n : String) (k : ℕ) (r : Bool),
         on fun s s' => R C s XLbl.update s', shall fun s s' =>
-          s'.st n = Status.armed k r → (∀ (k₀ : ℕ), s.st n ≠ Status.armed k₀ false) → k = s'.cyc) ∧
+          s'.st n = Status.armed k r → (∀ (k₀ : ℕ), s.st n ≠ Status.armed k₀ false) → k = s'.cyc ∧ r = false) ∧
       (∀ (l : XLbl N T) (n : String),
           l ≠ XLbl.update →
             on fun s s' => R C s l s', shall fun s s' =>
@@ -644,7 +698,7 @@ theorem TIME_010_cycle_reference {N T : Type} [DecidableEq N] :
     · exact Or.inr ⟨Nat.max_eq_right hc, hc⟩
     · exact Or.inl (Nat.max_eq_left (Nat.le_of_lt (Nat.lt_of_not_le hc)))
   · obtain ⟨-, -, rfl⟩ := xstepW_update h
-    exact tc_updSt_newly hst hn
+    exact ⟨tc_updSt_newly hst hn, tc_updSt_flag hst⟩
   · rcases tc_st_step h with ⟨rfl, -⟩ | ⟨ns, rfl, he⟩ | ⟨m, rfl, he⟩ |
       ⟨m, sy, t, rest, rfl, -, -, -, he⟩ |
       ⟨-, he⟩
@@ -676,7 +730,7 @@ theorem TIME_010_cycle_forbids_stampAtStart :
       s'.cyc == 5)
     (by decide +kernel)
   simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
-  have := (h tc_cSeq).1 "b" 0 false s s' hs hp.1.2 (fun k₀ => by rw [hp.1.1]; simp)
+  have := ((h tc_cSeq).1 "b" 0 false s s' hs hp.1.2 (fun k₀ => by rw [hp.1.1]; simp)).1
   rw [hp.2] at this
   exact absurd this (by decide)
 
@@ -765,6 +819,58 @@ theorem TIME_010_cycle_forbids_rereadAtBegin :
   simp only [Bool.and_eq_true, beq_iff_eq] at hp
   have : s'.cyc = s.cyc := (h tc_cDel).2.2.2.2 .begin (by simp) (fun _ => by simp) s s' hs
   omega
+
+/-- A decision to wait that reads the clock again: the park step takes the host's present
+reading as the cycle reading it judges the next boundary at. -/
+def tc_rereadAtPark (C : Cfg Nat Nat) (s : XSt Nat Nat) : XLbl Nat Nat → Option (XSt Nat Nat)
+  | .park tmr => (xstep C s (.park tmr)).map fun s1 => { s1 with cyc := s.now }
+  | l => xstep C s l
+
+/-- ✗ A decision to wait that reads the clock again violates the TIME-010 companion (line 5): the
+update and the deadline step judge at reading 0, the host reading reaches 3 before the wait, and
+the park step judges at 3 (the behaviour RD-16 and RD-32 recorded). -/
+@[evidence forbids TIME_010_cycle]
+theorem TIME_010_cycle_forbids_rereadAtPark :
+    ¬ TIME_010_cycle (fun C s l s' => tc_rereadAtPark C s l = some s') := by
+  intro h
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check tc_rereadAtPark (C := tc_cDel)
+    (o := tcRun tc_rereadAtPark tc_cDel (xinit tc_m0 0)
+      (tc_cyc ++ [.deadline [], .begin, .endPass, .delay 3]))
+    (l := .park (some 5))
+    (p := fun s s' => s.cyc == 0 && s'.cyc == 3) (by decide +kernel)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  have : s'.cyc = s.cyc :=
+    (h tc_cDel).2.2.2.2 (.park (some 5)) (by simp) (fun _ => by simp) s s' hs
+  omega
+
+/-- A restart mark that leaks: the reference update, except that a name it newly arms (off or
+reaped before it) is left with a restart pending, as an executor would whose enablement scan
+clears the mark only on the branch that restamps. -/
+def tc_flagNew (C : Cfg Nat Nat) (s : XSt Nat Nat) : XLbl Nat Nat → Option (XSt Nat Nat)
+  | .update => (xstep C s .update).map fun s1 =>
+      { s1 with st := fun n => match s.st n, s1.st n with
+          | .armed _ _, x => x
+          | _, .armed k _ => .armed k true
+          | _, x => x }
+  | l => xstep C s l
+
+/-- ✗ An update that newly arms a name with a restart pending violates the TIME-010 companion
+(line 1): `t`, `Delayed(5)`, is armed by the first update at 0 and left marked. TIME-012's
+companion line 3 then has the next update restamp it with no firing and no write: after a wait
+that ends at 3, `t` gets the stamp 3 and is ready at 8 instead of 5. Every other line of the
+TIME-010 and TIME-012 companions holds of this executor. -/
+@[evidence forbids TIME_010_cycle]
+theorem TIME_010_cycle_forbids_flagNew :
+    ¬ TIME_010_cycle (fun C s l s' => tc_flagNew C s l = some s') := by
+  intro h
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check tc_flagNew (C := tc_cDel)
+    (o := tcRun tc_flagNew tc_cDel (xinit tc_m0 0) [.endCompletions, .endPublications, .endEvents])
+    (l := .update)
+    (p := fun s s' => decide (s.st "t" = .off) && decide (s'.st "t" = .armed 0 true))
+    (by decide +kernel)
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hp
+  have := ((h tc_cDel).1 "t" 0 true s s' hs hp.2 (fun k₀ => by rw [hp.1]; simp)).2
+  exact absurd this (by decide)
 
 /-- Every line of the TIME-010 companion is exercised by the reference:
 * a synchronous deposit of `a` in the pass of cycle reading 0 enables `b`, and `b` stays off until
@@ -875,10 +981,10 @@ requirement TIME_012_cycle
           "This is the companion of the Phase 1 block TIME_012 (ruling D33 (a), design NR-1), which states the rule on the atomic timed step and defers to the cycle relation the live intermediate marking inside a pass, the exception of the reset bullet for a same-pass deposit, the fifth shall sentence (the recheck) and AC5 (an asynchronous action). On the executor, 'loses its clock' in a firing is a restart flag the start sets (ruling D7, the intermediate marking taken from the live marking, liveAfter), and the clock is taken away by the next update, which restamps the transition and ends the restart if it is enabled (line 3) and leaves it off if it is not (EXEC-001 line 8, TIME-011). Line 1 is the first and second shall sentences at the start, line 3 the fourth with the new sentence ('stamp it with the reading the update takes ... after which its clock runs from that stamp'), line 4 the second at the update ('keep its stamp'), line 2 the third ('When a transition fires, it shall lose its clock'), line 5 the fifth, and line 6 the new sentence's 'even when a deposit before that update refills its places': no step between the start and the update gives the clock back or moves it."
           "Line 1 reads the intermediate marking from the live marking, as the quoted sentences ask: the tokens a synchronous action deposited earlier in the same pass count, so a transition they keep enabled keeps its clock, and a reset arc drains only the pass-visible tokens (EXEC-003 AC5), so a same-pass deposit it does not take keeps a transition enabled (the reset bullet's exception). Outputs of an asynchronous action in flight are not in the marking, so they do not count. An executor that takes the marking before the start breaks line 1 (TIME_012_cycle_forbids_restartBefore: a refill by the firing's own outputs would hide the gap, which a synchronous action must not do), and so does one that takes the pass-visible marking without the same-pass deposits (TIME_012_cycle_forbids_restartOnVis, the reset exception)."
           "Line 3 is what makes a restart a restart: an executor that keeps the old stamp of a marked transition at the update (the rule before 6.0.0, survivesOld) breaks it (TIME_012_cycle_forbids_survivesOld). An update that restamps a marked transition and leaves the mark set breaks it too (TIME_012_cycle_forbids_stickyRestart): every later update would restamp it again and its clock would never run; the runtimes clear the mark at the end of the enablement scan (Rust bitmap_backend.rs:636-639, Java BitmapNetExecutor.java:1334-1336, TypeScript bitmap-net-executor.ts:778-781). Line 4 keeps a running clock: an update that restamps every armed transition breaks it (TIME_012_cycle_forbids_restampAll). Line 6: a commit whose deposit refills the place and clears the mark, the rule before 6.0.0 put in the deposit, breaks it (TIME_012_cycle_forbids_commitHeals). Line 2: a start that keeps its own transition's clock breaks it (TIME_012_cycle_forbids_startKeepsClock); under re-entrancy (ruling D8 (b)) the started transition is armed again, with a fresh stamp, by the next update that finds it enabled, as bullet 4 says. Line 5 overlaps EXEC-003 line 4, which states the same for a drop; it is kept here because it is TIME-012's fifth sentence: a loser loses its clock even when a same-pass deposit keeps it enabled in the live marking (TIME_012_cycle_forbids_loseKeepsClock). The two rules apply in sequence in one pass: a transition can keep its stamp through a start by line 1 and lose its clock to the recheck later in the same pass by line 5; TIME_012_cycle_nonvacuous shows it. A marked transition keeps its old stamp until the update (line 1), and a start needs only a stamp and the recheck on the pass-visible marking (EXEC-003 line 1), so it can still start later in the same pass on that stamp, as the quoted sentence says; the runtimes do the same, as their pass reads no mark (Rust bitmap_backend.rs:425-440 sets it, :626-639 reads and clears it in the scan). This takes an inhibitor arc: a same-pass deposit into an inhibitor place disables the transition in the live intermediate marking, which counts the deposit, but not in the pass-visible marking, which does not; without an inhibitor arc a transition disabled in the intermediate marking stays disabled in every later pass-visible marking of the pass."
-          "Bullet 1 (an inhibitor arc never disables by a removal) and bullet 2 (a reset place restarts the clocks of transitions with a positive requirement on it or a read arc on it) are enabledNA read on liveAfter, as in the Phase 1 block. The ν-join clause of bullet 1 is the NU blocks', deferred with the ν firing kernel. The paragraph on the state class graph and on the events ([VER-010], [EVT-005], [EVT-004]) is not encoded here."
+          "Bullet 1 (an inhibitor arc never disables by a removal) and bullet 2 (a reset place restarts the clocks of transitions with a positive requirement on it or a read arc on it) are enabledNA read on liveAfter, as in the Phase 1 block. The ν-join clause of bullet 1 is the block TIME_012_nu, on the atomic timed ν step. The paragraph on the state class graph and on the events ([VER-010], [EVT-005], [EVT-004]) is not encoded here."
           "AC1 (a synchronous refill restarts T) is TIME_012_cycle_nonvacuous's first case: R starts and marks T, the update at reading 2 stamps T 2; that T then fires no earlier than 5 after the refill is TIME-014 line 1 with the stamp. AC2 (T only reads P) is the reset example's read arc and the Phase 1 block's TIME_012_ac2. AC3 (a reset drain) is the Phase 1 block's TIME_012_ac3, and its same-pass exception is the reset example here. AC4 (surplus tokens keep the clock) is the surplus case: T is not marked and keeps stamp 0 through the update at 2; its event clause is EVT's. AC5 (an asynchronous action restarts T as well) is the asynchronous case: R starts asynchronously and marks T, the next update finds T disabled and leaves it off, and the update after the completion arms it with the reading 3. AC6 (each restart emits exactly one of TransitionClockRestarted or TransitionEnabled) is EVT-004 and EVT-005 over the update, on the event model (W7)."
           "Transition names are taken to be pairwise distinct (ruling D10, Cfg.WF.names, which the statement does not assume): line 1 judges the transition the net holds under m (findT)."
-  signoff "pending"
+  signoff "2026-11-13 0ffda4da86a283a8 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ n sy t rest m u k r, m ≠ n → findT C m = some u →
@@ -1314,15 +1420,17 @@ requirement TIME_013_cycle
           "a deadline step from s to s' leaves the marking as it was and changes the status of a name only to reaped, and only of a name of a transition of the net that is expired in s at the reading of the deadline step;"
           "an update step leaves reaped every name of a transition of the net that is reaped before it;"
           "a step that takes a name of a transition u of the net out of the reaped status writes one of u's arc places, or is a lose step of that name;"
-          "a step that writes one of the arc places of a transition u of the net, from a state in which u's name is reaped, leaves that name off."
+          "a step that writes one of the arc places of a transition u of the net, from a state in which u's name is reaped, leaves that name off;"
+          "a step other than a deadline step leaves every name that is not reaped before it not reaped."
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A name's clock status is off, armed with a stamp and a restart flag, or reaped (glossary: ReapedE). Expired is the glossary term, read on the timed view of the state at the reading of the deadline step (viewAt s s'.cyc: the marking and the stamps before the step, the reading the step judges at, which is the update's reading or a later one, TIME-010's companion lines 3 to 5, ruling D61 (c)): reapable, armed, elapsed time strictly greater than the latest bound plus the tolerance (ruling D4). Write is the glossary term at the grain of the executor, cycWrites: a start writes the input and reset places of its transition, a commit or a timeout deposit the places of its emission, a publication the places of its batch, an injection the place of its token. The witness is the reference executor RefExec (Reference/Exec.lean)."
           "This is the companion of the Phase 1 block TIME_013 (ruling D33 (a), design NR-1), which encodes the reap as far as one atomic step can (a reap is available from every expired transition, and only from one) and defers to the cycle relation that the reap is taken, in the deadline step of the very cycle, and the injected-token clause. Line 1 is the 'shall reap it in the deadline step of that cycle' sentence: the deadline step reaps every transition expired at its reading, which is the reading the update of that cycle took or a later one (TIME-010's companion, ruling D61 (c)); so a transition still armed in the first cycle whose reading puts it strictly past its bound is reaped in that cycle (AC1's second sentence, TIME-015 AC6). An executor that reaps one cycle late breaks it (TIME_013_cycle_forbids_reapLate). That the transition does not fire in the pass of that cycle is EXEC-001 line 6 with EXEC-003 line 1 (a start needs a stamp, a reaped name has none), and that the pass comes after the deadline step is EXEC-001 line 2, which excludes the refresh rescue of ClashesTime (clash013_refresh_rescue)."
-          "Line 2 is the first quoted sentence ('it disarms the transition without firing it'), the new sentence that the deadline step judges at its reading, reaps nothing that is not expired at it and does not change the marking, and the shall sentence on not reaping a transition that is not reapable: the deadline step reaps only expired transitions, so only reapable ones (Exact, Immediate and Delayed transitions are never expired, TIME-006), keeps their tokens ('keeps its input tokens') and changes no other status. An executor that reaps at the bound instead of strictly past it breaks it (TIME_013_cycle_forbids_reapAtBound). That the deadline step emits TransitionTimedOut is EVT-009's, on the event model (W7)."
+          "Line 2 is the first quoted sentence ('it disarms the transition without firing it'), the new sentence that the deadline step judges at its reading, reaps nothing that is not expired at it and does not change the marking, and the shall sentence on not reaping a transition that is not reapable: the deadline step reaps only expired transitions, so only reapable ones (Exact, Immediate and Delayed transitions are never expired, TIME-006), keeps their tokens ('keeps its input tokens') and changes no other status; that no other step reaps is line 6. An executor that reaps at the bound instead of strictly past it breaks it (TIME_013_cycle_forbids_reapAtBound). That the deadline step emits TransitionTimedOut is EVT-009's, on the event model (W7)."
           "Lines 3 and 4 are the new shall sentence (design R9) and the last quoted sentence: an update leaves a reaped transition reaped (an executor that re-evaluates every transition re-arms it, re-reaps it and emits a TransitionTimedOut storm: TIME_013_cycle_forbids_reEvaluateAll), and only a write of one of its arc places ends the reaped state (TIME_013_cycle_forbids_injectWritesAll: an injection into another place unreaps it). Line 4 also allows a lose step of the name: a firing pass drops only names of its ready order (EXEC-003 line 3), which holds only ready, hence armed, transitions (TIME-014 line 1), so in a run from an initial state a reaped name is never dropped; the line speaks of every state of R, and a state whose pass order holds a reaped name is not reachable. The reference drop turns the dropped name off whatever its status (loseStep, Reference/Exec.lean), so the line keeps that case instead of the quoted sentence naming it; the sentence's 'only a firing or an injected token' speaks of the runs an executor takes."
           "Line 5 is the shall sentence on a write, at the grain of the executor: a firing that writes an arc place (its start consumes or drains it, its settle deposits into it, a publication deposits into it) or an injected token that lands in one ends the reaped state, and the next update arms the transition with its reading if it is enabled (TIME-010's companion line 1 and EXEC-001 line 8). This is the glossary's injection clause of Write, which the Phase 1 relation leaves out (GlossaryTime.lean, Writes). An executor whose injection does not count as a write keeps the transition reaped for ever (TIME_013_cycle_forbids_injectNoWrite). AC4 (a reaped transition does not fire while none of its arc places is written; once one is written it is armed again with a fresh clock and may fire) is lines 3 to 5 with TIME-010's companion: TIME_013_cycle_nonvacuous reaps u, keeps it reaped through an update and through an injection into another place, ends the reaped state by an injection into its input place, arms it at the next update and starts it three ms later. AC4's two backends are CONC-020's and the precompiled link (ExecLink)."
+          "Line 6 is 'shall reap it in the deadline step' and 'The executor shall not reap a transition that is not reapable' read on every other step: no step other than a deadline step takes a name into the reaped status, so with line 2 a name is reaped only when its transition is expired, hence reapable, at the reading of a deadline step. An executor whose update marks an off transition reaped while its firing is in flight, so that it is not armed again while the firing runs, meets lines 1 to 5 and the TIME-010 companion, and leaves an Immediate transition reaped for ever once its firing returns with no output; it breaks line 6 (TIME_013_cycle_forbids_reapInFlight). TIME_013_cycle_nonvacuous exercises the line at the update that arms u after the injection into its input place. EVT_009's consequences evt009_ac1_otherSteps and evt009_ac2_enabled read this line."
           "The sentence 'While a transition is reaped, the transition shall not fire' is EXEC-003 line 1: a start needs a stamp, which a reaped name does not hold. The sentence 'If a reapable transition's elapsed time is greater than its latest bound plus the deadline tolerance, then the transition shall not fire' is line 1 with EXEC-001 line 2 and TIME-014 line 1: the deadline step reaps the transition before the pass, and the pass's order holds only ready transitions, which are not expired. Both stay quoted by the Phase 1 block. AC2 (the tolerance is configurable, 5 ms by default) and AC3 (an Exact transition past its target is not disabled) are the Phase 1 block's; AC3 follows here from line 2. The tolerance is TimedNet.tol; the examples take 0 (strict enforcement), which TIME-015 asks for under an injected clock."
-          "Transition names are taken to be pairwise distinct (ruling D10, Cfg.WF.names, which the statement does not assume): the status is kept per name, and lines 3 to 5 judge the transition the net holds under the name (findT)."
-  signoff "pending"
+          "Transition names are taken to be pairwise distinct (ruling D10, Cfg.WF.names, which the statement does not assume): the status is kept per name, and lines 3 to 5 judge the transition the net holds under the name (findT); line 6 speaks of every name."
+  signoff "2026-11-13 d73f66919f1a81ac ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ ns u, u ∈ C.X.net.transitions → on (fun s s' => R C s (.deadline ns) s'), shall
@@ -1336,7 +1444,9 @@ requirement TIME_013_cycle
         s.st n = .reaped → s'.st n ≠ .reaped →
           l = .lose n ∨ ∃ p ∈ arcPlaces u, p ∈ cycWrites s l)) ∧
       (∀ l n u, findT C n = some u → on (fun s s' => R C s l s'), shall (fun s s' =>
-        s.st n = .reaped → (∃ p ∈ arcPlaces u, p ∈ cycWrites s l) → s'.st n = .off))
+        s.st n = .reaped → (∃ p ∈ arcPlaces u, p ∈ cycWrites s l) → s'.st n = .off)) ∧
+      (∀ l n, (∀ ns, l ≠ .deadline ns) → on (fun s s' => R C s l s'), shall (fun s s' =>
+        s.st n ≠ .reaped → s'.st n ≠ .reaped))
 
 /- The pinned readable form of TIME_013_cycle: a change to the formula shows up as a diff here. -/
 /--
@@ -1361,10 +1471,13 @@ fun {N T} [DecidableEq N] R =>
                 on fun s s' => R C s l s', shall fun s s' =>
                   s.st n = Status.reaped →
                     s'.st n ≠ Status.reaped → l = XLbl.lose n ∨ ∃ p ∈ arcPlaces u, p ∈ cycWrites s l) ∧
-            ∀ (l : XLbl N T) (n : String) (u : Reference.Trans N),
-              findT C n = some u →
-                on fun s s' => R C s l s', shall fun s s' =>
-                  s.st n = Status.reaped → (∃ p ∈ arcPlaces u, p ∈ cycWrites s l) → s'.st n = Status.off
+            (∀ (l : XLbl N T) (n : String) (u : Reference.Trans N),
+                findT C n = some u →
+                  on fun s s' => R C s l s', shall fun s s' =>
+                    s.st n = Status.reaped → (∃ p ∈ arcPlaces u, p ∈ cycWrites s l) → s'.st n = Status.off) ∧
+              ∀ (l : XLbl N T) (n : String),
+                (∀ (ns : List String), l ≠ XLbl.deadline ns) →
+                  on fun s s' => R C s l s', shall fun s s' => s.st n ≠ Status.reaped → s'.st n ≠ Status.reaped
 -/
 #guard_msgs in #print TIME_013_cycle
 
@@ -1388,7 +1501,9 @@ theorem TIME_013_cycle_reference {N T : Type} [DecidableEq N] :
     TIME_013_cycle (RefExec (N := N) (T := T)) := by
   refine fun C => ⟨fun ns u hu s s' h hx => ?_, fun ns n s s' h => ?_,
     fun n u hu s s' h hs => ?_, fun l n u hu s s' h hs hne => ?_,
-    fun l n u hu s s' h hs hw => ?_⟩
+    fun l n u hu s s' h hs hw => ?_, fun l n hl s s' h hn hr => ?_⟩
+  rotate_right
+  · exact hn (tc_reaped_not_deadline h hl hr)
   · obtain ⟨-, -, rfl, rfl⟩ := xstepW_deadline h
     have hm : u.core.name ∈ expiredNames refXPol C (atDeadline s) :=
       tc_mem_expiredNames.2 ⟨u, hu, rfl, hx⟩
@@ -1568,10 +1683,45 @@ theorem TIME_013_cycle_forbids_injectNoWrite :
       decide (cycWrites s (.inject 0) = [0]))
     (by decide +kernel)
   simp only [Bool.and_eq_true, decide_eq_true_eq] at hp
-  have : s'.st "u" = .off := (h tc_cWin).2.2.2.2 (.inject 0) "u" tc_U rfl s s' hs hp.1.1
+  have : s'.st "u" = .off := (h tc_cWin).2.2.2.2.1 (.inject 0) "u" tc_U rfl s s' hs hp.1.1
     ⟨0, by simp [arcPlaces, tc_U, tc_tr], by rw [hp.2]; simp⟩
   rw [hp.1.2] at this
   exact absurd this (by simp)
+
+/-- An update that uses the reaped status for an in-flight transition: the reference update,
+except that a name that is off, whose transition is enabled and has a firing in flight (the net is
+not re-entrant, so the update does not arm it), is marked reaped "so that it is not armed again
+while its firing runs". -/
+def tc_reapInFlight (C : Cfg Nat Nat) (s : XSt Nat Nat) : XLbl Nat Nat → Option (XSt Nat Nat)
+  | .update => (xstep C s .update).map fun s1 =>
+      { s1 with st := fun n => match s.st n, s1.st n with
+          | .off, .off =>
+              if ((findT C n).any fun u => enabledNA (qCount s.M) u.core) && inFlightN s n
+              then .reaped else .off
+          | _, x => x }
+  | l => xstep C s l
+
+/-- `a` (`Immediate`, not reapable) alone, with two tokens in place 0. -/
+def tc_cIF : Cfg Nat Nat := tc_cfg [tc_a] (fun _ => .immediate) []
+
+/-- ✗ Reaping outside the deadline step violates the TIME-013 companion (line 6): `a`,
+`Immediate`, starts asynchronously on one of its two tokens, and the next update marks it reaped
+while it is enabled by the other. Every other line of the TIME-010 and TIME-013 companions holds
+of this executor, yet `a` never fires again: its firing returns with no output, nothing writes
+place 0, and every later update keeps it reaped, where the reference arms it. -/
+@[evidence forbids TIME_013_cycle]
+theorem TIME_013_cycle_forbids_reapInFlight :
+    ¬ TIME_013_cycle (fun C s l s' => tc_reapInFlight C s l = some s') := by
+  intro h
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check tc_reapInFlight (C := tc_cIF)
+    (o := tcRun tc_reapInFlight tc_cIF (xinit (tc_mk [(0, [7, 9])]) 0)
+      (tc_cyc ++ [.deadline [], .begin, .start "a" false, .endPass, .endCompletions,
+        .endPublications, .endEvents]))
+    (l := .update)
+    (p := fun s s' => decide (s.st "a" = .off) && decide (s'.st "a" = .reaped))
+    (by decide +kernel)
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hp
+  exact (h tc_cIF).2.2.2.2.2 .update "a" (fun _ => by simp) s s' hs (by rw [hp.1]; simp) hp.2
 
 /-- The window net from its first cycle to the reap at reading 6, then two accepted events: one
 for place 1 (no arc of `u`) and one for place 0 (`u`'s input place). -/
@@ -1712,7 +1862,7 @@ requirement TIME_015_cycle
           "This is the companion of the Phase 1 block TIME_015 (ruling D33 (a), design NR-1), which states the readings and the re-check on the atomic timed step and defers the executor loop to the cycle relation. Line 1 is the first shall sentence on the host's reading: a clock that goes back breaks it (TIME_015_cycle_forbids_rewind). Which reading each step of a cycle judges at (ruling D61 (c)) is an executor rule for every executor on any clock, so it is stated by TIME-010 (a MUST) and its companion, lines 3 to 5, not here: the SHOULD priority of TIME-015 does not carry it. With line 1 those lines make the readings of successive cycles non-decreasing."
           "Line 2 is the second shall sentence and contract 3 (spurious completion): after the wait completes the loop runs steps 1 to 4 again, so the enablement update re-reads the clock and the deadline step and the ready order of the next pass are judged at that reading, and a transition whose earliest bound a wait that completed early did not reach is not ready in that pass (TIME-014 line 1). An executor that trusts the wait and goes straight to its firing pass breaks it (TIME_015_cycle_forbids_wakeToPass). That the update comes before the deadline step and the deadline step before the pass is EXEC-001 lines 1 and 2, whose trigger includes the wake."
           "AC4 (a wait that completes early fires nothing early) is TIME_015_cycle_nonvacuous: t, Delayed(5) and armed at 0, parks with a timer of 5, the wait completes at 2, the update takes reading 2 and the pass offers nothing, the next wait completes at 5 and t starts. AC6 (with tolerance 0, a Deadline transition is reaped on the first cycle strictly past its bound, not on one that observes exactly its bound) is TIME-013's companion line 1 at the reading of the deadline step (TIME-010's companion lines 3 and 4), and TIME_013_cycle_nonvacuous shows both cycles. AC7 (a boundary already due advances on the next cycle) is CONC-010's park guard: the executor does not wait while a transition is Ready or Expired at the cycle reading, and its timer is at most the next boundary plus the timer resolution. AC8 (a completing action, an injected event, a drain and a close wake the wait) is CONC-010's wake line. AC11 (an injection or a completion from inside the wait only enqueues, and is taken in by a later step 1 or step 2) is CONC-001 line 1 (an outside step changes neither the marking nor a clock status) with ENV-003 and EXEC-001; ruling D70 (a) lets the wait itself take the queued item and go on to step 1. AC13 (executor-stamped tokens carry the injected epoch clock) is the CORE-011 epoch slice (W11). AC5 (abort on shutdown), AC9 (no cost on the default path), AC15 (an absent boundary suspends) and the seam's shape (both halves of the wait, the readiness predicate, the two time bases) are properties of the host interface, not of a step relation; the wait without a timer is park none, which CONC-010 allows only when no boundary is ahead. AC1, AC2, AC3, AC10, AC12 and AC14 are the Phase 1 block's."
-  signoff "pending"
+  signoff "2026-11-13 158ce2ffd8358854 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ l, on (fun s s' => R C s l s'), shall (fun s s' => s.now ≤ s'.now)) ∧

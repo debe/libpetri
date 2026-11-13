@@ -128,8 +128,13 @@ theorem planted_nonvacuous : True := trivial'" \
 
 # 5. A sign-off naming a hash the block no longer has.
 expect_caught "signoff with a stale hash    -> requirement command" "$BUILD_CORE" \
-  'sed -i "s/  signoff \"pending\"/  signoff \"2026-11-06 0000000000000000\"/" Libpetri/Spec/Core.lean' \
+  'sed -i "s/  signoff \"[^\"]*\"/  signoff \"2026-11-06 0000000000000000\"/" Libpetri/Spec/Core.lean' \
   "requirement Libpetri.Spec.CORE_031: signoff hash 0000000000000000 does not match the statement hash"
+
+# 5b. A sign-off with a signer other than a person (no marker) or `ai`.
+expect_caught "signoff with an unknown signer -> requirement command" "$BUILD_CORE" \
+  'sed -i "s/  signoff \"[^\"]*\"/  signoff \"2026-11-06 0000000000000000 bot\"/" Libpetri/Spec/Core.lean' \
+  "requirement Libpetri.Spec.CORE_031: signoff must be"
 
 # ---- escape hatches: the source scanner, the axiom audit and the kernel replay -------------
 
@@ -224,9 +229,11 @@ theorem planted_cites : 1 + 1 = 2 := rfl'" \
 
 # ---- report freshness --------------------------------------------------------------------
 
-# 14. A reading line edited without regenerating the report.
+# 14. A reading line edited without regenerating the report. The edit changes the statement
+#     hash, so the block's signoff goes back to pending (a signed block would fail the build on
+#     its hash first, which is case 5's gate, not this one).
 expect_caught "report not regenerated       -> report freshness" "$FRESH" \
-  'sed -i "s/t does not fire from a marking in which p is marked;/t never fires from a marking in which p is marked;/" Libpetri/Spec/Core.lean' \
+  'sed -i -e "s/t does not fire from a marking in which p is marked;/t never fires from a marking in which p is marked;/" -e "s/  signoff \"[^\"]*\"/  signoff \"pending\"/" Libpetri/Spec/Core.lean' \
   "diff -r" "t never fires from a marking in which p is marked;"
 
 # 15. A claim added to the generated proof-coverage.json by hand instead of as an

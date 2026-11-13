@@ -56,12 +56,13 @@ Not here:
   editorial (D20, D26) and change no statement.
 * exp-b#7 (the empty transition name against AC1's regex) is EXP-014's own scope sentence and
   its `EXP_014_ac1`; it names no second block.
-* The open Rust panic and Java exception on a cluster key with an empty `/` segment (exp-b#9) are
-  recorded runtime defects under D46 (a) (RD-12 in `spec/runtime-defects.md`): such a key is outside the name assumption of EXP-016
-  and EXP-017 (`ExportNet.ClusterNames`), and `clashExport_cluster` shows the key `a/` of the name
-  `a//x` is one (`NoEmptySegment` fails). So is a non-ASCII membership key, whose cluster ID Rust
-  draws with the letters kept (`exp016_nonAsciiKey_outside` in EXP-016). The Rust chain on that key (`registerChain`) is decided in
-  `Reference/ExportCluster.lean`.
+* A cluster key with an empty `/` segment (exp-b#9, D46 (a)) is outside the name assumption of
+  EXP-016 and EXP-017 (`ExportNet.ClusterNames`), and `clashExport_cluster` shows the key `a/` of
+  the name `a//x` is one (`NoEmptySegment` fails). The Java, TypeScript and Rust builders register
+  the model's `keyChain` on such a key; the wrong chain that skips the empty segment, the
+  behaviour RD-12 recorded, is `registerChain` in `Reference/ExportCluster.lean`. A non-ASCII
+  membership key is outside the assumption too, and Rust draws its cluster ID with the letters
+  kept (`exp016_nonAsciiKey_outside` in EXP-016).
 -/
 
 namespace Libpetri.Spec
@@ -534,8 +535,7 @@ exporter, and on it:
 * on the worked example, three orphans bridging `b1` to `b2` give one ghost edge, anchored at the
   first bridge, and one orphan bridging `b2` to `b1` gives the other (exp-b#12);
 * the name `a//x` has the cluster key `a/`, which has an empty `/` segment and so lies outside
-  the name assumption of EXP-016 and EXP-017, where the Rust panic and the Java exception are
-  recorded defects (exp-b#9, RD-12). -/
+  the name assumption of EXP-016 and EXP-017 (exp-b#9). -/
 @[evidence consistent EXP_014 EXP_016 EXP_017]
 theorem clashExport_cluster :
     EXP_014 refExport ∧ EXP_016 refExport ∧ EXP_017 refExport ∧

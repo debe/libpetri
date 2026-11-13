@@ -69,7 +69,7 @@ requirement CORE_070
           "AC2 (tokens can be added and removed from specific places) is the first line (every place of a net is held by its empty marking) together with the add line and the two removal lines, each of which changes only the place it names and keeps every place held, so any sequence of adds and removals on the places of a net is constrained at every step (CORE_070_reach)."
           "AC3 (the token count per place is queryable) is the count line: count is the length of the place's queue, and the add and removal lines say how it moves."
           "The test derivation (empty marking, three tokens added to P, count 3, one removed, count 2) is a consequence of the statement for every store, from the empty marking of any net containing P (CORE_070_derivation), which also gives that the token removed is the first one added; CORE_070_nonvacuous runs it on the reference."
-  signoff "pending"
+  signoff "2026-11-13 9a94c6365303f80d ai"
   statement : ∀ {N T : Type}, MarkingOps N T → Prop :=
     fun Ops =>
       (∀ P : List _, ∃ s, (∀ p ∈ P, Ops.ok s p) ∧

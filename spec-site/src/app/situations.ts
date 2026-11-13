@@ -475,7 +475,7 @@ export function ruleCard(ctx: AppContext, rule: SituationRule): HTMLElement {
         lean.length === 0 ? null
           : signed === null ? h('span', { class: ['badge', 'badge--open'], title: "No reviewer has signed this block's statement yet." },
             h('span', { 'aria-hidden': 'true' }, '○'), ' Not signed')
-            : h('span', { class: ['badge', 'badge--ok'], title: 'A reviewer signed this exact statement. The build fails if the statement changes.' },
+            : h('span', { class: ['badge', 'badge--ok'], title: 'A person or an AI review signed this exact statement. The build fails if the statement changes.' },
               h('span', { 'aria-hidden': 'true' }, '●'), ` Signed ${signed}`),
       ),
     ),

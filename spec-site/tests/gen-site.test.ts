@@ -139,7 +139,7 @@ describe('cross-input checks', () => {
   });
 
   it('names defect evidence by its full theorem when exactly one matches', () => {
-    const d: Defect = { id: 'RD-01', title: 't', requirements: [], runtimes: ['java'], text: 'x', evidence: ['f_holds', 'helper', 'twin'], evidenceText: 'x', status: { state: 'open' } };
+    const d: Defect = { id: 'RD-01', title: 't', requirements: [], runtimes: ['java'], text: 'x', evidence: ['f_holds', 'helper', 'twin'], evidenceText: 'x', fix: null, status: { state: 'open' } };
     const lean = {
       blocks: [],
       citations: [

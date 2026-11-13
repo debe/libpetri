@@ -6,17 +6,17 @@ Theorems carrying this ID:
 
 - `Libpetri.Spec.clashExec_timeoutValidated_conflict` (theorem, `Libpetri/Spec/ClashesExec.lean:321`)
 
-> **Note:** the full tree has 336 nodes (limit 60).
+> **Note:** the full tree has 347 nodes (limit 60).
 
-> Rule: this theorem's tree has 336 nodes (limit 60); every file other than its own is collapsed into one node, leaving 20.
+> Rule: this theorem's tree has 347 nodes (limit 60); every file other than its own is collapsed into one node, leaving 20.
 
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
-    n5927["Libpetri.Spec.ClashExec.some_of_map"]
-    n10244["Libpetri.Spec.TimeoutValidated"]
-    n12324["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
-    n20814["Libpetri.Spec.timeoutRejected"]
+    n5954["Libpetri.Spec.ClashExec.some_of_map"]
+    n10377["Libpetri.Spec.TimeoutValidated"]
+    n12508["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
+    n21203["Libpetri.Spec.timeoutRejected"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -28,12 +28,12 @@ flowchart TD
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
   c131["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (6 declarations, collapsed)"]
+  c132["📁 Libpetri/Spec/Glossary.lean (9 declarations, collapsed)"]
   c139["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
   c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
   c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c238["📁 Libpetri/Spec/Req/EXEC_021.lean (11 declarations, collapsed)"]
-  c271["📁 Libpetri/Spec/Req/IO_015.lean (16 declarations, collapsed)"]
+  c271["📁 Libpetri/Spec/Req/IO_015.lean (24 declarations, collapsed)"]
   c54 --> c0
   c80 --> c139
   c91 --> c94
@@ -52,16 +52,16 @@ flowchart TD
   c238 --> c80
   c238 --> c131
   c271 --> c132
-  n5927 --> c139
-  n10244 --> n20814
-  n12324 --> c238
-  n12324 --> n5927
-  n12324 --> n10244
-  n20814 --> c139
+  n5954 --> c139
+  n10377 --> n21203
+  n12508 --> c238
+  n12508 --> n5954
+  n12508 --> n10377
+  n21203 --> c139
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12324 root
+  class n12508 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232,c238,c271 collapsed
 ```
 

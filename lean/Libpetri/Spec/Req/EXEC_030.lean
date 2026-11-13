@@ -66,7 +66,7 @@ requirement EXEC_030
           "Also outside the model: a throw of the host's own callbacks during a start, such as the event store or a correlation-key function throwing while Java consumes the inputs (BitmapNetExecutor.java:1576-1613), which Java contains as a failure of a partly consumed firing, or an event store throwing on TokenAdded while Java deposits a completion (processSyncOutput and processCompletedTransitions, BitmapNetExecutor.java:1788-1817 and 1897-1927), which Java reports as a failure of a partly deposited firing, its deposited prefix left in the marking. No spec sentence describes either case, and the model's start and deposit are atomic, so line 1 reads only the fail steps of the model."
           "A firing abandoned by a stop on a terminal place (EXEC-042) or by an immediate termination (ENV-015) is not settled by a step 1 fail; whether and when an abandoned firing is settled is those requirements' subject. The lines here constrain fail steps only, wherever they occur."
           "The test derivation (an action throws, the failure event is emitted, the consumed tokens are not restored, the net continues) is EXEC_030_nonvacuous: transition t's action fails, place 0 stays empty, and transition u starts afterwards; the event is EVT-008's."
-  signoff "pending"
+  signoff "2026-11-13 9c4d97f90d02ea09 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C i,
       (on (fun s s' => R C s (.fail i) s'), shall (fun s s' => s'.M = s.M)) ∧

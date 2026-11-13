@@ -569,8 +569,9 @@ wave W5 are the separate conjunct `ExecCoversW5` (`ConsistencyExec.lean`; the co
 the answers to injection requests (`Env002Covers`, `Env006Covers`, `Env010Covers`), the injection
 of a queued event (`Env003Covers`, `Env010Covers`), the way out of the wait (`Env005Covers`,
 `Conc010Covers`, `Env010Covers`), the outcome of a run-budget expiry (`Env016Covers`, over the
-expiry handling), `expire` and the
-timeout deposit (`Exec022Covers`), `begin` from a test with a firing in flight and `start` or
+expiry handling), `expire` and the timeout deposit (`Exec022Covers`), the commit of the completion
+at the head of the queue in step 1 when output validation and the relay check accept it
+(`Exec020Covers`), `begin` from a test with a firing in flight and `start` or
 `lose` for the head of every non-empty order (`conc002Covers`), and `finish` at each rest test
 (`Exec040Covers`, `Env011Covers`, `Env013Covers`), at a marked terminal place (`Exec042Covers`)
 and after a stop (`Env015Covers`). The scenario run of the design is no coverage clause: each

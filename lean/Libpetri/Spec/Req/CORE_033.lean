@@ -47,7 +47,7 @@ requirement CORE_033
           "Both clauses assume p is marked: a reader firing from an empty read place is CORE-032 AC1 (its first clause), not this block's subject. A firing relation that ignores read arcs satisfies this block (CORE_033_allows_ignoresRead)."
           "Clause 2 asks only that p stay marked for the other reader, which is what 'no conflict' needs. That a read leaves the count of p unchanged (apart from deposits) is CORE-032 AC2 (its third clause); the 'since read arcs do not consume tokens' of this text is that requirement's reason, not a second acceptance criterion here. A read that takes one token whenever two or more are present satisfies this block (CORE_033_allows_readTakesSurplus)."
           "Each firing is one atomic step, so a read token held or reserved while the reader's action runs (taken at the start and put back at completion, or a per-place lock on read places), which would keep two readers from being in flight together, cannot be expressed here. In-flight concurrency of readers needs a start/complete step model (CONC, EXEC); a take-and-put read that reorders the FIFO queue is below count granularity (EXEC-012)."
-  signoff "pending"
+  signoff "2026-11-13 a864c7bea1b325a9 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F =>
       (∀ t p, ReadArc t p → ∀ m, Marked m p →

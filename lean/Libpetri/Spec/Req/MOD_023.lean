@@ -75,6 +75,13 @@ def mod023_chans : Op N A → List (String × CDef N A)
   | .compose _ _ chans => chans
   | _ => []
 
+/-- **The definitions of a composed instance**: those of the instance a `compose` or an
+auto-compose call composes ([MOD-020], [MOD-024]); none for any other call. -/
+def mod023_composed : Op N A → List (CDef N A)
+  | .compose I _ _ => I.defs
+  | .composeAuto I _ => I.defs
+  | _ => []
+
 /-- **What composition and fusion keep of a transition**: its name, timing, priority and action
 (the arcs and the output specification are what they rewrite). -/
 def mod023_kept (d : TransDef N A) : String × Novel.TimedScg.Timing × Int × Act A :=
@@ -92,19 +99,19 @@ requirement MOD_023
   source verbatim "spec/11-modular-composition.md"
   quote "*When* `build()` succeeds, every transition of the built net *shall* pass the checks of the transition builder ([CORE-030], [IO-002], [IO-004], [EXEC-012], [IO-011] to [IO-014]), whichever `compose(...)`, `fuse(...)` or other builder calls produced it."
         "*When* `build()` succeeds, a new builder on which the places of the built net are declared, its transitions are added by hand in the same order with the same name, arcs, output specification, timing, priority and action and no correspondence ([MOD-031]), and its terminal places ([EXEC-042]) are declared *shall* build a net with the same transitions in the same order, the same places, each listed as often, in any order, and the same set of terminal places."
-        "*When* `build()` succeeds and no `compose(...)` call binds a channel ([MOD-021]), the built net *shall* hold one transition for each transition added by hand and for each transition of a composed instance or of a directly composed subnet, in the order of the calls and, within one call, in the order of the subnet, each with the name, timing, priority and action it was added with."
+        "*When* `build()` succeeds, no `compose(...)` call binds a channel ([MOD-021]) and no composed instance has two transitions of one name, the built net *shall* hold one transition for each transition added by hand and for each transition of a composed instance or of a directly composed subnet, in the order of the calls and, within one call, in the order of the subnet, each with the name, timing, priority and action it was added with."
   reading "For every naming model Nm, every transition-builder check Build and every build-script function S (a script of builder calls gives the composed net build() returns, or a rejection):"
           "line 1: if S ops builds the net c, every transition definition d of c passes Build (Build d.toTrans = none);"
           "line 2: if S ops builds the net c, then the hand-written script of c (declare c's places, add c's transitions in order with no correspondence, declare c's terminal places) builds some net c' whose transitions are c's, as a list (so in the same order, each with the same name, arcs, output specification, timing, priority and action), whose places are c's in some order (List.Perm, so each as often), and whose terminal places are c's as a set;"
-          "line 3: if no call of ops binds a channel (mod023_chans op = [] for every call) and S ops builds the net c, then the name, timing, priority and action of c's transitions, in order, are those of the transitions the calls of ops add (mod023_added: the hand-added transition, the instance's definitions, the subnet's definitions), in the order of the calls."
+          "line 3: if no call of ops binds a channel (mod023_chans op = [] for every call), the definitions of the instance of every compose and auto-compose call have pairwise distinct names (mod023_composed), and S ops builds the net c, then the name, timing, priority and action of c's transitions, in order, are those of the transitions the calls of ops add (mod023_added: the hand-added transition, the instance's definitions, the subnet's definitions), in the order of the calls."
   assumes "Model scope. A build-script function (ScriptFn, Reference/ComposeBuild.lean) is one implementation's enclosing builder read as a function of the calls made on it, from a new builder, up to build(): Rust's PetriNet builder and its build (rust/libpetri-core/src/petri_net.rs), Java's PetriNet.Builder (java/src/main/java/org/libpetri/core/PetriNet.java) and TypeScript's builder (typescript/src/core/petri-net.ts); Python rides on Rust. A panic or exception, at a call or at build(), is a rejection (.error msg). The calls are Op: place, transition (a Transition exists only once built, so a hand-added definition has passed Build), terminal place, fusion set (MOD-060), compose with bindings (MOD-020), auto-compose (MOD-024) and direct composition (MOD-025). Each transition call adds one built transition: adding one Transition object twice, which Java and TypeScript keep once in an identity-keyed set (CORE-021), is not a script this block reads. The witness buildScript folds those calls over the builder record of the reference net builder (CORE-040: buildScript_core) and finishes with fusion (MOD-061), the terminal check of EXEC-042 and the retired-port check of MOD-027. The naming model Nm is the place naming the composition calls rename under, a model parameter of every composition block (MOD-010, MOD-024, MOD-025). No line reads it; the block keeps it because the holds theorem may bind only the model parameters it passes to the block, and the witness buildScript renames auto- and direct composition through a naming model, which exists at no type uniformly (Unit has none: two valid prefixes must rename its one place apart). So MOD_023_reference passes its Nm through this binder, and all three lines hold for every naming."
           "Line 1 holds for every Build: the specific rejection messages belong to CORE-030, IO-002, IO-004, EXEC-012 and IO-011 to IO-014 (the list of CORE-022's note), and line 1 is what lets their 'every construction path' notes reach a composed net. Build reads the firing view of a definition only (TransDef.toTrans: arcs, output specification and the reapable bit of the timing), so the checks line 1 reaches are the arc and output-specification checks. A check that reads timing values (the timing check of TIME-001 that EXEC-012's note places in the transition builder, the maximum-duration rejection of 03-timing.md) is not in Build and is out of line 1: every transition was built when it was added, so its timing passed that check then, and line 3 says that composition and fusion keep the timing a transition was added with; the timing of a channel merge is MOD-021's (line 5) and its result is a built transition (MOD-021 line 7). Line 1 is met by construction in the runtimes: a hand-added transition is built, composition rebuilds every rewritten transition through the transition builder (MOD-020), a channel merge returns a built transition (MOD-021), fusion rebuilds every rewritten transition (MOD-061 line 2), and direct composition adds a body's built transitions unchanged (MOD-025). The mutant mod023_noCheckScript, which never runs the checks, builds a fused transition that consumes from and reads one place, which EXEC-012 rejects; mod023_handCheckScript, which checks hand-added transitions and never a rewritten one, does the same and is forbidden."
           "Line 2 compares the structure only. Transitions are compared as a list of TransDef, so name, arcs, output specification, timing, priority, action and declaration order are equal (declaration order is the last tie-break of the ready order, EXEC-002, ruling D32). Places are compared up to order (List.Perm, each place as often) and terminal places as a set: the order of places is not normative (ruling D32), and the reference net builder lists a place once, at its last occurrence. The two records a composed net may carry beside that structure are not compared: the MOD-031 correspondence (a hand-written definition has none, and an action of a composed transition resolves its subnet's declared places through it, where a hand-written action names the actual places) and the MOD-026 membership map (only direct composition records one; the hand-written net has none). That is the sentence of the markdown's first paragraph that the two records 'sit beside that structure and are not part of it', and the reading of 'indistinguishable' and 'same actions' the block takes. The mutant mod023_dupScript, which lists a declared place a second time when an arc also names it (a slip from the set the builders keep their places in to a plain list), meets lines 1 and 3 and breaks line 2: the hand-written copy of a composed net declares every place, so A_IN, answer/OUT and go come out twice. mod023_canonScript, which stores the timing of a hand-added transition in canonical form (Window(0, d) as Deadline(d)) and keeps a composed transition's timing as it comes, breaks lines 2 and 3 and is forbidden: a composed Window(0, 5) transition, written by hand, builds as Deadline(5)."
-          "Line 3 ties the build to the calls, which line 2 cannot do: line 2 compares a built net with the net its own hand-written copy builds, so a loss that a second build repeats passes it. Line 3 compares the built transitions with the transitions the calls added: the hand-added one, the instance's transitions in the instance's order for compose and auto-compose (MOD-020 line 1, MOD-024), the body's transitions in the body's order for direct composition (MOD-025 line 1), in the order of the calls; fusion rewrites each transition in place and keeps the order (MOD-061 line 1). It compares name, timing, priority and action only: the arcs and the output specification are rewritten by the bindings (MOD-020) and by fusion (MOD-061), whose blocks state the rewrite. A script with a channel binding is out of line 3, since a merged transition takes its name, priority, timing and action from the MOD-021 merge (MOD-021 lines 1, 5 and 6). In the runtimes, Java's SubnetRewriter.rebuildWithName copies timing, priority and action onto every rewritten transition (java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:202-210) and applyFusion collects the rewritten transitions in an insertion-ordered set (SubnetRewriter.java:941-958). The mutant mod023_dropPriScript, a composition that rebuilds every rewritten transition at the default priority 0 (CORE-020), meets lines 1 and 2 and breaks line 3: composing a subnet whose transition has priority 5 builds it at priority 0, and the hand-written copy of that net, written from the built net, builds it at 0 too. mod023_nameOrderScript, a fusion that returns the transitions in name order (a slip from an insertion-ordered set to a hash set in applyFusion, or to a name-keyed map in Rust's build_with_fusion), is forbidden by line 3 for the same reason."
+          "Line 3 ties the build to the calls, which line 2 cannot do: line 2 compares a built net with the net its own hand-written copy builds, so a loss that a second build repeats passes it. Line 3 compares the built transitions with the transitions the calls added: the hand-added one, the instance's transitions in the instance's order for compose and auto-compose (MOD-020 line 1, MOD-024), the body's transitions in the body's order for direct composition (MOD-025 line 1), in the order of the calls; fusion rewrites each transition in place and keeps the order (MOD-061 line 1). It compares name, timing, priority and action only: the arcs and the output specification are rewritten by the bindings (MOD-020) and by fusion (MOD-061), whose blocks state the rewrite. Line 3 is premised on distinct names within each composed instance (rulings D10 and D23, the unique-names assumption), because no builder rejects a subnet body with two transitions of one name and every runtime then stages the instance's rewritten transitions in a map keyed by name, so only one of the two reaches the built net (Rust staged.insert and order in apply_composition, rust/libpetri-core/src/petri_net.rs:1132-1137 and :1215-1219; Java rewrittenByName, java/src/main/java/org/libpetri/core/PetriNet.java:825-828; TypeScript rewrittenByName, typescript/src/core/petri-net.ts:580-583), where the reference keeps both. MOD-020 (mod020_fresh) and MOD-024 take the same premise. Direct composition adds a body's transitions one by one (MOD-025) and needs no such premise. A script with a channel binding is out of line 3, since a merged transition takes its name, priority, timing and action from the MOD-021 merge (MOD-021 lines 1, 5 and 6). In the runtimes, Java's SubnetRewriter.rebuildWithName copies timing, priority and action onto every rewritten transition (java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:202-210) and applyFusion collects the rewritten transitions in an insertion-ordered set (SubnetRewriter.java:941-958). The mutant mod023_dropPriScript, a composition that rebuilds every rewritten transition at the default priority 0 (CORE-020), meets lines 1 and 2 and breaks line 3: composing a subnet whose transition has priority 5 builds it at priority 0, and the hand-written copy of that net, written from the built net, builds it at 0 too. mod023_nameOrderScript, a fusion that returns the transitions in name order (a slip from an insertion-ordered set to a hash set in applyFusion, or to a name-keyed map in Rust's build_with_fusion), is forbidden by line 3 for the same reason."
           "The paragraph on downstream consumers, reworded under ruling D20 (clash mod-b#11, recommendation MB-6 of the composition map): the executor and the event subsystem run the firing relations, which read a built net through BuiltNet.toNet and BuiltNet.toTimed only, and mod023_sameView shows that for every model of line 2 a net and its hand-written equivalent have the same transitions in the untimed view, the same timing of every transition in the timed view and the same places up to order. The verifier reads the same structure (MOD-050, whose block carries AC4). The exporter MAY read the MOD-026 membership to draw subnet clusters (MOD-040); that is the one stated exception, since every exporter reads it (rust/libpetri-export/src/mapper.rs:131-136, java/src/main/java/org/libpetri/export/PetriNetGraphMapper.java:74, typescript/src/export/petri-net-mapper.ts:94). The sentence that compiled representations (CONC-007, CONC-020) are constructed identically, provided the hand-written net declares its places in the order the composed net holds them, follows from line 2 because a compiled net is computed from the built net alone; it is not restated here, as no compiled-net model is in scope. The first paragraph's MUST and the two MUST sentences of the consumer paragraph stay in the markdown as prose; lines 2 and 3, mod023_sameView and the blocks named here are what state them."
           "AC1 (identical place index, transition count, arc topology, bitmap masks and timing arrays of the compiled representations, for a hand-written net that declares its places in the composed net's order) follows from line 2 for the transitions, their arcs and their timing; the place index also depends on place order, which line 2 leaves free: Rust sorts the place names before indexing (rust/libpetri-runtime/src/compiled_net.rs:68-75), Java and TypeScript index the places arcs name in transition order and then the declared ones (java/src/main/java/org/libpetri/runtime/CompiledNet.java:102-113, typescript/src/runtime/compiled-net.ts:82-99), so a hand-written net that declares its places in the composed net's order gets the same index, which is the premise AC1 now states. That part is tested, not proven. AC2 (identical event sequences and final markings, with the hand-written actions naming the actual places) follows from line 2 for every firing semantics that reads only the structure (mod023_sameView); the net of line 2 keeps the composed actions with no correspondence, so it is the structure AC2 compares, not the hand-written net AC2 runs; equality of a run's event sequence, timestamps included, is tested, not proven. AC3 is reworded under ruling D20 (clash mod-b#11): byte-equal DOT when the composed net carries no membership, and the subnet clusters drawn from membership as the allowed difference of a directly composed net; DOT bytes are EXP's and MOD-040's, not this block's. AC4 (identical verification results) is MOD-050's line, which takes MOD-023 line 2 as its premise."
           "No acceptance line. The block is three safety lines on a successful build: a builder that rejects every script meets it. When a script builds is stated by the blocks that own each call: CORE-040 for a hand-written script (buildScript_core), MOD-020 line 9, MOD-021, MOD-024 line 4, MOD-025 line 5 and MOD-061 line 6; that the builder offers build() at all is an existence clause for a coverage theorem, not a line of this block. The test derivation (a composed net N1 and a hand-written equivalent N2 run alike) is MOD_023_nonvacuous on the reference for the structure, and a test for the runs."
-  signoff "pending"
+  signoff "2026-11-13 5cbec5570ebe1e37 ai"
   statement : ∀ {N A : Type}, Naming N → (Trans N → Option String) → ScriptFn N A → Prop :=
     fun {N A} _Nm Build S =>
       (∀ (ops : List (Op N A)) (c : ComposedNet N A), S ops = .ok c →
@@ -113,6 +120,7 @@ requirement MOD_023
         ∃ c' : ComposedNet N A, S (mod023_handScript c.toBuiltNet) = .ok c' ∧
           c'.trans = c.trans ∧ c'.places.Perm c.places ∧ ∀ p, p ∈ c'.terminals ↔ p ∈ c.terminals) ∧
       (∀ (ops : List (Op N A)) (c : ComposedNet N A), (∀ op ∈ ops, mod023_chans op = []) →
+        (∀ op ∈ ops, ((mod023_composed op).map (·.core.name)).Nodup) →
         S ops = .ok c → c.trans.map mod023_kept = (ops.flatMap mod023_added).map mod023_kept)
 
 /- The pinned readable form of MOD-023: a change to the formula shows up as a diff here. -/
@@ -127,7 +135,8 @@ fun {N A} _Nm Build S =>
               c'.trans = c.trans ∧ c'.places.Perm c.places ∧ ∀ (p : N), p ∈ c'.terminals ↔ p ∈ c.terminals) ∧
       ∀ (ops : List (Op N A)) (c : ComposedNet N A),
         (∀ op ∈ ops, mod023_chans op = []) →
-          S ops = Except.ok c → List.map mod023_kept c.trans = List.map mod023_kept (List.flatMap mod023_added ops)
+          (∀ op ∈ ops, (List.map (fun x => x.core.name) (mod023_composed op)).Nodup) →
+            S ops = Except.ok c → List.map mod023_kept c.trans = List.map mod023_kept (List.flatMap mod023_added ops)
 -/
 #guard_msgs in #print MOD_023
 
@@ -152,6 +161,7 @@ def mod023_line2 (S : ScriptFn N A) : Prop :=
 the name, timing, priority and action of the transitions the calls added. -/
 def mod023_line3 (S : ScriptFn N A) : Prop :=
   ∀ (ops : List (Op N A)) (c : ComposedNet N A), (∀ op ∈ ops, mod023_chans op = []) →
+    (∀ op ∈ ops, ((mod023_composed op).map (·.core.name)).Nodup) →
     S ops = .ok c → c.trans.map mod023_kept = (ops.flatMap mod023_added).map mod023_kept
 
 /-- MOD-023 is its three lines. -/
@@ -285,7 +295,7 @@ theorem mod023_fuseStage_kept {Build : Trans N → Option String} {b : Bld N A} 
 check and channel merge. -/
 theorem mod023_buildScript_kept (Nm : Naming N) (tyOf : N → T) (Build : Trans N → Option String)
     (Mg : MergeFn N A) : mod023_line3 (buildScript Nm tyOf Build Mg) := by
-  intro ops c hc h
+  intro ops c hc _ h
   unfold buildScript at h
   split at h
   · cases h
@@ -540,13 +550,13 @@ theorem mod023_dup_line1 : mod023_line1 refBuild mod023_dupScript := by
 
 /-- The duplicating builder meets line 3: its transitions are the reference's. -/
 theorem mod023_dup_line3 : mod023_line3 mod023_dupScript := by
-  intro ops c hc h
+  intro ops c hc hn h
   cases hs : buildExScript ops with
   | error m => simp [mod023_dupScript, hs, Except.map] at h
   | ok c₀ =>
     simp only [mod023_dupScript, hs, Except.map, Except.ok.injEq] at h
     subst h
-    exact mod023_buildScript_kept _ _ _ _ ops c₀ hc hs
+    exact mod023_buildScript_kept _ _ _ _ ops c₀ hc hn hs
 
 set_option maxRecDepth 20000 in
 /-- The composed net of `mod023_exOps` and its hand-written copy, under the duplicating builder,
@@ -640,6 +650,7 @@ theorem MOD_023_forbids_canonTiming : ¬ MOD_023 strNaming refBuild mod023_canon
 calls added in a name, in the order or in a priority breaks line 3. -/
 theorem mod023_not_line3 {S : ScriptFn String Unit} {ops : List (Op String Unit)}
     (hc : ∀ op ∈ ops, mod023_chans op = [])
+    (hn : ∀ op ∈ ops, ((mod023_composed op).map (·.core.name)).Nodup)
     (hS : (S ops).toOption.map (fun c => decide (c.trans.map mod023_namePri =
       (ops.flatMap mod023_added).map mod023_namePri)) = some false) : ¬ mod023_line3 S := by
   intro h
@@ -647,7 +658,7 @@ theorem mod023_not_line3 {S : ScriptFn String Unit} {ops : List (Op String Unit)
   | error m => rw [hs] at hS; cases hS
   | ok c =>
     have e := congrArg (List.map fun k : String × Novel.TimedScg.Timing × Int × Act Unit =>
-      (k.1, k.2.2.1)) (h ops c hc hs)
+      (k.1, k.2.2.1)) (h ops c hc hn hs)
     simp only [List.map_map] at e
     have e' : c.trans.map mod023_namePri = (ops.flatMap mod023_added).map mod023_namePri := e
     rw [hs] at hS
@@ -698,7 +709,7 @@ but composing instance `answer` of a subnet whose transition `work` has priority
 theorem MOD_023_mutant_noKept_killed :
     MOD_023_mutant_noKept strNaming refBuild mod023_dropPriScript ∧
       ¬ MOD_023 strNaming refBuild mod023_dropPriScript :=
-  ⟨mod023_dropPri_lines12, fun h => mod023_not_line3 mod023_exPri_chans (by decide) h.2.2⟩
+  ⟨mod023_dropPri_lines12, fun h => mod023_not_line3 mod023_exPri_chans (by decide) (by decide) h.2.2⟩
 
 /-- The call declares a fusion set. -/
 def mod023_isFuse : Op String Unit → Bool
@@ -749,6 +760,6 @@ in the order the calls added them, and the ready order, whose last tie-break is 
 ([EXEC-002]), changes. -/
 @[evidence forbids MOD_023]
 theorem MOD_023_forbids_fuseNameOrder : ¬ MOD_023 strNaming refBuild mod023_nameOrderScript :=
-  fun h => mod023_not_line3 mod023_exOrder_chans (by decide) h.2.2
+  fun h => mod023_not_line3 mod023_exOrder_chans (by decide) (by decide) h.2.2
 
 end Libpetri.Spec

@@ -164,13 +164,29 @@ def drained (M : QMarking N T) (t : Trans N) (p : N) : List T :=
 first, then the drained tokens. Read tokens are not removed. -/
 def qRemoved (M : QMarking N T) (t : Trans N) (p : N) : List T := qInputs M t p ++ drained M t p
 
+/-- `l` without repeats, each element kept at its first occurrence. Mathlib's `List.dedup`
+keeps the last one: `[0, 1, 0].dedup = [1, 0]`, where `dedupFirst [0, 1, 0] = [0, 1]`. -/
+def dedupFirst (l : List N) : List N := l.reverse.dedup.reverse
+
+/-- The worked case: `dedupFirst` keeps `0` at its first place, `List.dedup` at its last. -/
+example : dedupFirst [0, 1, 0] = [0, 1] ∧ ([0, 1, 0] : List Nat).dedup = [1, 0] := by decide
+
+/-- `dedupFirst` keeps every element. -/
+@[simp] theorem mem_dedupFirst {a : N} {l : List N} : a ∈ dedupFirst l ↔ a ∈ l := by
+  simp [dedupFirst]
+
+/-- `dedupFirst` repeats nothing. -/
+theorem nodup_dedupFirst (l : List N) : (dedupFirst l).Nodup :=
+  List.nodup_reverse.mpr (List.nodup_dedup _)
+
 /-- The tokens a firing of `t` from `M` removes, place by place in declaration order: each input
-place's consumed tokens, then each reset place's drained tokens (the order of Java's and Rust's
-consume, `BitmapNetExecutor.java` 1660-1733, `bitmap_backend.rs` 750-857; each list taken once
-per place). -/
+place's consumed tokens, then each reset place's drained tokens (the order of the consume in
+Java, TypeScript and Rust, `BitmapNetExecutor.java` 1660-1733, `bitmap-net-executor.ts`
+1063-1090, `bitmap_backend.rs` 750-857). Each place is taken once per group, at its first arc in
+declaration order: a later reset arc on the same place finds nothing the pass can drain. -/
 def removedListDecl (M : QMarking N T) (t : Trans N) : List (N × T) :=
-  (inPlaces t).dedup.flatMap (fun p => (qInputs M t p).map (p, ·)) ++
-    t.core.resets.dedup.flatMap (fun p => (drained M t p).map (p, ·))
+  (dedupFirst (inPlaces t)).flatMap (fun p => (qInputs M t p).map (p, ·)) ++
+    (dedupFirst t.core.resets).flatMap (fun p => (drained M t p).map (p, ·))
 
 /-- The `TokenRemoved` events of a firing of `t` from `M`, one per removed token, in the order
 of `removedListDecl`. -/
@@ -199,23 +215,24 @@ theorem qRemoved_append_qConsume (M : QMarking N T) (t : Trans N) (p : N) :
 places' drained tokens. -/
 theorem removedEvs_eq (M : QMarking N T) (t : Trans N) :
     removedEvs M t =
-      (inPlaces t).dedup.flatMap (fun p => (qInputs M t p).map (NetEvent.tokenRemoved p)) ++
-        t.core.resets.dedup.flatMap (fun p => (drained M t p).map (NetEvent.tokenRemoved p)) := by
+      (dedupFirst (inPlaces t)).flatMap (fun p => (qInputs M t p).map (NetEvent.tokenRemoved p)) ++
+        (dedupFirst t.core.resets).flatMap
+          (fun p => (drained M t p).map (NetEvent.tokenRemoved p)) := by
   simp [removedEvs, removedListDecl, List.map_flatMap, Function.comp_def]
 
 /-- The `TokenRemoved` events of a firing, read at `p`, are the tokens it removes from `p`. -/
 theorem removedAt_removedEvs (M : QMarking N T) (t : Trans N) (p : N) :
     removedAt (removedEvs M t) p = qRemoved M t p := by
-  rw [removedEvs_eq, removedAt_append, removedAt_flatMap _ _ (List.nodup_dedup _),
-    removedAt_flatMap _ _ (List.nodup_dedup _)]
+  rw [removedEvs_eq, removedAt_append, removedAt_flatMap _ _ (nodup_dedupFirst _),
+    removedAt_flatMap _ _ (nodup_dedupFirst _)]
   unfold qRemoved
   congr 1
   · by_cases h : p ∈ inPlaces t
-    · simp [List.mem_dedup, h]
-    · simp [List.mem_dedup, h, qInputs_of_not_mem h]
+    · simp [h]
+    · simp [h, qInputs_of_not_mem h]
   · by_cases h : p ∈ t.core.resets
-    · simp [List.mem_dedup, h]
-    · simp [List.mem_dedup, h, drained]
+    · simp [h]
+    · simp [h, drained]
 
 end Removed
 

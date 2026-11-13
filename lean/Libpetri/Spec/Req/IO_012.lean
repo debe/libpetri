@@ -114,7 +114,7 @@ requirement IO_012
           "AC5 (the rejected and accepted specs and their reported pairs and places) is checked by example on IO_012_check below, with the places A, B, C, P, Q, a named by the numbers 0, 1, 2, 3, 4, 5. The Timeout duration d is not in the reference Out. The composition case (two output ports in different alternatives bound to one host place) is the check applied to the composed spec; composition itself is MOD-024's model, not this block's."
           "The Test derivation's build cases are AC5's; its firing cases are AC3's."
           "Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling."
-  signoff "pending"
+  signoff "2026-11-13 5d3f24d7a5511c3e ai"
   statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Out N → Option (Nat × Nat × List N)) →
       (Trans N → Option String) → FireRel N → Prop :=
     fun {N} [DecidableEq N] [ToString N] C Build F =>

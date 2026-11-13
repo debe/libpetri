@@ -366,6 +366,8 @@ event is an addition to it and MUST NOT be the only signal.
 
 *When* the caller drains, closes or stops the executor ([ENV-011], [ENV-013], [ENV-015]), the executor *shall not* emit an engine diagnostic for the request or for the queued external events it discards because of it.
 
+*When* the executor refuses an injection request because it is draining, closed or stopped, or because the run has finished ([ENV-006]), it *shall not* emit an engine diagnostic for the refusal.
+
 *When* a run ends because it is quiescent, a terminal place is marked, or the caller closed or stopped it ([EXEC-041]), the executor *shall not* emit an engine diagnostic for that end.
 
 **Acceptance Criteria:**
@@ -376,7 +378,8 @@ event is an addition to it and MUST NOT be the only signal.
    transition name, one that a transition is responsible for carries that transition's name, and
    every consumer of the event tolerates an absent name.
 5. No engine diagnostic is emitted on a caller-requested termination path (a drain, a close or a
-   stop), nor when a run ends as quiescent, terminal, closed or stopped.
+   stop), nor when a run ends as quiescent, terminal, closed or stopped, nor when an injection
+   request is refused.
 
 **Depends on:** [CORE-072], [ENV-012], [ENV-013], [EXEC-041]
 **Implementation notes:**
@@ -714,20 +717,20 @@ archive or the debug protocol. This asks for no change of archive format.
 
 **Implementation notes:**
 - Java: Full implementation — default writer emits v3, deserializer reconstructs original
-  token types via `Class.forName`. Known gap: the V2 and V3 header builds the tags and the
-  metadata histogram with `Map.copyOf`, whose iteration order changes from one JVM to the next,
-  so two JVMs write different headers for the same run data ([runtime-defects.md](runtime-defects.md) RD-17).
+  token types via `Class.forName`. The V2 and V3 header holds the tags and the metadata histogram
+  in ascending code-point order of their keys, so two JVMs write the same header for the same run
+  data.
 - TypeScript: Full implementation — default writer emits v3, `structured` projection via
   `JSON.parse(JSON.stringify(value))`.
 - Rust: Full implementation — default writer emits v3 via a user-supplied
   `TokenProjectorRegistry`; reader hydrates into a `ReplayedTokenPayload` exposing the
   `structured` JSON without attempting to revive the original `T` (Rust has no
   `Class.forName` equivalent).
-- Python: `write_from_store` writes through the Rust writer. Known gap: it copies the store into
-  a debug store that keeps at most 10,000 events, so a larger store is archived without its
-  oldest events (RD-18). Known gap: it writes version 3 only and offers no `writeV1` or `writeV2`
-  (RD-19). Known gap: for an empty store it takes the start and end times from the wall clock, so
-  two archives of the same empty session differ (RD-20).
+- Python: `SessionArchiveWriter.write_from_store` writes version 3 through the Rust writer, and
+  `write_v1` and `write_v2` write versions 1 and 2. Each archives every event of the store's
+  snapshot, whatever its size, and a header whose `structure` lists the net's places and
+  transitions. For an empty store the start time is 0 and there is no end time, so two archives of
+  the same empty session are identical.
 
 **Cross-language replay:** Java → Java reconstructs typed tokens. TypeScript and Rust
 archive bodies share field names and JSON shapes (shared `NetEventInfo` contract) but not the
@@ -796,7 +799,7 @@ An event that carries no transition name *shall* match no filter by transition n
 4. `failures()` returns TransitionFailed, TransitionTimedOut, and ActionTimedOut events.
 5. `counters()` returns a `{eventType: count}` histogram whose values sum to the total event count.
 
-**Implementation status:** the helpers differ per language. Filter by type: Java and TypeScript (`eventsOfType`), Python (`events(types=...)`); the Rust store has none. Filter by transition name: Java and TypeScript (`transitionEvents`), Rust (`transition_events`), Python (`events(transitions=...)`). Filter by place name, offset/limit and `counters()`: Python only. Count: all four count every event (`size()` in Java, TypeScript and Rust, `len()` in Python), and Python also counts by type (`count(types=...)`). `failures()`: all four. Every implementation marks the missing transition name of an engine diagnostic at the initial-marking seam by the empty name, so a filter for the empty name returns those diagnostics; such a filter is outside this requirement. Java's `transitionEvents` throws on a store that holds a log message with no transition name (an engine diagnostic of an interrupted run); this is a known gap in Java.
+**Implementation status:** the helpers differ per language. Filter by type: Java and TypeScript (`eventsOfType`), Python (`events(types=...)`); the Rust store has none. Filter by transition name: Java and TypeScript (`transitionEvents`), Rust (`transition_events`), Python (`events(transitions=...)`). Filter by place name, offset/limit and `counters()`: Python only. Count: all four count every event (`size()` in Java, TypeScript and Rust, `len()` in Python), and Python also counts by type (`count(types=...)`). `failures()`: all four. Every implementation marks the missing transition name of an engine diagnostic at the initial-marking seam by the empty name, so a filter for the empty name returns those diagnostics; such a filter is outside this requirement. Java's `transitionEvents` skips an event with no transition name, such as the engine diagnostic of an interrupted run.
 **Test derivation:** Run net with mixed events; verify each filter, pagination, and the counters
 histogram return correct subsets / totals.
 
@@ -892,8 +895,7 @@ The enabled transitions are those with a `TransitionEnabled` event and no later 
 **Depends on:** [EVT-021], [EVT-004], [EVT-006], [EVT-007], [EVT-008], [EVT-009], [EVT-010], [EVT-011], [EVT-012], [EVT-014]
 **Implementation status:** Implemented in all four: Rust (`libpetri-debug::MarkingCache`), Python
 (`MarkingCache`, `ComputedState`), Java (`org.libpetri.debug.MarkingCache.computeAt`) and
-TypeScript (`MarkingCache.computeAt` in `libpetri/debug`). Known gap: Java's `computeAt` does not
-clamp an index beyond the stream length and throws `IndexOutOfBoundsException` (AC2). Known gap:
+TypeScript (`MarkingCache.computeAt` in `libpetri/debug`). Known gap:
 no debug protocol handler calls `invalidate()` when its debug store evicts events ([EVT-024]), so a
 seek after an eviction can return a state that is not the replay (AC3).
 **Test derivation:** Record a multi-firing run; `compute_at` at 0, an intermediate index, the end,

@@ -49,11 +49,11 @@ requirement MOD_003
           "if NB builds the body of S as the net b and some port of S exposes a place that is not a place of b, SB fails on S;"
           "if SB builds S, q is a port of S, n is the name of no port of S and d is any direction, SB builds S with the port (n, d, place of q) appended to its ports."
   assumes "A subnet builder (SubnetMake) and the body net builder NB are those of MOD-006 (Spec/Req/MOD_006.lean): the build call of one implementation's subnet-definition builder, read as a function from what the host declared to a subnet definition or a rejection with a message, and the net builder that builds the body first (rust/libpetri-core/src/subnet_def.rs:378-430, java/src/main/java/org/libpetri/core/SubnetDef.java:624-662, typescript/src/core/subnet-def.ts:539-580). Line 1 is MOD-006's line 3 and line 2 is MOD-006's line 1, quoted here because the markdown states them under the port declaration too; which offender a failure names is MOD-006's line 7."
-          "Ruling D35 (a): two distinct ports may expose one body place, whatever their directions, as in every runtime (the subnet builders rust/libpetri-core/src/subnet_def.rs:388-404, java/src/main/java/org/libpetri/core/SubnetDef.java:630-643, typescript/src/core/subnet-def.ts:549-563 check only the port name and the place). Line 3 states the permission as acceptance: adding a port of a new name over the place of an existing port never turns a successful build into a failure. Which binding a composition keeps when the two ports are bound to two different caller places is not defined (MOD-020); Rust and Java keep one binding in the iteration order of the caller's map (rust/libpetri-core/src/petri_net.rs:1050-1068, java/src/main/java/org/libpetri/core/PetriNet.java:718). D35 (b), rejecting a shared place at subnet build, is a later runtime change that would replace line 3."
-          "Line 2 compares a port's place with the places of the built body by equality on the place type N, as MOD-006 line 1 does (CORE-002: by name in TypeScript, Rust and Python, by name and token type in Java, rust/libpetri-core/src/subnet_def.rs:396, java/src/main/java/org/libpetri/core/SubnetDef.java:637, typescript/src/core/subnet-def.ts:556). So a port over a place of name p and token type Integer, on a body that holds p of token type String, is rejected in Java only."
+          "Ruling D35 (a): two distinct ports may expose one body place, whatever their directions, as in every runtime (the subnet builders rust/libpetri-core/src/subnet_def.rs:388-404, java/src/main/java/org/libpetri/core/SubnetDef.java:630-643, typescript/src/core/subnet-def.ts:549-563 check only the port name and the place). Line 3 states the permission as acceptance: adding a port of a new name over the place of an existing port never turns a successful build into a failure. It is relative and appends the new port at the end of the ports; the quote names no position. On its own the block therefore lets a builder reject every subnet that has a port (line 3 is then never triggered); the absolute 'they build' of AC5 and of the MAY sentence 'Two distinct ports MAY expose the same body place', and the insertion of the new port at any other position, are MOD-006 line 6, from which line 3 follows (mod003_of_mod006). The prose sentence 'When two ports expose one body place, a caller binds both to one caller place' is MOD-020's coherent-call precondition (mod020_coherent in Spec/Req/MOD_020.lean): MOD-020 states its binding lines on coherent calls only. Which binding a composition keeps when the two ports are bound to two different caller places is not defined (MOD-020); Rust and Java keep one binding in the iteration order of the caller's map (rust/libpetri-core/src/petri_net.rs:1050-1068, java/src/main/java/org/libpetri/core/PetriNet.java:718). D35 (b), rejecting a shared place at subnet build, is a later runtime change that would replace line 3."
+          "Line 2 compares a port's place with the places of the built body by equality on the place type N, as MOD-006 line 1 does (CORE-002: by name in TypeScript, Rust and Python, by name and token type in Java, rust/libpetri-core/src/subnet_def.rs:396, java/src/main/java/org/libpetri/core/SubnetDef.java:637, typescript/src/core/subnet-def.ts:556). So a port over a place of name p and token type Integer, on a body that holds p of token type String, is rejected in Java only. The prose MUST sentence 'The exposed place MUST be a place of the subnet's body' is line 2 (and AC4) when the body builds; when it does not, MOD-006 line 5 makes the build fail. That a port on any place of the built body is accepted, including a place only an arc of a body transition names, is MOD-006 line 6: a builder that checks a port's place against the declared places instead of the built body meets MOD-003 and violates MOD-006 (mod003_declPlaces)."
           "Line 1 reads 'unique within the interface' over the ports alone: port names and channel names are two namespaces (MOD-006). Java refuses a blank port name when the port value is constructed (java/src/main/java/org/libpetri/core/Interface.java:122-144), before any subnet builder sees it, so line 3's new name n ranges over the names Java can construct; TypeScript and Rust accept a blank name. On the interface-builder route of MOD-014 (fromNet) a duplicate port name is rejected even earlier, at the port() call (rust/libpetri-core/src/interface.rs:164-170, java/src/main/java/org/libpetri/core/Interface.java:183-190, typescript/src/core/interface.ts:107-113), which meets AC2's 'at build' since it is not later."
-          "AC1 (a port can be declared with name, direction and a body place) is the Port record of Spec/GlossaryCompose.lean (name, dir, place; Dir has exactly the three directions input, output and in-out); that a built subnet definition keeps every declared port with its name, direction and place is MOD-001's line. AC2 (the port name is unique, duplicates rejected at build) is line 1, stated of the subnet builder itself. AC3 (the exposed place's token type is preserved in the port's typed handle) is MOD-011's: the typed handle is the instance's port lookup, and its compile-time half is not modelled. AC4 (a port whose place is not in the body is rejected at build) is line 2. AC5 (two ports of different names over one body place build, whatever their directions) is line 3, with MOD_003_nonvacuous as the worked case."
-  signoff "pending"
+          "AC1 (a port can be declared with name, direction and a body place) is the Port record of Spec/GlossaryCompose.lean (name, dir, place; Dir has exactly the three directions input, output and in-out); that a built subnet definition keeps every declared port with its name, direction and place is MOD-001's line. AC2 (the port name is unique, duplicates rejected at build) is line 1, stated of the subnet builder itself. AC3 (the exposed place's token type is preserved in the port's typed handle) is MOD_011_typed's, scoped by ruling D36 (a) to the implementations that keep a run-time token type for each port, Java and Rust; its compile-time reading is withdrawn (MOD-011, ruling D36 (a)). TypeScript's port<T>(name) takes T as an annotation it does not check (typescript/src/core/instance.ts:79-85) and Python's lookup takes no type, so for them AC3 is out of scope by the same ruling and no block states it. AC4 (a port whose place is not in the body is rejected at build) is line 2. AC5 (two ports of different names over one body place build, whatever their directions) is line 3 relative to a build, and MOD-006 line 6 for the build itself, with MOD_003_nonvacuous as the worked case."
+  signoff "2026-11-13 bf78e1b0f9221c62 ai"
   statement : ∀ {N A : Type}, NetBuilder (defsTB N A) → SubnetMake N A → Prop :=
     fun {N A} NB SB =>
       (∀ S : SubnetIn N A, ¬ (S.ports.map (·.name)).Nodup → ∃ msg, SB S = .error msg) ∧
@@ -211,6 +211,56 @@ builds with one more port of a new name over a place a port already exposes. -/
 theorem MOD_003_reference {N A : Type} [DecidableEq N] [ToString N]
     (NB : NetBuilder (defsTB N A)) : MOD_003 NB (refSubnetBuild NB) :=
   mod003_of_mod006 (MOD_006_reference NB)
+
+/-! ### A port on an arc-only place: MOD-006's matter -/
+
+section DeclPlaces
+
+/-- A port check that compares a port's place with the places the host declared, not with the
+places of the built body (a slip that reads the declaration before the body is built). -/
+def mod003_declPortCheck (S : SubnetIn String Unit) (_ : BuiltNet String Unit) : Option String :=
+  checkList (·.name) (fun q : Port String => q.place ∈ S.places)
+    (dupPortMsg S.name) (portPlaceMsg S.name) [] S.ports
+
+/-- `buf` with the single output port `out` on `done`, a place the body holds only because the
+output arc of `take` names it. -/
+def mod003_exOut : SubnetIn String Unit := { mod006_exS with ports := [⟨"out", .output, "done"⟩] }
+
+/-- **A port on an arc-only place is MOD-006's matter.** The builder that checks ports against
+the declared places rejects `buf` with its port `out` on `done`, which the reference builds; it
+still rejects two ports of one name and a port on a place the built body does not hold, so the
+lines of MOD-003, which state failures and a relative acceptance, do not catch it. MOD-006 line 6
+does. -/
+theorem mod003_declPlaces :
+    MOD_003 refNetBuild (subnetVia refNetBuild mod003_declPortCheck refChanCheck) ∧
+    (∃ D, refSubnetBuild refNetBuild mod003_exOut = .ok D) ∧
+    (∃ m, subnetVia refNetBuild mod003_declPortCheck refChanCheck mod003_exOut = .error m) ∧
+    ¬ MOD_006 refNetBuild (subnetVia refNetBuild mod003_declPortCheck refChanCheck) := by
+  have hP : ∀ (S : SubnetIn String Unit) b, mod003_declPortCheck S b = none ↔
+      (∀ q ∈ S.ports, q.place ∈ S.places) ∧ (S.ports.map (·.name)).Nodup := fun S b => by
+    unfold mod003_declPortCheck; rw [checkList_none_iff]; simp
+  refine ⟨⟨via_line3 fun S b h => ((hP S b).1 h).2, fun S b hb q hq hn => ?_, ?_⟩,
+    ⟨_, rfl⟩, ⟨_, rfl⟩, fun h => ?_⟩
+  · have hb' := (refNetBuild_eq_ok_iff.1 hb).2
+    cases hcp : mod003_declPortCheck S b with
+    | some m => exact ⟨m, by simp [subnetVia, hb, hcp]⟩
+    | none =>
+      exfalso; apply hn; subst hb'
+      exact mem_collect_places.2 (.inl (((hP S _).1 hcp).1 q hq))
+  · exact via_share (fun S b q n d h hq hn => (hP _ b).2
+      ⟨fun r hr => by
+        simp only [SubnetIn.addPort, List.mem_append, List.mem_singleton] at hr
+        rcases hr with hr | rfl
+        · exact ((hP S b).1 h).1 r hr
+        · exact ((hP S b).1 h).1 q hq,
+       nodup_addPort ((hP S b).1 h).2 hn⟩) refChanCheck_addPort
+  obtain ⟨D, hD⟩ := h.2.2.2.2.2.1 mod003_exOut _ (refNetBuild_of_terminals_nil rfl)
+    (by decide) (by decide) (by decide) (by decide)
+  have : subnetVia refNetBuild mod003_declPortCheck refChanCheck mod003_exOut =
+      .error (portPlaceMsg "buf" (⟨"out", .output, "done"⟩ : Port String)) := rfl
+  rw [this] at hD; cases hD
+
+end DeclPlaces
 
 /-! ### Example -/
 

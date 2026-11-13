@@ -22,7 +22,7 @@ import { viewKeys } from './keyboard.js';
 import { blocks as mdBlocks } from './md.js';
 import { href, R, type RouteOf } from './router.js';
 import { openSearch } from './search.js';
-import { LEAN_META, leanState, openDefects, ROLE_META, ROLE_ORDER, RUNTIME_LABEL, TEST_META } from './status.js';
+import { defectStatusWord, LEAN_META, leanState, openDefects, ROLE_META, ROLE_ORDER, RUNTIME_LABEL, TEST_META } from './status.js';
 import { statusBadge, viewFrame } from './ui.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -468,7 +468,7 @@ function defectMeta(ctx: AppContext, node: GraphNode): Child {
   if (d === undefined) return null;
   return d.status.state === 'open'
     ? h('span', { class: 'graph__tag graph__tag--defect' }, h('span', { 'aria-hidden': 'true' }, '⚠'), ' open')
-    : h('span', { class: 'graph__tag graph__tag--ok' }, `fixed in ${d.status.version}`);
+    : h('span', { class: 'graph__tag graph__tag--ok' }, defectStatusWord(d.status));
 }
 
 /** The neighbourhood columns (design 7). Only depends-on edges count as dependencies. */
@@ -591,7 +591,7 @@ function focusCard(ctx: AppContext, info: NodeInfo, mode: 'node' | 'impact'): HT
         h('p', { class: 'graph__meta' },
           d.status.state === 'open'
             ? statusBadge(TEST_META.defect, 'open')
-            : statusBadge({ glyph: '✓', word: `fixed in ${d.status.version}`, tone: 'ok', explain: 'The ledger entry is closed.' }),
+            : statusBadge({ glyph: '✓', word: defectStatusWord(d.status), tone: 'ok', explain: 'The ledger entry is closed.' }),
           ' ',
           d.runtimes.map((r) => RUNTIME_LABEL[r]).join(', '),
         ),

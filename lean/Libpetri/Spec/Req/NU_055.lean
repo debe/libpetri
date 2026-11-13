@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNuVer
+import Libpetri.Reference.NuLink
 
 set_option linter.missingDocs true
 
@@ -18,21 +19,25 @@ Three blocks, one per kind of claim the section makes.
   check that compares names with a fixed name, and a check that reads only the first place of
   `S`. Mutant reading: the line without its self pairs, which the cross-pairs check meets.
 * `NU_055_sound` (kind B, with the premises the soundness theorems need as hypotheses): a
-  Route B `Proven` of `NameAligned(S)` holds in every marking the untimed, environment-free,
-  atomic executor `NuStepC` reaches, and a `Proven` of `QuiescentNameAligned(S)` in every
-  marking at which it rests. It is a predicate over an abstract pair of deciders. Witnesses:
-  `refNameAligned` (glossary `GlossaryNuVer.lean`) and `refQuiescentNameAligned` (here).
+  Route B `Proven` of `NameAligned(S)` holds in every marking a contract-keeping run of the
+  reference ν executor reaches (`NuLink.RefNuRunB`, untimed, environment-free, atomic), and a
+  `Proven` of `QuiescentNameAligned(S)` in every marking at which it rests (`NuRests`). It is a
+  predicate over an abstract pair of deciders, asked on the Route B call of a reference net.
+  Witnesses: `refNameAligned` (glossary `GlossaryNuVer.lean`) and `refQuiescentNameAligned`
+  (here).
 * `NU_055_truncation` (kind F): the verdict read off a built graph. A graph that did not close
-  never gives `Proven`, and gives `Unknown` when no class violates the property; a closed graph
+  never gives `Proven`, gives `Unknown` when no class violates the property and, when it reached
+  the class bound, `Violated` when one does (the prefix rule, ruling D59 (a)); a closed graph
   gives `Proven` exactly when no class violates it; a `Violated` names a violating class. It is
   a predicate over an abstract verdict function on a built graph. Witness: `refClassVerdict`, the
   shipped `Decide.verdict`.
 
 The refusal order is a fourth block, `NU_055_refusal` in `NU_055_steps.lean`. Left out, each by
-an assumes sentence of a block: the routing rules ('Route B only', Route B before a budget place),
-which are dispatch rules of the verifier pipeline; the prefix rule's `Violated` on a truncated graph and exactness against the executor (open ruling
-D59); the counterexample's shape (open ruling D40); the timed graph (gap R6) and in-flight
-markings, which the spec itself leaves unproved; the API shape and descriptions (N).
+an assumes sentence of a block: the routing and gate rules ('Route B only', Route B before a budget
+place, lifting the no-match gates for these properties only), which are dispatch and classifier
+rules of the verifier pipeline; the counterexample's report shape (VER-003 under ruling D40 (a));
+the timed graph (gap R6) and in-flight markings, which the spec itself leaves unproved; the API
+shape and descriptions (N).
 -/
 
 namespace Libpetri.Spec
@@ -71,9 +76,9 @@ requirement NU_055
           "An uncoloured place has no row in the name layer, so nothing is resident there (resident_of_not_mem) and the line holds vacuously for it (alignedAll_uncoloured, cited). That such a place is refused (refusal step 6, 'Coloured places only', AC2) is not a line of this block: it is line 6 of the refusal block NU_055_refusal (NU_055_steps.lean), whose NU_055_refusal_uncoloured_refused shows that such a place never reaches the graph, and whose NU_055_refusal_forbids_noUncoloured kills the design's mutant 'proves on an uncoloured place'."
           "'A place listed twice counts once, at its first occurrence' also fixes the description and which place a reason names, and 'The order of S changes no verdict' also covers the reason of an Unknown. The description (the Property: line) is N (an API note), and which place a reason names is the refusal order's (NU_055_refusal). On the predicate, the only part of the verdict this block models, order and repeats change nothing (NU_055_members)."
           "'An empty S MUST be rejected where it is constructed' and 'S is a non-empty list' are the language API (N): each constructor rejects an empty list (Java records, the TypeScript signature, the Rust panic, the Python ValueError). The line is stated for a non-empty S only, so the block fixes no answer for the empty list, which never reaches a verdict."
-          "AC5 (invariance under name permutation, on a class and that class permuted, and under reordering S) is NU_055_perm and NU_055_members, theorems of the line; its run of the worked example with names minted in another scope ([NU-010]) is a test of the minter (NU-010, NU-011, wave W9) and of the verdict, not of the predicate, and is not encoded."
+          "AC5 (invariance under name permutation, on a class and that class permuted, and under reordering S) is NU_055_perm and NU_055_members, theorems of the line; its run of the worked example with names minted in another scope ([NU-010]) is a test of the minter (NU-010, NU-011) and of the verdict, not of the predicate, and is not encoded."
           "AC7 ('S is a list'; the cross pair of reply and staged without the self pairs would accept a marking with two stale replies in reply) is the line with self pairs: NU_055_forbids_crossOnly kills the check without self pairs. AC7's construction rules are the API (N, above) and NU_055_members; its descriptions are N; its verdicts and witness lengths on the worked example are tests on the fixtures (Q), as the Route B graph of that net is not computed in Lean."
-  signoff "pending"
+  signoff "2026-11-13 844b7488adecca57 ai"
   statement : AlignCheck → Prop :=
     fun A => ∀ (co : List PlaceId) (β : Type) (ps : List PlaceId) (S : NState co β), ps ≠ [] →
       (A co β ps S = true ↔
@@ -291,7 +296,7 @@ theorem NU_055_nonvacuous :
       refAlignCheck nu055_co Unit [1, 0, 1] nu055_mixed = false := by
   decide
 
-/-! ## NU-055 (B): a Route B `Proven` holds for the atomic executor -/
+/-! ## NU-055 (B): a Route B `Proven` holds for the reference executor -/
 
 /-- A `QuiescentNameAligned` call: a name-alignment call and the reapable set (transition
 names) its quiescence reads ([VER-002], [TIME-013]). -/
@@ -314,154 +319,304 @@ noncomputable def refQuiescentNameAligned : QAlignDecider := fun q =>
 
 #spec_witness refQuiescentNameAligned
 
+/-- A ν transition of the reference over the places, values and names Route B reads. -/
+abbrev NuTransA := Spec.NuTrans PlaceId (KeyFn Colour ℕ)
+
+/-- A queue marking of stamped tokens over those places and values. -/
+abbrev QMarkA := Reference.QMarking PlaceId (Stamped Colour)
+
+/-- One name-alignment call on a reference ν net: the transitions, the coloured set and the roles
+the classifier gave, the class bound and the fuel of the build, the places `S` in the caller's
+order and the initial queue marking. -/
+structure AlignQueryR where
+  /-- The transitions of the net. -/
+  X : List NuTransA
+  /-- The coloured set, in the classifier's order. -/
+  co : List PlaceId
+  /-- The role of each translated transition. -/
+  role : Novel.RouteB.NuTrans → Role
+  /-- The class bound. -/
+  maxClasses : ℕ
+  /-- The fuel of the Lean build. -/
+  fuel : ℕ
+  /-- The places `S`, in the caller's order. -/
+  ps : List PlaceId
+  /-- The initial marking. -/
+  M0 : QMarkA
+
+/-- The reapable set of a reference net, by transition name ([TIME-013], [VER-002]): the names
+of its reapable transitions (as NU-050's `reapNames`). -/
+def alignReapNames (X : List NuTransA) (s : String) : Bool :=
+  X.any fun t => t.base.core.name == s && t.base.reapable
+
+/-- The Route B call of a name-alignment call on a reference net: the translated net
+(`NuLink.toNuTransB`), conflict priority off, the counts of the initial marking. -/
+def AlignQueryR.call (q : AlignQueryR) : AlignQuery :=
+  ⟨q.co, q.X.map Reference.NuLink.toNuTransB, q.role, false, q.maxClasses, q.fuel, q.ps,
+    Reference.qCount q.M0⟩
+
+/-- The Route B call of a `QuiescentNameAligned` call on a reference net: `AlignQueryR.call`
+with the reapable set of the net. -/
+def AlignQueryR.qcall (q : AlignQueryR) : QAlignQuery :=
+  { toAlignQuery := q.call, reap := alignReapNames q.X }
+
 requirement NU_055_sound
   id "NU-055"
   title "Name Alignment: soundness"
   kind B
-  scope "every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the untimed, environment-free executor with atomic firings"
+  scope "every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the reference ν executor, untimed and environment-free, with atomic firings"
   source verbatim "spec/12-nu-nets.md"
   quote "**NameAligned(S)**, for a non-empty list `S` of places: in every reachable marking, the places of `S` together hold at most one distinct name."
         "**QuiescentNameAligned(S)**: the same predicate, read only in the reachable quiescent markings."
         "Lean `Novel/RouteB/Aligned.lean` (`routeB_untimed_nameAligned_sound`, `routeB_untimed_quiescentNameAligned_sound`) proves: for the **untimed, environment-free executor with atomic firings**, a `Proven` of either property holds in every marking that executor reaches (for the quiescent form, every marking at which it rests): the tokens in the places of `S` all carry the same name."
         "*If* the premises above hold, *then* Route B *shall* answer `Proven` for `NameAligned(S)` only if the tokens in the places of `S` all carry the same name in every marking the untimed, environment-free executor with atomic firings reaches."
         "*If* the premises above hold, *then* Route B *shall* answer `Proven` for `QuiescentNameAligned(S)` only if the tokens in the places of `S` all carry the same name in every marking that the untimed, environment-free executor with atomic firings reaches and rests at, resting being read with the reapable set of the call ([VER-002])."
-  reading "For every call q with a duplicate-free coloured set, every transition in the fragment for its role and without input guards, every place of S coloured, and an initial marking m0 whose coloured places are empty and whose counts are q's initial marking, and for every projection nameOf:"
-          "if D answers Proven for NameAligned(S), then in every marking m that NuStepC reaches from m0, any two tokens in places of S, the same place allowed, carry the same name;"
-          "if, in addition, every join key consumes at least one token (PosKeys), and Dq answers Proven for QuiescentNameAligned(S) with the reapable set reap, then the same holds in every marking m that NuStepC reaches from m0 and at which every transition the executor can fire is reapable (ExecRests reap, the call's own reapable set)."
-  assumes "The executor is Novel's NuStepC (Sim.lean): untimed, environment-free, one atomic firing per step, a coloured consumer taking any resident name (ruling D16 is why that differs from EXEC-010's FIFO). It is the executor the Soundness paragraph names. It is not the reference ν firing: RefNu and its reachability RefNuReach do not exist yet. Design correction S7 (a) states this line over RefNuReach once the bridge B1 (Reference/NuLink.lean, wave W9) exists; that changes the statement and its hash, so the block stays pending until then."
-          "The premises are hypotheses (design correction S6), one per premise bullet of the Soundness paragraph: 'the coloured places start empty' (hempty); 'every place of S coloured' (ps ⊆ co; in the shipped verifier the refusal order enforces it, and hempty with it: NU_055_refusal_build_premises); 'the conditions the classifier establishes (InFragment)', 'unguarded inputs' (GuardFree) and, for the quiescent form, PosKeys. The contracts of the mints and coloured consumers (NU-010, NU-051, NU-054), the projection contract of NU-050 (one projection nameOf, Exec.ProjCoherent) and one token per output place of the firing's branch (IO-016 AC4) are built into NuStepC, as the Soundness paragraph says. Conflict-only priority (NU-052) is the conflict flag of the call, read by NuStepC through the same prune."
-          "Two hypotheses are not spec premises and get no premise bullet. q.co.Nodup says the list the call holds is a set: the spec's coloured set is a set, and the classifier's coloured order (Rust coloured_order, the co of the Lean theorems) lists each place once. q.a0 = alpha m0 says the call's initial counts are those of m0, the marking the runs start from. Neither narrows the claim about a call the shipped pipeline makes."
-          "The lines ask soundness for every coloured set and role assignment that meets InFragment, not only for the classifier's. That is the premise bullet as written ('the conditions the classifier establishes (InFragment)', a condition, not the classifier), and Route B alone takes co and role as inputs; the classifier's own output meets InFragment (classifyS_inFragment, Novel/RouteB/Classify.lean, NU-051). That the coloured set is the one the classifier computes for the call, not one the caller names, is the pipeline's (wave W10)."
-          "The lines are soundness only: a decider that never answers Proven meets them. That a closed graph none of whose classes violates gives Proven is NU_055_truncation line 3, on the verdict function; whether a Proven or a Violated of the deciders is exact against the executor (VER-012's 'exact (sound and complete)', clash ver-d#1) waits for ruling D59."
-          "The deciders are AlignDecider (glossary GlossaryNuVer.lean, witness refNameAligned) and QAlignDecider (here, witness refQuiescentNameAligned): Route B alone, from the initial class, with no refusal step and no routing. The quiescent line reads resting with the call's reapable set q.reap, the one the decider is given, as the reap-aware quiescence of VER-002 does on the graph. Every refusal of the refusal order (steps 1 to 7: cancellation and budget, an absent place, Bounded(k) outside its premises, in-flight state, the fragment declines of EXTENDED and BASE, an arrival into a coloured place, a modelled environment place, an uncoloured place of S, a marked coloured place) and the 'Coloured places only' and 'Modelled injection' rules are the block NU_055_refusal (NU_055_steps.lean), worded under ruling D20 (clashes nu-c#7, nu-c#9, NC-7, NC-8). 'Route B only' (no other route decides, no NU-053 fallback, no script) and the routing rule that sends these properties to Route B before a budget place are dispatch rules of the verifier pipeline. None of them is encoded here."
-          "Not covered, as the spec itself says: the timed name × time graph the shipped Route B builds (gap R6 of Novel/RouteB/Sound.lean), the all-immediate worked example included; markings with actions in flight (the Lean model has none); faithfulness of a carrier's name to what its token is about, which rests on the unchecked contracts of NU-051."
+  reading "For every call q (a net X of reference ν transitions, its coloured set co, its roles, the build limits, the places S and the initial marking M0) and every projection nameOf, where co lists each place once, every translated transition is in Route B's fragment for its role (InFragment), every transition has the shape B1 needs (B1Shape: distinct input places, correlated inputs taking a fixed count, correlated inputs coloured), every place of S is coloured, every coloured place is empty in M0, and at every marking a contract-keeping run reaches every key and relay projection of every transition gives each token of its place the name nameOf gives it (NuProj):"
+          "if D answers Proven for NameAligned(S) on the Route B call of q, then in every marking M a contract-keeping reference run from M0 reaches, any two tokens in places of S, the same place allowed, carry the same name;"
+          "if, in addition, every join key consumes at least one token (PosKeys), and Dq answers Proven for QuiescentNameAligned(S) on the Route B call of q with the reapable set of q (the names of its reapable transitions), then the same holds in every marking M a contract-keeping reference run from M0 reaches and at which every ν-enabled transition is reapable (NuRests)."
+  assumes "The executor is the reference ν firing RefNuFire (Reference/Nu.lean), untimed and environment-free, one atomic firing per step: a run is NuLink.RefNuRunB, a sequence of firings of transitions of X each of whose actions keeps the contract of the role Route B gives its transition (NuLink.NuContract): a declared mint writes one name no coloured place holds into every coloured place it writes (NU-010, ruling D78 (a), NuLink.nuContract_mint_iff), a coloured consumer writes only a name it received from a coloured input (NU-051, NU-054). This is design correction S7 (a): the lines are stated over the reference executor, as NU_050_soundB's are. The 'untimed, environment-free executor with atomic firings' of the Soundness paragraph is this run; Novel's NuStepC (Sim.lean), where a coloured consumer takes any resident name (ruling D16 is why that differs from EXEC-010's FIFO), is the graph's semantics the holds proof passes through, not the executor of the lines. A firing whose action breaks its contract is not a step of the run; the spec makes no claim about it."
+          "The premises are hypotheses (design correction S6), one per premise bullet of the Soundness paragraph: 'the coloured places start empty' (every place of co empty in M0); 'the mints and coloured consumers keep their contracts' (the run, above); 'the projection contract of [NU-050]' (NuProj at every marking a contract-keeping run reaches, one projection nameOf for every key and relay); 'every firing writes one token to each output place its branch names' (built into RefNuFire, IO-016 AC4); 'every place of S coloured' (ps ⊆ co; in the shipped verifier the refusal order enforces it, and the empty start with it: NU_055_refusal_build_premises); 'the conditions the classifier establishes (InFragment)', over the translated net; 'unguarded inputs', which needs no hypothesis since IO-006 removed guards and every translated input is unguarded (NuLink.guardFree_toNuTransB); and, for the quiescent form, PosKeys. B1Shape is the shape the bridge needs, which every transition that builds and that the classifier accepts as a join meets (CORE-030 AC3; Route B accepts only One and Exactly keys), as in NU_050_soundB."
+          "q.co.Nodup is not a spec premise and gets no premise bullet: it says the list the call holds is a set, as the spec's coloured set is and as the classifier's coloured order (Rust coloured_order, the co of the Lean theorems) lists each place once. It does not narrow the claim about a call the shipped pipeline makes. The Route B call's initial counts are those of M0 (AlignQueryR.call), the marking the runs start from."
+          "Conflict-only priority (NU-052) is off in the Route B call (AlignQueryR.call sets the conflict flag false), as in NU_050_soundB: the priority pass is the executor's (RefExec), not one firing's, so a reference run takes no priority and the translated net is explored with conflict false. The Soundness paragraph's 'Conflict-only priority ([NU-052]) applies as it does to every Route B property' is not a line here: a Proven under conflict priority is sound for Novel's NuStepC with the same prune (routeB_untimed_nameAligned_sound and routeB_untimed_quiescentNameAligned_sound take the conflict flag, cited), and its tie to RefExec's priority pass is NU-052's, as for every Route B property."
+          "The lines ask soundness for every coloured set and role assignment that meets InFragment, not only for the classifier's. That is the premise bullet as written ('the conditions the classifier establishes (InFragment)', a condition, not the classifier), and Route B alone takes co and role as inputs; the classifier's own output meets InFragment (classifyS_inFragment, Novel/RouteB/Classify.lean, NU-051). That the coloured set is the one the classifier computes for the call, not one the caller names, is the pipeline's and no block states it; how the set is computed is Q-tested (NU_051_colours' assumes)."
+          "The lines are soundness only: a decider that never answers Proven meets them. Ruling D59 (a) reads VER-012's 'exact (sound and complete)' (clash ver-d#1) as sound against the executor and complete for the free-choice name semantics of the graph: soundness is this block; completeness against the graph is NU_055_truncation line 3 (a closed graph none of whose classes violates answers Proven) and VER-012's block. The holds proof is bridge B1 on contract-keeping runs (NuLink.refNuRunB_names_reach: every contract-keeping reference run is a NuStepC run of the translated net with conflict off) composed with routeB_untimed_nameAligned_sound and routeB_untimed_quiescentNameAligned_sound; for the quiescent form a reference rest is an executor rest of the translated net (nu055_execRests_of_nuRests), resting read with the names of the reapable transitions."
+          "The deciders are AlignDecider (glossary GlossaryNuVer.lean, witness refNameAligned) and QAlignDecider (here, witness refQuiescentNameAligned), asked on the Route B call of q (AlignQueryR.call; AlignQueryR.qcall adds the reapable set): Route B alone, from the initial class, with no refusal step and no routing. The quiescent line reads resting with the call's reapable set, the names of the reapable transitions of X, as the reap-aware quiescence of VER-002 does on the graph and NuRests does on the reference marking. Every refusal of the refusal order (steps 1 to 7: cancellation and budget, an absent place, Bounded(k) outside its premises, in-flight state, the fragment declines of EXTENDED and BASE, an arrival into a coloured place, a modelled environment place, an uncoloured place of S, a marked coloured place) and the 'Coloured places only' and 'Modelled injection' rules are the block NU_055_refusal (NU_055_steps.lean), worded under ruling D20 (clashes nu-c#7, nu-c#9, NC-7, NC-8)."
+          "Three rules of the section are dispatch and classifier rules of the verifier pipeline, not lines of any NU-055 block: 'Route B only' (no other route decides, no NU-053 fallback, no script); the rule that sends these properties to Route B before a budget place; and 'an implementation MUST lift both gates for the name-alignment properties, and only for them', the classifier's no-fragment for a net without a matched transition (Rust classify, whose matchless flag is set from property.is_name_alignment()) and the dispatcher's flat-phase routing of such a net (the name_alignment trigger of verify_net). NU_053_dispatch models the routing: its routeB guard enters Route B on a name-alignment call whatever the join and budget flags, and on any other call only with a ν-join. The classifier gate is lifted here by construction: the lines take every co and role that meet InFragment, a net without a matched transition included (the nonvacuous example is one)."
+          "Not covered, as the spec itself says: the timed name × time graph the shipped Route B builds (gap R6 of Novel/RouteB/Sound.lean), the all-immediate worked example included; markings with actions in flight (the reference run has none); faithfulness of a carrier's name to what its token is about, which rests on the unchecked contracts of NU-051."
           "AC1 (the worked example under EXTENDED: QuiescentNameAligned(box, list) and QuiescentCount Proven, NameAligned(box, list) Violated in 8 firings, the buggy variant Violated in 12, each attributed to Route B) is a fixture test (Q): the graph of that net is not computed in Lean. Its Proven verdicts are the kind lines 1 and 2 make sound; its Violated verdicts and witness lengths are graph facts."
-          "AC2 (an uncoloured or absent place gives Unknown naming it, the first in S) and AC6 (an environment place under AlwaysAvailable gives Unknown naming it, a marked coloured place gives Unknown naming it) and AC8 (the refusal order on the worked example) are lines 1, 5, 6 and 7 of NU_055_refusal. AC3 (under BASE the net is outside the fragment, the reason names EXTENDED and the report names the ignored relay declarations) is its line 2; the report note naming the ignored relay declarations is NU-054's (AC5). AC4 (no other route decides; the script encoders return none) is the pipeline's 'Route B only' rule, not encoded; its last clause (a truncation stays Unknown unless the prefix rule finds a violation) is NU_055_truncation line 2."
-  signoff "pending"
+          "AC2 (an uncoloured or absent place gives Unknown naming it, the first in S) and AC6 (an environment place under AlwaysAvailable gives Unknown naming it, a marked coloured place gives Unknown naming it) and AC8 (the refusal order on the worked example) are lines 1, 5, 6 and 7 of NU_055_refusal. AC3 (under BASE the net is outside the fragment, the reason names EXTENDED and the report names the ignored relay declarations) is its line 2; the report note naming the ignored relay declarations is NU-054's (AC5). AC4 (no other route decides; the script encoders return none) is the pipeline's 'Route B only' rule, not encoded; its last clause (a truncation stays Unknown unless the prefix rule finds a violation) is NU_055_truncation lines 2 and 5."
+  signoff "2026-11-13 d20b41b4b40c0e65 ai"
   statement : AlignDecider → QAlignDecider → Prop :=
     fun D Dq =>
-      (∀ (q : AlignQuery) (nameOf : Colour → ℕ) (m0 m : CMarking),
-        q.co.Nodup → (∀ T ∈ q.net, InFragment q.co T (q.role T)) →
-        (∀ T ∈ q.net, GuardFree T.base) → (∀ p ∈ q.ps, p ∈ q.co) →
-        (∀ i : Fin q.co.length, m0 q.co[i.1] = []) → q.a0 = alpha m0 →
-        D q = .proven →
-        Relation.ReflTransGen (NuStepC q.co nameOf q.net q.role q.conflict) m0 m →
-        ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ m p, ∀ d ∈ m p', nameOf c = nameOf d) ∧
-      (∀ (q : QAlignQuery) (nameOf : Colour → ℕ) (m0 m : CMarking),
-        q.co.Nodup → (∀ T ∈ q.net, InFragment q.co T (q.role T)) →
-        (∀ T ∈ q.net, PosKeys (q.role T)) →
-        (∀ T ∈ q.net, GuardFree T.base) → (∀ p ∈ q.ps, p ∈ q.co) →
-        (∀ i : Fin q.co.length, m0 q.co[i.1] = []) → q.a0 = alpha m0 →
-        Dq q = .proven →
-        Relation.ReflTransGen (NuStepC q.co nameOf q.net q.role q.conflict) m0 m →
-        ExecRests (co := q.co) (nameOf := nameOf) (net := q.net) q.reap m →
-        ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ m p, ∀ d ∈ m p', nameOf c = nameOf d)
+      (∀ (q : AlignQueryR) (nameOf : Colour → ℕ),
+        q.co.Nodup → (∀ T ∈ q.X.map Reference.NuLink.toNuTransB, InFragment q.co T (q.role T)) →
+        (∀ t ∈ q.X, Reference.NuLink.B1Shape q.co t) → (∀ p ∈ q.ps, p ∈ q.co) →
+        (∀ p ∈ q.co, q.M0 p = []) →
+        (∀ M, Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+          ∀ t ∈ q.X, Reference.NuLink.NuProj nameOf t M) →
+        D q.call = .proven →
+        ∀ M, Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+          ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ M p, ∀ d ∈ M p', nameOf c.val = nameOf d.val) ∧
+      (∀ (q : AlignQueryR) (nameOf : Colour → ℕ),
+        q.co.Nodup → (∀ T ∈ q.X.map Reference.NuLink.toNuTransB, InFragment q.co T (q.role T)) →
+        (∀ T ∈ q.X.map Reference.NuLink.toNuTransB, PosKeys (q.role T)) →
+        (∀ t ∈ q.X, Reference.NuLink.B1Shape q.co t) → (∀ p ∈ q.ps, p ∈ q.co) →
+        (∀ p ∈ q.co, q.M0 p = []) →
+        (∀ M, Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+          ∀ t ∈ q.X, Reference.NuLink.NuProj nameOf t M) →
+        Dq q.qcall = .proven →
+        ∀ M, Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M → Reference.NuRests q.X M →
+          ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ M p, ∀ d ∈ M p', nameOf c.val = nameOf d.val)
 
 /- The pinned readable form of NU_055_sound: a change to the formula shows up as a diff here. -/
 /--
 info: def Libpetri.Spec.NU_055_sound : AlignDecider → QAlignDecider → Prop :=
 fun D Dq =>
-  (∀ (q : AlignQuery) (nameOf : Colour → ℕ) (m0 m : CMarking),
+  (∀ (q : AlignQueryR) (nameOf : Colour → ℕ),
       q.co.Nodup →
-        (∀ T ∈ q.net, InFragment q.co T (q.role T)) →
-          (∀ T ∈ q.net, GuardFree T.base) →
+        (∀ T ∈ List.map Reference.NuLink.toNuTransB q.X, InFragment q.co T (q.role T)) →
+          (∀ t ∈ q.X, Reference.NuLink.B1Shape q.co t) →
             (∀ p ∈ q.ps, p ∈ q.co) →
-              (∀ (i : Fin q.co.length), m0 q.co[↑i] = []) →
-                q.a0 = alpha m0 →
-                  D q = Decide.Verdict.proven →
-                    Relation.ReflTransGen (NuStepC q.co nameOf q.net q.role q.conflict) m0 m →
-                      ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ m p, ∀ d ∈ m p', nameOf c = nameOf d) ∧
-    ∀ (q : QAlignQuery) (nameOf : Colour → ℕ) (m0 m : CMarking),
+              (∀ p ∈ q.co, q.M0 p = []) →
+                (∀ (M : Reference.QMarking PlaceId (Stamped Colour)),
+                    Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+                      ∀ t ∈ q.X, Reference.NuLink.NuProj nameOf t M) →
+                  D q.call = Decide.Verdict.proven →
+                    ∀ (M : Reference.QMarking PlaceId (Stamped Colour)),
+                      Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+                        ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ M p, ∀ d ∈ M p', nameOf c.val = nameOf d.val) ∧
+    ∀ (q : AlignQueryR) (nameOf : Colour → ℕ),
       q.co.Nodup →
-        (∀ T ∈ q.net, InFragment q.co T (q.role T)) →
-          (∀ T ∈ q.net, PosKeys (q.role T)) →
-            (∀ T ∈ q.net, GuardFree T.base) →
+        (∀ T ∈ List.map Reference.NuLink.toNuTransB q.X, InFragment q.co T (q.role T)) →
+          (∀ T ∈ List.map Reference.NuLink.toNuTransB q.X, PosKeys (q.role T)) →
+            (∀ t ∈ q.X, Reference.NuLink.B1Shape q.co t) →
               (∀ p ∈ q.ps, p ∈ q.co) →
-                (∀ (i : Fin q.co.length), m0 q.co[↑i] = []) →
-                  q.a0 = alpha m0 →
-                    Dq q = Decide.Verdict.proven →
-                      Relation.ReflTransGen (NuStepC q.co nameOf q.net q.role q.conflict) m0 m →
-                        ExecRests q.reap m → ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ m p, ∀ d ∈ m p', nameOf c = nameOf d
+                (∀ p ∈ q.co, q.M0 p = []) →
+                  (∀ (M : Reference.QMarking PlaceId (Stamped Colour)),
+                      Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+                        ∀ t ∈ q.X, Reference.NuLink.NuProj nameOf t M) →
+                    Dq q.qcall = Decide.Verdict.proven →
+                      ∀ (M : Reference.QMarking PlaceId (Stamped Colour)),
+                        Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+                          Reference.NuRests q.X M →
+                            ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ M p, ∀ d ∈ M p', nameOf c.val = nameOf d.val
 -/
 #guard_msgs in #print NU_055_sound
 
 /-! ### The reference -/
 
-/-- The shipped deciders satisfy NU-055's soundness lines: they are the build and verdict
-`routeB_untimed_nameAligned_sound` and `routeB_untimed_quiescentNameAligned_sound` speak of. -/
+open Libpetri.Reference in
+/-- A name Route B's executor accepts for a translated matched transition is eligible for the
+reference selection (as NU-050's `nu050_eligible_of_selectable`). -/
+theorem nu055_eligible_of_selectable {co : List PlaceId} {nameOf : Colour → ℕ} {t : NuTransA}
+    {ms : MatchSpec PlaceId (KeyFn Colour ℕ)} {M : QMarkA} {n : ℕ} (hm : t.mspec = some ms)
+    (hsh : NuLink.B1Shape co t) (hproj : NuLink.NuProj nameOf t M)
+    (hsel : Novel.RouteB.Selectable co (NuLink.toNuTransB t)
+      (Novel.RouteB.nameLayer co nameOf (NuLink.vals M)) n) :
+    eligible (matchIn ms t M) n = true := by
+  have hmo : NuLink.msOf t = ms := by simp [NuLink.msOf, hm]
+  obtain ⟨hne, hall⟩ := hsel ms.keyPlaces (by simp [NuLink.toNuTransB, hm])
+  unfold eligible matchIn
+  simp only [Bool.and_eq_true, Bool.not_eq_true', List.all_eq_true, decide_eq_true_eq,
+    List.isEmpty_eq_false_iff, List.mem_map]
+  refine ⟨fun he => hne (by simpa [MatchSpec.keyPlaces] using he), ?_⟩
+  rintro _ ⟨k, hk, rfl⟩
+  have hp : k.1 ∈ ms.keyPlaces := List.mem_map.2 ⟨k, hk, rfl⟩
+  have hcol := hsh.keysColoured k.1 (by rw [hmo]; exact hp)
+  have hpr := hproj k (by rw [hmo]; exact List.mem_append_left _ hk)
+  obtain ⟨h1, h2⟩ := hall k.1 hp
+  rw [NuLink.cnt_vals_mem hcol, ← NuLink.named_length_eq_count hpr] at h1 h2
+  rw [NuLink.keyReq_toNuTransB] at h2
+  simp only [NuLink.stamps_length]
+  exact ⟨h1, h2⟩
+
+open Libpetri.Reference in
+/-- **A reference rest is an executor rest of the translated net** (as NU-050's
+`nu050_execRests_of_nuRests`): where every ν-enabled transition of `X` is reapable, every
+transition Route B's executor model can fire is reapable by name. -/
+theorem nu055_execRests_of_nuRests {co : List PlaceId} {nameOf : Colour → ℕ}
+    {X : List NuTransA} {M : QMarkA} (hsh : ∀ t ∈ X, NuLink.B1Shape co t)
+    (hproj : ∀ t ∈ X, NuLink.NuProj nameOf t M) (h : NuRests X M) :
+    Novel.RouteB.ExecRests (co := co) (nameOf := nameOf) (net := X.map NuLink.toNuTransB)
+      (alignReapNames X) (NuLink.vals M) := by
+  intro T hT hen
+  obtain ⟨t, ht, rfl⟩ := List.mem_map.1 hT
+  have hnu : NuEnabled t M := by
+    refine ⟨?_, fun ms hm => ?_⟩
+    · have h1 := hen.1
+      show Enabled t.base (qCount M)
+      unfold Enabled
+      rw [NuLink.qCount_eq_alpha, ← Link.enabledC_toTransition]
+      exact h1
+    · obtain ⟨n, hn⟩ := hen.2 ms.keyPlaces (by simp [NuLink.toNuTransB, hm])
+      exact ⟨n, nu055_eligible_of_selectable hm (hsh t ht) (hproj t ht) hn⟩
+  have hr := h t ht hnu
+  show alignReapNames X t.base.core.name = true
+  exact List.any_eq_true.2 ⟨t, ht, by simp [hr]⟩
+
+/-- The tokens of a place, read without stamps, are the values of the place. -/
+theorem nu055_val_mem_vals {M : QMarkA} {p : PlaceId} {c : Stamped Colour} (hc : c ∈ M p) :
+    c.val ∈ Reference.NuLink.vals M p :=
+  List.mem_map_of_mem hc
+
+/-- The coloured places of `M0`, read without stamps, are empty. -/
+theorem nu055_vals_empty {co : List PlaceId} {M0 : QMarkA} (hempty : ∀ p ∈ co, M0 p = []) :
+    ∀ i : Fin co.length, Reference.NuLink.vals M0 co[i.1] = [] := by
+  intro i
+  simp [Reference.NuLink.vals, hempty _ (List.getElem_mem i.2)]
+
+/-- The shipped deciders satisfy NU-055's soundness lines: B1 makes every contract-keeping
+reference run a run of Route B's executor model on the translated net
+(`NuLink.refNuRunB_names_reach`), and `routeB_untimed_nameAligned_sound` and
+`routeB_untimed_quiescentNameAligned_sound` carry a `Proven` to every marking that run reaches
+(and, for the quiescent form, rests at). -/
 @[evidence holds NU_055_sound]
 theorem NU_055_sound_reference : NU_055_sound refNameAligned refQuiescentNameAligned := by
-  refine ⟨fun q nameOf m0 m hco hfr hG hps hempty ha0 hP hR => ?_,
-    fun q nameOf m0 m hco hfr hpos hG hps hempty ha0 hP hR hrest => ?_⟩
-  · unfold refNameAligned at hP
-    rw [ha0] at hP
-    exact routeB_untimed_nameAligned_sound hco hfr hG hps hempty hP hR
-  · unfold refQuiescentNameAligned at hP
-    rw [ha0] at hP
-    exact routeB_untimed_quiescentNameAligned_sound hco hfr hpos hG hps hempty hP hR hrest
+  refine ⟨fun q nameOf hco hfr hsh hps hempty hproj hP M hM => ?_,
+    fun q nameOf hco hfr hpos hsh hps hempty hproj hP M hM hrest => ?_⟩
+  · have hR := Reference.NuLink.refNuRunB_names_reach hsh hproj hM
+    simp only [refNameAligned, AlignQueryR.call, Reference.NuLink.qCount_eq_alpha] at hP
+    have h := routeB_untimed_nameAligned_sound hco hfr
+      (Reference.NuLink.guardFree_toNuTransB q.X) hps (nu055_vals_empty hempty) hP hR
+    intro p hp p' hp' c hc d hd
+    exact h p hp p' hp' _ (nu055_val_mem_vals hc) _ (nu055_val_mem_vals hd)
+  · have hR := Reference.NuLink.refNuRunB_names_reach hsh hproj hM
+    simp only [refQuiescentNameAligned, AlignQueryR.qcall, AlignQueryR.call,
+      Reference.NuLink.qCount_eq_alpha] at hP
+    have h := routeB_untimed_quiescentNameAligned_sound hco hfr hpos
+      (Reference.NuLink.guardFree_toNuTransB q.X) hps (nu055_vals_empty hempty) hP hR
+      (nu055_execRests_of_nuRests hsh (hproj M hM) hrest)
+    intro p hp p' hp' c hc d hd
+    exact h p hp p' hp' _ (nu055_val_mem_vals hc) _ (nu055_val_mem_vals hd)
 
-/-! ### Examples: a mint that fires twice -/
+/-! ### Examples: a mint drawing on a budget of two -/
 
-/-- One coloured place `0`, one mint with no input that writes `0`. -/
-def nu055_tM : NuTrans where
-  base := { name := "M", inputs := [], inhibitors := [], reads := [], resets := [] }
-  rows := [⟨[0], []⟩]
-  keys := none
-  relays := []
+open Libpetri.Reference in
+/-- One coloured place `0`; a mint that takes one token from the budget place `1` and writes one
+token to place `0`; no match, not reapable. -/
+def nu055_tR : NuTransA where
+  base :=
+    { core := { name := "mint", inputs := [⟨1, .one⟩], inhibitors := [], reads := [], resets := [] }
+      out := some (.place 0) }
+  mspec := none
 
-/-- The marking with the names `l` in place `0`. -/
-def nu055_mk (l : List Colour) : CMarking := fun p => if p = 0 then l else []
+open Libpetri.Reference in
+/-- The initial marking: two budget tokens in place `1`, nothing else. -/
+def nu055_M0 : QMarkA := fun p => if p = 1 then [⟨7, 0⟩, ⟨8, 1⟩] else []
 
-/-- The mint fires from `nu055_mk l` and adds a fresh name `f`. -/
-theorem nu055_mint_step (l : List Colour) (f : ℕ) (hf : f ∉ l) :
-    NuStepC [0] id [nu055_tM] (fun _ => Role.mint) false (nu055_mk l) (nu055_mk (l ++ [f])) := by
-  refine ⟨nu055_tM, by simp, ⟨[0], []⟩, by simp [nu055_tM], by simp [enabledC, nu055_tM], ?_, ?_,
-    fun h => by cases h⟩
-  · funext p
-    rcases p with _ | p <;>
-      simp [alpha, alphaFireC, nu055_mk, consumedAt, specAt, nu055_tM, Row.resolve]
-  · refine ⟨0, [], fun _ => [f], fun h => by simp [nu055_tM] at h, List.Forall₂.nil, ?_, ?_,
-      fun h => by simp [nu055_tM] at h, ?_, ?_⟩
-    · intro i u; simp [rmvList, nu055_tM]
-    · intro i; fin_cases i; simp [Row.resolve]
-    · refine ⟨f, ?_, ?_⟩
-      · intro i; fin_cases i
-        simp [nameLayer, nu055_mk]
-        intro x hx hxf; exact hf (hxf ▸ hx)
-      · intro i w hw; simpa using hw
-    · funext u i
-      fin_cases i
-      by_cases huf : u = f
-      · subst huf; simp [rmvList, nameLayer, nu055_mk, nu055_tM, List.filter_append]
-      · have : ¬ f = u := fun h => huf h.symm
-        simp [rmvList, nameLayer, nu055_mk, nu055_tM, List.filter_append, this]
+open Libpetri.Reference in
+/-- The marking after the first mint, which writes the name `10`. -/
+def nu055_M1 : QMarkA := qFire nu055_M0 nu055_tR.base [(0, ⟨10, 2⟩)]
 
-/-- The mint fires twice: place `0` ends with the names `0` and `1`. -/
-theorem nu055_mint_run :
-    Relation.ReflTransGen (NuStepC [0] id [nu055_tM] (fun _ => Role.mint) false)
-      (nu055_mk []) (nu055_mk [0, 1]) :=
-  (Relation.ReflTransGen.single (nu055_mint_step [] 0 (by simp))).tail
-    (nu055_mint_step [0] 1 (by simp))
+open Libpetri.Reference in
+/-- The marking after the second mint, which writes the name `11`. -/
+def nu055_M2 : QMarkA := qFire nu055_M1 nu055_tR.base [(0, ⟨11, 3⟩)]
 
-/-- The call `NameAligned([0])` on the mint net. -/
-def nu055_qMint : AlignQuery := ⟨[0], [nu055_tM], fun _ => Role.mint, false, 0, 0, [0],
-  alpha (nu055_mk [])⟩
+open Libpetri.Reference in
+/-- The run of the example: each mint keeps Route B's mint contract, writing a name no coloured
+place holds. -/
+theorem nu055_runB2 :
+    NuLink.RefNuRunB [0] id (fun _ => .mint) [nu055_tR] nu055_M0 nu055_M2 := by
+  have f1 : RefNuFire nu055_tR nu055_M0 none (qDelivered nu055_M0 nu055_tR.base)
+      [(0, ⟨10, 2⟩)] nu055_M1 :=
+    (refNuFire_restrictsTo nu055_tR rfl _ _ _ _ _).2 ⟨rfl, by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩
+  have f2 : RefNuFire nu055_tR nu055_M1 none (qDelivered nu055_M1 nu055_tR.base)
+      [(0, ⟨11, 3⟩)] nu055_M2 :=
+    (refNuFire_restrictsTo nu055_tR rfl _ _ _ _ _).2 ⟨rfl, by decide, ⟨.action 0, rfl⟩, rfl, rfl⟩
+  exact (Relation.ReflTransGen.single ⟨nu055_tR, List.mem_singleton_self _, none, _, _, f1,
+    ⟨10, by decide, by decide⟩⟩).tail
+    ⟨nu055_tR, List.mem_singleton_self _, none, _, _, f2, ⟨11, by decide, by decide⟩⟩
 
-/-- The call `QuiescentNameAligned([0])` on the mint net, every transition reapable. -/
-def nu055_qqMint : QAlignQuery := { toAlignQuery := nu055_qMint, reap := fun _ => true }
+/-- After the two mints place `0` holds the names `10` and `11`. -/
+theorem nu055_M2_zero : nu055_M2 0 = [⟨10, 2⟩, ⟨11, 3⟩] := by decide
 
-theorem nu055_mint_inFragment :
-    ∀ T ∈ [nu055_tM], InFragment [0] T ((fun _ => Role.mint) T) := by
+open Libpetri.Reference in
+/-- After the two mints the budget is spent and the mint is not ν-enabled: the net rests. -/
+theorem nu055_M2_rests : NuRests [nu055_tR] nu055_M2 := by
+  intro t ht hen
+  simp only [List.mem_singleton] at ht
+  subst ht
+  have := hen.1
+  revert this
+  decide
+
+/-- The call `NameAligned([0])` (and `QuiescentNameAligned([0])`) on the mint net, a class bound
+of one class. -/
+def nu055_qR : AlignQueryR := ⟨[nu055_tR], [0], fun _ => .mint, 1, 3, [0], nu055_M0⟩
+
+theorem nu055_qR_fragment :
+    ∀ T ∈ nu055_qR.X.map Reference.NuLink.toNuTransB, InFragment nu055_qR.co T (nu055_qR.role T) := by
   intro T hT
-  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hT
+  simp only [nu055_qR, List.map_cons, List.map_nil, List.mem_singleton] at hT
   subst hT
-  exact ⟨⟨by simp [nu055_tM], by decide, by decide⟩, rfl, by simp [nu055_tM]⟩
+  refine ⟨⟨?_, ?_, ?_⟩, rfl, ?_⟩ <;>
+    simp [Reference.NuLink.toNuTransB, Reference.NuLink.outRows, nu055_tR,
+      Reference.Link.toTransition, Reference.Link.toInSpec, Reference.Out.branches, Reference.Out.findTimeout, idx]
+  decide
 
-theorem nu055_mint_guardFree : ∀ T ∈ [nu055_tM], GuardFree T.base := by
-  intro T hT s hs
-  simp only [List.mem_cons, List.mem_nil_iff, or_false] at hT
-  subst hT
-  simp [nu055_tM] at hs
+theorem nu055_qR_shape : ∀ t ∈ nu055_qR.X, Reference.NuLink.B1Shape nu055_qR.co t := by
+  intro t ht
+  simp only [nu055_qR, List.mem_singleton] at ht
+  subst ht
+  exact ⟨by decide, by simp [Reference.NuLink.msOf, nu055_tR, MatchSpec.keyPlaces],
+    by simp [Reference.NuLink.msOf, nu055_tR, MatchSpec.keyPlaces]⟩
+
+theorem nu055_qR_proj (nameOf : Colour → ℕ) :
+    ∀ M, Reference.NuLink.RefNuRunB nu055_qR.co nameOf nu055_qR.role nu055_qR.X nu055_qR.M0 M →
+      ∀ t ∈ nu055_qR.X, Reference.NuLink.NuProj nameOf t M := by
+  intro M _ t ht k hk
+  simp only [nu055_qR, List.mem_singleton] at ht
+  subst ht
+  simp [Reference.NuLink.msOf, nu055_tR] at hk
+
+theorem nu055_qR_empty : ∀ p ∈ nu055_qR.co, nu055_qR.M0 p = [] := by decide
+
+theorem nu055_qR_ps : ∀ p ∈ nu055_qR.ps, p ∈ nu055_qR.co := by decide
+
+theorem nu055_qR_posKeys :
+    ∀ T ∈ nu055_qR.X.map Reference.NuLink.toNuTransB, PosKeys (nu055_qR.role T) := by
+  intro T _ cin rel hr
+  cases hr
 
 /-! ### Violations: deciders that always answer `Proven` -/
 
@@ -471,32 +626,27 @@ def nu055_alwaysProven : AlignDecider := fun _ => .proven
 /-- A decider of `QuiescentNameAligned(S)` that always answers `Proven`. -/
 def nu055_qAlwaysProven : QAlignDecider := fun _ => .proven
 
-/-- ✗ A decider that always proves violates NU-055's soundness (line 1): the mint fires twice and
-place `0` holds two names. -/
+/-- ✗ A decider that always proves violates NU-055's soundness (line 1): two contract-keeping
+mints put the names `10` and `11` in place `0`. -/
 @[evidence forbids NU_055_sound]
 theorem NU_055_sound_forbids_alwaysProven :
     ¬ NU_055_sound nu055_alwaysProven refQuiescentNameAligned := by
   intro h
-  have := h.1 nu055_qMint id (nu055_mk []) (nu055_mk [0, 1]) (by simp [nu055_qMint])
-    nu055_mint_inFragment nu055_mint_guardFree (by simp [nu055_qMint])
-    (by intro i; fin_cases i; rfl) rfl rfl nu055_mint_run 0 (by simp [nu055_qMint]) 0
-    (by simp [nu055_qMint]) 0 (by simp [nu055_mk]) 1 (by simp [nu055_mk])
+  have := h.1 nu055_qR id (by decide) nu055_qR_fragment nu055_qR_shape nu055_qR_ps
+    nu055_qR_empty (nu055_qR_proj id) rfl nu055_M2 nu055_runB2 0 (by decide) 0 (by decide)
+    ⟨10, 2⟩ (by rw [nu055_M2_zero]; simp) ⟨11, 3⟩ (by rw [nu055_M2_zero]; simp)
   simp at this
 
-/-- ✗ A quiescent decider that always proves violates NU-055's soundness (line 2): with every
-transition reapable, every marking is a resting one, and the mint run rests with two names in
-place `0`. -/
+/-- ✗ A quiescent decider that always proves violates NU-055's soundness (line 2): after the two
+mints the budget is spent, the net rests, and place `0` holds the names `10` and `11`. -/
 @[evidence forbids NU_055_sound]
 theorem NU_055_sound_forbids_qAlwaysProven :
     ¬ NU_055_sound refNameAligned nu055_qAlwaysProven := by
   intro h
-  have := h.2 nu055_qqMint id (nu055_mk []) (nu055_mk [0, 1]) (by simp [nu055_qqMint, nu055_qMint])
-    nu055_mint_inFragment
-    (by intro T _ cin rel hr; cases hr)
-    nu055_mint_guardFree (by simp [nu055_qqMint, nu055_qMint])
-    (by intro i; fin_cases i; rfl) rfl rfl nu055_mint_run
-    (fun _ _ _ => rfl) 0 (by simp [nu055_qqMint, nu055_qMint]) 0
-    (by simp [nu055_qqMint, nu055_qMint]) 0 (by simp [nu055_mk]) 1 (by simp [nu055_mk])
+  have := h.2 nu055_qR id (by decide) nu055_qR_fragment nu055_qR_posKeys nu055_qR_shape
+    nu055_qR_ps nu055_qR_empty (nu055_qR_proj id) rfl nu055_M2 nu055_runB2 nu055_M2_rests 0
+    (by decide) 0 (by decide) ⟨10, 2⟩ (by rw [nu055_M2_zero]; simp) ⟨11, 3⟩
+    (by rw [nu055_M2_zero]; simp)
   simp at this
 
 /-! ### Mutant: alignment at the initial marking only -/
@@ -505,72 +655,64 @@ theorem NU_055_sound_forbids_qAlwaysProven :
 initial marking": under the same premises, a `Proven` says only that the tokens in the places of
 `S` carry one name in the initial marking. -/
 def NU_055_sound_mutant_initialOnly (D : AlignDecider) (Dq : QAlignDecider) : Prop :=
-  (∀ (q : AlignQuery) (nameOf : Colour → ℕ) (m0 : CMarking),
-    q.co.Nodup → (∀ T ∈ q.net, InFragment q.co T (q.role T)) →
-    (∀ T ∈ q.net, GuardFree T.base) → (∀ p ∈ q.ps, p ∈ q.co) →
-    (∀ i : Fin q.co.length, m0 q.co[i.1] = []) → q.a0 = alpha m0 →
-    D q = .proven →
-    ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ m0 p, ∀ d ∈ m0 p', nameOf c = nameOf d) ∧
-  (∀ (q : QAlignQuery) (nameOf : Colour → ℕ) (m0 : CMarking),
-    q.co.Nodup → (∀ T ∈ q.net, InFragment q.co T (q.role T)) →
-    (∀ T ∈ q.net, PosKeys (q.role T)) →
-    (∀ T ∈ q.net, GuardFree T.base) → (∀ p ∈ q.ps, p ∈ q.co) →
-    (∀ i : Fin q.co.length, m0 q.co[i.1] = []) → q.a0 = alpha m0 →
-    Dq q = .proven →
-    ExecRests (co := q.co) (nameOf := nameOf) (net := q.net) q.reap m0 →
-    ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ m0 p, ∀ d ∈ m0 p', nameOf c = nameOf d)
-
-/-- A place of `S` is empty in an initial marking whose coloured places are empty, when every
-place of `S` is coloured. -/
-theorem nu055_initial_empty {co ps : List PlaceId} {m0 : CMarking}
-    (hps : ∀ p ∈ ps, p ∈ co) (hempty : ∀ i : Fin co.length, m0 co[i.1] = []) {p : PlaceId}
-    (hp : p ∈ ps) : m0 p = [] := by
-  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem (hps p hp)
-  exact hempty ⟨i, hi⟩
+  (∀ (q : AlignQueryR) (nameOf : Colour → ℕ),
+    q.co.Nodup → (∀ T ∈ q.X.map Reference.NuLink.toNuTransB, InFragment q.co T (q.role T)) →
+    (∀ t ∈ q.X, Reference.NuLink.B1Shape q.co t) → (∀ p ∈ q.ps, p ∈ q.co) →
+    (∀ p ∈ q.co, q.M0 p = []) →
+    (∀ M, Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+      ∀ t ∈ q.X, Reference.NuLink.NuProj nameOf t M) →
+    D q.call = .proven →
+    ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ q.M0 p, ∀ d ∈ q.M0 p', nameOf c.val = nameOf d.val) ∧
+  (∀ (q : AlignQueryR) (nameOf : Colour → ℕ),
+    q.co.Nodup → (∀ T ∈ q.X.map Reference.NuLink.toNuTransB, InFragment q.co T (q.role T)) →
+    (∀ T ∈ q.X.map Reference.NuLink.toNuTransB, PosKeys (q.role T)) →
+    (∀ t ∈ q.X, Reference.NuLink.B1Shape q.co t) → (∀ p ∈ q.ps, p ∈ q.co) →
+    (∀ p ∈ q.co, q.M0 p = []) →
+    (∀ M, Reference.NuLink.RefNuRunB q.co nameOf q.role q.X q.M0 M →
+      ∀ t ∈ q.X, Reference.NuLink.NuProj nameOf t M) →
+    Dq q.qcall = .proven → Reference.NuRests q.X q.M0 →
+    ∀ p ∈ q.ps, ∀ p' ∈ q.ps, ∀ c ∈ q.M0 p, ∀ d ∈ q.M0 p', nameOf c.val = nameOf d.val)
 
 /-- The decider that always proves kills the initial-only mutant: the premises put no token in a
-place of `S` at the start, so it meets the mutant reading, but the mint run reaches two names in
+place of `S` at the start, so it meets the mutant reading, but the two mints reach two names in
 place `0`, which NU-055's soundness rejects (`NU_055_sound_forbids_alwaysProven`). -/
 @[evidence mutant NU_055_sound]
 theorem NU_055_sound_mutant_initialOnly_killed :
     NU_055_sound_mutant_initialOnly nu055_alwaysProven refQuiescentNameAligned ∧
       ¬ NU_055_sound nu055_alwaysProven refQuiescentNameAligned := by
-  refine ⟨⟨fun q _ m0 _ _ _ hps hempty _ _ p hp _ _ c hc _ _ => ?_,
-      fun q _ m0 _ _ _ _ hps hempty _ _ _ p hp _ _ c hc _ _ => ?_⟩,
+  refine ⟨⟨fun q _ _ _ _ hps hempty _ _ p hp _ _ c hc _ _ => ?_,
+      fun q _ _ _ _ _ hps hempty _ _ _ p hp _ _ c hc _ _ => ?_⟩,
     NU_055_sound_forbids_alwaysProven⟩
-  · rw [nu055_initial_empty hps hempty hp] at hc
-    exact absurd hc (List.not_mem_nil)
-  · rw [nu055_initial_empty hps hempty hp] at hc
-    exact absurd hc (List.not_mem_nil)
+  · rw [hempty p (hps p hp)] at hc
+    exact absurd hc List.not_mem_nil
+  · rw [hempty p (hps p hp)] at hc
+    exact absurd hc List.not_mem_nil
 
 /-! ### Every line exercised -/
 
-/-- The call `NameAligned([0])` on the net with no transition, place `0` empty. -/
-def nu055_qEmpty : AlignQuery := ⟨[0], [], fun _ => Role.ordinary, false, 2, 2, [0], fun _ => 0⟩
-
-/-- The call `QuiescentNameAligned([0])` on the net with no transition. -/
-def nu055_qqEmpty : QAlignQuery := { toAlignQuery := nu055_qEmpty, reap := fun _ => false }
+/-- The call `NameAligned([0])` on the net with no transition, place `0` empty, a class bound of
+two classes. -/
+def nu055_qREmpty : AlignQueryR := ⟨[], [0], fun _ => .ordinary, 2, 2, [0], fun _ => []⟩
 
 /-- Both lines of NU-055's soundness are exercised by the shipped deciders. Both answer `Proven`
 on the net with no transition (a closed graph of one aligned class), so the antecedents of
-lines 1 and 2 are met; on the mint net, where a run reaches place `0` holding two names, neither
-answers `Proven`, which lines 1 and 2 force (NU_055_sound_reference with nu055_mint_run). -/
+lines 1 and 2 are met; on the mint net, where a contract-keeping run reaches place `0` holding two
+names, neither answers `Proven`, which lines 1 and 2 force (NU_055_sound_reference with
+nu055_runB2). -/
 @[evidence nonvacuous NU_055_sound]
 theorem NU_055_sound_nonvacuous :
-    refNameAligned nu055_qEmpty = .proven ∧ refQuiescentNameAligned nu055_qqEmpty = .proven ∧
-      refNameAligned nu055_qMint ≠ .proven ∧ refQuiescentNameAligned nu055_qqMint ≠ .proven := by
+    refNameAligned nu055_qREmpty.call = .proven ∧
+      refQuiescentNameAligned nu055_qREmpty.qcall = .proven ∧
+      refNameAligned nu055_qR.call ≠ .proven ∧ refQuiescentNameAligned nu055_qR.qcall ≠ .proven := by
   refine ⟨by decide, by decide, fun hP => ?_, fun hP => ?_⟩
-  · have := NU_055_sound_reference.1 nu055_qMint id (nu055_mk []) (nu055_mk [0, 1])
-      (by simp [nu055_qMint]) nu055_mint_inFragment nu055_mint_guardFree (by simp [nu055_qMint])
-      (by intro i; fin_cases i; rfl) rfl hP nu055_mint_run 0 (by simp [nu055_qMint]) 0
-      (by simp [nu055_qMint]) 0 (by simp [nu055_mk]) 1 (by simp [nu055_mk])
+  · have := NU_055_sound_reference.1 nu055_qR id (by decide) nu055_qR_fragment nu055_qR_shape
+      nu055_qR_ps nu055_qR_empty (nu055_qR_proj id) hP nu055_M2 nu055_runB2 0 (by decide) 0
+      (by decide) ⟨10, 2⟩ (by rw [nu055_M2_zero]; simp) ⟨11, 3⟩ (by rw [nu055_M2_zero]; simp)
     simp at this
-  · have := NU_055_sound_reference.2 nu055_qqMint id (nu055_mk []) (nu055_mk [0, 1])
-      (by simp [nu055_qqMint, nu055_qMint]) nu055_mint_inFragment
-      (by intro T _ cin rel hr; cases hr) nu055_mint_guardFree
-      (by simp [nu055_qqMint, nu055_qMint]) (by intro i; fin_cases i; rfl) rfl hP
-      nu055_mint_run (fun _ _ _ => rfl) 0 (by simp [nu055_qqMint, nu055_qMint]) 0
-      (by simp [nu055_qqMint, nu055_qMint]) 0 (by simp [nu055_mk]) 1 (by simp [nu055_mk])
+  · have := NU_055_sound_reference.2 nu055_qR id (by decide) nu055_qR_fragment nu055_qR_posKeys
+      nu055_qR_shape nu055_qR_ps nu055_qR_empty (nu055_qR_proj id) hP nu055_M2 nu055_runB2
+      nu055_M2_rests 0 (by decide) 0 (by decide) ⟨10, 2⟩ (by rw [nu055_M2_zero]; simp) ⟨11, 3⟩
+      (by rw [nu055_M2_zero]; simp)
     simp at this
 
 /-! ## NU-055 (F): the verdict on a built graph -/
@@ -604,18 +746,20 @@ requirement NU_055_truncation
         "*If* the graph does not close, because the build reaches the class bound, runs out of total budget or is cancelled ([VER-013]), *then* Route B *shall not* answer `Proven` for either property."
         "*If* the graph does not close and the prefix rule finds no violation, *then* Route B *shall* answer `Unknown`."
         "*If* Route B answers `Violated` for either property, *then* the class its counterexample ends at *shall* violate the property."
+        "The prefix rule of [VER-012] AC3 applies: a `NameAligned` violated by a stored class, or a `QuiescentNameAligned` violated by an expanded class at which the net rests (every firing out of it is of a reapable transition; with nothing reapable, an expanded class with no successor, Lean `Decide.quiescentAt`), is `Violated` with the shortest witness in the explored graph and a report line naming the truncation; otherwise the verdict is `Unknown`."
   reading "For every explorer E over classes, every build outcome o, every non-empty list ps and every property p that is NameAligned(ps) or QuiescentNameAligned(ps) over some reapable set, where a class violates p as Decide.violatesAt reads it (for NameAligned a stored class that is not aligned, for QuiescentNameAligned an expanded class at which the net rests and that is not aligned):"
           "if V answers Proven, the graph closed (o.complete);"
           "if the graph did not close and no class violates p, V answers Unknown;"
           "if the graph closed and the build was not stopped, V answers Proven exactly when no class violates p;"
-          "if V answers Violated at the class index i, class i violates p."
+          "if V answers Violated at the class index i, class i violates p;"
+          "if the graph did not close and the build was not stopped (it reached the class bound, or, for NameAligned, it ended at the early stop of VER-012 AC5, at its first violating class), and some class violates p, V answers Violated."
   assumes "The model is a verdict function on a built graph (Decide.Out: the stored classes in discovery order, the number expanded, whether the build closed and whether it stopped) and a property (Decide.Prop'), restricted to the two name-alignment properties (AlignProp) on a non-empty S, the only S that reaches a verdict (NU_055's assumes). How the build stores and expands classes is Decide.build's, cited by NU_055_sound through the soundness theorems; it is not a line here."
-          "'Does not close' is o.complete = false: in the shipped build that is the class bound reached, the total budget or a cancellation (cut), or the fuel of the Lean model run out. The quoted Truncation sentence names the class bound only; its EARS restatement names the budget and the cancellation as well, as VER-013 does for every route and refusal step 1 does for a call cancelled or out of budget before it starts. Lines 1 and 2 hold for each cause."
-          "Line 3 is 'deciding it on the name-permutation quotient decides it on the graph', read on the verdict, and its EARS restatement: on a closed graph, Proven exactly when no class violates the property. It needs no open ruling. Ruling D59 asks whether a truncated graph may answer Violated and whether a closed graph's verdict is exact against the executor (VER-012's 'exact (sound and complete)', clash ver-d#1, VD-1); line 3 says only that a closed graph with a violating class does not answer Proven, not whether it answers Violated or Unknown, and that a closed graph with none answers Proven, which holds under either answer. Its premise o.stopped = false rules out only an outcome the build never makes (Decide.loop: a closed build is never stopped)."
-          "Line 4 is the EARS restatement of the Violated paragraph's 'to a violating class': the class a Violated names violates the property, for NameAligned a stored class and for QuiescentNameAligned an expanded resting class. The paragraph's first sentence is not quoted, because the line encodes only its 'to a violating class': the rest of it (the shortest path, the attribution to Route B, counterexampleConfirmed absent, counterexampleTiming) is VER-003's and VER-012's report shape and waits for ruling D40 (clash ver-a#11); a Violated is sound for the graph only, not for the executor. The line does not model the counterexample path: it reads 'the class its counterexample ends at' as the class index the Violated verdict carries (Decide.verdict), the class the reported shortest path ends at; that identification is assumed here, not stated, and the path's shape waits for D40. For QuiescentNameAligned the line is stronger than the sentence's 'violate the property': the class is an expanded one at which the net rests, as the prefix rule of the Truncation paragraph reads it. The line has no closure premise, so it holds on a truncated graph too, matching the prefix rule's 'violated by a stored class' and 'violated by an expanded class at which the net rests'."
-          "The prefix rule's Violated on a truncated graph (a NameAligned violated by a stored class, a QuiescentNameAligned violated by an expanded class at which the net rests, with the shortest witness and a report line naming the truncation) is not a line: whether a truncated graph may answer Violated is open ruling D59 (NU-050 and VER-012). Lines 2 and 4 hold under either answer, as D59 (b) answers Unknown on every truncated graph. The witness lengths and the report line are Q and VER-003's."
-          "AC4's last clause ('a Route B truncation stays Unknown unless the prefix rule finds a violation') is lines 1 and 2; the rest of AC4 is NU_055_sound's assumes (pipeline, wave W10)."
-  signoff "pending"
+          "'Does not close' is o.complete = false: in the shipped build that is the class bound reached, the early stop (for NameAligned, a build that stops at its first violating class, VER-012 AC5), the total budget or a cancellation (cut). In the Lean model the fuel running out is a stopped build, as a cut is (Decide.loop with fuel 0 gives stopped = true). The quoted Truncation sentence names the class bound only; its EARS restatement names the budget and the cancellation as well, as VER-013 does for every route and refusal step 1 does for a call cancelled or out of budget before it starts. Lines 1 and 2 hold for each cause."
+          "Line 3 is 'deciding it on the name-permutation quotient decides it on the graph', read on the verdict, and its EARS restatement: on a closed graph, Proven exactly when no class violates the property. Under ruling D59 (a) (clash ver-d#1, VD-1 (a)), 'exact (sound and complete)' is sound against the executor (NU_055_sound) and complete for the free-choice name semantics of the graph, which is this line: a closed graph with no violating class answers Proven. Line 3 says that a closed graph with a violating class does not answer Proven; that it answers Violated is the prefix rule on a graph that was not stopped (NU_050_prefix line 2, on the same ClassVerdict), which line 5 states for a graph that did not close. Its premise o.stopped = false rules out only an outcome the build never makes (Decide.loop: a closed build is never stopped)."
+          "Line 4 is the EARS restatement of the Violated paragraph's 'to a violating class': the class a Violated names violates the property, for NameAligned a stored class and for QuiescentNameAligned an expanded resting class. The paragraph's first sentence is not quoted, because the line encodes only its 'to a violating class': the rest of it (the shortest path, the attribution to Route B, counterexampleConfirmed absent, counterexampleTiming) is VER-003's and VER-012's report shape under ruling D40 (a) (clash ver-a#11): a trace carries a guarantee against the executor only when counterexampleConfirmed is true, and Route B leaves it absent, so a Violated is sound for the graph only; the report fields are kind N and the trace on the fixtures kind Q. The line does not model the counterexample path: it reads 'the class its counterexample ends at' as the class index the Violated verdict carries (Decide.verdict), the class the reported shortest path ends at; that identification is assumed here, not stated, and the path's shape is VER-003's under D40 (a). For QuiescentNameAligned the line is stronger than the sentence's 'violate the property': the class is an expanded one at which the net rests, as the prefix rule of the Truncation paragraph reads it. The line has no closure premise, so it holds on a truncated graph too, matching the prefix rule's 'violated by a stored class' and 'violated by an expanded class at which the net rests'."
+          "Line 5 is the prefix rule of the Truncation paragraph under ruling D59 (a) (clash nu-b#1): a graph that did not close answers Violated when a stored class violates NameAligned, or an expanded class at which the net rests violates QuiescentNameAligned, as Rust, Java and TypeScript do (nu_scg_verifier.rs, NuScgVerifier.java, nu-scg-verifier.ts; NU_050_prefix line 2 states it for every property on the same ClassVerdict). 'Does not close within the class bound' is o.complete = false with o.stopped = false: a build that reached the class bound, or one that ended at the early stop (for NameAligned, a build that stops at its first violating class, VER-012 AC5), which holds a violating class, so Violated is the right answer there. A build stopped by the total budget or a cancellation answers Unknown whatever its prefix holds (VER-013, NU_050_prefix line 1), and the Lean fuel running out is such a stopped build, so line 5 reads o.stopped = false. Its 'otherwise the verdict is Unknown' is line 2. The verdict that answers Unknown on every graph that did not close (D59 (b)) meets lines 1 to 4 and is killed by line 5 (NU_055_truncation_forbids_unknownWhenCut, NU_055_truncation_mutant_noPrefix_killed). The 'shortest witness in the explored graph' and the 'report line naming the truncation' are the report shape (VER-003, kind N) and the witness lengths on the fixtures are Q; line 5 asks only for a Violated, whose class line 4 fixes."
+          "AC4's last clause ('a Route B truncation stays Unknown unless the prefix rule finds a violation') is lines 1, 2 and 5; the rest of AC4 is accounted for in NU_055_sound's assumes."
+  signoff "2026-11-13 3bc70272dbf00c2f ai"
   statement : ClassVerdict → Prop :=
     fun V => ∀ (co : List PlaceId) (β K L : Type) (E : Explorer (NState co β) K L)
       (o : Decide.Out (NState co β)) (ps : List PlaceId) (p : Decide.Prop' (NState co β) L),
@@ -625,7 +769,9 @@ requirement NU_055_truncation
           V _ _ _ E o p = .unknown) ∧
         (o.complete = true → o.stopped = false →
           (V _ _ _ E o p = .proven ↔ ∀ i, Decide.violatesAt E o p i = false)) ∧
-        (∀ i, V _ _ _ E o p = .violated i → Decide.violatesAt E o p i = true)
+        (∀ i, V _ _ _ E o p = .violated i → Decide.violatesAt E o p i = true) ∧
+        (o.complete = false → o.stopped = false → (∃ i, Decide.violatesAt E o p i = true) →
+          ∃ i, V _ _ _ E o p = .violated i)
 
 /- The pinned readable form of NU_055_truncation: a change to the formula shows up as a diff here. -/
 /--
@@ -641,7 +787,11 @@ fun V =>
             (o.complete = true →
                 o.stopped = false →
                   (V (NState co β) K L E o p = Decide.Verdict.proven ↔ ∀ (i : ℕ), Decide.violatesAt E o p i = false)) ∧
-              ∀ (i : ℕ), V (NState co β) K L E o p = Decide.Verdict.violated i → Decide.violatesAt E o p i = true
+              (∀ (i : ℕ), V (NState co β) K L E o p = Decide.Verdict.violated i → Decide.violatesAt E o p i = true) ∧
+                (o.complete = false →
+                  o.stopped = false →
+                    (∃ i, Decide.violatesAt E o p i = true) →
+                      ∃ i, V (NState co β) K L E o p = Decide.Verdict.violated i)
 -/
 #guard_msgs in #print NU_055_truncation
 
@@ -676,7 +826,7 @@ index that search found (`Decide.verdict`). -/
 theorem NU_055_truncation_reference : NU_055_truncation refClassVerdict := by
   intro co β K L E o ps p _ _
   refine ⟨fun h => (Decide.truncated_never_proven E o p h).1, fun hc hv => ?_,
-    fun hc hs => ?_, fun i h => ?_⟩
+    fun hc hs => ?_, fun i h => ?_, fun _ hs hex => ?_⟩
   · simp only [refClassVerdict, Decide.verdict]
     split
     · rfl
@@ -698,6 +848,13 @@ theorem NU_055_truncation_reference : NU_055_truncation refClassVerdict := by
         rw [hf] at h
         cases h
         exact List.find?_some hf
+  · simp only [refClassVerdict, Decide.verdict, hs, Bool.false_eq_true, if_false]
+    cases hf : (List.range o.cls.length).find? (Decide.violatesAt E o p) with
+    | none =>
+      obtain ⟨i, hi⟩ := hex
+      rw [(nu055_find_none_iff E o p).mp hf i] at hi
+      cases hi
+    | some j => exact ⟨j, rfl⟩
 
 /-! ### Examples -/
 
@@ -719,6 +876,10 @@ def nu055_closed : Decide.Out (NState [0] Unit) := ⟨[nu055_x0], 1, true, false
 
 /-- A build that stored the misaligned class, did not expand it and did not close. -/
 def nu055_truncBad : Decide.Out (NState [0] Unit) := ⟨[nu055_x2], 0, false, false, false⟩
+
+/-- A build that stored and expanded the misaligned class and did not close (the class bound was
+reached). -/
+def nu055_truncBadExp : Decide.Out (NState [0] Unit) := ⟨[nu055_x2], 1, false, false, false⟩
 
 /-- A build that stored and expanded the misaligned class and closed. -/
 def nu055_closedBad : Decide.Out (NState [0] Unit) := ⟨[nu055_x2], 1, true, false, false⟩
@@ -833,9 +994,63 @@ verdict names the first. -/
 theorem NU_055_truncation_forbids_firstClass : ¬ NU_055_truncation nu055_firstClass := by
   intro h
   have := (h [0] Unit Unit String nu055_E nu055_closedTwo [0] nu055_pSafe (by simp)
-    nu055_pSafe_align).2.2.2 0 (by decide)
+    nu055_pSafe_align).2.2.2.1 0 (by decide)
   revert this
   decide
+
+/-! ### Violation: a truncation always answered `Unknown` (ruling D59 (b)) -/
+
+/-- A verdict function that answers `Unknown` on every build that did not close, whatever its
+stored classes hold, and reads a closed build as the shipped one does: the reading D59 (b), which
+the ruling rejected. -/
+def nu055_unknownWhenCut : ClassVerdict := fun _ _ _ E o p =>
+  if o.complete then Decide.verdict E o p else .unknown
+
+/-- ✗ Answering `Unknown` on every truncation violates NU-055 (line 5, the prefix rule): the build
+that reached the class bound has stored the class with two names in place `0`, which violates
+`NameAligned([0])`, and is answered `Unknown`. -/
+@[evidence forbids NU_055_truncation]
+theorem NU_055_truncation_forbids_unknownWhenCut : ¬ NU_055_truncation nu055_unknownWhenCut := by
+  intro h
+  obtain ⟨i, hi⟩ := (h [0] Unit Unit String nu055_E nu055_truncBad [0] nu055_pSafe (by simp)
+    nu055_pSafe_align).2.2.2.2 rfl rfl ⟨0, by decide⟩
+  simp [nu055_unknownWhenCut, nu055_truncBad] at hi
+
+/-- Mutant reading of the truncation block without the prefix rule: lines 1 to 4 alone, under
+which a truncated graph may answer `Unknown` whatever its stored classes hold. -/
+def NU_055_truncation_mutant_noPrefix (V : ClassVerdict) : Prop :=
+  ∀ (co : List PlaceId) (β K L : Type) (E : Explorer (NState co β) K L)
+    (o : Decide.Out (NState co β)) (ps : List PlaceId) (p : Decide.Prop' (NState co β) L),
+    ps ≠ [] → AlignProp ps p →
+      (V _ _ _ E o p = .proven → o.complete = true) ∧
+      (o.complete = false → (∀ i, Decide.violatesAt E o p i = false) →
+        V _ _ _ E o p = .unknown) ∧
+      (o.complete = true → o.stopped = false →
+        (V _ _ _ E o p = .proven ↔ ∀ i, Decide.violatesAt E o p i = false)) ∧
+      (∀ i, V _ _ _ E o p = .violated i → Decide.violatesAt E o p i = true)
+
+/-- The verdict function of D59 (b) kills the mutant without the prefix rule: on a closed build
+it is the shipped verdict and on any other it answers `Unknown`, so it meets lines 1 to 4, but
+line 5 asks for `Violated` on the truncated build that stored a misaligned class
+(`NU_055_truncation_forbids_unknownWhenCut`). -/
+@[evidence mutant NU_055_truncation]
+theorem NU_055_truncation_mutant_noPrefix_killed :
+    NU_055_truncation_mutant_noPrefix nu055_unknownWhenCut ∧
+      ¬ NU_055_truncation nu055_unknownWhenCut := by
+  refine ⟨fun co β K L E o ps p hps hp => ?_, NU_055_truncation_forbids_unknownWhenCut⟩
+  obtain ⟨-, -, h3, h4, -⟩ := NU_055_truncation_reference co β K L E o ps p hps hp
+  refine ⟨fun h => ?_, fun hc _ => ?_, fun hc hs => ?_, fun i h => ?_⟩
+  · unfold nu055_unknownWhenCut at h
+    split at h
+    · assumption
+    · cases h
+  · simp [nu055_unknownWhenCut, hc]
+  · simp only [nu055_unknownWhenCut, hc, ↓reduceIte]
+    exact h3 hc hs
+  · unfold nu055_unknownWhenCut at h
+    split at h
+    · exact h4 i h
+    · cases h
 
 /-! ### Mutant: soundness of the verdict only -/
 
@@ -863,15 +1078,17 @@ theorem NU_055_truncation_mutant_soundOnly_killed :
 
 /-! ### Every line exercised -/
 
-/-- The four lines of the truncation block are exercised by the shipped verdict function, for
+/-- The five lines of the truncation block are exercised by the shipped verdict function, for
 both properties. On the closed build of one aligned class it answers `Proven` (lines 1 and 3);
 on the same class in a build that reached the class bound it answers `Unknown` (line 2). On the
 closed build whose one class rests misaligned it answers `Violated` at that class for
 `QuiescentNameAligned` (lines 3 and 4). On the build that stored that class without expanding it
 and did not close, it answers `Unknown` for `QuiescentNameAligned` (line 2, the prefix reading:
 a class not expanded is not one at which the net rests) and `Violated` at that class for
-`NameAligned` (line 4, a stored class). On the closed build of two classes it names the second,
-misaligned one (line 4). -/
+`NameAligned` (lines 4 and 5, a stored class). On the build that expanded that class and did not
+close it answers `Violated` at it for `QuiescentNameAligned` (lines 4 and 5, an expanded class at
+which the net rests). On the closed build of two classes it names the second, misaligned one
+(line 4). -/
 @[evidence nonvacuous NU_055_truncation]
 theorem NU_055_truncation_nonvacuous :
     refClassVerdict _ _ _ nu055_E nu055_closed nu055_pSafe = .proven ∧
@@ -880,6 +1097,7 @@ theorem NU_055_truncation_nonvacuous :
       refClassVerdict _ _ _ nu055_E nu055_closedBad nu055_pQuiet = .violated 0 ∧
       refClassVerdict _ _ _ nu055_E nu055_truncBad nu055_pQuiet = .unknown ∧
       refClassVerdict _ _ _ nu055_E nu055_truncBad nu055_pSafe = .violated 0 ∧
+      refClassVerdict _ _ _ nu055_E nu055_truncBadExp nu055_pQuiet = .violated 0 ∧
       refClassVerdict _ _ _ nu055_E nu055_closedTwo nu055_pSafe = .violated 1 := by
   decide
 

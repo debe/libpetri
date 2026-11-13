@@ -15,8 +15,10 @@ deferred a part of its section to the executor model of Phase 2 (`RefExec`,
 enablement update gives one stamp (EXEC-002); that consumption and drains take the oldest tokens
 of the pass-visible marking, so a same-pass deposit survives them (EXEC-010, EXEC-013); and that a
 completion deposits only when it is admitted, never after the run finished, and that a timeout
-outcome is deposited under the settle guard and replaces what the action wrote, and that an
-accepted completion can be deposited in step 1 (EXEC-020).
+outcome is deposited under the settle guard and replaces what the action wrote (EXEC-020). That
+an accepted completion at the head of the completion queue can be deposited in step 1 is an
+offer, the coverage clause `Exec020Covers` defined next to the EXEC-020 block (blocks state
+safety, offers are coverage: the convention of `GlossaryExec.lean`).
 
 The blocks of this file are second blocks with the same spec ID as the Phase 1 blocks (ruling
 D33 (a), design NR-1: `<ID>_cycle`). Each is a predicate over an abstract executor
@@ -80,17 +82,17 @@ requirement EXEC_002_cycle
   source verbatim "spec/04-execution-model.md"
   quote "*When* a firing pass starts transitions, the executor *shall* start only transitions of the ready order of that pass, in the order in which that order offers them."
         "*When* an enablement update newly arms several transitions, a restarted transition included ([TIME-012]), it *shall* give all of them one and the same stamp."
-        "Equal priority and equal stamp (transitions newly armed by the enablement update of the same orchestrator cycle share one stamp, [TIME-010]): the tie breaks by ascending declaration order, so the order is fully deterministic."
+        "Equal priority **and** equal stamp (transitions newly armed by the enablement update of the same orchestrator cycle share one stamp, [TIME-010]): the tie breaks by ascending declaration order, so the order is fully deterministic."
   reading "For every executor R and every configuration C:"
           "in every run of R that opens with a begin step from state s, read up to the end of that pass (the next endPass or begin step), the names of its start steps, in order, are a sublist of the names of the ready order of EXEC-002 at the cycle reading of s (readyOrder C s): the pass starts only transitions of that order, each at most once, in that order;"
           "every update step gives every name it newly arms one and the same stamp: two names that hold, after the step, a stamp they did not hold before it hold the same stamp, a name the step re-stamps with a new value (a restart) included."
   assumes "This is the second block of EXEC-002 (ruling D33 (a), design NR-1). The first block, EXEC_002 (EXEC_002.lean), states the ready order as a pure function of one pass's inputs and is unchanged; this block states the two parts that block deferred to the executor model: 'That a pass starts its firings in this order is a Phase 2 behaviour line over the executor' and 'That transitions newly armed by the enablement update of one cycle share one stamp is TIME-010's stamp rule at the grain of a cycle, deferred to Phase 2 (RefExec)'. The block's kind is B, the kind of a behaviour over an executor; the markdown Kind line of EXEC-002 stays F, the kind of its first block, so the two shall sentences this block quotes are behaviour sentences under a section whose Kind line names the first block's kind (recorded for the scribe and the user)."
           "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A firing pass opens with a begin step, starts or drops (lose) the transitions of its order one at a time, and ends with an endPass step; 'fire' is read as 'start', as in TIME-014 (a firing starts in the pass and settles later, EXEC-001). Line 1 reads the steps of the pass only, from its begin step to its endPass step (or to the next begin step, for a run whose pass never ends); that no start happens outside a pass is EXEC-003's (a start takes the head of the pass's order). The witness is the reference executor RefExec (Reference/Exec.lean), which follows the Rust executor."
-          "readyOrder C s is the reference order of EXEC-002 (refReadyOrder, the order the first block's holds theorem checks) over the timed view of s at its cycle reading, the reading the enablement update of the cycle took (R-EXEC-3, ruling D61 (c)); on the all-immediate fast path it is the declaration order (ruling D14 (a)). Line 1 is the first new shall sentence: a pass starts only transitions of that order, and in that order. It adds no constraint beyond other blocks: it is weaker than TIME-014's first line (the names of the start and lose steps are a prefix of the order) together with EXEC-003's first and sixth lines, and follows from them; it is stated here as EXEC-002's own per-ID reading of 'fires first' (ruling D33 (a)). That the pass does not end before it has offered every transition of the order is TIME-014's second line and EXEC-003's, not restated. An executor whose pass offers the ready transitions in descending declaration order (a scan of the enablement bitmap from the top) breaks line 1 (EXEC_002_cycle_forbids_reversedOrder)."
-          "Line 2 is the second new shall sentence: one enablement update takes one firing-clock reading and gives it to every transition it newly arms. A restarted transition (TIME-012) counts as newly armed: its stamp changes from the old reading to the new one, which is the glossary entry Armed ('the enablement update that most recently newly armed it') and the sentence's parenthesis. Rust, Java and TypeScript each read the clock once per update (bitmap_backend.rs update_enablement, BitmapNetExecutor.java updateDirtyTransitions, bitmap-net-executor.ts updateDirtyTransitions). Which reading the stamp is, the cycle reading, is TIME-010's companion line, not this block's; this line says only that the stamps are equal, which is what the tie-break of AC3 needs. An executor that reads the clock again for every newly armed transition, so that two transitions armed by one update get different stamps, breaks it (EXEC_002_cycle_forbids_staggered)."
+          "readyOrder C s is the reference order of EXEC-002 (refReadyOrder, the order the first block's holds theorem checks) over the timed view of s at its cycle reading (XSt.cyc), which at the begin step is the deadline step's reading: the later of the enablement update's reading and the present (atDeadline, R-EXEC-3, ruling D61 (c)); on the all-immediate fast path it is the declaration order (ruling D14 (a)). Rust and Java take one reading per cycle (cycle_now, cycleNanos) and TypeScript one that its deadline step and its pass share (cycleNowMs), which conform. A firing pass that reads the clock again and judges readiness at that reading may start a transition whose earliest bound falls between the deadline step's reading and its own, which is not in readyOrder C s, and breaks line 1: the behaviour RD-16 in spec/runtime-defects.md recorded for Java's fireReadyGeneral (TIME-014's TIME_014_forbids_passReread is that pass). Line 1 is the first new shall sentence: a pass starts only transitions of that order, and in that order. It adds no constraint beyond other blocks: it is weaker than TIME-014's first line (the names of the start and lose steps are a prefix of the order) together with EXEC-003's first and sixth lines, and follows from them; it is stated here as EXEC-002's own per-ID reading of 'fires first' (ruling D33 (a)). That the pass does not end before it has offered every transition of the order is TIME-014's second line and EXEC-003's, not restated. An executor whose pass offers the ready transitions in descending declaration order (a scan of the enablement bitmap from the top) breaks line 1 (EXEC_002_cycle_forbids_reversedOrder)."
+          "Line 2 is the second new shall sentence: one enablement update takes one firing-clock reading and gives it to every transition it newly arms. A restarted transition (TIME-012) counts as newly armed: its stamp changes from the old reading to the new one, which is the glossary entry Armed ('the enablement update that most recently newly armed it') and the sentence's parenthesis. Rust, Java and TypeScript each stamp with one reading per update (bitmap_backend.rs update_enablement, BitmapNetExecutor.java updateDirtyTransitions, which takes the cycle reading cycleNanos, bitmap-net-executor.ts updateDirtyTransitions). Which reading the stamp is, the cycle reading, is TIME-010's companion line, not this block's; this line says only that the stamps are equal, which is what the tie-break of AC3 needs. An executor that reads the clock again for every newly armed transition, so that two transitions armed by one update get different stamps, breaks it (EXEC_002_cycle_forbids_staggered)."
           "The three sentences of the sort list and the four shall sentences of the first block are the first block's subject, at the grain of one pass's inputs; with line 1 they apply to the starts of a pass. AC1 (priority 10 before priority 5) and AC2 (equal priority, the earlier stamp first) are the first block's third line, applied to the starts of the pass by line 1. AC3 (equal priority and equal stamp, ascending declaration order) is the first block's second line for the order, line 2 for 'share one stamp', and line 1 for 'fires': EXEC_002_cycle_nonvacuous shows four transitions of one priority armed by one update at stamp 0 and started in declaration order. AC4 (every backend produces the identical ready order) is the first block's, cited from Sched.lean and Refinement.lean; both backends are runs of RefExec (CONC-020, a later block)."
           "The test derivation (priorities 5, 10, 5, enabled together, fired P10 then P5 then P5) is the first block's example applied to the starts of a pass by line 1. The decided runs here take the all-immediate path, because the kernel does not evaluate the general path's merge sort on two or more ready transitions (as in EXEC-003 and TIME-014); line 1 reads the order through readyOrder whatever path the net takes."
-  signoff "pending"
+  signoff "2026-11-13 d555dee1be64cd67 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R =>
       (∀ C s s' tr, XRun R C s ((s, .begin, s') :: tr) →
@@ -132,7 +134,7 @@ requirement EXEC_010_cycle
           "Line 2 is the second new shall sentence: what the action receives from each input place is that oldest prefix, in queue order. An executor that removes the right tokens and hands them to the action newest first breaks it (EXEC_010_cycle_forbids_reversedDelivery). Read arcs are EXEC-012's and EXEC-003's line 2 (the delivery is taken on the pass-visible marking). Line 2 holds of a start that puts no new firing in flight, which hands nothing; that a start puts exactly one new firing in flight is CONC-002's second line (the firings in flight after a start are a permutation of the new firing and those before it), not restated."
           "Correlated inputs (ruling D16): the reference start takes no ν-net match specification (Trans has no match-specification field), so every input place is an input that is not a correlated input, as in the first block, and both lines read every input place. The sentences' exemption 'that is not a correlated input of its match specification' therefore has no counterpart here: on the nets this model holds the lines say what the sentences say, and the exemption itself, with the correlated take, is NU-020's (W9), not encoded."
           "AC1 to AC3 (One, Exactly(2) and All on tokens A, B, C) are the first block's examples. At the grain of a pass EXEC_010_cycle_nonvacuous shows an all() input that takes the pass-visible token 3 and leaves the same-pass deposit 8, and an exactly(2) input that takes 10 and 11 of 10, 11, 12, hands the action 10 then 11 and leaves 12. The test derivation is the first block's."
-  signoff "pending"
+  signoff "2026-11-13 2bd82b3d5f377403 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C n sy,
       (on (fun s s' => R C s (.start n sy) s'), shall (fun s s' =>
@@ -182,7 +184,7 @@ requirement EXEC_013_cycle
           "The started transition is named, not constrained, as in EXEC-010's companion: the line reads 'if the head of the pass's order is t and t is named n', and that a start takes the head is EXEC-003's first line. The line reads every start step, while the sentence speaks of a start in a firing pass; a start happens only in a pass by EXEC-001 and EXEC-003. hid is read off the executor's own record of the same-pass deposits, so 'the tokens a synchronous action deposited there earlier in the pass' is the line's meaning only jointly with EXEC-003's lines 2, 5 and 8, which fix how that record evolves. The line is a consequence of EXEC-003's second line (a reset place, which qConsume empties, keeps its same-pass tail), restated for EXEC-013 under ruling D33 (a); it adds no constraint beyond it."
           "The other quoted sentences of the first block (consumption, then read peeks, then draining; the read token of a read and reset place; an unmarked reset place blocks nothing) are its subject, applied by EXEC-003's line 2 to the pass-visible marking; they are not restated. Tokens an action published before it completed land at the tails by a publish step, after the start that drained, and stay whatever happens to the completion (ruling D17): that is CONC-003's second line and EXEC-021's second line, with this line placing the drain before them. The clock restart of AC3 is TIME-012's companion (the restart flag set at the start from the live intermediate marking, ruling D7)."
           "AC1 (five tokens, all removed), AC2 (empty reset place, no error) and AC4 (draining after read peeking) are the first block's. AC3 is TIME-012's. At the grain of a pass EXEC_013_cycle_nonvacuous shows a reset place holding the old token 5 and the same-pass deposit 6: the start drains 5 and keeps 6. The test derivation is the first block's."
-  signoff "pending"
+  signoff "2026-11-13 c01690b7a3e1805d ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C n sy,
       on (fun s s' => R C s (.start n sy) s'), shall (fun s s' =>
@@ -220,8 +222,7 @@ requirement EXEC_020_cycle
           "a commit step of a firing identity i, from state s to state s', settles an admitted completion of i (glossary: Admitted completion: the run is under way, no terminal place is marked, the outcome of i is queued, it returned normally with emission e, and the phase allows it) whose emission output validation accepts, and leaves in s' the marking of s with e appended at the tails, in emission order;"
           "a step whose label is not a start, a commit, a tdeposit, a publish or an inject leaves the marking unchanged;"
           "a step from a state whose run has finished leaves the marking unchanged;"
-          "a tdeposit step of i, from s to s', settles a firing of i whose outcome is a timeout outcome e, under the guard every settle shares (canSettle: the run is under way, no terminal place is marked, the outcome of i is queued, and the phase allows settling it), and leaves in s' the marking of s with e appended at the tails, in the order of e;"
-          "in step 1 (phase completions), every admitted completion of i with emission e that output validation and the relay check accept can be deposited: R offers a commit step of i."
+          "and a tdeposit step of i, from s to s', settles a firing of i whose outcome is a timeout outcome e, under the guard every settle shares (canSettle: the run is under way, no terminal place is marked, the outcome of i is queued, and the phase allows settling it), and leaves in s' the marking of s with e appended at the tails, in the order of e."
   assumes "This is the second block of EXEC-020 (ruling D33 (a), design NR-1). The first block, EXEC_020 (EXEC_020.lean), states the tail deposit of the atomic queue firing and is unchanged; it deferred to the executor model the sentence 'If the completion of an action is not admitted, or output validation rejects the produced tokens, then the executor shall not deposit any token the action produced at completion.', AC3 and AC4, and the paragraph on mid-action publications. This block is those executor lines."
           "The model is an executor R : XRel N T (glossary GlossaryExec.lean); the witness is the reference executor RefExec (Reference/Exec.lean). Naming: 'admits the completion' is the glossary term Admitted completion (AdmittedCompletion C s i f e): the executor takes the completion up in step 1, on the wake of the wait (ruling D70 (a)) or, for a synchronous action, inside its firing pass, while the run is under way and no terminal place is marked, and not in step 1 or the wait after an immediate termination (ENV-015). A completion it deposits is a commit step; one it rejects is a fail step (EXEC-021); 'the tokens an action produced at completion' is the emission e the action returned. The outside steps (the action writing, flushing, returning, its budget expiring, a caller's request) are CONC-001's."
           "Line 1 is the first new shall sentence: the deposit happens only in the step that admits the completion and appends the emission at the tails in emission order (the first block's line 1 at this grain). It covers the sentence 'It never admits ...' for the terminal stop and the immediate termination: an executor that deposits a completion while a terminal place is marked breaks it (EXEC_020_cycle_forbids_admitWhenTerminal), and so does one that deposits the emission in reverse order (EXEC_020_cycle_forbids_reversed). Line 1 also requires output validation to accept the emission (the places validation reads, validIn), so the validation half of the deferred shall-not sentence is this block's own: an executor whose commit step deposits an emission validation rejects breaks it (EXEC_020_cycle_forbids_commitUnvalidated). EXEC-021's first line states the same check from validation's side, with the relay check; which tokens the emission holds (those written after the last flush) is CONC-003's first line."
@@ -229,10 +230,10 @@ requirement EXEC_020_cycle
           "Line 2 is the second new shall sentence, the frame of every other step, outside steps included. With line 1 it is the deferred shall-not sentence: a completion that is not admitted or that validation rejects is settled by a fail step or not at all, and no step but a commit deposits its emission. An executor whose fail step deposits the rejected emission anyway breaks it (EXEC_020_cycle_forbids_failDeposits). The queue of publications on a fail step is EXEC-021's second line."
           "Line 3 is the third new shall sentence, and the quoted 'A publication still queued when a terminal place stops the run ([EXEC-042]) is discarded.' after the finish step: once the run has finished (the finish step of EXEC-041; a terminal stop, a quiescent or closed finish, an immediate termination), no step changes the marking, so an action still in flight that returns, a queued completion and a queued publication deposit nothing. An executor that keeps the publication queue across a terminal stop and deposits it afterwards breaks it (EXEC_020_cycle_forbids_publishAfterStop). Between the step that marks a terminal place and the finish step, line 2 still allows a publish step to change the marking; there the quoted sentence is EXEC-042's first line, which forbids every executor step but finish terminal while a terminal place is marked, and line 1 and line 4 keep commit and tdeposit out by their guard. That the finish step itself keeps the marking is EXEC-041's."
           "Line 4 is the fourth new shall sentence, the timeout half of 'It never admits ...': a timeout deposit settles the firing under the guard every settle step shares (canSettle, the guard of an admitted completion: the run is under way, no terminal place is marked, the outcome is queued, the phase allows settling it, and in step 1 or the wait no immediate termination was requested, ENV-015), and deposits exactly the outcome, in its order. An executor that deposits a timeout outcome while a terminal place is marked breaks it (EXEC_020_cycle_forbids_tdepositWhenTerminal); one that merges the action's unpublished writes into the outcome at the deposit breaks it (EXEC_020_cycle_forbids_mergeOnTimeout). The deposit is the outcome recorded on the firing (f.out); that the expiry step records a timeout outcome of the Timeout node and not the action's writes is EXEC-022's first line (exec022_QOutcome) with IO-013 and IO-014 (Cfg.timeoutOut), so 'not what the action wrote after its last publication' (AC3, the test derivation's timeout case) is line 4 together with EXEC-022's first line. The relay check on the outcome is EXEC-021's fifth line; that the expiry is offered only for an asynchronous firing with a Timeout node is EXEC-022's. Line 4 contains EXEC-022's deposit line (the same deposit, stated from the timeout's side) and adds the settle guard."
-          "Line 5 is the shall sentence 'When the executor admits the completion of an action and output validation does not reject the produced tokens ..., the executor shall add each produced token ...' at the grain of the executor: lines 1 to 4 constrain the steps that occur, so without line 5 an executor that never deposits an accepted completion would satisfy them, and no line of EXEC-001 or EXEC-040 obliges a step to happen (EXEC-001's assumes: 'nothing here obliges a step to happen'). Line 5 says the commit is offered in step 1 for every admitted completion that validation and the relay check accept; EXEC-001's fourth line (no publication, injection or start before the queued outcome is settled) and EXEC-021's third line (a fail step only for an error, a rejected emission or a rejected relay) then leave the commit as the only way on. It is read in step 1 only: TypeScript settles every firing in step 1 and never inside the pass (EXEC-003), and Rust's settle in the wait goes on to step 1 (ruling D70 (a)), so an offer in the pass or the wait would hold of one runtime and not another. The relay check is NU-054's, carried by EXEC-021; with it accepted, the reference commit rule needs nothing else. An executor that never commits breaks line 5 (EXEC_020_cycle_forbids_neverCommits). That the loop goes on at all is CONC-010's and EXEC-040's."
+          "Its offers are in ExecCoversW5.Exec020Covers (the coverage clause defined next to this block; the convention of GlossaryExec.lean: offers are coverage clauses, never block lines). The shall sentence 'When the executor admits the completion of an action and output validation does not reject the produced tokens ..., the executor shall add each produced token ...' demands a deposit and is quoted whole. Its safety half is line 1 (a deposit appends the emission at the tails in production order), and its existence half is that clause: in step 1 (phase completions), when the firing i at the head of the completion queue has an admitted completion whose emission output validation and the relay check accept, R offers the commit step of i. Lines 1 to 4 constrain the steps that occur, so an executor that never deposits an accepted completion meets them (exec020_covers_neverCommits), and no line of EXEC-001 or EXEC-040 obliges a step to happen (EXEC-001's assumes: 'nothing here obliges a step to happen'). The clause speaks of the head of the queue only: every runtime settles its completion queue oldest first (Rust drains completion_rx in channel order, executor_core/executor.rs; Java polls a ConcurrentLinkedQueue, BitmapNetExecutor.java; TypeScript walks its array queue, bitmap-net-executor.ts), and the spec fixes no settle order among queued completions (MOD-012 speaks of the order in which the executor admits them as the executor's own), so an offer of the commit of every queued completion would hold of the reference and of no runtime. EXEC-001's fourth line (no publication, injection or start before a queued outcome is settled) and EXEC-021's third line (a fail step only for an error, a rejected emission or a rejected relay) then leave the commit as the only way on. The clause is read in step 1 only: TypeScript settles every firing in step 1 and never inside the pass (EXEC-003), and Rust's settle in the wait goes on to step 1 (ruling D70 (a)), so an offer in the pass or the wait would hold of one runtime and not another. The relay check is NU-054's, carried by EXEC-021; with it accepted, the reference commit rule needs nothing else, and the reference meets the clause (exec020_ref_covers). That the loop goes on at all is CONC-010's and EXEC-040's."
           "The two sentences of the body before the shall sentences ('After an action completes and the executor admits the completion, ...' and 'Each token is added to the end of the target place's FIFO queue, in the order the action produced it.') and the paragraph defining a completion and admission are the first block's lines and this block's naming; 'A close ([ENV-013]) waits for in-flight actions and admits their completions.' is ENV-013's. The mid-action publication paragraph is CONC-003's (each batch deposited once, oldest first, at the tails, whatever happens to the completion, ruling D17) and line 3 with EXEC-042's first line (discarded at a terminal stop)."
-          "AC1 (V at the end of P's queue) and AC2 (several tokens to one place, in order) are lines 1 and 5: EXEC_020_cycle_nonvacuous deposits 30 then 31 into a place holding 40, which ends 40, 30, 31; unlike the first block, the executor model witnesses AC2 in the joint model, because validation reads sets of places (IO-015). AC3 (not admitted: the timeout outcome, or a terminal stop while the action was in flight) is line 4 with EXEC-022's first line and lines 1 and 3 with EXEC-042's first line: the example deposits the timeout outcome 5 and not the 50 the action wrote, and an abandoned firing returns after a terminal stop without a deposit. AC4 (validation fails, nothing deposited) is lines 1 and 2: the example fails a firing whose emission validation rejects and leaves its place empty. The test derivation (three tokens in order; a timeout budget outlived; a write outside the chosen branch) is these examples."
-  signoff "pending"
+          "AC1 (V at the end of P's queue) and AC2 (several tokens to one place, in order) are line 1 with the coverage clause Exec020Covers: EXEC_020_cycle_nonvacuous deposits 30 then 31 into a place holding 40, which ends 40, 30, 31; unlike the first block, the executor model witnesses AC2 in the joint model, because validation reads sets of places (IO-015). AC3 (not admitted: the timeout outcome, or a terminal stop while the action was in flight) is line 4 with EXEC-022's first line and lines 1 and 3 with EXEC-042's first line: the example deposits the timeout outcome 5 and not the 50 the action wrote, and an abandoned firing returns after a terminal stop without a deposit. AC4 (validation fails, nothing deposited) is lines 1 and 2: the example fails a firing whose emission validation rejects and leaves its place empty. The test derivation (three tokens in order; a timeout budget outlived; a write outside the chosen branch) is these examples."
+  signoff "2026-11-13 658dd4528f18a9cb ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ i, on (fun s s' => R C s (.commit i) s'), shall (fun s s' =>
@@ -244,10 +245,7 @@ requirement EXEC_020_cycle
         shall (fun s s' => s'.M = s.M)) ∧
       (∀ i, on (fun s s' => R C s (.tdeposit i) s'), shall (fun s s' =>
         ∃ f e, s.fl.find? (·.id == i) = some f ∧ f.out = some (.timedOut e) ∧
-          canSettle C s i f = true ∧ s'.M = qAppend s.M e)) ∧
-      (∀ i s f e, s.phase = .completions → AdmittedCompletion C s i f e →
-        C.validate f.t (validIn f e) = true → C.relay f.t f.deliv e = true →
-        ∃ s', R C s (.commit i) s')
+          canSettle C s i f = true ∧ s'.M = qAppend s.M e))
 
 /- The pinned readable form of the companion: a change to the formula shows up as a diff here. -/
 /--
@@ -259,17 +257,25 @@ fun {N T} [DecidableEq N] R =>
           ∃ f e, AdmittedCompletion C s i f e ∧ C.validate f.t (validIn f e) = true ∧ s'.M = qAppend s.M e) ∧
       (∀ (l : XLbl N T), exec020c_deposits l = false → on fun s s' => R C s l s', shall fun s s' => s'.M = s.M) ∧
         (on fun s s' => isExecPhase s.phase = false ∧ ∃ l, R C s l s', shall fun s s' => s'.M = s.M) ∧
-          (∀ (i : ℕ),
-              on fun s s' => R C s (XLbl.tdeposit i) s', shall fun s s' =>
-                ∃ f e,
-                  List.find? (fun x => x.id == i) s.fl = some f ∧
-                    f.out = some (Outcome.timedOut e) ∧ canSettle C s i f = true ∧ s'.M = qAppend s.M e) ∧
-            ∀ (i : ℕ) (s : XSt N T) (f : Firing N T) (e : List (N × T)),
-              s.phase = Phase.completions →
-                AdmittedCompletion C s i f e →
-                  C.validate f.t (validIn f e) = true → C.relay f.t f.deliv e = true → ∃ s', R C s (XLbl.commit i) s'
+          ∀ (i : ℕ),
+            on fun s s' => R C s (XLbl.tdeposit i) s', shall fun s s' =>
+              ∃ f e,
+                List.find? (fun x => x.id == i) s.fl = some f ∧
+                  f.out = some (Outcome.timedOut e) ∧ canSettle C s i f = true ∧ s'.M = qAppend s.M e
 -/
 #guard_msgs in #print EXEC_020_cycle
+
+/-- **The coverage conjunct EXEC-020 asks of the consistency theorem's `ExecCoversW5`**: in step 1
+(phase `completions`), when the firing `i` at the head of the completion queue has an admitted
+completion whose emission output validation and the relay check accept, the executor offers the
+commit step of `i` (the existence half of the shall sentence 'When the executor admits the
+completion of an action and output validation does not reject the produced tokens ..., the
+executor shall add each produced token ...'). The head only: every runtime settles its queue
+oldest first. Offers are never a line of a block (glossary `GlossaryExec.lean`). -/
+def Exec020Covers {N T : Type} [DecidableEq N] (E : XRel N T) : Prop :=
+  ∀ C s i f e, s.phase = .completions → s.cq.head? = some i → AdmittedCompletion C s i f e →
+    C.validate f.t (validIn f e) = true → C.relay f.t f.deliv e = true →
+    ∃ s', E C s (.commit i) s'
 
 /-! ## The reference -/
 
@@ -466,14 +472,13 @@ end Reference3
 requires `canSettle` and validation and deposits by `depositAt` (`commitStep_some`), every other
 rule but `start`, `tdeposit`, `publish` and `inject` keeps the marking (`exec020c_xstepW_M`),
 none of those five is offered once the run has finished, `tdeposit` requires `canSettle` and
-deposits the timeout outcome (`tdepositStep_some`), and the `commit` rule fires on every
-admitted completion that validation and the relay check accept. -/
+deposits the timeout outcome (`tdepositStep_some`). -/
 @[evidence holds EXEC_020_cycle]
 theorem EXEC_020_cycle_reference {N T : Type} [DecidableEq N] :
     EXEC_020_cycle (RefExec (N := N) (T := T)) := by
   intro C
   refine ⟨fun i s s' h => ?_, fun l hl s s' h => exec020c_xstepW_M h hl,
-    fun s s' ⟨hph, l, h⟩ => ?_, fun i s s' h => ?_, fun i s f e _ hadm hv hr => ?_⟩
+    fun s s' ⟨hph, l, h⟩ => ?_, fun i s s' h => ?_⟩
   · obtain ⟨f, e, hf, he, hc, hv, -, rfl⟩ := refExec_commit h
     exact ⟨f, e, ⟨hf, he, hc⟩, hv, rfl⟩
   · cases hd : exec020c_deposits l
@@ -497,13 +502,19 @@ theorem EXEC_020_cycle_reference {N T : Type} [DecidableEq N] :
       | _ => simp [exec020c_deposits] at hd
   · obtain ⟨f, e, hf, he, hc, -, rfl⟩ := tdepositStep_some h
     exact ⟨f, e, hf, he, hc, rfl⟩
-  · obtain ⟨hf, he, hc⟩ := hadm
-    refine ⟨depositAt C s i e, ?_⟩
-    show commitStep refXPol C s i = some _
-    simp only [commitStep, hf, he]
-    rw [if_pos]
-    simp only [Bool.and_eq_true]
-    exact ⟨⟨hc, hv⟩, hr⟩
+
+/-- The reference meets EXEC-020's coverage conjunct: its `commit` rule fires on every admitted
+completion that validation and the relay check accept, at the head of the queue or not. -/
+theorem exec020_ref_covers {N T : Type} [DecidableEq N] :
+    Exec020Covers (RefExec (N := N) (T := T)) := by
+  intro C s i f e _ _ hadm hv hr
+  obtain ⟨hf, he, hc⟩ := hadm
+  refine ⟨depositAt C s i e, ?_⟩
+  show commitStep refXPol C s i = some _
+  simp only [commitStep, hf, he]
+  rw [if_pos]
+  simp only [Bool.and_eq_true]
+  exact ⟨⟨hc, hv⟩, hr⟩
 
 /-! ## Decided runs -/
 
@@ -992,7 +1003,7 @@ def execc20_stop : List (XLbl Nat Nat) :=
 def execc20_timeout : List (XLbl Nat Nat) := [.write 2 1 50, .expire 2 [(2, 5)]]
 
 /-- Every line of the executor companion of EXEC-020 is exercised by the reference: `a`'s
-completion deposits `30` then `31` behind the `40` of place `5` (lines 1 and 5, AC1, AC2); `a`'s
+completion deposits `30` then `31` behind the `40` of place `5` (line 1, AC1, AC2); `a`'s
 completion with `9` in `4`, which validation rejects, is failed and place `4` stays empty (line 2,
 AC4); after the terminal stop `a`'s abandoned action returns, its published `9` was discarded, and
 place `5` still holds only `40` (line 3, AC3); `t`'s timeout outcome `5` is deposited in `2` and
@@ -1193,7 +1204,7 @@ theorem EXEC_020_cycle_forbids_mergeOnTimeout :
       | some (.timedOut e) => qAppend s.M e 1 != s'.M 1
       | _ => false)
     (by decide +kernel)
-  obtain ⟨f, e, hf, he, -, hM⟩ := (h execc20_cfg).2.2.2.1 2 s s' hs
+  obtain ⟨f, e, hf, he, -, hM⟩ := (h execc20_cfg).2.2.2 2 s s' hs
   have hg := execc_of_allId hp (List.mem_of_find?_eq_some hf) (by simpa using List.find?_some hf)
   rw [he] at hg
   simp [hM] at hg
@@ -1256,7 +1267,7 @@ theorem EXEC_020_cycle_forbids_tdepositWhenTerminal :
   obtain ⟨s, s', -, hs, hp⟩ := step_of_check execc_termTdepStep (C := execc20_cfg)
     (o := execc20_at execc_termTdepStep execc20_termTimeout) (l := .tdeposit 2)
     (p := fun s _ => !liveB execc20_cfg s) (by decide +kernel)
-  obtain ⟨f, e, -, -, hc, -⟩ := (h execc20_cfg).2.2.2.1 2 s s' hs
+  obtain ⟨f, e, -, -, hc, -⟩ := (h execc20_cfg).2.2.2 2 s s' hs
   simp only [canSettle, Bool.and_eq_true] at hc
   simp [hc.1.1.2] at hp
 
@@ -1272,10 +1283,10 @@ def execc_noCommitStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) 
 def execc_noCommit {N T : Type} [DecidableEq N] : XRel N T :=
   fun C s l s' => execc_noCommitStep C s l = some s'
 
-/-- `s` is in step 1 and the completion of firing `i` is admitted, and validation and the
-relay check accept its emission. -/
+/-- `s` is in step 1, firing `i` is at the head of the completion queue, its completion is
+admitted, and validation and the relay check accept its emission. -/
 def execc20_acceptB (s : XSt Nat Nat) (i : Nat) : Bool :=
-  decide (s.phase = .completions) &&
+  decide (s.phase = .completions) && s.cq.head? == some i &&
     match s.fl.find? (·.id == i) with
     | some f =>
       match f.out with
@@ -1284,25 +1295,44 @@ def execc20_acceptB (s : XSt Nat Nat) (i : Nat) : Bool :=
       | _ => false
     | none => false
 
-/-- ✗ Never depositing an accepted completion violates the executor companion of EXEC-020
-(line 5, AC1): in step 1 `a`'s completion with `30, 31` is admitted and validation accepts it,
-and the executor offers no commit step. -/
-@[evidence forbids EXEC_020_cycle]
-theorem EXEC_020_cycle_forbids_neverCommits :
-    ¬ EXEC_020_cycle (execc_noCommit (N := Nat) (T := Nat)) := by
-  intro h
+/-- A step of the executor that never commits is a step of the reference. -/
+theorem execc_noCommit_sub {N T : Type} [DecidableEq N] {C : Cfg N T} {s s' : XSt N T}
+    {l : XLbl N T} (h : execc_noCommit C s l s') : RefExec C s l s' := by
+  cases l <;> simp_all [execc_noCommit, execc_noCommitStep, RefExec]
+
+/-- The executor that never commits meets every line of the executor companion of EXEC-020: each
+line is a safety line of the steps that occur, and its steps are steps of the reference. -/
+theorem execc_noCommit_meets {N T : Type} [DecidableEq N] :
+    EXEC_020_cycle (execc_noCommit (N := N) (T := T)) := by
+  intro C
+  obtain ⟨h1, h2, h3, h4⟩ := EXEC_020_cycle_reference (N := N) (T := T) C
+  exact ⟨fun i s s' h => h1 i s s' (execc_noCommit_sub h),
+    fun l hl s s' h => h2 l hl s s' (execc_noCommit_sub h),
+    fun s s' ⟨hph, l, h⟩ => h3 s s' ⟨hph, l, execc_noCommit_sub h⟩,
+    fun i s s' h => h4 i s s' (execc_noCommit_sub h)⟩
+
+/-- The deposit of an accepted completion is coverage, not a line: an executor that never commits
+meets every line of the executor companion of EXEC-020 (`execc_noCommit_meets`) and fails its
+coverage conjunct `Exec020Covers` (AC1): in step 1 `a`'s completion with `30, 31` is at the head
+of the completion queue, admitted, and validation accepts it, and the executor offers no commit
+step. -/
+@[evidence cites "EXEC-020" "when the executor admits the completion of an action and output validation does not reject the produced tokens, the executor shall add each produced token at the tail of its place's queue: an executor that never commits meets every line of the executor companion and fails its coverage clause Exec020Covers in ExecCoversW5"]
+theorem exec020_covers_neverCommits :
+    EXEC_020_cycle (execc_noCommit (N := Nat) (T := Nat)) ∧
+      ¬ Exec020Covers (execc_noCommit (N := Nat) (T := Nat)) := by
+  refine ⟨execc_noCommit_meets, fun h => ?_⟩
   obtain ⟨s, s', -, -, hp⟩ := step_of_check xstep (C := execc20_cfg)
     (o := execc20_at xstep execc20_two) (l := .commit 0)
     (p := fun s _ => execc20_acceptB s 0) (by decide +kernel)
-  simp only [execc20_acceptB, Bool.and_eq_true, decide_eq_true_eq] at hp
-  obtain ⟨hph, hm⟩ := hp
+  simp only [execc20_acceptB, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
+  obtain ⟨⟨hph, hhd⟩, hm⟩ := hp
   split at hm
   · rename_i f hf
     split at hm
     · rename_i e he
       simp only [Bool.and_eq_true] at hm
       obtain ⟨⟨hc, hv⟩, hr⟩ := hm
-      obtain ⟨s'', hs''⟩ := (h execc20_cfg).2.2.2.2 0 s f e hph ⟨hf, he, hc⟩ hv hr
+      obtain ⟨s'', hs''⟩ := h execc20_cfg s 0 f e hph hhd ⟨hf, he, hc⟩ hv hr
       simp [execc_noCommit, execc_noCommitStep] at hs''
     · simp at hm
   · simp at hm

@@ -12,9 +12,11 @@ The requirement is a predicate over an abstract timed step relation `R : TRel N`
 `GlossaryTime.lean`). The evidence theorems check it against the timed reference step
 (`RefTStep`), against a reap that consumes the tokens of the reaped transition, a delay that
 disarms an expired transition without reaping it, and a reap or a firing of a label outside the
-net under a net transition's name, and against four mutant readings: a reap at the bound plus
-the tolerance instead of strictly past it, a reap with no tolerance, a reap of an `Exact`
-transition, and a firing that re-arms a reaped transition whatever it writes.
+net under a net transition's name, a firing of an expired transition, a firing of a reaped
+transition and a step that never arms a reaped transition again, and against five mutant
+readings: a reap at the bound plus the tolerance instead of strictly past it, a reap with no
+tolerance, a reap of an `Exact` transition, a firing that re-arms a reaped transition whatever it
+writes, and an executor that never reaps.
 
 The reap sentence is encoded as far as one atomic step can state it: a reap is taken only from
 an expired transition (line 1), and every expired transition of the net has a reap (line 9).
@@ -70,7 +72,7 @@ requirement TIME_013
           "Lines 6 and 7 are TIME-010's lines 1 and 3 read for a reaped transition (with line 1's fresh stamp in line 7), and are proven from the same policy-generic lemmas. A write is the glossary's Write (ruling D6): any arc place, not only an input place, and draining an empty reset place counts. The injected-token case of the last quoted 'shall' sentence is outside the step relation: injection is not a step of the Phase 1 relation, which has no environment places."
           "AC1 (a Deadline(5s) transition still armed past 5 s plus the tolerance does not fire after that bound; if it is still armed on the first cycle whose elapsed time is strictly greater than the bound, it is reaped in that cycle and TransitionTimedOut is emitted) is the nonvacuous example TIME_013_nonvacuous in milliseconds with tolerance 5: not reaped at elapsed 5005, reaped at 5006, and not fireable then. That the reap falls in the first such cycle is the cycle loop of Phase 2 (RefExec, [EXEC-001] step 4), and the TransitionTimedOut event is [EVT-009], deferred with it. AC3 (an Exact transition past its target is not disabled) is the same example: the Exact(3) transition, at elapsed 5006, cannot be reaped and fires. AC4 (a reaped transition does not fire until an arc place is written, then is armed again with a fresh clock and may fire) is the same example after the reap, ending with a firing of the re-armed transition; the backends (Bitmap, Precompiled) are Phase 2."
           "The paragraph on verification (quiescence reads a marking whose enabled transitions are all reapable as quiescent, Route B drops the latest bounds, assumeNoReaping) belongs to [VER-002], [VER-004] and [VER-012]; it is cited by ReapAware.rest_sound, not encoded here."
-  signoff "pending"
+  signoff "2026-11-13 cf60477e972fe310 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ X : TimedNet _,
       (∀ u, on (fun s s' => R X s (.reap u) s'), shall (fun s s' => u ∈ X.net.transitions ∧
@@ -749,6 +751,110 @@ theorem TIME_013_mutant_noTolerance_killed :
           stamp := fun n => if n = time013_u.core.name then none else (time013_s 5001).stamp n } :=
       RefTStepW.reap _ _ _ (by simp [time013_X]) (by decide)
     exact absurd ((h time013_X).1 time013_u _ _ hstep).2.1 (by decide)
+
+/-! ### Violations: a firing that ignores expiry, a firing while reaped, no re-arming -/
+
+/-- The reference policy with an expiry test that is always false: its firing gate does not
+check expiry. -/
+def time013_noExpPolicy : Policy Nat := { refPolicy with expired := fun _ _ _ => false }
+
+/-- A relation that reaps as the reference does, and whose firings are the reference's together
+with the firings of `time013_noExpPolicy`: a firing pass that judges readiness without the
+deadline check, so an expired transition can still fire. -/
+def time013_fireExpired : TRel Nat := fun X s l s' =>
+  RefTStep X s l s' ∨ (∃ t d, l = .fire t d ∧ RefTStepW time013_noExpPolicy X s l s')
+
+/-- ✗ A firing that ignores expiry violates TIME-013 (line 2): at `T = 5006` the `Deadline(5000)`
+transition `u` is past `5000 + 5` and still fires. Its reaps are the reference's, so lines 1, 3
+and 9 hold of it. -/
+@[evidence forbids TIME_013]
+theorem TIME_013_forbids_fireExpired : ¬ TIME_013 time013_fireExpired := by
+  intro h
+  have hstep : RefTStepW time013_noExpPolicy time013_X (time013_s 5006) (.fire time013_u [])
+      { m := fireNC (time013_s 5006).m time013_u.core (depProd []), now := 5006,
+        stamp := restampAll time013_noExpPolicy time013_X (time013_s 5006) time013_u []
+          (fireNC (time013_s 5006).m time013_u.core (depProd [])) } :=
+    RefTStepW.fire _ _ _ _ _ (by simp [time013_X]) ⟨by decide, ⟨.action 0, rfl⟩, rfl⟩
+      (by decide) (by decide) (by decide)
+  exact (h time013_X).2.1 time013_u _ _ ⟨[], Or.inr ⟨_, _, rfl, hstep⟩⟩ ⟨by decide, by decide⟩
+
+/-- A relation that is the reference step, and in addition fires a transition of the net that is
+reaped (enabled and holding no clock), with the reference's marking effect and restamping. -/
+def time013_fireReaped : TRel Nat := fun X s l s' =>
+  RefTStep X s l s' ∨ ∃ t d, l = .fire t d ∧ t ∈ X.net.transitions ∧ Reaped s t ∧
+    s' = { m := fireNC s.m t.core (depProd d), now := s.now,
+           stamp := restampAll refPolicy X s t d (fireNC s.m t.core (depProd d)) }
+
+/-- ✗ A firing of a reaped transition violates TIME-013 (line 4): after `u` is reaped at
+`T = 5006` it still holds its input token, and it fires. Its elapsed time without a stamp is
+`0`, so line 2 does not reject that firing. -/
+@[evidence forbids TIME_013]
+theorem TIME_013_forbids_fireReaped : ¬ TIME_013 time013_fireReaped := by
+  intro h
+  have hr : Reaped time013_r time013_u := by decide
+  exact (h time013_X).2.2.2.1 time013_u time013_r _
+    ⟨[], Or.inr ⟨_, _, rfl, by simp [time013_X], hr, rfl⟩⟩ hr
+
+/-- The reference policy that never arms a transition again once it holds no clock: `rearm` asks
+for the transition to be armed before the firing (the restart of [TIME-012]), not for a written
+arc place. -/
+def time013_noRearmPolicy : Policy Nat :=
+  { refPolicy with rearm := fun _ s _ _ m' u => s.armed u && enabledNA m' u.core }
+
+/-- ✗ A step that keeps a reaped transition reaped for ever violates TIME-013 (line 7): after `u`
+is reaped at `T = 5006`, the source fires and deposits into `u`'s input place, `u` is enabled
+after the firing, and it is still not armed. -/
+@[evidence forbids TIME_013]
+theorem TIME_013_forbids_noRearm : ¬ TIME_013 (RefTStepW time013_noRearmPolicy) := by
+  intro h
+  have hstep : RefTStepW time013_noRearmPolicy time013_X time013_r (.fire time013_src [0])
+      (time013_rAfter time013_noRearmPolicy time013_src [0]) :=
+    RefTStepW.fire _ _ _ _ _ (by simp [time013_X]) ⟨by decide, ⟨.action 0, rfl⟩, rfl⟩
+      (by decide) (by decide) (by decide)
+  have := ((h time013_X).2.2.2.2.2.2.1 time013_src [0] time013_u time013_u_inX _ _ hstep
+    (by decide) ((writesArc_iff _ _ _).1 (by decide)) (by decide)).1
+  revert this
+  decide
+
+/-! ### Mutant: an executor that never reaps -/
+
+/-- The reference step without its reap steps: an executor that never enforces deadlines. -/
+def time013_neverReap : TRel Nat := fun X s l s' => RefTStep X s l s' ∧ ∀ v, l ≠ .reap v
+
+/-- Mutant reading of TIME-013 without its last line: nothing asks that an expired transition of
+the net have a reap. The other lines are as in TIME-013. -/
+def TIME_013_mutant_noReap {N : Type} [DecidableEq N] (R : TRel N) : Prop :=
+  ∀ X : TimedNet N,
+    (∀ u, on (fun s s' => R X s (.reap u) s'), shall (fun s s' => u ∈ X.net.transitions ∧
+        Expired X s u ∧ Reaped s' u ∧ s'.m = s.m ∧ ClockReading s' = ClockReading s ∧
+        ∀ n, n ≠ u.core.name → s'.stamp n = s.stamp n)) ∧
+    (∀ u, while (fun s => Reapable X u ∧ (TimingOf X u).latest + Tolerance X < Elapsed s u),
+        never (fun s s' => ∃ d, R X s (.fire u d) s')) ∧
+    (∀ u, while (fun _ => ¬ Reapable X u), never (fun s s' => R X s (.reap u) s')) ∧
+    (∀ u, while (fun s => Reaped s u), never (fun s s' => ∃ d, R X s (.fire u d) s')) ∧
+    (∀ l u, InNet X u → on (fun s s' => R X s l s'), shall (fun s s' => Armed s u →
+        Reaped s' u → ∃ v, l = .reap v ∧ v.core.name = u.core.name)) ∧
+    (∀ l u, InNet X u → on (fun s s' => R X s l s'), shall (fun s s' => Reaped s u →
+        Armed s' u → ∃ t d, l = .fire t d ∧ ∃ p, ArcPlace u p ∧ Writes t d p)) ∧
+    (∀ t d u, InNet X u → on (fun s s' => R X s (.fire t d) s'), shall (fun s s' =>
+        Reaped s u → (∃ p, ArcPlace u p ∧ Writes t d p) → Enabled u s'.m →
+          Armed s' u ∧ s'.stamp u.core.name = some (ClockReading s'))) ∧
+    (∀ t d, on (fun s s' => R X s (.fire t d) s'), shall (fun _ _ => t ∈ X.net.transitions))
+
+/-- The executor that never reaps kills the mutant: every step it takes is a reference step, so
+it meets lines 1 to 8, but at `T = 5006` the expired `u` has no reap (line 9). -/
+@[evidence mutant TIME_013]
+theorem TIME_013_mutant_noReap_killed :
+    TIME_013_mutant_noReap time013_neverReap ∧ ¬ TIME_013 time013_neverReap := by
+  refine ⟨fun X => ?_, fun h => ?_⟩
+  · obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, -⟩ := TIME_013_reference (N := Nat) X
+    exact ⟨fun u s s' hs => h1 u s s' hs.1, fun u s s' ⟨d, hs⟩ => h2 u s s' ⟨d, hs.1⟩,
+      fun u s s' hs => h3 u s s' hs.1, fun u s s' ⟨d, hs⟩ => h4 u s s' ⟨d, hs.1⟩,
+      fun l u hu s s' hs => h5 l u hu s s' hs.1, fun l u hu s s' hs => h6 l u hu s s' hs.1,
+      fun t d u hu s s' hs => h7 t d u hu s s' hs.1, fun t d s s' hs => h8 t d s s' hs.1⟩
+  · obtain ⟨s', -, hne⟩ := (h time013_X).2.2.2.2.2.2.2.2 time013_u (time013_s 5006)
+      (by simp [time013_X]) (by decide)
+    exact hne time013_u rfl
 
 /-! ### Every line exercised -/
 

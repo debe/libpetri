@@ -46,7 +46,7 @@ describe('Lean report', () => {
     });
     const lean = parseLeanReport(text);
     expect(lean.blocks).toHaveLength(1);
-    expect(lean.blocks[0]?.signoff).toEqual({ state: 'signed', date: '2026-11-10', hash: '104625b4eefcf18b' });
+    expect(lean.blocks[0]?.signoff).toEqual({ state: 'signed', date: '2026-11-10', hash: '104625b4eefcf18b', by: 'person' });
     expect(lean.blocks[0]?.evidence.map((e) => e.doc)).toEqual(['**Example.** One token.', null, null]);
     expect(lean.citations.map((c) => `${c.id} ${c.theorem}`)).toEqual(['CORE-031 Libpetri.a', 'CORE-031 Libpetri.z', 'IO-001 Libpetri.b']);
     expect(lean.citations[0]).toEqual({ id: 'CORE-031', theorem: 'Libpetri.a', module: 'Libpetri.M', fragment: 'f' });
@@ -62,6 +62,8 @@ describe('Lean report', () => {
     expect(() => parseLeanReport(report([leanBlock({ signoff: 'yes' })]))).toThrow(/signoff "yes"/);
     expect(() => parseLeanReport(report([leanBlock(), leanBlock()]))).toThrow(/decl appears twice/);
     expect(parseSignoff('pending')).toEqual({ state: 'pending' });
+    expect(parseSignoff('2026-11-12 104625b4eefcf18b ai')).toEqual({ state: 'signed', date: '2026-11-12', hash: '104625b4eefcf18b', by: 'ai' });
+    expect(parseSignoff('2026-11-12 104625b4eefcf18b bot')).toBeNull();
     expect(parseSignoff('2026-11-10 104625b4e')).toBeNull();
   });
 });
@@ -144,6 +146,7 @@ const LEDGER = `# Runtime Defect Ledger
 |---|---|---|---|
 | RD-01 | EXEC-021, IO-013 | Java, TypeScript | open |
 | RD-02 | CORE-041 | all | fixed in 12.0.1 |
+| RD-03 | CORE-042 | Rust | fixed, unreleased |
 
 ### RD-01. The timeout outcome is validated
 
@@ -162,6 +165,16 @@ const LEDGER = `# Runtime Defect Ledger
 - **Defect:** \`build()\` passes its sets.
 - **Lean evidence:** none; the \`NamesDistinct\` assumption keeps it out.
 - **Status:** fixed in 12.0.1.
+
+### RD-03. Unreleased fix
+
+- **Requirements:** CORE-042.
+- **Runtimes:** Rust.
+- **Defect:** the order drifts.
+- **Lean evidence:** none.
+- **Fix:** the builder keeps the order; tested by
+  \`order_kept\`.
+- **Status:** fixed, unreleased.
 `;
 
 describe('defects', () => {
@@ -175,6 +188,7 @@ describe('defects', () => {
         text: 'both validate the outcome, `java/Foo.java:12`.',
         evidence: ['clash_conflict', 'EXEC_021_forbids_x'],
         evidenceText: '`clash_conflict` (Clashes.lean), `EXEC_021_forbids_x` (EXEC_021.lean).',
+        fix: null,
         status: { state: 'open' },
       },
       {
@@ -185,7 +199,19 @@ describe('defects', () => {
         text: '`build()` passes its sets.',
         evidence: [],
         evidenceText: 'none; the `NamesDistinct` assumption keeps it out.',
+        fix: null,
         status: { state: 'fixed', version: '12.0.1' },
+      },
+      {
+        id: 'RD-03',
+        title: 'Unreleased fix',
+        requirements: ['CORE-042'],
+        runtimes: ['rust'],
+        text: 'the order drifts.',
+        evidence: [],
+        evidenceText: 'none.',
+        fix: 'the builder keeps the order; tested by `order_kept`.',
+        status: { state: 'fixed', version: null },
       },
     ]);
   });
@@ -194,11 +220,14 @@ describe('defects', () => {
     expect(parseRuntimes('Rust, Java, TypeScript, and Python through Rust.')).toEqual(['java', 'typescript', 'rust', 'python']);
     expect(parseRuntimes('Go')).toBeNull();
     expect(parseDefectStatus('open.')).toEqual({ state: 'open' });
+    expect(parseDefectStatus('fixed, unreleased.')).toEqual({ state: 'fixed', version: null });
+    expect(parseDefectStatus('fixed in 12.0.1.')).toEqual({ state: 'fixed', version: '12.0.1' });
     expect(parseDefectStatus('closed')).toBeNull();
     expect(evidenceNames('none yet (`X`)')).toEqual([]);
-    expect(() => parseDefects(LEDGER.replace('- **Runtimes:** all.', '- **Runtimes:** Kotlin.'))).toThrow(/runtime-defects.md:18: RD-02: unknown runtime/);
+    expect(() => parseDefects(LEDGER.replace('- **Runtimes:** all.', '- **Runtimes:** Kotlin.'))).toThrow(/runtime-defects.md:19: RD-02: unknown runtime/);
     expect(() => parseDefects(LEDGER.replace('| RD-02 | CORE-041 |', '| RD-02 | CORE-042 |'))).toThrow(/the table names CORE-042, the entry CORE-041/);
     expect(() => parseDefects(LEDGER.replace('- **Status:** fixed in 12.0.1.', '- **Status:** open.'))).toThrow(/the table says "fixed in 12.0.1"/);
+    expect(() => parseDefects(LEDGER.replace('- **Status:** fixed, unreleased.', '- **Status:** fixed in 1.0.0.'))).toThrow(/the table says "fixed, unreleased"/);
   });
 });
 

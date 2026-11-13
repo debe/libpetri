@@ -93,7 +93,7 @@ requirement EVT_020
         "Which appended events the list leaves out, and whether it is a copy or a live view of the store, is up to each store ([EVT-021], [EVT-022], [EVT-024])."
   reading "For every store S over any event type E, with S.norm the store's own normalisation of an event:"
           "after every history h of appends and clears, the list a call of events() returns, as it shows once any further operations h' have run (S.read h h', the call itself being h' = []), read through S.norm, is a sublist of the events h and h' appended, in append order (appended (h ++ h')), read through S.norm."
-  assumes "The normalisation S.norm is part of the store's observation and is the one the store applies, not one chosen to meet the line (glossary: StoreObs.norm, the identity unless a store says otherwise): it is the identity for every store but the Python binding's in-memory store, so for them the line is the subsequence law itself (evt020_id_iff), and for the binding's store it is the store's capture-filter strip (see below). A normalisation the store does not apply is no reading of the block: read through a constant, every store would meet the line."
+  assumes "The normalisation S.norm is part of the store's observation and is fixed by the store and how the caller configured it, not chosen to meet the line (glossary: StoreObs.norm, the identity unless a store says otherwise): it is the identity for every store but the Python binding's in-memory store, so for them the line is the subsequence law itself (evt020_id_iff), and for the binding's store it is the strip of the capture filter the caller gave it as capture_tokens (see below). A normalisation the store's configuration does not declare is no reading of the block: read through a constant, every store would meet the line."
           "The model is the observation of one store, S : StoreObs E (glossary: Event store): its enabled flag, whether it provides clear(), and read h h', the list a call of events() made after the history h shows once the further operations h' have run. The event type E is a parameter: the line says nothing about what an event holds. The first quoted sentence is the line, at the call (h' = []) and at every later point. The second is why the line compares with every append so far (appended (h ++ h')) and not only with the appends before the call: ruling D29 (a) leaves open whether the list is a copy (Java's List.copyOf, the Python binding's new list; Rust lends a borrow that no append can change while it is held) or a live view (TypeScript's in-memory and debug stores return their own array), and both meet the line (EVT_020_reference, EVT_020_bounded, evt020_allows_live, evt020_allows_liveBounded). What the line asks of a live view is that it stays a view of the store, a subsequence of the appends in append order at every later point; a bounded store that hands out its raw ring buffer breaks that (EVT_020_mutant_ringView), and evt020_atCall gives the reading at the call alone."
           "AC2 (events() returns a subsequence of the appended events, in append order; whether that list is a copy or a live view is not specified) is the line, under ruling D29 (a), which words the body bullet and AC2 so (clash evt-b#6): the noop store returns no event (EVT-022) and the bounded debug stores evict the oldest (EVT-024). That the in-memory store returns every event appended since the last clear, as a copy, is EVT-021's."
           "The line compares with every append of the history, clears ignored, so it says nothing about what clear() does: a store whose clear() keeps every event meets it (evt020_allows_keepAcrossClear). What a store shows after clear(), where it provides clear() (ruling D29 (a)), is EVT-021's."
@@ -102,9 +102,9 @@ requirement EVT_020
           "AC1 (append() is safe to call from any thread) is kind A and has no line, although the requirement as a whole is kind F: a history is one sequence of operations, and appends made at once from several threads are read in the order in which they take effect (Java's in-memory and debug stores append to a ConcurrentLinkedQueue). The obligation has content in Java only, where captured logs and ActionTimedOut are appended from threads other than the orchestrator's; in Rust append takes exclusive access (&mut self), TypeScript runs on one thread, and the Python binding's store appends under a mutex. That no concurrent append is lost is the in-memory store's promise (EVT-021 AC2), not this block's."
           "The three bullets of the body (append, events, isEnabled) name the operations: append is an operation of a history, events() is read, isEnabled() is the enabled flag. size() and isEmpty(), which the runtimes also offer, and the query helpers over events() (EVT-030) are not named by this block. Rust has no isEnabled() method; the store type's associated constant ENABLED plays its part (rust/libpetri-event/src/event_store.rs:19)."
           "Decorators: Java's logging store (EVT-023) and the debug-aware stores of all three runtimes return the list of the store they wrap, so they meet the line whenever the wrapped store does and receives its appends only through the decorator (evt020_forward, which reads the decorator's history as the wrapped store's). Appends made directly to the wrapped store, by a caller that kept a reference to it, are outside the line: they show in the decorator's events() without having been appended to the decorator. Its events() called with filter, limit or offset arguments is a query (EVT-030); the call without them is the events() of this block. The Python run sink's own events() (the trait method) returns the empty list and is never called by the executor."
-          "The Python binding's in-memory store strips the token payload of a TokenAdded or TokenRemoved event on a place outside its capture filter before keeping it (rust/libpetri-py/src/events.rs:350-367); the executor attaches that payload only because the store asks for payloads (its CAPTURES_TOKENS constant). For that store S.norm is the store's own strip, the normalisation that removes the payload of a token event on a place outside the store's capture filter (evt020_pyStrip), which is the second quoted sentence: evt020_allows_python shows the binding's store meets the line so read, at every capture filter, and evt020_python_inverted shows that a store whose strip is inverted (it removes the payloads inside the filter and keeps the others) does not. Read through the identity, the binding's store fails the line (evt020_python_literal), since it shows the stripped event, which the executor never appended. Which payloads the capture filter keeps is specified by no other requirement. A store meeting the line through the identity meets it through any normalisation (evt020_through_of)."
+          "The Python binding's store. The executor writes it through a Rust store, RunStore (rust/libpetri-py/src/events.rs:339-386): when capture_tokens is a list of places, RunStore's append strips the token payload of a TokenAdded or TokenRemoved event on a place outside that list (filter_payload, 350-367) and pushes the stripped event into the in-memory store, and the executor attaches payloads at all only because RunStore asks for them (its CAPTURES_TOKENS constant). This block reads that store as the executor sees it, with RunStore in front of it, which is how the second quoted sentence speaks of it: the appended events are the events the executor emits, with their payloads, and S.norm is the capture filter's strip, the normalisation that removes the payload of a token event on a place outside the filter (evt020_pyStrip). EVT-021 reads the same store behind RunStore, where the appended events are the stripped events RunStore pushes, and EVT_021_allows_python shows the two readings are one store: what this block's model of it (evt020_pyStore) shows after a history is what EVT-021's in-memory store without clear() shows after the history with every append stripped. evt020_allows_python shows the binding's store meets the line so read, at every capture filter. Read through the identity, it fails the line (evt020_python_literal), since it shows the stripped event, which the executor never appended. What the line asks of such a store is that what it shows agrees with the strip of the filter it was given: a store given the capture filter of place 0 that applies the inverted strip (it removes the payloads inside the filter and keeps the others) fails it (evt020_python_disagrees). The inverted strip of a filter is the strip of the complementary filter (evt020_pyStripInv_compl), so the same store read through the inverted strip is the binding's store given the complementary filter and meets the line (evt020_python_invCompl): the line constrains which payloads a store removes only relative to the filter it was given, which is why S.norm is fixed by that filter and not by what the store shows. Which places a caller lists in capture_tokens is the caller's choice, and no requirement constrains it. A store meeting the line through the identity meets it through any normalisation (evt020_through_of)."
           "The test derivation (append from several threads; events() returns only appended events, each at most once, in the order the appends took effect, and on the in-memory store all of them) is EVT_020_nonvacuous for the in-memory store: after appends whose order mixes two callers, events() returns all of them in that order, a live view of it still a subsequence after one more append, and the newest-first store fails the line on the same history. That the in-memory store returns every one of them is EVT-021's line, not this block's."
-  signoff "pending"
+  signoff "2026-11-13 0bc765e2d6a62936 ai"
   statement : ∀ {E : Type}, StoreObs E → Prop :=
     fun S => ∀ h h', List.Sublist ((S.read h h').map S.norm) ((appended (h ++ h')).map S.norm)
 
@@ -360,7 +360,8 @@ def evt020_pyStore (keep : Nat → Bool) : StoreObs Evt020PyEv where
   read h _ := (retained h).map (evt020_pyStrip keep)
   norm := evt020_pyStrip keep
 
-/-- The binding's store with its strip inverted. -/
+/-- A binding store given the capture filter `keep` (its normalisation is that filter's strip)
+that applies the inverted strip to what it shows. -/
 def evt020_pyStoreInv (keep : Nat → Bool) : StoreObs Evt020PyEv where
   enabled := true
   hasClear := false
@@ -393,15 +394,33 @@ theorem evt020_allows_python :
 /-- The capture filter of the examples: place 0 only. -/
 def evt020_keep0 (p : Nat) : Bool := p == 0
 
-/-- ✗ A binding store whose strip is inverted fails EVT-020 read through the store's strip: after
-appending a token event on the captured place 0 with payload 5, it shows that event without its
-payload. -/
-theorem evt020_python_inverted :
+/-- ✗ A binding store whose events disagree with the strip of the filter it was given fails
+EVT-020: given the capture filter of place 0, it applies the inverted strip, so after appending a
+token event on the captured place 0 with payload 5 it shows that event without the payload the
+filter keeps. -/
+@[evidence forbids EVT_020]
+theorem evt020_python_disagrees :
     ¬ EVT_020 (evt020_pyStoreInv evt020_keep0) := by
   intro hS
   have := hS [.append (0, some 5), .append (1, some 6)] []
   revert this
   decide
+
+/-- The inverted strip of a filter is the strip of the complementary filter. -/
+theorem evt020_pyStripInv_compl (keep : Nat → Bool) :
+    evt020_pyStripInv keep = evt020_pyStrip (fun p => !keep p) := by
+  funext e
+  unfold evt020_pyStripInv evt020_pyStrip
+  by_cases hk : keep e.1 <;> simp [hk]
+
+/-- Read through the inverted strip it applies, the store of `evt020_python_disagrees` is the
+binding's store given the complementary filter, and meets EVT-020: what the line checks is the
+agreement of what a store shows with the filter it was given. -/
+theorem evt020_python_invCompl (keep : Nat → Bool) :
+    EVT_020 { evt020_pyStoreInv keep with norm := evt020_pyStripInv keep } := by
+  intro h h'
+  have := evt020_allows_python (fun p => !keep p) h h'
+  simpa [evt020_pyStoreInv, evt020_pyStore, evt020_pyStripInv_compl] using this
 
 /-- Read through the identity instead of its own strip, the binding's store fails EVT-020: it shows the event on the
 uncaptured place 1 without the payload the executor appended it with. This is why the line

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Req.VER_003
 import Libpetri.Novel.EnvSemantics
 import Libpetri.Reference.Link
+import Libpetri.Novel.RouteB.Retrodict
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -33,7 +34,9 @@ injection and proves only the vacuous quiescence properties under modelled injec
 `VER_006_verdict_joint` shows the fifth block and VER-003 hold together of one firing relation,
 one violation reading and one decider, for every mode (`ver006_ver003`). `envPremiseOK_eq_premise`
 ties the two premise checks: the one the fifth block reads by name equals, on a net at flat place
-ids, every check meeting `VER_006_premise` on the net's flat rows.
+ids, every check meeting `VER_006_premise` on the net's flat rows. `VER_006_routeB_env` cites AC8 from
+the Route B model of `Novel/RouteB/Retrodict.lean`: the frozen environment count, the four cases
+of the decline, and the witness.
 -/
 
 namespace Libpetri.Spec
@@ -71,9 +74,9 @@ requirement VER_006
           "under Bounded(k), from an initial marking with at most k on each environment place, every marking in R holds at most k on each environment place."
   assumes "The model is the flat open system of Novel/EnvSemantics: place ids, the flat rows of the verified net (one deposit row per way a firing can end), untimed, every row read as not reapable, counts only. The executor side is ReachCE (StepCE: a row fires on the coloured marking, or one token is injected into an environment place, always under AlwaysAvailable and while fewer than k are resident under Bounded(k)); its counts are alpha. Lines 1 and 2 carry the hypothesis of Proposition 1 that no consume-all arc has a guard (GuardFreeConsumeAll). It holds of every net the spec allows, since IO-006 removed input guards: the flat Transition type keeps the guard field of the older model, and the rows of every reference net carry none (guardFree_toTransition, Reference/Link.lean). The reachable set may be larger than the executor's: the lines are inclusions, which is what a Proven needs; that a Violated replays is VER-003's line 5 on the verified net, whose injection steps the runtimes label inject(p) (abstract_replay.rs)."
           "The third quoted sentence (no conservation law of the closed net on an injected place) is line 1 read on the strengthened set: the conjuncts the encoders add to every rule (P-invariants of VER-005 and VER-007, the counters of VER-016) are part of R, so a law that cuts off a marking the executor reaches breaks line 1. A closed-net law applied to an injected place is killed (VER_006_forbids_closedLaw: env IN → T → OUT conserves IN + OUT without injection, and injection breaks it). That the shipped conjuncts remove no reachable marking is Strengthening.lean, StateEquation.lean and Novel/Certificate.lean, with VER-007's gate H3' (zero weight on an injected place) and VER-005's injector columns (incidence_matrix.rs) as the clauses that keep it true with injection; VER-005 cites this block for the sentence."
-          "AC2 (AlwaysAvailable: for env IN → T → OUT, PlaceBound(OUT, k) is Violated for every k) is VER_006_ac2: OUT holds more than k in the reference reachable set, for every k (VER_006_nonvacuous at k = 2); a set without injection is killed (VER_006_forbids_frozen), and so is a Bounded(k) set without the injection rule (VER_006_forbids_boundedFrozen). The Violated verdicts that AC2 and the Bounded(k) half of AC9 name are completeness claims, not lines: the lines are inclusions, which rule out a wrong Proven, and VER-003 allows Unknown on every input (the reference decider refEnvVerify answers Unknown there). They are checked by the runtimes' tests (the env IN → T → OUT regression of smt_verifier.rs), since the conformance corpus covers closed nets only; VER_006_ac2 shows that the violating marking is in the reference reachable set. AC3's first sentence (Bounded(k) limits the state space: a transition requiring more than k tokens from an environment place per firing is never enabled) is the third line, read through VER_006_demand_gate, which derives it for every R meeting the block; a cap read as AlwaysAvailable is killed (VER_006_forbids_uncapped). AC3's premises are VER_006_premise and line 2 of VER_006_verdict; its Route B and state-class wording ('the state-class graphs enable an environment input exactly when it demands at most k whatever the place holds') is Novel/EnvSemantics/Supplied.lean (supplied_safety_exact) and the Route B lines of VER-012 (wave W10)."
-          "AC1 (each mode is selectable via the verifier configuration) is an offer: the mode type EnvMode has the four constructors (VER_006_verdict), and the offer clause belongs to a coverage theorem of the verification blocks, not to a line; that clause (Ver006Covers) is an open item for wave W11. The default mode (AlwaysAvailable for the SMT verifier, Ignore for the state-class graph API, which refuses Arrivals) is kind N (ruling D49 (a), VB3). AC4 to AC6 are VER_006_verdict's; AC9 and AC11 are VER_006_arrivals'. AC7, AC8 and AC10 are the ν routes'. Line 3 of NU_053_dispatch (no colour-slot bound when injection is modelled on the flat net or an arrival feeds a coloured place) is the part of AC7 that the name-coloured encoding does not answer there. Steps 3 and 5 of NU_055_refusal (an arrival that feeds a coloured place; an environment place Route B cannot model, under AlwaysAvailable or Bounded(k)) are AC10 and AC8 for the name-alignment properties. Open items for wave W11: AC8 on Route B for the other properties (NU-050 Route B, VER-012), AC10 beyond name alignment (no ν route treats an injection transition as a mint), and the coverage clause for AC1."
-  signoff "pending"
+          "AC2 (AlwaysAvailable: for env IN → T → OUT, PlaceBound(OUT, k) is Violated for every k) is VER_006_ac2: OUT holds more than k in the reference reachable set, for every k (VER_006_nonvacuous at k = 2); a set without injection is killed (VER_006_forbids_frozen), and so is a Bounded(k) set without the injection rule (VER_006_forbids_boundedFrozen). The Violated verdicts that AC2 and the Bounded(k) half of AC9 name are completeness claims, not lines: the lines are inclusions, which rule out a wrong Proven, and VER-003 allows Unknown on every input (the reference decider refEnvVerify answers Unknown there). They are checked by the runtimes' tests (the env IN → T → OUT regression of smt_verifier.rs), since the conformance corpus covers closed nets only; VER_006_ac2 shows that the violating marking is in the reference reachable set. AC3's first sentence (Bounded(k) limits the state space: a transition requiring more than k tokens from an environment place per firing is never enabled) is the third line, read through VER_006_demand_gate, which derives it for every R meeting the block; a cap read as AlwaysAvailable is killed (VER_006_forbids_uncapped). AC3's premises are VER_006_premise and line 2 of VER_006_verdict; its Route B and state-class wording ('the state-class graphs enable an environment input exactly when it demands at most k whatever the place holds') is Novel/EnvSemantics/Supplied.lean (supplied_safety_exact). No block states it for the shipped graphs: the VER-012 blocks (VER_012, VER_012_build) and the VER-010 blocks say nothing of environment places."
+          "AC1 (each mode is selectable via the verifier configuration) is kind N, an offer of configuration: the mode type EnvMode carries the four modes (VER_006_verdict), and no line states the offer. The default mode (AlwaysAvailable for the SMT verifier, Ignore for the state-class graph API, which refuses Arrivals) is kind N (ruling D49 (a), VB3). AC4 to AC6 are VER_006_verdict's; AC9 and AC11 are VER_006_arrivals'; AC10 and the ν paragraph are accounted in VER_006_arrivals' assumes. AC7: line 3 of NU_053_dispatch (no colour-slot bound when injection is modelled on the flat net or an arrival feeds a coloured place) is the part that the name-coloured encoding does not answer there; that the query then takes the flat encoding, the report line and the witness (env source → fork (mint) → join → merged, Unreachable(merged) Violated) are kind Q (Rust smt_verifier.rs nu_route_a_declines_under_environment_injection, Java SmtVerifierTest.nuRouteA_declinesUnderEnvironmentInjection, TypeScript smt-verifier.test.ts 'Route A declines under environment injection (VER-006)'). AC8 is cited (VER_006_routeB_env, over the Route B model of Novel/RouteB/Retrodict.lean): the graph's base under AlwaysAvailable consumes and injects nothing on an environment place, so when no row deposits into an environment place, every class it reaches holds the initial count there (env_count_frozen); the decline route_b_env_observation (rules 1 to 4) names a place exactly in AC8's four cases, the property reading one (a quiescence property reads nothing when no marking can rest), an inhibitor arc testing one, a coloured one, and one two transitions consume under conflict priority (ver006_envObservation_ne_none_iff); and PlaceBound(E, 0) on T : E → P beside an idle ν-join is read off the frozen count and declined (env_count_witness). The model has no Bounded(k) base and no verdict record, so the rest of AC8 is kind Q: that a decline is the call's Unknown naming the place, under AlwaysAvailable and Bounded(k), that a verdict nothing declines stands, with the AC6 note on a quiescence verdict, and the witness net (PlaceBound(IN, 0) Unknown, Unreachable(accepted) Violated). Tests: Rust smt_verifier.rs ver006_route_b_declines_a_property_reading_an_env_place (both modes), ver006_route_b_declines_an_inhibitor_on_an_env_place, ver006_route_b_declines_a_coloured_env_place, ver006_route_b_still_answers_when_no_env_count_is_read, ver006_route_b_quiescence_vacuity_note_and_decline; Java SmtVerifierTest ver006ac8_routeB_propertyReadingEnvironmentPlace_isUnknown, _inhibitorOnEnvironmentPlace_isUnknown, _colouredEnvironmentPlace_isUnknown, _verdictsNotObservingTheEnvironment_stand, _vacuousQuiescence_carriesTheAc6Note; TypeScript smt-verifier.test.ts 'SmtVerifier Route B under environment injection (VER-006)' (five cases). In the conflict case every runtime reads whether conflict priority applies, not the selected mode, so on a net with a reapable transition the verdict stands as under NONE: Rust smt_verifier.rs nu_052_env_decline_only_where_conflict_priority_applies, Java SmtVerifierTest envDeclineReadsWhetherConflictPriorityApplies_NU052_VER006_AC8, TypeScript smt-verifier.test.ts 'NU-052 / VER-006 AC8: the env decline applies only where conflict priority is in effect', Python test_nu_verification.py test_nu_052_env_decline_only_where_conflict_priority_applies. Reading the selected mode there, which declines where AC8 lets the verdict stand, is the behaviour RD-39 recorded (spec/runtime-defects.md). Steps 3 and 5 of NU_055_refusal (an arrival that feeds a coloured place; an environment place Route B cannot model, under AlwaysAvailable or Bounded(k)) are AC10 and AC8 for the name-alignment properties."
+  signoff "2026-11-13 a83eba97a52d71f7 ai"
   statement : OpenReach → Prop :=
     fun R =>
       (∀ rows envs m0 m, (∀ tr ∈ rows, GuardFreeConsumeAll tr.1) →
@@ -274,6 +277,103 @@ theorem VER_006_forbids_closedLaw : ¬ VER_006 ver006ClosedLaw := by
   simp only [alpha, List.length_nil] at this
   omega
 
+/-! ## AC8: Route B under modelled injection -/
+
+theorem ver006_orElse_ne_none {α : Type} (a : Option α) (b : Unit → Option α) :
+    a.orElse b ≠ none ↔ a ≠ none ∨ b () ≠ none := by
+  cases a <;> simp [Option.orElse]
+
+theorem ver006_find_ne_none {l : List PlaceId} {q : PlaceId → Bool} :
+    l.find? q ≠ none ↔ ∃ p ∈ l, q p = true := by
+  rw [Ne, List.find?_eq_none]
+  simp
+
+/-- Route B's environment decline (`route_b_env_observation`, rules 1 to 4, modelled as
+`Novel.RouteB.envObservation`) names a place exactly when some declared environment place is
+coloured, is tested by an inhibitor arc, is consumed by two transitions under conflict priority,
+or is read by the property (`observed`: nothing for a quiescence property when no marking can
+rest). These are the four triggers of AC8. -/
+theorem ver006_envObservation_ne_none_iff {declared : PlaceId → Bool} {envs : List PlaceId}
+    {coloured : PlaceId → Bool} {net : List Novel.RouteB.NuTrans} {conflict : Bool}
+    {prop : Novel.RouteB.PropShape} {vacuous : Bool} {sinks markers : List PlaceId} :
+    Novel.RouteB.envObservation declared envs coloured net conflict prop vacuous sinks markers ≠
+        none ↔
+      ∃ p ∈ envs, declared p = true ∧
+        (coloured p = true ∨
+          (net.any fun T => T.base.inhibitors.contains p) = true ∨
+          (conflict = true ∧
+            2 ≤ (net.filter fun T => T.base.inputs.any fun s => s.place == p).length) ∨
+          p ∈ Novel.RouteB.observed prop vacuous (envs.filter declared) sinks markers) := by
+  generalize hob : Novel.RouteB.observed prop vacuous (envs.filter declared) sinks markers = ob
+  unfold Novel.RouteB.envObservation
+  simp only [hob]
+  rw [ver006_orElse_ne_none, ver006_orElse_ne_none, ver006_orElse_ne_none,
+    ver006_find_ne_none, ver006_find_ne_none, ver006_find_ne_none]
+  have h3 : ((if conflict = true then (envs.filter declared).find? fun p =>
+        decide (2 ≤ (net.filter fun T => T.base.inputs.any fun s => s.place == p).length)
+      else none) ≠ none) ↔
+      ∃ p ∈ envs.filter declared, conflict = true ∧
+        2 ≤ (net.filter fun T => T.base.inputs.any fun s => s.place == p).length := by
+    cases conflict
+    · simp
+    · simp only [if_true, ver006_find_ne_none, decide_eq_true_eq, true_and]
+  rw [h3]
+  simp only [List.mem_filter, List.contains_iff_mem]
+  constructor
+  · rintro (⟨p, ⟨hp, hd⟩, h⟩ | ⟨p, ⟨hp, hd⟩, h⟩ | ⟨p, ⟨hp, hd⟩, h⟩ | ⟨p, ⟨hp, hd⟩, h⟩)
+    · exact ⟨p, hp, hd, Or.inl h⟩
+    · exact ⟨p, hp, hd, Or.inr (Or.inl h)⟩
+    · exact ⟨p, hp, hd, Or.inr (Or.inr (Or.inl h))⟩
+    · exact ⟨p, hp, hd, Or.inr (Or.inr (Or.inr (by simpa using h)))⟩
+  · rintro ⟨p, hp, hd, h | h | h | h⟩
+    · exact Or.inl ⟨p, ⟨hp, hd⟩, h⟩
+    · exact Or.inr (Or.inl ⟨p, ⟨hp, hd⟩, h⟩)
+    · exact Or.inr (Or.inr (Or.inl ⟨p, ⟨hp, hd⟩, h⟩))
+    · exact Or.inr (Or.inr (Or.inr ⟨p, ⟨hp, hd⟩, by simpa using h⟩))
+
+/-- **AC8: Route B under modelled injection.** Three facts of the Route B model
+(`Novel/RouteB/Retrodict.lean`). First, the graph's base under `AlwaysAvailable` (`envBase`:
+an input arc on an environment place is always met and consumes nothing, nothing is injected)
+keeps an environment place at its initial count in every class it reaches, when no branch
+outcome deposits into one (`env_count_frozen`): the count in a state class is not the
+environment's. Second, the decline names a place exactly in the four cases AC8 lists
+(`ver006_envObservation_ne_none_iff`). Third, the witness: on `T : E → P` beside an idle
+ν-join, every class has `E = 0`, one injection gives `E = 1`, and the decline names `E` for
+`PlaceBound(E, 0)` (`env_count_witness`). -/
+@[evidence cites "VER-006" "AC8: Route B models an environment place under AlwaysAvailable / Bounded(k) only as an inexhaustible input, so its count in a state class is not the environment's; when a verdict would depend on that count or name layer (the property reads an environment place, a quiescence property only when quiescence is reachable; an inhibitor arc tests one; one is coloured; conflict priority prunes on one two transitions consume) Route B declines naming the place"]
+theorem VER_006_routeB_env :
+    (∀ (co envs : List PlaceId) (net : List Novel.RouteB.NuTrans)
+        (role : Novel.RouteB.NuTrans → Novel.RouteB.Role) (conflict : Bool),
+      (∀ T ∈ net, ∀ r ∈ T.rows, ∀ p ∈ envs, p ∉ r.places) →
+      ∀ (S0 S : Novel.RouteB.NState co AMarking),
+        Explorer.Reach
+            (Novel.RouteB.routeB (Novel.RouteB.envBase envs) net role conflict) S0 S →
+          ∀ p ∈ envs, S.b p = S0.b p) ∧
+    (∀ (declared : PlaceId → Bool) (envs : List PlaceId) (coloured : PlaceId → Bool)
+        (net : List Novel.RouteB.NuTrans) (conflict : Bool) (prop : Novel.RouteB.PropShape)
+        (vacuous : Bool) (sinks markers : List PlaceId),
+      Novel.RouteB.envObservation declared envs coloured net conflict prop vacuous sinks
+          markers ≠ none ↔
+        ∃ p ∈ envs, declared p = true ∧
+          (coloured p = true ∨
+            (net.any fun T => T.base.inhibitors.contains p) = true ∨
+            (conflict = true ∧
+              2 ≤ (net.filter fun T => T.base.inputs.any fun s => s.place == p).length) ∨
+            p ∈ Novel.RouteB.observed prop vacuous (envs.filter declared) sinks markers)) ∧
+    ((∀ S, Explorer.Reach
+          (Novel.RouteB.routeB (Novel.RouteB.envBase [2]) Novel.RouteB.EnvW.net
+            Novel.RouteB.Ignore.role false)
+          (Novel.RouteB.initState Novel.RouteB.EnvW.co Novel.RouteB.Ignore.zero) S →
+        S.b 2 = 0) ∧
+      (∃ a, ReachADInj (Novel.RouteB.nuRows Novel.RouteB.EnvW.net) [2]
+        Novel.RouteB.Ignore.zero a ∧ a 2 = 1) ∧
+      Novel.RouteB.envObservation (fun _ => true) [2]
+          (fun p => Novel.RouteB.EnvW.co.contains p) Novel.RouteB.EnvW.net false
+          (.reach [2]) false [] [] = some 2) :=
+  ⟨fun _ _ _ _ _ hno _ _ h => Novel.RouteB.env_count_frozen hno h,
+   fun _ _ _ _ _ _ _ _ _ => ver006_envObservation_ne_none_iff,
+   Novel.RouteB.EnvW.env_count_witness⟩
+
 /-! ## VER-006 (F): the `Bounded(k)` premise check -/
 
 /-- A premise check: from the cap, the registered environment places, the flat rows and the
@@ -295,7 +395,7 @@ requirement VER_006_premise
   reading "For every premise check P, cap k, environment places envs, flat rows and initial marking m0: P passes exactly when m0 holds at most k tokens on each place of envs (EnvCappedC) and no row deposits a token into a place of envs (NoEnvDeposit)."
   assumes "The flat rows stand for the verified net's transitions: a transition deposits into a place exactly when one of its rows does, since the flattener writes one row per branch of the output spec, and the runtimes read the output places of the spec (Rust t.output_places() in bounded_premise_violation, environment.rs), which are the places of its branches. The check is sufficient, not exact: a deposit that could never push the place above k is refused too. Untimed, counts only."
           "What the verifier does when the check fails (Unknown, naming the place and the broken premise, and no route runs) is line 2 of VER_006_verdict, whose check envPremiseOK reads the places each output spec names; on every net at flat place ids it is the check of every P meeting this block, applied to the net's flat rows (envPremiseOK_eq_premise). The order of the check (environment places in code-point order, the initial marking first, the first depositing transition in code-point order, a completion step complete:<t> of VER-004 named t) is the reason text, kind Q. Why the premises are needed is Novel/EnvSemantics: without them the encoding's post-cap blocks firings the executor makes (bounded_initial_overflow_wrong_proven, bounded_producer_overflow_wrong_proven) and the state-class graphs miss firings (supplied_bounded_deposit_wrong_proven, supplied_bounded_initial_wrong_proven, quiescence_bounded_initial_spurious); behind the check the reachable set, the supplied successor and the quiescence clause cover the executor (bounded_checked_sound, bounded_checked_supplied_sound, bounded_checked_quiescence_sound). AC3 is this block, line 2 of VER_006_verdict and line 3 of VER_006."
-  signoff "pending"
+  signoff "2026-11-13 7355f61d98d77bbb ai"
   statement : PremiseCheck → Prop :=
     fun P => ∀ k envs rows m0,
       P k envs rows m0 = true ↔ EnvCappedC k envs m0 ∧ NoEnvDeposit rows envs
@@ -402,7 +502,7 @@ requirement VER_006_quiescent
   assumes "The model is the flat open system of Novel/EnvSemantics, untimed: every row is read as not reapable, which is every row of an untimed net and of a net under assumeNoReaping. The shipped encode_quiescent skips a reapable row (smt_encoder.rs), so 'every transition that is not reapable' is the rows here; the reap-aware reading without injection is VER-002's and ReapAware.lean's. The combination of the skip with injection is not proved: the reapable half of the two quiescence sentences has no evidence here, an open item. An inhibitor arc is a reason whatever its place, since it reads the current count. A place with two input arcs on one transition is outside the model (FlatOK, InputsDistinctPlaces)."
           "The third quoted sentence is the meaning of the reasons form, derived for every Q meeting the block, and it speaks only of reachable markings from a capped initial marking (which the Bounded(k) premises give): pointwise it is false, since under Bounded(1) a transition whose only input is exactly(2, E) on the environment place E is permanently disabled, so {E: 2} counts as quiescent although that transition is enabled there. VER_006_quiescent_stuck (a reachable capped marking Q calls quiescent is dead and stays dead under every injection, relaxed_violation_real), and VER_006_quiescent_exact for the other direction over reachable markings (a reachable marking stuck under every injection future has a reachable saturation Q calls quiescent, so a quiescence property loses no violation; relaxed_quiescence_exact, under a demand bound and for an injection-stable side condition). The two forms agree on reachable markings, not pointwise, which is why the block quotes the reasons form (ruling D49 (a), VB1)."
           "AC6 (when injection makes some transition enabled in every marking a quiescence property is vacuously true and the report names the reason) is VER_006_verdict's lines 4 and 5 over the same reasons; quiescence_vacuity_sound proves the note true here: when some row has no reason left and is not permanently disabled, no capped marking is stuck under injection. The body sentence 'Under a mode that models injection an environment place is an ordinary place for the rest set of [VER-014]: a token left on it is stranded unless the caller declares the place a sink, as the closure of [VER-022] does.' is an explanatory consequence, not a line of this block or of VER-014: VER-014's rest set reads every place that is not a sink and sets no environment place apart, so with injection modelled a token on an environment place is stranded like any other. Here InjStable covers the stranded-token disjunct over places that are not sinks, environment places included, which the runtimes treat so (stranding_excuses, rest_set.rs)."
-  signoff "pending"
+  signoff "2026-11-13 ecbb8aec3d9d76e6 ai"
   statement : OpenQuiescent → Prop :=
     fun Q => ∀ np rows envs mode a,
       Q np rows envs mode a = true ↔
@@ -554,8 +654,8 @@ requirement VER_006_arrivals
   assumes "The model is the flat open system of Novel/EnvSemantics (Arrivals.lean), untimed, counts only; the fresh places of the closure are the ids from base on, which stands for the name-freshness check of VER-022 ('A name the rewrite would add that the net already declares is rejected, as in [VER-022].', kind B of that block). The closure omits a source whose count is 0 with its transitions (groupRows), so Arrivals(k) has no mandatory source and Arrivals(k, k) no optional one; the line states the rows' effect, not their names. The names env:arrivals[i], env:arrive[i]:P, env:optional[i], env:arrive?[i]:P and env:decline[i], the report form arrivals(k) / arrivals(min..max), and that the rewritten net is verified with no environment place left (so every route, P-invariants and quiescence apply to it as to a closed net) are kind Q and N; that P-invariants range over the rewritten net is VER-005 on the closed net."
           "AC9 (Arrivals(k) bounds the total: for env IN → T → OUT, PlaceBound(OUT, k) Proven and PlaceBound(OUT, k − 1) Violated with k arrivals, while Bounded(k) gives Violated for both; DeadlockFree with OUT a sink decided without the AC6 note) is line 1, with OUT holding at most the arrivals so far (a closure without the optional source, which would prove PlaceBound(OUT, 0) under Arrivals(1), is killed: VER_006_arrivals_forbids_noOpt), and line 4 of VER_006_verdict, which allows the note only when some transition has no reason left: on the closed net T keeps its input on IN, an ordinary place there. arrivals_enumeration_sound composes line 1 with the closed enumeration: its Proven holds for every executor run under the environment. The trace wording is kind Q."
           "AC11 (Arrivals(min, max) requires the mandatory arrivals: QuiescentCount({OUT}, 2, 2) Proven under Arrivals(2, 2) and Violated under Arrivals(2) with a trace through env:decline[0]; Arrivals(k) and Arrivals(0, k) give the same verdicts, traces and scripts; min < 0 and max < min are rejected) is line 2 for the mandatory arrivals: a rewrite that drops the mandatory source is killed (VER_006_arrivals_forbids_noMin) on that net, where it lets a run rest with no arrival. Arrivals(k) = Arrivals(0, k) holds by construction (the mode has one form, arrivals 0 k). The rejection of min < 0 or max < min when the mode is built, and before any route runs for a mode value written directly (a Rust enum variant), is kind N (ruling D49 (a), VB3): the model's counts are natural numbers and the lines assume min ≤ max."
-          "AC10 (under Arrivals(k) with a coloured environment place no ν route treats the injection transition as a mint) and the ν paragraph ('An injection transition producing into a coloured place ([NU-051]) is not a mint') are the ν routes'. Step 3 of NU_055_refusal refuses a name-alignment call in which an arrival feeds a coloured place, and line 3 of NU_053_dispatch runs no colour-slot bound when an arrival feeds a coloured place; that no ν route treats an injection transition as a mint for the other properties is an open item for wave W11 (NU-050 Route A, VER-012 Route B, NU-051 carriers)."
-  signoff "pending"
+          "AC10 (under Arrivals(k) with a coloured environment place no ν route treats the injection transition as a mint; the ν routes decline naming the place) and the ν paragraph ('An injection transition producing into a coloured place ([NU-051]) is **not** a mint: the ν routes ([NU-050] Route A, [VER-012] Route B) MUST NOT classify it as one', and 'When an injected place is coloured, the ν routes decline with `Unknown` naming the place, exactly as AC8 does under `AlwaysAvailable`.') are not a line here: ArrClosure is the closure of the flat net and carries no ν layer. Step 3 of NU_055_refusal refuses a name-alignment call in which an arrival feeds a coloured place, and line 3 of NU_053_dispatch runs no colour-slot bound (Route A declines) when an arrival feeds a coloured place. For the other properties it is kind Q. All three runtimes decline on both ν routes before any mint is read, whatever the caller declares: the check colours every producer only to find which places are coloured (coloured_arrival_reason, smt_verifier.rs; colouredArrivalReason in SmtVerifier.java and smt-verifier.ts). A decline is the route's answer, and the call's verdict is what the pipeline gives after it: on Route B the Unknown naming the place, as AC8's; on Route A, and on Route B when a marked coloured place keeps Route B from building its graph, the flat encoding, which reads no names, with a report line naming the place (AC7's form). Tests: Rust smt_verifier.rs arrivals_into_a_coloured_place_is_declined_by_route_b and arrivals_into_a_coloured_place_is_not_coloured_by_route_a; Java EnvironmentArrivalsTest anArrivalIntoAColouredPlace_routeBDeclinesNamingThePlace, anArrivalIntoAColouredPlace_quiescenceDeclinesToo and anArrivalIntoAColouredPlace_routeADeclinesToTheFlatEncoding_namingThePlace; TypeScript arrivals-mode.test.ts 'no ν route treats an arrival as a mint: Route B declines naming the place'. A mint declaration naming an injection transition env:arrive[i]:P is refused in every runtime, since the declaration is judged on the caller's net (NU-010); the decline does not read the declarations either way."
+  signoff "2026-11-13 f562c16d7d447f94 ai"
   statement : ArrClosure → Prop :=
     fun C => ∀ rows envs base lo hi a0 a,
       RowsBelow base rows → (∀ p ∈ envs, p < base) → envs.Nodup → lo ≤ hi →
@@ -914,8 +1014,8 @@ requirement VER_006_verdict
           "The vacuity condition is read on the verified net. The runtimes evaluate it after the terminal rewrite of EXEC-042, which gives every transition an inhibitor arc on each terminal place (terminal_places.rs, inhibit_on_terminals, applied before verify_net in smt_verifier.rs; TypeScript swaps the rewritten net in, Java does the same in prepare()), so on a net with a terminal place every transition keeps a reason and no note is reported. The nets X here are Reference nets, which have no terminal place, so NoRest reads the user's transitions and the two readings agree; nets with terminal places are outside X, and the terminal rewrite is EXEC-042's."
           "Lines 4 and 5 are AC6 and the reworded vacuity paragraph (ruling D49 (a), VB1). The note's presence is the line, its wording kind Q. Line 4 holds under every mode: under Ignore and Arrivals no injection is modelled, so an input or read arc on an environment place is an ordinary reason (EnvMode.supplies is false there), and the closure of Arrivals adds only transitions with an input arc; so under Ignore and Arrivals the note is allowed only for a net with a transition that needs no token at all, as on a closed net; under Arrivals the runtimes compute the condition on the closed net, which has the same transitions with no reason left as the net. Line 5 is scoped to a mode that models injection with environment places registered: there no enumeration or structural route runs (VER-017, VER-020 skip a net with environment places), and Route B and the flat encoding both append the note (smt_verifier.rs, quiescence_vacuous). Without environment places the enumeration route can decide a quiescence property on a net with an input-free transition and does not append the note in Rust; that corner is outside line 5. That the note is true (no capped marking is stuck under injection) is quiescence_vacuity_sound, cited by VER_006_quiescent. 'The verdict stands' is the absence of a refusal: no line forbids the Proven, and VER-003's soundness line holds of it on the verified net with injection."
           "AC4 (Ignore with registered environment places never returns Proven) and AC5 (on every route, including any structural or state-class route) are line 1, read at the decider (VER_006_verdict_forbids_noDowngrade). The body's 'a safety property that holds only because environment-gated transitions never fire' is the reason; the line refuses every Proven, as all runtimes do (ignores_environment, smt_verifier.rs; ruling D49 (a), VB3)."
-          "The quiescence properties here are VER-002's three (quiescenceProp: DeadlockFree, TerminatesAtSink, QuiescentCount), the ones the property type VerProp carries. JoinedOrDeadLettered, which the vacuity paragraph also names, is NU-040's property and is not in VerProp, so lines 4 and 5 say nothing about it; its vacuity note is an open item for wave W11 (NU-040, NU-050). AC6's QuiescentNameAligned exception (Unknown where no marking can rest) is step 5 of NU_055_refusal, over the call type of NU-055, which this decider does not carry. AC1 is the mode type EnvMode, an offer (coverage theorem, kind N); the defaults and the state-class API scope are kind N."
-  signoff "pending"
+          "The quiescence properties here are VER-002's three (quiescenceProp: DeadlockFree, TerminatesAtSink, QuiescentCount), the ones the property type VerProp carries. JoinedOrDeadLettered, which the vacuity paragraph also names, is NU-040's property and is not in VerProp, so lines 4 and 5 say nothing about it, and no block states its vacuity note: NU-040's block NU_040_jodl fixes which markings violate it and reads no environment mode. The runtimes report the note for it as for the other quiescence properties, since they test for a quiescence property as 'not reachability-safety' (Rust quiescence_vacuous and is_reachability_safety in smt_verifier.rs, Java isReachabilitySafety in SmtVerifier.java), and JoinedOrDeadLettered is not reachability-safety. The note is test evidence only for DeadlockFree (Rust ver006_route_b_quiescence_vacuity_note_and_decline); no test checks it for JoinedOrDeadLettered. AC6's QuiescentNameAligned exception (Unknown where no marking can rest) is step 5 of NU_055_refusal, over the call type of NU-055, which this decider does not carry. AC1 is the mode type EnvMode, an offer of configuration, kind N, which no line states; the defaults and the state-class API scope are kind N."
+  signoff "2026-11-13 3fa0ed8c4eabc4cf ai"
   statement : ∀ {K : Type} [LinearOrder K], FireRel K → SafetyViolRel K → Abs K → EnvDecider K →
       Prop :=
     fun F V abs D =>

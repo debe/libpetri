@@ -14,7 +14,8 @@ abstract executor `R : XRel N T` (glossary `GlossaryExec.lean`), checked against
 executor, against a mutant that validates the returned tokens only (ruling D27), and against
 executors that deposit without validating, deposit a rejected emission when the action returns,
 restore the consumed tokens on a failure, withdraw a failed firing's publications, or validate the
-timeout outcome (ruling D24, the Java and TypeScript behaviour).
+timeout outcome (ruling D24, the behaviour RD-01 in `spec/runtime-defects.md` recorded for Java and
+TypeScript).
 
 Output validation is two checks of the configuration (`Cfg`): the [IO-015] verdict on the
 produced set (`Cfg.validate`), and the join-relay check of [NU-054], which runs "as part of
@@ -60,7 +61,7 @@ requirement EXEC_021
           "The third shall sentence is line 2: the fail step leaves the marking as it is, so the consumed tokens stay consumed (EXEC_021_forbids_failRestores) and the tokens the action already published stay. A publication still queued when the completion fails is deposited later by its publish step (ruling D17), so line 2 also keeps the publication queue (EXEC_021_forbids_dropPublication)."
           "The fourth shall sentence (ruling D27 (a)) is the places line 1 and line 3 read, validIn f e: the places of the returned emission e followed by the places of every batch firing f flushed. Rust validates the returned outputs together with flushed_places (executor_core/executor.rs output_conforms). A validation over the returned places alone fails a firing that published one child of And(A, B) and returned the other (EXEC_021_mutant_noPub_killed)."
           "The fifth shall sentence is line 3 for a returned emission: a fail step of a firing whose emission passes both checks does not exist. With line 2 it excludes an executor that fails every completion."
-          "The timeout sentences (ruling D24 (a)) are line 3's last case: a firing that ended with its timeout outcome is failed only when the join-relay check rejects it, never by the IO-015 verdict. Rust skips validation on the timeout path and runs the relay check (executor_core/executor.rs handle_completion); Java and TypeScript validate the timeout outcome, which fails And(A, Timeout(d, B)) on every timeout (EXEC_021_forbids_validateTimeout); under D24 (a) that is a recorded executor defect, RD-01 in spec/runtime-defects.md. That the relay check runs on the timeout outcome is NU-054's sentence 'Every token the firing deposits in a relay target is checked, whatever wrote it, including an Out.forwardInput or Out.timeout branch'. Line 5 is the relay half of the sentence: a deposit of the timeout outcome happens only when the relay check accepts it (EXEC_021_forbids_timeoutNoRelay). What the timeout outcome deposits is EXEC-022's and IO-013's subject."
+          "The timeout sentences (ruling D24 (a)) are line 3's last case: a firing that ended with its timeout outcome is failed only when the join-relay check rejects it, never by the IO-015 verdict. Every runtime skips validation on the timeout path and runs the relay check: Rust in handle_completion (executor_core/executor.rs), Java and TypeScript in processCompletedTransitions of both executors, which run only the relay check when the context was detached for the timeout (isDetachedForTimeout; in the precompiled executors inside the CONC-026 skip). An executor that validates the timeout outcome fails And(A, Timeout(d, B)) on every timeout (EXEC_021_forbids_validateTimeout), the behaviour RD-01 in spec/runtime-defects.md recorded for Java and TypeScript. That the relay check runs on the timeout outcome is NU-054's sentence 'Every token the firing deposits in a relay target is checked, whatever wrote it, including an Out.forwardInput or Out.timeout branch'. Line 5 is the relay half of the sentence: a deposit of the timeout outcome happens only when the relay check accepts it (EXEC_021_forbids_timeoutNoRelay). What the timeout outcome deposits is EXEC-022's and IO-013's subject."
           "Validation reads sets of places (IO-015), so an emission with several tokens in one claimed place passes; a run whose emission is not a deposit the output spec offers is a real run (IO-016 AC4), so a link from this model to the queue firing RefQFire carries the per-run hypothesis OfferedEmission (glossary)."
           "Firing identities are drawn from one supply (XSt.nextId), so 'the firing i' is unique in every reachable state; the lines read 'some firing in flight with identity i', which is the same there."
           "AC1 (And, every child received tokens, valid) is IO-015's verdict; EXEC_021_nonvacuous admits And(1, 2) with child 1 published and child 2 returned."
@@ -69,7 +70,7 @@ requirement EXEC_021
           "AC4 (validation applied by every executor backend a language ships) is about which code paths exist: both backends are runs of RefExec (CONC-020, a later block); not encoded here (test evidence)."
           "AC5 (violation: the event is TransitionFailed, no produced token deposited, consumed tokens not restored, published tokens stay) is lines 1 and 2; EXEC_021_nonvacuous deposits the publication of a failed firing after its fail step."
           "The test derivation (Xor output with tokens to both branches, a violation, neither branch place receives a token) is EXEC_021_nonvacuous's rejection run."
-  signoff "pending"
+  signoff "2026-11-13 1649f694fa3b896b ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C, C.SetValidated → ∀ i,
       (on (fun s s' => R C s (.commit i) s'), shall (fun s s' =>
@@ -370,10 +371,11 @@ theorem EXEC_021_forbids_dropPublication :
   have := ((h exec021_cAB (exec021_cfg_set _) 0).2.1 s s' hs).2
   simp [this] at hp
 
-/-! ### Violation: validating the timeout outcome (ruling D24, the Java and TypeScript reading) -/
+/-! ### Violation: validating the timeout outcome (ruling D24, the reading RD-01 recorded) -/
 
 /-- An executor that validates the timeout outcome against the output spec and fails the
-firing when the verdict rejects it (Java and TypeScript today); otherwise the reference. -/
+firing when the verdict rejects it (the behaviour RD-01 recorded for Java and TypeScript);
+otherwise the reference. -/
 def exec021_validateTimeoutStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
     XLbl N T → Option (XSt N T)
   | .fail i =>

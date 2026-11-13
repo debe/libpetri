@@ -116,11 +116,11 @@ requirement EVT_010
           "Line 2 is the second quoted sentence, read inside the step that deposits the outcome. Rust emits the event first and then the TokenAdded events of the outcome (executor_core/executor.rs 1254-1260 before the deposit); EVT_010_mutant_afterDeposit emits it after them. Java and TypeScript emit the event in the expiry step, which comes before the deposit step: only the expiry records a timeout outcome (EXEC-022 line 5), and a tdeposit needs a recorded one (EXEC-022 line 3), so their deposit steps carry no ActionTimedOut and line 2 holds of them trivially. Read across steps on such an executor, the sentence follows from line 1 together with EXEC-022 on the executor underneath (E.erase); it is not a further line here. The block reads the timeout outcome off E's state (isTimeoutOut): an executor that records the timeout branch as a returned emission (outcome ok), so that it reports TransitionCompleted and never an ActionTimedOut, meets the lines of this block, and it is EXEC-022 line 2 on E.erase that rejects it. Such a slip is the short form of Java's withActionTimeout without its TIMEOUT_SENTINEL check (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java 560-582), or a Rust select! arm that builds its completion with timed_out None; the consistency theorem's conjunct on E.erase is what excludes it."
           "Line 3 is the third quoted sentence. It reads labelled runs from the initial state, where no firing is in flight and every identity is still to be handed out (XSt.nextId), so that 'each firing' is 'each identity' (EXEC-031; the reference keeps IdsIssued, exec022_idsIssued_step). At most one: EVT_010_mutant_reportedTwice reports the timeout at the expiry and again at the deposit. Exactly one once the outcome is settled: EVT_010_mutant_silentTimeout never reports it. 'No later than when it settles' allows both runtimes' moments: in the reference the Java and TypeScript event is in the expiry step, before the settle (evt010_runLB), the Rust event in the settle step. The line does not require the event for a firing whose timeout outcome is never settled in the run (a run that stops before step 1 settles it); that a recorded timeout outcome is settled at all is coverage, the second clause of Exec022Covers in the consistency theorem's ExecCoversW5 (ConsistencyExec.lean)."
           "Not claimed (ruling D65 (a), the weak form). That every ActionTimedOut is followed by the deposit of the timeout outcome: it is not after a join-relay rejection (Rust: ActionTimedOut, then TransitionFailed), nor, in Java and TypeScript, after a firing the run abandoned at a terminal stop (EXEC-042), whose timer still emits the event, also after ExecutionCompleted (clash evt-b#9, R7: Java and TypeScript emit from the timer with no check that the run is still live; EVT-003 leaves ActionTimedOut out of the orchestrator events it orders). Whether TransitionCompleted follows the event: Java and TypeScript emit it after depositing the timeout branch, Rust does not (clash evt-a#7, R2); that is EVT-007's, which allows both. The budget's duration and when the budget runs out are host time under ruling D18 (b), outside the model (EXEC-022's test-only point), so the block has no time clause: it is keyed on the expiry step, not on a clock."
-          "Not encoded: the payload sentence Each ActionTimedOut event shall carry the duration of the `Timeout` node of the firing's output spec. All three runtimes carry the field, the Timeout node's after duration (Java timeout, a Duration; TypeScript timeoutMs and Rust timeout_ms, in milliseconds), but the model's event carries the transition name only (NetEvent.actionTimedOut, GlossaryEvents.lean) and its output spec has no durations (Out.timeout), so a payload block needs the duration on the Timeout node first (rulings D33 (a) and D38 (a)). The timestamp, which the executor's epoch clock stamps (TIME-015), is not modelled (the epoch clock is the CORE-011 slice)."
+          "The payload sentence 'Each ActionTimedOut event shall carry the duration of the `Timeout` node of the firing's output spec.' is the companion block EVT_010_payload in this file (rulings D33 (a) and D38 (a): payload fields are companion blocks). The model's event carries the transition name only (NetEvent.actionTimedOut, GlossaryEvents.lean) and its output spec has no durations (Out.timeout), so that block takes the Timeout durations as data and models the duration field as its own (Evt010DurExec); all three runtimes carry the field, the Timeout node's after duration. The timestamp, which the executor's epoch clock stamps (TIME-015), is not modelled (the epoch clock is the CORE-011 slice)."
           "AC1 (emitted for a firing whose action's Out.Timeout budget runs out before the action completes, and never for a transition reaped at its timing deadline) is lines 1 and 3: the event comes only from the expiry or the settle of a timed-out firing, never from a deadline step, and every settled timeout outcome has its event (EVT_010_nonvacuous; EVT_010_mutant_reapAsActionTimedOut). AC2 (the TokenAdded events of the timeout branch come after this event) is line 2 in the deposit step, and, for Java and TypeScript, the order of the expiry and the deposit steps (line 2 above)."
-          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); no host callback throws inside a start or a deposit; an event is a value (EVT-001); transition names are distinct (ruling D10). IO-013 AC4 (an ActionTimedOut event is emitted on timeout) is this requirement's subject; the IO_013 block defers it here (clash evt-b#7, SC-10, ruling D20). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java 570-578, BitmapNetExecutor.java 1749-1752 and 2509-2512; LogCaptureScope.java 87-110), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
+          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); no host callback throws inside a start or a deposit; an event is a value (EVT-001); transition names are distinct (ruling D10). IO-013 AC4 (an ActionTimedOut event is emitted on timeout) is this requirement's subject; the IO_013 block defers it here (clash evt-b#7, SC-10, ruling D20). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
           "The test derivation (an action sleeps 500 ms with Out.Timeout at 100 ms, verify the ActionTimedOut event) is EVT_010_nonvacuous on the example, with the budget's expiry a step: under the Java and TypeScript emission the expiry of t's budget emits ActionTimedOut t and the deposit of 7 and 8 in place 2 emits none; under the Rust emission the deposit emits ActionTimedOut t and then the two TokenAdded events; on the whole run from the initial state firing 0 has exactly one ActionTimedOut under each emission."
-  signoff "pending"
+  signoff "2026-11-13 905950d7a6661f22 ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C,
       ((∀ M0, ∀ e ∈ E.boot C M0, e.kind ≠ .actionTimedOut) ∧
@@ -1064,5 +1064,203 @@ theorem EVT_010_mutant_silentTimeout :
   simp only [Bool.and_eq_true, beq_iff_eq] at hq
   have := ((h evt008_cfg).2.2 evt008_m0 0 run hr 0).2 hq.1
   omega
+
+/-! ## EVT-010, second block: the duration an `ActionTimedOut` event carries -/
+
+section PayloadModel
+
+/-- **Timeout durations**: the `after` duration, in milliseconds, of the `Timeout` node of each
+transition's output spec. The model's `Out.timeout` carries no duration, so the payload block takes
+the durations as data next to the configuration; only the value at a transition whose output spec
+has a `Timeout` node is ever read. -/
+abbrev Evt010Budgets (N : Type) := Trans N → Nat
+
+/-- **An executor with events whose `ActionTimedOut` events carry a duration**: the executor with
+events `ex`, and `dur bud C s l e`, the duration field of the event `e` that the step labelled `l`
+from state `s` appends under configuration `C`, when the `Timeout` nodes of the net have the
+durations `bud`. The model's event (`NetEvent.actionTimedOut`) carries the transition name only, so
+the field is this block's own. -/
+structure Evt010DurExec (N T : Type) where
+  /-- The executor with events. -/
+  ex  : EvExec N T
+  /-- The duration field of each event a step appends. -/
+  dur : Evt010Budgets N → Cfg N T → XSt N T → XLbl N T → NetEvent N T → Nat
+
+/-- The duration of the `Timeout` node of the firing that the label `l` names in state `s`: the
+first firing in flight with that identity, as `refEmitW` names its transition; `0` where the label
+names none (no `ActionTimedOut` is emitted there). -/
+def evt010_refDur {N T : Type} (bud : Evt010Budgets N) (_ : Cfg N T) (s : XSt N T) (l : XLbl N T)
+    (_ : NetEvent N T) : Nat :=
+  match evt010_lblId l with
+  | some i =>
+    match s.fl.find? (·.id == i) with
+    | some f => bud f.t
+    | none => 0
+  | none => 0
+
+/-- The reference executor with events under the emission variant `P`, with the duration field
+`evt010_refDur`. -/
+def evt010_refDurExec {N T : Type} [DecidableEq N] [Ord N] (P : EvPol) : Evt010DurExec N T :=
+  ⟨refEvExec P, evt010_refDur⟩
+
+end PayloadModel
+
+/- The reference executor with events and its duration field is the witness model of the payload
+block's `holds` theorems. -/
+#spec_witness evt010_refDurExec
+
+requirement EVT_010_payload
+  id "EVT-010"
+  title "ActionTimedOut Event (duration)"
+  kind B
+  scope "all executors (event store enabled)"
+  source verbatim "spec/08-events-observability.md"
+  quote "Each ActionTimedOut event *shall* carry the duration of the `Timeout` node of the firing's output spec."
+  reading "For every executor with events D whose ActionTimedOut events carry a duration, every assignment bud of durations to the Timeout nodes of the transitions, every configuration C and every history H:"
+          "every ActionTimedOut event e that a step labelled l from state s appends carries as its duration bud of the transition of a firing f in flight in s whose identity is the one the label carries."
+  assumes "This is the second block of EVT-010: the duration field. The first block, EVT_010, says when the event is emitted and which transition it names; this block adds what its duration holds. The model's events and output specs carry no durations: NetEvent.actionTimedOut carries the transition name only (Spec/GlossaryEvents.lean) and Out.timeout has no after duration (Reference/Semantics.lean). The block therefore takes the durations as data, bud : Trans N -> Nat, the after duration in milliseconds of the Timeout node of each transition's output spec, and models the field as dur, the duration an executor writes into each event a step appends (Evt010DurExec, an executor with events and its duration field). The witness is the reference executor with events refEvExec under both emission variants, with the duration field evt010_refDur: bud of the transition of the firing the step's label names. The field is this block's own until the shared model carries the duration on the Timeout node and on the event; the event blocks' other fields do not read it."
+          "'The firing' is the one the first block's line 1 attributes the event to: a firing in flight whose identity the step label carries, the expiry expire i e of its budget under the Java and TypeScript emission, a timeout deposit tdeposit i or a fail step fail i under the Rust emission. The line reads the duration of that firing's own transition, the one whose output spec has the Timeout node whose budget ran out; only such a firing records a timeout outcome (EXEC-022), so bud is read only at transitions with a Timeout node. Every runtime carries the configured duration, not the time that elapsed: Java's NetEvent.ActionTimedOut carries t.actionTimeout().after(), a Duration, and is emitted by the onTimeout callback that fireTransition hands to ExecutorSupport.withActionTimeout (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java and PrecompiledNetExecutor.java, fireTransition in each); TypeScript sets timeoutMs from timeoutSpec.afterMs and emits the event in the timeout branch of fireTransition (typescript/src/runtime/bitmap-net-executor.ts and precompiled-net-executor.ts, fireTransition in each); Rust sets timeout_ms from the after_ms of the Timeout node the spawned task slept on, carried on the completion as timed_out, which fire_transition_async sets and handle_completion emits (rust/libpetri-runtime/src/executor_core/executor.rs, rust/libpetri-event/src/net_event.rs:51); Python rides on Rust. The unit (a Java Duration, milliseconds in TypeScript and Rust) is the event's representation (kind N)."
+          "An executor that steps and emits as the reference but reports zero (EVT_010_payload_mutant_zero) or the time elapsed since the firing started (EVT_010_payload_mutant_elapsed) meets the first block and breaks this line. The shared assumptions of the first block (store enabled, events are values, distinct names) apply; the timestamp is not modelled."
+          "The test derivation (an action sleeps 500 ms with Out.Timeout at 100 ms, verify the ActionTimedOut event) is EVT_010_payload_nonvacuous on the example of the first block, with t's Timeout node at 100 ms: under the Java and TypeScript emission the expiry of t's budget reports ActionTimedOut t with duration 100, and under the Rust emission the deposit of the timeout outcome reports it with duration 100."
+  signoff "2026-11-13 e16c856bbff9470a ai"
+  statement : ∀ {N T : Type}, Evt010DurExec N T → Prop :=
+    fun D => ∀ bud C H l evs, on (fun s s' => D.ex.step C H s l evs s'), shall (fun s _ =>
+      ∀ e ∈ evs, e.kind = .actionTimedOut →
+        ∃ f ∈ s.fl, evt010_lblId l = some f.id ∧ D.dur bud C s l e = bud f.t)
+
+/- The pinned readable form of the companion: a change to the formula shows up as a diff here. -/
+/--
+info: def Libpetri.Spec.EVT_010_payload : {N T : Type} → Evt010DurExec N T → Prop :=
+fun {N T} D =>
+  ∀ (bud : Evt010Budgets N) (C : Cfg N T) (H : List (NetEvent N T)) (l : XLbl N T) (evs : List (NetEvent N T)),
+    on fun s s' => D.ex.step C H s l evs s', shall fun s x =>
+      ∀ e ∈ evs,
+        e.kind = NetEventKind.actionTimedOut → ∃ f ∈ s.fl, evt010_lblId l = some f.id ∧ D.dur bud C s l e = bud f.t
+-/
+#guard_msgs in #print EVT_010_payload
+
+section Payload
+
+variable {N T : Type} [DecidableEq N] [Ord N]
+
+/-- The reference meets the payload block under every emission variant: an `ActionTimedOut` the
+reference emits belongs to the first firing in flight with the label's identity
+(`evt010_refAto`), and `evt010_refDur` reads that firing's transition. -/
+theorem evt010_payload_ref (P : EvPol) : EVT_010_payload (evt010_refDurExec (N := N) (T := T) P) := by
+  intro bud C H l evs s s' hs e he hk
+  obtain ⟨-, rfl⟩ := hs
+  obtain ⟨i, f, hl, hf, -, -⟩ := evt010_refAto P C H s l s' e he hk
+  have hid : f.id = i := by simpa using List.find?_some hf
+  refine ⟨f, List.mem_of_find?_eq_some hf, by rw [hl, hid], ?_⟩
+  simp [evt010_refDurExec, evt010_refDur, hl, hf]
+
+/-- ✓ The reference with the Java and TypeScript emission meets the payload block: the event of
+the expiry carries the duration of the expired firing's `Timeout` node. -/
+@[evidence holds EVT_010_payload]
+theorem EVT_010_payload_reference :
+    EVT_010_payload (evt010_refDurExec (N := N) (T := T) polJT) := evt010_payload_ref polJT
+
+/-- ✓ The reference with the Rust emission meets the payload block: the event of the settle
+carries the duration of the settled firing's `Timeout` node. -/
+@[evidence holds EVT_010_payload]
+theorem EVT_010_payload_rust :
+    EVT_010_payload (evt010_refDurExec (N := N) (T := T) polRust) := evt010_payload_ref polRust
+
+/-- The duration field that reports zero. -/
+def evt010_zeroDur (_ : Evt010Budgets N) (_ : Cfg N T) (_ : XSt N T) (_ : XLbl N T)
+    (_ : NetEvent N T) : Nat := 0
+
+/-- The duration field that reports the time elapsed since the named firing started: the host
+reading of the step's source state less the firing's start reading. -/
+def evt010_elapsedDur (_ : Evt010Budgets N) (_ : Cfg N T) (s : XSt N T) (l : XLbl N T)
+    (_ : NetEvent N T) : Nat :=
+  match evt010_lblId l with
+  | some i =>
+    match s.fl.find? (·.id == i) with
+    | some f => s.now - f.start
+    | none => 0
+  | none => 0
+
+/-- The executor that steps and emits as the Java and TypeScript reference and reports a zero
+duration. -/
+def evt010_zeroDurExec : Evt010DurExec N T := ⟨refEvExec polJT, evt010_zeroDur⟩
+
+/-- The executor that steps and emits as the Java and TypeScript reference and reports the time
+elapsed since the firing started. -/
+def evt010_elapsedDurExec : Evt010DurExec N T := ⟨refEvExec polJT, evt010_elapsedDur⟩
+
+omit [Ord N] in
+/-- The executor with events of `D` meets the first block of EVT-010. -/
+def evt010_ExMeets (D : Evt010DurExec N T) : Prop := EVT_010 D.ex
+
+end Payload
+
+/-- The `Timeout` durations of the example: 100 ms for `t`, 0 for every other transition. -/
+def evt010_bud : Evt010Budgets Nat := fun t => if t.core.name = "t" then 100 else 0
+
+/-- ✓ The payload line is exercised by the reference under both emissions, on the example of the
+first block with `t`'s `Timeout` node at 100 ms: with the Java and TypeScript emission the expiry
+of `t`'s budget reports `ActionTimedOut t` with duration 100; with the Rust emission the deposit of
+the timeout outcome reports `ActionTimedOut t` with duration 100, then adds 7 and 8. -/
+@[evidence nonvacuous EVT_010_payload]
+theorem EVT_010_payload_nonvacuous :
+    (∃ s s' evs, (evt010_refDurExec polJT).ex.step evt008_cfg [] s (.expire 0 evt008_tout) evs s' ∧
+      evs = [.actionTimedOut "t"] ∧
+      (evt010_refDurExec polJT).dur evt010_bud evt008_cfg s (.expire 0 evt008_tout)
+        (.actionTimedOut "t") = 100) ∧
+    (∃ s s' evs, (evt010_refDurExec polRust).ex.step evt008_cfg [] s (.tdeposit 0) evs s' ∧
+      evs = [.actionTimedOut "t", .tokenAdded 2 7, .tokenAdded 2 8] ∧
+      (evt010_refDurExec polRust).dur evt010_bud evt008_cfg s (.tdeposit 0)
+        (.actionTimedOut "t") = 100) := by
+  refine ⟨?_, ?_⟩
+  · obtain ⟨s, s', evs, hs, hp⟩ := evt008_check polJT evt008_cfg evt010_beforeExpire
+      (.expire 0 evt008_tout)
+      (fun s evs => evs == [.actionTimedOut "t"] &&
+        evt010_refDur evt010_bud evt008_cfg s (.expire 0 evt008_tout) (.actionTimedOut "t") == 100)
+      (by decide +kernel)
+    simp only [Bool.and_eq_true, beq_iff_eq] at hp
+    exact ⟨s, s', evs, hs, hp.1, hp.2⟩
+  · obtain ⟨s, s', evs, hs, hp⟩ := evt008_check polRust evt008_cfg (evt008_expired evt008_cfg)
+      (.tdeposit 0)
+      (fun s evs => evs == [.actionTimedOut "t", .tokenAdded 2 7, .tokenAdded 2 8] &&
+        evt010_refDur evt010_bud evt008_cfg s (.tdeposit 0) (.actionTimedOut "t") == 100)
+      (by decide +kernel)
+    simp only [Bool.and_eq_true, beq_iff_eq] at hp
+    exact ⟨s, s', evs, hs, hp.1, hp.2⟩
+
+/-- ✗ Reporting a zero duration violates the payload block. `t`'s budget of 100 ms runs out and
+this executor reports `ActionTimedOut t` with duration 0. It steps and emits as the reference, so
+it meets the first block. -/
+@[evidence mutant EVT_010_payload]
+theorem EVT_010_payload_mutant_zero :
+    evt010_ExMeets (evt010_zeroDurExec (N := Nat) (T := Nat)) ∧
+      ¬ EVT_010_payload (evt010_zeroDurExec (N := Nat) (T := Nat)) := by
+  refine ⟨EVT_010_reference, fun h => ?_⟩
+  obtain ⟨s, s', evs, hs, hp⟩ := evt008_check polJT evt008_cfg evt010_beforeExpire
+    (.expire 0 evt008_tout) (fun _ evs => evs == [.actionTimedOut "t"]) (by decide +kernel)
+  have hev : evs = [.actionTimedOut "t"] := by simpa using hp
+  obtain ⟨f, -, -, hd⟩ := h (fun _ => 100) evt008_cfg [] _ evs s s' hs (.actionTimedOut "t")
+    (by simp [hev]) rfl
+  simp [evt010_zeroDurExec, evt010_zeroDur] at hd
+
+/-- ✗ Reporting the time elapsed since the firing started violates the payload block. `t` starts
+at reading 0 and its budget of 100 ms runs out at the host reading of the expiry step; this
+executor reports that reading less 0, not 100. It steps and emits as the reference, so it meets
+the first block. -/
+@[evidence mutant EVT_010_payload]
+theorem EVT_010_payload_mutant_elapsed :
+    evt010_ExMeets (evt010_elapsedDurExec (N := Nat) (T := Nat)) ∧
+      ¬ EVT_010_payload (evt010_elapsedDurExec (N := Nat) (T := Nat)) := by
+  refine ⟨EVT_010_reference, fun h => ?_⟩
+  obtain ⟨s, s', evs, hs, hp⟩ := evt008_check polJT evt008_cfg evt010_beforeExpire
+    (.expire 0 evt008_tout)
+    (fun s evs => evs == [.actionTimedOut "t"] &&
+      evt010_elapsedDur (fun _ => 100) evt008_cfg s (.expire 0 evt008_tout) (.actionTimedOut "t")
+        != 100)
+    (by decide +kernel)
+  simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at hp
+  obtain ⟨f, -, -, hd⟩ := h (fun _ => 100) evt008_cfg [] _ evs s s' hs (.actionTimedOut "t")
+    (by simp [hp.1]) rfl
+  exact hp.2 hd
 
 end Libpetri.Spec

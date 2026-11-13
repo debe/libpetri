@@ -20,9 +20,9 @@ Two blocks share the ID NU-051 with the blocks of `NU_051.lean`.
   (the fragment mode and the declared carriers): a declared carrier that is not a place of the
   net is refused loudly, naming only missing carriers, in both modes and for every query (ruling
   D95 (a)). It is checked against the guard in front of any decider (`refCarrierVerify`, the
-  Unknown form) and the builder rejection of Java and TypeScript, and against the shape Rust
-  ships, which checks only under EXTENDED inside Route B and loses the refusal when Route B defers
-  to Route A (runtime defect RD-27).
+  Unknown form), the builder rejection of Java and TypeScript and the Rust and Python form that
+  names every absent carrier, and against a wrong shape that checks only under EXTENDED inside
+  Route B and loses the refusal when Route B defers to Route A (the behaviour RD-27 recorded).
 * `Nu051CarrierCovers` is the offer of the bullet, a coverage clause and not a line: a
   declaration whose carriers the net has is accepted in either mode.
 -/
@@ -62,8 +62,8 @@ requirement NU_051_colours
           "under BASE, the coloured set with cs declared is the coloured set with no carrier declared."
   assumes "The coloured set is per call, as the glossary term Coloured place reads it ('The classifier computes the coloured set for each call'); the role each transition then gets from it is the block NU_051 (refClassify takes the coloured set as its argument). 'The analyzer unions the declared carriers into the coloured set before role assignment' is line 1 with that composition: line 1 says the EXTENDED set is the union of the set without carriers and the carriers, nothing more and nothing less, and the classifier reads that set. A set that colours a further place once a carrier is declared breaks line 1 (NU_051_colours_forbids_footprint). 'so the existing mint co-mints one fresh name into all of them' is shown, not stated: NU_051_colours_nonvacuous classifies a fork that writes a key and a declared carrier as a mint of both under EXTENDED, while under BASE the consumer of the carrier writes the key without consuming a coloured place, the shape of a second, independent mint."
           "Line 2 speaks of the classifier's coloured set only. The in-flight split of [VER-004] reads the declared carriers in both modes (it refuses to split a transition that writes one: in_flight.rs first_unsplittable, InFlight.firstUnsplittable in Java, firstUnsplittable in TypeScript, each called without the mode), which the edited sentence 'Under BASE, the fragment classifier ignores declared carriers (a documented no-op); the in-flight split of [VER-004] reads them in both modes.' says, and which VER-004 states ('a match key, a relay target or a declared carrier'). So no line says a whole verifier answers the same with and without carriers under BASE: the split can refuse where it would not without them."
-          "The match keys and the relay targets in the set are the glossary's (Coloured place; [NU-020], [NU-054]), not lines here: the lines fix what the carriers add and take away, relative to the set with no carrier declared, and say nothing of that set itself. So a set that colours every place in both modes, or one that under EXTENDED colours the declared carriers alone and drops every match key, meets both lines; they break the glossary's coloured set (the match keys, and under EXTENDED the relay targets), which no block states as a line yet (the coloured-set computation of the verifier pipeline, wave W10). refColourSet reads a relay target only on a matched transition, as Rust does (relays come from the match spec). A declared carrier that is not a place of the net joins the set as a name no transition touches; what the verifier does about it is the block NU_051_carrier."
-  signoff "pending"
+          "The match keys and the relay targets in the set are the glossary's (Coloured place; [NU-020], [NU-054]), not lines here: the lines fix what the carriers add and take away, relative to the set with no carrier declared, and say nothing of that set itself. So a set that colours every place in both modes, or one that under EXTENDED colours the declared carriers alone and drops every match key, meets both lines; they break the glossary's coloured set (the match keys, and under EXTENDED the relay targets), which no block states as a line: the verifier pipeline model (Verifier/Pipeline.lean, the block VER_003) does not model how a ν verifier builds the coloured set. That set is Q-tested: Rust name_fragment.rs extended_colours_relay_targets_and_the_join_carries_them and a_relay_target_no_join_consumes_is_coloured_and_its_read_arc_rejects (under EXTENDED a relay target is coloured, also one no join consumes), name_coloured_encoder.rs extended_carrier_relay_admitted_only_under_extended and a_relay_target_no_join_consumes_is_coloured_and_produced_by_the_join (the same set in Route A's plan), and Java NuNameAlignmentTest nu055_ac5_theBugVariantClassifiesOnlyWithTheMatchlessGateLifted (under EXTENDED every declared carrier is coloured and an undeclared place is not). refColourSet reads a relay target only on a matched transition, as Rust does (relays come from the match spec). A declared carrier that is not a place of the net joins the set as a name no transition touches; what the verifier does about it is the block NU_051_carrier."
+  signoff "2026-11-13 c7e191c148c2ba43 ai"
   statement : ColourSet → Prop :=
     fun C =>
       (∀ (cs : List PlaceId) (net : List NuTrans) (p : PlaceId),
@@ -282,6 +282,19 @@ def LoudRefusal (cfg : NuConfig) (net : CarrierNet) : CarrierAnswer → Prop
   | .answered (.unknown _) named => named ≠ [] ∧ ∀ p ∈ named, AbsentCarrier cfg net p
   | .answered _ _ => False
 
+/-- A refusal: the declaration is rejected, or the verdict is `Unknown`, whatever it names. -/
+def CarrierRefusal : CarrierAnswer → Prop
+  | .rejected _ => True
+  | .answered (.unknown _) _ => True
+  | .answered _ _ => False
+
+/-- The escape of the carrier line: the verifier `P` on routes `D` refuses the call, and the
+same call with no carrier declared gets that same answer, so the refusal does not depend on the
+carrier declaration. -/
+def CarrierEscape {Q : Type} (P : CarrierPipeline Q) (D : CarrierVerifier Q) (cfg : NuConfig)
+    (net : CarrierNet) (q : Q) : Prop :=
+  CarrierRefusal (P D cfg net q) ∧ P D { cfg with carriers := [] } net q = P D cfg net q
+
 /-- The declared carriers that are not places of the net, in declaration order. -/
 def absentCarriers (cfg : NuConfig) (net : CarrierNet) : List PlaceId :=
   cfg.carriers.filter fun p => !net.places.contains p
@@ -323,41 +336,50 @@ requirement NU_051_carrier
   kind F
   scope "every ν verifier entry point that takes carrier declarations"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* a declared carrier place is not a place of the net, *then* the verifier *shall* either reject the declaration, naming such a place, or answer `Unknown` with a reason that names at least one such place and no other place, in both BASE and EXTENDED and whatever the query."
-  reading "For every query type Q, routes D, ν configuration cfg, net and query q: if some declared carrier of cfg is not a place of the net, the verifier built on D either rejects the declaration naming a declared carrier that is not a place of the net, or answers Unknown with a reason that names at least one place, every place it names being a declared carrier that is not a place of the net."
-  assumes "Ruling D95 (a) decides the mode question of clash nu-c#2: an absent carrier fails in every mode, not only when a query reaches Route B. AC4 had no mode and the body said carriers are ignored under BASE; the markdown now says 'in either fragment mode and whatever the query', and the BASE sentence speaks of the fragment classifier only (NU_051_colours, line 2). D95 (a) reads 'at configuration, in every mode'; only its 'in every mode' half is a line. The line also accepts `Unknown` from verify, which the markdown has always allowed ('reject at the builder, or surface `Unknown`'), so the 'at configuration' half is deliberately not enforced: where the refusal is made is configuration (kind N, below), and Rust's verify-time `Unknown` meets the line once the gaps of RD-27 are closed."
-          "Java (SmtVerifier.carrierPlaces) and TypeScript (SmtVerifier.carrierPlaces) reject the declaration in both modes, naming the place (NU_051_carrier_builder). Rust and Python check only under EXTENDED and only inside Route B (nu_scg_verifier.rs verify_name_scg). An absent carrier is therefore silently ignored in three cases: under BASE; under EXTENDED on a call that does not reach Route B; and under EXTENDED on a bounded quiescence query that does reach it, because the pipeline discards any Route B `Unknown` there and defers to Route A (smt_verifier.rs, defer_to_route_a), whose build_plan skips a carrier it cannot resolve (name_coloured_encoder.rs). That is runtime defect RD-27. NU_051_carrier_forbids_routeBOnly (BASE) and NU_051_carrier_forbids_routeADeferral (EXTENDED) are its Lean evidence."
-          "A verifier is modelled as a function of its routes (CarrierPipeline): the line quantifies over the routes D, which is the reading of 'MUST NOT be silently ignored' and of 'whatever the query': no Proven and no Violated while a declared carrier is absent, whatever a route would answer. A verifier that hands the call to its routes unchanged answers what they answer (NU_051_carrier_forbids_ignore). A route that refuses by itself, as Rust's Route B does, is part of the verifier here, so Rust is the pipeline routeBOnlyCarrierVerify, with the queries that reach Route B and the ones deferred from it to Route A as its parameters."
-          "The answer is abstract: the verdict ([VER-003]) and the places its reason names, or a rejection naming a place. Which form an entry point takes (an exception where the declaration is made, Unknown from verify, Python's keyword path through Rust) is configuration (kind N), as for the declared mints of [NU-010]. The reason text ('declared carrier place 'x' not in the net' in Rust and TypeScript, 'declared carrier place 'x' is not in the net' in Java) is kind Q, and so is the tie between that text and the places the answer says it names. 'naming the offending place' is read as: the reason names at least one absent carrier and no other place. Java and TypeScript throw at the first absent carrier, Rust answers at the first; when several are absent, which of them are named is not fixed (one, as every runtime does, or several, as [NU-010] names every unknown mint). Naming a declared carrier that is a place of the net is wrong, alone (NU_051_carrier_forbids_firstDeclared) or beside an absent one (NU_051_carrier_forbids_namesAll)."
+  quote "A refusal that does not depend on the carrier declaration, such as a stop before the call starts ([VER-013]), an unresolved property place ([VER-003]) or a declared mint that is not a transition of the net ([NU-010]), may come first, and that refusal is then the answer."
+        "*If* a declared carrier place is not a place of the net, *then* the verifier *shall* either reject the declaration, naming such a place, or answer `Unknown` with a reason that names at least one such place and no other place, in both BASE and EXTENDED and whatever the query, unless the same request with no carrier place declared gets the same refusal."
+  reading "For every query type Q, routes D, ν configuration cfg, net and query q: if some declared carrier of cfg is not a place of the net, the verifier built on D either rejects the declaration naming a declared carrier that is not a place of the net, or answers Unknown with a reason that names at least one place, every place it names being a declared carrier that is not a place of the net; or its answer is a refusal (a rejection or an Unknown, CarrierRefusal) and the same call with no carrier declared gets that same answer (CarrierEscape)."
+  assumes "Ruling D95 (a) decides the mode question of clash nu-c#2: an absent carrier fails in every mode, not only when a query reaches Route B. AC4 had no mode and the body said carriers are ignored under BASE; the markdown now says 'in either fragment mode and whatever the query', and the BASE sentence speaks of the fragment classifier only (NU_051_colours, line 2). D95 (a) reads 'at configuration, in every mode'; only its 'in every mode' half is a line. The line also accepts `Unknown` from verify, which the markdown has always allowed ('reject at the builder, or surface `Unknown`'), so the 'at configuration' half is deliberately not enforced: where the refusal is made is configuration (kind N, below), and Rust's verify-time `Unknown` meets it."
+          "Java (SmtVerifier.carrierPlaces) and TypeScript (SmtVerifier.carrierPlaces) reject the declaration where it is made, in both modes, naming the place (NU_051_carrier_builder). Rust and Python answer `Unknown` in both modes and for every query: SmtVerifier::verify judges the declaration on the caller's net before with_arrivals (unknown_declaration_reason in rust/libpetri-verification/src/smt_verifier.rs) and verify_net answers that refusal before any route, and verify_open_net refuses a configure_smt hook's absent carrier before either route (open_net/verify_open_net.rs); the reason names every absent carrier once, in code-point order (unknown_carrier_reason in name_fragment.rs; NU_051_carrier_allAbsent). Route B keeps its own check for direct callers (nu_scg_verifier.rs verify_name_scg). A wrong shape that checks only under EXTENDED and only inside Route B ignores an absent carrier under BASE, under EXTENDED on a call that does not reach Route B, and under EXTENDED on a bounded quiescence query that Route B defers to Route A, whose build_plan skips a carrier it cannot resolve; that is the behaviour RD-27 recorded, and NU_051_carrier_forbids_routeBOnly (BASE) and NU_051_carrier_forbids_routeADeferral (EXTENDED) forbid it."
+          "Order of refusals: the line does not fix which refusal wins when the carrier refusal meets one that does not depend on the carrier declaration; it asks only that such a refusal be the answer the same call gets with no carrier declared (CarrierEscape). Rust's verify_net polls the stop on entry ('net preparation'), then refuses an unresolved property place ([VER-003]), and only then answers the declaration refusal, in which unknown_declaration_reason tries the mint reason of [NU-010] before the carrier reason; verify_open_net and Python's py_encode_smt_scripts also put the mint reason first, and SmtVerifier::encode_scripts panics for a name-alignment property ([NU-055]) before it reads the declarations. On such a call the answer names no absent carrier. Java and TypeScript throw where the declaration is made, so a carrier rejection comes before any verification runs, and a mint rejection comes first only when the mint was declared first. CarrierPipeline does not model the stop, the property or the mints; they are part of the query q and of the net. preCarrierVerify takes the refusals that do not read the carrier declaration as a parameter pre and answers them first, naming no place, then answers as the Rust form: it meets the line through the escape (NU_051_carrier_preRefusal), and the line without the escape rejects it (NU_051_carrier_escape_needed), which is why the markdown carries the clause. The order inside pre, and so which of several such refusals wins, is not modelled."
+          "What the escape lets through: any refusal the same call with no carrier declared also gets, so a verifier whose routes answer Unknown to every call meets the line. What the line forbids is a Proven or a Violated while a declared carrier is absent, and a refusal that the carrier declaration changes but that does not name an absent carrier alone (NU_051_carrier_forbids_unnamed, NU_051_carrier_forbids_firstDeclared, NU_051_carrier_forbids_namesAll)."
+          "A verifier is modelled as a function of its routes (CarrierPipeline): the line quantifies over the routes D, which is the reading of 'MUST NOT be silently ignored' and of 'whatever the query': no Proven and no Violated while a declared carrier is absent, whatever a route would answer. A verifier that hands the call to its routes unchanged answers what they answer (NU_051_carrier_forbids_ignore). A route that refuses by itself, as Rust's Route B does, is part of the verifier here, so the Route-B-only shape is the pipeline routeBOnlyCarrierVerify, with the queries that reach Route B and the ones deferred from it to Route A as its parameters."
+          "The answer is abstract: the verdict ([VER-003]) and the places its reason names, or a rejection naming a place. Which form an entry point takes (an exception where the declaration is made, Unknown from verify, Python's keyword path through Rust) is configuration (kind N), as for the declared mints of [NU-010]. The reason text ('declared carrier place 'x' not in the net (NU-051)' in Rust, 'declared carrier place 'x' not in the net' in TypeScript, 'declared carrier place 'x' is not in the net' in Java) is kind Q, and so is the tie between that text and the places the answer says it names. 'naming the offending place' is read as: the reason names at least one absent carrier and no other place. Java and TypeScript throw at the first absent carrier, and Rust names every absent one; when several are absent, which of them are named is not fixed (one, as Java and TypeScript do, or several, as Rust does and as [NU-010] names every unknown mint). Naming a declared carrier that is a place of the net is wrong, alone (NU_051_carrier_forbids_firstDeclared) or beside an absent one (NU_051_carrier_forbids_namesAll)."
           "The first sentence of the bullet ('Under EXTENDED, an author MAY declare intermediate **carrier** places (`carrierPlaces` / `carrier_place(s)`) that carry a fresh name from the minting fork ([NU-010]) onward to a ν-join input.') is an offer, and the API names in it are kind N. Offers are coverage clauses, never block lines (the convention of GlossaryExec.lean): the clause is Nu051CarrierCovers, defined next to this block, which the added sentence 'In either fragment mode, a declaration whose carrier places are all places of the net is accepted.' states: when every declared carrier is a place of the net, the carrier guard hands the call to its routes unchanged. The reference and the builder form meet it (nu051c_ref_covers, nu051c_builder_covers); a guard that refuses a present carrier under BASE, or in every mode, meets the line and fails the clause (nu051c_covers_baseRefuses, nu051c_covers_refusesAll). The clause speaks of the guard, not of the whole verifier, since under BASE the in-flight split of [VER-004] still reads the carriers (NU_051_colours assumes). The MAY sentence says 'Under EXTENDED', but declaring under BASE is allowed too: the declaration is a no-op for the classifier there (NU_051_colours, line 2), the clause covers it, and the line checks it."
           "The reason the sentence gives ('a mistyped carrier would let two fork branches mint independent names and produce a confident, spurious deadlock verdict') is the co-mint fixture of NU_051_colours_nonvacuous, where the carrier is what makes the fork and the relay share one name."
-          "The open-net entry points ([VER-022], [MOD-051]) take the carriers through the configure hook on the synthetic net: the line applies to that call with the synthetic net as its net. Script encoding ([VER-013]) does not read carriers in any runtime and is out of scope. AC4 is this line: its builder rejection names the place, as its `Unknown` does."
-  signoff "pending"
+          "The open-net entry points ([VER-022], [MOD-051]) take the carriers through the configure hook on the synthetic net: the line applies to that call with the synthetic net as its net. Script encoding ([VER-013]) refuses an absent carrier too: Rust panics with the reason (SmtVerifier::encode_scripts), Python raises ValueError (py_encode_smt_scripts in rust/libpetri-py/src/verification.rs), and Java and TypeScript reject at the declaration. Its answer is scripts or a failure, not a verdict, so it is not one of the pipelines here; a line over it would take NU_010_ac6's MintAnswer form (an open item). AC4 is this line: its builder rejection names the place, as its `Unknown` does, and its 'unless a refusal that does not depend on the declaration is the answer' is the escape."
+  signoff "2026-11-13 7a1b1a4383e15a26 ai"
   statement : ∀ {Q : Type}, CarrierPipeline Q → Prop :=
     fun P => ∀ (D : CarrierVerifier _) (cfg : NuConfig) (net : CarrierNet) (q : _),
-      (∃ p, AbsentCarrier cfg net p) → LoudRefusal cfg net (P D cfg net q)
+      (∃ p, AbsentCarrier cfg net p) →
+        LoudRefusal cfg net (P D cfg net q) ∨ CarrierEscape P D cfg net q
 
 /- The pinned readable form of the carrier line of NU-051. -/
 /--
 info: def Libpetri.Spec.NU_051_carrier : {Q : Type} → CarrierPipeline Q → Prop :=
 fun {Q} P =>
   ∀ (D : CarrierVerifier Q) (cfg : NuConfig) (net : CarrierNet) (q : Q),
-    (∃ p, AbsentCarrier cfg net p) → LoudRefusal cfg net (P D cfg net q)
+    (∃ p, AbsentCarrier cfg net p) → LoudRefusal cfg net (P D cfg net q) ∨ CarrierEscape P D cfg net q
 -/
 #guard_msgs in #print NU_051_carrier
 
-/-- The carrier guard satisfies the carrier line in front of any routes: when a declared
-carrier is missing it answers `Unknown` naming the first missing one, and only that one, whatever
-the routes would say. -/
-@[evidence holds NU_051_carrier]
-theorem NU_051_carrier_reference {Q : Type} : NU_051_carrier (Q := Q) refCarrierVerify := by
-  intro D cfg net q h
+/-- The carrier guard refuses loudly, without the escape: when a declared carrier is missing it
+answers `Unknown` naming the first missing one, and only that one. -/
+theorem nu051c_ref_loud {Q : Type} (D : CarrierVerifier Q) (cfg : NuConfig) (net : CarrierNet)
+    (q : Q) (h : ∃ p, AbsentCarrier cfg net p) : LoudRefusal cfg net (refCarrierVerify D cfg net q) := by
   obtain ⟨p, ps, hl⟩ := nu051c_absent_ne_nil h
   simp only [refCarrierVerify, hl, LoudRefusal]
   refine ⟨List.cons_ne_nil _ _, fun x hx => ?_⟩
   rw [List.mem_singleton] at hx
   subst hx
   exact nu051c_absent_head hl
+
+/-- The carrier guard satisfies the carrier line in front of any routes: when a declared
+carrier is missing it answers `Unknown` naming the first missing one, and only that one, whatever
+the routes would say. -/
+@[evidence holds NU_051_carrier]
+theorem NU_051_carrier_reference {Q : Type} : NU_051_carrier (Q := Q) refCarrierVerify :=
+  fun D cfg net q h => Or.inl (nu051c_ref_loud D cfg net q h)
 
 /-- The Java and TypeScript form: the declaration is rejected where it is made, naming the first
 missing carrier. -/
@@ -372,14 +394,79 @@ the net does not have throws, naming it, in either mode. -/
 theorem NU_051_carrier_builder {Q : Type} : NU_051_carrier (Q := Q) builderCarrierVerify := by
   intro D cfg net q h
   obtain ⟨p, ps, hl⟩ := nu051c_absent_ne_nil h
+  left
   simp only [builderCarrierVerify, hl, LoudRefusal]
   exact nu051c_absent_head hl
+
+/-- The Rust and Python form: `Unknown` naming every absent carrier, before any route, in both
+modes (`unknown_carrier_reason`, which also drops repeats and sorts the names). -/
+def allAbsentCarrierVerify {Q : Type} : CarrierPipeline Q := fun D cfg net q =>
+  match absentCarriers cfg net with
+  | [] => D cfg net q
+  | p :: ps => .answered (.unknown "declared carrier places not in the net (NU-051)") (p :: ps)
+
+/-- The Rust form refuses loudly, without the escape. -/
+theorem nu051c_allAbsent_loud {Q : Type} (D : CarrierVerifier Q) (cfg : NuConfig)
+    (net : CarrierNet) (q : Q) (h : ∃ p, AbsentCarrier cfg net p) :
+    LoudRefusal cfg net (allAbsentCarrierVerify D cfg net q) := by
+  obtain ⟨p, ps, hl⟩ := nu051c_absent_ne_nil h
+  simp only [allAbsentCarrierVerify, hl, LoudRefusal]
+  refine ⟨List.cons_ne_nil _ _, fun x hx => nu051c_absent_mem.mp ?_⟩
+  rw [hl]
+  exact hx
+
+/-- ✓ Naming every absent carrier meets the carrier line: the reason names at least one place,
+and every place it names is an absent carrier. -/
+@[evidence allows NU_051_carrier]
+theorem NU_051_carrier_allAbsent {Q : Type} : NU_051_carrier (Q := Q) allAbsentCarrierVerify := by
+  intro D cfg net q h
+  exact Or.inl (nu051c_allAbsent_loud D cfg net q h)
+
+/-- Rust's order (`verify_net`): a refusal that does not read the carrier declaration (`pre`:
+the stop poll on entry, the unresolved property place, the unknown mint of [NU-010], as a
+function of the net and the query) answers first, as `Unknown` naming no place; otherwise the
+Rust form. -/
+def preCarrierVerify {Q : Type} (pre : CarrierNet → Q → Option String) : CarrierPipeline Q :=
+  fun D cfg net q =>
+    match pre net q with
+    | some why => .answered (.unknown why) []
+    | none => allAbsentCarrierVerify D cfg net q
+
+/-- ✓ Rust's order meets the carrier line: an earlier refusal that does not read the carrier
+declaration is the answer the same call with no carrier declared gets (the escape), and
+otherwise the Rust form names every absent carrier. -/
+@[evidence allows NU_051_carrier]
+theorem NU_051_carrier_preRefusal {Q : Type} (pre : CarrierNet → Q → Option String) :
+    NU_051_carrier (Q := Q) (preCarrierVerify pre) := by
+  intro D cfg net q h
+  cases hp : pre net q with
+  | some why =>
+    right
+    simp only [CarrierEscape, preCarrierVerify, hp, CarrierRefusal, and_self]
+  | none =>
+    left
+    simp only [preCarrierVerify, hp]
+    exact nu051c_allAbsent_loud D cfg net q h
 
 /-- Routes that prove everything: a stand-in for a route that answers. -/
 def nu051c_proves : CarrierVerifier Bool := fun _ _ _ => .answered (.proven "fixture") []
 
 /-- The fixture net: places `0` to `3` and `5`, the co-mint transitions. -/
 def nu051c_cnet : CarrierNet := { places := [0, 1, 2, 3, 5], trans := nu051c_net }
+
+/-- The carrier line without its escape: an absent carrier must always be refused loudly. -/
+def NU_051_carrier_strict {Q : Type} (P : CarrierPipeline Q) : Prop :=
+  ∀ (D : CarrierVerifier Q) (cfg : NuConfig) (net : CarrierNet) (q : Q),
+    (∃ p, AbsentCarrier cfg net p) → LoudRefusal cfg net (P D cfg net q)
+
+/-- The escape is needed: a call cancelled before it starts gets the stop's reason, which names
+no place, so the line without its escape rejects Rust's order. -/
+theorem NU_051_carrier_escape_needed :
+    ¬ NU_051_carrier_strict (Q := Bool)
+      (preCarrierVerify fun _ _ => some "verification cancelled during net preparation") := by
+  intro h
+  have := h nu051c_proves ⟨.extended, [7]⟩ nu051c_cnet true ⟨7, by decide⟩
+  simp [preCarrierVerify, LoudRefusal] at this
 
 /-- Worked example. On the co-mint net, declaring the place `7`, which the net does not have,
 gives `Unknown` naming `7`, under BASE and under EXTENDED alike, even though the routes behind the
@@ -404,28 +491,33 @@ about a net in which the declaration did nothing. -/
 @[evidence forbids NU_051_carrier]
 theorem NU_051_carrier_forbids_ignore : ¬ NU_051_carrier nu051c_ignore := by
   intro h
-  exact h nu051c_proves ⟨.extended, [7]⟩ nu051c_cnet true ⟨7, by decide⟩
+  rcases h nu051c_proves ⟨.extended, [7]⟩ nu051c_cnet true ⟨7, by decide⟩ with h | ⟨h, -⟩ <;>
+    exact h
 
-/-- The shape Rust and Python ship (runtime defect RD-27): the guard runs only under EXTENDED, only
-for a query that reaches Route B (`reachesB`), and its answer stands only when the query is not
-then deferred to Route A (`deferred`: a bounded quiescence query, on which the pipeline drops any
-Route B `Unknown`). Everywhere else the routes answer as if the carrier had not been declared. -/
+/-- A wrong shape (the Rust and Python behaviour RD-27 recorded): the guard runs only under
+EXTENDED, only for a query that reaches Route B (`reachesB`), and its answer stands only when the
+query is not then deferred to Route A (`deferred`: a bounded quiescence query, on which the
+pipeline drops any Route B `Unknown`). Everywhere else the routes answer as if the carrier had not
+been declared. -/
 def routeBOnlyCarrierVerify {Q : Type} (reachesB deferred : Q → Bool) : CarrierPipeline Q :=
   fun D cfg net q =>
     if cfg.mode = .extended ∧ reachesB q = true ∧ deferred q = false then
       refCarrierVerify D cfg net q
     else D cfg net q
 
-/-- ✗ Worked example (RD-27): with the Rust shape, the mistyped carrier `7` under BASE is ignored
+/-- ✗ Worked example (the behaviour RD-27 recorded): with the Route-B-only shape, the mistyped
+carrier `7` under BASE is ignored
 and the call answers `Proven`. The query `true` stands for one that reaches Route B and is not
 deferred, so even that path does not help under BASE. -/
 @[evidence forbids NU_051_carrier]
 theorem NU_051_carrier_forbids_routeBOnly :
     ¬ NU_051_carrier (routeBOnlyCarrierVerify id (fun _ => false)) := by
   intro h
-  exact h nu051c_proves ⟨.base, [7]⟩ nu051c_cnet true ⟨7, by decide⟩
+  rcases h nu051c_proves ⟨.base, [7]⟩ nu051c_cnet true ⟨7, by decide⟩ with h | ⟨h, -⟩ <;>
+    exact h
 
-/-- ✗ Worked example (RD-27): under EXTENDED the Rust shape still loses the refusal on a query
+/-- ✗ Worked example (the behaviour RD-27 recorded): under EXTENDED the Route-B-only shape still
+loses the refusal on a query
 that reaches Route B and is then deferred to Route A. Here every query reaches Route B and the
 query `true` is deferred: Route B's `Unknown` naming `7` is dropped, Route A skips the carrier it
 cannot find, and the call answers `Proven`. -/
@@ -433,7 +525,8 @@ cannot find, and the call answers `Proven`. -/
 theorem NU_051_carrier_forbids_routeADeferral :
     ¬ NU_051_carrier (routeBOnlyCarrierVerify (fun _ => true) id) := by
   intro h
-  exact h nu051c_proves ⟨.extended, [7]⟩ nu051c_cnet true ⟨7, by decide⟩
+  rcases h nu051c_proves ⟨.extended, [7]⟩ nu051c_cnet true ⟨7, by decide⟩ with h | ⟨h, -⟩ <;>
+    exact h
 
 /-- A guard that answers `Unknown` but names no place. -/
 def nu051c_unnamed {Q : Type} : CarrierPipeline Q := fun D cfg net q =>
@@ -447,7 +540,8 @@ leaves the author to guess; the line asks the reason to name the missing carrier
 theorem NU_051_carrier_forbids_unnamed : ¬ NU_051_carrier (Q := Bool) nu051c_unnamed := by
   intro h
   have := h nu051c_proves ⟨.extended, [7]⟩ nu051c_cnet true ⟨7, by decide⟩
-  simp [nu051c_unnamed, absentCarriers, nu051c_cnet, LoudRefusal] at this
+  simp [nu051c_unnamed, absentCarriers, nu051c_cnet, nu051c_proves, LoudRefusal, CarrierEscape,
+    CarrierRefusal] at this
 
 /-- A guard that names the first declared carrier, present or not. -/
 def nu051c_firstDeclared {Q : Type} : CarrierPipeline Q := fun D cfg net q =>
@@ -463,7 +557,8 @@ theorem NU_051_carrier_forbids_firstDeclared :
   intro h
   have := h nu051c_proves ⟨.extended, [2, 7]⟩ nu051c_cnet true ⟨7, by decide⟩
   revert this
-  simp [nu051c_firstDeclared, absentCarriers, nu051c_cnet, LoudRefusal, AbsentCarrier]
+  simp [nu051c_firstDeclared, absentCarriers, nu051c_cnet, nu051c_proves, LoudRefusal,
+    AbsentCarrier, CarrierEscape, CarrierRefusal]
 
 /-- A guard that, when some declared carrier is missing, names every declared carrier. -/
 def nu051c_namesAll {Q : Type} : CarrierPipeline Q := fun D cfg net q =>
@@ -479,17 +574,19 @@ theorem NU_051_carrier_forbids_namesAll : ¬ NU_051_carrier (Q := Bool) nu051c_n
   intro h
   have := h nu051c_proves ⟨.extended, [2, 7]⟩ nu051c_cnet true ⟨7, by decide⟩
   revert this
-  simp [nu051c_namesAll, absentCarriers, nu051c_cnet, LoudRefusal, AbsentCarrier]
+  simp [nu051c_namesAll, absentCarriers, nu051c_cnet, nu051c_proves, LoudRefusal, AbsentCarrier,
+    CarrierEscape, CarrierRefusal]
 
 /-- Mutant reading, option (b) of ruling D95: the carrier must fail only under EXTENDED and only
-when the query reaches Route B. -/
+when the query reaches Route B (the escape kept). -/
 def NU_051_carrier_mutant_routeB {Q : Type} (reachesB : Q → Bool) (P : CarrierPipeline Q) :
     Prop :=
   ∀ (D : CarrierVerifier Q) (cfg : NuConfig) (net : CarrierNet) (q : Q),
     cfg.mode = .extended → reachesB q = true →
-      (∃ p, AbsentCarrier cfg net p) → LoudRefusal cfg net (P D cfg net q)
+      (∃ p, AbsentCarrier cfg net p) →
+        LoudRefusal cfg net (P D cfg net q) ∨ CarrierEscape P D cfg net q
 
-/-- The Rust shape without the deferral kills the first mutant: it meets the Route B reading (the
+/-- The Route-B-only shape without the deferral kills the first mutant: it meets the Route B reading (the
 guard runs there), but not the carrier line, which also asks for BASE and for every other
 route. -/
 @[evidence mutant NU_051_carrier]
@@ -497,11 +594,11 @@ theorem NU_051_carrier_mutant_routeB_killed :
     NU_051_carrier_mutant_routeB id (routeBOnlyCarrierVerify id (fun _ => false)) ∧
       ¬ NU_051_carrier (routeBOnlyCarrierVerify id (fun _ => false)) := by
   refine ⟨fun D cfg net q hm hb h => ?_, NU_051_carrier_forbids_routeBOnly⟩
-  have href := NU_051_carrier_reference D cfg net q h
+  have href := nu051c_ref_loud D cfg net q h
   have hc : cfg.mode = .extended ∧ id q = true ∧ (fun _ => false) q = false := ⟨hm, hb, rfl⟩
   unfold routeBOnlyCarrierVerify
   rw [if_pos hc]
-  exact href
+  exact Or.inl href
 
 /-- Mutant reading: an absent carrier must give a rejection or `Unknown`, without naming it. -/
 def NU_051_carrier_mutant_anyUnknown {Q : Type} (P : CarrierPipeline Q) : Prop :=
@@ -521,14 +618,14 @@ theorem NU_051_carrier_mutant_anyUnknown_killed :
   exact Or.inr ⟨"a declared carrier place is not in the net", [], by simp [nu051c_unnamed, hl]⟩
 
 /-- Mutant reading: `Unknown` must name some absent carrier, and may name any other place
-beside it. -/
+beside it (the escape kept). -/
 def NU_051_carrier_mutant_someNamed {Q : Type} (P : CarrierPipeline Q) : Prop :=
   ∀ (D : CarrierVerifier Q) (cfg : NuConfig) (net : CarrierNet) (q : Q),
     (∃ p, AbsentCarrier cfg net p) →
-      match P D cfg net q with
+      (match P D cfg net q with
       | .rejected p => AbsentCarrier cfg net p
       | .answered (.unknown _) named => ∃ p ∈ named, AbsentCarrier cfg net p
-      | .answered _ _ => False
+      | .answered _ _ => False) ∨ CarrierEscape P D cfg net q
 
 /-- The guard that names every declared carrier kills the third mutant: its reason always names
 the missing carrier (the mutant holds), but also the declared carriers the net has. -/
@@ -539,6 +636,7 @@ theorem NU_051_carrier_mutant_someNamed_killed :
   refine ⟨fun D cfg net q h => ?_, NU_051_carrier_forbids_namesAll⟩
   obtain ⟨p, ps, hl⟩ := nu051c_absent_ne_nil h
   have hp := nu051c_absent_head hl
+  left
   simp only [nu051c_namesAll, hl]
   exact ⟨p, hp.1, hp⟩
 

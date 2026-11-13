@@ -132,7 +132,7 @@ export const evidence: Decoder<Evidence> = obj({
 
 export const signoff: Decoder<Signoff> = tagged('state', {
   pending: obj({ state: lit('pending') }),
-  signed: obj({ state: lit('signed'), date: str, hash: str }),
+  signed: obj({ state: lit('signed'), date: str, hash: str, by: oneOf(['person', 'ai'] as const) }),
 });
 
 export const leanBlock: Decoder<LeanBlock> = obj({
@@ -171,7 +171,7 @@ export const coverageRow: Decoder<CoverageRow> = obj({
 
 export const defectStatus: Decoder<DefectStatus> = tagged('state', {
   open: obj({ state: lit('open') }),
-  fixed: obj({ state: lit('fixed'), version: str }),
+  fixed: obj({ state: lit('fixed'), version: nullable(str) }),
 });
 
 export const defect: Decoder<Defect> = obj({
@@ -182,6 +182,7 @@ export const defect: Decoder<Defect> = obj({
   text: str,
   evidence: strs,
   evidenceText: str,
+  fix: nullable(str),
   status: defectStatus,
 });
 

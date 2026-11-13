@@ -9,8 +9,11 @@ set_option linter.missingDocs true
 
 The requirement is a predicate over an abstract timed step relation `R : TRel N` (glossary
 `GlossaryTime.lean`). The evidence theorems check it against the timed reference step
-(`RefTStep`), against a relation that fires without looking at the clock, and against the
-mutant reading that measures every clock from the start of the run.
+(`RefTStep`), against a relation that fires without looking at the clock, against one relation
+per line 2 to 4 that breaks that line alone (a delay that backdates a stamp, a firing that does
+not arm what it enables, a firing before the earliest bound), and against the mutant readings
+that measure every clock from the start of the run, resume an old clock, or re-arm on any
+firing.
 -/
 
 namespace Libpetri.Spec
@@ -27,6 +30,7 @@ requirement TIME_010
   scope "all executors"
   source verbatim "spec/03-timing.md"
   quote "A transition is newly armed when it is enabled in the initial marking, afterwards when it is enabled after a firing or an injected token writes one of its arc places while it is not armed, and when its clock restarts in a firing ([TIME-012])."
+        "The clock starts at the moment the transition was most recently newly armed, and the elapsed time for timing decisions is measured from that moment on the firing clock ([TIME-015])."
         "*While* a transition is armed, its elapsed time *shall* be the current reading of the firing clock minus its stamp."
         "*While* a transition is armed and its elapsed time is less than its earliest bound, the transition *shall not* fire."
         "*While* a transition is not armed, the transition *shall not* fire."
@@ -39,13 +43,13 @@ requirement TIME_010
   assumes "A step relates two states of the executor (glossary: TSt), each holding a marking, the reading of the firing clock and a stamp per transition name; a step is a delay of the clock, a firing or a reap (TRel). Firings are atomic: the step that starts a firing completes it. Armed, Elapsed time, Arc place and Write are the glossary terms (GlossaryTime.lean)."
           "Line 1 of the formula is the first 'shall' sentence at the grain of the Phase 1 step, together with the quoted sentence on being newly armed. A transition that is not armed before a step and is armed after it is newly armed, so the step is a firing that writes one of its arc places, and the new stamp is the reading of the firing clock after the step (which a firing does not advance). Nothing else newly arms a transition in the step relation: a delay or a reap arms nothing."
           "The first 'shall' sentence, 'When a transition is newly armed, the executor shall stamp it with the firing-clock reading taken by the enablement update that newly arms it ([EXEC-001] step 3).', is encoded only at the grain of the atomic Phase 1 step, so it is not quoted. The step relation has no cycles: the enablement update is part of the firing step that makes the transition enabled, and its reading is the reading of that step, which lines 1 and 2 fix. The section's paragraph on the enablement update says more: a synchronous action's deposit is first seen by the enablement update of the next cycle, an asynchronous completion or an injected token by the update of the cycle that takes it in, so the stamp is neither the reading of the cycle in which the arming firing started nor the moment an action completed, and a clock restarted in a firing is stamped by the next enablement update that finds the transition enabled. In the atomic step these readings coincide; that they can differ, and that the stamp is the later one, needs the cycle relation of Phase 2 (RefExec, [EXEC-001] steps 1 to 3) and is deferred to it. No mutant is given for the wrong reading (the reading of the cycle that started the arming firing): the Phase 1 relation cannot tell it apart."
-          "Line 2 reads 'newly armed' through 'most recently newly armed' of the section's first paragraph: a transition armed before and after a step keeps its stamp, unless the step is a firing that restarts its clock ([TIME-012], glossary: Armed), which stamps it with the current reading as well. When a firing keeps, drops or restarts a clock is TIME-011, TIME-012 and TIME-013, not this block; this block fixes which steps may set a stamp and the value a new stamp takes."
-          "Line 3 is the converse of line 1 for firings: a firing that writes an arc place of a transition that is not armed, and leaves it enabled, arms it. Lines 1 and 3 together are the quoted sentence's second case, as an equivalence, for a transition that is not armed before the step. Its third case, a clock that restarts in a firing ([TIME-012]), is line 2's second case for a transition armed before the firing and enabled after it: the restart stamps it with the current reading. Which firings restart a clock, including a transition with no arc place the firing writes that stays enabled after its own firing, is [TIME-012] lines 1 and 3, not this block. Its first case is outside the step relation: the initial marking is the initial state (TSt.init stamps every transition enabled in it with the start reading). Injected tokens are not steps of the Phase 1 relation, which has no environment places."
-          "The second 'shall' sentence (elapsed time is the clock reading minus the stamp) is the glossary definition Elapsed, which line 4 of the formula uses; no step relation can break it, so it is not a separate line."
+          "Line 2 is the second quoted sentence, 'The clock starts at the moment the transition was most recently newly armed': a transition armed before and after a step keeps its stamp, the moment it was most recently newly armed, unless the step is a firing that restarts its clock ([TIME-012], glossary: Armed), which newly arms it and stamps it with the current reading. A delay that moves the stamp of a transition that stays armed, back to the start of the run for example, breaks line 2 alone (TIME_010_forbids_backdate). The rest of that sentence, that the elapsed time is measured from that moment on the firing clock, is the glossary definition Elapsed (the reading of the firing clock minus the stamp) applied to the stamp lines 1 and 2 fix; that the firing clock is the injectable one is [TIME-015]. When a firing keeps, drops or restarts a clock is TIME-011, TIME-012 and TIME-013, not this block; this block fixes which steps may set a stamp and the value a new stamp takes."
+          "Line 3 is the converse of line 1 for firings: a firing that writes an arc place of a transition that is not armed, and leaves it enabled, arms it. A firing that arms only transitions already armed, so that the source filling u's input place leaves u enabled and unarmed, breaks line 3 alone (TIME_010_forbids_noRearm). Lines 1 and 3 together are the quoted sentence's second case, as an equivalence, for a transition that is not armed before the step. Its third case, a clock that restarts in a firing ([TIME-012]), is line 2's second case for a transition armed before the firing and enabled after it: the restart stamps it with the current reading. Which firings restart a clock, including a transition with no arc place the firing writes that stays enabled after its own firing, is [TIME-012] lines 1 and 3, not this block. Its first case is outside the step relation: the initial marking is the initial state (TSt.init stamps every transition enabled in it with the start reading). Injected tokens are not steps of the Phase 1 relation, which has no environment places."
+          "The second 'shall' sentence (elapsed time is the clock reading minus the stamp) is the glossary definition Elapsed, which line 4 of the formula uses; no step relation can break it, so it is not a separate line. Line 4 is the third 'shall' sentence: a firing that ignores the earliest bound, so that u armed at 10 fires at 12 with elapsed time 2 below its earliest bound 3, breaks line 4 alone (TIME_010_forbids_gateFree). Line 5 is the fourth: a relation that fires without a clock breaks it (TIME_010_forbids_untimed)."
           "Transitions are identified by name (ruling D10): a stamp is kept per name, and lines 1 and 3 speak of the transition the net holds under the name (InNet). The section assumes pairwise distinct names (NamesDistinct), under which InNet is membership in the net (inNet_iff_mem)."
           "AC1 (enabled at T=10, earliest 3 s, ready at T=13) is the nonvacuous example TIME_010_nonvacuous, in milliseconds as the timings are: armed at 10, not fireable at 12, fireable at 13. The same example re-arms a reaped transition when a firing writes its input place and leaves it unarmed after a firing that writes none of its arc places (ruling D6)."
           "AC2 (disabled at T=11, re-enabled at T=15, ready at T=18) is the restart of TIME-011, which drops the stamp when the transition is disabled; this block fixes that the stamp taken at 15 is 15 (line 1), not one held from before (TIME_010_mutant_resume_killed), and that the transition does not fire before 18 (line 4)."
-  signoff "pending"
+  signoff "2026-11-13 f85d0da5b9a419c8 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ X : TimedNet _,
       (∀ l u, InNet X u → on (fun s s' => R X s l s'), shall (fun s s' => ¬ Armed s u →
@@ -314,6 +318,65 @@ theorem TIME_010_forbids_untimed : ¬ TIME_010 time010_untimed := by
       { m := time010_m1, now := 10, stamp := fun _ => none } :=
     ⟨⟨by decide, ⟨.action 0, rfl⟩, rfl⟩, rfl, rfl⟩
   exact (h time010_X).2.2.2.2 time010_src s _ ⟨_, hfire⟩ (by decide)
+
+/-- The policy that fires an armed transition whatever its elapsed time: the spec's policy with
+the earliest-bound gate always open. -/
+def time010_gateFreePolicy : Policy Nat := { refPolicy with gate := fun _ _ _ => true }
+
+/-- ✗ Firing before the earliest bound violates TIME-010 (line 4): `u`, `Delayed(3)`, armed at
+`T = 10` when the source fills its input place, fires at `T = 12` with elapsed time 2. Every
+other line holds of this relation, as the gate is the only change. -/
+@[evidence forbids TIME_010]
+theorem TIME_010_forbids_gateFree : ¬ TIME_010 (RefTStepW time010_gateFreePolicy) := by
+  intro h
+  let s2 : TSt Nat := { time010_after time010_gateFreePolicy with now := 12 }
+  have hfire : RefTStepW time010_gateFreePolicy time010_X s2 (.fire time010_u [])
+      { m := fireNC s2.m time010_u.core (depProd []), now := 12,
+        stamp := restampAll time010_gateFreePolicy time010_X s2 time010_u []
+          (fireNC s2.m time010_u.core (depProd [])) } :=
+    RefTStepW.fire _ _ _ _ _ (by simp [time010_X]) ⟨by decide, ⟨.action 0, rfl⟩, rfl⟩
+      (by decide) (by decide) (by decide)
+  exact (h time010_X).2.2.2.1 time010_u _ _ ⟨_, hfire⟩ ⟨by decide, by decide⟩
+
+/-- The policy that never arms a transition that was not armed: a firing restarts only clocks
+that were running, as the spec's `rearm` would for an armed transition. -/
+def time010_noRearmPolicy : Policy Nat :=
+  { refPolicy with rearm := fun _ s _ _ m' u => s.armed u && enabledNA m' u.core }
+
+/-- ✗ A firing that writes an arc place of an unarmed transition and leaves it unarmed violates
+TIME-010 (line 3): at `T = 10` the source fills `u`'s input place, `u` is enabled after the
+firing, and it stays unarmed, so it never fires. -/
+@[evidence forbids TIME_010]
+theorem TIME_010_forbids_noRearm : ¬ TIME_010 (RefTStepW time010_noRearmPolicy) := by
+  intro h
+  have hstep := time010_src_fires (P := time010_noRearmPolicy) rfl rfl
+  have := (h time010_X).2.2.1 time010_src [0] time010_u time010_u_inX _ _ hstep (by decide)
+    ⟨0, Or.inl (by decide), by simp [Writes, Produced]⟩ (by decide)
+  revert this
+  decide
+
+/-- The backdating delay: the clock advances and every held stamp is reset to `0`, the start of
+the run. -/
+def time010_backdate (s : TSt Nat) (δ : Nat) : TSt Nat :=
+  { s with now := s.now + δ, stamp := fun n => (s.stamp n).map (fun _ => 0) }
+
+/-- The reference step plus a delay that backdates every stamp to `0`. -/
+def time010_backdateRel : TRel Nat := fun X s l s' =>
+  RefTStep X s l s' ∨ ∃ δ, l = .delay δ ∧ s' = time010_backdate s δ
+
+/-- ✗ A delay that moves the stamp of a transition that stays armed violates TIME-010 (line 2):
+`u`, armed at `T = 10` with the stamp `10`, holds the stamp `0` after a backdating delay of one
+millisecond, so it would be ready at `T = 11` instead of `13`. A backdating delay keeps the
+marking and which stamps are held, so it arms nothing (line 1 and 3) and fires nothing (lines 4
+and 5): line 2 is the only line it breaks. -/
+@[evidence forbids TIME_010]
+theorem TIME_010_forbids_backdate : ¬ TIME_010 time010_backdateRel := by
+  intro h
+  have := (h time010_X).2.1 (.delay 1) time010_u (time010_after refPolicy)
+    (time010_backdate (time010_after refPolicy) 1) (.inr ⟨1, rfl, rfl⟩) (by decide) (by decide)
+  rcases this with e | ⟨⟨t, d, e⟩, -⟩
+  · exact absurd e (by decide)
+  · cases e
 
 /-! ### Mutant: every clock from the start of the run -/
 

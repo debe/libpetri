@@ -56,7 +56,7 @@ Not here:
   evt-a#5 (ruling D98) to EVT-002 (W7) and NU-011; nu-b#10 (D20, D5, D7) to the TIME-012 ν-join
   line on RefExec with the ν kernel (W11); ver-a#11 (ruling D40) to VER-003 (W10).
 * Clashes already carried by an existing block: nu-c#4 (NU_052's assumes, ruling D97), nu-c#5
-  and nu-c#6 (NU_053, ruling D80), nu-c#2 (the carrier line of NU-051, ruling D95, wave W10).
+  and nu-c#6 (NU_053, ruling D80), nu-c#2 (`NU_051_carrier`, the carrier line of NU-051, ruling D95, `NU_051_carrier.lean`).
 -/
 
 namespace Libpetri.Spec

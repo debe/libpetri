@@ -85,7 +85,7 @@ requirement NU_040_mint
           "An input arc is one of the transition's input specifications (input_specs / inputSpecs), whatever its cardinality: a read, inhibitor or reset arc on a budget place declares nothing (the third line, NU_040_mint_mutant_noOnlyWhen_killed). The second line is the word 'also' of the sentence before the first quote: the budget declaration adds to the named one and never replaces it (NU_040_mint_mutant_noAlso_killed). The three lines are the rule of NU-010's sentence 'the ν routes of [NU-050] read a transition as a mint ... only when the net declares it, in one of two ways', stated here once for both."
           "What a declared mint must write (one fresh name into every coloured place it writes without consuming one) is the mint contract of NU-010, and how the routes read the write is NU-010's and NU-051's classification; neither is a line here. A named mint that is not a transition of the net is NU-010 AC6 (the declaration fails and names it); per transition, as here, it marks no transition."
           "How a budget place is declared (budgetPlace / budget_place / budget_places on the verifier) is configuration, kind N. A declared budget place that is not a place of the net declares no mint, since no transition has an input arc on it."
-  signoff "pending"
+  signoff "2026-11-13 a3b78a673e9e14f2 ai"
   statement : ∀ {N : Type} [DecidableEq N], (List N → List String → Trans N → Bool) → Prop :=
     fun DM =>
       (∀ budgets explicit (t : Trans _),
@@ -130,7 +130,7 @@ requirement NU_040_jodl
           "AC1 and AC2 are about one net each (a fork gated on a budget place, a matched join and a dead-letter transition) and are worked examples over the reference ν firing, not lines. A group is live while its pending token is present, as the Pending bullet says. NU_040_ac1: budget plus pending stays k, and each branch place holds as many tokens as pending, on every reachable marking, so PlaceBound(Budget, k), PlaceBound(Pending, k) and the branch bounds hold. NU_040_ac2: pending is empty at every reachable rest."
           "That the untimed encoder can check PlaceBound(Budget, k) once the budget place is declared (the budget bullet and the test derivation) is an offer of the verifier, not a safety line: no line here states it. Declaring the budget place is NU_040_mint's and configuration; without it the name-blind untimed encoder answers Unknown for every property of a net with a matched transition (smt_verifier.rs:3745-3757, SmtVerifier.java:3596-3600, smt-verifier.ts:2664-2670), which is why the edited sentences name the declaration. That downgrade reads the name-blind verdict only: a coloured Route A verdict returns before it (smt_verifier.rs:3713-3757, the coloured branch first), and Route B can answer Proven with declared mints and no budget place (NU-010 AC4). An existence theorem that the name-blind route answers Proven there is an open item for the ν consistency theorem."
           "AC3 and the decidability paragraphs state facts about the literature and point at NU-050 AC2 (a net with unbounded fresh names and no budget is never Proven, ruling D59 (a)); the Budget and Pending pattern is modelling advice. Neither is a line here."
-  signoff "pending"
+  signoff "2026-11-13 4b52362eaf1612d3 ai"
   statement : ∀ {N V Nm : Type} [DecidableEq N] [LinearOrder Nm],
       (List (NuTrans N (KeyFn V Nm)) → List N → N → QMarking N (Stamped V) → Prop) → Prop :=
     fun PS =>

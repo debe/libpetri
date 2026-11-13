@@ -64,8 +64,8 @@ already use:
   (`core054_ctxProduce Cx`). The snapshot blocks are stated at `N := String`: the resume of
   CORE-073 (T) is the queue theorem's initialiser `TSt.init` on the restored counts, and the
   snapshot's count projection is `Reference.Marking`'s canonical form (`structure_snapshot_counts`).
-  CORE-011's token factory has no parameter in common with the others; its executor line is wave
-  W11's (CORE-011 B).
+  CORE-011's token factory has no parameter in common with the others; its executor line is the
+  block `CORE_011_B` (`CORE_011_B.lean`), stated on the executor model `RefExec`.
 
 * **Net builder, binding, compiled net** (W2). CORE-040's net builder and CORE-041's builder
   state machine are built over `TB`; every net the net builder builds, bound in either form,
@@ -77,8 +77,8 @@ check of the IO blocks and EXEC-012, TIME-001's contract, the W2 and W3 blocks w
 agreement conjuncts, and CORE-037's dead-arc report and message on their reference witnesses. It
 holds for every value projection `val` of the queue tokens, which the value-level W3 blocks
 share. The full theorem conjoins `spec_consistent_queue`'s body in place of the six IO and EXEC
-lines repeated here; the
-build-time B line that ties the dead-arc report to the net builder is wave W11's (CORE-037 B).
+lines repeated here. The B blocks that tie the dead-arc report to the executor's boot events and
+the verifier's report lines are `CORE_037_events` and `CORE_037_verifier` (`CORE_037_B.lean`).
 `core040_core041_joint_kills_blind` shows what the shared net builder buys: CORE-041 alone
 accepts a builder state machine whose handle shows the empty net, and with CORE-040 over the
 same net builder it does not. `core001_place` is CORE-001's citation (a term definition with no
@@ -130,10 +130,11 @@ reaches them as it reaches the produce action. Three agreement conjuncts tie the
 
 The snapshot blocks are stated at `N := String`, the place names of CORE-073. The compile check
 `C` and its verification entry `V` (CORE-043), the place model `M` (CORE-002) and CORE-011's token
-factory `K` have no link to the other parameters yet: `V` is identified with the verifier's entry
-check in wave W10, the place model joins the net builder's place type in wave W8 (MOD-024), and
-CORE-011's executor line is wave W11's (CORE-011 B). CORE-037 holds of the reference dead-arc
-report and message. The skeleton of `spec_consistent_structure`. -/
+factory `K` have no link to the other parameters yet. `V` is linked to no verifier: CORE-043's
+witness `refVerifyEntry` is the compile check itself, since the verifier pipeline model
+(`Verifier/Pipeline.lean`) does not model an entry check. The place model joins the net builder's
+place type in wave W8 (MOD-024), and CORE-011's executor line is the block `CORE_011_B`
+(`CORE_011_B.lean`). CORE-037 holds of the reference dead-arc report and message. The skeleton of `spec_consistent_structure`. -/
 @[evidence consistent CORE_020 TIME_001 IO_011 IO_012 IO_013 IO_014 EXEC_012 CORE_037
   CORE_002 CORE_021 CORE_040 CORE_041 CORE_042 CORE_043 CONC_007 PERF_030
   EXEC_010 CORE_011 CORE_050 CORE_051 CORE_052 CORE_053 CORE_054 CORE_060 CORE_061 CORE_062

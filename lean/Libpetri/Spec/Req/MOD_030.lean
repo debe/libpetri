@@ -189,7 +189,7 @@ requirement MOD_030
   scope "every per-instance action binding (Instance.bindActions in Java, TypeScript and Rust; Python's Instance.bind_actions rides on the Rust binding)"
   source verbatim "spec/11-modular-composition.md"
   quote "*When* `bindActions` is called on a module instance with prefix `p` and a mapping in which every key `k` names a transition `p/k` of the instance, the call *shall* return a derived instance."
-        "*When* `bindActions` on a module instance returns a derived instance, the derived instance *shall* have the prefix, the places, the interface and the port and channel handles of the receiver and, for each transition of the receiver, in the same order, a transition with the same name, arcs, output specification, timing, priority and declared-to-actual place correspondence ([MOD-031])."
+        "*When* `bindActions` on a module instance returns a derived instance, the derived instance *shall* have the prefix, the places, the interface and the port and channel handles of the receiver and exactly as many transitions as the receiver, each with the same name, arcs, output specification, timing, priority and declared-to-actual place correspondence ([MOD-031]) as the receiver's transition at the same position."
         "*When* `bindActions` on a module instance with prefix `p` returns a derived instance and the mapping maps a key `k` to an action, the transition `p/k` *shall* carry that action in the derived instance."
         "*When* `bindActions` on a module instance with prefix `p` returns a derived instance, a transition whose name is not `p/k` for any key `k` of the mapping *shall* carry in the derived instance the action it carried in the receiver."
         "Whether a call whose mapping holds a key `k` for which the instance has no transition `p/k` returns a derived instance (Rust, Python: the key is ignored) or is rejected (Java, TypeScript: an error naming the key) is not specified."
@@ -198,9 +198,9 @@ requirement MOD_030
           "if Bind I m returns J, then J has I's prefix, places, port and channel handles and interface, and J's transition definitions match I's position by position (same length, same order), each with I's name and arcs (core), output specification, timing, priority and correspondence;"
           "if Bind I m returns J, the transition at each position of J carries the action a whenever I's transition there is named p/k and m gives the key k the action a;"
           "if Bind I m returns J, the transition at each position of J carries the action I's transition there carried whenever no key k with p/k equal to that transition's name is given an action by m."
-  assumes "A per-instance binding is a function from a module instance (Instance: prefix, renamed places, renamed transition definitions in order, port and channel handles, interface; Spec/GlossaryCompose.lean) and an override mapping to a derived instance or a rejection (InstBindFn). The mapping is a list of (original name, action) pairs, read through ovr: a key's action is its first entry's, and a runtime map holds one entry per key. An action is read as its identity tag (Act: the built-in passthrough or another action named by an opaque id), so 'shared by reference, not by copy' and 'the same action object' are 'the same tag'; what an action does when the net fires is CORE-050's."
+  assumes "A per-instance binding is a function from a module instance (Instance: prefix, renamed places, renamed transition definitions in order, port and channel handles, interface; Spec/GlossaryCompose.lean) and an override mapping to a derived instance or a rejection (InstBindFn). The mapping is a list of (original name, action) pairs, read through ovr: a key's action is its first entry's, and a runtime map holds one entry per key. An action is read as its identity tag (Act: the built-in passthrough or another action named by an opaque id), so 'shared by reference, not by copy' and 'the same action object' are 'the same tag'; what an action does when the net fires is CORE-050's. The block is stated over every Instance record, which is stronger than 'a module instance': it also covers records no instantiate call makes (a transition name not of the form p/x, places that do not match the definitions). Both models bind every record the same way, so the stronger scope excludes no runtime behaviour on instances made by instantiate (MOD-010) whose transition names are distinct. An instantiated body can hold two transitions of one name, since no builder and no instantiation checks transition names (ruling D23 assumes them distinct and requires no check; refInst does not check either); such an instance is outside the shared unique-names assumption of rulings D10 and D23, and the block still states it. On such an instance every runtime keeps the own action of a transition the mapping does not name: the resolver defers it (none, rust/libpetri-core/src/petri_net.rs:187-202; null, java/src/main/java/org/libpetri/core/Instance.java:220-226 and typescript/src/core/instance.ts:155-157), and the net's resolver binding keeps a deferred transition as it is. MOD_030_forbids_firstOfName kills a binding that gives such a transition the action of the first transition of its name, the behaviour RD-41 recorded. Line 2 compares the places as a list, so their order and multiplicity are kept too; every runtime keeps the receiver's place collection as it is."
           "Ruling D87 (a): a key that names no transition of the instance is out of scope. Rust and Python ignore it (rust/libpetri-core/src/instance.rs:188-221 translates every key to p/k and binds through the resolver form, rust/libpetri-core/src/petri_net.rs:187-202, which asks only for the names of the body's transitions; rust/libpetri-py/src/model.rs:667-680), Java and TypeScript reject the call (java/src/main/java/org/libpetri/core/Instance.java:207-214, typescript/src/core/instance.ts:137-148). Line 1 is therefore stated for mappings whose every key names a transition, and lines 2 to 4 for calls that return; the reference refBindInst (Rust) and strictBindInst (Java, TypeScript) both satisfy the block and differ on such a key (MOD_030_unknownKey_undecided). The quoted sentence that leaves the case unspecified records the ruling. Java checks the keys against the definition's body and TypeScript against the renamed body; for an instance made by instantiate these are the same set (MOD-010 line 3)."
-          "All three runtimes bind an instance through the resolver form of CORE-042, the transition the call does not name being deferred (java/src/main/java/org/libpetri/core/Instance.java:220-226, typescript/src/core/instance.ts:156-167), so CORE-042's map-form divergence (Java and TypeScript give an omitted transition passthrough) does not reach per-instance binding; a binding that does is killed by line 4 (MOD_030_mutant_clobber_killed)."
+          "All three runtimes bind an instance through the resolver form of CORE-042, the transition the call does not name being deferred (rust/libpetri-core/src/petri_net.rs:187-202, java/src/main/java/org/libpetri/core/Instance.java:220-226, typescript/src/core/instance.ts:155-157), so CORE-042's map-form divergence (Java and TypeScript give an omitted transition passthrough) does not reach per-instance binding; a binding that does is killed by line 4 (MOD_030_mutant_clobber_killed)."
           "Line 2 is what 'a derived instance whose specified transitions carry the supplied actions instead' leaves unchanged. All three runtimes keep the prefix, the definition, the port and channel handles and the parameters (rust/libpetri-core/src/instance.rs:211-220, java/src/main/java/org/libpetri/core/Instance.java:228; TypeScript rebuilds its channel handles against the rebound body by name, typescript/src/core/instance.ts:169-190, which the model's name-valued handles read as unchanged) and rebuild a rebound transition through the transition builder, keeping its name, arcs, output specification, timing and priority (CORE-042 line 1) and its declared-to-actual correspondence (MOD-031: 'Binding or rebinding a transition's action ([CORE-042], [MOD-030]) MUST preserve this correspondence', rust/libpetri-core/src/transition.rs:614-643). A binding that rebuilds and drops the correspondence violates line 2 (MOD_030_mutant_dropCorr_killed). The parameters value is not modelled (MOD-010 AC4). By line 2 binding never changes how a transition fires (mod030_toTrans)."
           "AC1 (by default two instances of one subnet definition reference the same action object per transition) is MOD-010's line 3 (instantiation keeps every action), not a line here: mod030_shared derives, for every model of MOD-010, that two instances of one definition carry the same actions position by position. Their per-instance override is AC2 and the test derivation: MOD_030_nonvacuous binds produce on p1 and leaves p2 with the default."
           "AC2 (bindActions({\"produce\": newAction}) gives an instance whose produce transition uses newAction, the original unchanged) is lines 1 and 3; 'the original instance is unchanged' holds of every binding in the model, a function on immutable values, and is tested in the runtimes, not proven. A binding that never accepts meets lines 2 to 4 and violates line 1 (MOD_030_mutant_noAcceptance_killed)."
@@ -210,7 +210,7 @@ requirement MOD_030
           "AC6 (successive calls compose as last-wins replacement; A is not invoked for t) follows from lines 2 and 3 for every model of the block (mod030_lastWins): after two calls the transition carries the second call's action. That A is not invoked at run time is that line with CORE-050 (a firing runs the transition's bound action). A binding that keeps an earlier override (first wins) violates line 3 (MOD_030_mutant_firstWins_killed). A sequential composition of A and B is not expressible over identity tags and is excluded by line 3, which gives the transition exactly the supplied tag."
           "AC8 (bindActions is non-mutating; the receiver stays usable for independent derivations) and the body's 'MUST NOT mutate the receiver' hold of every binding in the model, a function on values, and are tested in the runtimes, not proven. Java returns the receiver itself for an empty mapping (java/src/main/java/org/libpetri/core/Instance.java:196-198), which satisfies lines 2 to 4, the receiver being immutable. 'Overriding actions on instance A does NOT affect instance B' holds for the same reason: binding takes one instance and returns another, and MOD_030_nonvacuous shows p2 unchanged after binding p1."
           "The sentence that MOD-030 extends CORE-042 into the composition layer is the reading above that per-instance binding is the resolver form of CORE-042 applied to the renamed body. Binding on a subnet definition (SubnetDef.bindActions) is MOD-051's (W11)."
-  signoff "pending"
+  signoff "2026-11-13 ea726ec7985c3c23 ai"
   statement : ∀ {N A : Type}, InstBindFn N A → Prop :=
     fun {N A} Bind =>
       (∀ (I : Instance N A) m, (∀ e ∈ m, preS I.pfx e.1 ∈ I.defs.map (·.core.name)) →
@@ -371,7 +371,7 @@ theorem mod030_shared {Nm : Naming N} {Inst : InstFn N A} (h : MOD_010 Nm Inst)
     (hJ : Inst S q = .ok J) : I.defs.map (·.action) = J.defs.map (·.action) := by
   have key : ∀ p I, Inst S p = .ok I → I.defs.map (·.action) = S.defs.map (·.action) := by
     intro p I hI
-    have := congrArg (List.map TransDef.action) (h.2.2.2 S p I hI).2
+    have := congrArg (List.map TransDef.action) (h.2.2.1 S p I hI).2
     simpa [List.map_map, Function.comp_def, TransDef.map] using this
   rw [key p I hI, key q J hJ]
 
@@ -592,6 +592,56 @@ theorem MOD_030_mutant_clobber_killed :
       subst this
       decide)
     exact absurd this (by decide)
+
+/-! ### Wrong: an unnamed transition takes the action of the first transition of its name -/
+
+section FirstOfName
+
+variable {N A : Type}
+
+/-- The action a wrong resolver gives the definition `d` of the instance `I` under the mapping
+`m`: the supplied one when `m` names `d`, otherwise that of the first definition of `I` with `d`'s
+name. -/
+def firstOfNameAct (I : Instance N A) (m : Overrides A) (d : CDef N A) : Act A :=
+  let first := ((I.defs.find? (fun e => e.core.name == d.core.name)).map (·.action)).getD d.action
+  (instLook I.pfx m d.core.name).getD first
+
+/-- A wrong binding whose resolver falls back to the first transition of a name (the behaviour
+RD-41 recorded): a transition the mapping names takes the supplied action, and one it does not
+name takes the action of the first transition of the instance with its name. -/
+def firstOfNameBind : InstBindFn N A := fun I m =>
+  .ok { I with defs := I.defs.map (fun d => { d with action := firstOfNameAct I m d }) }
+
+end FirstOfName
+
+/-- The example transition `produce` renamed to `n` and carrying the action with id `i`. -/
+def mod030_dup (n : String) (i : Nat) : CDef String Nat :=
+  { mod030_produce with
+    core := { mod030_produce.core with name := n }
+    action := .other i }
+
+/-- The example instance `p` with two transitions named `p/x`, carrying the actions 1 and 2, and
+a transition `p/y` carrying the action 3, as instantiating a body with two transitions named `x`
+gives it, since no instantiation checks transition names (ruling D23). -/
+def mod030_Idup : Instance String Nat :=
+  { pfx := "p", places := ["p/in", "p/out"],
+    defs := [mod030_dup "p/x" 1, mod030_dup "p/x" 2, mod030_dup "p/y" 3],
+    port := fun _ => none, chan := fun _ => none, iface := [] }
+
+/-- ✗ A binding that falls back to the first transition of a name violates MOD-030 (line 4) on
+an instance that holds two transitions of one name: on the instance `p` the mapping `y ↦ 9` does
+not name `x`, yet the second `p/x` ends up with the action 1 of the first `p/x` instead of its own
+action 2. -/
+@[evidence forbids MOD_030]
+theorem MOD_030_forbids_firstOfName : ¬ MOD_030 (firstOfNameBind (N := String) (A := Nat)) := by
+  intro h
+  have := h.2.2.2 mod030_Idup [("y", .other 9)] _ rfl
+  rcases this with _ | ⟨-, _ | ⟨h2, -⟩⟩
+  have := h2 (fun k hk => by
+    have : k = "x" := (preS_cancel "p" _ _).1 hk.symm
+    subst this
+    decide)
+  exact absurd this (by decide)
 
 /-! ### Open: a key that names no transition -/
 

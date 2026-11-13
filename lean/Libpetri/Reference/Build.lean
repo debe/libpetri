@@ -48,8 +48,8 @@ The fan-out parts, one per block of wave W2:
   (`refNetBuild_eq_ok_iff`, `refNetBuild_mem_places`, `refNetBuild_places_nodup`,
   `refNetBuild_of_terminals_nil`).
 * **Builder state machine** ([CORE-041]): `BuilderApi`, the reference `copyBuilder` (a handle
-  shows the net built from what was added and never changes) and `aliasBuilder`, TypeScript's
-  builder today (ruling D66 (a): a recorded defect), which a later call changes.
+  shows the net built from what was added and never changes) and `aliasBuilder`, a wrong
+  builder that hands out its own collections, which a later call changes.
 * **Binding** ([CORE-042]): `refBind` with a resolver, the map-form readings `mapKeep` (Rust) and
   `mapClobber` (Java, TypeScript); binding changes only action tags.
 * **Compile check** ([CORE-043]): `refCompile` and `refVerifyEntry` over the passthrough tag
@@ -645,7 +645,9 @@ variable [DecidableEq N] {B : TBuilder N A}
 built so far; `build` runs the reference net builder on what was added and keeps the result, and
 a handle is the index of a result. A later call changes what was added, never a kept result: Java
 copies its collections in `build()` (`java/src/main/java/org/libpetri/core/PetriNet.java:70-71`),
-Rust consumes the builder (`rust/libpetri-core/src/petri_net.rs:678`). -/
+TypeScript copies its place and transition sets in `build()`
+(`typescript/src/core/petri-net.ts:743-744`), Rust consumes the builder
+(`rust/libpetri-core/src/petri_net.rs:678`). -/
 def copyBuilder (B : TBuilder N A) : BuilderApi B where
   S := NetIn B × List (Except String (BuiltNet N A))
   H := Nat
@@ -657,10 +659,9 @@ def copyBuilder (B : TBuilder N A) : BuilderApi B where
 /- The reference builder state machine is the witness model of the builder-trace blocks. -/
 #spec_witness copyBuilder
 
-/-- The builder of the TypeScript runtime today (ruling D66 (a): a recorded defect, RD-02): `build` hands
-out the builder's own collections, so a handle shows the reference net builder's result on what
-the builder holds now, including calls made after `build`
-(`typescript/src/core/petri-net.ts:740-741`). -/
+/-- A wrong builder (ruling D66 (a); the TypeScript behaviour RD-02 recorded, before `build()`
+copied its sets): `build` hands out the builder's own collections, so a handle shows the reference
+net builder's result on what the builder holds now, including calls made after `build`. -/
 def aliasBuilder (B : TBuilder N A) : BuilderApi B where
   S := NetIn B
   H := Unit

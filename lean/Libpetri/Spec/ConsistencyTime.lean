@@ -53,7 +53,8 @@ empty relation fails the whole timed conjunction. TIME-003, TIME-005 and TIME-01
 on their own, by their reap-availability lines.
 
 The candidate readings of TIME-014's second bullet (`ClashesTime.lean`) are not conjoined:
-ruling D9 is open, and one of them conflicts with EXEC-002 by design.
+they are candidates, not blocks. The TIME_014 block encodes ruling D9 (b), and the ordering
+reading, which D9 (b) does not take, conflicts with EXEC-002.
 -/
 
 namespace Libpetri.Spec

@@ -11,7 +11,8 @@ set_option linter.missingDocs true
 The requirement is a predicate over an abstract timed step relation `R : TRel N` (glossary
 `GlossaryTime.lean`), for every transition whose timing is `Delayed(after)`. The evidence
 theorems check it against the timed reference step (`RefTStep`), against a relation that fires
-without looking at the clock, and against two mutant readings: a gate that opens only strictly
+without looking at the clock, against one that also reaps `Delayed` past the maximum duration
+plus the tolerance, and against mutant readings: a gate that opens only strictly
 past `after`, a gate measured from the creation of the consumed tokens instead of from the
 stamp, two executors that drop or restart the clock of `u` when a transition of another name
 fires and leaves `u` enabled throughout (a reap or a restart hidden in a firing), and one whose
@@ -45,11 +46,11 @@ requirement TIME_004
           "when u is the net's transition of its name, its clock is framed (ClockFrame): when the net's names are distinct, no step but a reap of u disarms u while it stays enabled, a firing of u itself included, and a delay, the reap of a transition of another name, and a firing of a transition of another name that leaves u enabled in its intermediate marking and after it keep u's stamp."
   assumes "A step relates two states of the executor (glossary: TSt), each holding a marking, the reading of the firing clock and a stamp per transition name; a step is a delay of the clock, a firing or a reap (TRel). Firings are atomic. Armed, Elapsed time, Reapable and Reaped are the glossary terms (GlossaryTime.lean); bounds are in milliseconds."
           "Line 2 reads 'its timing shall not stop it from being ready' on the step relation: a Delayed transition that is armed and past its bound is ready (glossary: Ready; Delayed is not reapable, so it is never expired), and a ready transition can take every reference firing it has, as Covers says for all transitions. Line 2 is that coverage for this timing, so the step relation may not refuse such a firing for a timing reason. Choosing among several ready transitions (priority, FIFO) is [EXEC-002] and [TIME-014]; the atomic step relation of Phase 1 has no such choice."
-          "Lines 3 and 4 read 'shall not reap' with the glossary meaning of reaping, to disarm without firing: no step labelled as a reap of u (line 3), and the frame ClockFrame shared with TIME-003, TIME-005 and TIME-006 (line 4, GlossaryTime.lean). Its first part, StaysArmed, says no step leaves u enabled and unarmed (reaped, in the glossary's state reading), a firing of u itself included: a firing of u that leaves u enabled re-arms it (TIME_004_forbids_selfDrop). Its other parts keep u's stamp across a delay, a reap of another name and a firing of another name that leaves u enabled throughout; the last is [TIME-012] line 2 specialised to u: without it a firing of an unrelated transition could drop u's clock, a reap hidden in a firing (TIME_004_mutant_dropClean_killed), or restart it, which pushes u's bound back so that its timing stops it from being ready (TIME_004_mutant_restart_killed). A firing that disables u in its intermediate marking or after it drops or restarts u's clock as [TIME-011] and [TIME-012] say, and which stamp a firing of u itself leaves (a fresh one) is [TIME-012] line 4; this block fixes neither. A reap labelled with a transition other than u that carries u's name is not constrained by line 3: it is excluded by [TIME-013] line 1 (only a transition of the net is reaped) together with NamesDistinct (ruling D10). That a delay advances the clock by its length is [TIME-015] line 2."
+          "Lines 3 and 4 read 'shall not reap' with the glossary meaning of reaping, to disarm without firing: no step labelled as a reap of u (line 3; an executor that reaps a Delayed transition past the maximum duration plus the tolerance breaks it, TIME_004_forbids_reapDelayed), and the frame ClockFrame shared with TIME-003, TIME-005 and TIME-006 (line 4, GlossaryTime.lean). Its first part, StaysArmed, says no step leaves u enabled and unarmed (reaped, in the glossary's state reading), a firing of u itself included: a firing of u that leaves u enabled re-arms it (TIME_004_forbids_selfDrop). Its other parts keep u's stamp across a delay, a reap of another name and a firing of another name that leaves u enabled throughout; the last is [TIME-012] line 2 specialised to u: without it a firing of an unrelated transition could drop u's clock, a reap hidden in a firing (TIME_004_mutant_dropClean_killed), or restart it, which pushes u's bound back so that its timing stops it from being ready (TIME_004_mutant_restart_killed). A firing that disables u in its intermediate marking or after it drops or restarts u's clock as [TIME-011] and [TIME-012] say, and which stamp a firing of u itself leaves (a fresh one) is [TIME-012] line 4; this block fixes neither. A reap labelled with a transition other than u that carries u's name is not constrained by line 3: it is excluded by [TIME-013] line 1 (only a transition of the net is reaped) together with NamesDistinct (ruling D10). That a delay advances the clock by its length is [TIME-015] line 2."
           "The interval bullets (earliest bound after, latest bound the maximum duration, hasDeadline false) are the Timing accessors (time004_interval). The construction bullet is [TIME-001] AC4 (Timing.Valid, ruling D11): Delayed(after) is valid exactly when after is at most the maximum duration."
           "AC1 (cannot fire before after has elapsed since enablement) is line 1, with 'since enablement' read as the elapsed time since the stamp ([TIME-010]); measuring from the creation of the consumed tokens is the mutant TIME_004_mutant_tokenAge_killed. AC2 (after after, the transition can fire at any time) is line 2, which holds in every state past the bound, however late, and lines 3 and 4, by which neither a later clock reading nor an unrelated firing takes the transition's clock away or moves it."
           "The test derivation (Delayed(3s), enabled at T=0, not ready at T=2s, ready at T=3s) is the nonvacuous example TIME_004_nonvacuous, in milliseconds; it also fires an unrelated transition at T=500 that keeps u's stamp (line 4)."
-  signoff "pending"
+  signoff "2026-11-13 105e54b6ff04bba2 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ (X : TimedNet _) u a, TimingOf X u = .delayed a →
       (while (fun s => Armed s u ∧ Elapsed s u < a),
@@ -409,6 +410,29 @@ theorem TIME_004_forbids_selfDrop : ¬ TIME_004 (RefTStepW (selfDropPolicy (N :=
     (d := []) time004_u_in time004_namesDistinct (by decide)
     ⟨by decide, ⟨.action 0, rfl⟩, rfl⟩ (by decide) (by decide) (by decide)
     ((h time004_X time004_u 3000 rfl).2.2.2 time004_u_in).1
+
+/-! ### A reap of a `Delayed` transition past the maximum duration -/
+
+/-- The timed reference step together with a reap of every armed transition of the net whose
+elapsed time is greater than the maximum duration plus the tolerance, whatever its timing: an
+executor that treats `Delayed(after)` as if the maximum duration were its deadline. The extra
+step is a reap in the glossary sense: it drops the stamp of the reaped name and nothing else. -/
+def time004_reapPastMax : TRel Nat := fun X s l s' =>
+  RefTStep X s l s' ∨
+    ∃ t, l = .reap t ∧ t ∈ X.net.transitions ∧ Armed s t ∧
+      MaxDuration + Tolerance X < Elapsed s t ∧
+      s' = { s with stamp := fun n => if n = t.core.name then none else s.stamp n }
+
+/-- ✗ An executor that reaps a `Delayed` transition once its elapsed time passes the maximum
+duration plus the tolerance violates TIME-004 (line 3, sentence 3: `Delayed` is never reaped).
+At `T = MAX_DURATION_MS + 6` `u`, armed since `0`, is reaped. The relation keeps every step of
+the reference, and its extra steps are reaps that keep the stamp of every other name, so lines
+1, 2 and 4 do not reject it: line 4 (`StaysArmed`) excludes a reap of `u` itself, and line 2 is
+silent once `u` is unarmed. -/
+@[evidence forbids TIME_004]
+theorem TIME_004_forbids_reapDelayed : ¬ TIME_004 time004_reapPastMax := fun h =>
+  (h time004_X time004_u 3000 rfl).2.2.1 (time004_at (maxDurationMs + 6)) _
+    (Or.inr ⟨time004_u, rfl, by simp [time004_X], by decide, by decide, rfl⟩)
 
 /-! ### Every line exercised -/
 

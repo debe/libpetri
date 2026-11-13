@@ -45,7 +45,7 @@ requirement TIME_011
           "An injected token can also disable or re-arm a transition ([ENV-003], ruling D6). Injection is not a step of the Phase 1 relation, which has no environment places; the two lines are stated for the steps it has."
           "Transitions are identified by name (ruling D10): a stamp is kept per name, and both lines speak of the transition the net holds under the name (InNet). Under pairwise distinct names (NamesDistinct) InNet is membership in the net (inNet_iff_mem)."
           "AC1 (Delayed(5 s), disabled at 3 s, re-enabled later, waits another 5 s) is TIME_011_nonvacuous in milliseconds: u is armed at 0, a consumer takes its token at 3000 and u holds no stamp (line 1), the source refills the place at 7000 and u is armed with the stamp 7000 (line 2), u cannot fire at 11999 and can at 12000. The resuming mutant would let u fire at 7000. For every relation satisfying TIME-010 and TIME-011 whose delay advances the clock by the delay, a transition armed again cannot fire after a delay shorter than its earliest bound (time011_no_early_fire)."
-  signoff "pending"
+  signoff "2026-11-13 79f782cb6058365b ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ X : TimedNet _,
       (∀ l u, InNet X u → on (fun s s' => R X s l s'), shall (fun s s' =>
@@ -415,23 +415,15 @@ theorem time011_lazy_TIME_010 : TIME_010 (RefTStepW time011_lazyPolicy) := by
 
 /-! ### Why the second sentence rests on TIME-010 -/
 
-/-- The backdating delay: the clock advances and every held stamp is reset to `0`, the start of
-the run. -/
-def time011_backdate (s : TSt Nat) (δ : Nat) : TSt Nat :=
-  { s with now := s.now + δ, stamp := fun n => (s.stamp n).map (fun _ => 0) }
-
-/-- The reference step plus a delay that backdates every stamp to `0`. -/
-def time011_backdateRel : TRel Nat := fun X s l s' =>
-  RefTStep X s l s' ∨ ∃ δ, l = .delay δ ∧ s' = time011_backdate s δ
-
 /-- TIME-011 alone does not fix the stamp of a transition that stays armed: the backdating
-relation satisfies it (a backdating delay keeps the marking and which stamps are held, so both
-lines are vacuous on it) but not TIME-010, whose line 2 keeps a stamp across a delay. In AC1,
+relation of TIME-010 (`time010_backdateRel`, which `TIME_010_forbids_backdate` rejects)
+satisfies it (a backdating delay keeps the marking and which stamps are held, so both lines are
+vacuous on it) but not TIME-010, whose line 2 keeps a stamp across a delay. In AC1,
 one backdating millisecond after the re-arming at `T = 7000`, `u` would hold the stamp `0` and
 could fire at `T = 7001`. This is why "measured from the moment it was armed again" over the
 later steps is cited (`time011_elapsed_from_rearm`, `time011_no_early_fire`) and not stated. -/
 theorem time011_backdate_gap :
-    TIME_011 time011_backdateRel ∧ ¬ TIME_010 time011_backdateRel := by
+    TIME_011 time010_backdateRel ∧ ¬ TIME_010 time010_backdateRel := by
   refine ⟨fun X => ?_, fun h => ?_⟩
   · have href := TIME_011_reference (N := Nat) X
     refine ⟨fun l u hu s s' h ha hne => ?_, fun l u hu s s' h hna ha => ?_⟩
@@ -440,9 +432,9 @@ theorem time011_backdate_gap :
       · exact absurd ha.1 hne
     · rcases h with h | ⟨δ, -, rfl⟩
       · exact href.2 l u hu s s' h hna ha
-      · exact absurd ⟨ha.1, by simpa [time011_backdate] using ha.2⟩ hna
+      · exact absurd ⟨ha.1, by simpa [time010_backdate] using ha.2⟩ hna
   · have := (h time011_X).2.1 (.delay 1) time011_u (time011_a4 refPolicy)
-      (time011_backdate (time011_a4 refPolicy) 1) (.inr ⟨1, rfl, rfl⟩) (by decide) (by decide)
+      (time010_backdate (time011_a4 refPolicy) 1) (.inr ⟨1, rfl, rfl⟩) (by decide) (by decide)
     rcases this with e | ⟨⟨t, d, e⟩, -⟩
     · exact absurd e (by decide)
     · cases e

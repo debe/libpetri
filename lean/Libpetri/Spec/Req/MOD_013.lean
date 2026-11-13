@@ -65,7 +65,7 @@ requirement MOD_013
           "AC2 (the names of the form outer/inner/x are exactly the names inner/x the body of S holds, renamed under outer, which is x under the concatenated prefix outer/inner) has two directions. Line 1 gives the inclusion (mod013_nestedName, with mod013_flat for the concatenated reading). The converse, that the instance holds no other place named outer/inner/x, is MOD-010 line 3, not a line of this block: in every model of MOD-010, o/i/x is a place of the instance exactly when i/x is a place of the body (mod013_nestedSet). MOD-013 alone does not give it: the instantiation that keeps the body places next to the renamed ones meets all three lines and violates MOD-010 (mod013_keepBody_accepted, mod013_keepBody_not_mod010). So AC2 is MOD-013 line 1 with MOD-010 line 3 and has no mutant of its own here (skeptic correction S4 of the composition design); the rejection of a single instantiation under outer/inner is mod013_concat_rejected, from MOD-010 line 1."
           "AC3 (per-instance state isolation holds at every nesting level) is not a line of this block; it is delegated. It is MOD-012 applied to the nested definition: MOD-012 ranges over every subnet definition, nested or not, and its runtime-state half is MOD-012's: its isolation line over the firing relation (MOD_012) and its clock line over the timed relation (MOD_012_clock), both stated over every build script, so over a net that composes a nested definition too. Its naming half holds for every model of MOD-010, not of MOD-013 alone: two nested places o/i1/x and o/i2/y are one place only when i1 = i2 and x = y (mod013_nested_inj, a fact of the naming laws), and two outer instances of one definition share no name (mod010_disjoint). The instantiation that keeps the body places meets MOD-013 and gives two outer instances o1 and o2 of the nested S the shared place inner/x (mod013_keepBody_shares)."
           "The test derivation (T with an internal place x, S composing T under inner, S instantiated under outer, outer/inner/x among the renamed places) is MOD_013_nonvacuous."
-  signoff "pending"
+  signoff "2026-11-13 eeef7dafaeee4204 ai"
   statement : ∀ {N A : Type}, Naming N → InstFn N A → Prop :=
     fun {N A} Nm Inst =>
       (∀ (T S : SubnetDef N A) i o J I, Inst T i = .ok J → Inst S o = .ok I →
@@ -163,8 +163,8 @@ over from an instance included, and line 2 of MOD-010 is line 3 of MOD-013. -/
 theorem mod013_of_mod010 {Nm : Naming N} {Inst : InstFn N A} (h : MOD_010 Nm Inst) :
     MOD_013 Nm Inst := by
   refine ⟨fun T S i o J I _ hI x _ _ hS => ?_, fun T S i o J I _ hI d _ _ hS => ?_, h.2.1⟩
-  · exact ((h.2.2.2 S o I hI).1 _).2 (List.mem_map_of_mem hS)
-  · rw [mod013_instNames h.2.2.2 hI]
+  · exact ((h.2.2.1 S o I hI).1 _).2 (List.mem_map_of_mem hS)
+  · rw [mod013_instNames h.2.2.1 hI]
     exact List.mem_map_of_mem hS
 
 end FromMod010
@@ -265,8 +265,8 @@ theorem mod013_ofTheForm {Nm : Naming N} {Inst : InstFn N A} (h : MOD_010 Nm Ins
     (∀ y ∈ I.places, ∃ z ∈ S.places, Nm.pre o z = y) ∧
     (∀ n ∈ I.defs.map (·.core.name), ∃ m ∈ S.defs.map (·.core.name), preS o m = n) := by
   refine ⟨fun y hy => ?_, fun n hn => ?_⟩
-  · exact List.mem_map.mp (((h.2.2.2 S o I hI).1 y).1 hy)
-  · rw [mod013_instNames h.2.2.2 hI] at hn
+  · exact List.mem_map.mp (((h.2.2.1 S o I hI).1 y).1 hy)
+  · rw [mod013_instNames h.2.2.1 hI] at hn
     exact List.mem_map.mp hn
 
 /-- **The nested name set** (AC2, both directions), for every model of [MOD-010]: the place
@@ -277,7 +277,7 @@ theorem mod013_nestedSet {Nm : Naming N} {Inst : InstFn N A} (h : MOD_010 Nm Ins
     {S : SubnetDef N A} {o : String} {I : Instance N A} (hI : Inst S o = .ok I) (i : String)
     (x : N) : Nm.pre o (Nm.pre i x) ∈ I.places ↔ Nm.pre i x ∈ S.places := by
   have ho := mod010_ok_valid h.1 hI
-  rw [(h.2.2.2 S o I hI).1, List.mem_map]
+  rw [(h.2.2.1 S o I hI).1, List.mem_map]
   constructor
   · rintro ⟨z, hz, hzx⟩
     rwa [← Nm.pre_injective ho hzx]
@@ -557,7 +557,7 @@ theorem mod013_keepBody_not_mod010 : ¬ MOD_010 strNaming mod013_keepBodyInst :=
   have hI : mod013_keepBodyInst mod013_handS "o1" =
       .ok (mod013_keepBodyInstance mod013_handS "o1") := by
     unfold mod013_keepBodyInst; rw [if_pos (by decide)]
-  have := ((h.2.2.2 _ _ _ hI).1 "src").1 (by decide)
+  have := ((h.2.2.1 _ _ _ hI).1 "src").1 (by decide)
   exact absurd this (by decide)
 
 end Libpetri.Spec

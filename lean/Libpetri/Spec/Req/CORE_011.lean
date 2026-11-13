@@ -35,8 +35,8 @@ unspecified timestamp, which a unit constructor stamping the wall clock (ruling 
 killed at the state it reaches after one call (`CORE_011_forbids_clamp`).
 
 The executor line (a token the executor creates is stamped from its epoch clock while the firing
-is in flight; a forwarded token keeps its timestamp) is CORE-011's second block, over the executor
-model, in wave W11.
+is in flight; a forwarded token keeps its timestamp) is CORE-011's second block, `CORE_011_B`
+(`CORE_011_B.lean`), over the executor model.
 -/
 
 namespace Libpetri.Spec
@@ -114,9 +114,9 @@ requirement CORE_011
           "AC4 (the canonical unit token holds no value and carries the timestamp 0) is line 3."
           "AC5 (while an executor runs on an injected clock, a token created through the default factory carries the reading of the host's wall clock, not the injected clock's) is line 1 at readings whose epoch differs from wall: core011_make_epoch_blind, and CORE_011_mutant_epochClock_killed at a wall reading of 5 while the injected clock reads 100."
           "The test derivation (a default token between two wall readings; two default tokens in sequence, the second timestamp at least the first; the same under an injected clock; tokens at explicit timestamps before the epoch and finer than a millisecond; the unit token; each holding its value) is CORE_011_nonvacuous on refTokenFactory, at wall readings 5 then 8 while an executor's injected epoch clock reads 100, with explicit timestamps -3 and 1500."
-          "Deferred to CORE-011's second block (wave W11, ruling D64 (a)): a token the executor creates (an action output written as a value, a token injected as a raw value, the unit token of a timeout outcome) carries a reading of the executor's epoch clock taken while the firing is in flight, and a forwarded token keeps its timestamp (IO-014). A token an action builds itself through a factory and outputs as a token (Java's output(Place, Token), TypeScript's outputToken) keeps that factory's stamp, which lines 1 and 2 already fix. CORE-035 AC2 and TIME-015 AC13 cite that line. It needs the executor model (RefExec) with an epoch clock next to the firing clock."
+          "Stated by CORE-011's second block CORE_011_B (CORE_011_B.lean, ruling D64 (a)): a token the executor creates (an action output written as a value, a token injected as a raw value, the unit token of a timeout outcome) carries a reading of the executor's epoch clock taken while the firing is in flight, and a forwarded token keeps its timestamp (IO-014). A token an action builds itself through a factory and outputs as a token (Java's output(Place, Token), TypeScript's outputToken) keeps that factory's stamp, which lines 1 and 2 already fix. CORE-035 AC2 and TIME-015 AC13 cite that line. It needs the executor model (RefExec) with an epoch clock next to the firing clock."
           "Python has no token object and no token factory: a Python host passes values, and the Rust runtime it binds creates their tokens (ruling R5). Immutability of the token is CORE-010's."
-  signoff "pending"
+  signoff "2026-11-13 2bfe1f7b290d1782 ai"
   statement : ∀ {V : Type}, TokenFactory V → Prop :=
     fun K =>
       (∀ r v, K.make r v = ⟨some v, r.wall⟩) ∧

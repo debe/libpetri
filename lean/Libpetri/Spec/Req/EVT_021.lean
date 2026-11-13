@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Spec.Req.EVT_022
+import Libpetri.Spec.Req.EVT_020
 
 set_option linter.missingDocs true
 
@@ -60,10 +61,11 @@ requirement EVT_021
           "AC2 (thread-safe append, concurrent callers do not lose events) is kind Q: a history is one linear order of operations, so no line can show a lost concurrent append. It matters in Java, whose store appends lock-free to a ConcurrentLinkedQueue from the orchestrator, action and timeout threads (java/src/main/java/org/libpetri/event/EventStore.java:252-273); Rust's append takes the store mutably and the Python binding locks a mutex around it (rust/libpetri-py/src/events.rs), and TypeScript runs on one thread. What line 2 does show is that no append, concurrent or not, is lost once it has run."
           "AC3 (events() returns the events appended since the last clear(), in append order; what a returned list shows after later operations is not specified) is lines 1 and 2 for the events it returns, through evt021_read_retained and evt021_appends. What a returned list shows later is not a line: ruling D29 (a) leaves the copy unspecified, because TypeScript's store returns its own array, which grows on later appends (typescript/src/event/event-store.ts:58-60; clash evt-c#1), while Java returns List.copyOf, Rust lends a borrowed slice that the borrow checker keeps from changing while it is held, and Python builds a new list. The block accepts every such later view, not only a copy or a live view: EVT_021_allows_live shows the live-array store, and EVT_021_allows_detached a TypeScript store whose clear() replaces its array, so a list returned earlier stops following the store. The spec edit of this wave rewords AC3 from 'a snapshot copy (not a live reference)' to that ruling."
           "AC4 (clear() for test reuse) is line 3 and the third quoted sentence, under ruling D29 (a): clear() is required only where the store provides it, and the spec edit of this wave rewords AC4 to say so. hasClear is read off the store's class, not off the type a factory returns: it is true for TypeScript's InMemoryEventStore and for Java's package-private InMemoryEventStore, whose public clear() is callable from its own package although EventStore.inMemory() returns it as the EventStore interface (java/src/main/java/org/libpetri/event/EventStore.java:195, :252, :271), and false for Rust's and the Python binding's stores, which have none (rust/libpetri-event/src/event_store.rs:67-86; python/libpetri/_libpetri.pyi; clash evt-c#2). So a Java clear() that does nothing is the store EVT_021_mutant_ignoreClear rejects. EVT_021_allows_noClear shows the store without clear() meets the block. A history with a clear made on a store without clear() is not one a caller can make; line 2 quantifies over every history and covers it anyway, which every runtime meets."
-          "Line 4 and the fourth quoted sentence are a new sentence derived from 'retains all events' and stated with that derivation: an executor appends to a store only when it reports itself enabled (the glossary's storeSink, EVT-020 AC3, 'isEnabled() controls whether the executor appends events to the store'), so a store that keeps every append but reports itself not enabled would retain none of a run's events. All runtimes meet it: Java's in-memory store keeps the interface default isEnabled() = true, TypeScript's returns true, Rust's sets ENABLED = true, and the executor writes the Python binding's store through a Rust store whose ENABLED is true (rust/libpetri-py/src/events.rs, RunStore). evt021_sink states the consequence: every event an executor emits reaches a store that meets the block, in emission order."
+          "Line 4 and the fourth quoted sentence are a new sentence derived from 'retains all events' and stated with that derivation: an executor appends to a store only when it reports itself enabled (the glossary's storeSink, EVT-020 AC3, 'isEnabled() controls whether the executor appends events to the store'), so a store that keeps every append but reports itself not enabled would retain none of a run's events. All runtimes meet it: Java's in-memory store keeps the interface default isEnabled() = true, TypeScript's returns true, Rust's sets ENABLED = true, and the executor writes the Python binding's store through a Rust store whose ENABLED is true (rust/libpetri-py/src/events.rs, RunStore). evt021_sink states the consequence: every event an executor emits reaches a store that meets the block, in emission order; for the Python binding's store it reaches it after RunStore's capture-filter strip (next paragraph)."
+          "The Python binding's store and its capture filter. The executor appends to RunStore (rust/libpetri-py/src/events.rs:339-386), the Rust store of the fourth quoted sentence, and RunStore pushes each event into the binding's in-memory store; when capture_tokens is a list of places, it first strips the token payload of a TokenAdded or TokenRemoved event on a place outside that list (filter_payload, 350-367). The in-memory store of this block is the one behind RunStore: the event appended to it is the event RunStore pushes, after the strip, and an event a caller passes to the store's own append is pushed unchanged (PyEventStoreHandle.append, events.rs 658-660). So the binding's store is the in-memory store without clear() over those events and meets the four lines (EVT_021_allows_python), and evt021_sink holds of it for the stripped events (evt021_python_sink: events() returns the emitted events, each after the strip). EVT-020 reads the same store with RunStore in front of it, as its second quoted sentence does: there the appended events are the executor's events, with their payloads, and the strip is the store's normalisation (evt020_pyStore). EVT_021_allows_python shows the two readings are one store: what EVT-020's model shows after a history is what this block's store shows after the history with every append stripped. Read with RunStore in front, the store is not this block's in-memory store and fails line 2 as soon as a payload is stripped (evt021_python_withRunStore); no runtime defect is involved, the strip is what capture_tokens asks for."
           "Scope: the line is on the in-memory store, not on every store that keeps events. The bounded debug stores evict their oldest events (EVT-024) and violate line 2 (EVT_021_forbids_bounded); the noop store (EVT-022) violates lines 2 and 4 (EVT_021_forbids_noop), so no one store meets both blocks (evt021_not_noop) and the consistency theorem gives each its own store variable. The query helpers the runtimes offer on the store (filter, transitionEvents, failures, and the Python filters, limit and offset) are EVT-030's; size(), isEmpty() and len() are not named by the spec and not modelled."
           "The test derivation (append 100 events; events() returns 100 in order) is EVT_021_nonvacuous on the reference, which also shows the last-in-first-out store returning the same appends reversed."
-  signoff "pending"
+  signoff "2026-11-13 e997cb96c53ff233 ai"
   statement : ∀ {E : Type}, StoreObs E → Prop :=
     fun {E} S =>
       S.read [] [] = [] ∧
@@ -299,6 +301,61 @@ D29 (a)). -/
 theorem EVT_021_allows_noClear : EVT_021 (evt021_noClearMemStore (E := Nat)) ∧
     (evt021_noClearMemStore (E := Nat)).hasClear = false :=
   ⟨⟨rfl, fun h e => retained_append_one h e, fun hc => Bool.noConfusion hc, rfl⟩, rfl⟩
+
+/-- What RunStore pushes into the Python binding's in-memory store for one operation: an append
+after the capture filter's strip, a clear as it is. -/
+def evt021_pyPush (keep : Nat → Bool) : StoreOp Evt020PyEv → StoreOp Evt020PyEv
+  | .append e => .append (evt020_pyStrip keep e)
+  | .clear => .clear
+
+/-- Folding the pushed operations keeps the stripped events. -/
+theorem evt021_pyPush_foldl (keep : Nat → Bool) (h : List (StoreOp Evt020PyEv))
+    (acc : List Evt020PyEv) :
+    (h.map (evt021_pyPush keep)).foldl stepOp (acc.map (evt020_pyStrip keep)) =
+      (h.foldl stepOp acc).map (evt020_pyStrip keep) := by
+  induction h generalizing acc with
+  | nil => rfl
+  | cons o h ih =>
+    cases o with
+    | append e =>
+      have := ih (acc ++ [e])
+      simpa [evt021_pyPush, stepOp] using this
+    | clear =>
+      have := ih []
+      simpa [evt021_pyPush, stepOp] using this
+
+/-- ✓ The Python binding's in-memory store, read behind RunStore (the events appended to it are
+the ones RunStore pushes after the capture filter's strip), meets EVT-021 at every capture filter,
+and it is the store EVT-020 reads with RunStore in front (`evt020_pyStore`): after every history
+and every later operations, the latter shows what the former shows for the same operations with
+every append stripped. -/
+@[evidence allows EVT_021]
+theorem EVT_021_allows_python (keep : Nat → Bool) :
+    EVT_021 (evt021_noClearMemStore (E := Evt020PyEv)) ∧
+      ∀ h h', (evt020_pyStore keep).read h h' =
+        (evt021_noClearMemStore (E := Evt020PyEv)).read (h.map (evt021_pyPush keep))
+          (h'.map (evt021_pyPush keep)) := by
+  refine ⟨⟨rfl, fun h e => retained_append_one h e, fun hc => Bool.noConfusion hc, rfl⟩,
+    fun h _ => ?_⟩
+  have := evt021_pyPush_foldl keep h []
+  simpa [evt020_pyStore, evt021_noClearMemStore, retained] using this.symm
+
+/-- The executor's events reach the Python binding's store in emission order, each after the
+capture filter's strip: `evt021_sink` for that store, read with RunStore in front. -/
+theorem evt021_python_sink (keep : Nat → Bool) (tr : List Evt020PyEv) :
+    (evt020_pyStore keep).read (storeSink (evt020_pyStore keep) tr) [] =
+      tr.map (evt020_pyStrip keep) := by
+  simp [storeSink, evt020_pyStore, retained_appends]
+
+/-- Read with RunStore in front (the appended events are the executor's, with their payloads),
+the Python binding's store is not the in-memory store of EVT-021: given the capture filter of
+place 0, an appended token event on place 1 with payload 6 shows without its payload, so line 2
+fails. This is why the block reads that store behind RunStore. -/
+theorem evt021_python_withRunStore : ¬ EVT_021 (evt020_pyStore evt020_keep0) := by
+  intro h
+  have := h.2.1 [] (1, some 6)
+  revert this
+  decide
 
 /-- A TypeScript in-memory store whose `clear()` replaces its array (`this._events = []`) rather
 than emptying it: a list returned earlier follows the appends up to the next clear and then

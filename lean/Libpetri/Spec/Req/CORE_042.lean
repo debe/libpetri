@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
+import Libpetri.Reference.Nu
 
 set_option linter.missingDocs true
 
@@ -27,6 +28,13 @@ The witness is the reference binding `refBind` with the map read either way: `ma
 `CORE_042_reference_keep`) and `mapClobber` (Java, TypeScript, `CORE_042_reference_clobber`).
 Wrong bindings are killed: one that drops read arcs, one that ignores the resolver, one whose map
 form ignores the map, and one per line that meets a plausible wrong reading of that line.
+
+The companion block `CORE_042_nu` states the sentence on the match specification ([NU-020]) over
+ν nets (`NuBuiltNet`: built nets whose definitions are `NuDef`, `Reference/Nu.lean`): in either
+form, a transition whose definition has a match specification has the same one in the new net.
+Its witness binds the `TransDef` part as `refBind` does and keeps the match; the binding that
+rebuilds an answered transition without its match has `refBind` as its shadow on `BuiltNet`, so
+it meets every line of `CORE_042` and is killed only by `CORE_042_nu`.
 -/
 
 namespace Libpetri.Spec
@@ -61,17 +69,17 @@ requirement CORE_042
   assumes "A binding is a function from a built net (BuiltNet: places, transition definitions in declaration order, terminal places; Reference/Build.lean) and a resolver or map to a built net. A resolver and a map are both read as a function from names to an optional action: the resolver's null/None and a name the map does not hold are none. An action is read as its identity tag (Act: the built-in passthrough or another action named by an opaque id); what an action does is CORE-050's and the action model's (W3)."
           "The lines range over mappings whose values are actions (the body's 'a mapping of transition names to actions', and the quoted line 5 sentence's 'a mapping whose values are actions'). A mapping that holds a name with a null value, which Java's map allows, is outside them and outside every quoted shall sentence: the quoted Java sentence records what the runtimes do with it (Java defers that transition, since getOrDefault returns the held null and the resolver form keeps a transition whose resolver gives null, java/src/main/java/org/libpetri/core/PetriNet.java:202 and :219; TypeScript substitutes passthrough, typescript/src/core/petri-net.ts:80-82; a Rust map holds only actions). Read as none, such a mapping would make Java's map form keep some omitted transitions and clobber others within one call, which line 5 forbids; the line 5 sentence names mappings whose values are actions so that it does not."
           "The sentence that binding returns a new net for every net and every resolver or mapping and leaves the original net unchanged is not a line: it holds of every binding in the model, where a binding is a function on immutable values, so it returns a net for every net and every resolver or map and cannot change its argument b; in the runtimes it is tested directly. 'Total, it never rejects' is its first half: it includes a resolver or map that leaves some transitions with passthrough or answers a name that is no transition (that name is never asked for, so it is ignored). 'Lazy' is read as: binding checks nothing, neither comparing a bound action with the transition's output specification nor requiring every transition to be bound, so a partially bound net is a legitimate value, and reconciling it with the declared output specifications is the compile-time check of CORE-043. Binding after instantiation (MOD-031 AC7) and per-instance binding, including an override key that names no transition (ruling D87), are MOD-030's and MOD-031's (W8)."
-          "The lines are stated per position, not per name, so they do not need the shared unique-names assumption (NetNamesDistinct, rulings D10 and D23): with two transitions of one name every runtime asks the resolver once per transition and binds both (java/src/main/java/org/libpetri/core/PetriNet.java:215-229, typescript/src/core/petri-net.ts:92-105, rust/libpetri-core/src/petri_net.rs:187-202), and so does the statement. Under that assumption binding by position is binding by name."
-          "Line 1 is the body's first sentence: binding changes no field of the static structure. It names the terminal places (EXEC-042) and the output specification, which the body's list '(places, transitions, arcs, timing, priority)' does not: both are static structure and all three runtimes keep them (java/src/main/java/org/libpetri/core/PetriNet.java:228, typescript/src/core/petri-net.ts:104-105, rust/libpetri-core/src/petri_net.rs:165-174). The quoted sentence asks for a transition with the same fields, not the same transition: all three runtimes rebuild a rebound transition through the transition builder (Java and TypeScript rebuildWithAction; Rust rebuild_with_action, rust/libpetri-core/src/petri_net.rs:195-200 and rust/libpetri-core/src/transition.rs:614-643, with a fresh TransitionId), so the identity of a rebound transition (CORE-021) is not kept, and the line compares the fields position by position. The net's name, which the quoted sentence also names, is not a field of BuiltNet; every runtime keeps it (the same three places) and a test checks it outside the model. The subnet membership metadata is kept as MOD-026 says (the mapping survives a re-bind unchanged) and the declared-to-actual place correspondence as MOD-031 says (the rebuild that swaps the action carries it forward); neither is modelled here. A binding that rebuilds a transition and drops its read arcs (CORE_042_forbids_dropReads) violates line 1, and so does one that keeps only what firing reads and resets the priority (CORE_042_mutant_firingView_killed)."
-          "The sentence 'When actions are bound to a net, in either form, a transition that has a match specification ([NU-020]) shall have the same match specification in the new net.' is not quoted by this block and no line here states it; its coverage is deferred to the NU-020 block (W9), which quotes it once a line over the ν-net definition states it. It is outside this model: the match specification (NU-020) is not a field of TransDef but of the ν-net model's definition that extends it (CORE-020's assumes, W9), so no binding on BuiltNet can drop it, and a rebuild that binds the action and drops the match specification has exactly refBind as its shadow on BuiltNet and meets every line here. All three runtimes carry the match specification forward and warn that dropping it would turn a join correlated by name into a plain join (java/src/main/java/org/libpetri/core/PetriNet.java:261-266, typescript/src/core/petri-net.ts:1020-1026, rust/libpetri-core/src/transition.rs:632-634). The sentence is a line over the ν-net definition and is handed to the NU-020 block (W9)."
-          "Lines 2 and 3 are the resolver form, which all three runtimes share: an answered name gets the action, a null/None result defers the transition, which keeps its action. A binding that ignores the resolver (CORE_042_forbids_ignoreResolver) violates line 2, and so does one that binds only transitions still carrying passthrough (CORE_042_mutant_onlyUnbound_killed). A resolver form that replaces a deferred action by passthrough (the map form's Java reading applied to the resolver) violates line 3 (CORE_042_mutant_deferPassthrough_killed)."
+          "The lines are stated per position, not per name, so they do not need the shared unique-names assumption (NetNamesDistinct, rulings D10 and D23): with two transitions of one name every runtime asks the resolver once per transition and binds both (Java PetriNet.bindActions(Function) in java/src/main/java/org/libpetri/core/PetriNet.java, TypeScript bindActionsWithResolver in typescript/src/core/petri-net.ts, Rust bind_actions_with_resolver in rust/libpetri-core/src/petri_net.rs), and so does the statement. Under that assumption binding by position is binding by name."
+          "Line 1 is the body's first sentence: binding changes no field of the static structure. It names the terminal places (EXEC-042) and the output specification, which the body's list '(places, transitions, arcs, timing, priority)' does not: both are static structure and all three runtimes keep them (the same three methods: Java's and TypeScript's construct the new PetriNet from the net's name, places and terminals, and Rust's goes through PetriNet::map_transitions, which clones them). The quoted sentence asks for a transition with the same fields, not the same transition: all three runtimes rebuild a rebound transition through the transition builder (Java and TypeScript rebuildWithAction; Rust rebuild_with_action in rust/libpetri-core/src/transition.rs, called from bind_actions_with_resolver, with a fresh TransitionId), so the identity of a rebound transition (CORE-021) is not kept, and the line compares the fields position by position. The net's name, which the quoted sentence also names, is not a field of BuiltNet; every runtime keeps it (the same three places) and a test checks it outside the model. The subnet membership metadata is kept as MOD-026 says (the mapping survives a re-bind unchanged) and the declared-to-actual place correspondence as MOD-031 says (the rebuild that swaps the action carries it forward); neither is modelled here. A binding that rebuilds a transition and drops its read arcs (CORE_042_forbids_dropReads) violates line 1, and so does one that keeps only what firing reads and resets the priority (CORE_042_mutant_firingView_killed)."
+          "The sentence 'When actions are bound to a net, in either form, a transition that has a match specification ([NU-020]) shall have the same match specification in the new net.' is quoted and stated by the companion block CORE_042_nu in this file, over ν nets (NuBuiltNet: the places, the ν definitions NuDef of Reference/Nu.lean, each a TransDef and an optional match, and the terminal places). It is not a line here: the match specification is not a field of TransDef, so no binding on BuiltNet can drop it, and a binding that rebuilds an answered transition without its match has exactly refBind as its shadow on BuiltNet (core042_nuDropBind_shadow) and meets every line here; CORE_042_nu kills it (CORE_042_nu_mutant_deferredOnly_killed). NU-030 states the same for every rebuild through a place rewrite, the identity rewrite of action binding included: its line 3 says that the match of the rebuilt transition is the original one mapped by the rewrite (the original one itself under the identity), and that a transition without a match stays without one."
+          "Lines 2 and 3 are the resolver form, which all three runtimes share: an answered name gets the action, a null/None result defers the transition, which keeps its action. A binding that ignores the resolver (CORE_042_forbids_ignoreResolver) violates line 2, and so does one that binds only transitions still carrying passthrough (CORE_042_mutant_onlyUnbound_killed). A resolver form that replaces a deferred action by passthrough (the map form's Java reading applied to the resolver) violates line 3 (CORE_042_mutant_deferPassthrough_killed). The model reads a resolver that returns no action (null/None, and in TypeScript also undefined) as one that answers none. TypeScript treats null and undefined alike as no action (bindActionsWithResolver, typescript/src/core/petri-net.ts:97: action != null, and SubnetDef.bindActionsWithResolver in typescript/src/core/subnet-def.ts), so a JavaScript resolver such as name => obj[name], for a name obj does not hold, defers the transition, which keeps its action. Java (null) and Rust (None) defer as line 3 says (java/src/main/java/org/libpetri/core/PetriNet.java:219, rust/libpetri-core/src/petri_net.rs:196-200). A binding that treats only null as no action rebinds such a transition to undefined and breaks line 3 (the behaviour RD-05 in spec/runtime-defects.md recorded of TypeScript; the model has no undefined, so this is test evidence: typescript/tests/core/petri-net.test.ts 'bindActionsWithResolver defers a transition when the resolver returns undefined (CORE-042)')."
           "Lines 4 and 5 are the map form's common part (ruling D20 (a) on clash core-b#4: the common part, and the divergence recorded). Rust keeps an omitted transition's action (mapKeep, rust/libpetri-core/src/petri_net.rs:177-183) and Java and TypeScript substitute passthrough (mapClobber, java/src/main/java/org/libpetri/core/PetriNet.java:202, typescript/src/core/petri-net.ts:80-82); both readings satisfy the block (CORE_042_reference_keep, CORE_042_reference_clobber) and they differ on a net whose omitted transition carries another action (CORE_042_mapForms_undecided). Line 5 asks for one reading per map form, as each runtime has: every omitted transition of every net carries passthrough, or every one keeps its action. A map form that keeps some omitted transitions and clobbers others meets the per-transition reading and violates line 5 (CORE_042_mutant_perTransition_killed). A map form that ignores the map (CORE_042_forbids_ignoreMap) violates line 4, and so does one whose map binds only transitions still carrying passthrough (CORE_042_mutant_mapOnlyUnbound_killed). Line 5 is stronger than AC4 alone: a map form that resets an omitted transition's action to a fixed other action meets AC4 and violates line 5 (CORE_042_mutant_ac4Only_killed)."
           "AC1 (a net can be created with no actions, all transitions using passthrough) is the builder default: a transition built without an action carries passthrough (TransIn.resolve, resolve_action_none in Reference/Build.lean), which is CORE-051's line (W3) and is not restated here; CORE_042_nonvacuous starts from such a net."
           "AC2 (bindActions(mapping) produces a new net with actions bound by transition name) is line 4 with line 1."
           "AC3 (the original net is not modified) is the second half of the quoted sentence that binding leaves the original net unchanged, which holds of every binding in the model (above) and is not a line."
           "AC4 (unbound transitions retain the passthrough action) is line 5 on a transition that carried passthrough, and line 3 for the resolver form. The test derivation (bind 2 of 3 transitions, the third still has passthrough) is CORE_042_nonvacuous, for the resolver form and both map readings."
-          "The paragraph on SubnetDef.bindActions (the same argument forms, keyed by unprefixed names, a new definition) is the operation on a subnet definition, MOD-051's paragraph 'Binding actions on a definition' with its AC8, and is quoted there (W11). The Python binding exposes binding on instances and subnet definitions only (rust/libpetri-py/src/model.rs:667, :893), not on a net; it rides on the Rust binding."
-  signoff "pending"
+          "The paragraph on SubnetDef.bindActions (the same argument forms, keyed by unprefixed names, a new definition) is the operation on a subnet definition, MOD-051's paragraph 'Binding actions on a definition' with its AC8, and is quoted there (W11). The Python binding exposes binding on instances and subnet definitions only (the bind_actions methods of PyInstance and PySubnetDef in rust/libpetri-py/src/model.rs), not on a net; it rides on the Rust binding."
+  signoff "2026-11-13 14c5416ef5b28912 ai"
   statement : ∀ {N A : Type}, (BuiltNet N A → (String → Option (Act A)) → BuiltNet N A) →
       (BuiltNet N A → (String → Option (Act A)) → BuiltNet N A) → Prop :=
     fun Bind BindMap =>
@@ -734,5 +742,228 @@ theorem CORE_042_mutant_perTransition_killed :
         List.head?_cons, Option.map_some] at h2
       rw [hr rfl] at h2
       exact absurd h2 (by decide)
+
+/-! ## CORE-042, the match specification: binding on ν nets -/
+
+section NuNet
+
+variable {N A K : Type}
+
+/-- A built ν net: a built net (`BuiltNet`) whose transition definitions may carry a match
+specification ([NU-020]): its places, its ν definitions (`NuDef`, `Reference/Nu.lean`) in
+declaration order, and its terminal places. -/
+structure NuBuiltNet (N A K : Type) where
+  /-- The places of the net. -/
+  places    : List N
+  /-- The definitions of its transitions, each with its optional match, in declaration order. -/
+  trans     : List (NuDef N A K)
+  /-- The terminal places ([EXEC-042]). -/
+  terminals : List N
+
+/-- The built net a ν net shadows: the same places and terminal places, and each definition's
+`TransDef` part (the match dropped). -/
+def NuBuiltNet.shadow (b : NuBuiltNet N A K) : BuiltNet N A :=
+  ⟨b.places, b.trans.map (·.toTransDef), b.terminals⟩
+
+/-- The ν definition after binding with resolver `r`: the `TransDef` part bound as
+`TransDef.bindWith` binds it, the match kept. -/
+def core042NuBindWith (r : String → Option (Act A)) (d : NuDef N A K) : NuDef N A K :=
+  { d with toTransDef := d.toTransDef.bindWith r }
+
+/-- **The reference binding on ν nets** (resolver form): every definition bound with the
+resolver by name, its match kept; places and terminal places kept. -/
+def core042RefNuBind (b : NuBuiltNet N A K) (r : String → Option (Act A)) : NuBuiltNet N A K :=
+  { b with trans := b.trans.map (core042NuBindWith r) }
+
+/-- The map form on ν nets as Rust reads it (an omitted name is deferred). -/
+def core042RefNuBindMapKeep (b : NuBuiltNet N A K) (m : String → Option (Act A)) :
+    NuBuiltNet N A K :=
+  core042RefNuBind b (mapKeep m)
+
+/-- The map form on ν nets as Java and TypeScript read it (an omitted name gets passthrough). -/
+def core042RefNuBindMapClobber (b : NuBuiltNet N A K) (m : String → Option (Act A)) :
+    NuBuiltNet N A K :=
+  core042RefNuBind b (mapClobber m)
+
+/-- The reference binding on ν nets shadows the reference binding: dropping the matches after
+binding is binding after dropping the matches. -/
+theorem core042RefNuBind_shadow (b : NuBuiltNet N A K) (r : String → Option (Act A)) :
+    (core042RefNuBind b r).shadow = refBind b.shadow r := by
+  simp [core042RefNuBind, NuBuiltNet.shadow, refBind, core042NuBindWith, Function.comp_def]
+
+end NuNet
+
+/- The reference binding on ν nets, with the map read either way, is the witness model of
+CORE-042's match sentence. -/
+#spec_witness core042RefNuBind
+#spec_witness core042RefNuBindMapKeep
+#spec_witness core042RefNuBindMapClobber
+
+requirement CORE_042_nu
+  id "CORE-042"
+  title "Action Binding Separation: the match specification"
+  kind F
+  scope "Java, TypeScript, Rust (net-level bindActions, both forms, on a net whose transitions may have a match specification); Python rides on the Rust binding"
+  source verbatim "spec/01-core-model.md"
+  quote "*When* actions are bound to a net, in either form, a transition that has a match specification ([NU-020]) *shall* have the same match specification in the new net."
+  reading "For every resolver-form binding Bind and map-form binding BindMap on ν nets (built nets whose transition definitions may carry a match specification):"
+          "for every ν net b and every resolver or map r, the transition lists of Bind b r and of BindMap b r match b's position by position, and at each position where b's transition has a match specification ms, the transition of the new net has ms."
+  assumes "A ν net (NuBuiltNet) is a built net (BuiltNet, Reference/Build.lean) whose transition definitions are ν definitions (NuDef, Reference/Nu.lean: a TransDef and an optional match specification). A binding in either form is a function from a ν net and a resolver or map, both read as a function from names to an optional action, to a ν net, as in CORE_042. What binding does to the places, the terminal places and the TransDef part of each transition (its name, arcs, output specification, timing, priority and action) is CORE_042's lines, on the shadow of the ν net (NuBuiltNet.shadow: the match dropped); the reference binding here shadows refBind (core042RefNuBind_shadow). This block adds only the match."
+          "'The transition in the new net' is read position by position, as CORE_042 line 1 reads it: the line asks that the transition lists match position by position, which line 1 already asks of the shadow, and compares the match at each position, so it needs no unique-names assumption."
+          "The sentence speaks of a transition that has a match specification and the line states no more: a transition without one is not constrained here. That it stays without one is NU-030's line 3 under the identity rewrite of action binding (NU-030 names action binding among its rebuilds): that line maps the optional match, so no match stays no match, and with the identity rewrite it also gives the rebuilt transitions of this line. All three runtimes copy the match only when there is one, so a transition without one stays without one."
+          "All three runtimes keep the match in both forms: a deferred transition is kept as it is (the resolver forms: Rust bind_actions_with_resolver in rust/libpetri-core/src/petri_net.rs, Java PetriNet.bindActions(Function) in java/src/main/java/org/libpetri/core/PetriNet.java, TypeScript bindActionsWithResolver in typescript/src/core/petri-net.ts), and a rebound one is rebuilt with its match carried forward (Rust rebuild_with_action in rust/libpetri-core/src/transition.rs, Java and TypeScript rebuildWithAction in the same two files), which the runtimes warn would otherwise turn a join correlated by name into a plain join; the map form goes through the resolver form in all three. Pinned by the tests bind_actions_preserves_match_spec in rust/libpetri-core/src/petri_net.rs and bindActions_preservesMatchSpec in java/src/test/java/org/libpetri/core/PetriNetTest.java. Python rides on the Rust binding."
+          "A binding that rebuilds an answered transition from the fields CORE_042 line 1 lists and drops its match, keeping a deferred transition as it was (the regression the runtime tests pin), has refBind as its shadow (core042_nuDropBind_shadow), so it meets every line of CORE_042, and it violates this line (CORE_042_nu_mutant_deferredOnly_killed). The same binding meets the reading that keeps the match only of a transition the binding leaves deferred, which is the mutant that theorem kills."
+  signoff "2026-11-13 3f906fdfcf23b4d9 ai"
+  statement : ∀ {N A K : Type},
+      (NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) →
+      (NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) → Prop :=
+    fun Bind BindMap => ∀ b r, ∀ f ∈ [Bind, BindMap],
+      List.Forall₂ (fun d' d => ∀ ms, d.mspec = some ms → d'.mspec = some ms) (f b r).trans b.trans
+
+/- The pinned readable form of CORE-042's match sentence: a change to the formula shows up as a
+diff here. -/
+/--
+info: def Libpetri.Spec.CORE_042_nu : {N A K : Type} →
+  (NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) →
+    (NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) → Prop :=
+fun {N A K} Bind BindMap =>
+  ∀ (b : NuBuiltNet N A K) (r : String → Option (Act A)),
+    ∀ f ∈ [Bind, BindMap],
+      List.Forall₂ (fun d' d => ∀ (ms : MatchSpec N K), d.mspec = some ms → d'.mspec = some ms) (f b r).trans b.trans
+-/
+#guard_msgs in #print CORE_042_nu
+
+/-- A ν binding that rewrites each definition on its own keeps every match when its rewrite does. -/
+theorem core042Nu_forall₂_map {N A K : Type} {g : NuDef N A K → NuDef N A K}
+    {l : List (NuDef N A K)} (h : ∀ d, (g d).mspec = d.mspec) :
+    List.Forall₂ (fun d' d => ∀ ms, d.mspec = some ms → d'.mspec = some ms) (l.map g) l :=
+  List.forall₂_map_left_iff.2 (List.forall₂_same.2 fun d _ _ hm => (h d).trans hm)
+
+/-- ✓ The reference binding on ν nets satisfies CORE-042's match sentence with the map read as
+Rust reads it. -/
+@[evidence holds CORE_042_nu]
+theorem CORE_042_nu_reference_keep {N A K : Type} :
+    CORE_042_nu (core042RefNuBind (N := N) (A := A) (K := K)) core042RefNuBindMapKeep := by
+  intro b r f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl <;> exact core042Nu_forall₂_map fun _ => rfl
+
+/-- ✓ The reference binding on ν nets satisfies CORE-042's match sentence with the map read as
+Java and TypeScript read it. -/
+@[evidence holds CORE_042_nu]
+theorem CORE_042_nu_reference_clobber {N A K : Type} :
+    CORE_042_nu (core042RefNuBind (N := N) (A := A) (K := K)) core042RefNuBindMapClobber := by
+  intro b r f hf
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+  rcases hf with rfl | rfl <;> exact core042Nu_forall₂_map fun _ => rfl
+
+/-! ### The example: a matched join -/
+
+/-- The match of the example join: it correlates its input places 0 and 1, each with key 0. -/
+def core042NuMs : MatchSpec Nat Nat := { keys := [(0, 0), (1, 0)] }
+
+/-- The example join's `TransDef` part: `j` takes from places 0 and 1 and puts into place 2,
+built without an action. -/
+def core042NuJoin : TransDef Nat Nat :=
+  ({ core := ⟨"j", [⟨0, .one⟩, ⟨1, .one⟩], [], [], []⟩, out := some (.place 2) } :
+    TransIn Nat Nat).resolve
+
+/-- The example's plain transition: `t` takes from place 2 and puts into place 3, built without
+an action. -/
+def core042NuPlain : TransDef Nat Nat :=
+  ({ core := ⟨"t", [⟨2, .one⟩], [], [], []⟩, out := some (.place 3) } : TransIn Nat Nat).resolve
+
+/-- The example ν net: places 0 to 3, the matched join `j` (0 and 1 to 2) and the plain
+transition `t` (2 to 3), built without actions, so each carries passthrough. -/
+def core042NuEx : NuBuiltNet Nat Nat Nat :=
+  ⟨[0, 1, 2, 3],
+    [⟨core042NuJoin, some core042NuMs⟩, ⟨core042NuPlain, none⟩],
+    []⟩
+
+/-- The example resolver: `j` to action 1, `t` deferred. -/
+def core042NuR : String → Option (Act Nat) :=
+  fun n => if n = "j" then some (.other 1) else none
+
+/-! ### Mutant: the match kept only where binding defers -/
+
+section MutantDeferredOnly
+
+variable {N A K : Type}
+
+/-- Mutant reading of the match sentence: a transition that has a match specification keeps it
+in the new net when the resolver or map defers its name (the binding leaves it as it was); a
+transition the binding rebuilds may lose it. -/
+def CORE_042_nu_mutant_deferredOnly
+    (Bind BindMap : NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) : Prop :=
+  ∀ b r, ∀ f ∈ [Bind, BindMap],
+    List.Forall₂ (fun d' d => r d.core.name = none → ∀ ms, d.mspec = some ms → d'.mspec = some ms)
+      (f b r).trans b.trans
+
+/-- The ν definition after a binding that rebuilds an answered transition from the fields of
+CORE-042's line 1 and its new action, without the match, and keeps a deferred one as it was. -/
+def core042NuDrop (r : String → Option (Act A)) (d : NuDef N A K) : NuDef N A K :=
+  match r d.core.name with
+  | some a => { toTransDef := { d.toTransDef with action := a } }
+  | none => d
+
+/-- The binding that drops the match of every transition it rebuilds. -/
+def core042NuDropBind (b : NuBuiltNet N A K) (r : String → Option (Act A)) : NuBuiltNet N A K :=
+  { b with trans := b.trans.map (core042NuDrop r) }
+
+/-- The match-dropping binding shadows the reference binding: on `BuiltNet` it is `refBind`, so
+it meets every line of `CORE_042`. -/
+theorem core042_nuDropBind_shadow (b : NuBuiltNet N A K) (r : String → Option (Act A)) :
+    (core042NuDropBind b r).shadow = refBind b.shadow r := by
+  simp only [core042NuDropBind, NuBuiltNet.shadow, refBind, List.map_map]
+  congr 1
+  refine List.map_congr_left fun d _ => ?_
+  simp only [Function.comp_apply, core042NuDrop, TransDef.bindWith]
+  cases r d.core.name <;> rfl
+
+end MutantDeferredOnly
+
+/-- The match-dropping binding kills the mutant: it keeps every deferred transition as it was,
+so it meets the deferred-only reading, but binding the example's matched join `j` with action 1
+leaves `j` without its match (the line). -/
+@[evidence mutant CORE_042_nu]
+theorem CORE_042_nu_mutant_deferredOnly_killed :
+    CORE_042_nu_mutant_deferredOnly (core042NuDropBind (N := Nat) (A := Nat) (K := Nat))
+        core042RefNuBindMapKeep ∧
+      ¬ CORE_042_nu (core042NuDropBind (N := Nat) (A := Nat) (K := Nat))
+        core042RefNuBindMapKeep := by
+  refine ⟨fun b r f hf => ?_, fun h => ?_⟩
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+    rcases hf with rfl | rfl
+    · exact List.forall₂_map_left_iff.2 (List.forall₂_same.2 fun d _ hn ms hm => by
+        simp only [core042NuDrop, hn]; exact hm)
+    · exact List.forall₂_map_left_iff.2 (List.forall₂_same.2 fun d _ _ ms hm => hm)
+  · have hf := h core042NuEx core042NuR _ (List.mem_cons_self ..)
+    simp only [core042NuDropBind, core042NuEx, List.map_cons, List.map_nil,
+      List.forall₂_cons] at hf
+    have := hf.1 core042NuMs rfl
+    simp [core042NuDrop, core042NuJoin, TransIn.resolve, core042NuR] at this
+
+/-- ✓ The match sentence is exercised by the reference: binding the example's matched join `j`
+with action 1 gives `j` the action and keeps its match, the deferred `t` keeps passthrough and
+stays without a match, in the resolver form and in both map readings; the match-dropping binding
+gives `j` the same action and loses its match, while its shadow is the reference binding's. -/
+@[evidence nonvacuous CORE_042_nu]
+theorem CORE_042_nu_nonvacuous :
+    (core042RefNuBind core042NuEx core042NuR).trans.map (·.action) = [.other 1, .passthrough] ∧
+    (core042RefNuBind core042NuEx core042NuR).trans.map (·.mspec) = [some core042NuMs, none] ∧
+    (core042RefNuBindMapKeep core042NuEx core042NuR).trans.map (·.mspec) =
+      [some core042NuMs, none] ∧
+    (core042RefNuBindMapClobber core042NuEx core042NuR).trans.map (·.mspec) =
+      [some core042NuMs, none] ∧
+    (core042NuDropBind core042NuEx core042NuR).trans.map (·.action) = [.other 1, .passthrough] ∧
+    (core042NuDropBind core042NuEx core042NuR).trans.map (·.mspec) = [none, none] ∧
+    (core042NuDropBind core042NuEx core042NuR).shadow =
+      (core042RefNuBind core042NuEx core042NuR).shadow := by
+  refine ⟨?_, rfl, rfl, rfl, ?_, ?_, ?_⟩
+  · decide
+  · decide
+  · simp [core042NuDropBind, core042NuDrop, core042NuEx, core042NuJoin, core042NuPlain,
+      TransIn.resolve, core042NuR]
+  · rw [core042_nuDropBind_shadow, core042RefNuBind_shadow]
 
 end Libpetri.Spec

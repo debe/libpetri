@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeBind
 import Libpetri.Spec.Req.MOD_006
+import Libpetri.Spec.Req.MOD_031
 
 set_option linter.missingDocs true
 
@@ -55,6 +56,12 @@ output-specification place through `autoPlace`, the name, timing, priority and a
 def autoDef (Nm : Naming N) (b : Bld N A) (I : Instance N A) (d : CDef N A) : CDef N A :=
   d.map (autoPlace Nm b I) id
 
+/-- **An inferred rewrite of one definition**: `m` is `d` rewritten by `autoDef`, or the same
+rewrite with an all-identity correspondence dropped as a whole (`corrDropPass`), the MAY of
+[MOD-031] that Rust, Java and TypeScript take. -/
+def mod024_autoOk (Nm : Naming N) (b : Bld N A) (I : Instance N A) (m d : CDef N A) : Prop :=
+  m = autoDef Nm b I d ∨ m = corrDropPass (autoPlace Nm b I) id d
+
 end Infer
 
 /-! ## MOD-024: Identity-Default Port Inference (auto-compose) -/
@@ -67,24 +74,24 @@ requirement MOD_024
   source verbatim "spec/11-modular-composition.md"
   quote "*When* `compose(instance)` is called on an instance whose subnet declares at least one port and no channel, the builder *shall* give the same result as `compose(instance, bindings)` with each declared port bound to the place on that port's declaration, the same rejection included."
         "*If* the subnet of an instance passed to `compose(instance)` declares a channel, *then* `compose(instance)` *shall* fail with an error that names every channel the subnet declares."
-        "*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` succeeds on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, the builder *shall* keep its transitions and add the instance's transitions in order, each with every arc and output place on a renamed body place `p/x` moved to `x` when the builder held `x` at the call, by the implementation's `Place` equality, every other place kept, its name, timing, priority and action unchanged and its declared-to-actual place correspondence ([MOD-031]) moved the same way, *shall* add to its places exactly the places those transitions name, and *shall* leave its terminal places, retired ports, subnet membership and fusion sets as they were."
+        "*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` succeeds on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, the builder *shall* keep its transitions and add the instance's transitions in order, each with every arc and output place on a renamed body place `p/x` moved to `x` when the builder held `x` at the call, by the implementation's `Place` equality, every other place kept, its name, timing, priority and action unchanged and its declared-to-actual place correspondence ([MOD-031]) moved the same way or, when every entry of it then maps a place to itself, dropped as a whole as [MOD-031] allows, *shall* add to its places exactly the places those transitions name, and *shall* leave its terminal places, retired ports, subnet membership and fusion sets as they were."
         "*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` is called on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, `compose(instance)` *shall* succeed exactly when every instance transition, with each renamed body place `p/x` moved to `x` when the builder holds `x`, passes the transition builder's checks."
   reading "For every naming model Nm, transition builder check Build, composition function C and auto-composition function Au (whose third argument is the names of the channels the instance's subnet declares):"
           "for every builder b and instance I with at least one port, Au b I [] equals C b I ports [], where ports binds each port's name to the place on its declaration (I.iface), in declaration order, and no channel is bound;"
           "for every builder b, instance I and non-empty list cs of declared channel names, Au b I cs fails with a message that contains every name in cs;"
-          "for every builder b and instance I without ports whose definitions have pairwise distinct names, if Au b I [] returns b', then the definitions of b' are those of b followed by I's definitions in order, each rewritten by autoDef (every place q goes to the first builder place h with Nm.pre (prefix of I) h = q, when q is a place of I, and stays otherwise; name, timing, priority and action kept, the MOD-031 correspondence chained through the same map), a place is in b' exactly when it is in b or a rewritten definition names it, and the terminal places, retired ports, subnet contributions and fusion sets of b' are those of b;"
+          "for every builder b and instance I without ports whose definitions have pairwise distinct names, if Au b I [] returns b', then the definitions of b' are those of b followed by one definition per definition of I, in order, each I's definition rewritten by autoDef (every place q goes to the first builder place h with Nm.pre (prefix of I) h = q, when q is a place of I, and stays otherwise; name, timing, priority and action kept, the MOD-031 correspondence chained through the same map) or that rewrite with its correspondence dropped as a whole when every entry of it maps a place to itself (mod024_autoOk, corrDropPass of MOD-031), a place is in b' exactly when it is in b or a rewritten definition names it, and the terminal places, retired ports, subnet contributions and fusion sets of b' are those of b;"
           "for every builder b and instance I without ports whose definitions have pairwise distinct names, Au b I [] succeeds exactly when Build accepts every rewritten definition."
-  assumes "The single-argument form is a SHOULD. Java (PetriNet.java compose(Instance), java/src/main/java/org/libpetri/core/PetriNet.java:409-450), Rust (compose_auto, rust/libpetri-core/src/petri_net.rs:440-500) and TypeScript (composeAuto behind compose(instance), typescript/src/core/petri-net.ts:432-480) offer it. Python offers only the explicit forms (NetBuilder.compose and compose_instance take a port_bindings mapping, rust/libpetri-py/src/model.rs:1117-1136), which the SHOULD allows; the block's scope leaves it out."
+  assumes "The single-argument form is a SHOULD. Java (PetriNet.java compose(Instance), java/src/main/java/org/libpetri/core/PetriNet.java:409-453), Rust (compose_auto, rust/libpetri-core/src/petri_net.rs:440-501) and TypeScript (composeAuto behind compose(instance), typescript/src/core/petri-net.ts:437-489) offer it. Python offers only the explicit forms (NetBuilder.compose and compose_instance take a port_bindings mapping, rust/libpetri-py/src/model.rs), which the SHOULD allows; the block's scope leaves it out."
           "The model passes the names of the channels the instance's subnet declares as the argument cs, since Instance holds no channel list; that cs is the declared list is the caller's premise, not a line. Lines 1, 3 and 4 are stated at cs = [], the subnet declaring no channel. Line 2 holds whatever the ports are: Rust and TypeScript check channels first, Java checks for terminal places first, which instantiate already refuses (EXEC-042 AC6), so the check is unreachable from an instance and not stated here."
-          "Line 1 is the sentence 'the resulting binding map MUST be processed identically to an explicit compose(instance, map) call per [MOD-020]' as an equation of results: the same builder or the same rejection message. Rust and TypeScript bind a port to the builder's equal-named place object when the builder holds one (petri_net.rs:472-476, petri-net.ts:463-467); under name-only place equality that object is the declared place, so the binding is the one line 1 names. In TypeScript the explicit form keeps the caller's own Place object (typescript/src/core/petri-net.ts:547-548), so when the builder holds another object of that name its reference-keyed place set (petri-net.ts:158) holds both, where the auto form, which binds to the builder's object (petri-net.ts:467), holds one (RD-03); the line compares places by name, the TypeScript place equality of CORE-002. Two ports over one body place (ruling D35 (a)) are bound to one declared place, so their bindings agree. AC1 (structurally equal to the explicit form) and AC5 (auto-compose then build() is indistinguishable from the explicit form then build()) are line 1, build() being a function of the builder. AC2 (the declared place P arrives in the net through the rewritten port arcs when the builder lacked it) is line 1 with MOD-020's success shape, which adds every place an arc of an added definition names; MOD_024_nonvacuous shows it on the reference. The result satisfying MOD-023 is MOD-023's line applied to the explicit form."
+          "Line 1 is the sentence 'the resulting binding map MUST be processed identically to an explicit compose(instance, map) call per [MOD-020]' as an equation of results: the same builder or the same rejection message. Rust and TypeScript bind a port to the builder's equal-named place object when the builder holds one (petri_net.rs:472-476, petri-net.ts:458-469); under name-only place equality that object is the declared place, so the binding is the one line 1 names. In TypeScript the explicit form keeps the caller's own Place object in the rewritten arcs (typescript/src/core/petri-net.ts:551), and the builder keys its places by name and keeps the first object of a name (petri-net.ts:161 and addPlace at :191-193), so both forms leave one place of that name in the builder; the line compares places by name, the TypeScript place equality of CORE-002. Two ports over one body place (ruling D35 (a)) are bound to one declared place, so their bindings agree. AC1 (structurally equal to the explicit form) and AC5 (auto-compose then build() is indistinguishable from the explicit form then build()) are line 1, build() being a function of the builder. AC2 (the declared place P arrives in the net through the rewritten port arcs when the builder lacked it) is line 1 with MOD-020's success shape, which adds every place an arc of an added definition names; MOD_024_nonvacuous shows it on the reference. The result satisfying MOD-023 is MOD-023's line applied to the explicit form."
           "Line 2 is AC4 and the sentence 'If the subnet's interface declares any channel, compose(instance) MUST raise an error naming the channels'. To name a channel is for the message to contain its name as a substring (MsgNames, MOD-006). All three runtimes name every declared channel and point at their explicit overload (compose_with in Rust, compose(instance, Consumer) in Java, compose(instance, bind => ...) in TypeScript); the pointer is API-specific text and is tested, not proven."
           "Lines 3 and 4 are the MAY paragraph on body inference and AC3, scoped to implementations with the inference path: all three runtimes walk the renamed body's places, strip the prefix and probe the builder's place set with the original identity (Java by name and token type, Place.of(originalName, renamed.tokenType()); Rust and TypeScript by name), and bind each match through the same composition step as the explicit form (applyComposition / apply_composition) with no port, so no MOD-020 collision can arise (two different places never rename to one) and no port is retired (MOD-027). The naming model Nm is the implementation's place equality (strNaming or typedNaming, CORE-002), so the probe is Nm.pre (prefix) h = q. The two equalities give different bindings when the builder holds a place of the body place's name and another token type: Java keeps the body place private, the name-only runtimes bind it (mod024_placeEquality_divergence). An implementation without the inference path is out of the scope of lines 3 and 4: line 1's sentence then applies with no bindings. The inference reads the builder's places at the call, so it is order-sensitive by design (MOD-025 contrasts this); MOD_024_nonvacuous shows a builder that does not hold the place at the call keeping the renamed place private."
-          "Line 3 states the definitions, the place set and the builder's other records; the order of the places is not normative (ruling D32). An instance place that no arc names is not added, as for the explicit form (ruling D20, mod-b item 9). Line 3's rewrite is CDef.map, so the MOD-031 correspondence is chained through the inferred map; what the correspondence then resolves is MOD-031's line. The builder's terminal places, retired ports (MOD-027: body places merged by inference are not ports and are not retired), subnet contributions (MOD-026 item 4: instance composition records no membership) and fusion sets (MOD-060) stay as they were: Rust apply_composition retires only merge entries that are port places (petri_net.rs:1113-1124), TypeScript applyComposition walks the instance's port handles and Java composeInternal its interface's ports, which an instance without ports has none of, and none of the three records membership or a fusion set on this path."
+          "Line 3 states the definitions, the place set and the builder's other records; the order of the places is not normative (ruling D32). An instance place that no arc names is not added, as for the explicit form (ruling D20, mod-b item 9). Line 3's rewrite is CDef.map, so the MOD-031 correspondence is chained through the inferred map; what the correspondence then resolves is MOD-031's line. A rewritten definition may instead carry no correspondence when the chained one maps every place to itself (mod024_autoOk, MOD-031's corrDropPass): that is the MAY of MOD-031 (AC9), and all three runtimes take it on every rewrite pass (Rust wholesale_drop_if_all_identity, rust/libpetri-core/src/rewriter.rs; Java compactIdentityAlias, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java, by name and token type; TypeScript dropIfAllIdentity, which returns EMPTY_ALIAS, typescript/src/core/internal/subnet-rewriter.ts). On the inference path a body place s/P moved back to P chains the entry (P, P), so a definition whose places the builder all holds ends with an all-identity correspondence, which the runtimes drop and the reference keeps; mod024_dropAu_holds shows that the model that drops it meets the block. The identity test is decided by the naming model's place equality (decide on N), which is the one the correspondence lookup uses (MOD-031). The builder's terminal places, retired ports (MOD-027: body places merged by inference are not ports and are not retired), subnet contributions (MOD-026 item 4: instance composition records no membership) and fusion sets (MOD-060) stay as they were: Rust apply_composition retires only merge entries that are port places (its MOD-027 retire step, rust/libpetri-core/src/petri_net.rs), TypeScript applyComposition walks the instance's port handles and Java composeInternal its interface's ports, which an instance without ports has none of, and none of the three records membership or a fusion set on this path."
           "Line 4 is the acceptance line skeptic correction S2 of the composition design asks for, with its converse: a transition that fails the transition builder's checks after the rewrite fails the call, as in MOD-020, since all three runtimes rebuild every rewritten transition through the transition builder (Rust substitute_places, rust/libpetri-core/src/rewriter.rs:142-146). The message is the builder's, as in MOD-020, and line 4 does not state it. With line 3 this is AC5 for a subnet without ports: the explicit form with the inferred wiring succeeds and fails on the same calls and gives the same builder."
           "The sentence that name-only implementations MUST document the more permissive matching contract in their API surface is a documentation duty (Rust compose_auto's doc comment and TypeScript composeAuto's comment state it), reviewed, not proven. The SHOULD that the probe uses the implementation's own Place equality is the parameter Nm. The SHOULD on when callers use the explicit overloads is guidance to callers, not a duty of the builder."
           "AC6 (an empty subnet composes as a no-op on the builder's place and transition sets) follows from lines 3 and 4 for every model of the block (mod024_empty), so it has no mutant of its own."
-          "Lines 3 and 4 assume that the instance's transitions have pairwise distinct names, the premise MOD-020 takes (mod020_fresh) under the unique-names assumption of rulings D10 and D23. No builder rejects a subnet body with two transitions of one name (runtime defect RD-10), and Rust's apply_composition stages the rewritten transitions in a map keyed by name (petri_net.rs:1132-1137) and drains it through the insertion order (petri_net.rs:1215-1219), so the second transition of a name replaces the first and the builder gains one transition fewer than line 3 says. The block claims nothing about such a call, which keeps open a later fix of RD-10 that rejects it. Composing one instance twice, or two instances under one prefix, is not excluded: every runtime appends the second instance's transitions after the first (Java and TypeScript hold transitions in sets keyed by object identity, Rust in its builder's transition list), as line 3 says."
-  signoff "pending"
+          "Lines 3 and 4 assume that the instance's transitions have pairwise distinct names, the premise MOD-020 takes (mod020_fresh) under the unique-names assumption of rulings D10 and D23. Transition names are assumed distinct (ruling D23) and no builder rejects a subnet body with two transitions of one name, and Rust's apply_composition stages the rewritten transitions in a map keyed by name (its staged map, rust/libpetri-core/src/petri_net.rs) and drains it through the insertion order (its order vector), so the second transition of a name replaces the first and the builder gains one transition fewer than line 3 says. The block claims nothing about such a call, which leaves a builder free to reject it. Composing one instance twice, or two instances under one prefix, is not excluded: every runtime appends the second instance's transitions after the first (Java and TypeScript hold transitions in sets keyed by object identity, Rust in its builder's transition list), as line 3 says."
+  signoff "2026-11-13 68382e84d6e6ea1a ai"
   statement : ∀ {N A : Type} [DecidableEq N], Naming N → (Trans N → Option String) →
       ComposeFn N A → AutoFn N A → Prop :=
     fun {N A} _ Nm Build C Au =>
@@ -94,7 +101,7 @@ requirement MOD_024
         ∃ msg, Au b I cs = .error msg ∧ ∀ c ∈ cs, MsgNames msg c) ∧
       (∀ (b b' : Bld N A) (I : Instance N A), I.iface = [] → (I.defs.map (·.core.name)).Nodup →
         Au b I [] = .ok b' →
-        b'.defs = b.defs ++ I.defs.map (autoDef Nm b I) ∧
+        (∃ ms, b'.defs = b.defs ++ ms ∧ List.Forall₂ (mod024_autoOk Nm b I) ms I.defs) ∧
         (∀ x, x ∈ b'.places ↔ x ∈ b.places ∨ ∃ d ∈ I.defs, x ∈ (autoDef Nm b I d).namedPlaces) ∧
         b'.terminals = b.terminals ∧ b'.retired = b.retired ∧ b'.contrib = b.contrib ∧
         b'.fusions = b.fusions) ∧
@@ -114,7 +121,7 @@ fun {N A} x Nm Build C Au =>
           I.iface = [] →
             (List.map (fun x => x.core.name) I.defs).Nodup →
               Au b I [] = Except.ok b' →
-                b'.defs = b.defs ++ List.map (autoDef Nm b I) I.defs ∧
+                (∃ ms, b'.defs = b.defs ++ ms ∧ List.Forall₂ (mod024_autoOk Nm b I) ms I.defs) ∧
                   (∀ (x_1 : N), x_1 ∈ b'.places ↔ x_1 ∈ b.places ∨ ∃ d ∈ I.defs, x_1 ∈ (autoDef Nm b I d).namedPlaces) ∧
                     b'.terminals = b.terminals ∧
                       b'.retired = b.retired ∧ b'.contrib = b.contrib ∧ b'.fusions = b.fusions) ∧
@@ -147,7 +154,7 @@ leaves the builder's other records alone. -/
 def mod024_line3 (Nm : Naming N) (Au : AutoFn N A) : Prop :=
   ∀ (b b' : Bld N A) (I : Instance N A), I.iface = [] → (I.defs.map (·.core.name)).Nodup →
     Au b I [] = .ok b' →
-    b'.defs = b.defs ++ I.defs.map (autoDef Nm b I) ∧
+    (∃ ms, b'.defs = b.defs ++ ms ∧ List.Forall₂ (mod024_autoOk Nm b I) ms I.defs) ∧
     (∀ x, x ∈ b'.places ↔ x ∈ b.places ∨ ∃ d ∈ I.defs, x ∈ (autoDef Nm b I d).namedPlaces) ∧
     b'.terminals = b.terminals ∧ b'.retired = b.retired ∧ b'.contrib = b.contrib ∧
     b'.fusions = b.fusions
@@ -163,7 +170,7 @@ records free (for the mutants). -/
 def mod024_line3_shape (Nm : Naming N) (Au : AutoFn N A) : Prop :=
   ∀ (b b' : Bld N A) (I : Instance N A), I.iface = [] → (I.defs.map (·.core.name)).Nodup →
     Au b I [] = .ok b' →
-    b'.defs = b.defs ++ I.defs.map (autoDef Nm b I) ∧
+    (∃ ms, b'.defs = b.defs ++ ms ∧ List.Forall₂ (mod024_autoOk Nm b I) ms I.defs) ∧
     (∀ x, x ∈ b'.places ↔ x ∈ b.places ∨ ∃ d ∈ I.defs, x ∈ (autoDef Nm b I d).namedPlaces)
 
 /-- Line 4 without its converse: every rewritten definition passing `Build` is enough for
@@ -317,9 +324,11 @@ theorem mod024_ref_line3 : mod024_line3 Nm (refAuto Nm tyOf Build Mg) := by
     rw [hid] at hms
     cases hms; rfl
   subst hms'
-  rw [autoDef_eq]
-  refine ⟨bindAssemble_defs _ _, fun x => ?_, rfl, rfl, rfl, rfl⟩
-  rw [mem_bindAssemble_places]
+  refine ⟨⟨_, bindAssemble_defs _ _, ?_⟩, fun x => ?_, rfl, rfl, rfl, rfl⟩
+  · rw [List.forall₂_map_left_iff, List.forall₂_same]
+    intro d _
+    exact Or.inl (by rw [autoDef_eq])
+  rw [autoDef_eq, mem_bindAssemble_places]
   simp [List.mem_map]
 
 /-- Line 4 of the reference: without ports, the call succeeds exactly when every rewritten
@@ -376,6 +385,26 @@ section Consequences
 
 variable {N A : Type} [DecidableEq N]
 
+/-- Both inferred rewrites of a definition are the same transition: they differ in the
+correspondence only. -/
+theorem mod024_autoOk_trans {Nm : Naming N} {b : Bld N A} {I : Instance N A} {m d : CDef N A}
+    (h : mod024_autoOk Nm b I m d) : m.toTransDef = (autoDef Nm b I d).toTransDef := by
+  rcases h with rfl | rfl <;> rfl
+
+/-- **Line 3's definitions as transitions**: the builder's definitions followed by the inferred
+rewrite of every instance definition, compared as transitions (correspondence aside). -/
+theorem mod024_defs_trans {Nm : Naming N} {b b' : Bld N A} {I : Instance N A}
+    (h : ∃ ms, b'.defs = b.defs ++ ms ∧ List.Forall₂ (mod024_autoOk Nm b I) ms I.defs) :
+    b'.defs.map CDef.toTransDef = (b.defs ++ I.defs.map (autoDef Nm b I)).map CDef.toTransDef := by
+  obtain ⟨ms, h1, hF⟩ := h
+  rw [h1, List.map_append, List.map_append]
+  congr 1
+  clear h1
+  generalize I.defs = l at hF ⊢
+  induction hF with
+  | nil => rfl
+  | cons hr _ ih => simp only [List.map_cons, mod024_autoOk_trans hr, ih]
+
 /-- **AC6.** In every model of MOD-024, auto-composing an instance with no port, no place and no
 transition succeeds and leaves the builder's transitions as they were and its places the same
 set. -/
@@ -385,8 +414,9 @@ theorem mod024_empty {Nm : Naming N} {Build : Trans N → Option String} {C : Co
     ∃ b', Au b I [] = .ok b' ∧ b'.defs = b.defs ∧ ∀ x, x ∈ b'.places ↔ x ∈ b.places := by
   have hn : (I.defs.map (·.core.name)).Nodup := by simp [hd]
   obtain ⟨b', hb'⟩ := (h.2.2.2 b I hi hn).2 (by simp [hd])
-  obtain ⟨h1, h2, -⟩ := h.2.2.1 b b' I hi hn hb'
-  exact ⟨b', hb', by simp [h1, hd], fun x => by simp [h2, hd]⟩
+  obtain ⟨⟨ms, h1, hF⟩, h2, -⟩ := h.2.2.1 b b' I hi hn hb'
+  rw [hd, List.forall₂_nil_right_iff] at hF
+  exact ⟨b', hb', by simp [h1, hF], fun x => by simp [h2, hd]⟩
 
 end Consequences
 
@@ -593,8 +623,9 @@ theorem MOD_024_mutant_noInferLine_killed :
           (renamedInstance (A := Unit) strNaming mod024_exBare "s").iface.isEmpty) = true := rfl
       simp only [mod024_patch, hw, if_true]
       exact mod024_noBind_ok _ _
-    have := (h.2.2.1 _ _ _ rfl (by decide) hb).1
-    have := congrArg (List.map fun d : CDef String Unit => d.namedPlaces) this
+    have := mod024_defs_trans (h.2.2.1 _ _ _ rfl (by decide) hb).1
+    have := congrArg (List.map fun d : TransDef String Unit => d.namedPlaces) this
+    simp only [List.map_map] at this
     exact absurd this (by decide)
 
 /-! ### Mutant: line 4 dropped -/
@@ -644,7 +675,7 @@ def MOD_024_mutant_recordsFree {N A : Type} [DecidableEq N] (Nm : Naming N)
   mod024_line1 C Au ∧ mod024_line2 Au ∧ mod024_line3_shape Nm Au ∧ mod024_line4 Nm Build Au
 
 /-- The auto-composition that also retires every place it infers: the slip of dropping the
-port filter in Rust `apply_composition` (petri_net.rs:1113-1124), so that the no-port branch of
+port filter in the MOD-027 retire step of Rust `apply_composition`, so that the no-port branch of
 `compose_auto` records a retired port for every merged body place. -/
 def mod024_retireAll : AutoFn String Unit :=
   mod024_patch (fun I cs => cs.isEmpty && I.iface.isEmpty)
@@ -840,5 +871,83 @@ theorem mod024_placeEquality_divergence :
         fun b => (b.places, b.defs.map (·.namedPlaces))) =
       some (["P"], [["P"]]) := by
   decide
+
+/-! ### The runtimes' correspondence: an all-identity one dropped -/
+
+/-- A definition with an all-identity correspondence dropped as a whole, as Rust
+(`wholesale_drop_if_all_identity`, `rust/libpetri-core/src/rewriter.rs`), Java
+(`compactIdentityAlias`, `java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java`)
+and TypeScript (`dropIfAllIdentity`, `typescript/src/core/internal/subnet-rewriter.ts`) do on
+every rewrite pass. -/
+def mod024_dropId (d : CDef String Unit) : CDef String Unit :=
+  { d with corr := d.corr.bind corrDropAllId }
+
+/-- The reference auto-composition with the runtimes' correspondence: on the inference path every
+added definition's all-identity correspondence is dropped. -/
+def mod024_dropAu : AutoFn String Unit :=
+  mod024_patch (fun I cs => cs.isEmpty && I.iface.isEmpty)
+    fun b I _ => (mod024_Au b I []).map fun b' =>
+      { b' with defs := b.defs ++ (b'.defs.drop b.defs.length).map mod024_dropId }
+
+/-- Dropping twice is dropping once. -/
+theorem mod024_dropId_idem (d : CDef String Unit) :
+    mod024_dropId (mod024_dropId d) = mod024_dropId d := by
+  cases d with
+  | mk td corr =>
+    cases corr with
+    | none => rfl
+    | some al =>
+      simp only [mod024_dropId, Option.bind_some]
+      unfold corrDropAllId
+      split <;> simp_all
+
+/-- The dropped form of an inferred rewrite is an inferred rewrite. -/
+theorem mod024_autoOk_dropId {b : Bld String Unit} {I : Instance String Unit}
+    {m d : CDef String Unit} (h : mod024_autoOk strNaming b I m d) :
+    mod024_autoOk strNaming b I (mod024_dropId m) d := by
+  have hd : mod024_dropId (autoDef strNaming b I d) =
+      corrDropPass (autoPlace strNaming b I) id d := rfl
+  rcases h with rfl | rfl
+  · exact Or.inr hd
+  · rw [← hd, mod024_dropId_idem]
+    exact Or.inr rfl
+
+/-- **The runtimes' choice meets the block.** The auto-composition that drops an all-identity
+correspondence, as all three runtimes do and as [MOD-031] allows, satisfies MOD-024: on the
+portless `OnlyP` (`emit` writes into `P`) under `s` into a builder holding `P`, it adds `s/emit`
+writing into `P` with no correspondence, where the reference keeps `[(P, P)]`. -/
+theorem mod024_dropAu_holds :
+    MOD_024 strNaming mod024_acceptAll mod024_C mod024_dropAu := by
+  refine ⟨fun b I hi => ?_, fun b I cs hc => ?_, fun b b' I hi hn h => ?_, fun b I hi hn => ?_⟩
+  · have hw : (([] : List String).isEmpty && I.iface.isEmpty) = false := by
+      cases hI : I.iface with
+      | nil => exact absurd hI hi
+      | cons _ _ => rfl
+    simp only [mod024_dropAu, mod024_patch, hw, Bool.false_eq_true, if_false]
+    exact mod024_ref_line1 b I hi
+  · have hw : (cs.isEmpty && I.iface.isEmpty) = false := by
+      cases cs with
+      | nil => exact absurd rfl hc
+      | cons _ _ => rfl
+    simp only [mod024_dropAu, mod024_patch, hw, Bool.false_eq_true, if_false]
+    exact mod024_ref_line2 b I cs hc
+  · have hw : (([] : List String).isEmpty && I.iface.isEmpty) = true := by simp [hi]
+    simp only [mod024_dropAu, mod024_patch, hw, if_true] at h
+    cases hr : mod024_Au b I [] with
+    | error m => rw [hr] at h; cases h
+    | ok b0 =>
+      rw [hr] at h
+      cases h
+      obtain ⟨⟨ms, h1, hF⟩, h2, h3, h4, h5, h6⟩ := mod024_ref_line3 b b0 I hi hn hr
+      refine ⟨⟨ms.map mod024_dropId, by show b.defs ++ _ = _; rw [h1, List.drop_left], ?_⟩, h2, h3, h4, h5, h6⟩
+      rw [List.forall₂_map_left_iff]
+      exact hF.imp fun _ _ => mod024_autoOk_dropId
+  · have hw : (([] : List String).isEmpty && I.iface.isEmpty) = true := by simp [hi]
+    simp only [mod024_dropAu, mod024_patch, hw, if_true]
+    have h4 : mod024_line4 strNaming mod024_acceptAll mod024_Au := mod024_ref_line4
+    rw [← h4 b I hi hn]
+    cases mod024_Au b I [] with
+    | error m => exact ⟨(fun ⟨_, h⟩ => nomatch h), (fun ⟨_, h⟩ => nomatch h)⟩
+    | ok b0 => exact ⟨fun _ => ⟨b0, rfl⟩, fun _ => ⟨_, rfl⟩⟩
 
 end Libpetri.Spec

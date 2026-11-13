@@ -60,7 +60,7 @@ unchanged ([VER-004] AC5: the same net, so the same scripts).
 
 * The executor side (block B): that every RefExec run with actions in flight is covered by the
   split net (`InFlight.split_covers_executor`, `split_rest_sound` lifted from flat rows) needs
-  RefExec and is wave W11. Block A (every `RefTStep` marking is `Reference.Reach`-reachable,
+  RefExec and is the block `VER_004_exec` (`Spec/Req/VER_004_exec.lean`). Block A (every `RefTStep` marking is `Reference.Reach`-reachable,
   every rest reap-quiescent) is `Bridges.refReach_reach` and `Bridges.ref_rest_reapable`.
 * The terminal rewrite of [EXEC-042] after the split (`Novel/TerminalRewrite.lean`, flat).
   `Reference.Net` carries no terminal list; `SplitCfg.terminals` only feeds the tested set.

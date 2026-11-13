@@ -436,6 +436,8 @@ evaluated. Each assignment *claims* a set of places:
 - **Xor** — claims the selected child's claim.
 - **Timeout** — claims its child's claim.
 
+Claims are compared with the produced set on the places the output spec names. A token in a place the output spec never names takes no part in validation: a transition context never produces to such a place ([CORE-063]), and a token that bypasses the context is [CORE-072]'s subject, not an [IO-015] violation.
+
 *If* exactly one assignment claims a set *equal* to the produced set, *then* validation
 *shall* succeed. *If* no assignment claims a set equal to the produced set, *then*
 validation *shall* fail, because nothing explains what was written. *If* two or more
@@ -556,8 +558,9 @@ no sibling in its branch and forwards at most one token, the list is the branche
 2. `Xor(P1, P2)` → 2 branches: {P1}, {P2}
 3. `Xor(And(P1, P2), P3)` → 2 branches: {P1, P2}, {P3}
 4. When a validated firing deposited more than one token into a place its matched branch
-   names, the executor emits an [EVT-013] log-message event with logger `libpetri.runtime`,
-   level `WARN`, the transition's name, and the message
+   names, the executor emits an [EVT-013] log-message event with logger `libpetri.runtime`
+   (omitted where the log-message event carries no logger field), level `WARN`, the
+   transition's name, and the message
    `'<t>': wrote more than one token to a place its output spec names once (<place>: <n>, …); branch-enumerating analyses model one token per named place, so this firing exceeds what they explore (IO-016)`,
    naming every such place with its count in produced order. The tokens are deposited
    regardless. The event is emitted at most once per transition per execution, so an action

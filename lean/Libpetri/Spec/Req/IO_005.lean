@@ -38,12 +38,12 @@ requirement IO_005
           "from a marking m in which every input place of t holds at least the required count of its input arc, t can fire from m exactly when t without its input arcs can fire from m."
   assumes "A firing is read as one step from a marking to a marking (glossary: Fire); timing and priority play no part. 'Can fire' and 'enabled' are both read as 'some firing exists' (to some marking): the input arcs change what a firing consumes, so the second line compares whether t fires, not where it leads."
           "Correlated inputs (ruling D30, extending D16): the second quoted shall sentence is scoped to a transition that has no match specification; a transition with one also needs a name of which every correlated input holds at least its required count of tokens (NU-020). The transitions of the model (Reference.Trans) carry no match specification, so the second line quantifies over every transition. The first quoted shall sentence needs no exclusion: a correlated input that holds fewer tokens than its required count holds fewer tokens of any one name."
-          "'Simultaneously satisfied' is read as 'satisfied in the one marking the firing starts from': both lines fix a single marking m."
+          "The opening sentence ('All inputs on a transition are AND-joined: every input arc is a precondition, and all of them must hold in the same marking.') is the two lines together: line 1 makes each input arc a precondition (t does not fire while any one of them is unsatisfied), and both lines fix the single marking m the firing starts from, so 'all of them must hold in the same marking' is read as 'every input arc is satisfied in m'."
           "Input arcs are read from the transition's list of input arcs, every one of them. A transition with two input arcs on one place, which [CORE-030] rejects at build, is gated by both."
           "AC1 (a transition with 3 inputs enables only when all 3 places have sufficient tokens) is the first line, for any number of input arcs, 3 included; the test derivation's 'satisfy all 3; verify enabled' is the second line together with a transition that, without its input arcs, can fire (no read or inhibitor arc blocks it)."
           "AC2 (any one input unsatisfied disables the transition) is the first line."
           "How many tokens an input arc requires (requiredCount) is IO-001 to IO-004 and IO-007, not this block: the statement takes requiredCount as given."
-  signoff "pending"
+  signoff "2026-11-13 566c1a17d5cf3f37 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t : Trans _,
       (∀ s ∈ t.core.inputs,

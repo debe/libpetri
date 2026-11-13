@@ -21,7 +21,7 @@ readings. Where a block exists (EXEC-021), the conflict is a theorem over every 
 | exec#18, env-a#8 (R-EXEC-9, strict step order) | D70 (a) | `clashExec_strictOrder`: an injection processed by the wait itself (Rust) is a reference step; an update still follows it before any start |
 | exec#5 (R-EXEC-3, readings per cycle) | D61 (c) | `clashExec_twoReadings`: a start whose host reading is past latest plus tolerance, of a transition that was not expired at the deadline step's reading |
 | refexec R8 / NR-5 (CONC-010 park) | D61 (c) | `clashExec_parkAtCycle`: the wait parks while a transition is Ready at the host's present reading, because nothing is due at the cycle reading |
-| exec#4 (R-EXEC-2, timeout outcome validated) | D24 (a) | `clashExec_timeoutValidated_conflict`: no executor meets EXEC-021 and fails every timed-out firing whose outcome the output spec rejects (the Java and TypeScript behaviour, an executor defect under D24 (a)) |
+| exec#4 (R-EXEC-2, timeout outcome validated) | D24 (a) | `clashExec_timeoutValidated_conflict`: no executor meets EXEC-021 and fails every timed-out firing whose outcome the output spec rejects (a wrong executor under D24 (a), the Java and TypeScript behaviour RD-01 recorded) |
 | env-b#1 (ENVB-R2, start after close) | D85 (a) | `clashExec_closeKeepsStarting`: after a close the reference begins a new cycle and starts a transition while a firing is in flight |
 | env-a#5 (ENV-004, when 'closed or draining' is tested) | D20 (no ruling) | `clashExec_env004_ambiguity`: refused at the call holds of the reference; refused at processing fails (an event accepted before a drain is injected while draining) |
 | env-a#7 (ENV-003 AC3 against the ENV-013 discard line) | D20 (no ruling) | `clashExec_env003_conflict`: the reference never injects once closing, and an ideal run accepts an event that it then discards |
@@ -293,15 +293,15 @@ def timeoutRejected {N T : Type} (C : Cfg N T) (s : XSt N T) (i : Nat) : Bool :=
     | _ => false
   | none => false
 
-/-- **The Java and TypeScript reading** (not a requirement block): the executor validates the
-timeout outcome against the output spec and fails the firing when validation rejects it
-(BitmapNetExecutor.java, the timeout branch of the completion handler). With
-`And(A, Timeout(d, B))` it fails every timeout, as the outcome `B` never satisfies the `And`. -/
+/-- **The validating reading** (not a requirement block): a wrong executor validates the timeout
+outcome against the output spec and fails the firing when validation rejects it (the Java and
+TypeScript behaviour RD-01 recorded). With `And(A, Timeout(d, B))` it fails every timeout, as the
+outcome `B` never satisfies the `And`. -/
 def TimeoutValidated {N T : Type} (E : XRel N T) : Prop :=
   ∀ C s i, timeoutRejected C s i = true → ∃ s', E C s (.fail i) s'
 
-/-- The Java and TypeScript reading is met by an executor: the EXEC-021 mutant that validates
-the timeout outcome. -/
+/-- The validating reading is met by an executor: the EXEC-021 mutant that validates the timeout
+outcome. -/
 theorem timeoutValidated_mutant : TimeoutValidated (exec021_validateTimeout (N := Nat) (T := Nat)) := by
   intro C s i h
   refine ⟨settle s i, ?_⟩
@@ -323,9 +323,9 @@ the output spec rejects. On `And(1, Timeout(d, 2))` the budget of firing `0` exp
 `2`; the join-relay check accepts it and output validation rejects it, so such an executor takes a
 fail step, which EXEC-021's third line allows only for an error, a rejected returned emission or
 a timeout outcome the relay check rejects. Under ruling D24 (a) the timeout outcome is not
-validated, and the Java and TypeScript behaviour is a recorded executor defect (RD-01 in
-`spec/runtime-defects.md`). -/
-@[evidence cites "EXEC-021" "the timeout outcome is not validated against the output spec (ruling D24 (a)): no executor satisfies the block and also fails a timed-out firing of And(1, Timeout(d, 2)) whose outcome 2 the join-relay check accepts and output validation rejects, which is what the Java and TypeScript executors do (a recorded executor defect)"]
+validated: the Java, TypeScript and Rust executors run only the join-relay check on a timed-out
+firing. The validating executor is the behaviour RD-01 recorded in `spec/runtime-defects.md`. -/
+@[evidence cites "EXEC-021" "the timeout outcome is not validated against the output spec (ruling D24 (a)): no executor satisfies the block and also fails a timed-out firing of And(1, Timeout(d, 2)) whose outcome 2 the join-relay check accepts and output validation rejects; such a validating executor is the behaviour RD-01 recorded"]
 theorem clashExec_timeoutValidated_conflict :
     ¬ ∃ E : XRel Nat Nat, EXEC_021 E ∧ TimeoutValidated E := by
   rintro ⟨E, hE, hJ⟩
@@ -342,7 +342,7 @@ theorem clashExec_timeoutValidated_conflict :
   simp [hr] at hg
 
 /-- The two readings are each met by some executor: the reference meets EXEC-021 and the
-validating mutant meets the Java and TypeScript reading, so the conflict is between the two
+validating mutant meets the validating reading, so the conflict is between the two
 readings, not a vacuous one. -/
 theorem clashExec_timeoutValidated_sides :
     EXEC_021 (RefExec (N := Nat) (T := Nat)) ∧

@@ -54,7 +54,7 @@ requirement EXEC_010
           "A transition with two input arcs on one place is rejected when it is built (CORE-030); the model reads the first arc (nspecAt), as Consumes does."
           "AC1 (tokens A, B, C added in that order; One consumes A), AC2 (Exactly(2) consumes A, B) and AC3 (All consumes A, B, C) are EXEC_010_nonvacuous, with tokens 10, 11, 12 for A, B, C: the reference delivers [10], [10, 11] and [10, 11, 12] and leaves [11, 12], [12] and []."
           "The test derivation (identifiable token values, fire, check the consumed tokens are in FIFO order) is the same check as AC1 to AC3."
-  signoff "pending"
+  signoff "2026-11-13 7db429a4e2bfffec ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → Prop :=
     fun Q =>
       (∀ t δ e p, p ∈ inPlaces t → ¬ ResetArc t p →

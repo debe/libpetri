@@ -57,7 +57,7 @@ requirement CORE_050
           "AC2 (the action produces output tokens via the context or a return value) is line 2: through either channel the tokens are the emission the action completes with. That both channels exist is API shape."
           "AC3 (the action is asynchronous: it returns a future, a promise or a completion stage) is API shape, a Q-kind test, not encoded. That an action starts at one step and completes at a later one is CONC-002's, over the executor model (RefExec)."
           "The test derivation (an action that reads its input, transforms it and produces output) is CORE_050_nonvacuous: an action that doubles the value it is handed, fired on a place holding 7 then 8, receives the oldest token 7 and the firing deposits 14."
-  signoff "pending"
+  signoff "2026-11-13 0e01354c5393cdc4 ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → ActFireRel N T → Prop :=
     fun Q AF =>
       (∀ a t δ e, on (fun M M' => AF a t M δ e M'), shall (fun M M' => Q t M δ e M')) ∧

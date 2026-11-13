@@ -112,7 +112,7 @@ requirement EXP_005
           "The four EARS sentences are lines 1, 2 and 3, the Where sentence being the reset place case of line 3. The two body sentences say the same: branches labelled to indicate the structure is line 3, each branch visually identifiable is lines 1, 2 and 3. AC1 (branches have labels or visual grouping) is line 2 (grouping) and line 3 (labels). AC2 (the viewer can identify which outputs belong to which branch) is line 2. The test derivation (a net with an Xor output is exported and its branches are labelled) is EXP_005_nonvacuous."
           "Shapes, colours and the junction glyph are the exporter's and the style table's (EXP-012, kind Q)."
           "Form: the EARS sentences use 'shall' inside a SHOULD requirement, as IO-016, TIME-015, CONC-023 and EXP-006 do. The priority stays SHOULD; the shall sentences say what an exporter that meets it draws, and the Java, TypeScript and Rust mappers all draw it: they walk the children of a group in order and append one edge per child, with the labels and dashes of EXP-012 (the walk refEmit models)."
-  signoff "pending"
+  signoff "2026-11-13 175f42e98a44cae2 ai"
   statement : Emitter → Prop :=
     fun E => ∀ t R o, (OutTree.toOut o).isSome = true →
       ∀ cs ∈ exp005XorGroups o, ∃ j ∈ (E t R o).junctions, j.1 = .xor ∧

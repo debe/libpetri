@@ -18,7 +18,7 @@ deposits into whatever place the name resolves to. The ID carries two blocks (ru
   environment places `C.envs`, the answer is an error and the state is unchanged. For a place in
   `C.envs`, the answer is never an error. Lines 1 and 3 together make the registration fixed for
   the run (`env002_error_iff`). The offers, an error answer in every state and an acceptance by an
-  open executor in a phase of the run, are coverage: `Env002Covers`, a clause of the consistency
+  open executor in a phase of the run with no terminal place marked, are coverage: `Env002Covers`, a clause of the consistency
   theorem's `ExecCoversW5`, never a line. The block is checked against the reference executor
   (`RefExec`), against three wrong executors that each break exactly one line (`mutant`
   evidence), and against the name-keyed executor of Rust and Python, an executor that tests the
@@ -50,7 +50,7 @@ requirement ENV_002
         "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *if* a caller injects into a place that is not a registered environment place, *then* the executor *shall* leave its state unchanged: it *shall not* queue the token and *shall not* change the marking."
         "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), the executor *shall* answer an injection into a place that is not a registered environment place with an error in every state of the run, before and after the run finishes."
         "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), the executor *shall not* answer an injection into a registered environment place with an error, in any state of the run."
-        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *while* the run has not finished and the executor is not draining, closed or stopped, the executor *shall* accept an injection into a registered environment place."
+        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *while* the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked ([EXEC-042]), the executor *shall* accept an injection into a registered environment place."
   reading "For every executor R, every configuration C, every place p and every token x:"
           "if p is not one of C's environment places, a request step that asks to inject x into p answers with an error;"
           "if p is not one of C's environment places, a request step that asks to inject x into p leaves the executor state as it was;"
@@ -58,15 +58,15 @@ requirement ENV_002
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. The label request p x r is the outside step of a caller asking to inject token x into place p, with the executor's answer r: accepted (queued), refused (the executor is draining, closed, stopped or finished, ENV-006) or error (not an environment place). The witness is the reference executor RefExec (Reference/Exec.lean), whose request rule answers replyFor C s p and changes the state only on an accepted answer."
           "Scope (ruling D89 (a)): Java and TypeScript, whose inject takes an EnvironmentPlace handle and tests registration first (BitmapNetExecutor.inject and PrecompiledNetExecutor.inject return a failed future; the TypeScript inject rejects its promise and injectNoAwait throws). Rust and Python take a place name and deposit into the place it names whatever the registration (executor_handle.rs inject, executor_core/executor.rs handle_signal): the name-keyed executor env002_nameKeyed violates lines 1 and 2 (ENV_002_forbids_nameKeyed). For them the second block of this ID, ENV_002_host (kind A), states the host assumption instead."
           "The registered environment places are the configuration field C.envs (kind N): the quoted 'Environment places must be registered with the executor before execution begins.' and 'The executor maintains a set of registered environment places.' are that encoding. AC1 (the builder accepts registrations) is that field: every builder of the three languages fills it (Java Builder.environmentPlaces, TypeScript options.environmentPlaces, Rust ExecutorOptions.environment_places); it is configuration, not a step. That the reference's answer to an unregistered place depends on the configuration alone, in every state, is env002_registration_fixed (cited for ENV-001 AC3)."
-          "The quoted 'The set of registered environment places is fixed when the executor is built; no step of a run adds or removes one.' is lines 1 and 3 together: under ENV-002 a request step answers with an error exactly when its place is not in C.envs, in every state (env002_error_iff), so the registrations an executor honours are C.envs throughout the run. An executor that adds a place during a run breaks line 1. One that removes the registrations once a ticket has been drawn breaks line 3 (env002_shrinks, ENV_002_forbids_shrinks): the shape of a Java builder that keeps the caller's set instead of a copy, from which the host then removes a place. One that ignores the registrations and answers every injection with an error breaks line 3 (env002_neverMatches, ENV_002_forbids_neverMatches): the shape of a registration set built from the handles while inject tests the names."
+          "The quoted 'The set of registered environment places is fixed when the executor is built; no step of a run adds or removes one.' is lines 1 and 3 together: under ENV-002 a request step answers with an error exactly when its place is not in C.envs, in every state (env002_error_iff), so the registrations an executor honours are C.envs throughout the run. An executor that adds a place during a run breaks line 1. One that removes the registrations once a ticket has been drawn breaks line 3 (env002_shrinks, ENV_002_forbids_shrinks). Every runtime copies the registrations at build: Java's executor constructors take Set.copyOf of the caller's set (both builder overloads and a direct constructor call), and TypeScript, Rust and Python copy them as well, so a host that adds a place to its own set after build() or removes one changes nothing the executor answers. An executor that tests the caller's live set has both shapes, the behaviour RD-35 in spec/runtime-defects.md recorded for Java's Set overload. One that ignores the registrations and answers every injection with an error breaks line 3 (env002_neverMatches, ENV_002_forbids_neverMatches): the shape of a registration set built from the handles while inject tests the names."
           "Line 1 is the first EARS sentence. Its 'shall not answer with a refusal even when it is draining, closed, stopped or finished' is the order of the two tests: registration before the lifecycle, as Java (inject, then the closed and draining flags) and TypeScript (the throw, then the closed, draining and terminal flags) do. An executor that tests the lifecycle first answers a closed executor's unregistered injection with a refusal (ENV_002_forbids_lifecycleFirst). An executor that may answer a closed executor's unregistered injection with a refusal besides the error breaks line 1 only (ENV_002_mutant_mayRefuse). 'Answer with an error' also excludes an acceptance, which is the 'only' of AC2: an accepted request names a registered place (env002_only_registered_accept, cited for AC2)."
           "Line 2 is the second EARS sentence: the request changes nothing, so no token is queued (the event queue XSt.eq is unchanged), the marking is unchanged and the loop is not woken (XSt.parked is unchanged). An executor that answers with an error and still queues the token breaks line 2 only (ENV_002_mutant_errorButQueue)."
           "Its offers are in ExecCoversW5.Env002Covers (ConsistencyExec.lean; the convention of GlossaryExec.lean: offers are coverage clauses, never block lines). The third and the fifth EARS sentences demand an answer and are quoted whole; their safety halves are lines 1 and 3, and their existence halves are that clause. The third EARS sentence and the 'returns' of AC3 say the error is an answer the executor gives in every state, open, draining, closed, stopped or after the run finished, not a call that blocks: Env002Covers offers it in every executor state, reachable or not, which is more than 'every state of the run' and which the reference meets (env002_ref_covers). An executor without a request step for an unregistered place satisfies every line and fails that clause (env002_covers_noAnswer); it is also the reference restricted to a host that meets ENV_002_host, which is why a name-keyed executor under that assumption is indistinguishable from the reference on the host's runs."
           "Line 3 is the fourth EARS sentence: a registered place is never answered with an error, in any state; once the executor is draining, closed, stopped or finished the answer is a refusal (ENV-006), a false future in Java and false in TypeScript. An executor that may answer a registered place with an error besides the reference's answer breaks line 3 only (env002_mayErrorRegistered, ENV_002_mutant_mayErrorRegistered): the shape of a registration test by object identity that misses an equal handle the caller built anew."
-          "The fifth EARS sentence, the 'accept' of AC2 and the 'success' of the test derivation, is the second half of Env002Covers: while the executor is open (not draining, closed or stopped) and in a phase of the run (isExecPhase, not finished), R offers to accept an injection into a registered place. That clause requires the accepting step to exist; that an open running executor never refuses a registered place instead is ENV-010's line 2, and what the accepted request does (queue the token with a ticket, FIFO) is ENV-003's. An executor that refuses every registered place meets every line and fails the clause (env002_refuseRegistered, env002_covers_refuseRegistered): the shape of a lifecycle flag that starts set. Injections before the run starts are outside the model, whose runs start at xinit in mode open."
+          "The fifth EARS sentence, the 'accept' of AC2 and the 'success' of the test derivation, is the second half of Env002Covers: while the executor is open (not draining, closed or stopped), in a phase of the run (isExecPhase, not finished) and no terminal place is marked (Live, EXEC-042), R offers to accept an injection into a registered place. The terminal condition is TypeScript's: once a terminal place is marked and before the loop ends, its inject() returns false at once and its injectNoAwait returns without queueing (the terminalReached test of both executors, also reached by an initial marking that marks a terminal place), where Java and the reference accept the call and drop the event when the run ends (ENV-003 line 6, ENV-004); for inject() both answers give the caller false, and the clause asks for neither, as ENV-010's line 2 and Env010Covers do (env002_covers_terminalRefuse). That clause requires the accepting step to exist; that an open running executor never refuses a registered place instead is ENV-010's line 2, and what the accepted request does (queue the token with a ticket, FIFO) is ENV-003's. An executor that refuses every registered place meets every line and fails the clause (env002_refuseRegistered, env002_covers_refuseRegistered): the shape of a lifecycle flag that starts set. Injections before the run starts are outside the model, whose runs start at xinit in mode open."
           "AC1 is the configuration field C.envs, and line 3 and Env002Covers say the executor honours it. AC2 is line 1 for 'only' and Env002Covers for 'accept'. AC3 is line 1 and Env002Covers. AC4 is the second block, ENV_002_host. A refusal is ENV-006's subject, on the same request label. The Java error is a failed future and the TypeScript error a rejected promise (inject) or a thrown exception (injectNoAwait); the model does not tell them apart, all are the answer error."
           "The test derivation's Java and TypeScript clause (register 3 environment places; inject into a registered one, success; inject into an unregistered one, error) is ENV_002_nonvacuous: with places 0, 1 and 2 registered, a request into 0 is accepted and its token lands in place 0 at the next injection step, a request into 0 by the closed executor is refused, not answered with an error, and a request into place 3 is answered with an error, by an open and by a closed executor, with the state unchanged. Its Rust and Python clause (AC4 is an assumption on the host, which no executor test checks) is the kind A of the second block."
-  signoff "pending"
+  signoff "2026-11-13 225c5b12c950cc51 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C p x,
       (p ∉ C.envs →
@@ -103,7 +103,7 @@ requirement ENV_002_host
   assumes "Ruling D89 (a). The block is an assumption on the host (kind A), not a behaviour of the executor: a Rust or Python executor answers a request into any place, deposits into the place the name resolves to (an unknown one is retained, CORE-072), and registration feeds only the long-running decision (ENV-010) and the dead-arc report (CORE-037, rust/libpetri-runtime/src/executor.rs). The statement reads only the labels of a run, so it is a predicate on what the host asks, whatever executor answers."
           "What the assumption buys is env002_host_transfer: every run of the name-keyed executor env002_nameKeyed (the reference with the registration test removed from its answer, the Rust and Python shape) that meets ENV_002_host is a run of the reference executor RefExec, so every property proved of RefExec runs (the first block of this ID included) holds of the name-keyed executor on the runs of a host that meets it. The assumption is load-bearing: a name-keyed run with one request into an unregistered place is not a run of the reference (env002_host_needed). The verifier's open-system model makes the same assumption (Novel.EnvSemantics.StepCE injects only into a registered environment place), and CORE-037 states it for the dead-arc report ('a host injects tokens only into environment places')."
           "The second quoted sentence describes the name-keyed executor; it is the model env002_nameKeyed, not a line. AC4 is the one line, and the test derivation's Rust and Python clause says no executor test checks it. AC1 to AC3 and the test derivation's Java and TypeScript clause are the first block's."
-  signoff "pending"
+  signoff "2026-11-13 e10bc7fa91cf3a17 ai"
   statement : ∀ {N T : Type}, Cfg N T → List (XStep N T) → Prop :=
     fun C tr => ∀ st ∈ tr, ∀ p x r, st.2.1 = .request p x r → p ∈ C.envs
 
@@ -179,19 +179,21 @@ theorem ENV_002_reference {N T : Type} [DecidableEq N] : ENV_002 (RefExec (N := 
 /-- **The coverage conjunct ENV-002 asks of the consistency theorem's `ExecCoversW5`**: an
 injection into a place that is not a registered environment place is answered with an error in
 every state (the third EARS sentence, AC3), and one into a registered environment place is
-accepted in every open state of the run (the fifth EARS sentence, AC2). Offers are never a line
+accepted in every open state of the run with no terminal place marked (the fifth EARS sentence,
+AC2). Offers are never a line
 of a block (glossary `GlossaryExec.lean`). -/
 def Env002Covers {N T : Type} (E : XRel N T) : Prop :=
   ∀ C p x,
     (p ∉ C.envs → ∀ s, ∃ s', E C s (.request p x .error) s') ∧
-    (p ∈ C.envs → ∀ s, s.mode = .open → isExecPhase s.phase = true →
+    (p ∈ C.envs → ∀ s, s.mode = .open → isExecPhase s.phase = true → Live C s →
       ∃ s', E C s (.request p x .accepted) s')
 
 /-- The reference meets ENV-002's coverage conjunct: it offers the error answer in every state
-(`env002_ref_error`) and the acceptance in every open running state (`env002_ref_accept`). -/
+(`env002_ref_error`) and the acceptance in every open running state, terminal place marked or
+not (`env002_ref_accept`). -/
 theorem env002_ref_covers {N T : Type} [DecidableEq N] : Env002Covers (RefExec (N := N) (T := T)) :=
   fun _ _ x => ⟨fun hp s => ⟨s, env002_ref_error x hp s⟩,
-    fun hp _ hm he => ⟨_, env002_ref_accept x hp hm he⟩⟩
+    fun hp _ hm he _ => ⟨_, env002_ref_accept x hp hm he⟩⟩
 
 /-- AC2: under ENV-002, an accepted request names a registered environment place. -/
 @[evidence cites "ENV-002" "AC2: Where inject takes an environment-place handle (Java, TypeScript), only registered environment places accept injections."]
@@ -297,8 +299,9 @@ reference's answer while the supply is untouched, an error for every place after
 def env002ShrinkRep (C : Cfg N T) (s : XSt N T) (p : N) : Reply :=
   if s.nextId = 0 then replyFor C s p else .error
 
-/-- An executor whose registrations shrink during the run (a Java builder that keeps the
-caller's mutable set, from which the host removes a place after its first injection). -/
+/-- An executor whose registrations shrink during the run (an executor that tests the caller's
+mutable set, from which the host removes a place after its first injection: the behaviour RD-35
+recorded). -/
 def env002_shrinks : XRel N T := env002Rel env002ShrinkRep env002QAcc
 
 /-- An executor that answers an unregistered place with an error and still queues the token. -/
@@ -330,6 +333,17 @@ def env002RefuseRep (C : Cfg N T) (_ : XSt N T) (p : N) : Reply :=
 
 /-- An executor that refuses every injection into a registered place, even while open. -/
 def env002_refuseRegistered : XRel N T := env002Rel env002RefuseRep env002QAcc
+
+/-- The answer of the TypeScript inject: an error for an unregistered place; for a registered
+one, accepted while the executor is open, running and no terminal place is marked, refused
+otherwise (the `terminalReached` test of both TypeScript executors). -/
+def env002TsRep (C : Cfg N T) (s : XSt N T) (p : N) : Reply :=
+  if p ∉ C.envs then .error
+  else if s.mode = .open && isExecPhase s.phase && liveB C s then .accepted else .refused
+
+/-- The TypeScript executor: it refuses a registered place once a terminal place is marked,
+before the loop ends, where the reference accepts and drops the event at the finish. -/
+def env002_tsTerminal : XRel N T := env002Rel env002TsRep env002QAcc
 
 end Models
 
@@ -453,7 +467,7 @@ theorem ENV_002_mutant_mayErrorRegistered :
 meets every line of ENV-002 and fails its coverage conjunct `Env002Covers` (the fifth EARS
 sentence, AC2). The open executor at its first state has no accepting step for the registered
 place `0`. -/
-@[evidence cites "ENV-002" "while the run has not finished and the executor is not draining, closed or stopped, the executor shall accept an injection into a registered environment place: an executor that refuses every registered place meets every line of the block and fails its coverage clause Env002Covers in ExecCoversW5"]
+@[evidence cites "ENV-002" "while the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked, the executor shall accept an injection into a registered environment place: an executor that refuses every registered place meets every line of the block and fails its coverage clause Env002Covers in ExecCoversW5"]
 theorem env002_covers_refuseRegistered :
     ENV_002 (env002_refuseRegistered (N := Nat) (T := Nat)) ∧
       ¬ Env002Covers (env002_refuseRegistered (N := Nat) (T := Nat)) := by
@@ -463,9 +477,31 @@ theorem env002_covers_refuseRegistered :
     fun hp r s s' h => ?_⟩, fun h => ?_⟩
   · rw [env002Rel_answer h]
     simp [env002RefuseRep, hp]
-  · obtain ⟨s', hs⟩ := (h env002_C 0 5).2 env002_0_reg env002_s0 rfl rfl
+  · obtain ⟨s', hs⟩ := (h env002_C 0 5).2 env002_0_reg env002_s0 rfl rfl rfl
     have := env002Rel_answer hs
     simp [env002RefuseRep, env002_0_reg] at this
+
+/-- The terminal condition of the fifth EARS sentence is needed for TypeScript: its inject refuses
+a registered place once a terminal place is marked, before the loop ends. That executor meets
+every line of ENV-002 and the coverage conjunct `Env002Covers`, which asks for the acceptance
+only while no terminal place is marked. -/
+@[evidence cites "ENV-002" "while the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked, the executor shall accept an injection into a registered environment place: TypeScript, which refuses once a terminal place is marked, meets every line of the block and its coverage clause Env002Covers"]
+theorem env002_covers_terminalRefuse {N T : Type} [DecidableEq N] :
+    ENV_002 (env002_tsTerminal (N := N) (T := T)) ∧
+      Env002Covers (env002_tsTerminal (N := N) (T := T)) := by
+  have hrep : ∀ (C : Cfg N T) s p, p ∉ C.envs → env002TsRep C s p = .error :=
+    fun C s p hp => by simp [env002TsRep, hp]
+  refine ⟨fun C p x => ⟨fun hp => ⟨(env002Rel_unreg hrep (by decide) x hp).1,
+      (env002Rel_unreg hrep (by decide) x hp).2.1⟩, fun hp r s s' h => ?_⟩,
+    fun C p x => ⟨fun hp => (env002Rel_unreg hrep (by decide) x hp).2.2,
+      fun hp s hm he hL => ⟨env002Enq s p x, ?_⟩⟩⟩
+  · rw [env002Rel_answer h]
+    unfold env002TsRep
+    simp only [hp, not_true_eq_false, if_false]
+    split <;> decide
+  · change env002Step env002TsRep env002QAcc C s (.request p x .accepted) = some _
+    have hL' : liveB C s = true := hL
+    simp [env002Step, env002TsRep, hp, hm, he, hL', env002QAcc]
 
 /-- ✗ The name-keyed executor of Rust and Python violates ENV-002 (line 1): an open executor
 accepts the request into the unregistered place `3` and queues it. This is why the block is

@@ -67,8 +67,9 @@ step of EXEC-030, the expiry and the timeout deposit of EXEC-022, `finish quiesc
 closed` with nothing in flight (ENV-013), the snapshot answer of ENV-014, the stop of ENV-015 and
 the orchestrator going on of CONC-002 (a pass begun from the test, the head of every order started
 or passed over), the answers to injection requests (ENV-002, ENV-006, ENV-010), the injection of a
-queued event (ENV-003, ENV-010), the way out of the wait (ENV-005, CONC-010, ENV-010) and, over the
-expiry handling `X`, an outcome for every run-budget expiry (ENV-016). The close of ENV-013 is
+queued event (ENV-003, ENV-010), the way out of the wait (ENV-005, CONC-010, ENV-010), the commit
+of an accepted completion at the head of the completion queue (EXEC-020) and, over the expiry
+handling `X`, an outcome for every run-budget expiry (ENV-016). The close of ENV-013 is
 offered by that ENV-016 clause with ENV-016's close line. Every block keeps its existence halves
 out of its statement: blocks state safety, offers are coverage (the convention of
 `GlossaryExec.lean`, the user's decision on review finding W5-SR-5). The witnesses are
@@ -171,7 +172,7 @@ def ExecCoversW5 (E : XRel N T) (X : ExpiryRel N T) : Prop :=
   ExecFailCovers E ∧ Exec022Covers E ∧ Exec040Covers E ∧ Exec042Covers E ∧ Env011Covers E ∧
     Env013Covers E ∧ Env014Covers E ∧ Env015Covers E ∧ conc002Covers E ∧
     Env002Covers E ∧ Env003Covers E ∧ Env005Covers E ∧ Env006Covers E ∧ Env010Covers E ∧
-    Conc010Covers E ∧ Env016Covers X
+    Conc010Covers E ∧ Exec020Covers E ∧ Env016Covers X
 
 /-- The reference offers `fail` for an error outcome and for an outcome the relay check rejects. -/
 theorem refExec_failCovers : ExecFailCovers (RefExec (N := N) (T := T)) := by
@@ -206,7 +207,8 @@ theorem refExec_coversW5 : ExecCoversW5 (RefExec (N := N) (T := T)) refExpiry :=
     fun C s hL hp hm hfl => env013_finish_offered C s hL hp hm hfl,
     fun C s hL hp => ⟨_, _, env014_snapshot_offered C s hL hp⟩, env015_ref_covers,
     conc002_covers_reference, env002_ref_covers, env003_ref_covers, env005_ref_covers,
-    env006_ref_covers, env010_ref_covers, conc010_ref_covers, env016_ref_covers⟩
+    env006_ref_covers, env010_ref_covers, conc010_ref_covers, exec020_ref_covers,
+    env016_ref_covers⟩
 
 end Coverage
 

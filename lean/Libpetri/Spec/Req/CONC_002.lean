@@ -71,7 +71,7 @@ requirement CONC_002
           "AC2 (actions backed by concurrent work execute concurrently) is about threads and elapsed time, not encoded (test evidence); the model allows two firings in flight at once (CONC_002_nonvacuous starts u while t is in flight)."
           "AC3 (the orchestrator continues processing other transitions while such actions run) is lines 3 to 5 and conc002Covers; CONC_002_nonvacuous begins a firing pass from a termination test with a firing in flight and keeps the clock of a transition that waits for its delay while another firing is in flight."
           "The test derivation (two actions backed by a 100 ms sleep take about 100 ms, not 200 ms) is a timing measurement, not encoded (test evidence)."
-  signoff "pending"
+  signoff "2026-11-13 850823bbf843d44e ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C (n : String),
       (on (fun s s' => ∃ sy, R C s (.start n sy) s'), shall (fun s s' =>

@@ -33,8 +33,8 @@ name) and emit otherwise: one that reports the start before the removals, one wh
 path reports the start after the inline action, one that reports a start again when the action's
 result is committed, one that reports a start for a head the pass can no longer start, one that
 reports the start under another transition's name, one that lists only the input tokens (ruling
-D38 (b)), one that also lists the tokens the read arcs read, and one that lists the reset arcs'
-tokens first.
+D38 (b)), one that also lists the tokens the read arcs read, one that lists the reset arcs'
+tokens first, and one that takes a place named by two reset arcs at its last arc.
 
 The worked example is EVT-012's (`evt012_cfg`): transition `a` takes the token of place 3 and its
 synchronous action writes 9 into place 1; then `u` starts: it takes 10 and 11 from place 0, drains
@@ -67,9 +67,9 @@ requirement EVT_006
           "Which TokenRemoved events a start emits is EVT-012's, as the cross-reference in the second quoted sentence says. Line 1 alone accepts a start with no TokenRemoved event, and line 2 alone accepts a TokenRemoved event of the start reported in a later step: EVT-012's line 1 (one event per removed token, place by place) rejects the first and its line 2 (TokenRemoved only at a start) the second. EVT_006_with_EVT_012_noRemovals shows the two blocks together reject an executor whose start reports TransitionStarted alone, which EVT_006 alone accepts; the realistic slip is a Rust consume_and_emit that gates the TokenRemoved append on the store capturing tokens instead of on the store being enabled (rust/libpetri-runtime/src/executor_core/executor.rs 603-631, event_payload.rs 28-39)."
           "Line 2 is the third quoted sentence: no runtime emits TransitionStarted outside these firing sites. An executor that reports a start again when it commits the action's result breaks it (EVT_006_mutant_startedAtCommit), and so does one that reports a start for a head of the order the pass finds it can no longer start, a lose step (EVT_006_mutant_startedOnLose); Java and TypeScript recheck that the head can fire before they consume and emit (BitmapNetExecutor.java 1672-1733, bitmap-net-executor.ts 1063-1103)."
           "Not fixed here: the timestamp the event carries (the epoch clock is the CORE-011 slice; so TIME-006's note that exact timing is observable from the firing event is not stated over this model); the defensive copy of the list (EVT-001; an event is a value here); which tokens are removed and in which order across places (EVT-012, and the payload companion below); correlated inputs of a match specification (ruling D16; the reference executor has no match specification, NU-020 owns the correlated take)."
-          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); no host callback throws inside a start (an append or a key function that throws in the middle of a consume is out of scope); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java 570-578, BitmapNetExecutor.java 1749-1752 and 2509-2512; LogCaptureScope.java 87-110), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
+          "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); no host callback throws inside a start (an append or a key function that throws in the middle of a consume is out of scope); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
           "The test derivation (fire a transition that consumes 2 tokens through an input arc and drains 1 through a reset arc, verify its 3 TokenRemoved events and then its TransitionStarted) is split: the shape is EVT_006_nonvacuous (u's start emits three TokenRemoved events, then TransitionStarted u, last), the listed tokens are EVT_006_payload_nonvacuous."
-  signoff "pending"
+  signoff "2026-11-13 90c1568dfa620ec8 ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C,
       (∀ H n sy evs, on (fun s s' => E.step C H s (.start n sy) evs s'), shall (fun s _ =>
@@ -117,10 +117,10 @@ requirement EVT_006_payload
   assumes "This is the second block of EVT-006 (rulings D33 (a) and D38 (a)): the removed-token list, for the executors whose TransitionStarted event carries it. The first block, EVT_006, states the shape and the emission point for every executor. Java's TransitionStarted carries List<Token<?>> consumedTokens (java/src/main/java/org/libpetri/event/NetEvent.java TransitionStarted) and TypeScript's consumedTokens (typescript/src/event/net-event.ts); Rust's carries none, so this block does not apply to Rust and Python. The runtimes call the list consumed tokens; under ruling D38 (a) it holds every removed token, consumed by an input arc or drained by a reset arc, which the markdown now says."
           "Line 1 is the first quoted sentence. Java and TypeScript append each removed token to the list at the moment they emit its TokenRemoved event, and emit TransitionStarted with that list (BitmapNetExecutor.java 1672-1733, PrecompiledNetExecutor.java 2328-2357, bitmap-net-executor.ts 1060-1103, precompiled-net-executor.ts 1094-1201). The runtimes list tokens only; the model pairs each listed token with the place its TokenRemoved event names, which line 1 makes the same thing, so the pairing adds nothing a runtime list does not determine from the events before it. With EVT_012_payload (per place, the tokens of the TokenRemoved events are the oldest of the queue and exactly the removed ones) line 1 gives AC2, the list matches the tokens the start actually removes (evt006_payload_matches). An executor that lists only the tokens the input arcs consume, the reading D38 (b) rejected, breaks line 1 (EVT_006_payload_mutant_inputsOnly), and so does one that also lists the tokens its read arcs read (EVT_006_payload_forbids_readsIncluded)."
           "Line 2 is the second quoted sentence (ruling D38 (a): the list is every removed token, inputs then resets). It computes the list with the firing rule from the source state (removedListDecl over the pass-visible marking vis s), not from the observed change of the marking: oldest first and the count per arc are the firing rule's (EXEC-003, EXEC-013, CORE-030, CORE-034), and that these are the tokens the step really removes is AC2 above. The start consumes and drains the pass-visible marking, so a token a synchronous action deposited earlier in the same pass is neither drained nor listed, and read arcs remove nothing. Java and TypeScript, bitmap and precompiled, walk the input arcs in declaration order, then the read arcs (peek only), then the reset arcs in declaration order (BitmapNetExecutor.java 1660-1731; PrecompiledNet.java compileFireProgram; typescript/src/runtime/precompiled-net.ts compileConsumeProgram). An executor that lists and reports the reset arcs' tokens first meets line 1 and breaks line 2 (EVT_006_payload_mutant_resetsFirst), and one that reports the start under another transition's name, listing that transition's tokens, breaks it too (EVT_006_payload_mutant_misnamed)."
-          "Each place appears at most once per group: a transition has at most one input arc per place (CORE-030 rejects a second at build), and a place named by two reset arcs is drained by the first, the second finding nothing the pass can drain (BitmapNetExecutor.java 1709-1729); removedListDecl takes each input place and each reset place once. A place that is both an input place and a reset place lists its consumed tokens in the input group and the rest in the reset group, as Java's consume does."
+          "Each place appears at most once per group: a transition has at most one input arc per place (CORE-030 rejects a second at build). A place named by two reset arcs is legal (the builders append reset arcs without a check) and is drained by its first arc in declaration order, the later arcs finding nothing the pass can drain (the reset-arc loop of BitmapNetExecutor.java fireTransition, bitmap-net-executor.ts 1080-1090, bitmap_backend.rs 835-857). removedListDecl takes each input place and each reset place once, at its first arc, so reset arcs on places 0, 1 and 0 again list place 0's drained tokens before place 1's (EVT_006_payload_nonvacuous_repeatedReset); an executor that takes such a place at its last arc lists place 1 first and breaks line 2 (EVT_006_payload_mutant_lastOccurrence). A place that is both an input place and a reset place lists its consumed tokens in the input group and the rest in the reset group, as Java's consume does."
           "As in the first block: the timestamp is not modelled, the defensive copy is EVT-001's, correlated inputs (ruling D16) are NU-020's, and the shared assumptions (store enabled, no host callback throws inside a start, events are values, distinct names) apply."
           "The test derivation (fire a transition that consumes 2 tokens through an input arc and drains 1 through a reset arc, verify TransitionStarted lists the same 3 tokens as its TokenRemoved events) is EVT_006_payload_nonvacuous: u's exactly(2) input consumes 10 and 11 and its reset arc drains 20, and TransitionStarted u lists (0, 10), (0, 11), (1, 20), the same as its three TokenRemoved events."
-  signoff "pending"
+  signoff "2026-11-13 d4acea5fcf17d913 ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C H n sy evs,
       (on (fun s s' => E.step C H s (.start n sy) evs s'), shall (fun _ _ =>
@@ -464,11 +464,18 @@ def evt006_misnamed : EvExec N T where
 /-- The tokens the input arcs of `t` consume from `M`, place by place in declaration order; no
 reset tokens. -/
 def evt006_inputsOnlyList (M : QMarking N T) (t : Trans N) : List (N × T) :=
-  (inPlaces t).dedup.flatMap fun p => (qInputs M t p).map (p, ·)
+  (dedupFirst (inPlaces t)).flatMap fun p => (qInputs M t p).map (p, ·)
 
 /-- The tokens the reset arcs of `t` drain from `M`, then the tokens its input arcs consume. -/
 def evt006_resetsFirstList (M : QMarking N T) (t : Trans N) : List (N × T) :=
-  t.core.resets.dedup.flatMap (fun p => (drained M t p).map (p, ·)) ++ evt006_inputsOnlyList M t
+  (dedupFirst t.core.resets).flatMap (fun p => (drained M t p).map (p, ·)) ++
+    evt006_inputsOnlyList M t
+
+/-- The removed tokens with each place taken at its last arc rather than its first (what
+Mathlib's `List.dedup` keeps): a reset list 0, 1, 0 lists place 1's tokens before place 0's. -/
+def evt006_lastOccList (M : QMarking N T) (t : Trans N) : List (N × T) :=
+  (inPlaces t).dedup.flatMap (fun p => (qInputs M t p).map (p, ·)) ++
+    t.core.resets.dedup.flatMap (fun p => (drained M t p).map (p, ·))
 
 /-- The removed tokens, then the head of every read place: what the read arcs read. -/
 def evt006_withReadsList (M : QMarking N T) (t : Trans N) : List (N × T) :=
@@ -489,6 +496,11 @@ def evt006_readsIncluded : EvExec N T :=
 def evt006_resetsFirst : EvExec N T :=
   emitExec (refBoot polJT) (evt012_atStart (evt006_startWith
     (fun s t => evt006_resetsFirstList (vis s) t) (fun s t => evt006_resetsFirstList (vis s) t)))
+
+/-- The executor that reports and lists a place named by several reset arcs at its last arc. -/
+def evt006_lastOcc : EvExec N T :=
+  emitExec (refBoot polJT) (evt012_atStart (evt006_startWith
+    (fun s t => evt006_lastOccList (vis s) t) (fun s t => evt006_lastOccList (vis s) t)))
 
 /-- The executor whose start reports `TransitionStarted` and no `TokenRemoved` event. -/
 def evt006_noRemovals : EvExec N T :=
@@ -739,6 +751,55 @@ theorem EVT_006_payload_mutant_resetsFirst :
   have hm : NetEvent.transitionStarted "u" (evt006_resetsFirstList (vis s) t) ∈
       evt012_atStart (evt006_startWith (fun s t => evt006_resetsFirstList (vis s) t)
         (fun s t => evt006_resetsFirstList (vis s) t)) evt012_cfg [] s (.start "u" false) s' := by
+    simp [evt012_atStart, evt006_startWith, ho]
+  have heq := hall _ _ hm
+  simp only [ho, bne_iff_ne, ne_eq] at hp
+  exact hp heq
+
+/-- ✓ The list takes each reset place at its first arc: `r` (EVT-012's repeated-reset example)
+takes 30 from place 2 and has reset arcs on places 0, 1 and 0 again, and its `TransitionStarted`
+lists (2, 30), (0, 10), (1, 20), place 0's drained token before place 1's, as the runtimes walk
+the reset arcs. -/
+@[evidence nonvacuous EVT_006_payload]
+theorem EVT_006_payload_nonvacuous_repeatedReset :
+    ∃ s s' evs, (refEvExec polJT).step evt012_dupCfg [] s (.start "r" false) evs s' ∧
+      .transitionStarted "r" [(2, 30), (0, 10), (1, 20)] ∈ evs ∧
+      (∃ t rest, s.order = t :: rest ∧ t.core.name = "r" ∧
+        removedListDecl (vis s) t = [(2, 30), (0, 10), (1, 20)]) := by
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check xstep (C := evt012_dupCfg)
+    (o := evt012_dupBeforeStart) (l := .start "r" false)
+    (p := fun s s' =>
+      (refEmitW polJT evt012_dupCfg [] s (.start "r" false) s').contains
+          (.transitionStarted "r" [(2, 30), (0, 10), (1, 20)]) &&
+        match s.order with
+        | t :: _ => removedListDecl (vis s) t == [(2, 30), (0, 10), (1, 20)]
+        | [] => false)
+    (by decide +kernel)
+  simp only [Bool.and_eq_true, List.contains_iff_mem] at hp
+  obtain ⟨h1, h2⟩ := hp
+  obtain ⟨t, rest, ho, hn, -⟩ := xstep_start_qRemoved hs
+  refine ⟨s, s', _, ⟨hs, rfl⟩, h1, t, rest, ho, hn, ?_⟩
+  rw [ho] at h2
+  simpa only [beq_iff_eq] using h2
+
+/-- ✗ Taking a place named by several reset arcs at its last arc meets line 1 of the companion
+(the list is the reported tokens) and violates line 2: `r`'s reset arcs name places 0, 1 and 0
+again, and the start reports and lists (2, 30), (1, 20), (0, 10), place 1 before place 0. -/
+@[evidence mutant EVT_006_payload]
+theorem EVT_006_payload_mutant_lastOccurrence :
+    evt006_payload_line1 (evt006_lastOcc (N := Nat) (T := Nat)) ∧
+      ¬ EVT_006_payload (evt006_lastOcc (N := Nat) (T := Nat)) := by
+  refine ⟨evt006_startWith_line1 _, fun h => ?_⟩
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check xstep (C := evt012_dupCfg)
+    (o := evt012_dupBeforeStart) (l := .start "r" false)
+    (p := fun s _ => match s.order with
+      | t :: _ => evt006_lastOccList (vis s) t != removedListDecl (vis s) t
+      | [] => false)
+    (by decide +kernel)
+  obtain ⟨t, rest, ho, -, hall⟩ := (h evt012_dupCfg [] "r" false _).2 s s' ⟨hs, rfl⟩
+  have hm : NetEvent.transitionStarted "r" (evt006_lastOccList (vis s) t) ∈
+      evt012_atStart (evt006_startWith (fun s t => evt006_lastOccList (vis s) t)
+        (fun s t => evt006_lastOccList (vis s) t)) evt012_dupCfg [] s (.start "r" false) s' := by
     simp [evt012_atStart, evt006_startWith, ho]
   have heq := hall _ _ hm
   simp only [ho, bne_iff_ne, ne_eq] at hp

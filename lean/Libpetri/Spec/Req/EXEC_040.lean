@@ -38,13 +38,15 @@ namespace Exec040
 
 variable {N T : Type}
 
-/-- The step is an executor step of the cycle other than the enablement update and the deadline
-step: not an outside step ([CONC-001]), not `update`, not `deadline`. After such a step the next
-termination test needs an update first. -/
+/-- The step is an executor step of the cycle other than the enablement update, the deadline
+step and the answer to a snapshot request: not an outside step ([CONC-001]), not `update`, not
+`deadline`, not `snapshot`. After such a step the next termination test needs an update first.
+A snapshot answer reads the state and is not a step of the loop ([EXEC-041], `exec041_loopStep`),
+so it does not trigger the line. -/
 def cycleStep (e : XStep N T) : Bool :=
   !e.2.1.outside &&
     match e.2.1 with
-    | .update | .deadline _ => false
+    | .update | .deadline _ | .snapshot _ => false
     | _ => true
 
 /-- The step terminates as quiescent. -/
@@ -82,17 +84,17 @@ requirement EXEC_040
           "a finish quiescent step happens only at rest: no transition armed, no firing in flight, and the completion, publication and event queues empty;"
           "at a termination test with no terminal place marked and at rest, every executor step is a finish step (outside steps such as the clock advancing are still possible, and an answer to a snapshot request that leaves the state as it is is not a step of the loop and is allowed);"
           "a finish step from such a test leaves the marking as it is;"
-          "on every run of R under C, after each executor step other than an enablement update or a deadline step, no finish quiescent step happens before the next enablement update."
+          "on every run of R under C, after each executor step other than an enablement update, a deadline step or a snapshot answer, no finish quiescent step happens before the next enablement update."
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A run (XRun) is a list of consecutive steps (source, label, target) of R, from any state. A run ends with a step finish c, where c is the termination cause of EXEC-041; 'terminate as quiescent' is finish quiescent, 'terminate' is any finish step. The executor steps are the labels that are not outside (XLbl.outside, CONC-001): an outside step is the host clock advancing or a caller or an action acting, which no executor controls. The witness is the reference executor RefExec (Reference/Exec.lean), checked rule by rule against the Rust executor: the termination checks of executor_core/executor.rs (1085-1095) after Phase 3 and Phase 4 (1063-1083)."
           "Scope (ruling D13 (a)): the lead-in scopes the requirement to nets without terminal places. Lines 3 and 4 read that scope as 'no terminal place is marked' (Live), the premise of the first shall sentence, which every state of a net without terminal places satisfies (exec040_live_of_noTerminals). Lines 1, 2 and 5 carry no such premise: they bind every executor without environment places, with terminal places or without, which is stronger than the lead-in and is what the second, third and fourth shall sentences say. A net whose terminal place is marked stops at once on that place, whatever is in flight (EXEC-042); that stop is not quiescence and is not this block's subject. EXEC-042's first line forbids every executor step but finish terminal while a terminal place is marked, so no finish quiescent happens there, and EXEC-041's first line keeps the marking on every finish."
           "The test point (ruling D13 (a), R-EXEC-10) is lines 1 and 5 and the test-point sentence: arming happens only in the enablement update (TIME-010), so straight after a deposit the transition it enabled is off, not armed, and the three conditions read at that instant hold. Line 1 reads the loop phase, which the executor sets itself; line 5 reads the labels of the steps of a run, so an executor that tests early cannot pass by calling the early point its termination test. An executor that tests before the update and calls that point the update breaks line 1 (EXEC_040_forbids_finishBeforeUpdate). One that tests straight after step 1 and calls that point the termination test (in Java or TypeScript the termination check moved above the enablement update, in Rust the enabled and in-flight count check moved above Phase 3) meets lines 1 to 4 and breaks line 5: on the chain it ends at once from the initial state, the token still in place 0 (EXEC_040_forbids_testAfterStep1). One that leaves step 2 straight for the termination test, skipping the update and the deadline step, breaks line 5 as well (EXEC_040_forbids_skipUpdate). Rust, Java and TypeScript all test once per cycle after the update and the deadline step."
           "Rest is the glossary term Rest of GlossaryExec (restB): no transition armed, no firing in flight, the completion, publication and event queues empty, which is ruling D13 (a)'s 'nothing armed, in flight or queued'. Condition 1 is its first conjunct. Condition 2 is its in-flight conjunct together with its completion and publication conjuncts: condition 2's second sentence counts a firing as in flight until its completion and its queued publications are processed, which is why the markdown names three conditions where Rest has five conjuncts. A firing stays in the in-flight list until its settle step, and settling happens only in step 1, the wait and the pass (exec040_canSettle_test), so an action that returned but whose completion is not yet processed still counts. The completion and publication conjuncts have no mutant of their own: a completion or a publication is queued only for a firing in the in-flight list, and that firing cannot settle between step 1b and the test, so in the reference's runs the in-flight conjunct already rejects those states (an argument, not a proved invariant). Condition 3 is the event-queue conjunct. It is vacuous under the requirement's premise (clash exec#14, kept as ruled): without environment places a request is answered error and queues nothing (exec040_no_injection), and the conjunct is there because ENV-010 and ENV-011 reuse the same Rest."
-          "The second shall sentence is line 1 and the third is line 5. The fourth is line 2: an executor that ends while an action runs breaks line 2 (EXEC_040_forbids_finishInFlight), and one that ends while a Window(3, 5) transition is armed and waiting for its earliest bound, nothing being ready yet, breaks it too (EXEC_040_forbids_finishWhileArmed)."
+          "The second shall sentence is line 1 and the third is line 5. Line 5 reads 'takes a step' as a step of the loop: the answer to a snapshot request reads the state and is not a step of the loop (EXEC-041's quoted sentence on a finished run, exec041_loopStep), so it does not trigger the line, as it is not a step line 3 bans. Without that exclusion an executor that answers a snapshot at a test at rest, which line 3 allows, could never finish quiescent from that rest: line 5 would then ban the finish until the next update, and line 3 bans the update there (EXEC_040_allows_snapshotAtTest is that run, which line 5 accepts). The fourth is line 2: an executor that ends while an action runs breaks line 2 (EXEC_040_forbids_finishInFlight), and one that ends while a Window(3, 5) transition is armed and waiting for its earliest bound, nothing being ready yet, breaks it too (EXEC_040_forbids_finishWhileArmed)."
           "The first shall sentence is lines 3 and 4. 'Shall terminate' is read as line 3: at such a test the executor takes no step but a finish (in particular no firing pass, begin), of any cause. A finish closed is also a finish, so a closed executor at rest may report either cause (ruling D53 (c), EXEC-041); a finish stopped is allowed by line 3 as well and is tied to a stopped executor by EXEC-041; a finish terminal is excluded by EXEC-041, which requires a marked terminal place for it. That a finish step is in fact offered at every such test is coverage, which belongs to the consistency theorem, as for every requirement over an abstract executor: its conjunct is Exec040Covers, a clause of ExecCoversW5 (ConsistencyExec.lean). Line 3 alone is safety, so an executor that never finishes at rest (the reference without its finish quiescent rule, or a stale enabled count that never reaches zero) passes this block and fails that conjunct. The reference offers finish quiescent at every such test (exec040_finish_offered), the lemma the coverage conjunct is proved from. 'Return the marking as it is' is line 4 (EXEC_040_forbids_emptyMarking); 'The final marking is returned.' is the same line."
           "Condition 1 reads 'armed', not 'enabled' (ruling D5): a reaped transition that is still enabled holds no clock (TIME-013), so the executor stops with its tokens in place. EXEC_040_allows_reapedRest is the run: a Window(3, 5) transition reaped at reading 10 stays enabled, the test finds rest, and the reference finishes quiescent with the token still in the input place. The mutant reading that waits for 'no transition enabled' starts a firing pass there instead (EXEC_040_mutant_enabled_killed); the Phase 1 citation exec040_rest_reaped_enabled (ClashesTime.lean) shows that from this rest nothing ever fires and u stays enabled, so an executor that waits for 'no transition enabled' never stops."
           "AC1 (a chain A to B to C runs to completion and returns the marking with the token in C) is liveness: that the executor gets to the end is an ideal run (IdealRun, an assumption of kind A: every action returns) together with the coverage above, not a line. EXEC_040_nonvacuous decides the chain's run from the initial state: two firings, then finish quiescent with the token in C and A and B empty; the same run exercises line 5's trigger, its release and its banned step. The test derivation (a chain of 5 transitions) is the same run, longer."
           "AC2 (parallel branches: the executor waits for every action in flight before it terminates) is line 2: no finish quiescent while a firing is in flight (EXEC_040_forbids_finishInFlight, with the chain's first action still running)."
-  signoff "pending"
+  signoff "2026-11-13 3ce4e6af944d1955 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C, C.envs = [] →
       (on (fun s s' => R C s (.finish .quiescent) s'), shall (fun s _ => s.phase = .test)) ∧
@@ -213,10 +215,12 @@ theorem exec040_finish_M {P : XPol N T} {C : Cfg N T} {s s' : XSt N T} {c : Caus
   | stopped => obtain ⟨-, -, -, rfl⟩ := xstepW_finishStopped h; rfl
 
 omit [DecidableEq N] in
-/-- What `cycleStep` reads: an executor step that is neither the update nor a deadline step. -/
+/-- What `cycleStep` reads: an executor step that is neither the update, a deadline step nor a
+snapshot answer. -/
 theorem exec040_cycleStep_iff {e : XStep N T} :
     cycleStep e = true ↔
-      e.2.1.outside = false ∧ e.2.1 ≠ .update ∧ ∀ ns, e.2.1 ≠ .deadline ns := by
+      e.2.1.outside = false ∧ e.2.1 ≠ .update ∧ (∀ ns, e.2.1 ≠ .deadline ns) ∧
+        ∀ a, e.2.1 ≠ .snapshot a := by
   obtain ⟨s, l, s'⟩ := e
   cases l <;> simp [cycleStep, XLbl.outside]
 
@@ -350,7 +354,7 @@ theorem exec040_run_of {R : XRel N T} {C : Cfg N T}
         rintro rfl
         simp [isUpdate] at hg
   · intro s l s' h ht
-    obtain ⟨ho, hu, hd⟩ := exec040_cycleStep_iff.mp ht
+    obtain ⟨ho, hu, hd, -⟩ := exec040_cycleStep_iff.mp ht
     exact hstep s l s' h ho hu hd
 
 /-- The executor with judgement points `P` meets line 5. -/
@@ -820,6 +824,44 @@ theorem EXEC_040_allows_reapedRest :
   simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hp
   exact ⟨s, s', hs, hp.1.1, hp.1.2, hp.2⟩
 
+/-! ### Allowed: a snapshot answer at the termination test -/
+
+/-- The step answers a snapshot request. -/
+def exec040_isSnapshot {N T : Type} (e : XStep N T) : Bool :=
+  match e.2.1 with
+  | .snapshot _ => true
+  | _ => false
+
+/-- The reference, plus an answer to a snapshot request at the termination test that leaves the
+state as it is (line 3 allows it: it is not a step of the loop). -/
+def exec040_snapTestStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
+    XLbl N T → Option (XSt N T)
+  | .snapshot a => if s.phase = .test then some s else xstep C s (.snapshot a)
+  | l => xstep C s l
+
+/-- ✓ EXEC-040 allows a snapshot answer at the termination test: on the chain, at its last test
+at rest, the executor answers a snapshot request, changing nothing, and then finishes quiescent.
+Line 5 accepts the run, because a snapshot answer is not a step of the loop and does not trigger
+it. -/
+@[evidence allows EXEC_040]
+theorem EXEC_040_allows_snapshotAtTest :
+    ∃ tr, XRun (fun C s l s' => exec040_snapTestStep C s l = some s') exec040_chain
+        (xinit exec040_m0 0) tr ∧
+      tr.any exec040_isSnapshot = true ∧ tr.any finishesQuiescent = true ∧
+      (after cycleStep, until isUpdate, never finishesQuiescent) tr := by
+  have h1 : (exec040_trace exec040_snapTestStep exec040_chain (xinit exec040_m0 0)
+      (exec040_chainRest ++ [.snapshot none, .finish .quiescent])).map
+      (fun tr => tr.any exec040_isSnapshot && tr.any finishesQuiescent &&
+        decide ((after cycleStep, until isUpdate, never finishesQuiescent) tr)) =
+      some true := by decide
+  cases ht : exec040_trace exec040_snapTestStep exec040_chain (xinit exec040_m0 0)
+      (exec040_chainRest ++ [.snapshot none, .finish .quiescent]) with
+  | none => simp [ht] at h1
+  | some tr =>
+    simp only [ht, Option.map_some, Option.some.injEq, Bool.and_eq_true,
+      decide_eq_true_eq] at h1
+    exact ⟨tr, exec040_trace_run ht, h1.1.1, h1.1.2, h1.2⟩
+
 /-! ### Every line exercised -/
 
 /-- Every line of EXEC-040 is exercised by the reference. The chain (AC1, the test derivation)
@@ -828,8 +870,8 @@ places `0` and `1` empty (lines 1, 2 and 4 on a real end). At its last terminati
 terminal place marked and at rest, the executor offers `finish quiescent` and no `begin` (line 3
 has a state to speak of). At the chain's first test, with `t1`'s action running, there is no
 finish (line 2's premise is not met by accident). The chain's run, as a run of the reference,
-holds line 5's trigger (an executor step other than the update and the deadline step), its
-release (an update) and its banned step (`finish quiescent`). -/
+holds line 5's trigger (an executor step other than the update, a deadline step and a snapshot
+answer), its release (an update) and its banned step (`finish quiescent`). -/
 @[evidence nonvacuous EXEC_040]
 theorem EXEC_040_nonvacuous :
     (∃ s, xrun exec040_chain (xinit exec040_m0 0) (exec040_chainRest ++ [.finish .quiescent]) =

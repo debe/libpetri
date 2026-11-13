@@ -78,7 +78,7 @@ function leanBlock(id: string, roles: readonly LeanBlock['evidence'][number]['ro
     reading: [],
     assumes: [],
     statement: 'theorem x : True',
-    signoff: signed === null ? { state: 'pending' } : { state: 'signed', date: signed, hash: '104625b4eefcf18b' },
+    signoff: signed === null ? { state: 'pending' } : { state: 'signed', date: signed, hash: '104625b4eefcf18b', by: 'person' },
     hash: '104625b4eefcf18b',
     evidence: roles.map((role, i) => ({ theorem: `Libpetri.Spec.${id}_${role}_${i}`, role, module: 'M', doc: null })),
   };
@@ -156,6 +156,7 @@ const defect: Defect = {
   text: 'x',
   evidence: [],
   evidenceText: 'none',
+  fix: null,
   status: { state: 'open' },
 };
 

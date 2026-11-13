@@ -34,14 +34,14 @@ requirement IO_002
           "unless p is also a reset place of t, every firing of t from m that deposits d and leaves m' has m'(p) + N = m(p) + d(p): p loses exactly N tokens, besides what the firing deposits there; and if p is not an output place of t either, m'(p) + N = m(p): p loses exactly N tokens, whatever deposit the firing reports."
   assumes "A firing is read as one step from a marking to a marking with its deposit (glossary: Fire); timing and priority play no part. 'Enables' is read as 'some firing exists'."
           "The first quoted sentence (required count N, consumption count N; the bullets `requiredCount()` returns N and `consumptionCount(available)` returns N) is IO-007's contract for `Exactly(n)`. Here it is observed through firing: the required count is the second line, the consumption count the third. The bullets' qualifier 'when available >= N' is implied: by the second line no firing starts with fewer."
-          "AC1 (construction with N < 1 rejected, also when the transition is built from a spec written out without the constructor): a property of construction, not of firing, so the formula does not encode it. The formula quantifies over every N, N = 0 included; for N = 0 both lines hold of the reference semantics trivially, so the restriction N >= 1 neither weakens nor strengthens what is checked about firing."
+          "AC1 (construction with N < 1 rejected, also when the transition is built from a spec written out without the constructor) is a property of construction, not of firing, so this formula does not encode it: its build half is the block IO_002_build in this file (every transition with an Exactly(0) input arc fails to build), and its constructor half is Q-tested there. The formula here quantifies over every N, N = 0 included; for N = 0 both lines hold of the reference semantics trivially, so the restriction N >= 1 neither weakens nor strengthens what is checked about firing."
           "AC2 (enables only when the place has >= N tokens) and AC4 (N-1 tokens, not enabled) are the second line. The converse ('enables when the place has >= N tokens', given the other arcs allow it) is the AND-join of IO-005 and CORE-022, not this block's subject."
           "AC3 (exactly N consumed on firing, the N oldest, FIFO) is the third line for the count; its second part (the fourth quoted sentence) states it without the deposit for an input place that is neither a reset place nor an output place. Which tokens are consumed (the oldest, FIFO) is below the count granularity of the firing semantics and is the glossary's reading of Consume (CORE-030); it is not encoded here."
           "Consumption is observed through the marking: p loses N and gains what the firing deposits there (p may also be an output place). A place that is both the input place and a reset place of t ends holding what the firing deposited there (CORE-034), so the N tokens consumed are not visible in the marking; the third line excludes that case, as the fourth quoted sentence does."
           "The deposit a firing reports is not trusted for the count: on a place that t's output spec does not name (glossary: Output arc) no firing of t can deposit ([CORE-035]), so there the consumed tokens show in the marking alone, as exactly N tokens fewer (the fourth quoted sentence, IO-001's guard). Without this a firing that consumes nothing but reports a deposit of N in the input place would pass the count, and the block would lean on CORE-035 to stand."
           "Deposits are counts per place (glossary: Deposit, [CORE-036]): `Deposits d p` counts the tokens d puts in p and ignores their order. The build-time output-spec checks of IO-011 to IO-014 (ambiguity, one Timeout, ForwardInput only under a Timeout) and the validation skip of CONC-026 do not touch input consumption, so the formula quantifies over every transition, built or not, and every executor."
           "The input arc of t on p is the first input arc on p (glossary: Input arc); CORE-030 rejects a second one at build."
-  signoff "pending"
+  signoff "2026-11-13 96c1d96e85a20f1e ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p n, InputArc t p (.exactly n) →
       (while (fun m => TokenCount m p < n), never Fire F t) ∧
@@ -277,5 +277,76 @@ theorem IO_002_nonvacuous :
     by_cases hq : q = 0
     · subst hq; rfl
     · simp [fireNC, nconsumed, nspecAt, depProd, io002_t, io002_m7, hq, Ne.symm hq]
+
+/-! ## IO-002, AC1: the count check at build -/
+
+requirement IO_002_build
+  id "IO-002"
+  title "Input Exactly"
+  kind F
+  scope "all transition builders"
+  source verbatim "spec/02-input-output-specs.md"
+  quote "Construction with N < 1 is rejected (error or panic). Where the language lets the spec be written out without the constructor (a public enum variant, an object literal), building the transition rejects it."
+  reading "For the transition builder Build (Build t = none: t builds; Build t = some msg: building t fails with msg):"
+          "every transition t one of whose input arcs is Exactly(0) fails to build."
+  assumes "Build is the transition builder read as the message it rejects a transition with (none: the transition builds), as in IO-011, IO-013 and EXEC-012; the witness is the reference builder refBuild (glossary: Build-time checks), whose count check (InputCountsPositive, stand-in message msgCount) rejects an input arc that requires fewer than one token. The cardinality of the model (Card) is a value written out directly, so a transition carrying Exactly(0) is the spec written out without the constructor: the second quoted sentence. N ranges over the naturals, so N < 1 is N = 0."
+          "The first quoted sentence (the constructor rejects N < 1 with an error or a panic) is not encoded: the model has no constructor, only the value. It is Q-tested: Rust exactly() asserts count >= 1 (rust/libpetri-core/src/input.rs:53, test at :174), TypeScript exactly() throws (typescript/src/core/in.ts:47, typescript/tests/core/in.test.ts:33), Java's Exactly record constructor throws IllegalArgumentException (java/src/main/java/org/libpetri/core/Arc.java:96), which is also the only way to write the value in Java. Python reaches the Rust constructor."
+          "The second quoted sentence is the line. The runtimes whose spec can be written out without the constructor check it when the transition is built: Rust for the public In::Exactly variant (rust/libpetri-core/src/transition.rs:391-402, tests at :1369 and :1376), TypeScript for an object literal (the input-count check in TransitionBuilder.build in typescript/src/core/transition.ts, test 'build rejects an input that requires no token' in typescript/tests/core/transition.test.ts). A builder without the count check (io002_buildNoCount) builds such a transition and is forbidden (IO_002_build_forbids_noCount)."
+          "Only the failure is stated, not its message: the spec gives the check no message, and the reference fails it with the stand-in msgCount. That a transition whose input arcs all require at least one token, and which passes the other build-time checks, does build is CORE-020's line 4 (Builds includes InputCountsPositive), so a builder that rejects every transition meets this line and breaks that one. The order of the count check against CORE-030's input-arc check is not stated (the reference runs CORE-030's first); EXEC-012's line 5 orders its own check after both."
+  signoff "2026-11-13 ff47291b5f476312 ai"
+  statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Trans N → Option String) → Prop :=
+    fun Build => ∀ t : Trans _, ∀ s ∈ t.core.inputs, s.card = .exactly 0 → Build t ≠ none
+
+/- The pinned readable form of the build block: a change to the formula shows up as a diff here. -/
+/--
+info: def Libpetri.Spec.IO_002_build : {N : Type} →
+  [DecidableEq N] → [ToString N] → (Reference.Trans N → Option String) → Prop :=
+fun {N} [DecidableEq N] [ToString N] Build =>
+  ∀ (t : Reference.Trans N), ∀ s ∈ t.core.inputs, s.card = Card.exactly 0 → Build t ≠ none
+-/
+#guard_msgs in #print IO_002_build
+
+/-- ✓ The reference builder satisfies the build block: a transition with an `Exactly(0)` input
+arc fails `InputCountsPositive`, so it does not pass `Builds`, and `refBuild` rejects exactly
+the transitions that do not (`refBuild_eq_none_iff`). -/
+@[evidence holds IO_002_build]
+theorem IO_002_build_reference {N : Type} [DecidableEq N] [ToString N] :
+    IO_002_build (refBuild (N := N)) := by
+  intro t s hs hc h
+  have hpos := ((refBuild_eq_none_iff t).1 h).1.2.1 s hs
+  simp [requiredCount, hc, Card.required] at hpos
+
+/-- **The reference builder without the count check**: [CORE-030]'s input-arc check, the
+[EXEC-012] input-and-read check, then the output-spec checks, as `refBuild` without its
+`InputCountsPositive` branch. -/
+def io002_buildNoCount {N : Type} [DecidableEq N] [ToString N] (t : Trans N) : Option String :=
+  if ¬ InputsDistinct t then some "CORE-030"
+  else match firstInputRead t with
+    | some p => some (msgInputRead t p)
+    | none =>
+      match t.out with
+      | none => none
+      | some o => checkOut t (inPlaces t) o
+
+/-- The transition of the build examples: one input arc `Exactly(0)` on place `0`, written out
+without the constructor, no other arcs, no output spec. -/
+def io002_t0 : Trans Nat :=
+  { core := { name := "t0", inputs := [⟨0, .exactly 0⟩], inhibitors := [], reads := [],
+              resets := [] },
+    out := none }
+
+/-- ✗ A builder without the count check violates the build block: it builds `io002_t0`, whose
+input arc is `Exactly(0)`. -/
+@[evidence forbids IO_002_build]
+theorem IO_002_build_forbids_noCount : ¬ IO_002_build (io002_buildNoCount (N := Nat)) := by
+  intro h
+  exact h io002_t0 ⟨0, .exactly 0⟩ (by simp [io002_t0]) rfl (by decide)
+
+/-- The build block is exercised by the reference builder: `io002_t0` has an `Exactly(0)` input
+arc, and building it fails with the count check's stand-in message. -/
+@[evidence nonvacuous IO_002_build]
+theorem IO_002_build_nonvacuous :
+    (∃ s ∈ io002_t0.core.inputs, s.card = .exactly 0) ∧ refBuild io002_t0 = some msgCount :=
+  ⟨⟨⟨0, .exactly 0⟩, by simp [io002_t0], rfl⟩, by decide⟩
 
 end Libpetri.Spec

@@ -28,7 +28,9 @@ The witness is `refEnc`. The statement is checked against it (`VER_007_reference
 drop the basis rows, a gate that checks only `y·C = 0`, a gate without the injector columns, a
 gate that forgets reset arcs, a gate that reads a multi-token deposit row as one token per place
 (the pre-IO-014 reading), an `on` that drops the semiflows, and an `auto` that always unions,
-never unions or unions on any dropped row. `VER_007_preserves_reach` derives AC6 from the
+never unions, unions on any dropped row or hands over a list that is neither the `on` nor the
+`off` list. `VER_007_allows_overflowFirst` shows the gate of TypeScript and Java, which drops a
+row outside its integer range for overflow before H1, meets the statement. `VER_007_preserves_reach` derives AC6 from the
 statement: whatever the setting, the relation with every handed law conjoined reaches exactly the
 abstract reachable set over the deposit rows, so no `Violated` turns into `Proven`.
 -/
@@ -97,6 +99,19 @@ consumes with `all()` / `atLeast(n)` or clears with a reset arc (the drop reason
 def BasisLostH1 (rows : List (Transition × Deposit)) (n : Nat) (basis : List Weight) : Prop :=
   ∃ y ∈ basis, ¬ ∀ tr ∈ rows, ZeroOnNonlinear y tr.1 n
 
+/-- The basis lost a law inside the range to the H1 guard: some basis row that fits the range
+`2^31 − 1` of `LawFits` fails H1. Every runtime's gate reaches H1 on such a row and drops it
+with the reason `Strengthening.lean H1`; on a row outside the range some runtimes drop it for
+overflow first. -/
+def BasisLostH1Fits (rows : List (Transition × Deposit)) (n : Nat) (a0 : AMarking)
+    (basis : List Weight) : Prop :=
+  ∃ y ∈ basis, LawFits lawRange rows n a0 y ∧ ¬ ∀ tr ∈ rows, ZeroOnNonlinear y tr.1 n
+
+theorem BasisLostH1Fits.lost {rows : List (Transition × Deposit)} {n : Nat} {a0 : AMarking}
+    {basis : List Weight} (h : BasisLostH1Fits rows n a0 basis) : BasisLostH1 rows n basis :=
+  let ⟨y, hy, _, hn⟩ := h
+  ⟨y, hy, hn⟩
+
 open Classical in
 /-- The reference: the gate (`LawGate`) filters the basis rows, and the semiflows when the
 setting unions them; `auto` unions exactly when the basis lost a law to H1. Deduplication of a
@@ -137,24 +152,24 @@ requirement VER_007
   reading "For every encoding function E, and all flat nets given as deposit rows, injected places envs, place counts n, initial markings a0, basis rows basis, semiflows sfs and laws y:"
           "y is in the list E hands the encoders with the option off only when y is a basis row and passes the gate LawGate rows envs n (H1: zero on every consume-all or reset place; H2: y·C = 0 on the column of every deposit row, the column counting each deposited token; H3': zero on every injected place below n), and every basis row that passes the gate and fits the range 2^31 − 1 (LawFits: every weight, and the sum of the absolute values of the terms of each row's y·C and of y·a0, at most 2^31 − 1) is in it;"
           "y is in the list with the option on only when y is a basis row or a semiflow and passes the gate, and every basis row or semiflow that passes the gate and fits the range is in it;"
-          "with the option auto the list is the option-on list when some basis row fails H1, and the option-off list otherwise."
+          "with the option auto the list is the option-on list or the option-off list: the option-on list when some basis row that fits the range fails H1, and the option-off list when no basis row fails H1."
   assumes "The verified net is its flat rows: one deposit row per flat transition and outcome, with the integer post vector the encoder writes (ForwardDeposit.flatRows, fireAD), so a timeout row that forwards two tokens is the row [b, b] and its column counts both (dotIncD; net_flattener.rs `post[..] += n`, as in VER-005). A gate that reads a row as one token per claimed place, the reading before the IO-014 fix, is killed (VER_007_forbids_unitColumn): it accepts a law that a reachable firing breaks (ver007_yBad_not_conserved). A forward that drains its source (VER-001 F3, refused by branch_outcomes::drained_forward before any flat route) has no row; Phase 3 is not run on such a net, and the statement says nothing about it."
           "The gate is LawGate: H1 and H2 of Strengthening.lean over deposit rows, plus H3' on the injected places below n; with no injected place (envs = []) H3' is empty. The runtime forces H3' through `y·C = 0` on the injector columns of the incidence matrix ([VER-006], incidence_matrix.rs); LawGate states the consequence, zero weight on each injected place. The constant check `y·M0 = c` is not a clause: a law here is a weight vector and its equation is `y·M = y·M0` with the constant read off M0 (ReachADInjStrs), so a law with a wrong constant does not exist in the model; only the overflow of y·M0 is, through LawFits. The weights are unbounded integers. The runtimes' checked arithmetic drops a law whose exact value leaves their integer range with a weight-overflow reason (the sixth quoted sentence): Java keeps weights and the constant in int and sums y·C in checked long (PInvariantComputer.validateExact), Rust extracts i64 weights and sums in checked i128 (validate_invariants_exact, p_invariant.rs), and TypeScript keeps weights, incidence entries and counts safe integers and sums in BigInt (p-invariant-computer.ts). So lines 2 and 3 are split: a law in a list passes LawGate, whatever its size; a law that passes LawGate is in the list when it fits the range 2^31 − 1 of the seventh quoted sentence (LawFits lawRange), under which no operand, product or partial sum of any runtime's gate leaves its range, whatever the order of the terms. A law outside the range may be dropped, which only shrinks the list, and VER_007_preserves_reach holds for every list a VER-007 encoding hands over. The model's encoding takes the initial marking a0 for this reason alone: the reference ignores it, and the gate's y·M0 = c is not a clause (the constant is read off a0)."
           "The statement fixes the list the encoders receive, not what an encoder does with it. That each encoder conjoins every received law, and only those, into its rule bodies is the encoder's obligation (VER-004 for the flat encoder, NU-050 for the name-coloured one) and out of scope here; the first quoted sentence and the 'receive' wording of the fourth and fifth are read through it. The reach corollary VER_007_preserves_reach models that conjoining (ReachADInjStrs: every handed law conjoined into the firing rules, the injection rules carrying none)."
           "The lists are read as sets (lines 2 and 3 are membership statements): the encoder conjoins each law, so the order (the canonical order of VER-013) and a semiflow equal to a basis row (deduplicated by strengthen_with_semiflows) do not change the rule bodies' meaning. Malformed rows (a weight vector of the wrong length, a support inconsistent with the weights) do not exist in the model: a weight is a total function on place indices, read below the place count n."
-          "'The basis lost a law to the H1 guard' is BasisLostH1: some basis row fails H1 (ZeroOnNonlinear on some row's transition). All four runtimes key auto on the drop reason that names Strengthening.lean H1 (smt_verifier.rs union_wanted, smt-verifier.ts basisLostALaw, SmtVerifier.java basisLostALaw), which the gate checks before y·C = 0, so a row failing H1 is dropped with that reason whatever else it fails; a row dropped for y·C alone does not switch auto on (killed: VER_007_forbids_autoAnyDrop), and a basis row lost to H1 does (killed: VER_007_forbids_autoNever)."
+          "'The basis lost a law to the H1 guard' and 'the gate dropped a basis row for its weight on a consume-all or reset place' are read through the drop reason the runtimes key auto on, the one that names Strengthening.lean H1 (smt_verifier.rs union_wanted, smt-verifier.ts basisLostALaw, SmtVerifier.java basisLostALaw). Which reason a row gets depends on the order of the gate's checks. Inside the range 2^31 − 1 of LawFits every runtime records H1 for a basis row that fails it: Rust checks H1 after shape and support only, Java after the length check (its int narrowing in PInvariantComputer.computeChecked and its int constant pass every row in range), and TypeScript after its safe-integer checks of the weights and of the constant (exactCheckFailure, p-invariant-computer.ts), which every row in range passes. Outside the range the recorded reason, and so auto's choice, is the runtime's: TypeScript and Java drop a row whose weights or constant leave their range for overflow first and do not union on it, while Rust checks H1 on its i64 weights and unions. Both meet the quoted sentence, whose trigger is the reason the gate recorded, so neither is a defect. Line 4 is split accordingly: auto's list is the option-on list or the option-off list in every case, so every law it hands over passes the gate; it is the option-on list when a basis row that fits the range fails H1 (BasisLostH1Fits) and the option-off list when no basis row fails H1 (BasisLostH1 false); when the only basis rows failing H1 leave the range the statement leaves the choice open. The overflow-first gate of TypeScript and Java meets the statement (VER_007_allows_overflowFirst, on a basis row of weight 2^60 on a reset place), and an auto list that is neither the option-on nor the option-off list is killed (VER_007_forbids_autoUngated). A row dropped for y·C alone does not switch auto on (killed: VER_007_forbids_autoAnyDrop), and a basis row inside the range lost to H1 does (killed: VER_007_forbids_autoNever)."
           "The basis rows and the semiflows are inputs: their computation is VER-005's (the null-space basis) and the Farkas enumeration's, which may truncate the minimal set, so sfs is any list. The statement holds for every list, which is the 'arbitrary truncation' paragraph: a law the enumeration never returns is a proof the encoder does not get, never a proof it gets wrong. 'Implementations SHOULD report the truncation when it binds' is a report line (kind Q)."
           "'If the option is off, or it is `auto` and the gate dropped no basis row for its weight on a consume-all or reset place, then the verifier shall not compute the semiflows.' is kind Q: a pure function cannot tell a computed and discarded list from one never computed, and the sentence is about cost (the enumeration's run time and heap). Line 2 and line 4 state what the model can see: in those cases no semiflow that is not a validated basis row reaches the encoders. 'The enumeration is expensive and MUST be skipped when nothing will read it.' and 'An implementation MUST compute semiflows only when the option is on, or is `auto` and the gate dropped a basis row for its weight on a consume-all or reset place.' are the same obligation, kind Q, and 'Such a caller MUST request the union explicitly.' is the caller's, not the verifier's: auto's choice is line 4, which says nothing about the form of the invariant list a caller inspects."
           "The third quoted sentence has two halves. 'Dropped from the encoding' is lines 2 and 3 (a basis row that fails the gate is in no list: VER_007_forbids_offNoGate; one that passes is in every list: VER_007_forbids_offEmpty, VER_007_forbids_onSfsOnly). 'Listed in the report' is a report line for each dropped basis row, kind Q, as the `Dropped semiflow:` line of AC1 is for each dropped semiflow."
           "AC1 is quoted and is lines 2 and 3 for the semiflows: a semiflow that fails the gate is in no list. A gate that checks only y·C = 0 is killed (VER_007_forbids_gateCOnly, the Farkas row yUnit of semiflow_gate_is_necessary), and so are a gate without H3' (VER_007_forbids_noEnvZero, the law of injection_hypothesis_is_necessary), a gate whose H1 forgets reset arcs (VER_007_forbids_resetBlind) and a gate that reads a deposit row as one token per place (VER_007_forbids_unitColumn). The `Dropped semiflow:` report line is kind Q."
           "AC2 (with the option off the semiflows do not reach the encoders, are not computed, and the report is byte-identical to a build without the feature) is line 2 for the first clause, killed by an off that lets the semiflows through (VER_007_forbids_offLeaks); not computing them and the byte-identical report are kind Q, and off as the default is kind N."
-          "AC3 (under auto the report says which way it went and why, the union happens exactly when the gate dropped a basis row for its weight on a consume-all or reset place, the verdict equals that of the explicit setting auto chose, and the report's off wording says the skipped semiflows add no constraint) is line 4 for the union and the verdict: the list auto hands the encoders equals the list of the setting it chose, so every phase reading the list answers alike. An auto that always unions, one that never unions and one that unions on any dropped row are killed (VER_007_forbids_autoAlways, VER_007_forbids_autoNever, VER_007_forbids_autoAnyDrop). The report lines and their wording are kind Q."
+          "AC3 (under auto the report says which way it went and why, the union happens exactly when the gate dropped a basis row for its weight on a consume-all or reset place, the verdict equals that of the explicit setting auto chose, and the report's off wording says the skipped semiflows add no constraint) is line 4 for the union and the verdict: the list auto hands the encoders equals the list of the setting it chose, so every phase reading the list answers alike. An auto that always unions, one that never unions, one that unions on any dropped row and one whose list is neither the on nor the off list are killed (VER_007_forbids_autoAlways, VER_007_forbids_autoNever, VER_007_forbids_autoAnyDrop, VER_007_forbids_autoUngated). The report lines and their wording are kind Q."
           "AC4 (the report line `  Semiflows encoded as invariants: N`, N counting the semiflows added after deduplication, and the result's invariant count and list including them) is line 3 for the list; the report line and the count are kind Q. An on that drops the semiflows is killed (VER_007_forbids_onOmits)."
-          "AC5 (the certificate check receives the strengthened list and re-proves every law against the unstrengthened step relation on the flat encoding) is not a line here: the certificate check belongs to the verifier pipeline (RefVerifier, wave W10) and its soundness is Novel/Certificate.lean (vc_sound). This block fixes the list the check receives."
+          "AC5 (the certificate check receives the strengthened list and re-proves every law against the unstrengthened step relation on the flat encoding) is not a line here: the certificate check is a step of the verifier pipeline that the pipeline model names (certificate check, in rtStepNames of Verifier/Pipeline.lean) and does not enter, so no block states what it receives; its soundness is Novel/Certificate.lean (vc_sound). This block fixes the list the check receives."
           "AC6 (a genuine violation stays Violated with the option enabled) follows from lines 2 to 4: every law in every list passes the gate, so the strengthened relation reaches exactly the abstract reachable set over the deposit rows with injection (VER_007_preserves_reach: ReachADInj equals ReachADInjStrs). This is also the paragraph sentence that the option is pure strengthening and can never turn a `Violated` into a `Proven`."
-          "AC7 (the strengthened list reaches the name-coloured encoder of NU-050 as well as the flat one, witnessed by a coloured net whose script differs between the option's two states) is not a line here: E is the list Phase 3 hands to whichever encoder runs, and that the coloured encoder conjoins a coloured place's term as the sum over its colour slots belongs to the NU encoder model (wave W10); the differing script is a test (kind Q)."
+          "AC7 (the strengthened list reaches the name-coloured encoder of NU-050 as well as the flat one, witnessed by a coloured net whose script differs between the option's two states) is not a line here: E is the list Phase 3 hands to whichever encoder runs, and that the coloured encoder conjoins a coloured place's term as the sum over its colour slots is stated by no block, since no block models the script of Route A's coloured encoder; the differing script is a test (kind Q: Rust smt_verifier.rs semiflows_reach_the_coloured_encoder)."
           "'No other phase reads them: the colour-slot bound of [NU-053] is a linear program over the incidence matrix, not a semiflow search.' is kind N, a design fact about another phase: the NU-053 block's model takes the rows and no semiflow list. The rest of the cost paragraph, the 'What auto does not decide' paragraph and the trigger paragraph (one consume-all or reset arc on a busy place loses every basis row whose support touches it) are explanation: the trigger is BasisLostH1 and VER_007_nonvacuous shows it on a net with one consume-all arc. The Implementation notes name the per-language entry points (kind N); the test derivation is AC1 to AC7 on a budgeted work loop, as above."
-  signoff "pending"
+  signoff "2026-11-13 096f0196831dd00a ai"
   statement : SemiflowEnc → Prop :=
     fun E =>
       (∀ rows envs n a0 basis sfs y,
@@ -166,8 +181,12 @@ requirement VER_007
         ((y ∈ basis ∨ y ∈ sfs) ∧ LawGate rows envs n y → LawFits lawRange rows n a0 y →
           y ∈ E .on rows envs n a0 basis sfs)) ∧
       (∀ rows envs n a0 basis sfs,
-        (BasisLostH1 rows n basis → E .auto rows envs n a0 basis sfs = E .on rows envs n a0 basis sfs) ∧
-        (¬ BasisLostH1 rows n basis → E .auto rows envs n a0 basis sfs = E .off rows envs n a0 basis sfs))
+        (E .auto rows envs n a0 basis sfs = E .on rows envs n a0 basis sfs ∨
+          E .auto rows envs n a0 basis sfs = E .off rows envs n a0 basis sfs) ∧
+        (BasisLostH1Fits rows n a0 basis →
+          E .auto rows envs n a0 basis sfs = E .on rows envs n a0 basis sfs) ∧
+        (¬ BasisLostH1 rows n basis →
+          E .auto rows envs n a0 basis sfs = E .off rows envs n a0 basis sfs))
 
 /- The pinned readable form of VER-007: a change to the formula shows up as a diff here. -/
 /--
@@ -184,10 +203,12 @@ fun E =>
           ((y ∈ basis ∨ y ∈ sfs) ∧ LawGate rows envs n y →
             LawFits lawRange rows n a0 y → y ∈ E SemiflowOpt.on rows envs n a0 basis sfs)) ∧
       ∀ (rows : List (Transition × Deposit)) (envs : List PlaceId) (n : ℕ) (a0 : AMarking) (basis sfs : List Weight),
-        (BasisLostH1 rows n basis →
-            E SemiflowOpt.auto rows envs n a0 basis sfs = E SemiflowOpt.on rows envs n a0 basis sfs) ∧
-          (¬BasisLostH1 rows n basis →
-            E SemiflowOpt.auto rows envs n a0 basis sfs = E SemiflowOpt.off rows envs n a0 basis sfs)
+        (E SemiflowOpt.auto rows envs n a0 basis sfs = E SemiflowOpt.on rows envs n a0 basis sfs ∨
+            E SemiflowOpt.auto rows envs n a0 basis sfs = E SemiflowOpt.off rows envs n a0 basis sfs) ∧
+          (BasisLostH1Fits rows n a0 basis →
+              E SemiflowOpt.auto rows envs n a0 basis sfs = E SemiflowOpt.on rows envs n a0 basis sfs) ∧
+            (¬BasisLostH1 rows n basis →
+              E SemiflowOpt.auto rows envs n a0 basis sfs = E SemiflowOpt.off rows envs n a0 basis sfs)
 -/
 #guard_msgs in #print VER_007
 
@@ -197,7 +218,7 @@ fun E =>
 @[evidence holds VER_007]
 theorem VER_007_reference : VER_007 refEnc := by
   refine ⟨fun rows envs n a0 basis sfs y => ?_, fun rows envs n a0 basis sfs y => ?_,
-    fun rows envs n a0 basis sfs => ⟨fun h => ?_, fun h => ?_⟩⟩
+    fun rows envs n a0 basis sfs => ⟨?_, fun h => ?_, fun h => ?_⟩⟩
   · have e : y ∈ refEnc .off rows envs n a0 basis sfs ↔ y ∈ basis ∧ LawGate rows envs n y := by
       simp [refEnc]
     exact ⟨e.mp, fun h _ => e.mpr h⟩
@@ -205,7 +226,10 @@ theorem VER_007_reference : VER_007 refEnc := by
         (y ∈ basis ∨ y ∈ sfs) ∧ LawGate rows envs n y := by
       simp [refEnc, or_and_right]
     exact ⟨e.mp, fun h _ => e.mpr h⟩
-  · simp [refEnc, h]
+  · by_cases h : BasisLostH1 rows n basis
+    · exact Or.inl (by simp [refEnc, h])
+    · exact Or.inr (by simp [refEnc, h])
+  · simp [refEnc, h.lost]
   · simp [refEnc, h]
 
 /-- Every law in every list a VER-007 encoding hands the encoders passed the gate. -/
@@ -219,10 +243,10 @@ theorem VER_007_gate {E : SemiflowEnc} (h : VER_007 E) (md : SemiflowOpt)
   | off => exact ((hoff rows envs n a0 basis sfs y).1 hy).2
   | on => exact ((hon rows envs n a0 basis sfs y).1 hy).2
   | auto =>
-    by_cases hl : BasisLostH1 rows n basis
-    · rw [(hauto rows envs n a0 basis sfs).1 hl] at hy
+    rcases (hauto rows envs n a0 basis sfs).1 with he | he
+    · rw [he] at hy
       exact ((hon rows envs n a0 basis sfs y).1 hy).2
-    · rw [(hauto rows envs n a0 basis sfs).2 hl] at hy
+    · rw [he] at hy
       exact ((hoff rows envs n a0 basis sfs y).1 hy).2
 
 /-! ## The strengthened relation (AC6) -/
@@ -372,6 +396,11 @@ theorem ver007_yUnit_netAll_inc : ∀ tr ∈ (netAll : List (Transition × Depos
 
 theorem ver007_lost_netMix : BasisLostH1 ver007_netMix 4 [yUnit] :=
   ⟨yUnit, by simp, fun h =>
+    absurd (h (tAll, [1]) (by simp [ver007_netMix]) 0 (by decide) (Or.inr (by decide)))
+      (by decide)⟩
+
+theorem ver007_lostFits_netMix : BasisLostH1Fits ver007_netMix 4 ver007_z [yUnit] :=
+  ⟨yUnit, by simp, by decide, fun h =>
     absurd (h (tAll, [1]) (by simp [ver007_netMix]) 0 (by decide) (Or.inr (by decide)))
       (by decide)⟩
 
@@ -669,7 +698,7 @@ lost to H1, yet `yUnit` would reach the encoders. -/
 theorem VER_007_forbids_autoAlways : ¬ VER_007 ver007_encAutoAlways := by
   intro h
   have hl : ¬ BasisLostH1 netEnv 2 [] := by rintro ⟨y, hy, -⟩; simp at hy
-  have he := (h.2.2 netEnv [] 2 ver007_z [] [yUnit]).2 hl
+  have he := (h.2.2 netEnv [] 2 ver007_z [] [yUnit]).2.2 hl
   have hin : yUnit ∈ ver007_encAutoAlways .auto netEnv [] 2 ver007_z [] [yUnit] := by
     simp [ver007_encAutoAlways, refEnc, ver007_yUnit_netEnv]
   rw [he] at hin
@@ -680,7 +709,7 @@ H1, so the semiflow `ver007_y23`, which passes the gate, must reach the encoders
 @[evidence forbids VER_007]
 theorem VER_007_forbids_autoNever : ¬ VER_007 ver007_encAutoNever := by
   intro h
-  have he := (h.2.2 ver007_netMix [] 4 ver007_z [yUnit] [ver007_y23]).1 ver007_lost_netMix
+  have he := (h.2.2 ver007_netMix [] 4 ver007_z [yUnit] [ver007_y23]).2.1 ver007_lostFits_netMix
   have hin : ver007_y23 ∈ ver007_encAutoNever .on ver007_netMix [] 4 ver007_z [yUnit] [ver007_y23] := by
     simp [ver007_encAutoNever, refEnc, ver007_y23_netMix]
   rw [← he] at hin
@@ -693,7 +722,7 @@ encoders. -/
 @[evidence forbids VER_007]
 theorem VER_007_forbids_autoAnyDrop : ¬ VER_007 ver007_encAutoAnyDrop := by
   intro h
-  have he := (h.2.2 netEnv [] 2 ver007_z [ver007_y0] [yUnit]).2 ver007_notLost_netEnv
+  have he := (h.2.2 netEnv [] 2 ver007_z [ver007_y0] [yUnit]).2.2 ver007_notLost_netEnv
   have hin : yUnit ∈ ver007_encAutoAnyDrop .auto netEnv [] 2 ver007_z [ver007_y0] [yUnit] := by
     have hd : ∃ y ∈ [ver007_y0], ¬ LawGate netEnv [] 2 y :=
       ⟨ver007_y0, by simp, ver007_y0_netEnv⟩
@@ -703,5 +732,112 @@ theorem VER_007_forbids_autoAnyDrop : ¬ VER_007 ver007_encAutoAnyDrop := by
   simp only [ver007_encAutoAnyDrop, refEnc, List.mem_filter, List.mem_singleton,
     decide_eq_true_eq] at hin
   exact absurd (congrFun hin.1 1) (by decide)
+
+/-- `2^60` on the cleared place 2 of `ver007_netReset`: a basis row that fails H1 and leaves the
+range. -/
+def ver007_yBig : Weight := fun p => if p = 2 then 1152921504606846976 else 0
+
+theorem ver007_yBig_lost : BasisLostH1 ver007_netReset 3 [ver007_yBig] :=
+  ⟨ver007_yBig, by simp, fun h => absurd
+    (h (ver007_tMoveReset, [1]) (by simp [ver007_netReset]) 2 (by decide) (Or.inl (by decide)))
+    (by decide)⟩
+
+theorem ver007_yBig_notFits : ¬ BasisLostH1Fits ver007_netReset 3 ver007_z [ver007_yBig] := by
+  rintro ⟨y, hy, hf, -⟩
+  simp only [List.mem_singleton] at hy
+  subst hy
+  have := hf.1 2 (by decide)
+  revert this
+  decide
+
+theorem ver007_yBig_gate : ¬ LawGate ver007_netReset [] 3 ver007_yBig := fun h =>
+  absurd (h.h1 (ver007_tMoveReset, [1]) (by simp [ver007_netReset]) 2 (by decide)
+    (Or.inl (by decide))) (by decide)
+
+open Classical in
+/-- An `auto` that, when the only basis rows failing H1 leave the range, hands the basis rows over
+without the gate: neither the option-on list nor the option-off list. -/
+noncomputable def ver007_encAutoUngated : SemiflowEnc :=
+  fun md rows envs n a0 basis sfs =>
+    match md with
+    | .auto => if BasisLostH1Fits rows n a0 basis then refEnc .on rows envs n a0 basis sfs
+        else if BasisLostH1 rows n basis then basis
+        else refEnc .off rows envs n a0 basis sfs
+    | md => refEnc md rows envs n a0 basis sfs
+
+/-- Line 4 forbids an `auto` list that is neither the option-on nor the option-off list: on
+`ver007_netReset` the only basis row `ver007_yBig` fails H1 outside the range, and the ungated
+`auto` hands it to the encoders although it fails the gate (AC6 would break). -/
+@[evidence forbids VER_007]
+theorem VER_007_forbids_autoUngated : ¬ VER_007 ver007_encAutoUngated := by
+  intro h
+  have hin : ver007_yBig ∈ ver007_encAutoUngated .auto ver007_netReset [] 3 ver007_z
+      [ver007_yBig] [] := by
+    simp only [ver007_encAutoUngated, if_neg ver007_yBig_notFits, if_pos ver007_yBig_lost]
+    simp
+  rcases (h.2.2 ver007_netReset [] 3 ver007_z [ver007_yBig] []).1 with he | he <;>
+    rw [he] at hin <;>
+    simp [ver007_encAutoUngated, refEnc, ver007_yBig_gate] at hin
+
+/-- A weight inside the integer range `B` below `n`. -/
+def ver007_InRange (B : Int) (n : Nat) (y : Weight) : Prop := ∀ p, p < n → ((y p).natAbs : Int) ≤ B
+
+open Classical in
+/-- The gate of TypeScript and Java on basis rows outside the range: a row whose weights leave
+the range `B` is dropped for overflow before H1 is checked (TypeScript's safe-integer checks in
+`exactCheckFailure`, `p-invariant-computer.ts`; Java's `int` narrowing in
+`PInvariantComputer.computeChecked`), so `auto` keys on the in-range rows that fail H1. -/
+noncomputable def ver007_encOverflowFirst (B : Int) : SemiflowEnc :=
+  fun md rows envs n _a0 basis sfs =>
+    let ok := fun y => decide (ver007_InRange B n y ∧ LawGate rows envs n y)
+    match md with
+    | .off => basis.filter ok
+    | .on => basis.filter ok ++ sfs.filter ok
+    | .auto =>
+      if ∃ y ∈ basis, ver007_InRange B n y ∧ ¬ ∀ tr ∈ rows, ZeroOnNonlinear y tr.1 n then
+        basis.filter ok ++ sfs.filter ok
+      else basis.filter ok
+
+/-- The statement holds of the overflow-first gate for every range `B` of at least `2^31 − 1`:
+lines 2 and 3 ask only for the laws that fit `2^31 − 1`, and line 4 asks for the union only
+when a basis row inside that range fails H1. -/
+theorem ver007_overflowFirst_meets (B : Int) (hB : lawRange ≤ B) :
+    VER_007 (ver007_encOverflowFirst B) := by
+  have hfit : ∀ rows n a0 y, LawFits lawRange rows n a0 y → ver007_InRange B n y :=
+    fun _ _ _ _ hf p hp => le_trans (hf.1 p hp) hB
+  refine ⟨fun rows envs n a0 basis sfs y => ⟨fun hy => ?_, fun ⟨hb, hg⟩ hf => ?_⟩,
+    fun rows envs n a0 basis sfs y => ⟨fun hy => ?_, fun ⟨hb, hg⟩ hf => ?_⟩,
+    fun rows envs n a0 basis sfs => ⟨?_, fun hl => ?_, fun hl => ?_⟩⟩
+  · simp only [ver007_encOverflowFirst, List.mem_filter, decide_eq_true_eq] at hy
+    exact ⟨hy.1, hy.2.2⟩
+  · simp only [ver007_encOverflowFirst, List.mem_filter, decide_eq_true_eq]
+    exact ⟨hb, hfit _ _ _ _ hf, hg⟩
+  · simp only [ver007_encOverflowFirst, List.mem_append, List.mem_filter,
+      decide_eq_true_eq] at hy
+    rcases hy with hy | hy
+    · exact ⟨Or.inl hy.1, hy.2.2⟩
+    · exact ⟨Or.inr hy.1, hy.2.2⟩
+  · simp only [ver007_encOverflowFirst, List.mem_append, List.mem_filter, decide_eq_true_eq]
+    rcases hb with hb | hb
+    · exact Or.inl ⟨hb, hfit _ _ _ _ hf, hg⟩
+    · exact Or.inr ⟨hb, hfit _ _ _ _ hf, hg⟩
+  · by_cases hc : ∃ y ∈ basis, ver007_InRange B n y ∧ ¬ ∀ tr ∈ rows, ZeroOnNonlinear y tr.1 n
+    · exact Or.inl (by simp only [ver007_encOverflowFirst]; exact if_pos hc)
+    · exact Or.inr (by simp only [ver007_encOverflowFirst]; exact if_neg hc)
+  · obtain ⟨y, hy, hf, hn⟩ := hl
+    simp only [ver007_encOverflowFirst]
+    exact if_pos ⟨y, hy, hfit _ _ _ _ hf, hn⟩
+  · simp only [ver007_encOverflowFirst]
+    exact if_neg fun ⟨y, hy, _, hn⟩ => hl ⟨y, hy, hn⟩
+
+/-- The statement allows the overflow-first gate of TypeScript (safe integers, `2^53 − 1`) and
+of Java (`int`, `2^31 − 1`). Example: on `ver007_netReset` with the basis row `ver007_yBig`
+(`2^60` on the cleared place) both drop the row for overflow and do not union, where Rust
+unions; line 4 leaves that case open, and both lists pass the gate. -/
+@[evidence allows VER_007]
+theorem VER_007_allows_overflowFirst :
+    VER_007 (ver007_encOverflowFirst 9007199254740991) ∧
+      VER_007 (ver007_encOverflowFirst lawRange) :=
+  ⟨ver007_overflowFirst_meets _ (by unfold lawRange; omega), ver007_overflowFirst_meets _ le_rfl⟩
 
 end Libpetri.Spec

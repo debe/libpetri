@@ -1782,12 +1782,18 @@ lean = ["Libpetri/Spec/Req/CORE_063.lean"]
 [[pin]]
 file = "rust/libpetri-py/src/action.rs"
 fn = "require_output"
-lean = ["Libpetri/Spec/Req/CORE_062.lean", "Libpetri/Spec/Req/CORE_063.lean"]
+lean = ["Libpetri/Spec/Req/CORE_062.lean", "Libpetri/Spec/Req/CORE_063.lean", "Libpetri/Spec/Req/MOD_031.lean"]
 
 [[pin]]
 file = "rust/libpetri-py/src/action.rs"
 fn = "resolve_lookup_key"
-lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_061.lean"]
+lean = ["Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_061.lean", "Libpetri/Spec/Req/MOD_031.lean"]
+
+# The binding adapter's correspondence-first lookup (MOD-031 line 6, refResCtx).
+[[pin]]
+file = "rust/libpetri-py/src/action.rs"
+fn = "resolve"
+lean = ["Libpetri/Spec/Req/MOD_031.lean", "Libpetri/Spec/Req/CORE_060.lean", "Libpetri/Spec/Req/CORE_062.lean"]
 
 [[pin]]
 file = "rust/libpetri-py/src/action.rs"
@@ -1916,6 +1922,24 @@ file = "rust/libpetri-core/src/rewriter.rs"
 fn = "merge_transitions"
 lean = ["Libpetri/Reference/ComposeMerge.lean", "Libpetri/Spec/Req/MOD_021.lean", "Libpetri/Spec/Req/MOD_031.lean"]
 
+# The correspondence part of a channel merge: the key-complete merge (MOD-031 line 4,
+# corrMergeVia corrSideFull) with AC9's wholesale drop.
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "merge_local_name_maps"
+lean = ["Libpetri/Spec/Req/MOD_031.lean", "Libpetri/Reference/ComposeMerge.lean"]
+
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "side_map"
+lean = ["Libpetri/Spec/Req/MOD_031.lean"]
+
+# The correspondence of one rewrite pass: chained, keys kept (MOD-031 line 1, CDef.map).
+[[pin]]
+file = "rust/libpetri-core/src/rewriter.rs"
+fn = "build_local_name_map"
+lean = ["Libpetri/Spec/Req/MOD_031.lean"]
+
 [[pin]]
 file = "rust/libpetri-core/src/rewriter.rs"
 fn = "merge_in_pair"
@@ -1941,6 +1965,14 @@ lean = ["Libpetri/Reference/Fuse.lean", "Libpetri/Spec/Req/MOD_061.lean", "Libpe
 file = "rust/libpetri-core/src/subnet_prefixes.rs"
 fn = "instance_prefix_of"
 lean = ["Libpetri/Spec/Req/MOD_040.lean", "Libpetri/Spec/Req/MOD_041.lean"]
+
+# ---- rust/libpetri-debug/src/place_analysis.rs ----
+# The session's listed places: every place an arc or output specification names (MOD-041).
+
+[[pin]]
+file = "rust/libpetri-debug/src/place_analysis.rs"
+fn = "from_net"
+lean = ["Libpetri/Spec/Req/MOD_041.lean"]
 
 # ---- rust/libpetri-debug/src/debug_session_registry.rs ----
 # Debug-session subnet descriptors grouped by instance prefix (MOD-041).

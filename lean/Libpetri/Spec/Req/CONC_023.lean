@@ -16,9 +16,9 @@ fast-path orders that drop, add or reorder transitions, and against two mutant r
 level drained in declaration order (the pre-fix backend that AC4 calls "NOT sufficient") and the
 levels drained from the lowest priority up.
 
-The fast path is exempt from the queues (AC4), not from the order: on it the block asks what
-both outcomes of the open ruling D14 share, every ready transition exactly once and ties of
-priority and stamp in declaration order (`CONC_023_D14_neutral`). The block is then equivalent
+The fast path is exempt from the queues (AC4), not from the order: on it the order is the ready
+transitions in declaration order, whatever their stamps (AC4, ruling D14 (a)), and a backend
+that sorts by stamp there is killed (`CONC_023_mutant_fastOpen_killed`). The block is equivalent
 to [EXEC-002] (`CONC_023_iff_EXEC_002`): the per-level drain is the canonical sort. It adds no
 constraint on the order; it states the queue structure a reader of CONC-023 expects, ties the
 two formulas together so that neither can drift alone, and links them to the backend refinement
@@ -35,7 +35,7 @@ requirement CONC_023
   id "CONC-023"
   title "Priority-Partitioned Ready Queues"
   kind F
-  scope "the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path only what both outcomes of ruling D14 share"
+  scope "the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path the declaration order (ruling D14 (a))"
   source verbatim "spec/05-concurrency.md"
   quote "*Where* the net does not take the all-immediate fast path, the ready order *shall* be the ready transitions grouped by priority level, at most one group per priority level, with the groups in descending order of priority."
         "*Where* the net does not take the all-immediate fast path, the ready order *shall* offer the ready transitions of one priority level in ascending order of stamp."
@@ -43,22 +43,24 @@ requirement CONC_023
         "The ready order *shall* offer ready transitions of one priority level with equal stamps in ascending declaration order, also when they were armed in different cycles and on the all-immediate fast path."
         "Within the same priority, FIFO ordering by enablement time is preserved."
         "Feeding a level's queue in declaration order is NOT sufficient: transitions enabled in different cycles must drain in enablement order even when it disagrees with declaration order, and equal enablement timestamps break by ascending declaration order — the identical order [EXEC-002] AC3/AC4 requires of every backend."
+        "The all-immediate single-priority fast path is exempt: it bypasses the ready queues and fires in declaration order, which [EXEC-002] AC4 requires of every backend alike."
   reading "For every input of a pass, fast path included:"
           "the order holds every ready transition exactly once and no other transition;"
           "two transitions of equal priority and equal stamp come in ascending declaration order;"
           "and off the all-immediate fast path there are groups (a priority and a list of transitions each) such that the order is the groups drained one after the other, the groups' priorities are strictly descending, so each priority level has at most one group, and every transition of a group has the group's priority;"
-          "and within each group a transition with an earlier stamp comes first, and of two with equal stamps the earlier-declared one comes first."
+          "and within each group a transition with an earlier stamp comes first, and of two with equal stamps the earlier-declared one comes first;"
+          "and on the all-immediate fast path the order is the ready transitions in ascending declaration order, whatever their stamps."
   assumes "The model is EXEC-002's ordering function O from the inputs of one pass (ReadyIn: the transitions numbered in declaration order, their priorities, timings and stamps, and which are ready) to the list of ready transitions in the order the pass offers them for firing. A group of the formula is the content of one priority level's ready queue when the pass drains it; the formula does not model the queues, only the order they produce. Ready and stamp are the glossary terms (Armed, Ready, [TIME-010]); which transitions are ready and which reading becomes a stamp are EXEC-002's and TIME-010's inputs, free here."
           "The first quoted sentence is line 3 ('the ready transitions grouped by priority level' together with line 1: each ready transition in exactly one group, nothing else; 'at most one group per priority level, with the groups in descending order of priority' is the strictly descending group priorities). Levels that hold no ready transition need no group. It restates the body sentence 'Transition selection scans priority levels in descending order and picks the first non-empty queue, giving O(L) selection where L is the number of distinct priority levels (typically 1–3).' as far as the order of one pass shows it: 'picks the first non-empty queue' is read as the selection of the next transition, repeated until every queue is drained, not as a pass that offers the highest level only (conc023_topOnly is forbidden by line 1). Re-selection after a firing of the same pass has changed which transitions are ready is the executor's pass model (EXEC-001, EXEC-003), a Phase 2 behaviour line over RefExec, not this block; the test derivation's 'fire in correct priority order' is likewise checked as offer order. The selection cost O(L) is not encoded."
           "The second quoted sentence is line 4, which states it inside one group together with line 2 (equal priority holds inside a group), so that the groups are Sched.lean's LevelBlocks. The third quoted sentence is line 1 and the fourth is line 2, both on every input. 'Also when they were armed in different cycles': the interface has no cycle, the stamp is all a pass reads of the arming, and the firing clock's readings 'never decrease and may repeat' (glossary Firing clock, GlossaryTime ClockReading), so two transitions armed in different cycles can share a stamp, and line 2 then gives declaration order (conc023_Irep_forced)."
-          "AC4's first two sentences (quoted) are line 4 with line 2: within a level, stamp ascending, then declaration order ascending. 'Enablement time' and 'enablement timestamp' are the stamp, and 'enablement order' is stamp order. 'Transitions enabled in different cycles must drain in enablement order even when it disagrees with declaration order' is line 4 on two stamps that differ; on two stamps that are equal although the cycles differ, the clause 'equal enablement timestamps break by ascending declaration order' governs, as the fourth quoted sentence says. Rewording AC4's 'transitions enabled in different cycles' to 'transitions with different stamps' is an editorial edit that waits for the open ruling D20. 'Feeding a level's queue in declaration order is NOT sufficient' is the mutant exec002_tidOrder (each level in declaration order), killed by line 4 (CONC_023_mutant_tid_killed). 'The identical order [EXEC-002] AC3/AC4 requires of every backend' is CONC_023_iff_EXEC_002: the block holds exactly when EXEC-002 holds."
-          "AC4's third sentence, 'The all-immediate single-priority fast path is exempt: it bypasses the ready queues and fires in declaration order, which [EXEC-002] AC4 requires of every backend alike.', is encoded by the premise 'not the all-immediate fast path' on lines 3 and 4 (ReadyIn.FastPath, EXEC-002's condition, which is the condition all three runtimes test), and by lines 1 and 2 on the fast path. Which order the fast path uses when stamps differ is EXEC-002's subject and the open ruling D14's: both outcomes, declaration order and the general sort, satisfy lines 1 and 2 (CONC_023_D14_neutral), and a fast path that offers only the first ready transition, offers transitions that are not ready, or reverses a tie is killed (CONC_023_mutant_generalOnly_killed, CONC_023_forbids_allFast, CONC_023_forbids_revFast)."
+          "AC4's first two sentences (quoted) are line 4 with line 2: within a level, stamp ascending, then declaration order ascending. 'Enablement time' and 'enablement timestamp' are the stamp, and 'enablement order' is stamp order. 'Transitions enabled in different cycles must drain in enablement order even when it disagrees with declaration order' is line 4 on two stamps that differ; on two stamps that are equal although the cycles differ, the clause 'equal enablement timestamps break by ascending declaration order' governs, as the fourth quoted sentence says. Rewording AC4's 'transitions enabled in different cycles' to 'transitions with different stamps' is an editorial edit under ruling D20 (a), not yet made in the markdown. 'Feeding a level's queue in declaration order is NOT sufficient' is the mutant exec002_tidOrder (each level in declaration order), killed by line 4 (CONC_023_mutant_tid_killed). 'The identical order [EXEC-002] AC3/AC4 requires of every backend' is CONC_023_iff_EXEC_002: the block holds exactly when EXEC-002 holds."
+          "AC4's third sentence (quoted) is line 5 together with the premise 'not the all-immediate fast path' on lines 3 and 4. The fast path is ReadyIn.FastPath, EXEC-002's condition (every transition Immediate, all priorities equal), which is the condition all three runtimes test. 'It bypasses the ready queues' is the premise: no groups are asked of the fast path. 'And fires in declaration order' is line 5: the order is the ready list, whatever the stamps, as EXEC-002's fast-path line says (ruling D14 (a): the fast path is accepted as stated). Lines 1 and 2 hold on the fast path as well and there follow from line 5. The runtimes scan the enablement bitmap in ascending declaration index on the fast path: rust/libpetri-runtime/src/precompiled_backend.rs and bitmap_backend.rs (collect_ready_immediate), java/src/main/java/org/libpetri/runtime/PrecompiledNetExecutor.java (fireReadyImmediate), typescript/src/runtime/precompiled-net-executor.ts (fireReadyImmediate). A backend without the fast path that sorts by stamp on every input is killed (CONC_023_mutant_fastOpen_killed: on exec002_Ifs, all Immediate and one priority, transition 1 armed before 0, the sort offers [1, 0] where line 5 asks [0, 1]); a fast path that offers only the first ready transition, offers transitions that are not ready, or reverses a tie is killed as well (CONC_023_mutant_generalOnly_killed, CONC_023_forbids_allFast, CONC_023_forbids_revFast)."
           "AC1 (distinct priority levels precomputed and sorted descending) is a property of the precompiled program's data (the priority-level array built at compile time), kind Q, inspected in the runtimes; its observable consequence is line 3, whose strictly descending group priorities are the sorted distinct levels that hold a ready transition. The body sentence 'Distinct priority values are sorted descending at compile time.' is the same as AC1. 'Each transition maps to a priority index for O(1) ready-queue insertion.' is data layout and cost, kind Q, not encoded."
-          "AC2 (each priority level has a separate FIFO queue) and AC3 (selection is O(L) in the number of distinct priority levels), and the body sentence 'Each priority level has its own FIFO queue.', are structure and cost, not encoded. As written they disagree with AC4 and with the runtimes (clash conc-b#6): a FIFO queue fed from the enablement bitmap gives declaration order, which AC4 calls not sufficient, so Rust and Java sort each level's queue by stamp and declaration order on every pass and TypeScript sorts one buffer. Their rewording waits for the open ruling D20 and is out of this block; lines 2 and 4 state the order the queues must deliver whatever their structure, so until D20 the quoted sentences are the binding ones."
+          "AC2 (each priority level has a separate FIFO queue) and AC3 (selection is O(L) in the number of distinct priority levels), and the body sentence 'Each priority level has its own FIFO queue.', are structure and cost, not encoded. As written they disagree with AC4 and with the runtimes (clash conc-b#6): a FIFO queue fed from the enablement bitmap gives declaration order, which AC4 calls not sufficient, so Rust and Java sort each level's queue by stamp and declaration order on every pass and TypeScript sorts one buffer. Their rewording is an editorial edit under ruling D20 (a), not yet made in the markdown, and is out of this block; lines 2 and 4 state the order the queues must deliver whatever their structure, so until that edit the quoted sentences are the binding ones."
           "The test derivation (three priority levels; priority order across levels, FIFO within each level) is checked by CONC_023_nonvacuous on conc023_I5: priorities 3, 2 and 1, with two transitions of the lowest level armed in the order opposite to their declaration and two with equal stamps."
           "Form: the quoted sentences use 'shall' inside a SHOULD requirement, as IO-016 and TIME-015 do. The SHOULD is the queue structure; the order the sentences state is required of every backend by EXEC-002 (MUST), so 'shall' is true whether or not a backend keeps per-level queues."
-          "Equivalence: line 1 to line 4 together are the same as EXEC-002's three lines (CONC_023_iff_EXEC_002; off the fast path, the order is a permutation of the ready transitions strictly sorted by EXEC-002's canonical key, the hard direction being conc023_blocks_of_sorted). That the precompiled backends compute the drain is Q evidence: collect_ready_general_refines (Sched.lean) shows that a drain of level blocks of the ready set equals the reference's sort, and precompiled_refines_bitmap_immediate (Refinement.lean) covers the immediate fragment."
-  signoff "pending"
+          "Equivalence: line 1 to line 5 together are the same as EXEC-002's four lines (CONC_023_iff_EXEC_002; on the fast path line 5 is EXEC-002's fourth line; off the fast path, the order is a permutation of the ready transitions strictly sorted by EXEC-002's canonical key, the hard direction being conc023_blocks_of_sorted). That the precompiled backends compute the drain is Q evidence: collect_ready_general_refines (Sched.lean) shows that a drain of level blocks of the ready set equals the reference's sort, and precompiled_refines_bitmap_immediate (Refinement.lean) covers the immediate fragment."
+  signoff "2026-11-13 814d35b7abaf7bf8 ai"
   statement : ReadyOrder → Prop :=
     fun O => ∀ I : ReadyIn,
       ((O I).Perm I.readyList ∧
@@ -67,7 +69,8 @@ requirement CONC_023
         O I = blocks.flatMap (·.2) ∧
         ((blocks.map (·.1)).Pairwise (· > ·) ∧ ∀ b ∈ blocks, ∀ a ∈ b.2, I.prio a = b.1) ∧
         (∀ b ∈ blocks, b.2.Pairwise (fun a c =>
-          I.clock a < I.clock c ∨ (I.clock a = I.clock c ∧ a < c))))
+          I.clock a < I.clock c ∨ (I.clock a = I.clock c ∧ a < c)))) ∧
+      (I.FastPath → O I = I.readyList)
 
 /- The pinned readable form of CONC-023: a change to the formula shows up as a diff here. -/
 /--
@@ -76,11 +79,12 @@ fun O =>
   ∀ (I : ReadyIn),
     ((O I).Perm I.readyList ∧ List.Pairwise (fun a c => I.prio a = I.prio c → I.clock a = I.clock c → a < c) (O I)) ∧
       (¬I.FastPath →
-        ∃ blocks,
-          O I = List.flatMap (fun x => x.2) blocks ∧
-            (List.Pairwise (fun x1 x2 => x1 > x2) (List.map (fun x => x.1) blocks) ∧
-                ∀ b ∈ blocks, ∀ a ∈ b.2, I.prio a = b.1) ∧
-              ∀ b ∈ blocks, List.Pairwise (fun a c => I.clock a < I.clock c ∨ I.clock a = I.clock c ∧ a < c) b.2)
+          ∃ blocks,
+            O I = List.flatMap (fun x => x.2) blocks ∧
+              (List.Pairwise (fun x1 x2 => x1 > x2) (List.map (fun x => x.1) blocks) ∧
+                  ∀ b ∈ blocks, ∀ a ∈ b.2, I.prio a = b.1) ∧
+                ∀ b ∈ blocks, List.Pairwise (fun a c => I.clock a < I.clock c ∨ I.clock a = I.clock c ∧ a < c) b.2) ∧
+        (I.FastPath → O I = I.readyList)
 -/
 #guard_msgs in #print CONC_023
 
@@ -170,19 +174,20 @@ theorem conc023_blocks_of_sorted (K : SchedKey) : ∀ (l : List Nat), l.Pairwise
 
 /-- **The block is EXEC-002.** An ordering function satisfies CONC-023 exactly when it satisfies
 EXEC-002: on every input the order holds every ready transition exactly once and breaks ties of
-priority and stamp by declaration order, and off the fast path the drain of the level groups is
-the canonical sort (priority descending, stamp ascending, declaration order ascending). -/
+priority and stamp by declaration order, off the fast path the drain of the level groups is
+the canonical sort (priority descending, stamp ascending, declaration order ascending), and on
+the fast path the order is the declaration order. -/
 theorem CONC_023_iff_EXEC_002 (O : ReadyOrder) : CONC_023 O ↔ EXEC_002 O := by
   constructor
   · intro h I
-    obtain ⟨⟨hp, ht⟩, hg⟩ := h I
-    refine ⟨hp, ht, fun hI => ?_⟩
+    obtain ⟨⟨hp, ht⟩, hg, hf⟩ := h I
+    refine ⟨hp, ht, fun hI => ?_, hf⟩
     obtain ⟨blocks, hfl, hl⟩ := hg hI
     rw [hfl]
     exact levelBlocks_sorted ((conc023_levelBlocks_iff I blocks).2 hl)
   · intro h I
-    obtain ⟨hp, ht, hs⟩ := h I
-    refine ⟨⟨hp, ht⟩, fun hI => ?_⟩
+    obtain ⟨hp, ht, hs, hf⟩ := h I
+    refine ⟨⟨hp, ht⟩, fun hI => ?_, hf⟩
     obtain ⟨blocks, hlb, hfl, -⟩ := conc023_blocks_of_sorted I.key _ (hs hI)
     exact ⟨blocks, hfl.symm, (conc023_levelBlocks_iff I blocks).1 hlb⟩
 
@@ -204,11 +209,6 @@ the ready transitions in declaration order. -/
 @[evidence holds CONC_023]
 theorem CONC_023_reference : CONC_023 refReadyOrder :=
   CONC_023_of_EXEC_002 EXEC_002_reference
-
-/-- The block does not decide D14: the reference (declaration order on the fast path) and the
-general sort on every input (the other outcome) both satisfy it. -/
-theorem CONC_023_D14_neutral : CONC_023 refReadyOrder ∧ CONC_023 exec002_sortOrder :=
-  ⟨CONC_023_reference, CONC_023_of_EXEC_002 EXEC_002_D14_neutral.2⟩
 
 /-! ### Examples -/
 
@@ -261,10 +261,15 @@ theorem conc023_Irep_forced {O : ReadyOrder} (h : CONC_023 O) : O conc023_Irep =
   CONC_023_forced h conc023_Irep_general (by decide) (by decide)
 
 /-- The order CONC-023 forces on EXEC-002's fast-path input `exec002_Ifp` (transition `1` not
-ready), under either outcome of D14: the ready transitions `0` and `2`, tied on priority and
-stamp, in declaration order (lines 1 and 2). -/
+ready): the ready transitions `0` and `2`, tied on priority and stamp, in declaration order
+(already by lines 1 and 2). -/
 theorem conc023_Ifp_forced {O : ReadyOrder} (h : CONC_023 O) : O exec002_Ifp = [0, 2] :=
   exec002_Ifp_forced ((CONC_023_iff_EXEC_002 O).1 h)
+
+/-- The order CONC-023 forces on EXEC-002's fast-path input `exec002_Ifs`, whose stamps differ
+(line 5): declaration order `[0, 1]`, though `1` was armed first. -/
+theorem conc023_Ifs_forced {O : ReadyOrder} (h : CONC_023 O) : O exec002_Ifs = [0, 1] :=
+  exec002_Ifs_forced ((CONC_023_iff_EXEC_002 O).1 h)
 
 /-! ### Violation: a pass that offers the highest level only -/
 
@@ -314,8 +319,8 @@ theorem conc023_generalOnly_of_sort {O : ReadyOrder}
     (conc023_levelBlocks_iff I blocks).1 hlb⟩
 
 /-- The first-only fast path kills the mutant: it satisfies the general-path-only reading, but on
-the fast-path input `exec002_Ifp` it offers `[0]` and drops the ready transition `2`, which both
-outcomes of D14 offer (line 1; AC4, 'it bypasses the ready queues and fires'). -/
+the fast-path input `exec002_Ifp` it offers `[0]` and drops the ready transition `2` (lines 1
+and 5; AC4, 'it bypasses the ready queues and fires'). -/
 @[evidence mutant CONC_023]
 theorem CONC_023_mutant_generalOnly_killed :
     CONC_023_mutant_generalOnly conc023_firstOnly ∧ ¬ CONC_023 conc023_firstOnly := by
@@ -343,11 +348,42 @@ theorem CONC_023_forbids_revFast : ¬ CONC_023 exec002_revFast := by
   simp only [exec002_revFast, if_pos exec002_Ifp_fast] at this
   revert this; decide
 
+/-! ### Mutant: the fast path open beyond lines 1 and 2 -/
+
+/-- Mutant reading of CONC-023 without line 5: on the fast path only lines 1 and 2 hold, so the
+order of two ready transitions with different stamps is left open (the form of this block before
+ruling D14 (a)). Lines 1 to 4 are as in CONC-023. -/
+def CONC_023_mutant_fastOpen (O : ReadyOrder) : Prop :=
+  ∀ I : ReadyIn,
+    ((O I).Perm I.readyList ∧
+      (O I).Pairwise (fun a c => I.prio a = I.prio c → I.clock a = I.clock c → a < c)) ∧
+    (¬ I.FastPath → ∃ blocks : List (Int × List Nat),
+      O I = blocks.flatMap (·.2) ∧
+      ((blocks.map (·.1)).Pairwise (· > ·) ∧ ∀ b ∈ blocks, ∀ a ∈ b.2, I.prio a = b.1) ∧
+      (∀ b ∈ blocks, b.2.Pairwise (fun a c =>
+        I.clock a < I.clock c ∨ (I.clock a = I.clock c ∧ a < c))))
+
+/-- The general sort on every input (a backend without the fast path, which stamp-sorts an
+all-immediate net) kills the mutant: it satisfies the mutant reading, but not CONC-023. On the
+fast-path input `exec002_Ifs` it offers `[1, 0]` by stamp, where AC4 ('fires in declaration
+order') asks `[0, 1]`. -/
+@[evidence mutant CONC_023]
+theorem CONC_023_mutant_fastOpen_killed :
+    CONC_023_mutant_fastOpen exec002_sortOrder ∧ ¬ CONC_023 exec002_sortOrder := by
+  refine ⟨fun I => ⟨⟨(exec002_sortOrder_spec I).1, (exec002_sortOrder_spec I).2.1⟩,
+    fun _ => ?_⟩, fun h => ?_⟩
+  · obtain ⟨blocks, hlb, hfl, -⟩ :=
+      conc023_blocks_of_sorted I.key _ (exec002_sortOrder_spec I).2.2
+    exact ⟨blocks, hfl.symm, (conc023_levelBlocks_iff I blocks).1 hlb⟩
+  · have := conc023_Ifs_forced h
+    rw [exec002_Ifs_sort] at this
+    exact absurd this (by decide)
+
 /-! ### Mutant: each level drained in declaration order ("NOT sufficient") -/
 
 /-- Mutant reading of CONC-023 in which a level's queue is fed and drained in declaration order:
 line 4 orders a group by declaration order only, not by stamp. Lines 1 to 3 are as in
-CONC-023. -/
+CONC-023; line 5 (the fast path) is left out, since the mutant concerns the queues. -/
 def CONC_023_mutant_tid (O : ReadyOrder) : Prop :=
   ∀ I : ReadyIn,
     ((O I).Perm I.readyList ∧
@@ -394,7 +430,7 @@ def conc023_ascOrder : ReadyOrder := fun I => sortBy (conc023_ascKey I).lt I.rea
 
 /-- Mutant reading of CONC-023 in which the scan of the priority levels runs from the lowest
 priority up: line 3 asks for strictly ascending group priorities. Lines 1, 2 and 4 are as in
-CONC-023. -/
+CONC-023; line 5 (the fast path) is left out, since the mutant concerns the queues. -/
 def CONC_023_mutant_asc (O : ReadyOrder) : Prop :=
   ∀ I : ReadyIn,
     ((O I).Perm I.readyList ∧
@@ -451,7 +487,8 @@ and `4`, armed at `2`, come before `0`, armed at `5` though declared first, and 
 equal-priority transitions come in arming order `[1, 0]`, not declaration order (AC4); on
 `conc023_Irep`, armed in different cycles at one repeated reading, in declaration order
 `[0, 1]` (line 2). On the fast-path input `exec002_Ifp` the order leaves out the transition that
-is not ready (line 1) and offers the tied `0` before `2` (line 2). -/
+is not ready (line 1) and offers the tied `0` before `2` (line 2); on the fast-path input
+`exec002_Ifs` it offers `0` before `1`, though `1` was armed first (line 5). -/
 @[evidence nonvacuous CONC_023]
 theorem CONC_023_nonvacuous :
     ¬ conc023_I5.FastPath ∧ refReadyOrder conc023_I5 = [1, 2, 3, 4, 0] ∧
@@ -461,12 +498,15 @@ theorem CONC_023_nonvacuous :
       ¬ exec002_Ia.FastPath ∧ refReadyOrder exec002_Ia = [1, 0] ∧
       ¬ conc023_Irep.FastPath ∧ refReadyOrder conc023_Irep = [0, 1] ∧
       exec002_Ifp.FastPath ∧ exec002_Ifp.readyList = [0, 2] ∧
-      refReadyOrder exec002_Ifp = [0, 2] := by
+      refReadyOrder exec002_Ifp = [0, 2] ∧
+      exec002_Ifs.FastPath ∧ exec002_Ifs.clock 1 < exec002_Ifs.clock 0 ∧
+      refReadyOrder exec002_Ifs = [0, 1] := by
   refine ⟨conc023_I5_general, conc023_I5_forced CONC_023_reference, ?_,
     ⟨by decide, by decide, by decide⟩, by decide, by decide, exec002_Ia_general,
     conc023_Ia_forced CONC_023_reference, conc023_Irep_general,
     conc023_Irep_forced CONC_023_reference, exec002_Ifp_fast, by decide,
-    conc023_Ifp_forced CONC_023_reference⟩
+    conc023_Ifp_forced CONC_023_reference, exec002_Ifs_fast, by decide,
+    conc023_Ifs_forced CONC_023_reference⟩
   rw [conc023_I5_forced CONC_023_reference]
   decide
 

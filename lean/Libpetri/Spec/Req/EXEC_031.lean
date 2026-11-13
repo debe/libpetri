@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Req.EXEC_022
 
 set_option linter.missingDocs true
 
@@ -12,10 +13,10 @@ when its action throws or returns an error ([EXEC-030], the label `ret i false`)
 validation or the join-relay check rejects what it produced ([EXEC-021], [NU-054]); a failed
 firing is settled by a `fail i` step. No rollback has three lines in the model: the fail step puts
 nothing back, neither into the marking nor into the publication queue (line 1); after the error
-return or the fail step, no later step deposits on behalf of the failed firing, neither its
-completion nor a timeout outcome (line 2, a trace line read with `after T, never B` of
-`Ears.lean`); and on a run on which the firing fails, the steps in which its action reports put
-nothing back either (line 3).
+return (taken while the firing is open) or the fail step, no later step deposits on behalf of the
+failed firing, neither its completion nor a timeout outcome (line 2, a trace line read with
+`after T, never B` of `Ears.lean`); and on a run on which the firing fails, the steps in which its
+action reports put nothing back either (line 3).
 
 Lines 2 and 3 read runs from a state in which every firing in flight has an identity the supply
 has already handed out (`IdsIssued`); the initial state has nothing in flight, and the
@@ -39,11 +40,13 @@ def exec031_isFail (i : Nat) : XStep N T → Bool
   | (_, .fail j, _) => j == i
   | _ => false
 
-/-- The step shows that firing `i` failed: its action returned an error (`ret i false`), or the
-fail step of `i` settled it. -/
+/-- The step shows that firing `i` failed: its action returned an error (`ret i false`) while
+firing `i` was open (no outcome recorded, as `exec022_isOpenReturn` reads it), or the fail step
+of `i` settled it. A late error return of an action whose firing already ended, by its budget
+running out, does not fail the firing ([EXEC-022]: a firing that has ended keeps how it ended). -/
 def exec031_isFailed (i : Nat) : XStep N T → Bool
   | (_, .fail j, _) => j == i
-  | (_, .ret j false, _) => j == i
+  | (s, .ret j false, _) => j == i && s.fl.any fun f => f.id == i && f.out.isNone
   | _ => false
 
 /-- The step is a report of firing `i`'s action: a return (`ret`, normal or with an error) or the
@@ -77,10 +80,10 @@ requirement EXEC_031
         "*If* a firing fails, *then* the executor *shall not* later deposit a completion or a timeout outcome of that firing."
   reading "For every executor R, every configuration C and every firing identity i:"
           "a fail step of i leaves the marking and the publication queue unchanged;"
-          "on every run of R that starts in a state in which every firing in flight has an identity the supply has already handed out (so an identity names one firing), no commit step of i and no tdeposit step of i comes after an error return of i's action (ret i false) or after a fail step of i;"
-          "on every such run on which i's action returns an error or i has a fail step, every return step and every expiry step of i leaves the marking and the publication queue unchanged."
+          "on every run of R that starts in a state in which every firing in flight has an identity the supply has already handed out (so an identity names one firing), no commit step of i and no tdeposit step of i comes after an error return of i's action (ret i false) taken while firing i is open (no outcome recorded) or after a fail step of i;"
+          "on every such run on which i's action returns an error while firing i is open or i has a fail step, every return step and every expiry step of i leaves the marking and the publication queue unchanged."
   assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A firing starts in a firing pass; its action reports in a ret step (a normal return, or an error) or an expire step (its budget ran out, with a timeout outcome); a settle step then deposits the outcome (commit, tdeposit) or deposits nothing (fail). The witness is the reference executor RefExec (Reference/Exec.lean)."
-          "The third quoted sentence names three causes of a failure, and the model has the same three. An action error is the label ret i false ([EXEC-030]). A rejection by output validation or by the join-relay check (of a returned emission, of a flushed batch, which marks the firing relayBad, or of a timeout outcome) is decided at the settle, which is then a fail i step. That a rejection is settled by fail i and never by a deposit is EXEC-021's lines 1, 3 and 5 (under C.SetValidated) and NU-054's subject; this block reads the labels and does not restate that classification. The trigger of line 2 is either label, the error return or the fail step."
+          "The third quoted sentence names three causes of a failure, and the model has the same three. An action error is the label ret i false ([EXEC-030]). A rejection by output validation or by the join-relay check (of a returned emission, of a flushed batch, which marks the firing relayBad, or of a timeout outcome) is decided at the settle, which is then a fail i step. That a rejection is settled by fail i and never by a deposit is EXEC-021's lines 1, 3 and 5 (under C.SetValidated) and NU-054's subject; this block reads the labels and does not restate that classification. The trigger of line 2 is either label, the error return or the fail step. The error return counts only while firing i is open: an action whose budget ran out has ended its firing with the timeout outcome, and EXEC-022 lets its late return still be a step, provided it changes neither the marking, the queue, nor how the firing ended (EXEC-022's fourth shall sentence and its line 5). Such a late error return is not a failure of the firing, whose timeout outcome is then deposited; EXEC_031_allows_lateErrorAfterExpiry is that run, on an executor that offers the late return as a step that changes nothing."
           "The first quoted sentence is the block as a whole. The second is the two shall sentences, which the third extends from an action failure to every failure: EXEC-021's third shall sentence says the same of a validation failure. The rationale sentence of the markdown (rollback would need compensation logic and conflicts with asynchronous actions) states no behaviour and is not encoded."
           "The first shall sentence is lines 1 and 3. Line 1: the fail step changes neither the marking nor the publication queue, so the settle puts no consumed token back, neither into a place (EXEC_031_forbids_failRestores) nor as a publication queued for a later publish step (EXEC_031_forbids_failQueues, whose fail step keeps the marking: exec031_failQueues_markingOnly). Line 1 restates EXEC-030's item 2 and EXEC-021's line 2; the restatement is known clash exec#15, kept under ruling D20. It is stronger than 'restores nothing': the fail step also removes nothing, so the tokens the action already published into the marking stay, and the batches it flushed that are still queued stay queued."
           "Line 3: on a run on which firing i fails, the steps in which its action reports (ret i, expire i) change neither the marking nor the publication queue, so no rollback runs when the action reports its error, before the settle (EXEC_031_forbids_restoreAtError; that executor passes lines 1 and 2 on its run: exec031_restoreAtError_onlyLine3). The line reads every report of a failing firing, a normal return too, since a validation failure is known only at the settle. EXEC-021's line 4 says the same of the marking for the ret and write steps of every firing."
@@ -88,7 +91,7 @@ requirement EXEC_031
           "Lines 2 and 3 identify the firing by its identity. Identities are drawn once from one supply (XSt.nextId), the naming convention of the glossary that EXEC-021 also reads, and the premise of both lines says that every firing in flight at the start of the run has an identity the supply has already handed out: true at the start of every run (nothing is in flight) and kept by every reference step (exec031_idsIssued_step). Without it a later start could reuse the identity of a failed firing, and the reference itself would show a commit of i after a fail of i (exec031_needs_idsIssued). An executor that hands out one identity twice is outside the model; that it does not is this naming convention, not a sentence of EXEC-031."
           "AC1 (failed action, consumed tokens permanently removed) is lines 1, 2 and 3 for the steps of the failed firing. The other half of 'permanently', that no step outside the failed firing (a phase step such as endCompletions, update or begin, an injection, the start of another firing) puts the consumed tokens back, is the marking frame of the executor: which steps may change the marking at all. That frame is stated over this model by CONC-001's line 2 (a step that is neither a start nor a deposit leaves the marking as it was), and the steps that do change the marking are pinned by their own blocks: a start by EXEC-003's line 2, an injection by ENV-003's line 2, a commit by EXEC-021's line 1, a timeout deposit by EXEC-022's line 3 and a publication by CONC-003's lines. None of them puts back a token a failed firing consumed, so this block cites that frame and does not restate it. EXEC_031_nonvacuous runs a net whose first firing consumes the token 7 and fails on an action error, and at the finish the token 7 is in no place of the net; its third part fails a firing on output validation (the action returns a token for a place outside its output spec), and that token is never deposited. The test derivation (fire a transition consuming a token, the action fails, the token is in no place) is the first run."
           "The TransitionFailed event of the failure is EXEC-030's and EVT-008's, on the event model of wave W7; host faults that are not action failures are EXEC-030's assumption (R-EXEC-7)."
-  signoff "pending"
+  signoff "2026-11-13 029bfecc80e62997 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C i,
       (on (fun s s' => R C s (.fail i) s'), shall (fun s s' => s'.M = s.M ∧ s'.pq = s.pq)) ∧
@@ -428,8 +431,8 @@ theorem exec031_scan {P : XPol N T} {C : Cfg N T} {i : Nat} :
         | ret j ok =>
           cases ok with
           | false =>
-            simp only [exec031_isFailed, beq_iff_eq] at hfl
-            subst hfl
+            simp only [exec031_isFailed, Bool.and_eq_true, beq_iff_eq] at hfl
+            obtain ⟨rfl, -⟩ := hfl
             exact exec031_banned_errRet hstep hs
           | true => simp [exec031_isFailed] at hfl
         | _ => simp [exec031_isFailed] at hfl
@@ -929,5 +932,45 @@ theorem EXEC_031_nonvacuous :
       simp [hm] at this
     · have := h5 p hp
       simp [hm] at this
+
+/-! ### A late error return after the expiry -/
+
+/-- The step is an error return of firing `i`'s action (`ret i false`), whatever the firing's
+state. -/
+def exec031_isErrRet {N T : Type} (i : Nat) : XStep N T → Bool
+  | (_, .ret j false, _) => j == i
+  | _ => false
+
+/-- The reference, plus a late error return of an action whose firing already ended, offered as
+a step that changes nothing ([EXEC-022]: a late return may still be a step, provided it changes
+neither the marking, the queue, nor how the firing ended). -/
+def exec031_lateRetStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
+    XLbl N T → Option (XSt N T)
+  | .ret i false =>
+    match s.fl.find? (·.id == i) with
+    | some f => if f.out.isSome then some s else xstep C s (.ret i false)
+    | none => xstep C s (.ret i false)
+  | l => xstep C s l
+
+/-- ✓ EXEC-031 allows a late error return after the expiry: on the example of EXEC-022 the
+budget of firing `0` runs out (its timeout outcome forwards `7` and `8` to place `2`), its
+abandoned action then returns an error, as a step that changes nothing, and the timeout outcome
+is deposited. The error return is not taken while the firing is open, so it does not fail the
+firing, and line 2 accepts the run. -/
+@[evidence allows EXEC_031]
+theorem EXEC_031_allows_lateErrorAfterExpiry :
+    ∃ tr, XRun (fun C s l s' => exec031_lateRetStep C s l = some s') exec022_C exec022_s0 tr ∧
+      tr.any (exec031_isErrRet 0) = true ∧ tr.any (exec031_isDeposit 0) = true ∧
+      tr.any (exec031_isFailed 0) = false ∧
+      (after (exec031_isFailed 0), never (exec031_isDeposit 0)) tr := by
+  obtain ⟨tr, hr, hp⟩ := exec031_trace_of_check (g := exec031_lateRetStep) (C := exec022_C)
+    (s := exec022_s0) (ls := exec022_expired ++ [.ret 0 false, .endPass, .tdeposit 0])
+    (p := fun tr => tr.any (exec031_isErrRet 0) && tr.any (exec031_isDeposit 0) &&
+      !tr.any (exec031_isFailed 0) &&
+      (afterNever (exec031_isFailed 0) (exec031_isDeposit 0)).scan false tr)
+    (by decide)
+  simp only [Bool.and_eq_true, Bool.not_eq_true'] at hp
+  obtain ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩ := hp
+  exact ⟨tr, hr, h1, h2, h3, exec031_afterNever_iff.mpr h4⟩
 
 end Libpetri.Spec

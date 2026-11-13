@@ -94,7 +94,7 @@ requirement CONC_021
           "AC3 (firing iterates the opcode array without type dispatch, except for a transition with a match specification, whose inputs are consumed through the match path, its correlated inputs by name) is a cost and structure criterion, kind Q, not a line; its by-name exception is the scope assumption above."
           "AC4 (all five opcodes produce the same observable behaviour as the corresponding arc types) is the three lines: the right-hand sides are the reference arc semantics, and CONC_021_nonvacuous runs one transition with all five opcodes (One, Exactly 2, All, AtLeast 2, two resets), two read arcs and an inhibitor arc. The test derivation (compile a net with all arc types, fire, compare with the bitmap executor) is the same example; over whole runs on the untimed immediate synchronous fragment the comparison is precompiled_refines_bitmap_immediate (Refinement.lean), which cites CONC-021."
           "The Kind line is F, the kind of its one block (ruling D21: one letter); the structure sentences are Q content without a line."
-  signoff "pending"
+  signoff "2026-11-13 90f801704231c404 ai"
   statement : (S : MarkingOps PlaceId Colour) → ConsumeProgram S → Prop :=
     fun S X => ∀ s t, (∀ p, touches t p → S.ok s p) → DistinctInputPlaces t →
       bbCanEnable (S.view s) t = true →

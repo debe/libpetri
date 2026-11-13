@@ -17,54 +17,54 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Reference/Queue.lean"]
     n3335["Libpetri.Reference.QMarking"]
-    n4202["Libpetri.Reference.qEmittedTo"]
+    n4205["Libpetri.Reference.qEmittedTo"]
   end
   subgraph g1["Libpetri/Spec/Glossary.lean"]
-    n6049["Libpetri.Spec.CountMarking"]
-    n8441["Libpetri.Spec.Marked"]
+    n6079["Libpetri.Spec.CountMarking"]
+    n8528["Libpetri.Spec.Marked"]
   end
   subgraph g2["Libpetri/Spec/GlossaryQueue.lean"]
-    n7082["Libpetri.Spec.EmittedTo"]
-    n8442["Libpetri.Spec.MarkingOps"]
-    n8443["Libpetri.Spec.MarkingOps.add"]
-    n8444["Libpetri.Spec.MarkingOps.count"]
-    n8445["Libpetri.Spec.MarkingOps.empty"]
-    n8447["Libpetri.Spec.MarkingOps.ok"]
-    n8449["Libpetri.Spec.MarkingOps.removeFirst"]
-    n8450["Libpetri.Spec.MarkingOps.view"]
-    n8451["Libpetri.Spec.MarkingOps.σ"]
-    n9636["Libpetri.Spec.QueueMarking"]
+    n7138["Libpetri.Spec.EmittedTo"]
+    n8529["Libpetri.Spec.MarkingOps"]
+    n8530["Libpetri.Spec.MarkingOps.add"]
+    n8531["Libpetri.Spec.MarkingOps.count"]
+    n8532["Libpetri.Spec.MarkingOps.empty"]
+    n8534["Libpetri.Spec.MarkingOps.ok"]
+    n8536["Libpetri.Spec.MarkingOps.removeFirst"]
+    n8537["Libpetri.Spec.MarkingOps.view"]
+    n8538["Libpetri.Spec.MarkingOps.σ"]
+    n9757["Libpetri.Spec.QueueMarking"]
   end
   subgraph g3["Libpetri/Spec/Req/CORE_070.lean"]
-    n5758["Libpetri.Spec.CORE_070"]
-    n5759["Libpetri.Spec.CORE_070_adds"]
-    n5760["Libpetri.Spec.CORE_070_derivation"]
+    n5782["Libpetri.Spec.CORE_070"]
+    n5783["Libpetri.Spec.CORE_070_adds"]
+    n5784["Libpetri.Spec.CORE_070_derivation"]
   end
-  n5758 --> n8441
-  n5758 --> n8443
-  n5758 --> n8444
-  n5758 --> n8445
-  n5758 --> n8447
-  n5758 --> n8449
-  n5758 --> n8450
-  n5759 --> n5758
-  n5759 --> n7082
-  n5760 --> n5759
-  n7082 --> n4202
-  n8441 --> n6049
-  n8443 --> n8451
-  n8444 --> n8451
-  n8445 --> n8451
-  n8447 --> n8451
-  n8449 --> n8451
-  n8450 --> n8451
-  n8450 --> n9636
-  n8451 --> n8442
-  n9636 --> n3335
+  n5782 --> n8528
+  n5782 --> n8530
+  n5782 --> n8531
+  n5782 --> n8532
+  n5782 --> n8534
+  n5782 --> n8536
+  n5782 --> n8537
+  n5783 --> n5782
+  n5783 --> n7138
+  n5784 --> n5783
+  n7138 --> n4205
+  n8528 --> n6079
+  n8530 --> n8538
+  n8531 --> n8538
+  n8532 --> n8538
+  n8534 --> n8538
+  n8536 --> n8538
+  n8537 --> n8538
+  n8537 --> n9757
+  n8538 --> n8529
+  n9757 --> n3335
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5760 root
+  class n5784 root
 ```
 
 ### `Libpetri.Spec.CORE_070_ringStore`
@@ -74,13 +74,13 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_070.lean"]
-    n5758["Libpetri.Spec.CORE_070"]
-    n5786["Libpetri.Spec.CORE_070_ringStore"]
-    n13823["Libpetri.Spec.core070_le_max"]
-    n13828["Libpetri.Spec.core070_onePerPlace"]
-    n13829["Libpetri.Spec.core070_onePerPlace_wf"]
-    n13832["Libpetri.Spec.core070_proj_of_cnt_zero"]
-    n13834["Libpetri.Spec.core070_ringMarking"]
+    n5782["Libpetri.Spec.CORE_070"]
+    n5810["Libpetri.Spec.CORE_070_ringStore"]
+    n14028["Libpetri.Spec.core070_le_max"]
+    n14033["Libpetri.Spec.core070_onePerPlace"]
+    n14034["Libpetri.Spec.core070_onePerPlace_wf"]
+    n14037["Libpetri.Spec.core070_proj_of_cnt_zero"]
+    n14039["Libpetri.Spec.core070_ringMarking"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
   c91["📁 Libpetri/Reference/Queue.lean (1 declarations, collapsed)"]
@@ -94,22 +94,22 @@ flowchart TD
   c106 --> c105
   c144 --> c91
   c144 --> c106
-  n5758 --> c132
-  n5758 --> c144
-  n5786 --> n5758
-  n5786 --> n13823
-  n5786 --> n13829
-  n5786 --> n13832
-  n5786 --> n13834
-  n13823 --> c0
-  n13828 --> c105
-  n13829 --> n13828
-  n13832 --> c105
-  n13834 --> c144
+  n5782 --> c132
+  n5782 --> c144
+  n5810 --> n5782
+  n5810 --> n14028
+  n5810 --> n14034
+  n5810 --> n14037
+  n5810 --> n14039
+  n14028 --> c0
+  n14033 --> c105
+  n14034 --> n14033
+  n14037 --> c105
+  n14039 --> c144
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5786 root
+  class n5810 root
   class c0,c91,c105,c106,c108,c132,c144 collapsed
 ```
 

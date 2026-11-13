@@ -18,7 +18,9 @@ naming model `Nm : Naming N`.
   is the marking frame: a firing of a transition named `a/x` leaves every place private to the
   instance under another prefix `b` as it was. Line 3 keeps the slots apart: a definition that a
   compose call adds and that names a private place of its instance still names that place, under
-  its own name, in the built net, so the build merges no private place into another place.
+  its own name, in the built net, so the build merges no private place into another place. It
+  takes the unique-names premise of MOD-020 for the call (transition names are assumed
+  distinct, ruling D23; no builder checks them).
 * `MOD_012_clock` (kind T) adds a timed step relation `R`. A firing of a transition named `a/x`
   leaves every transition named `b/y` whose arc places are all private to `b` enabled as before,
   armed as before and, when armed, with its stamp; a reap of a transition named `a/x`, or a delay,
@@ -774,14 +776,15 @@ requirement MOD_012
   reading "For every naming model Nm, build-script function BS (a script of calls on an enclosing builder gives the composed net build() returns, or a rejection) and firing relation F:"
           "if BS builds the net c from the script ops and the place p is private to the instance under prefix pb in ops (PrivateTo Nm pb ops p: every call of ops leaves p to that instance), then every transition of c that names p (an input, inhibitor, read, reset or output place) has a name pb/x;"
           "if BS builds c from ops, pa and pb are valid and different prefixes, p is private to the instance under pb in ops and t is a transition of c named pa/x, then every firing of t under F leaves the token count of p as it was;"
-          "if BS builds c from ops, p is private to the instance under pb in ops, ops holds the call compose I ports chans, no port binding of that call names p as the instance's port place (I.port of no bound port name is p), and d is a definition of I that names p, then c holds a transition with d's name that names p."
+          "if BS builds c from ops, p is private to the instance under pb in ops, ops holds the call compose I ports chans, no port binding of that call names p as the instance's port place (I.port of no bound port name is p), the definitions of I and the caller-side definitions of the call's channel bindings have pairwise distinct names, and d is a definition of I that names p, then c holds a transition with d's name that names p."
   assumes "Ruling D79 (a): isolation covers private places only. PrivateTo reads privacy off the script of calls, before build, one call at a time (OpLeaves): a hand-added transition does not name the place; a fusion set does not list it; a compose call binds no port to it as the caller place, its caller-side channel definitions do not name it, and an instance definition that names it belongs to an instance under pb, is named pb/x and is bound by no channel; an auto-composition binds no port to it as the caller place, through the interface or by inference (the markdown's sentence on auto-composition: the place is not the unrenamed place of an interface port, and its renamed copy is not a place of the instance, whether or not the inference runs); a directly composed body does not name it. Auto-composition with channels is rejected (MOD-024), so it has no channel clause. These are the sharing paths the runtimes offer: a compose call takes any caller place (rust/libpetri-core/src/petri_net.rs:1050-1069), fusion sets list places of the composed net by name (MOD-060), a channel merge gives the caller's transition the instance transition's arcs (MOD-021), and direct composition is unrenamed (MOD-025). A hand-added transition named pb/x counts as outside the instance."
           "PrivateTo is broader than the markdown definition in two ways, both harmless. It has no membership condition: a place no call names is private to every prefix, which only widens lines 1 and 2 (safety lines), while line 3 asks for a definition of the instance that names the place. And it does not exclude the instance's own bound port places, which a compose call replaces by their caller places (MOD-020 item 2, retired per MOD-027) so that no transition names them after build: lines 1 and 2 hold of them vacuously, and line 3 states the exclusion as its premise. The condition that an instance definition naming the place is named pb/x holds for every instance made by instantiate (MOD-010 AC1); for an abstract Instance it is part of being the instance's transition."
           "A transition of the instance under a is a transition of the flat net whose name has the form a/x (transitions are identified by name, rulings D10 and D23); a channel-merged transition carries the caller's name (MOD-021 clause 5) and belongs to the caller. The prefixes are valid, that is single segments (MOD-010 line 1: instantiate refuses any other), and two valid and different prefixes never give one name (preS_inj), which is what line 2 uses. Two sibling instances nested in one outer instance lie under one valid prefix of the flat net, so line 2 and the clock block say nothing between them there; the markdown sends them to the build of the outer subnet's body, where their prefixes are single segments and both blocks apply. Line 1 does not need the place to be named pb/y: for instances made by instantiate it is (MOD-010 AC1), and another instance's definitions never name it (mod012_inst_leaves)."
+          "Line 3 assumes that the definitions of the call's instance and the caller-side definitions of its channel bindings have pairwise distinct names: the caller obligation MOD-020 takes (mod020_fresh) under the unique-names assumption of rulings D10 and D23, as MOD-024 lines 3 and 4 do. Transition names are assumed distinct (ruling D23) and no builder rejects a subnet body with two transitions of one name, and every runtime stages one call's rewritten instance transitions in a map keyed by name (rust/libpetri-core/src/petri_net.rs apply_composition, staged.insert; java/src/main/java/org/libpetri/core/PetriNet.java:825-828, rewrittenByName.put; typescript/src/core/petri-net.ts:580-583, rewrittenByName.set), so of two body transitions of one name only the later reaches the built net: a body with work: IN -> OUT and work: OTHER -> OUT composed under b yields b/work on b/OTHER alone, and the b/work that named the private b/IN is gone. Rust also stages a channel merge under the caller's name in that map, so a caller-side definition named like an unbound instance definition replaces it. The block claims nothing about such a call, which leaves a builder free to reject it. Composing one instance twice, or two instances under one prefix, is not excluded: every runtime appends the second call's transitions after the first."
           "'Distinct slots in the compiled net's place index' and 'hold disjoint token bags' are line 3 with MOD-010 AC2: the build merges no private place into another place, since a definition of the instance that names its private place still names it, under its own name, in the built net (buildScript_keeps: a compose call adds the definition through its binding, which leaves the place, no channel merges it, and fusion moves only listed places); two instances under different prefixes share no place name (mod010_disjoint), and the place index is keyed by place identity (Novel.Seam.PlaceIndex.idx_inj). Line 3 covers compose(instance, bindings) calls; the definitions an auto-composition adds are bound by inference against the builder's places at the time of the call, which the call alone does not show, so they are not covered here. 'No additional runtime mechanism is required' is the holds theorem: the plain reference firing relation RefFire and the reference build script satisfy all three lines (MOD_012_reference, and mod012_buildScript for every transition check and every channel merge that names only its two sides' places)."
           "'Evolve independently under the executor' is read as non-interference of the marking (line 2), and of enablement and clocks (the companion block MOD_012_clock). The order in which a firing pass picks ready transitions (EXEC-002; ruling D14: the all-immediate fast path is not preserved by composition), actions shared by reference between instances (MOD-010 item 5, MOD-030), a blocking Java action that stalls the whole net, and per-instance ν name pools (NU-030) are not part of this block. Tokens injected through environment places are ENV's (ENV-003)."
           "AC1 (tokens added to instance A's private place do not appear in instance B's corresponding private place): tokens a firing of A's transitions adds are line 2 (MOD_012_nonvacuous fires a/work and leaves b/IN as it was); tokens the caller adds to the initial marking land in one named place, and A's and B's places have different names (MOD-010 AC2) that the build keeps (line 3). AC4 (a fusion with a place of a third instance C leaves each transition of A and B naming its own private place) is line 3 (MOD_012_mutant_noKeep_killed: a fusion keyed by local names also fuses a/IN and b/IN into the caller place). AC2 and AC3 are the companion block MOD_012_clock."
-  signoff "pending"
+  signoff "2026-11-13 17f4a1e737af4dc8 ai"
   statement : ∀ {N A : Type}, Naming N → ScriptFn N A → FireRel N → Prop :=
     fun {N A} Nm BS F =>
       (∀ (ops : List (Op N A)) c pb p, BS ops = .ok c → PrivateTo Nm pb ops p →
@@ -791,6 +794,7 @@ requirement MOD_012
           on (fun m m' => Fire F t.toTrans m m'), shall (fun m m' => m' p = m p)) ∧
       (∀ (ops : List (Op N A)) c pb p I ports chans, BS ops = .ok c → PrivateTo Nm pb ops p →
         Op.compose I ports chans ∈ ops → (∀ e ∈ ports, I.port e.1 ≠ some p) →
+        (I.defs.map (·.core.name) ++ chans.map (·.2.core.name)).Nodup →
         ∀ d ∈ I.defs, p ∈ d.namedPlaces →
           ∃ t ∈ c.trans, t.core.name = d.core.name ∧ p ∈ t.namedPlaces)
 
@@ -814,7 +818,8 @@ fun {N A} Nm BS F =>
           PrivateTo Nm pb ops p →
             Op.compose I ports chans ∈ ops →
               (∀ e ∈ ports, I.port e.1 ≠ some p) →
-                ∀ d ∈ I.defs, p ∈ d.namedPlaces → ∃ t ∈ c.trans, t.core.name = d.core.name ∧ p ∈ t.namedPlaces
+                (List.map (fun x => x.core.name) I.defs ++ List.map (fun x => x.2.core.name) chans).Nodup →
+                  ∀ d ∈ I.defs, p ∈ d.namedPlaces → ∃ t ∈ c.trans, t.core.name = d.core.name ∧ p ∈ t.namedPlaces
 -/
 #guard_msgs in #print MOD_012
 
@@ -837,7 +842,7 @@ requirement MOD_012_clock
           "Line 2 is stated for a net that holds a transition t named pa/x, as the markdown sentence says ('in a net that holds such a transition'); a delay keeping every stamp in any net is TIME-010's own content. Its delay half has its own mutant (MOD_012_clock_mutant_noDelayFrame_killed: a delay that clears every stamp)."
           "The block takes the build's structure as given and states steps only. A build that merged a private place of b into a shared place leaves b's transitions with an arc place that is not private, outside line 1's premise, so this block alone does not reject it; MOD_012 line 3 does (MOD_012_mutant_noKeep_killed). The prefixes are single segments, as the markdown says; sibling instances nested in one outer instance are covered in the build of the outer subnet's body."
           "AC2 (firing a transition in instance A does not affect the enablement of a transition in instance B whose arc places are all private to B) is line 1's first conjunct. AC3 has two parts: firing a transition of A keeps the timing clock of a transition of B whose arc places are all private to B (line 1's second and third conjuncts; MOD_012_clock_nonvacuous fires a/work and b/work keeps its stamp 0), and reaping a transition of A or advancing the clock keeps every timing clock of B (line 2). TIME-011 is cited for the per-instance clocks; its own lines are TIME-011's block. TIME-013 (a reap removes only the reaped transition's stamp) carries the reap half of line 2."
-  signoff "pending"
+  signoff "2026-11-13 21b3d480fd6289fe ai"
   statement : ∀ {N A : Type}, Naming N → ScriptFn N A → TRel N → Prop :=
     fun {N A} Nm BS R =>
       (∀ (ops : List (Op N A)) c tol pa pb, BS ops = .ok c → ValidPrefix pa → ValidPrefix pb →
@@ -906,10 +911,11 @@ def mod012_line2 (Nm : Naming N) (BS : ScriptFn N A) (F : FireRel N) : Prop :=
 
 /-- Line 3 of MOD-012: a compose call's definition that names a private place of `pb`, not bound
 as a port place of that call, gives a transition of the built net with its name that names the
-place. -/
+place, when the call's instance and caller-side definitions have distinct names. -/
 def mod012_line3 (Nm : Naming N) (BS : ScriptFn N A) (_F : FireRel N) : Prop :=
   ∀ (ops : List (Op N A)) c pb p I ports chans, BS ops = .ok c → PrivateTo Nm pb ops p →
     Op.compose I ports chans ∈ ops → (∀ e ∈ ports, I.port e.1 ≠ some p) →
+    (I.defs.map (·.core.name) ++ chans.map (·.2.core.name)).Nodup →
     ∀ d ∈ I.defs, p ∈ d.namedPlaces →
       ∃ t ∈ c.trans, t.core.name = d.core.name ∧ p ∈ t.namedPlaces
 
@@ -960,7 +966,7 @@ transition check and every local channel merge. -/
 theorem mod012_buildScript (Nm : Naming N) (tyOf : N → T) (Build : Trans N → Option String)
     {Mg : MergeFn N A} (hM : MergeLocal Mg) : MOD_012 Nm (buildScript Nm tyOf Build Mg) RefFire := by
   refine ⟨fun ops c pb p h hp => buildScript_local hM h hp, ?_,
-    fun ops c pb p I ports chans h hp hmem hport d hd hpd =>
+    fun ops c pb p I ports chans h hp hmem hport _ d hd hpd =>
       buildScript_keeps hM h hp hmem hport hd hpd⟩
   intro ops c pa pb p h va vb hne hp t ht hta m m' ⟨d, hf⟩
   have hn : p ∉ t.namedPlaces := fun hpt =>
@@ -1029,7 +1035,7 @@ theorem mod012_inst_leaves {Nm : Naming N} {Inst : InstFn N A} (h : MOD_010 Nm I
   intro d hd hp
   have va := mod010_ok_valid h.1 hI
   have hmem : d.toTransDef ∈ S.defs.map (fun d => d.toTransDef.map (Nm.pre pa) (preS pa)) := by
-    rw [← (h.2.2.2 S pa I hI).2]
+    rw [← (h.2.2.1 S pa I hI).2]
     exact List.mem_map_of_mem hd
   obtain ⟨d₀, -, he⟩ := List.mem_map.1 hmem
   have hp' : Nm.pre pb y ∈ d.toTransDef.namedPlaces := hp
@@ -1185,11 +1191,13 @@ theorem MOD_012_nonvacuous :
       (∃ m', RefFire (mod012T "a").toTrans mod012M0 ["a/OUT"] m' ∧ m' "a/IN" = 0 ∧
         m' "b/IN" = mod012M0 "b/IN") ∧
       Op.compose (mod012Inst "b") [] [] ∈ mod012Ops ∧
+      ((mod012Inst "b").defs.map (·.core.name) ++
+        ([] : List (String × CDef String Unit)).map (·.2.core.name)).Nodup ∧
       (∃ d ∈ (mod012Inst "b").defs, "b/IN" ∈ d.namedPlaces ∧ d.core.name = "b/work") ∧
       ∃ t ∈ c.trans, t.core.name = "b/work" ∧ "b/IN" ∈ t.namedPlaces := by
   obtain ⟨c, hc, hct⟩ := mod012_built
   refine ⟨c, hc, by rw [hct]; simp, mod012_private,
-    ⟨mod012M1, mod012_fires, by decide, by decide⟩, by simp [mod012Ops], ?_,
+    ⟨mod012M1, mod012_fires, by decide, by decide⟩, by simp [mod012Ops], by decide, ?_,
     ⟨mod012T "b", by rw [hct]; simp, rfl, by decide⟩⟩
   simp only [mod012Inst, renamedInstance, mod012Body, List.map_cons, List.map_nil,
     List.mem_singleton, exists_eq_left]
@@ -1533,7 +1541,8 @@ theorem MOD_012_mutant_noKeep_killed :
       exact ⟨by decide, rfl⟩
     obtain ⟨d, hdm, hpd, hdn⟩ := hd
     obtain ⟨t, ht, htn, hpt⟩ := h.2.2 mod012FuseOps c "a" "a/IN" (mod012Inst "a") [] [] hc
-      mod012_fuse_private_aIN (by simp [mod012FuseOps]) (fun _ h => nomatch h) d hdm hpd
+      mod012_fuse_private_aIN (by simp [mod012FuseOps]) (fun _ h => nomatch h) (by decide) d hdm
+      hpd
     have hmem := List.mem_map_of_mem (f := fun t : TransDef String Unit =>
       (t.core.name, t.namedPlaces)) ht
     rw [hb, htn, hdn] at hmem

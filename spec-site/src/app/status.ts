@@ -4,7 +4,7 @@
  *
  * Owner: skeleton (core). Views import; changes go through the integrator.
  */
-import type { Defect, EvidenceRole, ReqId, Runtime } from '../model.js';
+import type { Defect, DefectStatus, EvidenceRole, ReqId, Runtime } from '../model.js';
 import type { AppContext } from './context.js';
 
 /** Colour family of a status: a CSS token pair `--<tone>` / `--<tone>-bg`. */
@@ -77,6 +77,12 @@ export const TEST_META: { readonly [S in TestState['state']]: StatusMeta } = {
 
 /** The honesty sentence shown under every test status (design 3.4). */
 export const TESTED_MEANS = 'Tested means a test file cites the ID. It is a reference, not a proof of coverage.';
+
+/** `open`, `fixed in 12.0.1` or `fixed, unreleased`. */
+export function defectStatusWord(status: DefectStatus): string {
+  if (status.state === 'open') return 'open';
+  return status.version === null ? 'fixed, unreleased' : `fixed in ${status.version}`;
+}
 
 export function openDefects(ctx: AppContext, id: ReqId, runtime?: Runtime): readonly Defect[] {
   return (ctx.index.defectsByReq.get(id) ?? []).filter(

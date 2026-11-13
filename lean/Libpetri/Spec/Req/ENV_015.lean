@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Req.EXEC_040
 
 set_option linter.missingDocs true
 
@@ -16,9 +17,11 @@ The executor enters the stopped mode only by `terminateNow` and never leaves it;
 keeps the marking and the phase, drops the queued events and ends a wait; a stopped executor
 accepts no injection request, injects no event, processes no outcome of a firing other than a
 synchronous one inside the firing pass, takes no step of its loop at the start of a cycle other
-than ending the run, deposits no publication outside a step 1b under way, and does not end the
-firing pass with transitions left in its order; the run it ends at the start of a cycle keeps its
-marking and drops the queued events.
+than ending the run, deposits no publication outside a step 1b under way, does not end the
+firing pass with transitions left in its order, and at a termination test with nothing in flight
+takes no step but ending the run; a stopped run, whatever reason it reports, ends at the start of a
+cycle or at a termination test with nothing in flight, keeps its marking and drops the queued
+events.
 
 That the end of the run is offered at once, firings in flight or not, is coverage:
 `Env015Covers` below is the conjunct for the consistency theorem's `ExecCoversW5`
@@ -40,12 +43,13 @@ requirement ENV_015
   quote "An implementation MAY provide an immediate-termination operation (`terminateNow()`) that stops the orchestrator loop **without** waiting for in-flight actions, unlike `close()` ([ENV-013]) which lets them complete."
         "New `inject()` calls are rejected (return error / false), as after [ENV-013]."
         "Queued external events are discarded (completed with false)."
-        "The loop stops at the end of its current cycle; it does NOT wait for in-flight actions, and their results are discarded rather than admitted to the marking."
+        "The loop stops at the end of its current cycle, or at the termination test of that cycle ([EXEC-040]) if it finds no action in flight there; it does NOT wait for in-flight actions, and their results are discarded rather than admitted to the marking."
         "In-flight actions keep running where the runtime cannot cancel them ([IO-013]); their consumed tokens are lost ([EXEC-031])."
         "It is an explicit escape hatch and MUST NOT be invoked implicitly by `close()`."
         "The executor is **stopped** from the moment `terminateNow()` takes effect."
         "The call takes effect between two steps of the loop ([EXEC-001]): a call that lands while a step is under way takes effect when that step ends."
         "The current cycle is the one under way when the call takes effect; it ends where the next cycle would start, before its step 1."
+        "If the termination test of the current cycle ([EXEC-040]) finds no action in flight, the run ends there, as a closed run does ([ENV-013]), and the firing pass of that cycle does not run."
         "A request that lands before the call takes effect may still be accepted; its event is then discarded, and its admission completes with `false` ([ENV-004])."
         "*When* `terminateNow()` takes effect, the executor *shall* become stopped, *shall* discard every external event still queued ([ENV-004]) and *shall* end a wait under way in step 6 ([CONC-010])."
         "*When* `terminateNow()` takes effect, the executor *shall not* change the marking and *shall not* move its loop to another step: the tokens that the firings in flight consumed stay consumed ([EXEC-031]), and the current cycle goes on."
@@ -55,7 +59,8 @@ requirement ENV_015
         "*While* the executor is stopped, it *shall not* process the outcome of a firing, except in the firing pass of the current cycle, for a synchronous action that pass waits for ([EXEC-001])."
         "*While* the executor is stopped and its loop is at the start of a cycle, it *shall not* take any step of the loop other than ending the run (answering a snapshot request ([ENV-014]) is not a step of the loop)."
         "*When* the executor is stopped and its loop reaches the start of a cycle, it *shall* end the run without waiting for the actions still in flight."
-        "*When* the executor ends a run because it is stopped, it *shall* end it at the start of a cycle, *shall* return the marking it holds at that point without restoring the tokens that the firings in flight consumed, and *shall* discard every external event still queued ([ENV-004])."
+        "*When* a stopped executor ends its run, it *shall* return the marking it holds at that point without restoring the tokens that the firings in flight consumed, and *shall* discard every external event still queued ([ENV-004]); unless a terminal place is marked ([EXEC-042]), it *shall* end the run only at the start of a cycle or at a termination test ([EXEC-040]) that finds no action in flight."
+        "*While* the executor is stopped, no terminal place is marked and no action is in flight, it *shall* take no step at a termination test ([EXEC-040]) other than ending its run."
         "*While* the executor is stopped, it *shall not* deposit a batch that an action published mid-action ([IO-015]), except to finish a step 1b that was under way when the call took effect."
         "*While* the executor is stopped, it *shall not* end the firing pass of the current cycle while transitions remain in its ready order: the pass still starts each of them that it can start ([EXEC-002], [TIME-014])."
         "Which termination reason the run reports is [EXEC-041]'s."
@@ -68,29 +73,31 @@ requirement ENV_015
           "while the state is stopped, R takes no inject step;"
           "while the state is stopped, R takes no commit, fail or tdeposit step of a firing i, unless the phase is the firing pass and a synchronous firing with identity i is in flight;"
           "while the state is stopped and its phase is completions (the start of a cycle), R takes no executor step other than a finish, except an answer to a snapshot request;"
-          "a finish stopped step starts in phase completions, leaves the marking unchanged and empties the queue of external events;"
+          "a finish step from a stopped state, whatever its cause, leaves the marking unchanged and empties the queue of external events, and, when no terminal place is marked, starts in phase completions (the start of a cycle) or at the termination test with no firing in flight;"
           "while the state is stopped and its phase is not publications (step 1b), R takes no publish step;"
-          "an endPass step from a stopped state starts with an empty ready order."
-  assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A call of terminateNow() is the outside step terminateNow, and 'the executor is stopped' is the lifecycle mode Mode.stopped (ruling D47 (c)). The witness is the reference executor RefExec (Reference/Exec.lean): terminateStep sets the mode stopped, keeps the phase, empties the event queue (Java completes the queued events with false inside terminateNow) and clears the parked flag, which ends the wait; settleOk refuses step 1 and the wait once stopped and lets the pass settle only a synchronous firing, publishStep refuses a stopped wait, endPass needs an empty order, endCompletions refuses a stopped state, and finish stopped is offered at phase completions."
-          "Naming: 'takes effect' is the terminateNow step, which sits between two steps of the loop. Java sets its flags at the call and reads stopRequested at the top of its loop (BitmapNetExecutor.executeLoop), so a call that lands during step 1 lets Java finish that step and the rest of the cycle; the model reads such a call as taking effect at the end of the step under way. A request that lands between the call and that point is, in the model, accepted and then dropped by the terminateNow step, which the quoted sentence 'A request that lands before the call takes effect may still be accepted; ...' allows: Java refuses it at once, and the caller learns false either way (ENV-004 reads the terminateNow step as the false answer of every ticket it drops). 'The start of a cycle' is the phase completions (EXEC-001 step 1, entered by endPass after a pass that started a transition, by wake, or by a settle in the wait); the current cycle ends where the next would start. 'The firing pass of the current cycle' is the phase pass: once stopped, line 7 lets no later cycle get past its start, so the only pass a stopped executor is in is the current cycle's. 'A synchronous action that pass waits for' is a firing in flight whose sync flag is set (the pass waits for it, passFree). 'Move its loop to another step' is a change of phase; 'end a wait under way' is clearing the parked flag. 'Step 1b' is the phase publications. 'Process the outcome of a firing' is a settle step (commit, fail, tdeposit, EXEC-020, EXEC-030, EXEC-022). 'Ends a run because it is stopped' is finish stopped. 'Ending the run' in line 7 is any finish: the quoted reason sentence leaves the reason to EXEC-041 (ruling D53 (c): closed and quiescent also conform after an immediate termination), and a terminal place stops the run from any phase (EXEC-042)."
+          "an endPass step from a stopped state starts with an empty ready order;"
+          "while the state is stopped, no terminal place is marked, its phase is the termination test and no firing is in flight, R takes no executor step other than a finish, except an answer to a snapshot request."
+  assumes "The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A call of terminateNow() is the outside step terminateNow, and 'the executor is stopped' is the lifecycle mode Mode.stopped (ruling D47 (c)). The witness is the reference executor RefExec (Reference/Exec.lean): terminateStep sets the mode stopped, keeps the phase, empties the event queue (Java completes the queued events with false inside terminateNow) and clears the parked flag, which ends the wait; settleOk refuses step 1 and the wait once stopped and lets the pass settle only a synchronous firing, publishStep refuses a stopped wait, endPass needs an empty order, endCompletions refuses a stopped state, finish stopped is offered at phase completions, and at the termination test a stopped state with nothing in flight is refused begin (the rule refuses a closing mode with nothing in flight) and offered finish closed (and finish quiescent at rest)."
+          "Naming: 'takes effect' is the terminateNow step, which sits between two steps of the loop. Java sets its flags at the call and reads stopRequested at the top of its loop (BitmapNetExecutor.executeLoop), so a call that lands during step 1 lets Java finish that step and the rest of the cycle; the model reads such a call as taking effect at the end of the step under way. A request that lands between the call and that point is, in the model, accepted and then dropped by the terminateNow step, which the quoted sentence 'A request that lands before the call takes effect may still be accepted; ...' allows: Java refuses it at once, and the caller learns false either way (ENV-004 reads the terminateNow step as the false answer of every ticket it drops). 'The start of a cycle' is the phase completions (EXEC-001 step 1, entered by endPass after a pass that started a transition, by wake, or by a settle in the wait); the current cycle ends where the next would start. 'The firing pass of the current cycle' is the phase pass: once stopped, line 7 lets no later cycle get past its start, so the only pass a stopped executor is in is the current cycle's. 'A synchronous action that pass waits for' is a firing in flight whose sync flag is set (the pass waits for it, passFree). 'Move its loop to another step' is a change of phase; 'end a wait under way' is clearing the parked flag. 'Step 1b' is the phase publications. 'Process the outcome of a firing' is a settle step (commit, fail, tdeposit, EXEC-020, EXEC-030, EXEC-022). 'A stopped executor ends its run' is a finish step from a stopped state, whatever cause it reports, and 'ending the run' in lines 7 and 11 is any finish: the quoted reason sentence leaves the reason to EXEC-041 (ruling D53 (c): closed and quiescent also conform after an immediate termination), so line 8 binds where and how a stopped run ends, not which label it reports. That a finish stopped needs the stopped mode is EXEC-041's line 7. A terminal place stops the run from any phase (EXEC-042), which is why the phase part of line 8 and line 11 read 'no terminal place is marked' as Live C s."
           "Lines 1 and 2 are the shall sentence 'The executor shall become stopped only when terminateNow() takes effect, and once stopped it shall stay stopped; close() shall not stop it' and 'It is an explicit escape hatch and MUST NOT be invoked implicitly by close()'. They pin what EXEC-041's lines 6 and 7 read as 'an immediate termination was requested': the mode of the source state. A close that terminates immediately breaks line 1 (ENV_015_forbids_closeAsStop); a close after the stop that reopens a lifecycle that admits completions breaks line 2 (ENV_015_forbids_closeAfterStop; Java's close() after terminateNow() only sets flags that are already set). That a close itself changes only the mode to closed is ENV-013's line 1."
           "Line 3 is the two shall sentences on the moment terminateNow() takes effect, item 2 ('Queued external events are discarded') and item 4's 'their consumed tokens are lost'. A stop written as a close, which waits for the actions in flight and admits their completions, breaks it (ENV_015_forbids_terminateAsClose), and so does a stop that puts back the tokens the firings in flight consumed (ENV_015_forbids_rollbackAtTerminate). The phase conjunct is 'shall not move its loop to another step' and item 3's 'The loop stops at the end of its current cycle': a stop that ends the run at the call (Java's terminateNow() completing the run future itself) breaks it (ENV_015_forbids_endsAtCall), and so would a stop that jumps to the start of the next cycle. The queue conjunct is 'shall discard every external event still queued': a stop that keeps the queue and drops it later, in step 2 or at the finish, breaks it (ENV_015_forbids_queueKeptAtStop). The parked conjunct is 'shall end a wait under way in step 6': a stop that leaves a parked loop parked breaks it (ENV_015_forbids_stopKeepsWait). A second terminateNow() of a stopped executor is no step of the reference (Java's second call sets flags already set); line 3 does not need it."
           "Line 4 is item 1 and the shall sentence on inject(): a stopped executor answers refused (false) or error, never accepted (ENV_015_forbids_acceptWhileStopped). That a refused request changes nothing is ENV-006's. AC3's 'does not hang' is coverage: the third clause of Env015Covers (a request to a stopped executor is answered), which the reference meets (env015_ref_covers)."
           "Line 5 is item 2 and the shall sentence on injection: no queued event reaches the marking once the executor is stopped. An executor that keeps the queue at the stop and injects what was sent before it (the Rust reading of a close, ENV-013, carried over to the stop) breaks it (ENV_015_forbids_injectWhileStopped). The reference drops the queue at the stop, and line 8 drops what is left at the finish; the admission signal of every dropped event completes with false (ENV-004)."
           "Line 6 is item 3's 'their results are discarded rather than admitted to the marking' and its shall sentence: once stopped, no outcome is processed in step 1 or in the wait (EXEC-001), so a late return is never committed or failed. The firing pass of the current cycle is part of that cycle: a synchronous action it waits for still completes inside it (Java runs it inline on the orchestrator thread and deposits its output there; the Java test that calls terminateNow() from inside an action), and ENV_015_nonvacuous commits such a firing in a stopped pass. The exemption is the synchronous firing only: an asynchronous firing whose outcome is queued when the pass is under way is not settled there (settleOk), so an executor that admits a late completion in the wait (ENV_015_forbids_lateAdmit) or that commits an asynchronous firing's queued outcome in a stopped pass (ENV_015_forbids_asyncInPass) breaks the line."
           "Line 7 is item 3's 'The loop stops at the end of its current cycle' and its shall sentence: at the start of a cycle a stopped executor ends the run and goes no further. An executor that runs on into another cycle once stopped breaks it (ENV_015_forbids_goesOn). Answers to a snapshot request are exempt, as the sentence's parenthesis and EXEC-041's naming say: a snapshot answer reads the state and is not a step of the loop, and what it answers is ENV-014's (the reference offers none at phase completions)."
-          "The shall sentence 'When the executor is stopped and its loop reaches the start of a cycle, it shall end the run without waiting for the actions still in flight' and item 3's 'it does NOT wait for in-flight actions' say that the end of the run is offered at once, firings in flight or not (AC1). That is coverage, which a safety line cannot state: Env015Covers below is the conjunct for the consistency theorem, a clause of ExecCoversW5 (ConsistencyExec.lean) (finish stopped offered at a live stopped start of a cycle, wake offered in a live stopped wait, a request answered). An executor whose stop waits for every action in flight to return (env015_wait, the stop written in the shape of a close) meets every line (env015_wait_meets) and fails the conjunct (env015_wait_not_covered). The wait the stop ends: line 3 clears the parked flag, and the second clause offers the wake; the reference still offers a park after the stop (parkStep has no mode guard), which with the wake that follows is a stutter, and 'does not wait' rests on the wake being offered."
-          "Line 8 is the last shall sentence: finish stopped happens at the start of a cycle, not in the middle of one (ENV_015_forbids_stopMidCycle), keeps the marking, so the tokens the abandoned firings consumed stay consumed (ENV_015_forbids_rollbackOnStop; EXEC-041 line 1 also keeps the marking at every finish), and drops the queued events (ENV_015_forbids_keepQueued: an executor that keeps them queued past the end never answers them)."
+          "The shall sentence 'When the executor is stopped and its loop reaches the start of a cycle, it shall end the run without waiting for the actions still in flight' and item 3's 'it does NOT wait for in-flight actions' say that the end of the run is offered at once, firings in flight or not (AC1). That is coverage, which a safety line cannot state: Env015Covers below is the conjunct for the consistency theorem, a clause of ExecCoversW5 (ConsistencyExec.lean) (finish stopped offered at a live stopped start of a cycle, wake offered in a live stopped wait, a request answered, some finish offered at a live stopped termination test with nothing in flight). An executor whose stop waits for every action in flight to return (env015_wait, the stop written in the shape of a close) meets every line (env015_wait_meets) and fails the conjunct (env015_wait_not_covered). The wait the stop ends: line 3 clears the parked flag, and the second clause offers the wake; the reference still offers a park after the stop (parkStep has no mode guard), which with the wake that follows is a stutter, and 'does not wait' rests on the wake being offered."
+          "Line 8 is the shall sentence 'When a stopped executor ends its run, ...' with item 3's 'The loop stops at the end of its current cycle, or at the termination test of that cycle ([EXEC-040]) if it finds no action in flight there': every finish of a stopped state, whatever its cause, keeps the marking, so the tokens the abandoned firings consumed stay consumed (ENV_015_forbids_rollbackOnStop; EXEC-041 line 1 also keeps the marking at every finish), drops the queued events (ENV_015_forbids_keepQueued: an executor that keeps them queued past the end never answers them), and, with no terminal place marked, happens at the start of a cycle or at a termination test with nothing in flight, never in the middle of a cycle (ENV_015_forbids_stopMidCycle: finish stopped inside the pass; ENV_015_forbids_stopClosedMidCycle: a stopped executor that ends the run inside the pass reporting closed, which EXEC-041 allows as a reason, with t at the head of the order and 7 still in place 0, the broken-off pass of line 10 under another label). The termination test is the second place because Java and the reference end there: Java's terminateNow() sets the closed flag (BitmapNetExecutor.terminateNow), and shouldTerminate() is true for a closed executor with nothing in flight, so a call that takes effect in steps 1 to 4 of a cycle with nothing in flight ends the run at that cycle's termination test, its firing pass not run, reporting QUIESCENT or CLOSED; the reference's finish closed reads the closing mode, which a stopped state has, and its begin refuses a closing state with nothing in flight. Starting the ready transitions there would only consume tokens for actions whose results the stop discards. ENV_015_nonvacuous ends a stopped run at such a test with 7 still in place 0."
           "Item 4's 'In-flight actions keep running where the runtime cannot cancel them ([IO-013])': no line requires the firings in flight to stay in the list of firings, since a runtime that can cancel an action may; the reference keeps them (finish stopped keeps fl), and their outside steps go on after the finish (ENV_015_nonvacuous returns t's action after the finish). That nothing such a late result does changes the returned marking is EXEC-041's lines 2 and 3; whether the action is stopped is IO-013's."
           "Termination reason: the reference reports stopped. Java reports CLOSED after terminateNow(), because terminateNow() also sets the closed flag, and the reason chain in executeLoop's finally reads closed before STOPPED; EXEC-041 allows closed after an immediate termination. Java's CLOSED with an action still in flight matches no reference finish closed (which needs nothing in flight); that is the reason's question (EXEC-041, ENV-013), not this block's: the sentence 'Which termination reason the run reports is [EXEC-041]'s.' says so."
           "Line 9 is the shall sentence on mid-action publications (IO-015, step 1b) and the sentence 'the executor never deposits its result': once stopped, no flushed batch lands in the wait or anywhere outside step 1b. A step 1b under way when the call took effect still finishes (the call takes effect when that step ends), which the reference allows at phase publications; a stopped executor reaches that phase only that way, since line 7 holds it at the start of a cycle. A Rust or Python wait whose flush arm deposits unconditionally, given a stop flag read at the top of the loop as Java reads it, breaks the line (ENV_015_forbids_publishWhileStopped: the batch t flushed lands on the wake the stop caused, and the run ends stopped with 70 in place 1). Publications are a Rust and Python feature, and only Java has terminateNow(); the line binds a runtime that has both."
           "Line 10 is the shall sentence on the firing pass of the current cycle: the stop does not cut the pass short, so the transitions left in its ready order are still offered, each started or lost as EXEC-002 and TIME-014 say (whether a head can start is theirs). An executor whose pass breaks off at the stop (an early exit in Java's fireReadyTransitions or the TypeScript firing loop) breaks it (ENV_015_forbids_passBreaksOff: stopped with t at the head of the order, the pass ends without starting t, and the run then ends with 7 still in place 0). ENV_015_nonvacuous starts t in a stopped pass."
-          "Scope: the Status is Proposed and the operation is a MAY. Rust, TypeScript and Python take no terminateNow step, so lines 3 to 8 say nothing about them, and line 1 holds of them (no step stops them)."
-          "AC1 (terminateNow() stops the loop without awaiting an outstanding in-flight action) is lines 3, 6, 7 and 8 with the coverage conjunct; ENV_015_nonvacuous takes terminateNow with t's action in flight, offers no endCompletions at the next start of a cycle and finishes stopped with t still in flight."
+          "Line 11 is the shall sentence 'While the executor is stopped, no terminal place is marked and no action is in flight, it shall take no step at a termination test ([EXEC-040]) other than ending its run' and the sentence 'If the termination test of the current cycle ([EXEC-040]) finds no action in flight, the run ends there, ...': it is ENV-013's line 8 for the stopped mode, and lines 10 and 11 together fix when a stopped cycle runs its pass (only when an action is in flight at its test, or when the stop took effect in the pass). An executor that runs the pass of a stopped cycle with nothing in flight (ENV_015_forbids_stopRunsPass: the begin rule reading only the closed mode, so t starts after the stop and its consumed 7 is lost) breaks it. Answers to a snapshot request are exempt as in line 7. That a finish is in fact offered at such a test is coverage, not a line: the fourth clause of Env015Covers (some finish offered at a live stopped termination test with nothing in flight), which the reference meets with finish closed (env015_ref_covers, ENV_015_nonvacuous); an executor that offers no step there passes this line and fails that clause."
+          "Scope: the Status is Proposed and the operation is a MAY. Rust, TypeScript and Python take no terminateNow step, so lines 3 to 11 say nothing about them, and line 1 holds of them (no step stops them)."
+          "AC1 (terminateNow() stops the loop without awaiting an outstanding in-flight action) is lines 3, 6, 7, 8 and 11 with the coverage conjunct; ENV_015_nonvacuous takes terminateNow with t's action in flight, offers no endCompletions at the next start of a cycle and finishes stopped with t still in flight."
           "AC2 (the in-flight action's eventual output is not admitted to the marking) is lines 6 and 9, with EXEC-041's lines 2 and 3 after the finish; ENV_015_nonvacuous offers no commit of t's returned output in a stopped wait or a stopped pass, no publication of its flushed batch in a stopped wait, and t's return after the finish leaves place 1 empty."
           "AC3 (inject() after terminateNow() returns error / false, does not hang) is line 4 with the third coverage clause; ENV_015_nonvacuous answers a request for the environment place refused and one for another place error, and offers no accepted answer. A call made after terminateNow() returns but before the call takes effect is the quoted sentence on a request that lands before the call takes effect: its answer may be accepted, and its admission completes with false (line 3 and ENV-004)."
           "The test derivation (a gated in-flight action, terminateNow(), the loop ends without releasing the gate, the output never reaches the marking) is ENV_015_nonvacuous's run: t starts asynchronously, the executor stops, finishes stopped, and t's later return deposits nothing."
-  signoff "pending"
+  signoff "2026-11-13 81931c9f395b3af0 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ l, on (fun s s' => s.mode ≠ .stopped ∧ s'.mode = .stopped ∧ R C s l s'),
@@ -108,12 +115,15 @@ requirement ENV_015
           (R C s (.commit i) s' ∨ R C s (.fail i) s' ∨ R C s (.tdeposit i) s'))) ∧
       (while (fun s => s.mode = .stopped ∧ s.phase = .completions), never (fun s s' =>
         ∃ l, l.outside = false ∧ (∀ a, l ≠ .snapshot a) ∧ (∀ c, l ≠ .finish c) ∧ R C s l s')) ∧
-      (on (fun s s' => R C s (.finish .stopped) s'),
-        shall (fun s s' => s.phase = .completions ∧ s'.M = s.M ∧ s'.eq = [])) ∧
+      (∀ c, on (fun s s' => s.mode = .stopped ∧ R C s (.finish c) s'),
+        shall (fun s s' => s'.M = s.M ∧ s'.eq = [] ∧
+          (Live C s → s.phase = .completions ∨ (s.phase = .test ∧ s.fl = [])))) ∧
       (while (fun s => s.mode = .stopped ∧ s.phase ≠ .publications), never (fun s s' =>
         ∃ i, R C s (.publish i) s')) ∧
       (on (fun s s' => s.mode = .stopped ∧ R C s .endPass s'),
-        shall (fun s _ => s.order = []))
+        shall (fun s _ => s.order = [])) ∧
+      (while (fun s => s.mode = .stopped ∧ Live C s ∧ s.phase = .test ∧ s.fl = []), never (fun s s' =>
+        ∃ l, l.outside = false ∧ (∀ a, l ≠ .snapshot a) ∧ (∀ c, l ≠ .finish c) ∧ R C s l s'))
 
 /- The pinned readable form of ENV-015: a change to the formula shows up as a diff here. -/
 /--
@@ -138,11 +148,19 @@ fun {N T} [DecidableEq N] R =>
                     ∃ l,
                       l.outside = false ∧
                         (∀ (a : Option Bool), l ≠ XLbl.snapshot a) ∧ (∀ (c : Cause), l ≠ XLbl.finish c) ∧ R C s l s') ∧
-                  (on fun s s' => R C s (XLbl.finish Cause.stopped) s', shall fun s s' =>
-                      s.phase = Phase.completions ∧ s'.M = s.M ∧ s'.eq = []) ∧
+                  (∀ (c : Cause),
+                      on fun s s' => s.mode = Mode.stopped ∧ R C s (XLbl.finish c) s', shall fun s s' =>
+                        s'.M = s.M ∧
+                          s'.eq = [] ∧ (Live C s → s.phase = Phase.completions ∨ s.phase = Phase.test ∧ s.fl = [])) ∧
                     (while fun s => s.mode = Mode.stopped ∧ s.phase ≠ Phase.publications, never fun s s' =>
                         ∃ i, R C s (XLbl.publish i) s') ∧
-                      on fun s s' => s.mode = Mode.stopped ∧ R C s XLbl.endPass s', shall fun s x => s.order = []
+                      (on fun s s' => s.mode = Mode.stopped ∧ R C s XLbl.endPass s', shall fun s x => s.order = []) ∧
+                        while fun s => s.mode = Mode.stopped ∧ Live C s ∧ s.phase = Phase.test ∧ s.fl = [], never
+                          fun s s' =>
+                          ∃ l,
+                            l.outside = false ∧
+                              (∀ (a : Option Bool), l ≠ XLbl.snapshot a) ∧
+                                (∀ (c : Cause), l ≠ XLbl.finish c) ∧ R C s l s'
 -/
 #guard_msgs in #print ENV_015
 
@@ -275,18 +293,22 @@ stopped); `terminateNow` changes only the mode, the event queue and the parked f
 (`terminateStep_some`); a request answers `replyFor`, never accepted unless open
 (`requestStep_some`); injection needs a mode that is not closing (`injectStep_some`); settling
 needs the pass and a synchronous firing once stopped (`env015_settle_sync`); at the start of a
-cycle only a finish is offered (`env015_top`); `finish stopped` needs phase completions and
-changes only the phase and the two queues (`xstepW_finishStopped`); a publication needs step 1b
-or a wait that is not stopped (`publishStep_some`); and `endPass` needs an empty order
-(`xstepW_endPass`). -/
+cycle only a finish is offered (`env015_top`); `finish stopped` needs phase completions, the
+quiescent and closed finishes need the termination test with nothing in flight, the terminal
+finish needs a terminal place marked, and every finish keeps the marking and empties the event
+queue; a publication needs step 1b or a wait that is not stopped (`publishStep_some`); `endPass`
+needs an empty order (`xstepW_endPass`); and at the termination test only `begin` and a finish are
+executor steps (`exec040_test_step`), and `begin` refuses a stopped state with nothing in flight
+(`xstepW_begin`). -/
 @[evidence holds ENV_015]
 theorem ENV_015_reference {N T : Type} [DecidableEq N] :
     ENV_015 (RefExec (N := N) (T := T)) := by
   intro C
   refine ⟨fun l s s' ⟨hm, hm', h⟩ => ?_, fun l s s' ⟨hm, h⟩ => ?_, fun s s' h => ?_,
     fun p x r s s' ⟨hm, h⟩ => ?_, fun s s' ⟨k, h⟩ hm => ?_, fun s s' ⟨i, hx, h⟩ hm => ?_,
-    fun s s' ⟨l, ho, hsn, hf, h⟩ ⟨hm, hp⟩ => env015_top h hm hp ho hsn hf, fun s s' h => ?_,
-    fun s s' ⟨i, h⟩ ⟨hm, hp⟩ => ?_, fun s s' ⟨_, h⟩ => (xstepW_endPass h).2.2.1⟩
+    fun s s' ⟨l, ho, hsn, hf, h⟩ ⟨hm, hp⟩ => env015_top h hm hp ho hsn hf, fun c s s' ⟨hm, h⟩ => ?_,
+    fun s s' ⟨i, h⟩ ⟨hm, hp⟩ => ?_, fun s s' ⟨_, h⟩ => (xstepW_endPass h).2.2.1,
+    fun s s' ⟨l, ho, _, hf, h⟩ ⟨hm, _, hp, hfl⟩ => ?_⟩
   · by_cases ht : l = .terminateNow
     · exact ht
     · exfalso
@@ -335,29 +357,51 @@ theorem ENV_015_reference {N T : Type} [DecidableEq N] :
       exact hx (env015_settle_sync hfd hc hm)
     · obtain ⟨f, e, hfd, -, hc, -⟩ := tdepositStep_some h
       exact hx (env015_settle_sync hfd hc hm)
-  · obtain ⟨hp, -, -, rfl⟩ := xstepW_finishStopped h
-    exact ⟨hp, rfl, rfl⟩
+  · cases c with
+    | quiescent =>
+      obtain ⟨hp, -, hq, rfl⟩ := xstepW_finishQuiescent h
+      simp only [finishQ, restB, Bool.and_eq_true, List.isEmpty_iff] at hq
+      exact ⟨rfl, rfl, fun _ => Or.inr ⟨hp, hq.1.1.1.1.2⟩⟩
+    | closed =>
+      obtain ⟨hp, -, -, hfl, rfl⟩ := xstepW_finishClosed h
+      exact ⟨rfl, rfl, fun _ => Or.inr ⟨hp, hfl⟩⟩
+    | terminal =>
+      obtain ⟨-, hl', rfl⟩ := xstepW_finishTerminal h
+      exact ⟨rfl, rfl, fun hL => absurd hL (by simp [Live, hl'])⟩
+    | stopped =>
+      obtain ⟨hp, -, -, rfl⟩ := xstepW_finishStopped h
+      exact ⟨rfl, rfl, fun _ => Or.inl hp⟩
   · obtain ⟨b, rest, -, -, hph, -⟩ := publishStep_some h
     rcases hph with hph | ⟨-, hm'⟩
     · exact hp hph
     · exact hm' hm
+  · rcases exec040_test_step hp h with ho' | rfl | ⟨c, rfl⟩
+    · rw [ho] at ho'
+      exact absurd ho' (by decide)
+    · obtain ⟨-, -, -, hn, -⟩ := xstepW_begin h
+      exact hn ⟨by rw [hm]; rfl, hfl⟩
+    · exact hf c rfl
 
 /-! ### Coverage: the stop does not wait (AC1, AC3) -/
 
 /-- **The coverage conjunct ENV-015 asks of the consistency theorem's `ExecCoversW5`**: at the start
 of a cycle of a live stopped state the run can end (`finish stopped`), whatever is in flight; a
-live stopped wait can wake; and a request to a stopped executor is answered. Coverage is never a
-line of a block; this is the clause for `ExecCovers`. -/
+live stopped wait can wake; a request to a stopped executor is answered; and at a termination test
+of a live stopped state with nothing in flight the run can end (line 11). Coverage is never a line
+of a block; this is the clause for `ExecCovers`. -/
 def Env015Covers {N T : Type} [DecidableEq N] (E : XRel N T) : Prop :=
   (∀ C s, Live C s → s.phase = .completions → s.mode = .stopped →
     ∃ s', E C s (.finish .stopped) s') ∧
   (∀ C s, Live C s → s.phase = .await → s.mode = .stopped → ∃ s', E C s .wake s') ∧
-  (∀ C s p x, s.mode = .stopped → ∃ r s', E C s (.request p x r) s')
+  (∀ C s p x, s.mode = .stopped → ∃ r s', E C s (.request p x r) s') ∧
+  (∀ C s, Live C s → s.phase = .test → s.mode = .stopped → s.fl = [] →
+    ∃ c s', E C s (.finish c) s')
 
 /-- The reference meets the coverage conjunct. -/
 theorem env015_ref_covers {N T : Type} [DecidableEq N] :
     Env015Covers (RefExec (N := N) (T := T)) := by
-  refine ⟨fun C s hL hp hm => ?_, fun C s hL hp hm => ?_, fun C s p x hm => ?_⟩
+  refine ⟨fun C s hL hp hm => ?_, fun C s hL hp hm => ?_, fun C s p x hm => ?_,
+    fun C s hL hp hm hfl => ?_⟩
   · have hl : liveB C s = true := hL
     exact ⟨{ s with phase := .done .stopped, eq := [], pq := [] }, by
       simp [RefExec, xstep, xstepW, hp, hl, hm]⟩
@@ -370,13 +414,16 @@ theorem env015_ref_covers {N T : Type} [DecidableEq N] :
       · simp
       · rw [hm]; simp
     exact ⟨replyFor C s p, s, by simp [RefExec, xstep, xstepW, requestStep, hr]⟩
+  · have hl : liveB C s = true := hL
+    exact ⟨.closed, { s with phase := .done .closed, eq := [] }, by
+      simp [RefExec, xstep, xstepW, hp, hl, hm, hfl, Mode.closing]⟩
 
 /-- Every line of ENV-015 constrains the steps an executor takes, so a sub-relation of an executor
 that satisfies ENV-015 satisfies it too. -/
 theorem env015_sub {N T : Type} [DecidableEq N] {R R' : XRel N T}
     (hR : ∀ C s l s', R C s l s' → R' C s l s') (h : ENV_015 R') : ENV_015 R := by
   intro C
-  obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩ := h C
+  obtain ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11⟩ := h C
   exact ⟨fun l s s' ⟨a, b, hs⟩ => h1 l s s' ⟨a, b, hR _ _ _ _ hs⟩,
     fun l s s' ⟨a, hs⟩ => h2 l s s' ⟨a, hR _ _ _ _ hs⟩,
     fun s s' hs => h3 s s' (hR _ _ _ _ hs),
@@ -385,9 +432,10 @@ theorem env015_sub {N T : Type} [DecidableEq N] {R R' : XRel N T}
     fun s s' ⟨i, hx, hs⟩ =>
       h6 s s' ⟨i, hx, hs.imp (hR _ _ _ _) (Or.imp (hR _ _ _ _) (hR _ _ _ _))⟩,
     fun s s' ⟨l, a, b, c, hs⟩ => h7 s s' ⟨l, a, b, c, hR _ _ _ _ hs⟩,
-    fun s s' hs => h8 s s' (hR _ _ _ _ hs),
+    fun c s s' ⟨a, hs⟩ => h8 c s s' ⟨a, hR _ _ _ _ hs⟩,
     fun s s' ⟨i, hs⟩ => h9 s s' ⟨i, hR _ _ _ _ hs⟩,
-    fun s s' ⟨a, hs⟩ => h10 s s' ⟨a, hR _ _ _ _ hs⟩⟩
+    fun s s' ⟨a, hs⟩ => h10 s s' ⟨a, hR _ _ _ _ hs⟩,
+    fun s s' ⟨l, a, b, c, hs⟩ => h11 s s' ⟨l, a, b, c, hR _ _ _ _ hs⟩⟩
 
 /-! ### Examples
 
@@ -456,7 +504,9 @@ in a parked wait ends the wait and keeps the phase (line 3). (10) Stopped in a p
 asynchronous `t`'s outcome queued, no commit is offered, and the pass ends (line 6, AC2). (11) In
 a stopped wait with `t`'s flushed batch queued no publication is offered, and the wait wakes; a
 stop that lands in step 1b still lets it publish (line 9). (12) Stopped in the pass with `t` at the
-head of the order, the pass starts `t` and offers no `endPass` (line 10). -/
+head of the order, the pass starts `t` and offers no `endPass` (line 10). (13) Stopped in step 3
+with `t` ready and nothing in flight, the termination test of the current cycle offers no `begin`
+and ends the run reporting closed, with `7` still in `0` (lines 8 and 11). -/
 @[evidence nonvacuous ENV_015]
 theorem ENV_015_nonvacuous :
     (∃ s s', RefExec env015_C s .terminateNow s' ∧ s.mode ≠ .stopped ∧ s'.mode = .stopped ∧
@@ -484,8 +534,10 @@ theorem ENV_015_nonvacuous :
       s.pq.length = 1 ∧ xstep env015_C s (.publish 0) = none ∧
       RefExec env015_C t (.publish 0) t' ∧ t.mode = .stopped ∧ t.phase = .publications) ∧
     (∃ s s', RefExec env015_C s (.start "t" false) s' ∧ s.mode = .stopped ∧ s.phase = .pass ∧
-      xstep env015_C s .endPass = none) := by
-  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+      xstep env015_C s .endPass = none) ∧
+    (∃ s s', RefExec env015_C s (.finish .closed) s' ∧ s.mode = .stopped ∧ s.phase = .test ∧
+      s.fl = [] ∧ s'.M 0 = [7] ∧ xstep env015_C s .begin = none) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · obtain ⟨s, s', -, hs, hp⟩ := step_of_check xstep (C := env015_C)
       (o := env015_at env015_runA) (l := .terminateNow)
       (p := fun s s' => s.mode != .stopped && s'.mode == .stopped && s.fl.length == 1 &&
@@ -578,6 +630,14 @@ theorem ENV_015_nonvacuous :
     simp only [Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at hp
     obtain ⟨⟨h1, h2⟩, h3⟩ := hp
     exact ⟨s, s', hs, h1, h2, h3⟩
+  · obtain ⟨s, s', -, hs, hp⟩ := step_of_check xstep (C := env015_C)
+      (o := env015_at [.endCompletions, .endPublications, .endEvents, .update, .terminateNow,
+        .deadline []]) (l := .finish .closed)
+      (p := fun s s' => s.mode == .stopped && s.phase == .test && s.fl.isEmpty &&
+        s'.M 0 == [7] && (xstep env015_C s .begin).isNone) (by decide)
+    simp only [Bool.and_eq_true, beq_iff_eq, List.isEmpty_iff, Option.isNone_iff_eq_none] at hp
+    obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := hp
+    exact ⟨s, s', hs, h1, h2, h3, h4, h5⟩
 
 /-! ### The waiting executor: every line, no coverage -/
 
@@ -918,9 +978,39 @@ theorem ENV_015_forbids_stopMidCycle :
   intro h
   obtain ⟨s, s', -, hs, hp⟩ := step_of_check env015_midCycleStep (C := env015_C)
     (o := env015_at (env015_pre ++ [.start "t" false, .terminateNow])) (l := .finish .stopped)
-    (p := fun s _ => s.phase != .completions) (by decide)
-  simp only [bne_iff_ne, ne_eq] at hp
-  exact hp ((h env015_C).2.2.2.2.2.2.2.1 s s' hs).1
+    (p := fun s _ => s.mode == .stopped && liveB env015_C s && s.phase == .pass) (by decide)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  obtain ⟨⟨hm, hL⟩, hph⟩ := hp
+  rcases ((h env015_C).2.2.2.2.2.2.2.1 .stopped s s' ⟨hm, hs⟩).2.2 hL with hc | ⟨hc, -⟩
+  · rw [hph] at hc; cases hc
+  · rw [hph] at hc; cases hc
+
+/-- An executor that, once stopped, may end the run from any running phase reporting `closed`
+(EXEC-041 allows that reason after an immediate termination); otherwise the reference. -/
+def env015_stopClosedStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
+    XLbl N T → Option (XSt N T)
+  | .finish .closed =>
+      if isExecPhase s.phase && liveB C s && s.mode = .stopped then
+        some { s with phase := .done .closed, eq := [], pq := [] }
+      else xstep C s (.finish .closed)
+  | l => xstep C s l
+
+/-- ✗ Ending a stopped run in the middle of the cycle under the label `closed` violates ENV-015
+(line 8): stopped in the firing pass with `t` at the head of its order and `7` in `0`, the run ends
+there, so the pass never starts `t`. -/
+@[evidence forbids ENV_015]
+theorem ENV_015_forbids_stopClosedMidCycle :
+    ¬ ENV_015 (fun C s l s' => env015_stopClosedStep (N := Nat) (T := Nat) C s l = some s') := by
+  intro h
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check env015_stopClosedStep (C := env015_C)
+    (o := env015_at (env015_pre ++ [.terminateNow])) (l := .finish .closed)
+    (p := fun s _ => s.mode == .stopped && liveB env015_C s && s.phase == .pass &&
+      !s.order.isEmpty && s.M 0 == [7]) (by decide)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  obtain ⟨⟨⟨⟨hm, hL⟩, hph⟩, -⟩, -⟩ := hp
+  rcases ((h env015_C).2.2.2.2.2.2.2.1 .closed s s' ⟨hm, hs⟩).2.2 hL with hc | ⟨hc, -⟩
+  · rw [hph] at hc; cases hc
+  · rw [hph] at hc; cases hc
 
 /-- An executor whose `finish stopped` restores the tokens the firings in flight consumed;
 otherwise the reference. -/
@@ -938,8 +1028,9 @@ theorem ENV_015_forbids_rollbackOnStop :
   intro h
   obtain ⟨s, s', -, hs, hp⟩ := step_of_check env015_rollbackOnStopStep (C := env015_C)
     (o := env015_at (env015_runA ++ [.terminateNow])) (l := .finish .stopped)
-    (p := fun s s' => s'.M 0 != s.M 0) (by decide)
-  have := ((h env015_C).2.2.2.2.2.2.2.1 s s' hs).2.1
+    (p := fun s s' => s.mode == .stopped && s'.M 0 != s.M 0) (by decide)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  have := ((h env015_C).2.2.2.2.2.2.2.1 .stopped s s' ⟨hp.1, hs⟩).1
   simp [this] at hp
 
 /-- An executor that keeps the queued events through the stop and its end, so they are never
@@ -959,8 +1050,9 @@ theorem ENV_015_forbids_keepQueued :
   obtain ⟨s, s', -, hs, hp⟩ := step_of_check env015_keepQueuedStep (C := env015_C)
     (o := env015_grun env015_keepQueuedStep (xinit env015_m0 0)
       [.request 9 5 .accepted, .terminateNow])
-    (l := .finish .stopped) (p := fun _ s' => !s'.eq.isEmpty) (by decide)
-  have := ((h env015_C).2.2.2.2.2.2.2.1 s s' hs).2.2
+    (l := .finish .stopped) (p := fun s s' => s.mode == .stopped && !s'.eq.isEmpty) (by decide)
+  simp only [Bool.and_eq_true, beq_iff_eq] at hp
+  have := ((h env015_C).2.2.2.2.2.2.2.1 .stopped s s' ⟨hp.1, hs⟩).2.1
   simp [this] at hp
 
 /-! ### Violation of line 9: a publication deposited after the stop -/
@@ -1010,6 +1102,36 @@ theorem ENV_015_forbids_passBreaksOff :
     (o := env015_at (env015_pre ++ [.terminateNow])) (l := .endPass)
     (p := fun s _ => s.mode == .stopped && !s.order.isEmpty) (by decide)
   simp only [Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true', List.isEmpty_eq_false_iff] at hp
-  exact hp.2 ((h env015_C).2.2.2.2.2.2.2.2.2 s s' ⟨hp.1, hs⟩)
+  exact hp.2 ((h env015_C).2.2.2.2.2.2.2.2.2.1 s s' ⟨hp.1, hs⟩)
+
+/-! ### Violation of line 11: the pass of a stopped cycle run with nothing in flight -/
+
+/-- An executor whose `begin` refuses only a closed state with nothing in flight, so a stopped
+cycle with nothing in flight still runs its firing pass; otherwise the reference. -/
+def env015_stopRunsPassStep {N T : Type} [DecidableEq N] (C : Cfg N T) (s : XSt N T) :
+    XLbl N T → Option (XSt N T)
+  | .begin =>
+      if s.phase = .test && liveB C s && !finishQ C s && !(s.mode = .closed && s.fl.isEmpty) then
+        some { s with phase := .pass, order := readyOrder C s, delta := fun _ => 0,
+                      started := false }
+      else none
+  | l => xstep C s l
+
+/-- ✗ Running the pass of a stopped cycle with nothing in flight violates ENV-015 (line 11):
+stopped in step 3 with `t` ready and nothing in flight, the termination test begins a pass, and
+`t` would start and consume `7` for an action whose result the stop discards. -/
+@[evidence forbids ENV_015]
+theorem ENV_015_forbids_stopRunsPass :
+    ¬ ENV_015 (fun C s l s' => env015_stopRunsPassStep (N := Nat) (T := Nat) C s l = some s') := by
+  intro h
+  obtain ⟨s, s', -, hs, hp⟩ := step_of_check env015_stopRunsPassStep (C := env015_C)
+    (o := env015_at [.endCompletions, .endPublications, .endEvents, .update, .terminateNow,
+      .deadline []]) (l := .begin)
+    (p := fun s _ => s.mode == .stopped && liveB env015_C s && s.phase == .test && s.fl.isEmpty)
+    (by decide)
+  simp only [Bool.and_eq_true, beq_iff_eq, List.isEmpty_iff] at hp
+  obtain ⟨⟨⟨hm, hL⟩, hph⟩, hfl⟩ := hp
+  exact (h env015_C).2.2.2.2.2.2.2.2.2.2 s s'
+    ⟨.begin, rfl, (fun _ ha => nomatch ha), (fun _ hc => nomatch hc), hs⟩ ⟨hm, hL, hph, hfl⟩
 
 end Libpetri.Spec

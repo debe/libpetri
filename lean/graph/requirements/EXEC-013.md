@@ -67,26 +67,26 @@ flowchart TD
     n3457["Libpetri.Reference.Trans.out"]
     n3458["Libpetri.Reference.Trans.reapable"]
     n3677["Libpetri.Reference.cross"]
-    n3690["Libpetri.Reference.deposit"]
+    n3691["Libpetri.Reference.deposit"]
   end
   subgraph g4["Libpetri/Spec/Ears.lean"]
-    n9910["Libpetri.Spec.StepShall"]
+    n10031["Libpetri.Spec.StepShall"]
   end
   subgraph g5["Libpetri/Spec/Glossary.lean"]
-    n6032["Libpetri.Spec.Consumes"]
-    n6049["Libpetri.Spec.CountMarking"]
-    n6082["Libpetri.Spec.Deposits"]
-    n7512["Libpetri.Spec.FireRel"]
-    n9728["Libpetri.Spec.RefFire"]
-    n9749["Libpetri.Spec.ResetArc"]
-    n9856["Libpetri.Spec.SamePerPlace"]
-    n10265["Libpetri.Spec.TokenCount"]
-    n19751["Libpetri.Spec.refFire_apply"]
+    n6062["Libpetri.Spec.Consumes"]
+    n6079["Libpetri.Spec.CountMarking"]
+    n6112["Libpetri.Spec.Deposits"]
+    n7578["Libpetri.Spec.FireRel"]
+    n9849["Libpetri.Spec.RefFire"]
+    n9870["Libpetri.Spec.ResetArc"]
+    n9977["Libpetri.Spec.SamePerPlace"]
+    n10398["Libpetri.Spec.TokenCount"]
+    n20122["Libpetri.Spec.refFire_apply"]
   end
   subgraph g6["Libpetri/Spec/Req/CORE_034.lean"]
-    n5449["Libpetri.Spec.CORE_034"]
-    n5464["Libpetri.Spec.CORE_034_reference"]
-    n21867["Libpetri.Spec.withoutReset"]
+    n5464["Libpetri.Spec.CORE_034"]
+    n5479["Libpetri.Spec.CORE_034_reference"]
+    n22298["Libpetri.Spec.withoutReset"]
   end
   n9 --> n8
   n10 --> n8
@@ -132,7 +132,7 @@ flowchart TD
   n2990 --> n2063
   n2990 --> n3455
   n2990 --> n3457
-  n2990 --> n3690
+  n2990 --> n3691
   n3289 --> n3288
   n3290 --> n3292
   n3290 --> n3677
@@ -156,48 +156,48 @@ flowchart TD
   n3457 --> n3288
   n3457 --> n3454
   n3458 --> n3454
-  n3690 --> n865
-  n3690 --> n866
-  n3690 --> n3290
-  n3690 --> n3293
-  n3690 --> n3297
-  n5449 --> n7512
-  n5449 --> n9749
-  n5449 --> n9856
-  n5449 --> n9910
-  n5449 --> n10265
-  n5449 --> n21867
-  n5464 --> n5449
-  n5464 --> n19751
-  n6032 --> n2089
-  n6032 --> n3455
-  n6032 --> n6049
-  n6082 --> n2045
-  n7512 --> n3454
-  n9728 --> n2990
-  n9728 --> n7512
-  n9749 --> n1961
-  n9749 --> n3455
-  n9856 --> n6082
-  n10265 --> n6049
-  n19751 --> n6032
-  n19751 --> n6082
-  n19751 --> n9728
-  n19751 --> n9749
-  n21867 --> n1956
-  n21867 --> n1957
-  n21867 --> n1958
-  n21867 --> n1959
-  n21867 --> n1960
-  n21867 --> n1961
-  n21867 --> n3455
-  n21867 --> n3456
-  n21867 --> n3457
-  n21867 --> n3458
+  n3691 --> n865
+  n3691 --> n866
+  n3691 --> n3290
+  n3691 --> n3293
+  n3691 --> n3297
+  n5464 --> n7578
+  n5464 --> n9870
+  n5464 --> n9977
+  n5464 --> n10031
+  n5464 --> n10398
+  n5464 --> n22298
+  n5479 --> n5464
+  n5479 --> n20122
+  n6062 --> n2089
+  n6062 --> n3455
+  n6062 --> n6079
+  n6112 --> n2045
+  n7578 --> n3454
+  n9849 --> n2990
+  n9849 --> n7578
+  n9870 --> n1961
+  n9870 --> n3455
+  n9977 --> n6112
+  n10398 --> n6079
+  n20122 --> n6062
+  n20122 --> n6112
+  n20122 --> n9849
+  n20122 --> n9870
+  n22298 --> n1956
+  n22298 --> n1957
+  n22298 --> n1958
+  n22298 --> n1959
+  n22298 --> n1960
+  n22298 --> n1961
+  n22298 --> n3455
+  n22298 --> n3456
+  n22298 --> n3457
+  n22298 --> n3458
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5464 root
+  class n5479 root
 ```
 
 ### `Libpetri.Spec.TIME_012_ac3`
@@ -207,18 +207,18 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_012.lean"]
-    n10107["Libpetri.Spec.TIME_012_ac3"]
-    n20595["Libpetri.Spec.time012_Tin"]
-    n20599["Libpetri.Spec.time012_Tzero"]
-    n20600["Libpetri.Spec.time012_X"]
-    n20602["Libpetri.Spec.time012_after"]
-    n20603["Libpetri.Spec.time012_c"]
-    n20609["Libpetri.Spec.time012_m1"]
-    n20615["Libpetri.Spec.time012_r"]
-    n20619["Libpetri.Spec.time012_s"]
-    n20621["Libpetri.Spec.time012_timing"]
-    n20622["Libpetri.Spec.time012_y"]
-    n20623["Libpetri.Spec.time012_z"]
+    n10234["Libpetri.Spec.TIME_012_ac3"]
+    n20979["Libpetri.Spec.time012_Tin"]
+    n20983["Libpetri.Spec.time012_Tzero"]
+    n20984["Libpetri.Spec.time012_X"]
+    n20986["Libpetri.Spec.time012_after"]
+    n20987["Libpetri.Spec.time012_c"]
+    n20993["Libpetri.Spec.time012_m1"]
+    n20999["Libpetri.Spec.time012_r"]
+    n21003["Libpetri.Spec.time012_s"]
+    n21005["Libpetri.Spec.time012_timing"]
+    n21006["Libpetri.Spec.time012_y"]
+    n21007["Libpetri.Spec.time012_z"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -236,32 +236,32 @@ flowchart TD
   c132 --> c94
   c146 --> c98
   c146 --> c132
-  n10107 --> c146
-  n10107 --> n20595
-  n10107 --> n20599
-  n10107 --> n20602
-  n10107 --> n20609
-  n20595 --> c94
-  n20599 --> c94
-  n20600 --> c98
-  n20600 --> n20603
-  n20600 --> n20615
-  n20600 --> n20621
-  n20600 --> n20622
-  n20600 --> n20623
-  n20602 --> n20600
-  n20602 --> n20619
-  n20603 --> c94
-  n20615 --> c94
-  n20619 --> c98
-  n20621 --> c66
-  n20621 --> c94
-  n20622 --> c94
-  n20623 --> c94
+  n10234 --> c146
+  n10234 --> n20979
+  n10234 --> n20983
+  n10234 --> n20986
+  n10234 --> n20993
+  n20979 --> c94
+  n20983 --> c94
+  n20984 --> c98
+  n20984 --> n20987
+  n20984 --> n20999
+  n20984 --> n21005
+  n20984 --> n21006
+  n20984 --> n21007
+  n20986 --> n20984
+  n20986 --> n21003
+  n20987 --> c94
+  n20999 --> c94
+  n21003 --> c98
+  n21005 --> c66
+  n21005 --> c94
+  n21006 --> c94
+  n21007 --> c94
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n10107 root
+  class n10234 root
   class c0,c28,c54,c66,c94,c98,c132,c146 collapsed
 ```
 
@@ -282,10 +282,10 @@ flowchart TD
     n135["Libpetri.InSpec.card"]
     n138["Libpetri.InSpec.place"]
     n2723["Libpetri.PlaceId"]
-    n21910["Libpetri.Transition"]
-    n21912["Libpetri.Transition.inputs"]
-    n21916["Libpetri.Transition.reads"]
-    n21917["Libpetri.Transition.resets"]
+    n22341["Libpetri.Transition"]
+    n22343["Libpetri.Transition.inputs"]
+    n22347["Libpetri.Transition.reads"]
+    n22348["Libpetri.Transition.resets"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -294,8 +294,8 @@ flowchart TD
     n25["Libpetri.ConsumeOp.n"]
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
-    n21986["Libpetri.compileConsumeOps"]
-    n22141["Libpetri.opOfSpec"]
+    n22417["Libpetri.compileConsumeOps"]
+    n22572["Libpetri.opOfSpec"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -303,18 +303,18 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n21991["Libpetri.consumeForFiring"]
-    n21994["🔒 Libpetri.consumeForFiring_eq_program"]
-    n22048["Libpetri.execOp"]
-    n22051["Libpetri.execOpsFrom"]
-    n22052["🔒 Libpetri.execOpsFrom_append"]
-    n22153["Libpetri.peekReads"]
+    n22422["Libpetri.consumeForFiring"]
+    n22425["🔒 Libpetri.consumeForFiring_eq_program"]
+    n22479["Libpetri.execOp"]
+    n22482["Libpetri.execOpsFrom"]
+    n22483["🔒 Libpetri.execOpsFrom_append"]
+    n22584["Libpetri.peekReads"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n21909["Libpetri.TokenBag"]
-    n21932["Libpetri.addBag"]
-    n22038["Libpetri.emptyBag"]
-    n22155["Libpetri.popN"]
+    n22340["Libpetri.TokenBag"]
+    n22363["Libpetri.addBag"]
+    n22469["Libpetri.emptyBag"]
+    n22586["Libpetri.popN"]
   end
   subgraph g4["Libpetri/Ring/Core.lean"]
     n2730["Libpetri.Pool"]
@@ -333,7 +333,7 @@ flowchart TD
     n2850["Libpetri.Pool.tail"]
   end
   subgraph g5["Libpetri/RingArith.lean"]
-    n22198["Libpetri.ringPos"]
+    n22629["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
@@ -350,12 +350,12 @@ flowchart TD
   n27 --> n22
   n27 --> n2723
   n29 --> n28
-  n29 --> n21909
+  n29 --> n22340
   n30 --> n28
-  n30 --> n21909
+  n30 --> n22340
   n31 --> n28
   n31 --> n2730
-  n31 --> n21909
+  n31 --> n22340
   n32 --> n28
   n32 --> n2730
   n135 --> n8
@@ -392,65 +392,65 @@ flowchart TD
   n2845 --> n2745
   n2845 --> n2774
   n2845 --> n2798
-  n2845 --> n22198
+  n2845 --> n22629
   n2850 --> n2723
   n2850 --> n2730
-  n21909 --> n21
-  n21909 --> n2723
-  n21912 --> n134
-  n21912 --> n21910
-  n21916 --> n2723
-  n21916 --> n21910
-  n21917 --> n2723
-  n21917 --> n21910
-  n21932 --> n21909
-  n21986 --> n27
-  n21986 --> n21912
-  n21986 --> n21917
-  n21986 --> n22141
-  n21991 --> n21912
-  n21991 --> n21916
-  n21991 --> n21917
-  n21991 --> n22051
-  n21991 --> n22141
-  n21991 --> n22153
-  n21994 --> n21986
-  n21994 --> n21991
-  n21994 --> n22052
-  n22038 --> n21909
-  n22048 --> n23
-  n22048 --> n24
-  n22048 --> n25
-  n22048 --> n26
-  n22048 --> n27
-  n22048 --> n29
-  n22048 --> n30
-  n22048 --> n31
-  n22048 --> n32
-  n22048 --> n21932
-  n22048 --> n22155
-  n22051 --> n22048
-  n22052 --> n22051
-  n22141 --> n9
-  n22141 --> n10
-  n22141 --> n12
-  n22141 --> n13
-  n22141 --> n23
-  n22141 --> n24
-  n22141 --> n25
-  n22141 --> n26
-  n22141 --> n135
-  n22141 --> n138
-  n22153 --> n2800
-  n22153 --> n21932
-  n22153 --> n22038
-  n22155 --> n2751
-  n22155 --> n2826
+  n22340 --> n21
+  n22340 --> n2723
+  n22343 --> n134
+  n22343 --> n22341
+  n22347 --> n2723
+  n22347 --> n22341
+  n22348 --> n2723
+  n22348 --> n22341
+  n22363 --> n22340
+  n22417 --> n27
+  n22417 --> n22343
+  n22417 --> n22348
+  n22417 --> n22572
+  n22422 --> n22343
+  n22422 --> n22347
+  n22422 --> n22348
+  n22422 --> n22482
+  n22422 --> n22572
+  n22422 --> n22584
+  n22425 --> n22417
+  n22425 --> n22422
+  n22425 --> n22483
+  n22469 --> n22340
+  n22479 --> n23
+  n22479 --> n24
+  n22479 --> n25
+  n22479 --> n26
+  n22479 --> n27
+  n22479 --> n29
+  n22479 --> n30
+  n22479 --> n31
+  n22479 --> n32
+  n22479 --> n22363
+  n22479 --> n22586
+  n22482 --> n22479
+  n22483 --> n22482
+  n22572 --> n9
+  n22572 --> n10
+  n22572 --> n12
+  n22572 --> n13
+  n22572 --> n23
+  n22572 --> n24
+  n22572 --> n25
+  n22572 --> n26
+  n22572 --> n135
+  n22572 --> n138
+  n22584 --> n2800
+  n22584 --> n22363
+  n22584 --> n22469
+  n22586 --> n2751
+  n22586 --> n2826
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n21994 root
-  class n21994,n22052 locked
+  class n22425 root
+  class n22425,n22483 locked
 ```
 
 ### `Libpetri.read_reset_order_diverges`
@@ -472,11 +472,11 @@ flowchart TD
     n137["Libpetri.InSpec.mk"]
     n138["Libpetri.InSpec.place"]
     n2723["Libpetri.PlaceId"]
-    n21910["Libpetri.Transition"]
-    n21912["Libpetri.Transition.inputs"]
-    n21913["Libpetri.Transition.mk"]
-    n21916["Libpetri.Transition.reads"]
-    n21917["Libpetri.Transition.resets"]
+    n22341["Libpetri.Transition"]
+    n22343["Libpetri.Transition.inputs"]
+    n22344["Libpetri.Transition.mk"]
+    n22347["Libpetri.Transition.reads"]
+    n22348["Libpetri.Transition.resets"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -485,7 +485,7 @@ flowchart TD
     n25["Libpetri.ConsumeOp.n"]
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
-    n22141["Libpetri.opOfSpec"]
+    n22572["Libpetri.opOfSpec"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -493,22 +493,22 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n21991["Libpetri.consumeForFiring"]
-    n22048["Libpetri.execOp"]
-    n22051["Libpetri.execOpsFrom"]
-    n22153["Libpetri.peekReads"]
+    n22422["Libpetri.consumeForFiring"]
+    n22479["Libpetri.execOp"]
+    n22482["Libpetri.execOpsFrom"]
+    n22584["Libpetri.peekReads"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n21909["Libpetri.TokenBag"]
-    n21932["Libpetri.addBag"]
-    n22038["Libpetri.emptyBag"]
-    n22155["Libpetri.popN"]
+    n22340["Libpetri.TokenBag"]
+    n22363["Libpetri.addBag"]
+    n22469["Libpetri.emptyBag"]
+    n22586["Libpetri.popN"]
   end
   subgraph g4["Libpetri/RetrodictExec.lean"]
-    n22022["Libpetri.demoPool"]
-    n22165["Libpetri.preFixReads"]
-    n22183["🔒 Libpetri.read_reset_order_diverges"]
-    n22242["Libpetri.tReadReset"]
+    n22453["Libpetri.demoPool"]
+    n22596["Libpetri.preFixReads"]
+    n22614["🔒 Libpetri.read_reset_order_diverges"]
+    n22673["Libpetri.tReadReset"]
   end
   subgraph g5["Libpetri/Ring/Core.lean"]
     n2730["Libpetri.Pool"]
@@ -527,7 +527,7 @@ flowchart TD
     n2850["Libpetri.Pool.tail"]
   end
   subgraph g6["Libpetri/RingArith.lean"]
-    n22198["Libpetri.ringPos"]
+    n22629["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
@@ -544,12 +544,12 @@ flowchart TD
   n27 --> n22
   n27 --> n2723
   n29 --> n28
-  n29 --> n21909
+  n29 --> n22340
   n30 --> n28
-  n30 --> n21909
+  n30 --> n22340
   n31 --> n28
   n31 --> n2730
-  n31 --> n21909
+  n31 --> n22340
   n32 --> n28
   n32 --> n2730
   n132 --> n21
@@ -591,74 +591,74 @@ flowchart TD
   n2845 --> n2745
   n2845 --> n2774
   n2845 --> n2798
-  n2845 --> n22198
+  n2845 --> n22629
   n2850 --> n2723
   n2850 --> n2730
-  n21909 --> n21
-  n21909 --> n2723
-  n21912 --> n134
-  n21912 --> n21910
-  n21913 --> n134
-  n21913 --> n2723
-  n21913 --> n21910
-  n21916 --> n2723
-  n21916 --> n21910
-  n21917 --> n2723
-  n21917 --> n21910
-  n21932 --> n21909
-  n21991 --> n21912
-  n21991 --> n21916
-  n21991 --> n21917
-  n21991 --> n22051
-  n21991 --> n22141
-  n21991 --> n22153
-  n22022 --> n2796
-  n22038 --> n21909
-  n22048 --> n23
-  n22048 --> n24
-  n22048 --> n25
-  n22048 --> n26
-  n22048 --> n27
-  n22048 --> n29
-  n22048 --> n30
-  n22048 --> n31
-  n22048 --> n32
-  n22048 --> n21932
-  n22048 --> n22155
-  n22051 --> n22048
-  n22141 --> n9
-  n22141 --> n10
-  n22141 --> n12
-  n22141 --> n13
-  n22141 --> n23
-  n22141 --> n24
-  n22141 --> n25
-  n22141 --> n26
-  n22141 --> n135
-  n22141 --> n138
-  n22153 --> n2800
-  n22153 --> n21932
-  n22153 --> n22038
-  n22155 --> n2751
-  n22155 --> n2826
-  n22165 --> n21912
-  n22165 --> n21916
-  n22165 --> n21917
-  n22165 --> n22051
-  n22165 --> n22141
-  n22165 --> n22153
-  n22183 --> n21991
-  n22183 --> n22022
-  n22183 --> n22165
-  n22183 --> n22242
-  n22242 --> n13
-  n22242 --> n137
-  n22242 --> n21913
+  n22340 --> n21
+  n22340 --> n2723
+  n22343 --> n134
+  n22343 --> n22341
+  n22344 --> n134
+  n22344 --> n2723
+  n22344 --> n22341
+  n22347 --> n2723
+  n22347 --> n22341
+  n22348 --> n2723
+  n22348 --> n22341
+  n22363 --> n22340
+  n22422 --> n22343
+  n22422 --> n22347
+  n22422 --> n22348
+  n22422 --> n22482
+  n22422 --> n22572
+  n22422 --> n22584
+  n22453 --> n2796
+  n22469 --> n22340
+  n22479 --> n23
+  n22479 --> n24
+  n22479 --> n25
+  n22479 --> n26
+  n22479 --> n27
+  n22479 --> n29
+  n22479 --> n30
+  n22479 --> n31
+  n22479 --> n32
+  n22479 --> n22363
+  n22479 --> n22586
+  n22482 --> n22479
+  n22572 --> n9
+  n22572 --> n10
+  n22572 --> n12
+  n22572 --> n13
+  n22572 --> n23
+  n22572 --> n24
+  n22572 --> n25
+  n22572 --> n26
+  n22572 --> n135
+  n22572 --> n138
+  n22584 --> n2800
+  n22584 --> n22363
+  n22584 --> n22469
+  n22586 --> n2751
+  n22586 --> n2826
+  n22596 --> n22343
+  n22596 --> n22347
+  n22596 --> n22348
+  n22596 --> n22482
+  n22596 --> n22572
+  n22596 --> n22584
+  n22614 --> n22422
+  n22614 --> n22453
+  n22614 --> n22596
+  n22614 --> n22673
+  n22673 --> n13
+  n22673 --> n137
+  n22673 --> n22344
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22183 root
-  class n22183 locked
+  class n22614 root
+  class n22614 locked
 ```
 
 ### `Libpetri.token_conservation`
@@ -673,17 +673,17 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n21980["🔒 Libpetri.canEnable_spec"]
-    n21991["Libpetri.consumeForFiring"]
-    n22048["Libpetri.execOp"]
-    n22049["🔒 Libpetri.execOp_input_spec"]
-    n22050["🔒 Libpetri.execOp_pop_spec"]
-    n22051["Libpetri.execOpsFrom"]
-    n22053["🔒 Libpetri.execOpsFrom_cons"]
-    n22055["🔒 Libpetri.execOps_inputs"]
-    n22056["🔒 Libpetri.execOps_resets"]
-    n22153["Libpetri.peekReads"]
-    n22245["🔒 Libpetri.token_conservation"]
+    n22411["🔒 Libpetri.canEnable_spec"]
+    n22422["Libpetri.consumeForFiring"]
+    n22479["Libpetri.execOp"]
+    n22480["🔒 Libpetri.execOp_input_spec"]
+    n22481["🔒 Libpetri.execOp_pop_spec"]
+    n22482["Libpetri.execOpsFrom"]
+    n22484["🔒 Libpetri.execOpsFrom_cons"]
+    n22486["🔒 Libpetri.execOps_inputs"]
+    n22487["🔒 Libpetri.execOps_resets"]
+    n22584["Libpetri.peekReads"]
+    n22676["🔒 Libpetri.token_conservation"]
   end
   c0["📁 Libpetri/Basic.lean (16 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (13 declarations, collapsed)"]
@@ -702,35 +702,35 @@ flowchart TD
   n31 --> n28
   n32 --> c105
   n32 --> n28
-  n21980 --> c1
-  n21991 --> n22051
-  n21991 --> n22153
-  n22048 --> c1
-  n22048 --> n29
-  n22048 --> n30
-  n22048 --> n31
-  n22048 --> n32
-  n22049 --> n22048
-  n22049 --> n22050
-  n22050 --> n29
-  n22050 --> n30
-  n22050 --> n31
-  n22050 --> n32
-  n22051 --> n22048
-  n22053 --> n22051
-  n22055 --> n22049
-  n22055 --> n22053
-  n22056 --> n22053
-  n22153 --> c3
-  n22245 --> n21980
-  n22245 --> n21991
-  n22245 --> n22055
-  n22245 --> n22056
+  n22411 --> c1
+  n22422 --> n22482
+  n22422 --> n22584
+  n22479 --> c1
+  n22479 --> n29
+  n22479 --> n30
+  n22479 --> n31
+  n22479 --> n32
+  n22480 --> n22479
+  n22480 --> n22481
+  n22481 --> n29
+  n22481 --> n30
+  n22481 --> n31
+  n22481 --> n32
+  n22482 --> n22479
+  n22484 --> n22482
+  n22486 --> n22480
+  n22486 --> n22484
+  n22487 --> n22484
+  n22584 --> c3
+  n22676 --> n22411
+  n22676 --> n22422
+  n22676 --> n22486
+  n22676 --> n22487
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22245 root
-  class n21980,n22049,n22050,n22053,n22055,n22056,n22245 locked
+  class n22676 root
+  class n22411,n22480,n22481,n22484,n22486,n22487,n22676 locked
   class c0,c1,c3,c105,c108 collapsed
 ```
 

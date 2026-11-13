@@ -99,7 +99,7 @@ requirement ENV_016
           "Which policy is the default is configuration (kind N) and not a line: run(timeout) without a policy abandons in Java and TypeScript, the historical default of the text. The lines hold for whichever policy the caller chooses."
           "AC1, AC2 and the first paragraph are the second block of ENV-016, ENV_016_await (ENV_016_l1.lean, wave W7, ruling D47 (c)), over the event model RefEvents, since the answer waits for the step that emits ExecutionCompleted: awaitTermination answers true when the loop was never started, false while it runs, true only after the finish step that answers the queued inject() calls and only once no emission of ExecutionCompleted is still to come, and true once the loop has finished, whatever a failing event store did. Blocking, the timeout of awaitTermination and 'promptly' are kind Q."
           "The test derivation (a net with an action still in flight when a short timeout expires, under each policy; the executor closed under close and the loop stopping once the action completes, the loop still live under abandon and reporting the action's output) is ENV_016_nonvacuous: at the expiry the loop is still running, parked with a firing in flight; under close the executor is closed by R's close step and the loop finishes closed after the action completes; under abandon the executor is unchanged and the loop goes on to finish quiescent with the action's output. The awaitTermination half of the test derivation is ENV_016_await_nonvacuous, on the same run."
-  signoff "pending"
+  signoff "2026-11-13 756d46de0c568f79 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → ExpiryRel N T → Prop :=
     fun R X => ∀ C,
       (on (fun s s' => X C .abandon s s'), shall (fun s s' => s' = s)) ∧

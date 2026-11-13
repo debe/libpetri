@@ -25,9 +25,11 @@ line):
 1. through any sequence of rewrite passes on a transition that carries no correspondence, every
    place its arcs and output specification name resolves to the place the same sequence of place
    maps sends it to, and every other place resolves to itself (AC1, AC3, AC8, AC9);
-2. a pass sends every place the arcs and the output specification name through its place map,
-   and so the input places and the output places too, so discovery returns the actual places
-   (AC5); with line 1 the resolved place is a place the arcs name (`mod031_resolves_to_named`);
+2. a pass sends the places of each arc kind (input, inhibitor, read, reset) and of the output
+   specification through its place map, each kind on its own, the input places as a set (a
+   fusion merges two input arcs it sends onto one place, MOD-061), so discovery returns the
+   actual places (AC5); with line 1 the resolved place is a place the arcs name
+   (`mod031_resolves_to_named`);
 3. a transition that carries no correspondence resolves every place to itself (AC4);
 4. the merge fails exactly on a place that both sides resolve elsewhere and to different
    places; a success resolves each place as the side that moves it does (AC10);
@@ -35,9 +37,10 @@ line):
 
 The witness is `refCorrOps`: the pass `CDef.map` (the correspondence chained, keys kept), the
 lookup through the correspondence first, a merge that keeps the key set complete, and an action
-binding that changes the action only. The runtimes' merge, which takes a side's correspondence
-whole when the other side carries none, also satisfies the block; after one more pass it loses
-the caller's declared places (`MOD_031_mergeThenPass_undecided`, ruling D69 (a)).
+binding that changes the action only; the runtimes merge the same way. A wrong merge that takes a
+side's correspondence whole when the other side carries none also satisfies the block; after one
+more pass it loses the caller's declared places (`MOD_031_mergeThenPass_undecided`, ruling
+D69 (a)).
 
 **Line 6, the context operations** (`MOD_031_ctx`, ruling D69 (a), map ruling R-MC3 (a)): a
 predicate over a value projection, the correspondence operations `O` and a family `R` of transition
@@ -46,11 +49,12 @@ The context of a transition that carries the correspondence `c` answers every ca
 `input`, `inputToken`, `read`, `output`) on a place `p` as the context without a correspondence
 answers it on `O.look c p`. So the declared-place check and the read or write of the token store
 both use the resolved place. The witness is `refResCtx`, the reference context `refCtx` called
-with the resolved place (Java and TypeScript). With lines 1, 2 and 5 and the context rules of
-[CORE-060] and [CORE-062], an action's call on a declared place after any sequence of passes, or
-after a late bind, answers on the place the passes sent it to (`mod031ctx_after_passes`,
+with the resolved place (Java, TypeScript and the Python binding adapter). With lines 1, 2 and 5
+and the context rules of [CORE-060] and [CORE-062], an action's call on a declared place after
+any sequence of passes, or after a late bind, answers on the place the passes sent it to
+(`mod031ctx_after_passes`,
 `mod031ctx_inputs_after_passes`, `mod031ctx_output_after_passes`, `mod031ctx_lateBind`). Wrong
-contexts: one that does not resolve (forbidden), the Python adapter that tries the name first,
+contexts: one that does not resolve (forbidden), an adapter that tries the name first,
 one that resolves for the check only, and ones that leave `output`, `read`, or `input` and
 `inputToken` unresolved (one mutant each). `mod031ctx_collision` shows the case the order matters
 for: a discovered place that is also a declared place the correspondence moved.
@@ -116,33 +120,35 @@ requirement MOD_031
         "*When* an action is bound or rebound to a transition, before or after instantiation, the transition's correspondence, arcs and output specification *shall* stay unchanged."
   reading "For every set of correspondence operations O (a rewrite pass, a lookup, a channel merge, an action binding):"
           "for every transition definition d that carries no correspondence and every sequence of passes ss (each a place map and a name map), every place p that d names resolves, through the correspondence of d after the passes, to the place the passes' place maps send p to, and every place x that d does not name resolves to x;"
-          "for every pass (place map σ, name map g) and every d, the places the passed definition names are the places d names mapped by σ, in order, and so are its input places and its output places;"
+          "for every pass (place map σ, name map g) and every d, the passed definition's input places are, as a set, d's input places mapped by σ, and, each kind on its own and in order, its inhibitor places, read places, reset places and output places are d's places of that kind mapped by σ;"
           "the lookup resolves every place to itself through no correspondence;"
           "for every caller definition c and instance definition i: if some place x resolves, through c's and through i's correspondence, to places other than x that differ, the merge fails; if no place does, the merge succeeds; and if the merge returns m, every place x resolves through m to what c's correspondence resolves it to when that is not x, and otherwise to what i's correspondence resolves it to;"
           "for every d and every action a, binding a to d keeps d's correspondence, its arcs and its output specification."
-  assumes "The model (ruling D69 (a)). A correspondence is a list of (declared place, actual place) pairs, looked up first entry first; every runtime keeps it in a hash map keyed by the declared place, so a key has one entry (rust/libpetri-core/src/rewriter.rs:277-354, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:292-321). A rewrite pass is any place map: instantiation (MOD-010), port binding (MOD-020) and fusion (MOD-061), which all three runtimes run through the same rebuild (rust/libpetri-core/src/rewriter.rs:535 and :546-551). The lookup is the correspondence's own lookup, correspondence first and the place itself when it has no entry, as Java and TypeScript resolve (java/src/main/java/org/libpetri/core/TransitionContext.java:138-139, typescript/src/core/transition-context.ts:106-109). How the context operations input, inputs, read and output use it, the Rust native context that does not resolve (rust/libpetri-core/src/context.rs:278-281, the binding-hosted MAY) and the Python binding that tries the literal name first (rust/libpetri-py/src/action.rs:307-345) are line 6, the block MOD_031_ctx in this file."
+  assumes "The model (ruling D69 (a)). A correspondence is a list of (declared place, actual place) pairs, looked up first entry first; every runtime keeps it in a hash map keyed by the declared place, so a key has one entry (rust/libpetri-core/src/rewriter.rs build_local_name_map, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java buildPlaceAlias). A rewrite pass is any place map: instantiation (MOD-010), port binding (MOD-020) and fusion (MOD-061), which all three runtimes run through the same rebuild (rust/libpetri-core/src/rewriter.rs rebuild_with_name, which apply_fusion calls directly or through substitute_places). The lookup is the correspondence's own lookup, correspondence first and the place itself when it has no entry, as Java and TypeScript resolve (java/src/main/java/org/libpetri/core/TransitionContext.java and typescript/src/core/transition-context.ts, resolve in each). How the context operations input, inputs, read and output use it, the Rust native context that does not resolve (rust/libpetri-core/src/context.rs, TransitionContext::input, the binding-hosted MAY) and the Python binding adapter, which resolves through the correspondence first (rust/libpetri-py/src/action.rs resolve), are line 6, the block MOD_031_ctx in this file."
           "Ruling D69 (a), single-valued and not 1:1: the correspondence maps each declared place to one actual place, and two declared places may map to one actual place when two ports are bound to one caller place (MOD-020) or two places are fused (MOD-061); MOD_031_allows_shared shows the reference doing so. The body sentence that calls the correspondence 1:1 is reworded to single-valued."
-          "Ruling D69 (a), scope: line 1 covers transitions that no channel merge has joined, and so do the body's MUSTs on nested instantiation and on key-set completeness through every rewrite pass; for a transition that a channel merge joined no line states them. After a channel merge of a caller transition that carries no correspondence with an instance transition that carries one, Rust, Java and TypeScript keep the instance side's correspondence whole (rust/libpetri-core/src/rewriter.rs:746, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:654-655, typescript/src/core/internal/subnet-rewriter.ts:603-604), and a transition that carries a correspondence is never re-read from its arcs (rust/libpetri-core/src/rewriter.rs:309-318). The caller's declared places are then no keys, and a later pass that renames one of them (fusion at build, or instantiating the retrofitted net, MOD-014) leaves it unresolved, against the key-set completeness MUST. Both that merge (rtCorrOps) and the reference's key-complete merge satisfy the block, and they differ after one more pass (MOD_031_mergeThenPass_undecided); the runtimes' loss is runtime defect RD-23 (spec/runtime-defects.md)."
-          "Line 1 has two halves. The first resolves every place the transition names before the passes; the second is the body's key-set MUST read from above: the chained pass does not re-derive keys from the arcs, whose names are intermediate-pass names the author never declared, so a place the transition did not name resolves to itself. A chained pass that carries the declared entries and also records each intermediate arc name behind them meets the first half and fails the second (MOD_031_mutant_lowerOnly_killed): a port-agnostic action that asks for an output place it discovered would be sent to an input place. The second half holds of the reference, of rtCorrOps and of the pass that drops an all-identity correspondence (AC9)."
-          "Line 2 names the places of every arc kind, not only the input and output places that discovery returns: the relative clause of the line 1 sentence ('which is the place that the same arc or output now names') is line 1 with line 2 (mod031_resolves_to_named), and the context operation read resolves through the correspondence (line 6, MOD_031_ctx). A pass that maps the input arcs and the output specification and leaves the inhibitor, read and reset arcs on their old places meets discovery and fails line 2 (MOD_031_mutant_discoveryOnly_killed)."
-          "Line 4 states the merge rule of the body (identity carries no assertion) as resolution: an entry that resolves a place to itself, and an absent entry, are both the identity, so the line quantifies over every place and a place that neither side holds as a key is one that both sides resolve to itself. After a channel merge one correspondence serves the actions of two authors: when the caller's hand-written transition and the instance's channel transition both declare one place name for two different places, the merged correspondence resolves it as the instance side does, and no single correspondence is right for both (clash mod-c#6); the block states the body's rule and no line claims more. The merge here is the correspondence part of a channel merge: the channel merge's other rejections (timing, match specification, arc kinds, the input-arc table) are MOD-021's, so line 4's success is the success of the correspondence part. Only failure is stated, not the message (Rust panics listing every conflict sorted by declared name, rust/libpetri-core/src/rewriter.rs:779; Java and TypeScript throw). A merge that writes the instance side's entries last, so that an identity entry overwrites the caller's move, meets the rejection and success halves and fails the result half (MOD_031_mutant_noMergeResult_killed)."
+          "Ruling D69 (a), scope: line 1 covers transitions that no channel merge has joined, and so do the body's MUSTs on nested instantiation and on key-set completeness through every rewrite pass; for a transition that a channel merge joined no line states them. Rust, Java and TypeScript read a side of a channel merge that carries no correspondence as an identity entry for every place it names, take the union of the keys of both sides and drop the result as a whole when every entry is the identity (rust/libpetri-core/src/rewriter.rs merge_local_name_maps and side_map, called from merge_transitions; java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java mergeTransitions with sideAlias and mergePlaceAlias; typescript/src/core/internal/subnet-rewriter.ts mergeTransitions with sideAlias and mergePlaceAlias). The Python binding builds its nets through the Rust rewriter. That is the reference's key-complete merge (corrMergeVia corrSideFull), with AC9's drop, so the caller's declared places stay keys and a later pass that renames one of them (fusion at build, or instantiating the retrofitted net, MOD-014) moves it. A wrong merge that keeps the instance side's correspondence whole when the caller side carries none (carriedCorrOps, the behaviour RD-23 recorded) also satisfies the block, and the two differ after one more pass (MOD_031_mergeThenPass_undecided). The block does not kill carriedCorrOps: that needs a sentence on key-set completeness for a transition a channel merge joined, which the spec does not state (ruling D69 (a)), so MOD_031_mergeThenPass_undecided stays undecided although no runtime merges that way."
+          "Line 1 has two halves. The first resolves every place the transition names before the passes; the second is the body's key-set MUST read from above: the chained pass does not re-derive keys from the arcs, whose names are intermediate-pass names the author never declared, so a place the transition did not name resolves to itself. A chained pass that carries the declared entries and also records each intermediate arc name behind them meets the first half and fails the second (MOD_031_mutant_lowerOnly_killed): a port-agnostic action that asks for an output place it discovered would be sent to an input place. The second half holds of the reference, of carriedCorrOps and of the pass that drops an all-identity correspondence (AC9)."
+          "Line 2 names the places of every arc kind, not only the input and output places that discovery returns, and states each kind on its own: the relative clause of the line 1 sentence ('which is the place that the same arc or output now names') is line 1 with line 2 (mod031_resolves_to_named, through mod031_line2_namedPlaces), and the context operation read resolves through the correspondence (line 6, MOD_031_ctx). A pass that maps the input arcs and the output specification and leaves the inhibitor, read and reset arcs on their old places meets discovery and fails line 2 (MOD_031_mutant_discoveryOnly_killed). A pass that maps every place and then rebuilds each inhibitor arc as a read arc keeps the list of all named places and fails line 2, since an inhibitor turned into a read arc is an enabling condition (MOD_031_mutant_namedOnly_killed). Every runtime rebuilds each arc kind from the same kind, in order (rust/libpetri-core/src/rewriter.rs rebuild_with_name). Line 2 reads the input places as a set, as the sentence's 'place-set discovery' does, because of fusion: when a fusion (MOD-061) sends two input arcs of one transition onto one place, every runtime merges them into one arc by the merge table of MOD-021 (rust/libpetri-core/src/rewriter.rs apply_fusion with merge_input_arcs, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java applyFusion with mergeInputArcs, typescript/src/core/internal/subnet-rewriter.ts applyFusion with normalizeInputArcs), so the input list holds that place once where the mapped list holds it twice, and the set of input places is still the mapped set, which is what discovery returns. So line 2 holds of that merge with no premise (MOD_031_allows_mergeInputs: a pass that keeps one input arc for each place after the place map satisfies the block, and on a fusion of two input places it leaves one input arc where the mapped list holds the place twice); the merged arc, its cardinality and its position are MOD-061's lines. Read, inhibitor and reset arcs that land on one place are kept as they are (MOD-061), so those kinds and the output specification are mapped as lists, in order. The reference pass maps the input list in order (TransDef.map), which meets the set reading; a pass that drops an input place or adds one fails it (MOD_031_forbids_extraInput: a pass that adds an input arc on a fresh place). The derived consequences (mod031_resolves_to_named, mod031_lateBind, mod031ctx_inputs_after_passes) need only membership and hold with no premise. The shape of the output specification and the input cardinalities are not places: the rewrite keeps them as MOD-010 line 3 and MOD-020 line 1 state (TransDef.map)."
+          "Line 4 states the merge rule of the body (identity carries no assertion) as resolution: an entry that resolves a place to itself, and an absent entry, are both the identity, so the line quantifies over every place and a place that neither side holds as a key is one that both sides resolve to itself. After a channel merge one correspondence serves the actions of two authors: when the caller's hand-written transition and the instance's channel transition both declare one place name for two different places, the merged correspondence resolves it as the instance side does, and no single correspondence is right for both (clash mod-c#6); the block states the body's rule and no line claims more. The merge here is the correspondence part of a channel merge: the channel merge's other rejections (timing, match specification, arc kinds, the input-arc table) are MOD-021's, so line 4's success is the success of the correspondence part. Only failure is stated, not the message (Rust panics listing every conflict sorted by declared name, rust/libpetri-core/src/rewriter.rs merge_local_name_maps; Java and TypeScript throw). A merge that writes the instance side's entries last, so that an identity entry overwrites the caller's move, meets the rejection and success halves and fails the result half (MOD_031_mutant_noMergeResult_killed)."
           "Line 3 follows from line 1 at zero passes (mod031_line3_of_line1), so no model kills line 3 alone; it is kept as the line of AC4 and is a restatement, not an independent check. The 'directly-composed transition carries the identity correspondence' half of AC4 is direct composition adding a definition unchanged (MOD-025, not modelled here): such a definition carries no correspondence and line 3 applies."
           "AC1 (instance plus port binding, then ctx.input(declaredIn) and ctx.output(declaredOut) work) is line 1 at two passes, an instantiation and a port binding; that the context operation then passes its declared-place check and answers on the actual places is line 6 (MOD_031_ctx with mod031ctx_inputs_after_passes and mod031ctx_output_after_passes); that the transition then fires and deposits is EXEC's and CORE-062's. AC2 (Out.xor(aDecl, bDecl), the action selects aDecl, exactly one token on the actual a) is line 1 on the output place aDecl; the exactly-one-production check is EXEC's, and that output(aDecl, v) writes on the actual a is line 6 (mod031ctx_output_after_passes). AC3 (nested instantiation resolves to outer/inner/x) is line 1 at three passes; MOD_031_nonvacuous resolves the declared y to b/a/y; that the action's calls answer there is line 6 (mod031ctx_after_passes). AC5's first half (discovery returns the actual composed places) is line 2; its second half (port-agnostic actions written against discovery continue to work) is a claim about running actions and is line 6: a call on a discovered place that the correspondence resolves to itself answers for that place (mod031ctx_fixed), and a discovered place that is also a declared place the correspondence moved is resolved too (mod031ctx_collision)."
           "AC6 (structural equivalence per MOD-023: place index, transition count, arc topology, bitmap masks, timing arrays, without the correspondence) and the sentence that the correspondence is not consulted by enablement, firing, the verifier, the exporter or the event subsystem are MOD-050's line (wave W8) and MOD-023's: the firing view TransDef.toTrans and the structure read none of corr. 'Purely structural, fixed for the lifetime of the composed net' holds of the model's immutable values."
-          "AC7 (an action bound after instantiation resolves as a baked-in action does) is line 5; mod031_lateBind derives, for every model of the block, that after a late bind every declared place resolves where the passes sent it and that place is still named by the transition's arcs or output specification. Line 5 keeps the arcs and the output specification as CORE-042's line 1 does on built nets. Rust rebuild_with_action carries local_name_map forward (rust/libpetri-core/src/transition.rs:614-643), and Java and TypeScript rebuildWithAction carry placeAlias (typescript/src/core/petri-net.ts:989-999). What the binding does to the action is CORE-042's and MOD-030's; that the late-bound action's calls answer on the places the passes sent its declared places to is line 6 (mod031ctx_lateBind). A binding that keeps the correspondence and drops the read arcs fails line 5 (MOD_031_mutant_corrOnlyRebind_killed)."
+          "AC7 (an action bound after instantiation resolves as a baked-in action does) is line 5; mod031_lateBind derives, for every model of the block, that after a late bind every declared place resolves where the passes sent it and that place is still named by the transition's arcs or output specification. Line 5 keeps the arcs and the output specification as CORE-042's line 1 does on built nets. Rust rebuild_with_action carries local_name_map forward (rust/libpetri-core/src/transition.rs rebuild_with_action), and Java and TypeScript rebuildWithAction carry placeAlias (typescript/src/core/petri-net.ts rebuildWithAction). What the binding does to the action is CORE-042's and MOD-030's; that the late-bound action's calls answer on the places the passes sent its declared places to is line 6 (mod031ctx_lateBind). A binding that keeps the correspondence and drops the read arcs fails line 5 (MOD_031_mutant_corrOnlyRebind_killed)."
           "AC8 (identity round-trip across three passes) is line 1 at three passes: MOD_031_nonvacuous binds the port x to a caller place of its own name while y is prefixed, then instantiates again and resolves both; a pass that drops identity entries one by one violates it (MOD_031_forbids_entryDrop). The third pass is the instantiation of the retrofitted net (MOD-014). That the failure would be consume-then-throw, so the tokens are lost (EXEC-031), is the reason for the requirement, not a line."
-          "AC9 (an implementation that drops an all-identity correspondence wholesale still satisfies AC8) is MOD_031_allows_dropAllIdentity: the pass that drops it, as Rust, Java and TypeScript do (rust/libpetri-core/src/rewriter.rs:362-370, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:346-348), satisfies the block. The reference pass does not take this MAY."
+          "AC9 (an implementation that drops an all-identity correspondence wholesale still satisfies AC8) is MOD_031_allows_dropAllIdentity: the pass that drops it, as Rust, Java and TypeScript do (rust/libpetri-core/src/rewriter.rs wholesale_drop_if_all_identity, java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java compactIdentityAlias, typescript/src/core/internal/subnet-rewriter.ts dropIfAllIdentity), satisfies the block. The reference pass does not take this MAY."
           "AC10 (identity never conflicts on merge) is line 4: X to X against X to Y succeeds and yields X to Y, two differing non-identity mappings fail (MOD_031_nonvacuous); a merge that rejects any two differing entries is the mutant MOD_031_mutant_anyDifference."
           "AC11 (the identity test agrees with the lookup) holds by construction: the identity test and the lookup both use the equality of the place type N. Under name-only places (TypeScript, Rust, Python: N = String, strNaming) X to X is the identity whatever the token types; under places by name and token type (Java: N = String × Ty, typedNaming) a mapping from X of one token type to X of another is a retained entry. This is the MOD-024 divergence, carried by CORE-002."
-  signoff "pending"
+  signoff "2026-11-13 3cc284663f97c8d1 ai"
   statement : ∀ {N A : Type}, CorrOps N A → Prop :=
     fun {N A} O =>
       (∀ (d : CDef N A) (ss : List ((N → N) × (String → String))), d.corr = none →
         (∀ p ∈ d.namedPlaces, O.look (corrPasses O ss d).corr p = corrChain ss p) ∧
         (∀ x, x ∉ d.namedPlaces → O.look (corrPasses O ss d).corr x = x)) ∧
       (∀ (σ : N → N) (g : String → String) (d : CDef N A),
-        (O.pass σ g d).namedPlaces = d.namedPlaces.map σ ∧
-        discIn (O.pass σ g d).toTransDef = (discIn d.toTransDef).map σ ∧
+        (∀ p, p ∈ discIn (O.pass σ g d).toTransDef ↔ p ∈ (discIn d.toTransDef).map σ) ∧
+        (O.pass σ g d).core.inhibitors = d.core.inhibitors.map σ ∧
+        (O.pass σ g d).core.reads = d.core.reads.map σ ∧
+        (O.pass σ g d).core.resets = d.core.resets.map σ ∧
         discOut (O.pass σ g d).toTransDef = (discOut d.toTransDef).map σ) ∧
       (∀ p : N, O.look none p = p) ∧
       (∀ c i : CDef N A,
@@ -165,9 +171,11 @@ fun {N A} O =>
         (∀ p ∈ d.namedPlaces, O.look (corrPasses O ss d).corr p = corrChain ss p) ∧
           ∀ x ∉ d.namedPlaces, O.look (corrPasses O ss d).corr x = x) ∧
     (∀ (σ : N → N) (g : String → String) (d : CDef N A),
-        (O.pass σ g d).namedPlaces = List.map σ d.namedPlaces ∧
-          discIn (O.pass σ g d).toTransDef = List.map σ (discIn d.toTransDef) ∧
-            discOut (O.pass σ g d).toTransDef = List.map σ (discOut d.toTransDef)) ∧
+        (∀ (p : N), p ∈ discIn (O.pass σ g d).toTransDef ↔ p ∈ List.map σ (discIn d.toTransDef)) ∧
+          (O.pass σ g d).core.inhibitors = List.map σ d.core.inhibitors ∧
+            (O.pass σ g d).core.reads = List.map σ d.core.reads ∧
+              (O.pass σ g d).core.resets = List.map σ d.core.resets ∧
+                discOut (O.pass σ g d).toTransDef = List.map σ (discOut d.toTransDef)) ∧
       (∀ (p : N), O.look none p = p) ∧
         (∀ (c i : CDef N A),
             ((∃ x, O.look c.corr x ≠ x ∧ O.look i.corr x ≠ x ∧ O.look c.corr x ≠ O.look i.corr x) →
@@ -203,19 +211,36 @@ def mod031_line1 (O : CorrOps N A) : Prop :=
     (∀ p ∈ d.namedPlaces, O.look (corrPasses O ss d).corr p = corrChain ss p) ∧
     (∀ x, x ∉ d.namedPlaces → O.look (corrPasses O ss d).corr x = x)
 
-/-- Discovery under a pass: the input and output places go through the place map. -/
+/-- Discovery under a pass: the input places (as a set) and the output places go through the
+place map. -/
 def mod031_disc (O : CorrOps N A) : Prop :=
   ∀ (σ : N → N) (g : String → String) (d : CDef N A),
-    discIn (O.pass σ g d).toTransDef = (discIn d.toTransDef).map σ ∧
+    (∀ p, p ∈ discIn (O.pass σ g d).toTransDef ↔ p ∈ (discIn d.toTransDef).map σ) ∧
     discOut (O.pass σ g d).toTransDef = (discOut d.toTransDef).map σ
 
-/-- Line 2 of MOD-031: a pass sends every named place, and the input and output places, through
-its place map. -/
+/-- Line 2 of MOD-031: a pass sends the places of each arc kind and of the output specification
+through its place map, each kind on its own, the input places as a set. -/
 def mod031_line2 (O : CorrOps N A) : Prop :=
   ∀ (σ : N → N) (g : String → String) (d : CDef N A),
-    (O.pass σ g d).namedPlaces = d.namedPlaces.map σ ∧
-    discIn (O.pass σ g d).toTransDef = (discIn d.toTransDef).map σ ∧
+    (∀ p, p ∈ discIn (O.pass σ g d).toTransDef ↔ p ∈ (discIn d.toTransDef).map σ) ∧
+    (O.pass σ g d).core.inhibitors = d.core.inhibitors.map σ ∧
+    (O.pass σ g d).core.reads = d.core.reads.map σ ∧
+    (O.pass σ g d).core.resets = d.core.resets.map σ ∧
     discOut (O.pass σ g d).toTransDef = (discOut d.toTransDef).map σ
+
+/-- Line 2 sends the named places through the place map: a place is named after the pass
+exactly when it is the image of a place named before it. -/
+theorem mod031_line2_namedPlaces {O : CorrOps N A} (h : mod031_line2 O) (σ : N → N)
+    (g : String → String) (d : CDef N A) (p : N) :
+    p ∈ (O.pass σ g d).namedPlaces ↔ p ∈ d.namedPlaces.map σ := by
+  obtain ⟨hi, hh, hr, hs, ho⟩ := h σ g d
+  show p ∈ discIn (O.pass σ g d).toTransDef ++ (O.pass σ g d).core.inhibitors ++
+      (O.pass σ g d).core.reads ++ (O.pass σ g d).core.resets ++
+      discOut (O.pass σ g d).toTransDef ↔
+    p ∈ (discIn d.toTransDef ++ d.core.inhibitors ++ d.core.reads ++ d.core.resets ++
+      discOut d.toTransDef).map σ
+  rw [hh, hr, hs, ho]
+  simp only [List.map_append, List.mem_append, hi p]
 
 /-- Line 3 of MOD-031: no correspondence resolves every place to itself. -/
 def mod031_line3 (O : CorrOps N A) : Prop := ∀ p : N, O.look none p = p
@@ -273,21 +298,31 @@ theorem mod031_line3_of_line1 {O : CorrOps N A} (h : mod031_line1 O) : mod031_li
   exact (h (mod031_single p) [] rfl).1 p (by simp [mod031_single, TransDef.namedPlaces])
 
 /-- Under line 2, a sequence of passes sends the named places through the chain of place
-maps, position by position. -/
+maps: a place is named after the passes exactly when it is the image of a place named before
+them. -/
 theorem mod031_namedPlaces_passes {O : CorrOps N A} (h : mod031_line2 O)
     (ss : List ((N → N) × (String → String))) :
-    ∀ d : CDef N A, (corrPasses O ss d).namedPlaces = d.namedPlaces.map (corrChain ss) := by
+    ∀ (d : CDef N A) (p : N),
+      p ∈ (corrPasses O ss d).namedPlaces ↔ p ∈ d.namedPlaces.map (corrChain ss) := by
   induction ss with
   | nil =>
-    intro d
+    intro d p
     have e : corrChain ([] : List ((N → N) × (String → String))) = id := rfl
     simp [corrPasses, e]
   | cons s rest ih =>
-    intro d
-    have e := ih (O.pass s.1 s.2 d)
+    intro d p
+    have e := ih (O.pass s.1 s.2 d) p
     simp only [corrPasses, List.foldl_cons] at e ⊢
-    rw [e, (h s.1 s.2 d).1, List.map_map]
-    rfl
+    rw [e]
+    have ec : corrChain (s :: rest) = corrChain rest ∘ s.1 := rfl
+    rw [ec, ← List.map_map]
+    constructor
+    · intro hp
+      obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+      exact List.mem_map.2 ⟨q, (mod031_line2_namedPlaces h s.1 s.2 d q).1 hq, rfl⟩
+    · intro hp
+      obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+      exact List.mem_map.2 ⟨q, (mod031_line2_namedPlaces h s.1 s.2 d q).2 hq, rfl⟩
 
 /-- **The resolved place is a place the arcs name.** Take a transition with an input arc on `x`
 and an output on `y`, instantiate it and bind its port: `x` and `y` resolve to the places the
@@ -345,7 +380,8 @@ carries none, an identity entry for every place it names, so the key set stays c
 def corrSideFull (d : CDef N A) : List (N × N) :=
   d.corr.getD (d.namedPlaces.map fun p => (p, p))
 
-/-- The side of a merge as the runtimes read it: the correspondence it carries, or nothing. -/
+/-- The side of a merge as the wrong merge `carriedCorrOps` reads it: the correspondence it
+carries, or nothing. -/
 def corrSideCarried (d : CDef N A) : List (N × N) := d.corr.getD []
 
 /-- The declared places of a merge: the keys of both sides. -/
@@ -381,9 +417,10 @@ def refCorrOps : CorrOps N A :=
 /- The reference correspondence operations are the witness model of MOD-031. -/
 #spec_witness refCorrOps
 
-/-- The runtimes' merge: a side that carries no correspondence contributes no key
-(`rust/libpetri-core/src/rewriter.rs:746`). -/
-def rtCorrOps : CorrOps N A :=
+/-- A wrong merge: a side that carries no correspondence contributes no key, so the other side's
+correspondence is taken whole (the behaviour RD-23 recorded; the runtimes read such a side as the
+reference does, through `corrSideFull`). -/
+def carriedCorrOps : CorrOps N A :=
   ⟨CDef.map, corrResolve, corrMergeVia corrSideCarried corrRefClash, corrRebind⟩
 
 omit [DecidableEq N] in
@@ -600,10 +637,12 @@ theorem line2_of_map {P : (N → N) → (String → String) → CDef N A → CDe
     (mg : CDef N A → CDef N A → Except String (Option (List (N × N))))
     (rb : CDef N A → Act A → CDef N A) : mod031_line2 (⟨P, lk, mg, rb⟩ : CorrOps N A) := by
   intro σ g d
-  show (P σ g d).toTransDef.namedPlaces = _ ∧ discIn (P σ g d).toTransDef = _ ∧
+  show (∀ p, p ∈ discIn (P σ g d).toTransDef ↔ _) ∧ (P σ g d).toTransDef.core.inhibitors = _ ∧
+    (P σ g d).toTransDef.core.reads = _ ∧ (P σ g d).toTransDef.core.resets = _ ∧
     discOut (P σ g d).toTransDef = _
   rw [hP]
-  exact ⟨namedPlaces_map σ g d.toTransDef, disc_map σ g d.toTransDef⟩
+  exact ⟨fun p => by rw [(disc_map σ g d.toTransDef).1], rfl, rfl, rfl,
+    (disc_map σ g d.toTransDef).2⟩
 
 /-! #### Line 4: the merge -/
 
@@ -686,7 +725,7 @@ theorem line4_of_via {side : CDef N A → List (N × N)} (hs : CorrSideKeys side
   · exact corrMergeVia_ok fun x _ => by
       rcases hno x with h | h | h <;> simp [corrRefClash, h]
 
-/-! #### The reference and the runtimes' merge satisfy MOD-031 -/
+/-! #### The reference and the wrong merge `carriedCorrOps` satisfy MOD-031 -/
 
 /-- MOD-031 holds of the passes `CDef.map`, the lookup `corrResolve`, the action binding
 `corrRebind` and the body's merge rule under every side reading that keeps the moved places as
@@ -709,9 +748,9 @@ changes neither the correspondence nor the arcs. -/
 theorem MOD_031_reference {N A : Type} [DecidableEq N] : MOD_031 (refCorrOps (N := N) (A := A)) :=
   mod031_of_side corrSideFull_keys
 
-/-- The runtimes' merge, which reads only the correspondences the sides carry, satisfies
-MOD-031 too. -/
-theorem MOD_031_rt {N A : Type} [DecidableEq N] : MOD_031 (rtCorrOps (N := N) (A := A)) :=
+/-- The wrong merge, which reads only the correspondences the sides carry, satisfies MOD-031
+too. -/
+theorem MOD_031_carried {N A : Type} [DecidableEq N] : MOD_031 (carriedCorrOps (N := N) (A := A)) :=
   mod031_of_side corrSideCarried_keys
 
 /-! ### AC9: dropping an all-identity correspondence as a whole -/
@@ -917,6 +956,83 @@ theorem MOD_031_allows_shared :
     corrResolve (refCorrOps.pass (fun _ => "r") id mod031_two).corr "q" = "r" :=
   ⟨MOD_031_reference, by decide, by decide⟩
 
+/-! ### Fusion: two input arcs merged onto one place -/
+
+section MergeIn
+
+variable {N A : Type} [DecidableEq N]
+
+/-- The input arcs with one arc for each place: an arc is dropped when a later arc names its
+place. The cardinality is not a place: which arc is kept and the merged cardinality are MOD-061's
+and MOD-021's lines, not this block's. -/
+def corrMergeIn : List (NInSpec N) → List (NInSpec N)
+  | [] => []
+  | a :: as =>
+    if (corrMergeIn as).any (fun b => decide (b.place = a.place)) then corrMergeIn as
+    else a :: corrMergeIn as
+
+/-- Merging the input arcs keeps the set of input places. -/
+theorem corrMergeIn_mem (l : List (NInSpec N)) (p : N) :
+    p ∈ (corrMergeIn l).map (·.place) ↔ p ∈ l.map (·.place) := by
+  induction l with
+  | nil => exact Iff.rfl
+  | cons a as ih =>
+    simp only [corrMergeIn]
+    split
+    · rename_i h
+      rw [ih]
+      simp only [List.map_cons, List.mem_cons]
+      constructor
+      · exact Or.inr
+      · rintro (rfl | h')
+        · obtain ⟨b, hb, hbe⟩ := List.any_eq_true.1 h
+          exact ih.1 (List.mem_map.2 ⟨b, hb, of_decide_eq_true hbe⟩)
+        · exact h'
+    · simp only [List.map_cons, List.mem_cons, ih]
+
+/-- A fusion-like pass: every place mapped as the reference does, then the input arcs that the
+place map sent onto one place merged into one arc, as every runtime merges them (MOD-061). -/
+def corrMergeInPass (σ : N → N) (g : String → String) (d : CDef N A) : CDef N A :=
+  let d' := CDef.map σ g d
+  { d' with core := { d'.core with inputs := corrMergeIn d'.core.inputs } }
+
+/-- The reference with the input-merging pass. -/
+def mergeInCorrOps : CorrOps N A :=
+  ⟨corrMergeInPass, corrResolve, corrMergeVia corrSideFull corrRefClash, corrRebind⟩
+
+/-- The input-merging pass satisfies MOD-031 at every place type: line 2 reads the input places
+as a set, and the merge keeps that set. -/
+theorem mod031_mergeIn : MOD_031 (mergeInCorrOps (N := N) (A := A)) := by
+  refine ⟨line1_of_corrPass (P := corrMergeInPass) (fun _ _ _ => rfl) _ _, fun σ g d => ?_,
+    fun _ => rfl, line4_of_via corrSideFull_keys _ _, line5_corrRebind _ _ _⟩
+  obtain ⟨hi, hh, hr, hs, ho⟩ :=
+    line2_of_map (P := CDef.map) (fun _ _ _ => rfl) (corrResolve (N := N))
+      (corrMergeVia corrSideFull corrRefClash) (corrRebind (A := A)) σ g d
+  exact ⟨fun p => (corrMergeIn_mem _ p).trans (hi p), hh, hr, hs, ho⟩
+
+end MergeIn
+
+/-- A transition with input arcs on `0` and `1` and an output on `2`. -/
+def mod031_twoIn : CDef Nat Unit :=
+  { core := ⟨"t", [⟨0, .one⟩, ⟨1, .one⟩], [], [], []⟩, out := some (.place 2),
+    timing := .immediate, priority := 0, action := .passthrough }
+
+/-- A fusion of the places `0` and `1` onto `5`. -/
+def mod031_fuse (p : Nat) : Nat := if p = 0 ∨ p = 1 then 5 else p
+
+/-- ✓ Line 2 reads the input places as a set, so a fusion that merges two input arcs onto one
+place satisfies it (MOD-061). Fusing the input places `0` and `1` of a transition onto `5`: the
+mapped input list is `[5, 5]`, the pass leaves one input arc on `5`, discovery returns the actual
+place `5`, and both declared places resolve to it. The pass satisfies the whole block. -/
+@[evidence allows MOD_031]
+theorem MOD_031_allows_mergeInputs :
+    MOD_031 (mergeInCorrOps (N := Nat) (A := Unit)) ∧
+    (discIn mod031_twoIn.toTransDef).map mod031_fuse = [5, 5] ∧
+    discIn (mergeInCorrOps.pass mod031_fuse id mod031_twoIn).toTransDef = [5] ∧
+    corrResolve (mergeInCorrOps.pass mod031_fuse id mod031_twoIn).corr 0 = 5 ∧
+    corrResolve (mergeInCorrOps.pass mod031_fuse id mod031_twoIn).corr 1 = 5 :=
+  ⟨mod031_mergeIn, by decide, by decide, by decide, by decide⟩
+
 /-! ### Merge, then pass: the case the block leaves open -/
 
 /-- A hand-written caller transition over `h`. -/
@@ -932,20 +1048,24 @@ def mod031_merged (m : Option (List (String × String))) : CDef String Unit :=
 def mod031_later (p : String) : String := if p = "h" then "f" else p
 
 /-- ? Merge, then pass (ruling D69 (a): line 1 covers transitions no channel merge joined). The
-key-complete merge of the reference and the runtimes' merge both satisfy MOD-031. Merging the
-hand-written caller over `h` with an instance transition mapping `x` to `s/x`, then moving `h`
-to `f` in one more pass: after the reference's merge the caller's `h` resolves to `f`; after the
-runtimes' merge it resolves to `h`, a place no arc of the transition names any more, so the
-caller's action would fail its declared-place check after consuming its inputs. -/
+key-complete merge of the reference, which the runtimes follow, and the wrong merge
+`carriedCorrOps` (the behaviour RD-23 recorded) both satisfy MOD-031: no sentence of MOD-031
+states key-set completeness for a transition a channel merge joined, so the block cannot tell
+them apart. Merging the hand-written caller over `h` with an instance transition mapping `x` to
+`s/x`, then moving `h` to `f` in one more pass: after the reference's merge the caller's `h`
+resolves to `f`; after the wrong merge it resolves to `h`, a place no arc of the transition names
+any more, so the caller's action would fail its declared-place check after consuming its
+inputs. -/
 @[evidence undecided MOD_031]
 theorem MOD_031_mergeThenPass_undecided :
-    MOD_031 (refCorrOps (N := String) (A := Unit)) ∧ MOD_031 (rtCorrOps (N := String) (A := Unit)) ∧
+    MOD_031 (refCorrOps (N := String) (A := Unit)) ∧
+    MOD_031 (carriedCorrOps (N := String) (A := Unit)) ∧
     (∃ m, refCorrOps.merge mod031_caller mod031_instMoves = .ok m ∧
       corrResolve (CDef.map mod031_later id (mod031_merged m)).corr "h" = "f") ∧
-    (∃ m, rtCorrOps.merge mod031_caller mod031_instMoves = .ok m ∧
+    (∃ m, carriedCorrOps.merge mod031_caller mod031_instMoves = .ok m ∧
       corrResolve (CDef.map mod031_later id (mod031_merged m)).corr "h" = "h" ∧
       "h" ∉ (CDef.map mod031_later id (mod031_merged m)).namedPlaces) :=
-  ⟨MOD_031_reference, MOD_031_rt, ⟨_, rfl, by decide⟩, ⟨_, rfl, by decide, by decide⟩⟩
+  ⟨MOD_031_reference, MOD_031_carried, ⟨_, rfl, by decide⟩, ⟨_, rfl, by decide, by decide⟩⟩
 
 /-! ### Wrong correspondence operations -/
 
@@ -966,7 +1086,8 @@ def corrRederivePass (σ : N → N) (g : String → String) (d : CDef N A) : CDe
 
 /-- A chained pass that carries the declared entries and then also records every place the arcs
 name before the pass (intermediate names the author never declared), behind the carried
-entries. The slip `rust/libpetri-core/src/rewriter.rs:290-294` warns against. -/
+entries. The slip the comment in `build_local_name_map` (`rust/libpetri-core/src/rewriter.rs`) warns
+against. -/
 def corrLeakPass (σ : N → N) (g : String → String) (d : CDef N A) : CDef N A :=
   { d.toTransDef.map σ g with corr := some (corrPass σ d ++ d.namedPlaces.map fun p => (p, σ p)) }
 
@@ -981,6 +1102,19 @@ that copies only the discovery lists through the place map. -/
 def corrReadsKeptPass (σ : N → N) (g : String → String) (d : CDef N A) : CDef N A :=
   { d with core := { d.core with name := g d.core.name, inputs := d.core.inputs.map (mapIn σ) },
            out := d.out.map (mapOut σ), corr := some (corrPass σ d) }
+
+/-- A pass that maps every place as the reference does and then rebuilds each inhibitor arc as a
+read arc: a copy slip in a per-arc-kind rebuild. The list of all named places is unchanged. -/
+def corrKindSwapPass (σ : N → N) (g : String → String) (d : CDef N A) : CDef N A :=
+  let d' := CDef.map σ g d
+  { d' with core := { d'.core with inhibitors := [], reads := d'.core.inhibitors ++ d'.core.reads } }
+
+/-- A pass that maps every place as the reference does and then adds an input arc on a fresh
+place, one past the largest place the mapped transition names. -/
+def corrExtraInputPass (σ : Nat → Nat) (g : String → String) (d : CDef Nat A) : CDef Nat A :=
+  let d' := CDef.map σ g d
+  { d' with core := { d'.core with
+      inputs := d'.core.inputs ++ [⟨d'.namedPlaces.foldr max 0 + 1, .one⟩] } }
 
 /-- A merge in which any two different entries conflict, identities included. -/
 def corrAnyDiffClash (_ a b : N) : Bool := decide (a ≠ b)
@@ -1018,6 +1152,14 @@ def aliasOnlyCorrOps : CorrOps N A :=
 /-- The reference with the pass that keeps the inhibitor, read and reset arcs. -/
 def readsKeptCorrOps : CorrOps N A :=
   ⟨corrReadsKeptPass, corrResolve, corrMergeVia corrSideFull corrRefClash, corrRebind⟩
+
+/-- The reference with the pass that turns inhibitor arcs into read arcs. -/
+def kindSwapCorrOps : CorrOps N A :=
+  ⟨corrKindSwapPass, corrResolve, corrMergeVia corrSideFull corrRefClash, corrRebind⟩
+
+/-- The reference with the pass that adds an input arc on a fresh place. -/
+def extraInputCorrOps : CorrOps Nat A :=
+  ⟨corrExtraInputPass, corrResolve, corrMergeVia corrSideFull corrRefClash, corrRebind⟩
 
 /-- The reference with the merge in which identities conflict. -/
 def anyDiffCorrOps : CorrOps N A :=
@@ -1080,6 +1222,11 @@ def mod031_readEx : CDef Nat Unit :=
   { core := ⟨"t", [⟨0, .one⟩], [], [1], []⟩, out := none, timing := .immediate, priority := 0,
     action := .passthrough }
 
+/-- A transition with an inhibitor arc on `0` and nothing else. -/
+def mod031_inhEx : CDef Nat Unit :=
+  { core := ⟨"t", [], [0], [], []⟩, out := none, timing := .immediate, priority := 0,
+    action := .passthrough }
+
 /-- Leak example, first pass: bind the port `0` to the place `5`. -/
 def mod031_l1 (p : Nat) : Nat := if p = 0 then 5 else p
 
@@ -1106,6 +1253,17 @@ theorem MOD_031_forbids_rejectMerge : ¬ MOD_031 (rejectMergeCorrOps (N := Strin
     · subst hx; left; decide
     · left; simp [rejectMergeCorrOps, mod031_callerId, corrResolve, corrLookup, Ne.symm hx])
   cases hm
+
+/-- ✗ A pass that adds an input arc on a fresh place violates MOD-031 (line 2): the transition
+with an input arc on `0` and an output on `1` comes out of an identity pass with a second input
+arc on `2`, so discovery returns a place that is not the image of an input place before the
+pass. -/
+@[evidence forbids MOD_031]
+theorem MOD_031_forbids_extraInput : ¬ MOD_031 (extraInputCorrOps (A := Unit)) := by
+  intro h
+  have := ((h.2.1 id id mod031_exNat).1 2).1 (by decide)
+  revert this
+  decide
 
 /-! ### Mutants, one per load-bearing line -/
 
@@ -1134,6 +1292,18 @@ def MOD_031_mutant_noDiscovery (O : CorrOps N A) : Prop :=
 place map, and nothing is said of the inhibitor, read and reset arcs. -/
 def MOD_031_mutant_discoveryOnly (O : CorrOps N A) : Prop :=
   mod031_line1 O ∧ mod031_disc O ∧ mod031_line3 O ∧ mod031_line4 O ∧ mod031_line5 O
+
+/-- Mutant reading of line 2 over all named places at once: the places the arcs and the output
+specification name, as a set (the conclusion of `mod031_line2_namedPlaces`), and the input
+places as a set and the output places go through the place map, and nothing keeps an arc of one
+kind from coming out as an arc of another kind. -/
+def MOD_031_mutant_namedOnly (O : CorrOps N A) : Prop :=
+  mod031_line1 O ∧
+  (∀ (σ : N → N) (g : String → String) (d : CDef N A),
+    (∀ p, p ∈ (O.pass σ g d).namedPlaces ↔ p ∈ d.namedPlaces.map σ) ∧
+    (∀ p, p ∈ discIn (O.pass σ g d).toTransDef ↔ p ∈ (discIn d.toTransDef).map σ) ∧
+    discOut (O.pass σ g d).toTransDef = (discOut d.toTransDef).map σ) ∧
+  mod031_line3 O ∧ mod031_line4 O ∧ mod031_line5 O
 
 /-- Mutant reading of line 4 without the identity rule: two different entries for one declared
 place conflict, and a merge without such entries succeeds. -/
@@ -1205,7 +1375,7 @@ theorem MOD_031_mutant_noDiscovery_killed :
       ¬ MOD_031 (aliasOnlyCorrOps (N := Nat) (A := Unit)) := by
   refine ⟨⟨line1_of_corrPass (fun _ _ _ => rfl) _ _, fun _ => rfl,
     line4_of_via corrSideFull_keys _ _, line5_corrRebind _ _ _⟩, fun h => ?_⟩
-  have := (h.2.1 mod031_s2 id mod031_exNat).2.1
+  have := ((h.2.1 mod031_s2 id mod031_exNat).1 20).2 (by decide)
   revert this
   decide
 
@@ -1219,9 +1389,33 @@ theorem MOD_031_mutant_discoveryOnly_killed :
       ¬ MOD_031 (readsKeptCorrOps (N := Nat) (A := Unit)) := by
   refine ⟨⟨line1_of_corrPass (fun _ _ _ => rfl) _ _, fun σ g d => ⟨?_, ?_⟩, fun _ => rfl,
     line4_of_via corrSideFull_keys _ _, line5_corrRebind _ _ _⟩, fun h => ?_⟩
-  · simp [readsKeptCorrOps, corrReadsKeptPass, discIn, mapIn, List.map_map, Function.comp_def]
+  · intro p
+    simp [readsKeptCorrOps, corrReadsKeptPass, discIn, mapIn, List.map_map, Function.comp_def]
   · cases ho : d.out <;> simp [readsKeptCorrOps, corrReadsKeptPass, discOut, ho, outPlaces_mapOut]
-  · have := (h.2.1 (· + 10) id mod031_readEx).1
+  · have := (h.2.1 (· + 10) id mod031_readEx).2.2.1
+    revert this
+    decide
+
+/-- The kind-swapping pass kills the reading of line 2 over all named places at once. It maps
+every place as the reference does, so the list of named places, discovery and every
+correspondence come out right, but the transition with an inhibitor arc on `0` comes out with a
+read arc on `0` and no inhibitor arc: it now needs a token on `0` where it needed `0` empty. -/
+@[evidence mutant MOD_031]
+theorem MOD_031_mutant_namedOnly_killed :
+    MOD_031_mutant_namedOnly (kindSwapCorrOps (N := Nat) (A := Unit)) ∧
+      ¬ MOD_031 (kindSwapCorrOps (N := Nat) (A := Unit)) := by
+  refine ⟨⟨line1_of_corrPass (P := corrKindSwapPass) (fun _ _ _ => rfl) _ _, fun σ g d => ?_,
+    fun _ => rfl, line4_of_via corrSideFull_keys _ _, line5_corrRebind _ _ _⟩, fun h => ?_⟩
+  · obtain ⟨hi, -, -, -, ho⟩ :=
+      line2_of_map (P := CDef.map) (fun _ _ _ => rfl) (corrResolve (N := Nat))
+        (corrMergeVia corrSideFull corrRefClash) (corrRebind (A := Unit)) σ g d
+    have hn : (corrKindSwapPass σ g d).toTransDef.namedPlaces = d.namedPlaces.map σ := by
+      rw [← namedPlaces_map σ g d.toTransDef]
+      show (corrKindSwapPass σ g d).toTransDef.namedPlaces =
+        (CDef.map σ g d).toTransDef.namedPlaces
+      simp [corrKindSwapPass, TransDef.namedPlaces, List.append_assoc]
+    exact ⟨fun p => Iff.of_eq (congrArg (p ∈ ·) hn), hi, ho⟩
+  · have := (h.2.1 id id mod031_inhEx).2.1
     revert this
     decide
 
@@ -1341,21 +1535,21 @@ requirement MOD_031_ctx
   id "MOD-031"
   title "Action Place Resolution under Composition (the context operations)"
   kind F
-  scope "the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter, which breaks the line on a collision (RD-30); not the Rust native context, which hands the correspondence to native actions"
+  scope "the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter; not the Rust native context, which hands the correspondence to native actions"
   source verbatim "spec/11-modular-composition.md"
   quote "*Where* an implementation resolves declared places in its context operations, *when* an action calls `inputs`, `input`, `inputToken`, `read` or the single or bulk `output` with a place, the call *shall* give the result, or report the error, that the same call gives on the same transition without a correspondence for the place that the transition's correspondence resolves the given place to."
   reading "For every value projection value, every set of correspondence operations O and every family R of transition contexts, one for each correspondence a transition can carry:"
           "for every correspondence c, transition t, delivery δ, output buffer e, place p and list of values vs, the calls inputs, input, inputToken and read on t, δ and p and the output call on t, e, p and vs of the context R c give what the same calls of the context R none give with p replaced by O.look c p, the place c resolves p to; results are compared whole, so a call reports an error (none) exactly when that call does."
   assumes "The model is the triple (value, O, R). O is the correspondence operations of the first block, and line 6 resolves through its lookup O.look, the lookup that lines 1 to 4 constrain, so a context resolves a place the way the correspondence's own lookup does (AC11). R gives, for each correspondence a transition can carry (none: it carries none), the transition context (Ctx, Spec/GlossaryContext.lean) its action calls: inputs, input, inputToken and read take the transition, the delivery and a place and return none when the call reports an error; output takes the transition, the buffer written so far, a place and the values of one call. R none is the context of a transition without a correspondence, the context CORE-060 to CORE-063 constrain, and line 6 says that R c is R none behind the lookup. The value projection value is not used by the line; it keeps the block on the model of CORE-060. The witness is refResCtx, refCtx called with the place corrResolve gives (refResCtx_none: without a correspondence it is refCtx), and mod031ctx_joint_ref gives MOD-031, line 6, CORE-060 and CORE-062 on the reference together."
           "Alone, line 6 says nothing about where a place resolves: an identity lookup with a context that ignores the correspondence meets it. Where a declared place resolves is lines 1 to 5, so the line is read with the first block. mod031ctx_after_passes derives, for every model of both with one O, that after any sequence of passes every call on a place the transition named before the passes answers what the call without a correspondence answers on the place the passes sent it to; mod031ctx_inputs_after_passes and mod031ctx_output_after_passes add CORE-060 line 1 and CORE-062 line 1, so inputs answers the values consumed from the actual place and an output call writes on the actual place, which the rewritten arcs name. Against the reference lookup a context that does not resolve is forbidden (MOD_031_ctx_forbids_noResolve). mod031ctx_joint_ref joins the two blocks with one O on the reference."
-          "Scope, ruling D69 (a) with map ruling R-MC3 (a): the line holds of implementations that resolve in their context operations, in the context API or in a binding adapter. Java resolves through placeAlias.getOrDefault(place, place) (java/src/main/java/org/libpetri/core/TransitionContext.java:138-139) before the declared-place check of input, inputs, inputToken, inputTokens, read, reads, every output form and forwardToHarvest (:165-424), and TypeScript through placeAlias.get(place.name) (typescript/src/core/transition-context.ts:106-109, used at :115-280); both are refResCtx. The Rust native context does not resolve: input and inputs look the given name up in the delivered map (rust/libpetri-core/src/context.rs:278-281), and the correspondence is handed to bindings and native actions through local_name_map (context.rs:160-162). The MAY paragraph of the markdown allows that for a binding-hosted implementation and says that a native action then resolves a declared place through the exposed correspondence itself, and that AC1, AC2, AC3 and AC7 hold of a native action that does. Read as a resolving context the Rust native context is the forbidden model above, so it is out of the block's scope."
-          "The Python binding resolves in its binding adapter and tries the given name first: resolve_lookup_key and require_output answer for the name when it is a key of the delivered input or read map or of the allowed outputs, and fall back through local_name_map otherwise (rust/libpetri-py/src/action.rs:307-345). That is litFirstCtx (pyResCtx over the reference), with key presence read as arc membership, which agree on a firing's delivery (CORE-063 assumes). It meets line 6 on every place that is not itself a place of the call's kind, and can break it only on such a place that the correspondence resolves to another place; it does on the collision example (MOD_031_ctx_mutant_literalFirst_killed, mod031ctx_collision). The spec keeps correspondence first (R-MC3 (a), and the MAY paragraph asks a binding adapter for the same order), so the Python order is a recorded runtime defect of the binding (RD-30 in spec/runtime-defects.md), to be fixed by trying local_name_map first; the block is not weakened for it."
+          "Scope, ruling D69 (a) with map ruling R-MC3 (a): the line holds of implementations that resolve in their context operations, in the context API or in a binding adapter. Java resolves through placeAlias.getOrDefault(place, place) (java/src/main/java/org/libpetri/core/TransitionContext.java resolve) before the declared-place check of input, inputs, inputToken, inputTokens, read, reads and every output form an action calls, and TypeScript through placeAlias.get(place.name) (typescript/src/core/transition-context.ts resolve, called by the same accessors); both are refResCtx. The Rust native context does not resolve: input and inputs look the given name up in the delivered map (rust/libpetri-core/src/context.rs, TransitionContext::input and inputs), and the correspondence is handed to bindings and native actions through local_name_map (the accessor of the same name in context.rs). The MAY paragraph of the markdown allows that for a binding-hosted implementation and says that a native action then resolves a declared place through the exposed correspondence itself, and that AC1, AC2, AC3 and AC7 hold of a native action that does. Read as a resolving context the Rust native context is the forbidden model above, so it is out of the block's scope."
+          "The Python binding resolves in its binding adapter, correspondence first: resolve sends the given name through local_name_map and keeps it when it is no key, and resolve_lookup_key and require_output look up only the resolved name in the delivered input or read map or the allowed outputs, never the given name after it (rust/libpetri-py/src/action.rs, PyActionContext::resolve, resolve_lookup_key and require_output). With key presence read as arc membership, which agree on a firing's delivery (CORE-063 assumes), that is refResCtx. A wrong adapter that tries the given name first and falls back through the correspondence (litFirstCtx, nameFirstResCtx over the reference; the behaviour RD-30 recorded, which no runtime's adapter does) meets line 6 on every place that is not itself a place of the call's kind, and breaks it on such a place that the correspondence resolves to another place; it does on the collision example (MOD_031_ctx_mutant_literalFirst_killed, mod031ctx_collision). The spec asks for correspondence first (R-MC3 (a), and the MAY paragraph asks a binding adapter for the same order)."
           "'Before the declared-set check and before reading or writing the token store': a context that resolves the place for the check and then reads or writes the store at the place it was given reports an error exactly when the reference does, and still breaks the line (MOD_031_ctx_mutant_checkOnly_killed); the converse, a check on the given place and the store access on the resolved place, is forbidden too (MOD_031_ctx_forbids_checkGiven). Each accessor is load-bearing: contexts that leave output, read, or input and inputToken unresolved are killed (MOD_031_ctx_mutant_noOutput_killed, MOD_031_ctx_mutant_noRead_killed, MOD_031_ctx_mutant_inputsOnly_killed), and inputs is the conjunct the check-only and name-first contexts break. Resolving through the lookup once, and with the place itself as the default, is load-bearing as well: a context whose input resolves twice and one that reports an error for a place without an entry both pass the AC8 example and break the line on the collision example (MOD_031_ctx_forbids_resolveTwice, MOD_031_ctx_forbids_noDefault)."
-          "The quoted sentence names inputToken beside the four operations of the body because Java and TypeScript resolve it too; Rust and Python have no inputToken. 'The single or bulk output': both calls are one Ctx field (CORE-062), a call with one value or with several. The body's 'all overloads' also covers the plural accessors and the other forms (reads, inputTokens, outputToken, outputToHarvest, forwardToHarvest), which are not fields of Ctx; Java and TypeScript resolve each of them the same way (the sites above), which is a description of the code, not a line."
-          "Discovery and the declared style meet on a collision: when a discovered place has the name of a declared place of the same transition that the correspondence moved (a port bound to a caller place that has the name of another declared place), the line resolves the discovered place too, so a port-agnostic action that passes it gets the answer of the moved place (mod031ctx_collision). No lookup order serves both styles there; the name-first order of Python serves the port-agnostic one. On every other discovered place the call answers for that place (mod031ctx_fixed), which is AC5's second half as the markdown words it."
+          "The quoted sentence names inputToken beside the four operations of the body because Java and TypeScript resolve it too; Rust and Python have no inputToken. 'The single or bulk output': both calls are one Ctx field (CORE-062), a call with one value or with several. The body's 'all overloads' also covers the plural accessors and the other forms an action calls (reads, inputTokens, outputToken), which are not fields of Ctx; Java and TypeScript resolve each of them the same way (the sites above), which is a description of the code, not a line. outputToHarvest and forwardToHarvest are executor machinery, not action calls (the last paragraph)."
+          "Discovery and the declared style meet on a collision: when a discovered place has the name of a declared place of the same transition that the correspondence moved (a port bound to a caller place that has the name of another declared place), the line resolves the discovered place too, so a port-agnostic action that passes it gets the answer of the moved place (mod031ctx_collision). No lookup order serves both styles there; a name-first order would serve the port-agnostic one. On every other discovered place the call answers for that place (mod031ctx_fixed), which is AC5's second half as the markdown words it."
           "AC1 (ctx.input(declaredIn) and ctx.output(declaredOut) after instancing and port binding, the transition fires and produces on the actual resp with no declared-place error) is mod031ctx_inputs_after_passes and mod031ctx_output_after_passes at the passes of instancing and binding; MOD_031_ctx_nonvacuous works the AC8 passes. That the firing then deposits what the action wrote is ctx_deposits_outputs (Spec/GlossaryContext.lean) with refActionFire. AC2 (Out.xor(aDecl, bDecl), the action selects aDecl, exactly one token on the actual a) is mod031ctx_output_after_passes on the output place aDecl; the exactly-one-production validator is EXEC-021's. AC3 (nested instantiation, the declared place resolves to outer/inner/x and the action fires) is mod031ctx_after_passes at the passes of the nesting. AC4 (a hand-written or directly composed transition behaves as before) is line 6 at the correspondence none, where R none answers for the place itself, with line 3. AC5's second half is the previous sentence. AC7 (a late-bound action resolves as a baked-in one) is mod031ctx_lateBind. AC8 asks to assert on the executor run; the block gives the calls (mod031ctx_after_passes at the three passes, MOD_031_ctx_nonvacuous), and the run is a test (Q), as is the test derivation. AC6, AC9, AC10 and AC11 are the first block's and MOD-050's."
-          "A type mismatch between the place and the value is API shape and not modelled (V is one type of values). Calls made after a timeout severed the firing's output (IO-013) are out of scope, as for CORE-062. The executor's own deposit of the timeout branch is not an action's call either: Java and TypeScript make it through outputToHarvest and forwardToHarvest with the place the rewritten output specification names, which is already the actual place, and both resolve it again (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java:505 and :514, typescript/src/runtime/executor-support.ts:320 and :328). On a collision that writes the timeout token on another place (mod031ctx_timeout_resolveTwice), which IO-013 forbids; that is a recorded executor defect (RD-31 in spec/runtime-defects.md), not a line of this block."
-  signoff "pending"
+          "A type mismatch between the place and the value is API shape and not modelled (V is one type of values). Calls made after a timeout severed the firing's output (IO-013) are out of scope, as for CORE-062. The executor's own deposit of the timeout branch is not an action's call either. Java and TypeScript make it from produceTimeoutOutput (java/src/main/java/org/libpetri/runtime/ExecutorSupport.java produceTimeoutOutputRecursive, typescript/src/runtime/executor-support.ts produceTimeoutOutput) through outputToHarvest and forwardToHarvest of the transition context (java/src/main/java/org/libpetri/core/TransitionContext.java, typescript/src/core/transition-context.ts) with the places the rewritten output specification names, which are already the actual places, and use them as given, without the correspondence; the forwarded tokens are read from the actual from place through the raw input (Java in produceTimeoutOutputRecursive, TypeScript in forwardToHarvest). Rust deposits the timeout branch on those places as given (timeout_outputs in the runtime's executor core). A wrong executor whose outputToHarvest and forwardToHarvest resolve those places through the correspondence a second time (the behaviour RD-31 recorded) writes the timeout token on another place on a collision: with port a bound to the caller place b and port b bound to c, the token meant for b lands on c (mod031ctx_timeout_resolveTwice), which IO-013 forbids; that is IO-013's matter, not a line of this block."
+  signoff "2026-11-13 75364e4c1e6e1511 ai"
   statement : ∀ {N A T V : Type}, (T → V) → CorrOps N A → CorrCtx N T V → Prop :=
     fun {N _A T V} _value O R =>
       ∀ (c : Option (List (N × N))) (t : Trans N) (δ : Delivered N T) (e : List (N × V)) (p : N)
@@ -1403,11 +1597,12 @@ theorem mod031ctx_fixed {value : T → V} {O : CorrOps N A} {R : CorrCtx N T V}
   rw [hq] at this
   exact this
 
-/-- Under line 2, a sequence of passes sends the input places and the output places through the
-chain of place maps. -/
+/-- Under line 2, a sequence of passes sends the input places (as a set) and the output places
+through the chain of place maps. -/
 theorem mod031_disc_passes {O : CorrOps N A} (h : mod031_line2 O)
     (ss : List ((N → N) × (String → String))) :
-    ∀ d : CDef N A, discIn (corrPasses O ss d).toTransDef = (discIn d.toTransDef).map (corrChain ss) ∧
+    ∀ d : CDef N A,
+      (∀ p, p ∈ discIn (corrPasses O ss d).toTransDef ↔ p ∈ (discIn d.toTransDef).map (corrChain ss)) ∧
       discOut (corrPasses O ss d).toTransDef = (discOut d.toTransDef).map (corrChain ss) := by
   induction ss with
   | nil =>
@@ -1418,8 +1613,17 @@ theorem mod031_disc_passes {O : CorrOps N A} (h : mod031_line2 O)
     intro d
     have e := ih (O.pass s.1 s.2 d)
     simp only [corrPasses, List.foldl_cons] at e ⊢
-    rw [e.1, e.2, (h s.1 s.2 d).2.1, (h s.1 s.2 d).2.2, List.map_map, List.map_map]
-    exact ⟨rfl, rfl⟩
+    have ec : corrChain (s :: rest) = corrChain rest ∘ s.1 := rfl
+    refine ⟨fun p => ?_, ?_⟩
+    · rw [e.1 p, ec, ← List.map_map]
+      constructor
+      · intro hp
+        obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+        exact List.mem_map.2 ⟨q, ((h s.1 s.2 d).1 q).1 hq, rfl⟩
+      · intro hp
+        obtain ⟨q, hq, rfl⟩ := List.mem_map.1 hp
+        exact List.mem_map.2 ⟨q, ((h s.1 s.2 d).1 q).2 hq, rfl⟩
+    · rw [e.2, (h s.1 s.2 d).2.2.2.2, List.map_map, ec]
 
 /-- **The context operations after the passes** (AC1, AC3, AC8): take a transition that carries
 no correspondence through any sequence of rewrite passes. Every call its action makes on a place
@@ -1505,9 +1709,8 @@ theorem mod031ctx_inputs_after_passes {value : T → V} {O : CorrOps N A} {R : C
     exact Or.inl (Or.inl (Or.inl (Or.inl hx)))
   rw [(mod031ctx_after_passes h h6 d ss hd x hn (corrPasses O ss d).toTransDef.toTrans δ [] []).1]
   apply h60.1 _ _ _ _ hδ
-  have hq : corrChain ss x ∈ discIn (corrPasses O ss d).toTransDef := by
-    rw [(mod031_disc_passes h.2.1 ss d).1]
-    exact List.mem_map.2 ⟨x, hx, rfl⟩
+  have hq : corrChain ss x ∈ discIn (corrPasses O ss d).toTransDef :=
+    ((mod031_disc_passes h.2.1 ss d).1 _).2 (List.mem_map.2 ⟨x, hx, rfl⟩)
   exact hq
 
 end CtxLemmas
@@ -1524,9 +1727,9 @@ section WrongCtx
 
 variable {N T V : Type} [DecidableEq N]
 
-/-- **The name first** (the Python binding adapter): a call on a place that is itself a place of
-the transition of the call's kind answers for that place; any other place is resolved through
-`look` first. -/
+/-- **The name first** (a wrong binding adapter, the behaviour RD-30 recorded): a call on a place
+that is itself a place of the transition of the call's kind answers for that place; any other
+place is resolved through `look` first. -/
 def litFirstCtx (look : Option (List (N × N)) → N → N) (C : Ctx N T V) : CorrCtx N T V :=
   fun c =>
   { inputs := fun t δ p => if p ∈ inPlaces t then C.inputs t δ p else C.inputs t δ (look c p)
@@ -1537,8 +1740,8 @@ def litFirstCtx (look : Option (List (N × N)) → N → N) (C : Ctx N T V) : Co
     output := fun t e p vs =>
       if OutputArc t p then C.output t e p vs else C.output t e (look c p) vs }
 
-/-- The Python binding adapter over the reference context. -/
-def pyResCtx (value : T → V) : CorrCtx N T V := litFirstCtx corrResolve (refCtx value)
+/-- The name-first adapter over the reference context. -/
+def nameFirstResCtx (value : T → V) : CorrCtx N T V := litFirstCtx corrResolve (refCtx value)
 
 /-- Without a correspondence the name-first context is the context it calls. -/
 theorem litFirstCtx_none (look : Option (List (N × N)) → N → N) (C : Ctx N T V)
@@ -1713,15 +1916,16 @@ places `a` and `b`; its port `a` is bound to a caller place named `b` and its po
 place `c`, so discovery returns `b` and `c`. The firing consumed `1` from `b` and `2` from `c`. An
 action written against the declared places gets `1` for `a` and `2` for `b`. A port-agnostic
 action that discovered `b` and asks for it gets `2` too, because `b` is also a declared place that
-the correspondence moved to `c`. The Python binding, which tries the name first, gives that action
-`1` and the declared-place action `1` for `b`. -/
+the correspondence moved to `c`. An adapter that tries the name first (the behaviour RD-30
+recorded) gives that action `1` and the declared-place action `1` for `b`. -/
 theorem mod031ctx_collision :
     discIn mod031_colDone.toTransDef = ["b", "c"] ∧
     (refResCtx id mod031_colDone.corr).inputs mod031_colDone.toTransDef.toTrans mod031_δcol "a" =
       some [1] ∧
     (refResCtx id mod031_colDone.corr).inputs mod031_colDone.toTransDef.toTrans mod031_δcol "b" =
       some [2] ∧
-    (pyResCtx id mod031_colDone.corr).inputs mod031_colDone.toTransDef.toTrans mod031_δcol "b" =
+    (nameFirstResCtx id mod031_colDone.corr).inputs mod031_colDone.toTransDef.toTrans
+      mod031_δcol "b" =
       some [1] := by
   refine ⟨?_, ?_, ?_, ?_⟩ <;> decide
 
@@ -1807,7 +2011,8 @@ produces `xor(b, timeout(a))`; its port `a` is bound to a caller place named `b`
 to `c`, so the output specification becomes `xor(c, timeout(b))`. An executor that deposits the
 timeout token through a resolving output call on the place the timeout branch names, `b`, writes it
 on `c`, the other branch, because `b` is also a declared place that the correspondence moved to
-`c`. The call without a correspondence writes it on `b`. -/
+`c` (the behaviour RD-31 recorded). The call without a correspondence, which Java and TypeScript
+make, writes it on `b`. -/
 theorem mod031ctx_timeout_resolveTwice :
     mod031_toDone.toTransDef.out.map outPlaces = some ["c", "b"] ∧
     (refResCtx (T := Nat) id mod031_toDone.corr).output mod031_toDone.toTransDef.toTrans [] "b" [0] =
@@ -1822,18 +2027,18 @@ of the actual `b`, where the declared `b` resolves to `c` and must answer `2`. -
 @[evidence mutant MOD_031_ctx]
 theorem MOD_031_ctx_mutant_literalFirst_killed :
     MOD_031_ctx_mutant_literalFirst (id : Nat → Nat) (refCorrOps (N := String) (A := Unit))
-      (pyResCtx id) ∧
-    ¬ MOD_031_ctx (id : Nat → Nat) (refCorrOps (N := String) (A := Unit)) (pyResCtx id) := by
+      (nameFirstResCtx id) ∧
+    ¬ MOD_031_ctx (id : Nat → Nat) (refCorrOps (N := String) (A := Unit)) (nameFirstResCtx id) := by
   refine ⟨fun c t δ e p vs => ?_, fun h => ?_⟩
-  · have hn : pyResCtx (N := String) (T := Nat) id none = refCtx id :=
+  · have hn : nameFirstResCtx (N := String) (T := Nat) id none = refCtx id :=
       litFirstCtx_none corrResolve (refCtx id) (fun _ => rfl)
     rw [hn]
     refine ⟨fun hp => ?_, fun hr => ?_, fun ho => ?_⟩
-    · simp only [pyResCtx, litFirstCtx, hp, if_false]
+    · simp only [nameFirstResCtx, litFirstCtx, hp, if_false]
       exact ⟨rfl, rfl, rfl⟩
-    · simp only [pyResCtx, litFirstCtx, hr, if_false]
+    · simp only [nameFirstResCtx, litFirstCtx, hr, if_false]
       rfl
-    · simp only [pyResCtx, litFirstCtx, ho, if_false]
+    · simp only [nameFirstResCtx, litFirstCtx, ho, if_false]
       rfl
   · have := (h mod031_colDone.corr mod031_colDone.toTransDef.toTrans mod031_δcol [] "b" []).1
     revert this

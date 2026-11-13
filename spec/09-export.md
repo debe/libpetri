@@ -427,6 +427,10 @@ The mapper *shall* give no junction node the ID of a place node or a transition 
 
 The mapper *shall* draw no edge that starts or ends at a junction node it does not draw.
 
+The mapper *shall* draw no junction node for a transition the net does not have.
+
+The mapper *shall* give a junction node of kind `xor` the `xor-junction` category of the node table and a junction node of kind `and` the `and-junction` category.
+
 *Where* the transition names of a net are pairwise distinct, its place and transition names hold only ASCII characters, and no two different place names, nor two different transition names, become equal when each character outside `[A-Za-z0-9_]` is replaced by `_`, the mapper *shall* give no two nodes of the graph the same ID.
 
 AC1 covers the junctions of transitions whose name is not empty and holds only ASCII characters.
@@ -479,6 +483,8 @@ The SHOULD priority is whether an exporter draws cluster subgraphs at all. For a
 Under the default cluster source the cluster key of a place or a transition is its membership entry when it has one and otherwise its instance prefix; under the metadata-only source it is the membership entry alone, under the prefix-only source the instance prefix alone, and under no clustering there is none. The instance prefix of a name is the part before its last `/`; a name without `/`, or whose only `/` is its first character, has none. A junction node has the cluster key of its transition. A node without a cluster key is a top-level node. A `/`-prefix of a key is the non-empty beginning of the key up to, and not including, one of its `/` characters.
 
 These sentences cover nets whose place names and transition names are ASCII, in which no two place names and no two transition names become equal under the sanitization of [EXP-014], and in which every cluster key of a place or transition name is ASCII, non-empty and has no empty `/`-segment: it neither starts nor ends with `/` and holds no `//`. On other nets the clustering, and whether it changes the nodes and edges drawn, is implementation-defined.
+
+Known limit: the Java, TypeScript and Rust mappers look a node's cluster key up by its DOT ID, so two names that sanitize to one ID, such as `b1/x` and `b1_x`, become one node in one cluster. The name assumption above keeps such nets out of these sentences.
 
 The mapper *shall* make each node that has a cluster key a direct member of the cluster of that key and of no other cluster, and a top-level node a member of no cluster.
 

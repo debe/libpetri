@@ -145,6 +145,8 @@ The fragment classifier ([NU-051]) *shall* give the mint role only to a declared
 
 *If* the timeout outcome of a transition writes a coloured place, *then* the fragment classifier *shall not* give it the mint role.
 
+*If* a transition without a match specification has no input arc on a coloured place and its timeout outcome writes a coloured place, *then* the fragment classifier *shall* give it no role.
+
 The fragment classifier *shall not* give the mint role to a transition that has a match specification or an input arc on a coloured place.
 
 *If* a declared mint has no match specification, no input arc on a coloured place and no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, writes a coloured place in some outcome and on timeout writes no coloured place, *then* the fragment classifier *shall* give it the mint role, in both BASE and EXTENDED.
@@ -816,8 +818,8 @@ two further shapes without weakening its soundness: a **coloured consumer**
 places** that thread a fork-minted name through intermediate places to a ν-join
 input. The mode is a two-value knob — **BASE** (default) reproduces the shipped
 mint → matched-join fragment exactly; **EXTENDED** is selected on the verifier
-builder (`fragmentMode` / `fragment_mode`). Both are decided solely by the
-solver-free Route B quotient; neither changes the canonical name-partition key
+builder (`fragmentMode` / `fragment_mode`). Both are decided by the solver-free
+Route B quotient, and by Route A where [NU-053] is offered; neither changes the canonical name-partition key
 format ([VER-012]), so cross-language byte compatibility is preserved.
 
 - **Coloured consumer (drain/relay).** Under EXTENDED, a transition with **no** match spec MAY
@@ -880,10 +882,14 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   the implementation MUST fail loudly (reject at the builder naming the offending
   place, or surface `Unknown` with a reason naming it), because a mistyped carrier would let
   two fork branches mint independent names and produce a confident, spurious
-  deadlock verdict. *If* a declared carrier place is not a place of the net, *then*
+  deadlock verdict. A refusal that does not depend on the carrier declaration, such as a
+  stop before the call starts ([VER-013]), an unresolved property place ([VER-003]) or a
+  declared mint that is not a transition of the net ([NU-010]), may come first, and that
+  refusal is then the answer. *If* a declared carrier place is not a place of the net, *then*
   the verifier *shall* either reject the declaration, naming such a place, or answer
   `Unknown` with a reason that names at least one such place and no other place, in
-  both BASE and EXTENDED and whatever the query. Under BASE, the fragment classifier
+  both BASE and EXTENDED and whatever the query, unless the same request with no carrier
+  place declared gets the same refusal. Under BASE, the fragment classifier
   ignores declared carriers (a documented no-op); the in-flight split of [VER-004]
   reads them in both modes.
   *While* the fragment mode is BASE, the fragment classifier *shall* give roles
@@ -911,8 +917,9 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
   unaffected. Rejection just falls back to the sound over-approximation.
 
 - **Diagnosability.** When EXTENDED is requested but the net falls outside this
-  fragment, the verifier MUST surface a short note (an "EXTENDED declined" line)
-  rather than silently falling back, so an author can tell the exact path was not
+  fragment, the verifier MUST surface a short note (the "EXTENDED declined" note: a
+  report line saying that the exact ν path was not taken and why, in words the
+  implementation chooses) rather than silently falling back, so an author can tell the exact path was not
   taken.
 
 **Acceptance Criteria:**
@@ -926,7 +933,8 @@ format ([VER-012]), so cross-language byte compatibility is preserved.
    coloured place is rejected (returns no fragment).
 4. (MUST) In both BASE and EXTENDED and whatever the query, a declared carrier place
    not present in the net fails loudly (builder rejection naming the place, or `Unknown`
-   with a reason naming the place); it is never silently ignored.
+   with a reason naming the place), unless a refusal that does not depend on the declaration
+   is the answer; it is never silently ignored.
 5. (SHOULD) With carriers declared, an end-to-end quiescence property (deadlock-free
    / joined-or-dead-lettered) is decided exactly via Route B — it PROVES on a
    fork-threaded co-mint plus drain fixture and reports VIOLATED when the drain is

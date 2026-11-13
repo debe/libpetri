@@ -148,7 +148,7 @@ requirement CONC_001
           "The body sentence 'No locking or synchronization is needed for marking access.' and AC1 (the marking has no locks, mutexes or atomic operations) are about the representation (kind Q): a step relation does not observe a lock. They follow from the reading of lines 1 and 2 when the orchestrator is one thread of control, and are checked by inspection, as the test derivation says ('Inspect marking implementation for absence of synchronization primitives.'); not encoded. Java asserts the ownership at run time (BitmapNetExecutor)."
           "AC3 is lines 1 to 7 as said above; the Rust executor's completion, flush and signal channels (executor_core/executor.rs handle_completion, handle_flush, handle_signal), Java's completion queue and TypeScript's promise callbacks are its mechanisms."
           "The 'Kind' line is B, the kind of the encoded lines (one-letter convention, ruling D21); AC1, the thread identity of AC2 and the thread safety of AC3 are Q content without a line."
-  signoff "pending"
+  signoff "2026-11-13 1d951f4b3445aece ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ l, l.outside = true →
