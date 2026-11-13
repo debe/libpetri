@@ -66,10 +66,10 @@ flowchart TD
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
   c111["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c372["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c373["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
   c28 --> c0
   c111 --> c0
-  c372 --> c111
+  c373 --> c111
   n940 --> n943
   n941 --> c0
   n942 --> n943
@@ -170,7 +170,7 @@ flowchart TD
   n1005 --> n964
   n1005 --> n977
   n1005 --> n1006
-  n1006 --> c372
+  n1006 --> c373
   n1006 --> n941
   n1006 --> n967
   n1006 --> n1004
@@ -181,7 +181,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n993 root
-  class c0,c28,c111,c372 collapsed
+  class c0,c28,c111,c373 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.split_covers_executor`
@@ -230,10 +230,10 @@ flowchart TD
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
   c111["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c372["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c373["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
   c28 --> c0
   c111 --> c0
-  c372 --> c111
+  c373 --> c111
   n940 --> n943
   n941 --> c0
   n942 --> n943
@@ -319,7 +319,7 @@ flowchart TD
   n1005 --> n964
   n1005 --> n977
   n1005 --> n1006
-  n1006 --> c372
+  n1006 --> c373
   n1006 --> n941
   n1006 --> n967
   n1006 --> n1004
@@ -327,7 +327,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n999 root
-  class c0,c28,c111,c372 collapsed
+  class c0,c28,c111,c373 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.split_stop_sound`
@@ -382,10 +382,10 @@ flowchart TD
   c0["📁 Libpetri/Basic.lean (22 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (2 declarations, collapsed)"]
   c111["📁 Libpetri/Soundness.lean (1 declarations, collapsed)"]
-  c372["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
+  c373["📁 Libpetri/Strengthening/Hypotheses.lean (1 declarations, collapsed)"]
   c28 --> c0
   c111 --> c0
-  c372 --> c111
+  c373 --> c111
   n940 --> n943
   n941 --> c0
   n942 --> n943
@@ -484,7 +484,7 @@ flowchart TD
   n1005 --> n964
   n1005 --> n977
   n1005 --> n1006
-  n1006 --> c372
+  n1006 --> c373
   n1006 --> n941
   n1006 --> n967
   n1006 --> n1004
@@ -492,7 +492,7 @@ flowchart TD
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n1003 root
-  class c0,c28,c111,c372 collapsed
+  class c0,c28,c111,c373 collapsed
 ```
 
 ### `Libpetri.Novel.InFlight.terminal_stop_witness`
@@ -517,17 +517,17 @@ flowchart TD
     n137["Libpetri.InSpec.mk"]
     n138["Libpetri.InSpec.place"]
     n2723["Libpetri.PlaceId"]
-    n22345["Libpetri.Transition"]
-    n22346["Libpetri.Transition.inhibitors"]
-    n22347["Libpetri.Transition.inputs"]
-    n22348["Libpetri.Transition.mk"]
-    n22349["Libpetri.Transition.name"]
-    n22351["Libpetri.Transition.reads"]
-    n22352["Libpetri.Transition.resets"]
-    n22422["Libpetri.consumeAllAt"]
-    n22474["Libpetri.enabledA"]
-    n22597["Libpetri.pre"]
-    n22652["Libpetri.specAt"]
+    n22401["Libpetri.Transition"]
+    n22402["Libpetri.Transition.inhibitors"]
+    n22403["Libpetri.Transition.inputs"]
+    n22404["Libpetri.Transition.mk"]
+    n22405["Libpetri.Transition.name"]
+    n22407["Libpetri.Transition.reads"]
+    n22408["Libpetri.Transition.resets"]
+    n22478["Libpetri.consumeAllAt"]
+    n22530["Libpetri.enabledA"]
+    n22653["Libpetri.pre"]
+    n22708["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ForwardDeposit.lean"]
     n867["Libpetri.Novel.ForwardDeposit.Deposit"]
@@ -590,11 +590,11 @@ flowchart TD
   n867 --> n2723
   n895 --> n0
   n895 --> n867
-  n895 --> n22352
-  n895 --> n22422
-  n895 --> n22597
+  n895 --> n22408
+  n895 --> n22478
+  n895 --> n22653
   n943 --> n867
-  n943 --> n22345
+  n943 --> n22401
   n944 --> n945
   n944 --> n955
   n945 --> n0
@@ -605,21 +605,21 @@ flowchart TD
   n946 --> n954
   n946 --> n955
   n946 --> n956
-  n946 --> n22349
-  n946 --> n22474
+  n946 --> n22405
+  n946 --> n22530
   n947 --> n945
   n947 --> n954
   n947 --> n955
   n947 --> n956
   n947 --> n967
-  n947 --> n22349
+  n947 --> n22405
   n948 --> n945
   n948 --> n954
   n948 --> n955
   n948 --> n956
   n948 --> n1004
-  n948 --> n22349
-  n948 --> n22474
+  n948 --> n22405
+  n948 --> n22530
   n952 --> n955
   n952 --> n957
   n954 --> n0
@@ -635,14 +635,14 @@ flowchart TD
   n958 --> n956
   n958 --> n957
   n958 --> n967
-  n958 --> n22349
+  n958 --> n22405
   n959 --> n954
   n959 --> n955
   n959 --> n956
   n959 --> n957
   n959 --> n1004
-  n959 --> n22349
-  n959 --> n22474
+  n959 --> n22405
+  n959 --> n22530
   n960 --> n0
   n967 --> n0
   n967 --> n867
@@ -663,11 +663,11 @@ flowchart TD
   n979 --> n996
   n980 --> n13
   n980 --> n137
-  n980 --> n22348
+  n980 --> n22404
   n986 --> n0
   n990 --> n994
   n990 --> n998
-  n990 --> n22349
+  n990 --> n22405
   n991 --> n944
   n991 --> n946
   n991 --> n947
@@ -685,38 +685,38 @@ flowchart TD
   n1007 --> n0
   n1011 --> n13
   n1011 --> n137
-  n1011 --> n22348
+  n1011 --> n22404
   n1014 --> n975
   n1014 --> n979
   n1014 --> n990
   n1014 --> n991
-  n22346 --> n2723
-  n22346 --> n22345
-  n22347 --> n134
-  n22347 --> n22345
-  n22348 --> n134
-  n22348 --> n2723
-  n22348 --> n22345
-  n22349 --> n22345
-  n22351 --> n2723
-  n22351 --> n22345
-  n22352 --> n2723
-  n22352 --> n22345
-  n22422 --> n11
-  n22422 --> n135
-  n22422 --> n22652
-  n22474 --> n0
-  n22474 --> n14
-  n22474 --> n135
-  n22474 --> n138
-  n22474 --> n22346
-  n22474 --> n22347
-  n22474 --> n22351
-  n22597 --> n14
-  n22597 --> n135
-  n22597 --> n22652
-  n22652 --> n138
-  n22652 --> n22347
+  n22402 --> n2723
+  n22402 --> n22401
+  n22403 --> n134
+  n22403 --> n22401
+  n22404 --> n134
+  n22404 --> n2723
+  n22404 --> n22401
+  n22405 --> n22401
+  n22407 --> n2723
+  n22407 --> n22401
+  n22408 --> n2723
+  n22408 --> n22401
+  n22478 --> n11
+  n22478 --> n135
+  n22478 --> n22708
+  n22530 --> n0
+  n22530 --> n14
+  n22530 --> n135
+  n22530 --> n138
+  n22530 --> n22402
+  n22530 --> n22403
+  n22530 --> n22407
+  n22653 --> n14
+  n22653 --> n135
+  n22653 --> n22708
+  n22708 --> n138
+  n22708 --> n22403
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

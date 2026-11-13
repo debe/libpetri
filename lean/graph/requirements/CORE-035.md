@@ -39,15 +39,15 @@ flowchart TD
     n7590["Libpetri.Spec.Firing.t"]
     n9660["Libpetri.Spec.Outcome"]
     n9864["Libpetri.Spec.Reply"]
-    n12219["Libpetri.Spec.XLbl"]
-    n12231["Libpetri.Spec.XLbl.expire"]
-    n12242["Libpetri.Spec.XLbl.request"]
-    n12250["Libpetri.Spec.XLbl.write"]
-    n12271["Libpetri.Spec.XSt"]
-    n12272["Libpetri.Spec.XSt.M"]
-    n12276["Libpetri.Spec.XSt.eq"]
-    n12277["Libpetri.Spec.XSt.fl"]
-    n12285["Libpetri.Spec.XSt.pq"]
+    n12273["Libpetri.Spec.XLbl"]
+    n12285["Libpetri.Spec.XLbl.expire"]
+    n12296["Libpetri.Spec.XLbl.request"]
+    n12304["Libpetri.Spec.XLbl.write"]
+    n12325["Libpetri.Spec.XSt"]
+    n12326["Libpetri.Spec.XSt.M"]
+    n12330["Libpetri.Spec.XSt.eq"]
+    n12331["Libpetri.Spec.XSt.fl"]
+    n12339["Libpetri.Spec.XSt.pq"]
   end
   subgraph g4["Libpetri/Spec/Req/CORE_011.lean"]
     n5979["Libpetri.Spec.ClockReadings"]
@@ -67,17 +67,17 @@ flowchart TD
     n7273["Libpetri.Spec.EpochSt"]
     n7275["Libpetri.Spec.EpochSt.rd"]
     n7276["Libpetri.Spec.EpochSt.x"]
-    n13259["Libpetri.Spec.core011b_QStamped"]
-    n13262["Libpetri.Spec.core011b_Stamped"]
-    n13263["Libpetri.Spec.core011b_buffers"]
-    n13265["Libpetri.Spec.core011b_bufsAdd"]
-    n13266["Libpetri.Spec.core011b_bufsKept"]
-    n13270["Libpetri.Spec.core011b_eqAdd"]
-    n13271["Libpetri.Spec.core011b_eqKept"]
-    n13286["Libpetri.Spec.core011b_keepsRest"]
-    n13300["Libpetri.Spec.core011b_output_stamp"]
-    n13305["Libpetri.Spec.core011b_queues"]
-    n13307["Libpetri.Spec.core011b_rdAfter"]
+    n13313["Libpetri.Spec.core011b_QStamped"]
+    n13316["Libpetri.Spec.core011b_Stamped"]
+    n13317["Libpetri.Spec.core011b_buffers"]
+    n13319["Libpetri.Spec.core011b_bufsAdd"]
+    n13320["Libpetri.Spec.core011b_bufsKept"]
+    n13324["Libpetri.Spec.core011b_eqAdd"]
+    n13325["Libpetri.Spec.core011b_eqKept"]
+    n13340["Libpetri.Spec.core011b_keepsRest"]
+    n13354["Libpetri.Spec.core011b_output_stamp"]
+    n13359["Libpetri.Spec.core011b_queues"]
+    n13361["Libpetri.Spec.core011b_rdAfter"]
   end
   n3289 --> n3288
   n3292 --> n3289
@@ -101,19 +101,19 @@ flowchart TD
   n5325 --> n7582
   n5325 --> n7590
   n5325 --> n10032
-  n5325 --> n12231
-  n5325 --> n12242
-  n5325 --> n12250
-  n5325 --> n13259
-  n5325 --> n13263
-  n5325 --> n13305
-  n5325 --> n13307
+  n5325 --> n12285
+  n5325 --> n12296
+  n5325 --> n12304
+  n5325 --> n13313
+  n5325 --> n13317
+  n5325 --> n13359
+  n5325 --> n13361
   n5980 --> n5979
   n7261 --> n7260
   n7261 --> n9864
   n7262 --> n7260
   n7262 --> n7574
-  n7262 --> n12219
+  n7262 --> n12273
   n7263 --> n5979
   n7263 --> n7260
   n7264 --> n7260
@@ -125,7 +125,7 @@ flowchart TD
   n7275 --> n7273
   n7276 --> n7273
   n7276 --> n7574
-  n7276 --> n12271
+  n7276 --> n12325
   n7575 --> n7574
   n7576 --> n7574
   n7581 --> n7580
@@ -136,51 +136,51 @@ flowchart TD
   n7585 --> n9660
   n7590 --> n3454
   n7590 --> n7580
-  n12231 --> n12219
-  n12242 --> n9864
-  n12242 --> n12219
-  n12250 --> n12219
-  n12272 --> n3335
-  n12272 --> n12271
-  n12276 --> n12271
-  n12277 --> n7580
-  n12277 --> n12271
-  n12285 --> n12271
-  n13259 --> n3293
-  n13259 --> n3457
-  n13259 --> n4206
-  n13259 --> n13262
-  n13262 --> n3292
-  n13262 --> n3331
-  n13262 --> n7576
-  n13263 --> n13265
-  n13263 --> n13271
-  n13263 --> n13286
-  n13265 --> n7581
-  n13265 --> n7583
-  n13265 --> n12277
-  n13266 --> n7581
-  n13266 --> n7583
-  n13266 --> n12277
-  n13270 --> n12276
-  n13271 --> n12276
-  n13286 --> n7583
-  n13286 --> n7585
-  n13286 --> n12272
-  n13286 --> n12277
-  n13286 --> n12285
-  n13300 --> n5325
-  n13305 --> n13266
-  n13305 --> n13270
-  n13305 --> n13286
-  n13307 --> n7261
-  n13307 --> n7262
-  n13307 --> n7263
-  n13307 --> n7264
+  n12285 --> n12273
+  n12296 --> n9864
+  n12296 --> n12273
+  n12304 --> n12273
+  n12326 --> n3335
+  n12326 --> n12325
+  n12330 --> n12325
+  n12331 --> n7580
+  n12331 --> n12325
+  n12339 --> n12325
+  n13313 --> n3293
+  n13313 --> n3457
+  n13313 --> n4206
+  n13313 --> n13316
+  n13316 --> n3292
+  n13316 --> n3331
+  n13316 --> n7576
+  n13317 --> n13319
+  n13317 --> n13325
+  n13317 --> n13340
+  n13319 --> n7581
+  n13319 --> n7583
+  n13319 --> n12331
+  n13320 --> n7581
+  n13320 --> n7583
+  n13320 --> n12331
+  n13324 --> n12330
+  n13325 --> n12330
+  n13340 --> n7583
+  n13340 --> n7585
+  n13340 --> n12326
+  n13340 --> n12331
+  n13340 --> n12339
+  n13354 --> n5325
+  n13359 --> n13320
+  n13359 --> n13324
+  n13359 --> n13340
+  n13361 --> n7261
+  n13361 --> n7262
+  n13361 --> n7263
+  n13361 --> n7264
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13300 root
+  class n13354 root
 ```
 
 Axioms used:

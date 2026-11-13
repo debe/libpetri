@@ -15,36 +15,36 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/EVT_010.lean"]
     n6420["Libpetri.Spec.EVT_010"]
     n6437["Libpetri.Spec.EVT_010_rust"]
-    n15262["Libpetri.Spec.evt010_AgreesAto"]
-    n15263["Libpetri.Spec.evt010_AtoFirst"]
-    n15265["Libpetri.Spec.evt010_Spent"]
-    n15271["Libpetri.Spec.evt010_atoAt"]
-    n15272["Libpetri.Spec.evt010_atoAt_agree"]
-    n15273["Libpetri.Spec.evt010_atoAt_of"]
-    n15274["Libpetri.Spec.evt010_atoFirst_append"]
-    n15275["Libpetri.Spec.evt010_atoOf"]
-    n15276["Libpetri.Spec.evt010_atoOf_cons"]
-    n15287["Libpetri.Spec.evt010_iff"]
-    n15289["Libpetri.Spec.evt010_isExpire"]
-    n15290["Libpetri.Spec.evt010_isTimeoutOut_iff"]
-    n15297["Libpetri.Spec.evt010_lblId"]
-    n15298["Libpetri.Spec.evt010_line1"]
-    n15299["Libpetri.Spec.evt010_line1_of"]
-    n15300["Libpetri.Spec.evt010_line2"]
-    n15301["Libpetri.Spec.evt010_line2_of"]
-    n15302["Libpetri.Spec.evt010_line3"]
-    n15303["Libpetri.Spec.evt010_line3_of"]
-    n15307["Libpetri.Spec.evt010_ref"]
-    n15308["Libpetri.Spec.evt010_refAto"]
-    n15309["Libpetri.Spec.evt010_refBoot"]
-    n15310["Libpetri.Spec.evt010_refCount_expire"]
-    n15311["Libpetri.Spec.evt010_refCount_fail"]
-    n15312["Libpetri.Spec.evt010_refCount_tdeposit"]
-    n15315["Libpetri.Spec.evt010_refTdeposit"]
-    n15317["Libpetri.Spec.evt010_runLB"]
-    n15318["Libpetri.Spec.evt010_runUB"]
-    n15319["Libpetri.Spec.evt010_settlesTimeout"]
-    n15322["Libpetri.Spec.evt010_stepUB"]
+    n15317["Libpetri.Spec.evt010_AgreesAto"]
+    n15318["Libpetri.Spec.evt010_AtoFirst"]
+    n15320["Libpetri.Spec.evt010_Spent"]
+    n15326["Libpetri.Spec.evt010_atoAt"]
+    n15327["Libpetri.Spec.evt010_atoAt_agree"]
+    n15328["Libpetri.Spec.evt010_atoAt_of"]
+    n15329["Libpetri.Spec.evt010_atoFirst_append"]
+    n15330["Libpetri.Spec.evt010_atoOf"]
+    n15331["Libpetri.Spec.evt010_atoOf_cons"]
+    n15342["Libpetri.Spec.evt010_iff"]
+    n15344["Libpetri.Spec.evt010_isExpire"]
+    n15345["Libpetri.Spec.evt010_isTimeoutOut_iff"]
+    n15352["Libpetri.Spec.evt010_lblId"]
+    n15353["Libpetri.Spec.evt010_line1"]
+    n15354["Libpetri.Spec.evt010_line1_of"]
+    n15355["Libpetri.Spec.evt010_line2"]
+    n15356["Libpetri.Spec.evt010_line2_of"]
+    n15357["Libpetri.Spec.evt010_line3"]
+    n15358["Libpetri.Spec.evt010_line3_of"]
+    n15362["Libpetri.Spec.evt010_ref"]
+    n15363["Libpetri.Spec.evt010_refAto"]
+    n15364["Libpetri.Spec.evt010_refBoot"]
+    n15365["Libpetri.Spec.evt010_refCount_expire"]
+    n15366["Libpetri.Spec.evt010_refCount_fail"]
+    n15367["Libpetri.Spec.evt010_refCount_tdeposit"]
+    n15370["Libpetri.Spec.evt010_refTdeposit"]
+    n15372["Libpetri.Spec.evt010_runLB"]
+    n15373["Libpetri.Spec.evt010_runUB"]
+    n15374["Libpetri.Spec.evt010_settlesTimeout"]
+    n15377["Libpetri.Spec.evt010_stepUB"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
@@ -83,80 +83,80 @@ flowchart TD
   c232 --> c146
   c239 --> c80
   n6420 --> c131
-  n6420 --> n15263
-  n6420 --> n15275
-  n6420 --> n15289
-  n6420 --> n15319
-  n6437 --> n15307
-  n15262 --> c78
-  n15262 --> n15297
-  n15263 --> c138
-  n15265 --> c78
-  n15265 --> c239
-  n15271 --> c138
-  n15271 --> n15297
-  n15272 --> n15262
-  n15272 --> n15271
-  n15273 --> n15271
-  n15274 --> n15263
-  n15275 --> c78
-  n15275 --> n15271
-  n15276 --> n15275
-  n15287 --> n6420
-  n15287 --> n15298
-  n15287 --> n15300
-  n15287 --> n15302
-  n15289 --> c139
-  n15290 --> c78
-  n15297 --> c139
-  n15298 --> c78
-  n15298 --> c131
-  n15298 --> n15289
-  n15298 --> n15297
-  n15299 --> n15298
-  n15299 --> n15308
-  n15300 --> c78
-  n15300 --> c131
-  n15300 --> n15263
-  n15301 --> n15300
-  n15302 --> n15275
-  n15302 --> n15319
-  n15303 --> n15302
-  n15303 --> n15317
-  n15303 --> n15318
-  n15307 --> n15287
-  n15307 --> n15299
-  n15307 --> n15301
-  n15307 --> n15303
-  n15307 --> n15309
-  n15307 --> n15315
-  n15308 --> c78
-  n15308 --> n15289
-  n15308 --> n15297
-  n15309 --> c78
-  n15310 --> c78
-  n15311 --> c214
-  n15312 --> c78
-  n15315 --> c78
-  n15315 --> n15274
-  n15317 --> c239
-  n15317 --> n15272
-  n15317 --> n15273
-  n15317 --> n15276
-  n15317 --> n15290
-  n15317 --> n15310
-  n15317 --> n15311
-  n15317 --> n15312
-  n15317 --> n15319
-  n15318 --> n15272
-  n15318 --> n15276
-  n15318 --> n15322
-  n15319 --> c78
-  n15322 --> n15265
-  n15322 --> n15271
-  n15322 --> n15310
-  n15322 --> n15311
-  n15322 --> n15312
+  n6420 --> n15318
+  n6420 --> n15330
+  n6420 --> n15344
+  n6420 --> n15374
+  n6437 --> n15362
+  n15317 --> c78
+  n15317 --> n15352
+  n15318 --> c138
+  n15320 --> c78
+  n15320 --> c239
+  n15326 --> c138
+  n15326 --> n15352
+  n15327 --> n15317
+  n15327 --> n15326
+  n15328 --> n15326
+  n15329 --> n15318
+  n15330 --> c78
+  n15330 --> n15326
+  n15331 --> n15330
+  n15342 --> n6420
+  n15342 --> n15353
+  n15342 --> n15355
+  n15342 --> n15357
+  n15344 --> c139
+  n15345 --> c78
+  n15352 --> c139
+  n15353 --> c78
+  n15353 --> c131
+  n15353 --> n15344
+  n15353 --> n15352
+  n15354 --> n15353
+  n15354 --> n15363
+  n15355 --> c78
+  n15355 --> c131
+  n15355 --> n15318
+  n15356 --> n15355
+  n15357 --> n15330
+  n15357 --> n15374
+  n15358 --> n15357
+  n15358 --> n15372
+  n15358 --> n15373
+  n15362 --> n15342
+  n15362 --> n15354
+  n15362 --> n15356
+  n15362 --> n15358
+  n15362 --> n15364
+  n15362 --> n15370
+  n15363 --> c78
+  n15363 --> n15344
+  n15363 --> n15352
+  n15364 --> c78
+  n15365 --> c78
+  n15366 --> c214
+  n15367 --> c78
+  n15370 --> c78
+  n15370 --> n15329
+  n15372 --> c239
+  n15372 --> n15327
+  n15372 --> n15328
+  n15372 --> n15331
+  n15372 --> n15345
+  n15372 --> n15365
+  n15372 --> n15366
+  n15372 --> n15367
+  n15372 --> n15374
+  n15373 --> n15327
+  n15373 --> n15331
+  n15373 --> n15377
+  n15374 --> c78
+  n15377 --> n15320
+  n15377 --> n15326
+  n15377 --> n15365
+  n15377 --> n15366
+  n15377 --> n15367
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

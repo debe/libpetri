@@ -14,18 +14,18 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
     n10347["Libpetri.Spec.TReach"]
-    n12571["Libpetri.Spec.clashT_X"]
-    n12572["Libpetri.Spec.clashT_at"]
-    n12575["Libpetri.Spec.clashT_inv"]
-    n12576["Libpetri.Spec.clashT_invR"]
-    n12577["Libpetri.Spec.clashT_invR_reach"]
-    n12579["Libpetri.Spec.clashT_inv_step"]
-    n12580["Libpetri.Spec.clashT_m0"]
-    n12581["Libpetri.Spec.clashT_mem"]
-    n12582["Libpetri.Spec.clashT_reaped"]
-    n12583["Libpetri.Spec.clashT_s0"]
-    n12584["Libpetri.Spec.clashT_u"]
-    n16345["Libpetri.Spec.exec040_rest_reaped_enabled"]
+    n12625["Libpetri.Spec.clashT_X"]
+    n12626["Libpetri.Spec.clashT_at"]
+    n12629["Libpetri.Spec.clashT_inv"]
+    n12630["Libpetri.Spec.clashT_invR"]
+    n12631["Libpetri.Spec.clashT_invR_reach"]
+    n12633["Libpetri.Spec.clashT_inv_step"]
+    n12634["Libpetri.Spec.clashT_m0"]
+    n12635["Libpetri.Spec.clashT_mem"]
+    n12636["Libpetri.Spec.clashT_reaped"]
+    n12637["Libpetri.Spec.clashT_s0"]
+    n12638["Libpetri.Spec.clashT_u"]
+    n16400["Libpetri.Spec.exec040_rest_reaped_enabled"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -44,30 +44,30 @@ flowchart TD
   c146 --> c98
   c146 --> c132
   n10347 --> c98
-  n12571 --> c98
-  n12571 --> n12584
-  n12572 --> n12583
-  n12575 --> c98
-  n12575 --> n12580
-  n12576 --> c98
-  n12576 --> n12580
-  n12577 --> n10347
-  n12577 --> n12576
-  n12577 --> n12579
-  n12579 --> n12575
-  n12579 --> n12581
-  n12581 --> n12571
-  n12582 --> n12572
-  n12583 --> n12571
-  n12583 --> n12580
-  n12584 --> c94
-  n16345 --> c146
-  n16345 --> n12577
-  n16345 --> n12582
+  n12625 --> c98
+  n12625 --> n12638
+  n12626 --> n12637
+  n12629 --> c98
+  n12629 --> n12634
+  n12630 --> c98
+  n12630 --> n12634
+  n12631 --> n10347
+  n12631 --> n12630
+  n12631 --> n12633
+  n12633 --> n12629
+  n12633 --> n12635
+  n12635 --> n12625
+  n12636 --> n12626
+  n12637 --> n12625
+  n12637 --> n12634
+  n12638 --> c94
+  n16400 --> c146
+  n16400 --> n12631
+  n16400 --> n12636
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n16345 root
+  class n16400 root
   class c0,c28,c54,c66,c94,c98,c132,c146 collapsed
 ```
 

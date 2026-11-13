@@ -1,4 +1,4 @@
-import Lean
+import Libpetri.Spec.Text
 /-!
 # The requirement registry
 
@@ -19,7 +19,8 @@ This module is tooling, not specification. It gives the spec modules five things
 * `#write_requirements_report "dir"`, which renders the registry as `requirements.md` and
   `requirements.json`, and `#audit_axioms`, which fails on any axiom outside the standard three.
 
-It imports only Lean core so that any module can use `@[evidence]`. It lives in its own module
+It imports only Lean core and the text DSL (`Libpetri.Spec.Text`, itself core-only) so that any
+module can use `@[evidence]`. It lives in its own module
 because `initialize` declarations only run in importing modules.
 -/
 set_option linter.missingDocs true
@@ -101,19 +102,6 @@ initialize witExt : SimplePersistentEnvExtension Name NameSet ←
 def roles : List String :=
   ["holds", "violated", "allows", "forbids", "undecided", "mutant", "nonvacuous", "conflict",
    "ambiguity", "total", "consistent"]
-
-/-- Is the string blank, i.e. without a single ASCII letter or digit? Trimming is not enough: it
-keeps invisible characters such as a zero-width space or a word joiner, so a field holding only
-those would pass for text. Every field checked with this is English prose or an identifier. -/
-def blank (s : String) : Bool := !s.any Char.isAlphanum
-
-/-- Does `s` match `^[A-Z]+-[0-9]{3}$`, the shape of a spec ID such as `VER-002`? -/
-def isSpecId (s : String) : Bool :=
-  match s.splitOn "-" with
-  | [pre, num] =>
-    !pre.isEmpty && pre.all (fun c => 'A' ≤ c && c ≤ 'Z') &&
-      num.length == 3 && num.all Char.isDigit
-  | _ => false
 
 /-! ## Witness models -/
 
@@ -423,9 +411,11 @@ initialize registerBuiltinAttribute {
 
 /-! ## The `requirement` command -/
 
-/-- The kind tags: B behaviour, F pure function, T timing, Q quality (test-only),
-A assumption, N configuration. -/
-def kinds : List String := ["B", "F", "T", "Q", "A", "N"]
+/-- The quoted text of a block, one string per quoted sentence: `quote "…" "…"`. -/
+syntax quoteClause := &"quote" str+
+
+/-- The text of a block as spans of its requirement text: `covers PERF_030.s1, PERF_030.s2`. -/
+syntax coversClause := &"covers" ident,+
 
 /-- `n` as 16 lower-case hex digits. -/
 def hex16 (n : UInt64) : String :=
@@ -466,12 +456,20 @@ def Entry.docstring (e : Entry) : String :=
 requirement CORE_031
   id "CORE-031" title "…" kind B scope "all executors"
   source verbatim "spec/01-core-model.md"     -- or: source proposed "<where from>"
+  covers CORE_031.s1, CORE_031.s2             -- the spans of the ID's text, or:
   quote "…" "…"                               -- one string per quoted sentence
   reading "…" "…"                             -- one string per formula line
   assumes "…"                                 -- zero or more
   signoff "pending"                           -- or "2026-11-06 <statement hash>", "… ai"
   statement : FireRel N → Prop := …
 ```
+
+`covers ID.label, …` names spans of the requirement's own text (`requirement_text`, whose
+module must be imported) instead of copying them; a block takes `covers` or `quote`, not both, and
+`covers` only with `source verbatim`. Each reference resolves to its span with its lines
+joined (`Text.joinLines`), and the resolved strings are the block's quotes: the docstring, the
+statement hash and the report see them exactly as they would see the same `quote` strings. An
+unknown text or label is a build error.
 
 It validates the block (an empty id, title, scope, quote, reading line, assumption or sign-off,
 an unknown kind or source is a build error), defines `NAME` with a generated docstring, computes
@@ -481,16 +479,37 @@ so a block cannot change meaning under an old sign-off. All keywords after the f
 non-reserved (`&"…"`), so `id`, `title`, … stay usable as ordinary identifiers. -/
 elab (name := requirementCmd) "requirement " n:ident
     &"id" id:str &"title" title:str &"kind" kind:ident &"scope" scope:str
-    &"source" source:ident ref:str &"quote" qs:str+ &"reading" rs:str+
+    &"source" source:ident ref:str q:(quoteClause)? c:(coversClause)? &"reading" rs:str+
     (&"assumes")? as:str* &"signoff" so:str &"statement" " : " ty:term " := " val:term : command => do
   let decl := (← getCurrNamespace) ++ n.getId
+  let fail (msg : String) : CommandElabM Unit := throwErrorAt n m!"requirement {decl}: {msg}"
+  let quotes ← match q, c with
+    | some q, none => match q with
+      | `(quoteClause| quote $qs:str*) => pure (qs.map (·.getString))
+      | _ => throwUnsupportedSyntax
+    | none, some c => match c with
+      | `(coversClause| covers $cs:ident,*) => do
+        unless source.getId.toString == "verbatim" do
+          fail "covers names spans of the spec text, so the source must be verbatim"
+        cs.getElems.mapM fun r => do
+          match Text.resolveSpan (← getEnv) r.getId with
+          | .ok (t, s) =>
+            unless t.id == id.getString do
+              throwErrorAt r m!"requirement {decl}: covers {r.getId}: the span is in the text of \
+                {t.id}, not of {id.getString}"
+            pure s
+          | .error msg => throwErrorAt r m!"requirement {decl}: covers {r.getId}: {msg}"
+      | _ => throwUnsupportedSyntax
+    | _, _ => do
+      fail "give the requirement's text either as covers ID.label, … or as quote \"…\" …, \
+        exactly one of the two"
+      pure #[]
   let e : Entry := {
     decl, id := id.getString, title := title.getString, kind := kind.getId.toString,
     scope := scope.getString, source := source.getId.toString, sourceRef := ref.getString,
-    quotes := qs.map (·.getString), reading := rs.map (·.getString),
+    quotes, reading := rs.map (·.getString),
     assumes := as.map (·.getString), signoff := so.getString, hash := "",
     module := (← getEnv).mainModule }
-  let fail (msg : String) : CommandElabM Unit := throwErrorAt n m!"requirement {decl}: {msg}"
   if blank e.id then fail "empty id"
   unless isSpecId e.id do fail s!"id {e.id} is not a spec ID (expected e.g. CORE-031)"
   if blank e.title then fail "empty title"

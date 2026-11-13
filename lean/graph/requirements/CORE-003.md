@@ -20,13 +20,13 @@ flowchart TD
     n5290["Libpetri.Spec.CORE_003_bare"]
     n5291["Libpetri.Spec.CORE_003_engine_unchecked"]
     n6028["Libpetri.Spec.CompatibleMarking"]
-    n10398["Libpetri.Spec.TokenCompatible"]
-    n13182["Libpetri.Spec.core003_M"]
-    n13183["Libpetri.Spec.core003_M_compatible"]
-    n13184["Libpetri.Spec.core003_compatB"]
-    n13185["Libpetri.Spec.core003_compat_iff"]
-    n13188["Libpetri.Spec.core003_has"]
-    n17182["Libpetri.Spec.instDecidableTokenCompatibleNatOptionIdCore003_has"]
+    n10452["Libpetri.Spec.TokenCompatible"]
+    n13236["Libpetri.Spec.core003_M"]
+    n13237["Libpetri.Spec.core003_M_compatible"]
+    n13238["Libpetri.Spec.core003_compatB"]
+    n13239["Libpetri.Spec.core003_compat_iff"]
+    n13242["Libpetri.Spec.core003_has"]
+    n17237["Libpetri.Spec.instDecidableTokenCompatibleNatOptionIdCore003_has"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -41,17 +41,17 @@ flowchart TD
   c144 --> c91
   n5290 --> n6028
   n5291 --> n5290
-  n5291 --> n13183
+  n5291 --> n13237
   n6028 --> c144
-  n6028 --> n10398
-  n13182 --> c144
-  n13183 --> n6028
-  n13183 --> n13182
-  n13183 --> n17182
-  n13185 --> n10398
-  n13185 --> n13184
-  n13185 --> n13188
-  n17182 --> n13185
+  n6028 --> n10452
+  n13236 --> c144
+  n13237 --> n6028
+  n13237 --> n13236
+  n13237 --> n17237
+  n13239 --> n10452
+  n13239 --> n13238
+  n13239 --> n13242
+  n17237 --> n13239
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
@@ -97,7 +97,7 @@ flowchart TD
   subgraph g4["Libpetri/Spec/Glossary.lean"]
     n9804["Libpetri.Spec.ReadArc"]
     n9871["Libpetri.Spec.ResetArc"]
-    n17006["Libpetri.Spec.inPlaces"]
+    n17061["Libpetri.Spec.inPlaces"]
   end
   subgraph g5["Libpetri/Spec/GlossaryQueue.lean"]
     n6112["Libpetri.Spec.Delivered"]
@@ -109,9 +109,9 @@ flowchart TD
     n5298["Libpetri.Spec.CORE_003_lines123"]
     n6027["Libpetri.Spec.CompatibleDeposit"]
     n6028["Libpetri.Spec.CompatibleMarking"]
-    n10398["Libpetri.Spec.TokenCompatible"]
-    n13190["Libpetri.Spec.core003_lines123_of_CORE_010"]
-    n13191["Libpetri.Spec.core003_mem_emittedTo"]
+    n10452["Libpetri.Spec.TokenCompatible"]
+    n13244["Libpetri.Spec.core003_lines123_of_CORE_010"]
+    n13245["Libpetri.Spec.core003_mem_emittedTo"]
   end
   subgraph g7["Libpetri/Spec/Req/CORE_010.lean"]
     n5303["Libpetri.Spec.CORE_010"]
@@ -137,7 +137,7 @@ flowchart TD
   n5298 --> n9747
   n5298 --> n9804
   n5298 --> n10032
-  n5298 --> n17006
+  n5298 --> n17061
   n5303 --> n3118
   n5303 --> n3331
   n5303 --> n3333
@@ -146,10 +146,10 @@ flowchart TD
   n5303 --> n9804
   n5303 --> n9871
   n5303 --> n10032
-  n5303 --> n17006
-  n6027 --> n10398
+  n5303 --> n17061
+  n6027 --> n10452
   n6028 --> n9758
-  n6028 --> n10398
+  n6028 --> n10452
   n6112 --> n3330
   n7139 --> n4206
   n9747 --> n3454
@@ -160,17 +160,17 @@ flowchart TD
   n9804 --> n3455
   n9871 --> n1961
   n9871 --> n3455
-  n13190 --> n5298
-  n13190 --> n5303
-  n13190 --> n13191
-  n13191 --> n7139
-  n17006 --> n1939
-  n17006 --> n1957
-  n17006 --> n3455
+  n13244 --> n5298
+  n13244 --> n5303
+  n13244 --> n13245
+  n13245 --> n7139
+  n17061 --> n1939
+  n17061 --> n1957
+  n17061 --> n3455
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13190 root
+  class n13244 root
 ```
 
 Axioms used:

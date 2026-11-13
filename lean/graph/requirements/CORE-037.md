@@ -20,8 +20,8 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
     n6054["Libpetri.Spec.ConnectedPlace"]
     n6107["Libpetri.Spec.DeadPlace"]
-    n13561["Libpetri.Spec.core037_deadInhibitor_never_blocks"]
-    n13564["Libpetri.Spec.core037_dead_stays_empty"]
+    n13615["Libpetri.Spec.core037_deadInhibitor_never_blocks"]
+    n13618["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -34,12 +34,12 @@ flowchart TD
   c132 --> c94
   n6054 --> c132
   n6107 --> n6054
-  n13561 --> n13564
-  n13564 --> n6107
+  n13615 --> n13618
+  n13618 --> n6107
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13561 root
+  class n13615 root
   class c0,c28,c54,c94,c132 collapsed
 ```
 
@@ -52,8 +52,8 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
     n6054["Libpetri.Spec.ConnectedPlace"]
     n6107["Libpetri.Spec.DeadPlace"]
-    n13562["Libpetri.Spec.core037_deadRead_never_enabled"]
-    n13564["Libpetri.Spec.core037_dead_stays_empty"]
+    n13616["Libpetri.Spec.core037_deadRead_never_enabled"]
+    n13618["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -66,12 +66,12 @@ flowchart TD
   c132 --> c94
   n6054 --> c132
   n6107 --> n6054
-  n13562 --> n13564
-  n13564 --> n6107
+  n13616 --> n13618
+  n13618 --> n6107
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13562 root
+  class n13616 root
   class c0,c28,c54,c94,c132 collapsed
 ```
 
@@ -84,8 +84,8 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
     n6054["Libpetri.Spec.ConnectedPlace"]
     n6107["Libpetri.Spec.DeadPlace"]
-    n13563["Libpetri.Spec.core037_deadReset_clears_nothing"]
-    n13564["Libpetri.Spec.core037_dead_stays_empty"]
+    n13617["Libpetri.Spec.core037_deadReset_clears_nothing"]
+    n13618["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -98,12 +98,12 @@ flowchart TD
   c132 --> c94
   n6054 --> c132
   n6107 --> n6054
-  n13563 --> n13564
-  n13564 --> n6107
+  n13617 --> n13618
+  n13618 --> n6107
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13563 root
+  class n13617 root
   class c0,c28,c54,c94,c132 collapsed
 ```
 
@@ -116,7 +116,7 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_037.lean"]
     n6054["Libpetri.Spec.ConnectedPlace"]
     n6107["Libpetri.Spec.DeadPlace"]
-    n13564["Libpetri.Spec.core037_dead_stays_empty"]
+    n13618["Libpetri.Spec.core037_dead_stays_empty"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -129,11 +129,11 @@ flowchart TD
   c132 --> c94
   n6054 --> c132
   n6107 --> n6054
-  n13564 --> n6107
+  n13618 --> n6107
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13564 root
+  class n13618 root
   class c0,c28,c54,c94,c132 collapsed
 ```
 

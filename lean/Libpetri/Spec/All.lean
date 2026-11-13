@@ -261,6 +261,22 @@ import Libpetri.Spec.ConsistencyAll
 import Libpetri.Spec.Clashes
 import Libpetri.Spec.ClashesTime
 import Libpetri.Spec.ClashesExport
+import Libpetri.Spec.Text
+import Libpetri.Spec.Text.PERF_001
+import Libpetri.Spec.Text.PERF_002
+import Libpetri.Spec.Text.PERF_003
+import Libpetri.Spec.Text.PERF_004
+import Libpetri.Spec.Text.PERF_010
+import Libpetri.Spec.Text.PERF_011
+import Libpetri.Spec.Text.PERF_020
+import Libpetri.Spec.Text.PERF_021
+import Libpetri.Spec.Text.PERF_022
+import Libpetri.Spec.Text.PERF_030
+import Libpetri.Spec.Text.PERF_031
+import Libpetri.Spec.Text.PERF_040
+import Libpetri.Spec.Text.PERF_041
+import Libpetri.Spec.Text.PERF_042
+import Libpetri.Spec.Text.Chapter.Ch10
 
 /-!
 # All requirement modules

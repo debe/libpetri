@@ -17,14 +17,14 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n10351["Libpetri.Spec.Time001.decValid"]
-    n10381["Libpetri.Spec.TimingContract"]
-    n10384["Libpetri.Spec.TimingContract.earliest"]
-    n10388["Libpetri.Spec.TimingContract.mk"]
-    n20354["Libpetri.Spec.refTimingFactory"]
-    n20356["Libpetri.Spec.refTimingMsg"]
-    n20357["Libpetri.Spec.refTimingQ"]
-    n20751["Libpetri.Spec.time001_fire_after_earliest"]
+    n10405["Libpetri.Spec.Time001.decValid"]
+    n10435["Libpetri.Spec.TimingContract"]
+    n10438["Libpetri.Spec.TimingContract.earliest"]
+    n10442["Libpetri.Spec.TimingContract.mk"]
+    n20410["Libpetri.Spec.refTimingFactory"]
+    n20412["Libpetri.Spec.refTimingMsg"]
+    n20413["Libpetri.Spec.refTimingQ"]
+    n20807["Libpetri.Spec.time001_fire_after_earliest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -42,23 +42,23 @@ flowchart TD
   c132 --> c94
   c146 --> c98
   c146 --> c132
-  n10351 --> c66
-  n10384 --> c66
-  n10384 --> n10381
-  n10388 --> c66
-  n10388 --> n10381
-  n20354 --> n10351
-  n20354 --> n20356
-  n20356 --> c66
-  n20357 --> n10388
-  n20357 --> n20354
-  n20751 --> c146
-  n20751 --> n10384
-  n20751 --> n20357
+  n10405 --> c66
+  n10438 --> c66
+  n10438 --> n10435
+  n10442 --> c66
+  n10442 --> n10435
+  n20410 --> n10405
+  n20410 --> n20412
+  n20412 --> c66
+  n20413 --> n10442
+  n20413 --> n20410
+  n20807 --> c146
+  n20807 --> n10438
+  n20807 --> n20413
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20751 root
+  class n20807 root
   class c0,c28,c54,c66,c94,c98,c132,c146 collapsed
 ```
 
@@ -69,15 +69,15 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n10351["Libpetri.Spec.Time001.decValid"]
-    n10381["Libpetri.Spec.TimingContract"]
-    n10386["Libpetri.Spec.TimingContract.hasDeadline"]
-    n10387["Libpetri.Spec.TimingContract.latest"]
-    n10388["Libpetri.Spec.TimingContract.mk"]
-    n20354["Libpetri.Spec.refTimingFactory"]
-    n20356["Libpetri.Spec.refTimingMsg"]
-    n20357["Libpetri.Spec.refTimingQ"]
-    n20757["Libpetri.Spec.time001_reap_past_latest"]
+    n10405["Libpetri.Spec.Time001.decValid"]
+    n10435["Libpetri.Spec.TimingContract"]
+    n10440["Libpetri.Spec.TimingContract.hasDeadline"]
+    n10441["Libpetri.Spec.TimingContract.latest"]
+    n10442["Libpetri.Spec.TimingContract.mk"]
+    n20410["Libpetri.Spec.refTimingFactory"]
+    n20412["Libpetri.Spec.refTimingMsg"]
+    n20413["Libpetri.Spec.refTimingQ"]
+    n20813["Libpetri.Spec.time001_reap_past_latest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -92,26 +92,26 @@ flowchart TD
   c98 --> c66
   c98 --> c94
   c146 --> c98
-  n10351 --> c66
-  n10386 --> c66
-  n10386 --> n10381
-  n10387 --> c66
-  n10387 --> n10381
-  n10388 --> c66
-  n10388 --> n10381
-  n20354 --> n10351
-  n20354 --> n20356
-  n20356 --> c66
-  n20357 --> n10388
-  n20357 --> n20354
-  n20757 --> c146
-  n20757 --> n10386
-  n20757 --> n10387
-  n20757 --> n20357
+  n10405 --> c66
+  n10440 --> c66
+  n10440 --> n10435
+  n10441 --> c66
+  n10441 --> n10435
+  n10442 --> c66
+  n10442 --> n10435
+  n20410 --> n10405
+  n20410 --> n20412
+  n20412 --> c66
+  n20413 --> n10442
+  n20413 --> n20410
+  n20813 --> c146
+  n20813 --> n10440
+  n20813 --> n10441
+  n20813 --> n20413
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20757 root
+  class n20813 root
   class c0,c28,c54,c66,c94,c98,c146 collapsed
 ```
 
@@ -132,7 +132,7 @@ flowchart TD
     n2579["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_001.lean"]
-    n20760["Libpetri.Spec.time001_valid_iff"]
+    n20816["Libpetri.Spec.time001_valid_iff"]
   end
   n2436 --> n2442
   n2436 --> n2444
@@ -145,11 +145,11 @@ flowchart TD
   n2446 --> n2435
   n2448 --> n2435
   n2462 --> n2435
-  n20760 --> n2436
+  n20816 --> n2436
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20760 root
+  class n20816 root
 ```
 
 Axioms used:

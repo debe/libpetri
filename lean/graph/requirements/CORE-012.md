@@ -19,38 +19,38 @@ flowchart TD
     n7575["Libpetri.Spec.FacTok.mk"]
     n7576["Libpetri.Spec.FacTok.stamp"]
     n7577["Libpetri.Spec.FacTok.val"]
-    n10400["Libpetri.Spec.TokenFactory"]
-    n10401["Libpetri.Spec.TokenFactory.make"]
-    n10402["Libpetri.Spec.TokenFactory.makeAt"]
-    n10404["Libpetri.Spec.TokenFactory.unit"]
-    n13255["Libpetri.Spec.core011_unit_isUnit"]
+    n10454["Libpetri.Spec.TokenFactory"]
+    n10455["Libpetri.Spec.TokenFactory.make"]
+    n10456["Libpetri.Spec.TokenFactory.makeAt"]
+    n10458["Libpetri.Spec.TokenFactory.unit"]
+    n13309["Libpetri.Spec.core011_unit_isUnit"]
   end
   n5324 --> n5982
   n5324 --> n7575
   n5324 --> n7576
   n5324 --> n7577
   n5324 --> n7987
-  n5324 --> n10401
-  n5324 --> n10402
-  n5324 --> n10404
+  n5324 --> n10455
+  n5324 --> n10456
+  n5324 --> n10458
   n5982 --> n5979
   n7575 --> n7574
   n7576 --> n7574
   n7577 --> n7574
-  n10401 --> n5979
-  n10401 --> n7574
-  n10401 --> n10400
-  n10402 --> n5979
-  n10402 --> n7574
-  n10402 --> n10400
-  n10404 --> n5979
-  n10404 --> n7574
-  n10404 --> n10400
-  n13255 --> n5324
+  n10455 --> n5979
+  n10455 --> n7574
+  n10455 --> n10454
+  n10456 --> n5979
+  n10456 --> n7574
+  n10456 --> n10454
+  n10458 --> n5979
+  n10458 --> n7574
+  n10458 --> n10454
+  n13309 --> n5324
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13255 root
+  class n13309 root
 ```
 
 Axioms used:

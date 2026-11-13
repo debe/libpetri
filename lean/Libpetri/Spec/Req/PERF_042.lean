@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryEnable
+import Libpetri.Spec.Text.PERF_042
 
 set_option linter.missingDocs true
 
@@ -147,10 +148,7 @@ requirement PERF_042
   kind F
   scope "executors that use sparse enablement masks (the precompiled executors)"
   source verbatim "spec/10-performance.md"
-  quote "*Where* an executor uses sparse enablement masks, it *shall* compile a needs-mask or an inhibitor-mask to the empty sentinel exactly when all its words are zero and a mask with exactly one non-zero word to the single-word form holding that word's index and value, and it *shall* put only non-zero words of the mask, each with its index, into a multi-word form."
-        "*Where* an executor uses sparse enablement masks, its presence check on the sparse forms compiled from a transition's needs-mask and inhibitor-mask *shall* return, for every presence bitmap, the result of the presence check of [CONC-004] computed over every word of both masks."
-        "These two sentences hold for masks and presence bitmaps of the same number of words, each word within the executor's word size."
-        "Enablement results are identical to full-width bitmap checks."
+  covers PERF_042.s1, PERF_042.s2, PERF_042.s3, PERF_042.s4
   reading "At word size w, for every mask m whose words are below 2^w:"
           "C compiles m to the empty sentinel exactly when m has no non-zero word;"
           "when m has exactly one non-zero word, x at index i, C compiles m to the single-word form (i, x);"

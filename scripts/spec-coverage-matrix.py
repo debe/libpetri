@@ -182,10 +182,17 @@ def parse_spec_index(text: str):
 # Lean sources: ID mentions (input (c))
 # --------------------------------------------------------------------------
 
+# The spec text itself lives in Lean (lean/Libpetri/Spec/Text/); it names every ID, so it is
+# not a Lean reference to one.
+SPEC_TEXT_DIR = LEAN_DIR / "Libpetri" / "Spec" / "Text"
+
+
 def lean_sources() -> dict[Path, str]:
     files: dict[Path, str] = {}
     for p in sorted(LEAN_DIR.rglob("*.lean")):
         if any(part in EXCLUDED_DIR_NAMES for part in p.parts):
+            continue
+        if p.is_relative_to(SPEC_TEXT_DIR) or p == SPEC_TEXT_DIR.with_suffix(".lean"):
             continue
         files[p] = p.read_text(encoding="utf-8")
     if not files:

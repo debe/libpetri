@@ -14,9 +14,9 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
     n5955["Libpetri.Spec.ClashExec.some_of_map"]
-    n10378["Libpetri.Spec.TimeoutValidated"]
-    n12509["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
-    n21207["Libpetri.Spec.timeoutRejected"]
+    n10432["Libpetri.Spec.TimeoutValidated"]
+    n12563["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
+    n21263["Libpetri.Spec.timeoutRejected"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -53,15 +53,15 @@ flowchart TD
   c238 --> c131
   c271 --> c132
   n5955 --> c139
-  n10378 --> n21207
-  n12509 --> c238
-  n12509 --> n5955
-  n12509 --> n10378
-  n21207 --> c139
+  n10432 --> n21263
+  n12563 --> c238
+  n12563 --> n5955
+  n12563 --> n10432
+  n21263 --> c139
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12509 root
+  class n12563 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232,c238,c271 collapsed
 ```
 

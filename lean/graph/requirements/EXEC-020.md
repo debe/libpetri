@@ -19,22 +19,22 @@ flowchart TD
     n6764["Libpetri.Spec.EXEC_020_cycle"]
     n6773["Libpetri.Spec.EXEC_020_cycle_reference"]
     n7477["Libpetri.Spec.Exec020Covers"]
-    n16080["Libpetri.Spec.exec020_covers_neverCommits"]
-    n16101["Libpetri.Spec.exec020c_deposits"]
-    n16102["Libpetri.Spec.exec020c_xstepW_M"]
-    n16450["Libpetri.Spec.execc20_acceptB"]
-    n16451["Libpetri.Spec.execc20_at"]
-    n16453["Libpetri.Spec.execc20_cfg"]
-    n16454["Libpetri.Spec.execc20_m0"]
-    n16456["Libpetri.Spec.execc20_t"]
-    n16460["Libpetri.Spec.execc20_two"]
-    n16482["Libpetri.Spec.execc_noCommit"]
-    n16483["Libpetri.Spec.execc_noCommitStep"]
-    n16484["Libpetri.Spec.execc_noCommit_meets"]
-    n16485["Libpetri.Spec.execc_noCommit_sub"]
-    n16490["Libpetri.Spec.execc_pre"]
-    n16499["Libpetri.Spec.execc_run"]
-    n16509["Libpetri.Spec.execc_tr"]
+    n16135["Libpetri.Spec.exec020_covers_neverCommits"]
+    n16156["Libpetri.Spec.exec020c_deposits"]
+    n16157["Libpetri.Spec.exec020c_xstepW_M"]
+    n16505["Libpetri.Spec.execc20_acceptB"]
+    n16506["Libpetri.Spec.execc20_at"]
+    n16508["Libpetri.Spec.execc20_cfg"]
+    n16509["Libpetri.Spec.execc20_m0"]
+    n16511["Libpetri.Spec.execc20_t"]
+    n16515["Libpetri.Spec.execc20_two"]
+    n16537["Libpetri.Spec.execc_noCommit"]
+    n16538["Libpetri.Spec.execc_noCommitStep"]
+    n16539["Libpetri.Spec.execc_noCommit_meets"]
+    n16540["Libpetri.Spec.execc_noCommit_sub"]
+    n16545["Libpetri.Spec.execc_pre"]
+    n16554["Libpetri.Spec.execc_run"]
+    n16564["Libpetri.Spec.execc_tr"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -65,42 +65,42 @@ flowchart TD
   c232 --> c103
   c232 --> c146
   n6764 --> c131
-  n6764 --> n16101
+  n6764 --> n16156
   n6773 --> n6764
-  n6773 --> n16102
+  n6773 --> n16157
   n7477 --> c139
-  n16080 --> n7477
-  n16080 --> n16450
-  n16080 --> n16451
-  n16080 --> n16460
-  n16080 --> n16484
-  n16101 --> c139
-  n16102 --> c80
-  n16102 --> n16101
-  n16450 --> n16453
-  n16451 --> c80
-  n16451 --> n16453
-  n16451 --> n16454
-  n16451 --> n16490
-  n16451 --> n16499
-  n16453 --> c139
-  n16453 --> n16456
-  n16453 --> n16509
-  n16454 --> c91
-  n16456 --> c94
-  n16460 --> c139
-  n16482 --> n16483
-  n16483 --> c80
-  n16484 --> n6773
-  n16484 --> n16485
-  n16485 --> n16482
-  n16490 --> c139
-  n16499 --> c139
-  n16509 --> c94
+  n16135 --> n7477
+  n16135 --> n16505
+  n16135 --> n16506
+  n16135 --> n16515
+  n16135 --> n16539
+  n16156 --> c139
+  n16157 --> c80
+  n16157 --> n16156
+  n16505 --> n16508
+  n16506 --> c80
+  n16506 --> n16508
+  n16506 --> n16509
+  n16506 --> n16545
+  n16506 --> n16554
+  n16508 --> c139
+  n16508 --> n16511
+  n16508 --> n16564
+  n16509 --> c91
+  n16511 --> c94
+  n16515 --> c139
+  n16537 --> n16538
+  n16538 --> c80
+  n16539 --> n6773
+  n16539 --> n16540
+  n16540 --> n16537
+  n16545 --> c139
+  n16554 --> c139
+  n16564 --> c94
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n16080 root
+  class n16135 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232 collapsed
 ```
 
@@ -111,8 +111,8 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Conservation.lean"]
-    n22606["Libpetri.produceAll"]
-    n22607["🔒 Libpetri.produceAll_spec"]
+    n22662["Libpetri.produceAll"]
+    n22663["🔒 Libpetri.produceAll_spec"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
   c105["📁 Libpetri/Ring/Core.lean (29 declarations, collapsed)"]
@@ -121,13 +121,13 @@ flowchart TD
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  n22606 --> c106
-  n22607 --> n22606
+  n22662 --> c106
+  n22663 --> n22662
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22607 root
-  class n22607 locked
+  class n22663 root
+  class n22663 locked
   class c0,c105,c106,c108 collapsed
 ```
 

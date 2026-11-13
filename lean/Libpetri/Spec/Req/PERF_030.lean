@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Compiled
+import Libpetri.Spec.Text.PERF_030
 
 set_option linter.missingDocs true
 
@@ -100,9 +101,7 @@ requirement PERF_030
   kind F
   scope "bitmap executors (the BitmapNetExecutor of Java, TypeScript and Rust; Python through Rust)"
   source verbatim "spec/10-performance.md"
-  quote "For a net with P places and T transitions, the bitmap executor *shall* keep its presence bitmap in at most ceil(P / word_size) words, each full-width mask of a transition in at most ceil(P / word_size) words of word_size bits, and its dirty set in at most ceil(T / word_size) words."
-        "The bitmap executor *shall* keep at most k full-width masks per transition, for one number k that the implementation fixes and that does not depend on the net, and no full-width mask words beside those masks."
-        "Together the three structures take at most (1 + k × T) × ceil(P / word_size) + ceil(T / word_size) words."
+  covers PERF_030.s1, PERF_030.s2, PERF_030.s3
   reading "At word size ws (ws > 0), for every net n with P places (placeCountOf n) and T transitions:"
           "the presence bitmap kept for n takes at most ceil(P / ws) words;"
           "there is one number k, chosen before the net, such that every transition of every net has at most k full-width masks;"

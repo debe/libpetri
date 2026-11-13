@@ -470,5 +470,30 @@ reads the output of the one before: `lake build`, then
 itself). `--update` alone reads the committed `proof-coverage.json`, so the
 matrix stays on the old tags and CI fails the report freshness step.
 
+### The spec text lives in Lean
+
+A chapter whose text has moved into Lean (so far `spec/10-performance.md`) is generated:
+never edit that markdown file, edit its Lean source. Its first line, an HTML comment, names the
+source.
+
+- `Libpetri/Spec/Text/<ID>.lean` holds one requirement's text (`requirement_text`, defined in
+  `Libpetri/Spec/Text.lean`): ID, title, priority, kind, an optional status, and the body as
+  raw markdown in a raw string (`r#"…"#`). A normative span of the body is marked
+  `⟦s1|…⟧`; the markdown shows it without the markers.
+- `Libpetri/Spec/Text/Chapter/Ch<NN>.lean` holds the chapter (`spec_chapter`): markdown chunks
+  (`md r#"…"#`) and requirement texts (`req PERF_001`) in order.
+- A requirement block names spans of its text with `covers PERF_030.s1, PERF_030.s2` instead of
+  copying them with `quote "…"`. Each reference resolves at build time to the span with its line
+  breaks joined into spaces; an unknown text or label is a build error. The resolved strings are
+  the block's quotes, so the statement hash, and with it the sign-off, covers the text the block
+  names: editing a covered span changes the hash.
+
+After editing a text, run `lake build` and then `lake env lean spec-tools/Render.lean` from
+`lean/`, which rewrites `spec/<chapter>.md` for every chapter declared in Lean; then regenerate
+the report as above. CI renders the chapters and fails when a generated file differs from the
+committed one. `scripts/spec-md-to-lean.py spec/NN-name.md` moves a chapter from markdown into
+Lean (it writes the text modules, wraps the quotes of the chapter's blocks as spans and rewrites
+those blocks to `covers`); it is a one-shot migration tool.
+
 Nothing in `theory/` is edited by this development; the papers are read-only
 reference for the theorem statements.

@@ -63,7 +63,7 @@ flowchart TD
     n2579["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n20790["Libpetri.Spec.time003_construction"]
+    n20846["Libpetri.Spec.time003_construction"]
   end
   n2436 --> n2442
   n2436 --> n2444
@@ -77,11 +77,11 @@ flowchart TD
   n2448 --> n2435
   n2460 --> n2436
   n2462 --> n2435
-  n20790 --> n2460
+  n20846 --> n2460
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20790 root
+  class n20846 root
 ```
 
 ### `Libpetri.Spec.time003_construction_examples`
@@ -102,8 +102,8 @@ flowchart TD
     n2579["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n20790["Libpetri.Spec.time003_construction"]
-    n20791["Libpetri.Spec.time003_construction_examples"]
+    n20846["Libpetri.Spec.time003_construction"]
+    n20847["Libpetri.Spec.time003_construction_examples"]
   end
   n2436 --> n2442
   n2436 --> n2444
@@ -117,12 +117,12 @@ flowchart TD
   n2448 --> n2435
   n2460 --> n2436
   n2462 --> n2435
-  n20790 --> n2460
-  n20791 --> n20790
+  n20846 --> n2460
+  n20847 --> n20846
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20791 root
+  class n20847 root
 ```
 
 ### `Libpetri.Spec.time003_interval`
@@ -145,7 +145,7 @@ flowchart TD
     n2579["Libpetri.Novel.TimedScg.maxDurationMs"]
   end
   subgraph g1["Libpetri/Spec/Req/TIME_003.lean"]
-    n20798["Libpetri.Spec.time003_interval"]
+    n20854["Libpetri.Spec.time003_interval"]
   end
   n2442 --> n2435
   n2444 --> n2435
@@ -173,14 +173,14 @@ flowchart TD
   n2450 --> n2448
   n2450 --> n2462
   n2462 --> n2435
-  n20798 --> n2445
-  n20798 --> n2447
-  n20798 --> n2449
-  n20798 --> n2450
+  n20854 --> n2445
+  n20854 --> n2447
+  n20854 --> n2449
+  n20854 --> n2450
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20798 root
+  class n20854 root
 ```
 
 Axioms used:

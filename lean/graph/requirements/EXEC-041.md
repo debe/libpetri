@@ -14,12 +14,12 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
     n5955["Libpetri.Spec.ClashExec.some_of_map"]
-    n12501["Libpetri.Spec.clashExec_closedRest_bothCauses"]
-    n14231["Libpetri.Spec.cxCfg"]
-    n14234["Libpetri.Spec.cxCfgEnv"]
-    n14240["Libpetri.Spec.cxM0"]
-    n14241["Libpetri.Spec.cxQuiet"]
-    n14244["Libpetri.Spec.cxRunClosedRest"]
+    n12555["Libpetri.Spec.clashExec_closedRest_bothCauses"]
+    n14286["Libpetri.Spec.cxCfg"]
+    n14289["Libpetri.Spec.cxCfgEnv"]
+    n14295["Libpetri.Spec.cxM0"]
+    n14296["Libpetri.Spec.cxQuiet"]
+    n14299["Libpetri.Spec.cxRunClosedRest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
@@ -49,20 +49,20 @@ flowchart TD
   c232 --> c103
   c232 --> c146
   n5955 --> c139
-  n12501 --> c80
-  n12501 --> n5955
-  n12501 --> n14234
-  n12501 --> n14240
-  n12501 --> n14244
-  n14231 --> c139
-  n14234 --> n14231
-  n14240 --> c91
-  n14241 --> c139
-  n14244 --> n14241
+  n12555 --> c80
+  n12555 --> n5955
+  n12555 --> n14289
+  n12555 --> n14295
+  n12555 --> n14299
+  n14286 --> c139
+  n14289 --> n14286
+  n14295 --> c91
+  n14296 --> c139
+  n14299 --> n14296
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12501 root
+  class n12555 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c132,c139,c146,c232 collapsed
 ```
 

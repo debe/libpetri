@@ -68,7 +68,7 @@ flowchart TD
   end
   subgraph g8["Libpetri/Spec/Req/CORE_073.lean"]
     n5836["Libpetri.Spec.CORE_073_T"]
-    n14096["Libpetri.Spec.core073T_initArms"]
+    n14150["Libpetri.Spec.core073T_initArms"]
   end
   n9 --> n8
   n10 --> n8
@@ -121,12 +121,12 @@ flowchart TD
   n7962 --> n3106
   n7962 --> n3451
   n7962 --> n3455
-  n14096 --> n4949
-  n14096 --> n5836
+  n14150 --> n4949
+  n14150 --> n5836
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n14096 root
+  class n14150 root
 ```
 
 ### `Libpetri.Spec.time011_elapsed_from_rearm`
@@ -185,7 +185,7 @@ flowchart TD
   end
   subgraph g5["Libpetri/Spec/Ears.lean"]
     n10032["Libpetri.Spec.StepShall"]
-    n12183["Libpetri.Spec.WhileNever"]
+    n12237["Libpetri.Spec.WhileNever"]
   end
   subgraph g6["Libpetri/Spec/Glossary.lean"]
     n6080["Libpetri.Spec.CountMarking"]
@@ -194,7 +194,7 @@ flowchart TD
     n9738["Libpetri.Spec.Produced"]
     n9804["Libpetri.Spec.ReadArc"]
     n9871["Libpetri.Spec.ResetArc"]
-    n17006["Libpetri.Spec.inPlaces"]
+    n17061["Libpetri.Spec.inPlaces"]
   end
   subgraph g7["Libpetri/Spec/GlossaryTime.lean"]
     n4901["Libpetri.Spec.ArcPlace"]
@@ -203,15 +203,15 @@ flowchart TD
     n7134["Libpetri.Spec.Elapsed"]
     n7962["Libpetri.Spec.InNet"]
     n10348["Libpetri.Spec.TRel"]
-    n10389["Libpetri.Spec.TimingOf"]
-    n12188["Libpetri.Spec.Writes"]
+    n10443["Libpetri.Spec.TimingOf"]
+    n12242["Libpetri.Spec.Writes"]
   end
   subgraph g8["Libpetri/Spec/Req/TIME_010.lean"]
     n10200["Libpetri.Spec.TIME_010"]
   end
   subgraph g9["Libpetri/Spec/Req/TIME_011.lean"]
     n10224["Libpetri.Spec.TIME_011"]
-    n20956["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n21012["Libpetri.Spec.time011_elapsed_from_rearm"]
   end
   n9 --> n8
   n10 --> n8
@@ -266,7 +266,7 @@ flowchart TD
   n4901 --> n7963
   n4901 --> n9804
   n4901 --> n9871
-  n4901 --> n17006
+  n4901 --> n17061
   n4949 --> n1959
   n4949 --> n3445
   n4949 --> n3448
@@ -297,9 +297,9 @@ flowchart TD
   n10200 --> n7962
   n10200 --> n10032
   n10200 --> n10348
-  n10200 --> n10389
-  n10200 --> n12183
-  n10200 --> n12188
+  n10200 --> n10443
+  n10200 --> n12237
+  n10200 --> n12242
   n10224 --> n4949
   n10224 --> n5978
   n10224 --> n7962
@@ -308,21 +308,21 @@ flowchart TD
   n10348 --> n3437
   n10348 --> n3441
   n10348 --> n3449
-  n10389 --> n3452
-  n12188 --> n9738
-  n12188 --> n9871
-  n12188 --> n17006
-  n17006 --> n1939
-  n17006 --> n1957
-  n17006 --> n3455
-  n20956 --> n3438
-  n20956 --> n3440
-  n20956 --> n10200
-  n20956 --> n10224
+  n10443 --> n3452
+  n12242 --> n9738
+  n12242 --> n9871
+  n12242 --> n17061
+  n17061 --> n1939
+  n17061 --> n1957
+  n17061 --> n3455
+  n21012 --> n3438
+  n21012 --> n3440
+  n21012 --> n10200
+  n21012 --> n10224
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20956 root
+  class n21012 root
 ```
 
 ### `Libpetri.Spec.time011_no_early_fire`
@@ -333,8 +333,8 @@ flowchart TD
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_011.lean"]
     n10224["Libpetri.Spec.TIME_011"]
-    n20956["Libpetri.Spec.time011_elapsed_from_rearm"]
-    n20968["Libpetri.Spec.time011_no_early_fire"]
+    n21012["Libpetri.Spec.time011_elapsed_from_rearm"]
+    n21024["Libpetri.Spec.time011_no_early_fire"]
   end
   c0["📁 Libpetri/Basic.lean (6 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (10 declarations, collapsed)"]
@@ -356,13 +356,13 @@ flowchart TD
   c331 --> c146
   n10224 --> c131
   n10224 --> c146
-  n20956 --> c331
-  n20956 --> n10224
-  n20968 --> n20956
+  n21012 --> c331
+  n21012 --> n10224
+  n21024 --> n21012
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20968 root
+  class n21024 root
   class c0,c54,c66,c94,c98,c131,c132,c146,c331 collapsed
 ```
 
@@ -379,25 +379,25 @@ flowchart TD
     n18["Libpetri.Cell.enabled"]
     n19["Libpetri.Cell.mk"]
     n20["Libpetri.Cell.tokens"]
-    n22582["🔒 Libpetri.pb_update_reenables"]
-    n22693["Libpetri.updateCell"]
+    n22638["🔒 Libpetri.pb_update_reenables"]
+    n22749["Libpetri.updateCell"]
   end
   n16 --> n15
   n17 --> n15
   n18 --> n15
   n19 --> n15
   n20 --> n15
-  n22582 --> n22693
-  n22693 --> n16
-  n22693 --> n17
-  n22693 --> n18
-  n22693 --> n19
-  n22693 --> n20
+  n22638 --> n22749
+  n22749 --> n16
+  n22749 --> n17
+  n22749 --> n18
+  n22749 --> n19
+  n22749 --> n20
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22582 root
-  class n22582 locked
+  class n22638 root
+  class n22638 locked
 ```
 
 Axioms used:

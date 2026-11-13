@@ -13,15 +13,15 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12451["Libpetri.Spec.citesToTest"]
-    n12461["Libpetri.Spec.cites_perf020_chain"]
-    n12464["Libpetri.Spec.cites_state_of_check"]
-    n19797["Libpetri.Spec.perf020Cfg"]
-    n19798["Libpetri.Spec.perf020Hop"]
-    n19799["Libpetri.Spec.perf020M0"]
-    n19800["Libpetri.Spec.perf020Names"]
-    n19801["Libpetri.Spec.perf020Run"]
-    n19802["Libpetri.Spec.perf020T"]
+    n12505["Libpetri.Spec.citesToTest"]
+    n12515["Libpetri.Spec.cites_perf020_chain"]
+    n12518["Libpetri.Spec.cites_state_of_check"]
+    n19852["Libpetri.Spec.perf020Cfg"]
+    n19853["Libpetri.Spec.perf020Hop"]
+    n19854["Libpetri.Spec.perf020M0"]
+    n19855["Libpetri.Spec.perf020Names"]
+    n19856["Libpetri.Spec.perf020Run"]
+    n19857["Libpetri.Spec.perf020T"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -50,25 +50,25 @@ flowchart TD
   c146 --> c132
   c232 --> c103
   c232 --> c146
-  n12451 --> c139
-  n12461 --> c80
-  n12461 --> n12464
-  n12461 --> n19797
-  n12461 --> n19799
-  n12461 --> n19801
-  n12464 --> c139
-  n19797 --> c139
-  n19797 --> n19802
-  n19798 --> n12451
-  n19798 --> n19800
-  n19799 --> c91
-  n19801 --> n19798
-  n19802 --> c94
-  n19802 --> n19800
+  n12505 --> c139
+  n12515 --> c80
+  n12515 --> n12518
+  n12515 --> n19852
+  n12515 --> n19854
+  n12515 --> n19856
+  n12518 --> c139
+  n19852 --> c139
+  n19852 --> n19857
+  n19853 --> n12505
+  n19853 --> n19855
+  n19854 --> c91
+  n19856 --> n19853
+  n19857 --> c94
+  n19857 --> n19855
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12461 root
+  class n12515 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c132,c139,c146,c232 collapsed
 ```
 

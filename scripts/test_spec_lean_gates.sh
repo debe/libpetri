@@ -22,7 +22,9 @@ spec01=spec/01-core-model.md
 other=lean/Libpetri/Novel/TimedScg.lean   # a non-Spec module no other module imports
 report=lean/spec-tools/Report.lean
 router=spec-site/src/app/router.ts        # browser code of the spec site
-files=("$core" "$all" "$spec01" "$other" "$report" "$router")
+spec10=spec/10-performance.md             # generated from Libpetri/Spec/Text/ by Render.lean
+perf030=lean/Libpetri/Spec/Req/PERF_030.lean   # a block that names its text with covers
+files=("$core" "$all" "$spec01" "$other" "$report" "$router" "$spec10" "$perf030")
 
 work="$(mktemp -d)"
 for f in "${files[@]}"; do mkdir -p "$work/$(dirname "$f")"; cp "$repo/$f" "$work/$f"; done
@@ -250,6 +252,21 @@ d[\"theorems\"].append({\"name\": \"planted_claim\", \"module\": \"Libpetri/Soun
 open(p, \"w\").write(json.dumps(d, indent=2, ensure_ascii=False) + \"\\n\")
 '" \
   "planted_claim" "hand-added"
+
+# ---- the spec text in Lean and the generated markdown ----------------------------------------
+
+# 15b. A hand edit to a generated chapter. CI renders the chapters and compares them with the
+#      committed files; here the planted file stands for the committed one, so it is kept
+#      before the render overwrites it.
+RENDER_FRESH="cp ../$spec10 '$work/planted-spec10.md' && lake env lean spec-tools/Render.lean && diff '$work/planted-spec10.md' ../$spec10"
+expect_caught "hand edit to spec/10          -> render freshness" "$RENDER_FRESH" \
+  'sed -i "s/^Execution time scales linearly with the number of transitions/Execution time scales planted with the number of transitions/" ../spec/10-performance.md' \
+  "Execution time scales planted with the number of transitions"
+
+# 15c. A covers reference to a span label the requirement's text does not have.
+expect_caught "covers an unknown span label  -> requirement command" 'lake env lean Libpetri/Spec/Req/PERF_030.lean' \
+  'sed -i "s/covers PERF_030.s1, /covers PERF_030.s9, /" Libpetri/Spec/Req/PERF_030.lean' \
+  "requirement Libpetri.Spec.PERF_030: covers PERF_030.s9: the text of PERF-030 has no span labelled s9"
 
 # ---- line-number citations -----------------------------------------------------------------
 

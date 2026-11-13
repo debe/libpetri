@@ -939,6 +939,16 @@ jobs:
             report/proof-coverage.json
           git diff --exit-code -- report/
           test -z "$(git status --porcelain --ignored -- report/)"
+      # The chapters declared in Lean (`spec_chapter`, Libpetri/Spec/Text/) are the source of
+      # their spec/*.md; regenerating them must be a no-op, so a hand edit to a generated file,
+      # or a Lean text edit without a rerun, fails here. The porcelain check catches a chapter
+      # rendered for the first time and never committed.
+      - name: Generated spec markdown is up to date
+        shell: bash
+        run: |
+          lake env lean spec-tools/Render.lean
+          git diff --exit-code -- ../spec/
+          test -z "$(git status --porcelain -- ../spec/)"
       # spec/coverage-matrix.md is generated; keep it in lockstep with the
       # spec index, lean/report/proof-coverage.json, and the test suites.
       - name: Spec coverage matrix is up to date
@@ -1004,14 +1014,16 @@ jobs:
       # report checked for freshness above, so it sees the committed state.
       - name: Requirement blocks match the markdown spec
         run: python3 ../scripts/spec-lean-alignment.py --report lean/report/requirements.json --spec spec
-      # Runs 21 planted-fault cases (registry: blank reading, forbids without
+      # Runs the planted-fault cases (registry: blank reading, forbids without
       # ¬, holds assuming its requirement, nonvacuous : True, stale sign-off
       # hash, cites on another module's theorem, cites with an invisible
       # fragment; escape hatches: private axiom, native_decide, sorry outside
       # Spec, addDeclCore without the kernel check; module coverage of
       # Spec/All.lean and of Report.lean; alignment: drifted quote, quote only
       # in an HTML comment, tombstoned citation; stale report; hand-edited
-      # proof-coverage.json). Each passes only if the gate meant to catch it
+      # proof-coverage.json; hand-edited generated spec/10-performance.md;
+      # covers naming an unknown span label; line-number citations; a type
+      # error in the spec site). Each passes only if the gate meant to catch it
       # fails with that gate's own message. Restores every planted file
       # (md5-checked).
       - name: Spec/Lean gates catch planted faults

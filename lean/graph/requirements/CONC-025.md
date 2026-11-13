@@ -17,8 +17,8 @@ flowchart TD
     n8558["Libpetri.Spec.Materialiser.mat"]
     n8559["Libpetri.Spec.Materialiser.mk"]
     n8562["Libpetri.Spec.Materialiser.σ"]
-    n13142["Libpetri.Spec.conc025_matches_bitmap"]
-    n20174["Libpetri.Spec.refMaterialiser"]
+    n13196["Libpetri.Spec.conc025_matches_bitmap"]
+    n20230["Libpetri.Spec.refMaterialiser"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -50,15 +50,15 @@ flowchart TD
   n8558 --> n8562
   n8559 --> n8556
   n8562 --> n8556
-  n13142 --> c99
-  n13142 --> n8558
-  n13142 --> n20174
-  n20174 --> c101
-  n20174 --> n8559
+  n13196 --> c99
+  n13196 --> n8558
+  n13196 --> n20230
+  n20230 --> c101
+  n20230 --> n8559
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13142 root
+  class n13196 root
   class c0,c1,c2,c3,c4,c91,c99,c100,c101,c105,c106,c108,c144 collapsed
 ```
 

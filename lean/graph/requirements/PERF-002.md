@@ -34,9 +34,9 @@ flowchart TD
     n7963["Libpetri.Spec.InhibitorArc"]
     n8529["Libpetri.Spec.Marked"]
     n9804["Libpetri.Spec.ReadArc"]
-    n17006["Libpetri.Spec.inPlaces"]
-    n17159["Libpetri.Spec.instDecidableMarked"]
-    n20445["Libpetri.Spec.requiredCount"]
+    n17061["Libpetri.Spec.inPlaces"]
+    n17214["Libpetri.Spec.instDecidableMarked"]
+    n20501["Libpetri.Spec.requiredCount"]
   end
   subgraph g4["Libpetri/Spec/GlossaryEnable.lean"]
     n7146["Libpetri.Spec.EnableCheck"]
@@ -45,13 +45,13 @@ flowchart TD
     n7964["Libpetri.Spec.InhibitorMask"]
     n8540["Libpetri.Spec.MaskCheck"]
     n9204["Libpetri.Spec.NeedsMask"]
-    n19868["Libpetri.Spec.presenceOf"]
+    n19923["Libpetri.Spec.presenceOf"]
   end
   subgraph g5["Libpetri/Spec/Req/CONC_004.lean"]
     n5081["Libpetri.Spec.CONC_004"]
     n5090["Libpetri.Spec.CONC_004_reference"]
-    n20063["Libpetri.Spec.refEnableCheck"]
-    n20067["Libpetri.Spec.refEnableCheck_presence"]
+    n20119["Libpetri.Spec.refEnableCheck"]
+    n20123["Libpetri.Spec.refEnableCheck_presence"]
   end
   n9 --> n8
   n10 --> n8
@@ -73,7 +73,7 @@ flowchart TD
   n5081 --> n7150
   n5081 --> n8540
   n5090 --> n5081
-  n5090 --> n20067
+  n5090 --> n20123
   n7149 --> n3454
   n7149 --> n6080
   n7149 --> n7146
@@ -86,25 +86,25 @@ flowchart TD
   n8540 --> n7964
   n8540 --> n9204
   n9204 --> n9804
-  n9204 --> n17006
+  n9204 --> n17061
   n9804 --> n1960
   n9804 --> n3455
-  n17006 --> n1939
-  n17006 --> n1957
-  n17006 --> n3455
-  n17159 --> n8529
-  n19868 --> n17159
-  n20063 --> n1937
-  n20063 --> n1956
-  n20063 --> n1960
-  n20063 --> n7149
-  n20063 --> n17006
-  n20063 --> n19868
-  n20063 --> n20445
-  n20067 --> n7150
-  n20067 --> n8540
-  n20067 --> n20063
-  n20445 --> n14
+  n17061 --> n1939
+  n17061 --> n1957
+  n17061 --> n3455
+  n17214 --> n8529
+  n19923 --> n17214
+  n20119 --> n1937
+  n20119 --> n1956
+  n20119 --> n1960
+  n20119 --> n7149
+  n20119 --> n17061
+  n20119 --> n19923
+  n20119 --> n20501
+  n20123 --> n7150
+  n20123 --> n8540
+  n20123 --> n20119
+  n20501 --> n14
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

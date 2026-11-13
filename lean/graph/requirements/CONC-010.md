@@ -17,14 +17,14 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
     n9700["Libpetri.Spec.ParkJudgedAtNow"]
-    n12506["Libpetri.Spec.clashExec_parkAtCycle"]
-    n14231["Libpetri.Spec.cxCfg"]
-    n14233["Libpetri.Spec.cxCfgD"]
-    n14239["Libpetri.Spec.cxM"]
-    n14241["Libpetri.Spec.cxQuiet"]
-    n14246["Libpetri.Spec.cxRunPark"]
-    n14251["Libpetri.Spec.cxT"]
-    n14252["Libpetri.Spec.cxU"]
+    n12560["Libpetri.Spec.clashExec_parkAtCycle"]
+    n14286["Libpetri.Spec.cxCfg"]
+    n14288["Libpetri.Spec.cxCfgD"]
+    n14294["Libpetri.Spec.cxM"]
+    n14296["Libpetri.Spec.cxQuiet"]
+    n14301["Libpetri.Spec.cxRunPark"]
+    n14306["Libpetri.Spec.cxT"]
+    n14307["Libpetri.Spec.cxU"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -54,23 +54,23 @@ flowchart TD
   c232 --> c103
   c232 --> c146
   n9700 --> c139
-  n12506 --> c80
-  n12506 --> n9700
-  n12506 --> n14233
-  n12506 --> n14239
-  n12506 --> n14246
-  n14231 --> c139
-  n14233 --> n14231
-  n14233 --> n14252
-  n14239 --> c91
-  n14241 --> c139
-  n14246 --> n14241
-  n14251 --> c94
-  n14252 --> n14251
+  n12560 --> c80
+  n12560 --> n9700
+  n12560 --> n14288
+  n12560 --> n14294
+  n12560 --> n14301
+  n14286 --> c139
+  n14288 --> n14286
+  n14288 --> n14307
+  n14294 --> c91
+  n14296 --> c139
+  n14301 --> n14296
+  n14306 --> c94
+  n14307 --> n14306
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12506 root
+  class n12560 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c132,c139,c146,c232 collapsed
 ```
 
@@ -90,20 +90,20 @@ flowchart TD
     n6049["Libpetri.Spec.Conc010.not_dueAtCycle_of_nothingDue"]
     n6052["Libpetri.Spec.Conc010.timerWithin_of_timerOk"]
     n6053["Libpetri.Spec.Conc010Covers"]
-    n13000["Libpetri.Spec.conc010_at"]
-    n13001["Libpetri.Spec.conc010_busy"]
-    n13002["Libpetri.Spec.conc010_c"]
-    n13004["Libpetri.Spec.conc010_cfg"]
-    n13005["Libpetri.Spec.conc010_covers_sleepyWait"]
-    n13012["Libpetri.Spec.conc010_m1"]
-    n13026["Libpetri.Spec.conc010_sleepOver"]
-    n13027["Libpetri.Spec.conc010_sleepyWait"]
-    n13028["Libpetri.Spec.conc010_sleepyWaitStep"]
-    n13029["Libpetri.Spec.conc010_sleepyWait_meets"]
-    n13030["Libpetri.Spec.conc010_sleepyWait_sub"]
-    n13031["Libpetri.Spec.conc010_t"]
-    n13032["Libpetri.Spec.conc010_toTest"]
-    n13035["Libpetri.Spec.conc010_waitExit"]
+    n13054["Libpetri.Spec.conc010_at"]
+    n13055["Libpetri.Spec.conc010_busy"]
+    n13056["Libpetri.Spec.conc010_c"]
+    n13058["Libpetri.Spec.conc010_cfg"]
+    n13059["Libpetri.Spec.conc010_covers_sleepyWait"]
+    n13066["Libpetri.Spec.conc010_m1"]
+    n13080["Libpetri.Spec.conc010_sleepOver"]
+    n13081["Libpetri.Spec.conc010_sleepyWait"]
+    n13082["Libpetri.Spec.conc010_sleepyWaitStep"]
+    n13083["Libpetri.Spec.conc010_sleepyWait_meets"]
+    n13084["Libpetri.Spec.conc010_sleepyWait_sub"]
+    n13085["Libpetri.Spec.conc010_t"]
+    n13086["Libpetri.Spec.conc010_toTest"]
+    n13089["Libpetri.Spec.conc010_waitExit"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -149,33 +149,33 @@ flowchart TD
   n6049 --> n6045
   n6052 --> n6046
   n6053 --> n6044
-  n13000 --> c80
-  n13001 --> n13032
-  n13002 --> n13004
-  n13004 --> c139
-  n13004 --> n13031
-  n13005 --> n6053
-  n13005 --> n13000
-  n13005 --> n13001
-  n13005 --> n13002
-  n13005 --> n13012
-  n13005 --> n13029
-  n13012 --> c91
-  n13026 --> c139
-  n13027 --> n13028
-  n13028 --> c80
-  n13028 --> n13026
-  n13028 --> n13035
-  n13029 --> n5180
-  n13029 --> n13030
-  n13030 --> n13027
-  n13031 --> c94
-  n13032 --> c139
-  n13035 --> c139
+  n13054 --> c80
+  n13055 --> n13086
+  n13056 --> n13058
+  n13058 --> c139
+  n13058 --> n13085
+  n13059 --> n6053
+  n13059 --> n13054
+  n13059 --> n13055
+  n13059 --> n13056
+  n13059 --> n13066
+  n13059 --> n13083
+  n13066 --> c91
+  n13080 --> c139
+  n13081 --> n13082
+  n13082 --> c80
+  n13082 --> n13080
+  n13082 --> n13089
+  n13083 --> n5180
+  n13083 --> n13084
+  n13084 --> n13081
+  n13085 --> c94
+  n13086 --> c139
+  n13089 --> c139
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13005 root
+  class n13059 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232 collapsed
 ```
 

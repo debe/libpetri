@@ -153,7 +153,7 @@ flowchart TD
   f144["Libpetri/Spec/GlossaryQueue.lean (41)"]
   f145["Libpetri/Spec/GlossaryStore.lean (30)"]
   f146["Libpetri/Spec/GlossaryTime.lean (68)"]
-  f147["Libpetri/Spec/Registry.lean (86)"]
+  f147["Libpetri/Spec/Registry.lean (85)"]
   f148["Libpetri/Spec/Req/CONC_001.lean (73)"]
   f149["Libpetri/Spec/Req/CONC_002.lean (69)"]
   f150["Libpetri/Spec/Req/CONC_003.lean (68)"]
@@ -369,17 +369,18 @@ flowchart TD
   f360["Libpetri/Spec/Req/VER_023.lean (106)"]
   f361["Libpetri/Spec/Req/VER_024.lean (166)"]
   f362["Libpetri/Spec/Req/VER_025.lean (67)"]
-  f363["Libpetri/Spec/Verifier/Bridges.lean (116)"]
-  f364["Libpetri/Spec/Verifier/Graph.lean (155)"]
-  f365["Libpetri/Spec/Verifier/OpenNet.lean (163)"]
-  f366["Libpetri/Spec/Verifier/Pipeline.lean (140)"]
-  f367["Libpetri/Spec/Verifier/Result.lean (124)"]
-  f368["Libpetri/Spec/Verifier/Scg.lean (107)"]
-  f369["Libpetri/Spec/Verifier/Split.lean (89)"]
-  f370["Libpetri/StateEquation.lean (27)"]
-  f371["Libpetri/Strengthening.lean (30)"]
-  f372["Libpetri/Strengthening/Hypotheses.lean (4)"]
-  f373["Libpetri/TimedCycle.lean (37)"]
+  f363["Libpetri/Spec/Text.lean (57)"]
+  f364["Libpetri/Spec/Verifier/Bridges.lean (116)"]
+  f365["Libpetri/Spec/Verifier/Graph.lean (155)"]
+  f366["Libpetri/Spec/Verifier/OpenNet.lean (163)"]
+  f367["Libpetri/Spec/Verifier/Pipeline.lean (140)"]
+  f368["Libpetri/Spec/Verifier/Result.lean (124)"]
+  f369["Libpetri/Spec/Verifier/Scg.lean (107)"]
+  f370["Libpetri/Spec/Verifier/Split.lean (89)"]
+  f371["Libpetri/StateEquation.lean (27)"]
+  f372["Libpetri/Strengthening.lean (30)"]
+  f373["Libpetri/Strengthening/Hypotheses.lean (4)"]
+  f374["Libpetri/TimedCycle.lean (37)"]
   f1 --> f106
   f2 --> f1
   f2 --> f3
@@ -394,7 +395,7 @@ flowchart TD
   f11 --> f1
   f11 --> f10
   f13 --> f28
-  f13 --> f370
+  f13 --> f371
   f14 --> f111
   f16 --> f28
   f17 --> f21
@@ -405,7 +406,7 @@ flowchart TD
   f20 --> f102
   f21 --> f16
   f21 --> f19
-  f22 --> f370
+  f22 --> f371
   f23 --> f25
   f24 --> f16
   f24 --> f23
@@ -415,17 +416,17 @@ flowchart TD
   f26 --> f33
   f27 --> f20
   f27 --> f23
-  f27 --> f370
+  f27 --> f371
   f28 --> f111
   f29 --> f28
-  f29 --> f372
+  f29 --> f373
   f30 --> f28
   f30 --> f31
-  f30 --> f371
+  f30 --> f372
   f32 --> f33
   f32 --> f51
-  f33 --> f371
-  f33 --> f373
+  f33 --> f372
+  f33 --> f374
   f34 --> f0
   f35 --> f7
   f35 --> f28
@@ -456,7 +457,7 @@ flowchart TD
   f51 --> f31
   f51 --> f52
   f51 --> f54
-  f51 --> f371
+  f51 --> f372
   f52 --> f53
   f53 --> f0
   f54 --> f28
@@ -466,7 +467,7 @@ flowchart TD
   f57 --> f14
   f57 --> f32
   f58 --> f16
-  f59 --> f371
+  f59 --> f372
   f60 --> f64
   f60 --> f66
   f61 --> f64
@@ -554,7 +555,7 @@ flowchart TD
   f105 --> f108
   f106 --> f105
   f107 --> f105
-  f110 --> f371
+  f110 --> f372
   f111 --> f0
   f112 --> f136
   f112 --> f148
@@ -1081,7 +1082,7 @@ flowchart TD
   f302 --> f87
   f302 --> f90
   f302 --> f312
-  f303 --> f366
+  f303 --> f367
   f304 --> f90
   f305 --> f87
   f305 --> f307
@@ -1098,7 +1099,7 @@ flowchart TD
   f312 --> f36
   f312 --> f143
   f313 --> f143
-  f313 --> f367
+  f313 --> f368
   f314 --> f48
   f314 --> f143
   f315 --> f314
@@ -1140,9 +1141,9 @@ flowchart TD
   f340 --> f351
   f341 --> f170
   f341 --> f339
-  f341 --> f367
-  f342 --> f363
-  f342 --> f369
+  f341 --> f368
+  f342 --> f364
+  f342 --> f370
   f343 --> f81
   f343 --> f342
   f344 --> f40
@@ -1153,52 +1154,52 @@ flowchart TD
   f346 --> f40
   f347 --> f63
   f347 --> f348
-  f347 --> f368
+  f347 --> f369
   f348 --> f60
   f349 --> f310
-  f349 --> f364
-  f350 --> f366
+  f349 --> f365
+  f350 --> f367
   f351 --> f51
   f351 --> f94
   f352 --> f30
-  f352 --> f366
+  f352 --> f367
   f353 --> f13
-  f354 --> f364
-  f354 --> f366
+  f354 --> f365
+  f354 --> f367
   f355 --> f13
   f355 --> f14
   f355 --> f356
   f356 --> f24
   f356 --> f27
-  f356 --> f366
+  f356 --> f367
   f357 --> f17
   f357 --> f57
   f357 --> f87
   f358 --> f339
-  f358 --> f364
+  f358 --> f365
   f359 --> f170
-  f359 --> f367
+  f359 --> f368
   f360 --> f63
-  f360 --> f367
   f360 --> f368
+  f360 --> f369
   f361 --> f58
   f361 --> f345
-  f361 --> f364
+  f361 --> f365
   f362 --> f27
-  f363 --> f61
-  f363 --> f366
-  f363 --> f368
-  f364 --> f44
-  f364 --> f77
-  f365 --> f369
-  f366 --> f341
-  f367 --> f77
-  f367 --> f340
-  f368 --> f62
-  f368 --> f364
-  f369 --> f367
-  f370 --> f110
-  f371 --> f102
-  f371 --> f372
-  f372 --> f7
+  f364 --> f61
+  f364 --> f367
+  f364 --> f369
+  f365 --> f44
+  f365 --> f77
+  f366 --> f370
+  f367 --> f341
+  f368 --> f77
+  f368 --> f340
+  f369 --> f62
+  f369 --> f365
+  f370 --> f368
+  f371 --> f110
+  f372 --> f102
+  f372 --> f373
+  f373 --> f7
 ```
