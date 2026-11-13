@@ -1,6 +1,7 @@
 package org.libpetri.smt;
 
 import org.libpetri.analysis.EnvironmentAnalysisMode;
+import org.libpetri.core.internal.VerificationDeadline;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
 import org.libpetri.core.PetriNet;
@@ -357,6 +358,52 @@ class StubZ3Test {
         // 500 ms plus one watchdog's slack (2 s), with room for a loaded machine: far below the
         // 62 s the unclamped watchdog would wait.
         assertTrue(ms < 15_000, "returned after " + ms + " ms");
+    }
+
+    /**
+     * [VER-013] (RD-43): the IC3/PDR query starts with more of the total budget left than its own
+     * 1 s timeout, so it is not clamped. The stub ignores {@code -t}, answers {@code unknown}
+     * after the budget ran out, and the poll after the reply charges the stop to that step.
+     */
+    @Test
+    void totalBudget_spentDuringAnUnclampedCallIsChargedToThatStep_VER013() throws IOException {
+        var solver = stub("late-unknown", VERSION_OK, "cat > /dev/null\nsleep 2\necho unknown\n");
+        var result = SmtVerifier.forNet(chainNet())
+            .enumerationMaxClasses(0)
+            .initialMarking(m -> m.tokens(P0, 1))
+            .property(SmtProperty.placeBound(P1, 0))
+            .linearBound(false)
+            .witnessDepth(0)
+            .stateEquationPhase(false)
+            .firingBound(false)
+            .solver(solver)
+            .timeout(Duration.ofSeconds(1))
+            .totalBudget(Duration.ofMillis(1500))
+            .verify();
+        var unknown = assertInstanceOf(SmtVerificationResult.Verdict.Unknown.class, result.verdict(), result.report());
+        assertEquals("total verification budget of 1500 ms exhausted during IC3/PDR query", unknown.reason(),
+            result.report());
+    }
+
+    /**
+     * [VER-013] AC9 (RD-42): with less than one whole millisecond of the total budget left the
+     * clamp has nothing to give, so no process starts and the stop is the budget's, naming the
+     * running step.
+     */
+    @Test
+    void totalBudget_noProcessStartsWithoutAWholeMillisecondLeft_VER013_AC9() throws Exception {
+        Path started = root.resolve("sub-ms-started");
+        Files.deleteIfExists(started);
+        var solver = stub("sub-ms", VERSION_OK, "touch '" + started.toAbsolutePath() + "'\necho unknown\n");
+        var deadline = new VerificationDeadline(20);
+        deadline.enter("IC3/PDR query");
+        var e = assertThrows(VerificationDeadline.Exhausted.class, () -> ScopedValue.where(VerificationDeadline.carrier(), deadline)
+            .call(() -> {
+                while (deadline.remainingMs() > 0) Thread.onSpinWait();
+                return solver.run("(check-sat)\n", "sub-ms", Duration.ofSeconds(5), List.of());
+            }));
+        assertEquals("total verification budget of 20 ms exhausted during IC3/PDR query", e.reason());
+        assertFalse(Files.exists(started), "no z3 process may start once no whole millisecond is left");
     }
 
     /**

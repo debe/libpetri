@@ -326,7 +326,7 @@ def verify(
     one name into each of them. Effective only under ``fragment_mode="extended"``
     and ignored under ``"base"``. A declared carrier name that is not a place in
     ``net`` surfaces as an ``unknown`` verdict whose ``reason`` names the
-    offending place, never a silent fall-back.
+    offending place, in either mode, never a silent fall-back.
 
     ``mint_transitions`` (NU-010) declares the transitions (``Transition`` objects
     or names) whose action writes a freshly minted name (``ctx.fresh_name()``) into
@@ -762,7 +762,9 @@ def encode_smt_scripts(
     ``assume_atomic_firing`` (VER-004) encodes the net without the in-flight split.
     ``mint_transitions`` (NU-010) declares the mints as :func:`verify` takes them; a
     name that is no transition of ``net`` raises ``ValueError`` with the reason
-    :func:`verify` gives for its ``unknown`` verdict. A name-alignment property
+    :func:`verify` gives for its ``unknown`` verdict, and so does a
+    ``carrier_places`` name (NU-051) that is no place of ``net``, in either
+    fragment mode. A name-alignment property
     (:func:`name_aligned`, :func:`quiescent_name_aligned`, NU-055) raises
     ``StructureError`` (a ``ValueError``): only Route B decides it, and Route B
     sends no script.

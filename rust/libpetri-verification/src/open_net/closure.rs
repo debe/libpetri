@@ -18,17 +18,16 @@
 //! a net with one is never quiescent, and every quiescence property holds vacuously. An
 //! arrival group that runs dry after `max` tokens is what a bounded contract means.
 
-use std::any::Any;
 use std::collections::HashSet;
-use std::sync::Arc;
 
-use libpetri_core::action::{BoxedAction, fork, is_passthrough, transform};
+use libpetri_core::action::{fork, is_passthrough};
 use libpetri_core::input::one;
 use libpetri_core::output::out_place;
 use libpetri_core::petri_net::PetriNet;
 use libpetri_core::place::{Place, PlaceRef};
 use libpetri_core::transition::Transition;
 
+use crate::in_flight::placeholder_action;
 use crate::marking_state::{MarkingState, MarkingStateBuilder};
 
 use super::contract::{OpenNetContract, transition_places};
@@ -96,12 +95,6 @@ impl ClosedNet {
     pub fn environment_step(&self, transition: &str) -> Option<&EnvironmentStep> {
         self.environment.iter().find(|(name, _)| name == transition).map(|(_, step)| step)
     }
-}
-
-/// The action an environment transition that declares outputs gets when it has none: it
-/// never runs, so what it would produce is immaterial.
-fn environment_action() -> BoxedAction {
-    transform(|_| Arc::new(()) as Arc<dyn Any + Send + Sync>)
 }
 
 /// Closes `net` with the environment of `contract`: its environment transitions, and for
@@ -203,7 +196,7 @@ pub fn close_open_net(net: &PetriNet, contract: &OpenNetContract) -> ClosedNet {
         // encodes them over the closure, environment transitions included.
         .terminals(net.terminals().iter().cloned())
         .build()
-        .bind_actions_with_resolver(|name| placeholder.contains(name).then(environment_action));
+        .bind_actions_with_resolver(|name| placeholder.contains(name).then(placeholder_action));
     ClosedNet {
         net: closed,
         initial_marking: marking.build(),

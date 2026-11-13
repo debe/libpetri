@@ -1,6 +1,10 @@
 package org.libpetri.core.internal;
 
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 /**
  * Orders strings by Unicode code point, the one name order every implementation uses.
@@ -30,6 +34,22 @@ public final class CodePointOrder {
     public static final Comparator<String> COMPARATOR = CodePointOrder::compare;
 
     private CodePointOrder() {}
+
+    /**
+     * Returns an unmodifiable copy of {@code map} that iterates in code-point order of its keys.
+     *
+     * <p>For a map rendered into an ordered medium, such as an archive header or a debug
+     * protocol response, which must render the same from one JVM to the next ([EVT-025],
+     * [EVT-014]). {@code Map.of} and {@code Map.copyOf} do not: their iteration order is salted
+     * once per JVM.
+     *
+     * @throws NullPointerException if a key is {@code null}
+     */
+    public static <V> SortedMap<String, V> sortedCopy(Map<String, ? extends V> map) {
+        var sorted = new TreeMap<String, V>(COMPARATOR);
+        sorted.putAll(map);
+        return Collections.unmodifiableSortedMap(sorted);
+    }
 
     /**
      * Compares two strings by code point.

@@ -607,17 +607,22 @@ public final class PetriNet {
 
             // MOD-025: Place is a record with structural (name, tokenType)
             // equality — a same-named place with a different token type would
-            // create two distinct places sharing one name. Reject it.
-            var hostPlacesByName = new HashMap<String, Place<?>>(places.size() * 2);
-            for (var p : places) hostPlacesByName.put(p.name(), p);
+            // create two distinct places sharing one name. Reject it. The builder
+            // may already hold several places of one name, so every one of them
+            // is compared, the first mismatch in insertion order is reported.
+            var hostPlacesByName = new HashMap<String, List<Place<?>>>(places.size() * 2);
+            for (var p : places) {
+                hostPlacesByName.computeIfAbsent(p.name(), k -> new ArrayList<>(1)).add(p);
+            }
             for (var p : body.places()) {
-                var host = hostPlacesByName.get(p.name());
-                if (host != null && !host.tokenType().equals(p.tokenType())) {
-                    throw new IllegalArgumentException(
-                        "compose(SubnetDef): place '" + p.name() + "' has token type "
-                            + host.tokenType().getName() + " in net '" + name
-                            + "' but " + p.tokenType().getName() + " in subnet '"
-                            + def.name() + "' (MOD-025).");
+                for (var host : hostPlacesByName.getOrDefault(p.name(), List.of())) {
+                    if (!host.tokenType().equals(p.tokenType())) {
+                        throw new IllegalArgumentException(
+                            "compose(SubnetDef): place '" + p.name() + "' has token type "
+                                + host.tokenType().getName() + " in net '" + name
+                                + "' but " + p.tokenType().getName() + " in subnet '"
+                                + def.name() + "' (MOD-025).");
+                    }
                 }
             }
 
@@ -1130,11 +1135,13 @@ public final class PetriNet {
 
             // Step 2: build the non-canonical → canonical substitution map.
             // Single-member sets contribute nothing (no non-canonical members),
-            // so the map is naturally empty for the degenerate case.
+            // so the map is naturally empty for the degenerate case. A set that
+            // lists its canonical member again keeps it (MOD-061 step 3).
             var fusionMap = new HashMap<Place<?>, Place<?>>();
             for (var set : fusionSets) {
                 var canonical = set.canonical();
                 for (var nc : set.nonCanonical()) {
+                    if (nc.equals(canonical)) continue;
                     fusionMap.put(nc, canonical);
                 }
             }

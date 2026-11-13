@@ -138,6 +138,26 @@ class MarkingCacheTest {
     }
 
     /**
+     * EVT-032 AC2: an index beyond the stream length is clamped to the end of the stream. The
+     * debug protocol steps back from a stored index after the debug store evicted events, so
+     * the index can exceed the list it is applied to. Covers no snapshot (50), a delta replay
+     * after a snapshot (300) and an exact snapshot boundary (512).
+     */
+    @Test
+    void computeAtBeyondStreamLengthClampsToEnd_EVT032_AC2() {
+        for (int size : List.of(50, 300, 2 * MarkingCache.SNAPSHOT_INTERVAL)) {
+            var events = generateEvents(size);
+            var expected = DebugProtocolHandler.computeState(events);
+            var actual = new MarkingCache().computeAt(events, size + 50);
+            assertEquals(expected.marking(), actual.marking(), "Marking mismatch for " + size + " events");
+            assertEquals(expected.enabledTransitions(), actual.enabledTransitions(),
+                "Enabled transitions mismatch for " + size + " events");
+            assertEquals(expected.inFlightTransitions(), actual.inFlightTransitions(),
+                "In-flight transitions mismatch for " + size + " events");
+        }
+    }
+
+    /**
      * Generates a realistic event sequence with transitions and token movements.
      */
     private List<NetEvent> generateEvents(int count) {

@@ -1,6 +1,7 @@
 package org.libpetri.debug.archive;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.event.NetEvent;
 
 import java.time.Instant;
@@ -38,14 +39,15 @@ public record SessionMetadata(
     boolean hasErrors
 ) {
     /**
-     * Canonical constructor — normalizes the histogram map to an immutable
-     * {@link TreeMap} copy so downstream code gets deterministic iteration order
-     * (important for prompt-caching-friendly JSON output).
+     * Canonical constructor — normalizes the histogram map to an immutable copy that
+     * iterates in code-point order of the event type name, so the archive header renders
+     * the same from identical run data ([EVT-025]) and stays prompt-caching friendly.
+     * Null keys and values are rejected.
      */
     public SessionMetadata {
         eventTypeHistogram = eventTypeHistogram == null
             ? Map.of()
-            : Map.copyOf(new TreeMap<>(eventTypeHistogram));
+            : CodePointOrder.sortedCopy(Map.copyOf(eventTypeHistogram));
     }
 
     /** Returns a {@code SessionMetadata} with no data — useful for v1 imports with no computed stats. */

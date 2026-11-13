@@ -632,7 +632,7 @@ public class DebugProtocolHandler {
             if (sub != null) {
                 return sub.markingCache.computeAt(events, targetIndex);
             }
-            return computeState(events.subList(0, targetIndex));
+            return computeState(events.subList(0, Math.clamp(targetIndex, 0, events.size())));
         }
 
         void setFilter(String sessionId, DebugCommand.EventFilter filter) {

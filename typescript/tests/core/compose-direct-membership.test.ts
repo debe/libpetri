@@ -124,6 +124,25 @@ describe('compose(def) subnet-membership metadata — MOD-026', () => {
     expect(net.subnetMembership.get('move')).toBe('AB');
   });
 
+  it('directCompose_thenFuseWithRepeatedCanonical_keepsCanonicalEntry (MOD-026 AC5)', () => {
+    // RD-25: the set [a, b, a] lists its canonical member again; 'a' survives
+    // fusion and keeps its own entry, only 'b' loses its entry.
+    const a = place<string>('a');
+    const b = place<string>('b');
+    const subnet = SubnetDef.builder('AB')
+      .transition(Transition.builder('move').inputs(one(a)).outputs(outPlace(b)).build())
+      .build();
+
+    const net = PetriNet.builder('Host')
+      .compose(subnet)
+      .fuse(FusionSet.builder('aba').member(a).member(b).member(a).build())
+      .build();
+
+    expect(net.subnetMembership.get('a')).toBe('AB');
+    expect(net.subnetMembership.has('b')).toBe(false);
+    expect(net.subnetMembership.get('move')).toBe('AB');
+  });
+
   it('bindActions_preservesMembership', () => {
     const net = PetriNet.builder('Host')
       .compose(pipeProducer())

@@ -4,7 +4,7 @@ import { place } from '../../src/core/place.js';
 import { one, exactly, type In } from '../../src/core/in.js';
 import { matchKey, matchSpec } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
-import { xorPlaces, andPlaces, outPlace, forwardInput, timeout } from '../../src/core/out.js';
+import { xor, xorPlaces, andPlaces, outPlace, forwardInput, timeout } from '../../src/core/out.js';
 import { delayed, MAX_DURATION_MS, type Timing } from '../../src/core/timing.js';
 
 describe('Transition', () => {
@@ -72,6 +72,22 @@ describe('Transition', () => {
   it('defaults to passthrough action', () => {
     const t = Transition.builder('T').build();
     expect(t.action).toBeDefined();
+  });
+
+  it('rejects a null or undefined action (CORE-051)', () => {
+    expect(() => Transition.builder('T').action(null as never)).toThrow(TypeError);
+    expect(() => Transition.builder('T').action(undefined as never)).toThrow(TypeError);
+  });
+
+  it('collects input, read and output places by name (CORE-002)', () => {
+    // Accepted by IO-012: the two branches name different place sets.
+    const t = Transition.builder('T')
+      .inputs(one(place('In')))
+      .reads(place('R'), place('R'))
+      .outputs(xor(andPlaces(place('A'), p2), andPlaces(place('A'), p3)))
+      .build();
+    expect([...t.readPlaces()].map(p => p.name)).toEqual(['R']);
+    expect([...t.outputPlaces()].map(p => p.name).sort()).toEqual(['A', 'P2', 'P3']);
   });
 
   it('adds inhibitor', () => {

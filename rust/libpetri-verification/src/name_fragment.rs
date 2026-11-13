@@ -175,6 +175,29 @@ pub fn unknown_mint_reason<'a>(net: &PetriNet, declared: impl IntoIterator<Item 
     ))
 }
 
+/// Why a carrier declaration ([NU-051]) cannot be used on `net`: the declared names that
+/// are not places of `net`, in code-point order, as
+/// `declared carrier place 'x' not in the net (NU-051)`. A mistyped carrier would let two
+/// fork branches mint independent names, so the declaration is refused in either fragment
+/// mode, at the same entry points and in the same way as [`unknown_mint_reason`]. `None`
+/// when every name is a place of `net`.
+pub fn unknown_carrier_reason<'a>(net: &PetriNet, declared: impl IntoIterator<Item = &'a String>) -> Option<String> {
+    let mut unknown: Vec<&String> = declared
+        .into_iter()
+        .filter(|n| !net.places().iter().any(|p| p.name() == n.as_str()))
+        .collect();
+    if unknown.is_empty() {
+        return None;
+    }
+    unknown.sort();
+    unknown.dedup();
+    Some(format!(
+        "declared carrier place{} {} not in the net (NU-051)",
+        if unknown.len() == 1 { "" } else { "s" },
+        unknown.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ")
+    ))
+}
+
 /// The transitions of `net` that write a coloured place of the fragment without
 /// consuming one and are not in `mints`, in net order, when declaring them is all that
 /// keeps `net` out of the fragment: [`classify`] admits `net` with every transition read

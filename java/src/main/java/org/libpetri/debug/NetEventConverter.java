@@ -249,7 +249,7 @@ public final class NetEventConverter {
         var copy = new HashMap<String, Object>(base.size() + 1);
         copy.putAll(base);
         copy.put("instancePrefix", prefix.get());
-        return Map.copyOf(copy);
+        return copy;
     }
 
     /**

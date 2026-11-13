@@ -5,6 +5,7 @@ import org.libpetri.core.PetriNet;
 import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
 import org.libpetri.core.Transition;
+import org.libpetri.core.TransitionAction;
 import org.libpetri.core.internal.CodePointOrder;
 
 import java.util.ArrayList;
@@ -425,12 +426,22 @@ public final class InFlight {
         };
     }
 
-    /** The start of {@code t}: every arc of it, with {@code place} as the only output. */
+    /**
+     * The action a start half carries in place of the passthrough of a sink: verification reads
+     * production from the output spec only, so it never runs.
+     */
+    private static final TransitionAction START_ACTION = TransitionAction.transform(_ -> null);
+
+    /**
+     * The start of {@code t}: every arc of it, with {@code place} as the only output. A sink on
+     * the passthrough (a conflict pruner, say) gets {@link #START_ACTION}, so the derived net
+     * passes the CORE-043 check exactly when the submitted net does.
+     */
     private static Transition start(Transition t, Place<?> place) {
         var b = Transition.builder(t.name())
             .timing(t.timing())
             .priority(t.priority())
-            .action(t.action())
+            .action(TransitionAction.isPassthrough(t.action()) ? START_ACTION : t.action())
             .placeAlias(t.placeAlias())
             .match(t.matchSpec());
         if (!t.inputSpecs().isEmpty()) {

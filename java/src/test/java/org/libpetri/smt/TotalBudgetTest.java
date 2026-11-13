@@ -194,6 +194,20 @@ class TotalBudgetTest {
     }
 
     /**
+     * [VER-013] AC9 (RD-42): the poll and the clamp read one whole-millisecond clock. Once no whole
+     * millisecond is left, the deadline has passed for every poll too, so no step is entered and
+     * no process started in the last fraction of a millisecond.
+     */
+    @Test
+    void subMillisecondRemainderStopsAsTheClampDoes_VER013_AC9() {
+        var deadline = new org.libpetri.core.internal.VerificationDeadline(20);
+        while (deadline.remainingMs() > 0) Thread.onSpinWait();
+        assertTrue(deadline.expired(), "no whole millisecond is left, so the budget is spent");
+        org.junit.jupiter.api.Assertions.assertThrows(
+            org.libpetri.core.internal.VerificationDeadline.Exhausted.class, () -> deadline.enter("next step"));
+    }
+
+    /**
      * {@code verify()} is re-entrant: two calls sharing one verifier on different threads keep
      * their own deadline and running step. Before, both lived in instance fields, so one call
      * named its stop after the other's step (or read the field after the other nulled it).

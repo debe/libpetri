@@ -175,4 +175,82 @@ class ClusterBuilderTest {
             "cluster_mid->cluster_right"
         ), pairs);
     }
+
+    /**
+     * EXP-017 line 2 (RD-37): dedup is by ordered pair of cluster keys. A key may
+     * hold NUL, so a NUL-joined string key would merge the distinct pairs
+     * ({@code a\0b}, {@code c}) and ({@code a}, {@code b\0c}) into one ghost edge.
+     * Fixture {@code exp017NulNet} of EXP_017.lean: the reference draws two.
+     */
+    @Test
+    void ghostEdgesDedupByOrderedPair_nulInKeyDoesNotMerge_EXP017() {
+        var nodes = List.of(
+            node("p_ab"), node("t_o1"), node("p_c"),
+            node("p_a"), node("t_o2"), node("p_bc"));
+        var edges = List.of(
+            edge("p_ab", "t_o1"), edge("t_o1", "p_c"),
+            edge("p_a", "t_o2"), edge("t_o2", "p_bc"));
+        var prefix = new LinkedHashMap<String, String>();
+        prefix.put("p_ab", "a\0b");
+        prefix.put("p_c", "c");
+        prefix.put("p_a", "a");
+        prefix.put("p_bc", "b\0c");
+
+        var result = ClusterBuilder.partition(nodes, edges, prefix);
+
+        var gs = ghosts(result.topLevelEdges());
+        assertEquals(2, gs.size(), "one ghost edge per bridged ordered pair (EXP-017)");
+        assertEquals("p_ab", gs.get(0).from());
+        assertEquals("p_c", gs.get(0).to());
+        assertEquals("p_a", gs.get(1).from());
+        assertEquals("p_bc", gs.get(1).to());
+    }
+
+    /** Renders a cluster tree as {@code label[nodes|edges]{children}} for compact assertions. */
+    private static String tree(List<Subgraph> subgraphs) {
+        var sb = new StringBuilder();
+        for (var sg : subgraphs) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(sg.label()).append('[');
+            sb.append(String.join(",", sg.nodes().stream().map(GraphNode::id).toList()));
+            sb.append('|');
+            sb.append(String.join(",", sg.edges().stream().map(e -> e.from() + ">" + e.to()).toList()));
+            sb.append(']');
+            if (!sg.subgraphs().isEmpty()) sb.append('{').append(tree(sg.subgraphs())).append('}');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * EXP-016 / MOD-040 (RD-12, ruling D46 (a)): the chain of a cluster key is
+     * every non-empty {@code /}-prefix of it, then the key itself (the glossary's
+     * {@code keyChain}), so a key with an empty segment ({@code a/}, {@code a//x},
+     * {@code /a}, {@code http://host}) registers its own cluster and its parent's.
+     * {@code String.split} dropped trailing empty segments and joined a leading
+     * one without its slash, so such keys were never registered and the export
+     * failed at the node's key.
+     */
+    @Test
+    void partitionRegistersTheKeyChainOfAKeyWithAnEmptySegment_EXP016() {
+        var nodes = List.of(node("n1"), node("n2"), node("n3"), node("n4"), node("n5"));
+        var edges = List.of(edge("n1", "n2"), edge("n3", "n5"));
+        var prefix = new LinkedHashMap<String, String>();
+        prefix.put("n1", "a/");
+        prefix.put("n2", "a//x");
+        prefix.put("n3", "/a");
+        prefix.put("n4", "http://host");
+        prefix.put("n5", "/b");
+
+        var result = ClusterBuilder.partition(nodes, edges, prefix);
+
+        assertEquals(
+            "a[|]{a/[n1|n1>n2]{a//x[n2|]}} /a[n3|] http:[|]{http:/[|]{http://host[n4|]}} /b[n5|]",
+            tree(result.topLevelSubgraphs()),
+            "every node sits in the cluster of its own key, under that key's chain; an edge "
+                + "goes to the deepest cluster both endpoints' chains share");
+        assertTrue(result.topLevelEdges().stream()
+                .anyMatch(e -> e.from().equals("n3") && e.to().equals("n5")),
+            "'/a' and '/b' share no cluster, so their edge stays at top level");
+        assertTrue(result.topLevelNodes().isEmpty());
+    }
 }

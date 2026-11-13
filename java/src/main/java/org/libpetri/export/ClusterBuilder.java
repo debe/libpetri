@@ -202,19 +202,25 @@ final class ClusterBuilder {
     }
 
     /**
-     * Walks a prefix root-to-leaf, registering every intermediate prefix in
-     * {@code accumulator} (no-op when already present). Ensures parents are
-     * inserted before children.
+     * Registers the chain of a cluster key in {@code accumulator} (no-op for an
+     * entry already present): every non-empty prefix of the key that ends just
+     * before a {@code /}, outermost first, then the key itself, per [EXP-016].
+     * Ensures parents are inserted before children, and that
+     * {@link SubnetPrefixes#parentOf} of every registered key is registered too,
+     * also for a key with an empty segment ({@code a/}, {@code a//x}, {@code /a}).
      */
     private static void registerPrefixChain(String prefix, Map<String, Object> accumulator) {
-        if (prefix == null || prefix.isEmpty()) return;
-        var segments = prefix.split("/");
-        var built = new StringBuilder();
-        for (var seg : segments) {
-            if (built.length() > 0) built.append('/');
-            built.append(seg);
-            accumulator.putIfAbsent(built.toString(), Boolean.TRUE);
+        for (int i = prefix.indexOf('/'); i >= 0; i = prefix.indexOf('/', i + 1)) {
+            if (i > 0) accumulator.putIfAbsent(prefix.substring(0, i), Boolean.TRUE);
         }
+        accumulator.putIfAbsent(prefix, Boolean.TRUE);
+    }
+
+    /** Whether {@code ancestor} is {@code key} or a cluster of {@code key}'s chain. */
+    private static boolean inChainOf(String ancestor, String key) {
+        return key.equals(ancestor)
+            || (!ancestor.isEmpty() && key.length() > ancestor.length()
+                && key.startsWith(ancestor) && key.charAt(ancestor.length()) == '/');
     }
 
     /**
@@ -253,9 +259,10 @@ final class ClusterBuilder {
 
         // Walk orphans in nodes order. For each (clusterX, clusterY) ordered
         // pair with X != Y, record the first witness anchor pair.
-        // LinkedHashMap keyed by "X\0Y" so emission order is deterministic.
+        // LinkedHashMap keyed by the ordered pair (X, Y) so emission order is
+        // deterministic. A joined string key could collide: a key may hold NUL.
         record Anchor(String from, String to, String x, String y) {}
-        var ghosts = new LinkedHashMap<String, Anchor>();
+        var ghosts = new LinkedHashMap<List<String>, Anchor>();
         for (var node : nodes) {
             if (nodeIdToPrefix.containsKey(node.id())) continue;
             var incoming = incomingByOrphan.get(node.id());
@@ -266,8 +273,7 @@ final class ClusterBuilder {
                 for (var eOut : outgoing) {
                     var y = nodeIdToPrefix.get(eOut.to());
                     if (x.equals(y)) continue;
-                    var key = x + "\0" + y;
-                    ghosts.putIfAbsent(key, new Anchor(eIn.from(), eOut.to(), x, y));
+                    ghosts.putIfAbsent(List.of(x, y), new Anchor(eIn.from(), eOut.to(), x, y));
                 }
             }
         }
@@ -293,26 +299,19 @@ final class ClusterBuilder {
     }
 
     /**
-     * Returns the deepest prefix that is a (non-strict) ancestor of both
-     * sides, or {@code null} when there is no shared cluster (top-level
-     * routing).
+     * Returns the deepest cluster on both keys' chains (see
+     * {@link #registerPrefixChain}), or {@code null} when there is no shared
+     * cluster (top-level routing).
      */
     private static String deepestCommonPrefix(String a, String b) {
         if (a == null || b == null) return null;
-        if (a.equals(b)) return a;
-
-        var aSegs = a.split("/");
-        var bSegs = b.split("/");
-        var built = new StringBuilder();
-        var matched = 0;
-        var min = Math.min(aSegs.length, bSegs.length);
-        for (int i = 0; i < min; i++) {
-            if (!aSegs[i].equals(bSegs[i])) break;
-            if (matched > 0) built.append('/');
-            built.append(aSegs[i]);
-            matched++;
+        if (inChainOf(a, b)) return a;
+        // a's chain, innermost first: the prefixes of a that end just before a '/'.
+        for (int i = a.lastIndexOf('/'); i > 0; i = a.lastIndexOf('/', i - 1)) {
+            var candidate = a.substring(0, i);
+            if (inChainOf(candidate, b)) return candidate;
         }
-        return matched == 0 ? null : built.toString();
+        return null;
     }
 
     /**

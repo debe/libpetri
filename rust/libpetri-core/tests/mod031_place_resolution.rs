@@ -200,3 +200,44 @@ fn identity_correspondence_survives_a_later_renaming_pass() {
     );
     assert_eq!(alias_of(t, "bDecl").as_deref(), Some("outer/inst/bDecl"));
 }
+
+/// Key-set completeness through a channel merge (MOD-031; the Lean
+/// `MOD_031_mergeThenPass_undecided`, reference half): a hand-written caller
+/// over `h` carries no correspondence, the instance's channel transition maps
+/// its port `x` to the caller place `hx`. The merged transition keeps an
+/// identity key for `h`, so the later fusion of `h` onto `f` moves it and the
+/// caller's declared `h` resolves to `f`.
+#[test]
+fn channel_merge_then_fusion_keeps_caller_declared_place_mod031() {
+    use libpetri_core::fusion::FusionSet;
+
+    let x = Place::<String>::new("x");
+    let fire = Transition::builder("fire").input(one(&x)).build();
+    let def = SubnetDef::<()>::builder("Chan")
+        .place(&x)
+        .transition(fire.clone())
+        .input_port("x", &x)
+        .channel("fire", &fire)
+        .build();
+
+    let h = Place::<String>::new("h");
+    let f = Place::<String>::new("f");
+    let hx = Place::<String>::new("hx");
+    let done = Place::<String>::new("done");
+    let call = Transition::builder("call")
+        .input(one(&h))
+        .output(out_place(&done))
+        .build();
+    let net = PetriNet::builder("Host")
+        .compose_with(&def.instantiate_unit("s"), |b| {
+            b.bind_port::<String>("x", &hx);
+            b.bind_channel("fire", &call);
+        })
+        .fuse([FusionSet::of("fh", &f, &[&h])])
+        .build();
+
+    let merged = find_t(&net, "call");
+    assert_eq!(alias_of(merged, "h").as_deref(), Some("f"));
+    assert_eq!(alias_of(merged, "x").as_deref(), Some("hx"));
+    assert_eq!(alias_of(merged, "done").as_deref(), Some("done"));
+}

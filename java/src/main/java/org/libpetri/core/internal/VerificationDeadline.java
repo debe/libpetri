@@ -102,9 +102,13 @@ public final class VerificationDeadline {
         return Math.floorDiv(deadlineNanos - System.nanoTime(), 1_000_000L);
     }
 
-    /** Whether the total budget has run out (never, when none is set). */
+    /**
+     * Whether the total budget has run out (never, when none is set): no whole millisecond is
+     * left. The polls read the same whole-millisecond clock as the z3 clamp
+     * ({@link #remainingMs()}), so a poll stops exactly when the clamp has nothing to give.
+     */
     public boolean expired() {
-        return limited() && System.nanoTime() - deadlineNanos >= 0;
+        return limited() && remainingMs() <= 0;
     }
 
     /** Whether the verifying thread — this one — has been interrupted. Does not clear the flag. */

@@ -235,6 +235,22 @@ class TransitionContextTest {
                 () -> ctx.output(foreign, List.of(new TestValue("a"))));
     }
 
+    // CORE-060 leaves input() on a batch open; Java returns the oldest consumed value, which
+    // TransitionAction.fork() and transform(Place, fn) rely on (CORE-052 divergence). RD-09.
+    @Test
+    void core060_input_withSeveralTokens_returnsOldestValue() {
+        var transition = Transition.builder("Batch")
+                .inputs(Arc.In.exactly(2, INPUT_PLACE))
+                .build();
+        var input = new TokenInput();
+        input.add(INPUT_PLACE, Token.of(new TestValue("a")));
+        input.add(INPUT_PLACE, Token.of(new TestValue("b")));
+        var ctx = new TransitionContext(transition, input, new TokenOutput());
+
+        assertEquals(new TestValue("a"), ctx.input(INPUT_PLACE));
+        assertEquals(List.of(new TestValue("a"), new TestValue("b")), ctx.inputs(INPUT_PLACE));
+    }
+
     @Test
     void output_singleValueOverloadStillPreferred() {
         // Strict-match resolution (JLS §15.12.2.5) should route single-value calls

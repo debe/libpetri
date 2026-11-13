@@ -128,14 +128,15 @@ public record Z3Solver(String program, Z3Version version, Path dumpDir) {
         // of it if that is less than its own budget, and -t, -T and the watchdog all derive from
         // the clamped value. A spent budget, or a cancelled call, starts no process at all.
         var deadline = VerificationDeadline.current();
-        boolean clamped = false;
         if (deadline != null) {
             deadline.check();
-            long left = Math.max(1, deadline.remainingMs());
-            if (left < timeoutMs) {
-                timeoutMs = left;
-                clamped = true;
+            // One reading for the clamp and its refusal: with no whole millisecond left no
+            // process starts, and the stop is the budget's, charged to the running step.
+            long left = deadline.remainingMs();
+            if (left <= 0) {
+                throw new VerificationDeadline.Exhausted(deadline);
             }
+            timeoutMs = Math.min(timeoutMs, left);
         }
         Z3Process.Reply reply = runProcess(script, phase, timeoutMs, extraArgs);
         // [VER-013] cancellation: an interrupt that arrived as the process finished is still a
@@ -143,9 +144,10 @@ public record Z3Solver(String program, Z3Version version, Path dumpDir) {
         if (deadline != null && VerificationDeadline.cancelled()) {
             throw new VerificationDeadline.Cancelled(deadline);
         }
-        // A clamped process that came back without an answer was cut off by the total budget,
-        // not by its own: report the budget, not a solver timeout of the step.
-        if (clamped && deadline.expired() && !answered(reply)) {
+        // The poll after the reply, clamped call or not: a process that came back without an
+        // answer once the total budget ran out is charged to the budget, not to a solver
+        // timeout of the step. An answered reply stands; the next poll stops the call.
+        if (deadline != null && deadline.expired() && !answered(reply)) {
             throw new VerificationDeadline.Exhausted(deadline);
         }
         return reply;

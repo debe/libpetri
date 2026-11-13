@@ -11,6 +11,58 @@
 - Junctions, hidden nodes and nodes in collapsed clusters never match; each replica of a shared place is its own hit.
 - `ViewerHandle` gains `search(query)`, `searchNext()`, `searchPrev()`, `clearSearch()` and `searchState`; the search survives re-mounts. New theming variables `--lpv-search-stroke` and `--lpv-search-glow`.
 
+### Fixed
+
+**Every entry of the runtime defect ledger (`spec/runtime-defects.md`) is fixed in the runtimes it names.** Python gets every Rust fix through the binding. Four calls that used to be accepted are now refused: `action(null)` (Java, TypeScript), one caller transition bound to two channels (all languages), a flush after the firing ended (Rust, Python), and a mint or carrier declaration the caller's net does not hold (Rust, Python; `verify` answers `Unknown`).
+
+#### All languages, or several
+
+- **One caller transition bound to two channels is rejected ([MOD-020]).** Java and TypeScript throw, Rust panics and Python raises `ValueError`, all with `Transition '<t>' is already bound to channel '<c1>'; it cannot also be bound to channel '<c2>' (MOD-020)`.
+- **A channel merge keeps the declared places of both sides ([MOD-031]; all languages).** A side without a correspondence contributes its own places, so after a later fusion or instantiation of the retrofitted net the caller's action still resolves `ctx.input(...)` on its declared place instead of failing the firing.
+- **A fusion set that repeats its first member keeps that member ([MOD-061], [MOD-026]; Java, TypeScript, Rust).** `[a, b, a]` keeps the declared place `a` and its membership entry.
+- **Cluster keys with an empty `/` segment export ([EXP-016]; all languages).** Names such as `a//x`, `/a/p` and `http://host/x` draw instead of panicking (Rust, and `PanicException` from Python's `dot_export` and archive writer) or throwing (Java, TypeScript). Keys without an empty segment draw as before.
+- **Ghost edges are deduplicated by the ordered pair of cluster keys ([EXP-017]; Java, TypeScript).** Two pairs whose keys contain a NUL character no longer share one edge.
+- **The timeout outcome is deposited, not validated ([EXEC-021], [IO-013]; Java, TypeScript).** `And(A, Timeout(d, B))` deposits `B` on timeout instead of failing the firing; only the join-relay check ([NU-054]) runs on that outcome, as in Rust.
+- **The timeout branch deposits on the bound place ([MOD-031], [IO-014]; Java, TypeScript).** Under a port-name collision (port `a` bound to `b`, port `b` bound to `c`) the timeout token lands on `b`, and a `ForwardInput` reads from its bound place.
+- **A write after the action completed is dropped ([CONC-003]; Java, TypeScript).** The output collector is detached when the action's future or promise completes, so a token written later from a thread or timer the action started is not deposited. Java's `PrecompiledNetExecutor` gives every firing a fresh context instead of pooling them; the linear JMH benches show no regression.
+- **A flush after the firing ended is refused ([EXEC-022]; Rust, Python).** A flush made after the action returned, failed or timed out returns an error naming EXEC-022 (Python: `RuntimeError`) and deposits nothing. A batch flushed before the end is still deposited.
+- **One firing-clock reading per cycle ([TIME-010], [TIME-014], [CONC-010]; Java, TypeScript).** Java's deadline step, firing pass and decision to wait judge at the reading the enablement update takes, so a `Deadline` or `Window` transition past its latest bound plus the tolerance is reaped and never fires. TypeScript's wait uses the cycle reading too, so a boundary that falls due during the wait setup while an action is in flight gets its timer.
+- **`CONFLICT` priority does not refuse a net that compiles ([CORE-043]; all languages).** The in-flight split gives the start half of a passthrough sink a placeholder action, so verification fails exactly when compiling the submitted net does. A reused Java `SmtVerifier` checks the caller's net on every call.
+- **The Route B environment decline follows conflict priority ([NU-052], [VER-006]; all languages).** On a net where conflict pruning does not apply (a reapable transition), a shared environment input under `CONFLICT` no longer turns the verdict into `Unknown`; it matches the `NONE` verdict. Where pruning applies, the decline stands.
+- **State-class keys escape place names ([VER-010], [VER-012]; Rust, TypeScript, Python).** A place named `a:1, b` no longer shares a class key with the marking `{a:1, b:1}`. Rust escapes `\`, `,`, `:`, `|` and `#` in place and clock names; TypeScript keys classes by the new `MarkingState.key()`. `reachableMarkings()` still returns display strings.
+- **Mint and carrier declarations are judged on the caller's net ([NU-010], [NU-051]; Rust, Python).** `verify` answers `Unknown` with `declared carrier place 'x' not in the net (NU-051)` for an unknown carrier in both fragment modes and on every route, `verify_open_net` included; `encode_scripts` panics and Python's `encode_smt_scripts` raises `ValueError` with the same reason. A mint naming a transition only the verifier adds (`complete:t`, `env:arrive[0]:p0`) is refused with the NU-010 reason, as `encode_scripts` already did.
+- **The total verification budget is polled on the clamp's whole-millisecond clock ([VER-013]; Java, TypeScript).** With less than one millisecond left no `z3` process starts, and the `Unknown` names `exhausted during <phase>`. Java also polls after a call whose timeout was not clamped, so a budget spent during it is charged to that step.
+
+#### Java
+
+- `Transition.Builder.action(null)` throws `NullPointerException` ([CORE-051]). Leave the call out for the passthrough default.
+- The executor builders copy the environment-place set ([ENV-002]); changing the caller's set after `build()` no longer adds or removes a registration.
+- `awaitTermination` answers `true` at once after a run whose submit was rejected (for example after `close()`) or whose event store threw at boot ([ENV-016]).
+- Archive V2/V3 header tags and the metadata histogram, `NetEventInfo.details`, `SessionSummary.tags` and `DebugSessionRegistry.tagsFor` are in ascending code-point key order, and `SubnetInstanceInfo` keeps the build order of its name sets ([EVT-025], [EVT-014]). The output no longer varies from one JVM to the next.
+- `EventStore.transitionEvents` skips an event with no transition name instead of throwing ([EVT-030]).
+- `MarkingCache.computeAt` and the debug protocol's replay fallback clamp an index past the stream length ([EVT-032]).
+- `compose(SubnetDef)` rejects a body place when any host place of that name has another token type ([MOD-025]).
+- A name-coloured `Violated` leaves `counterexampleConfirmed` absent and reports `Counterexample replay: not applicable (name-coloured encoding, NU-053)` ([VER-003]), as Rust and TypeScript do.
+- `TransitionContext` gains `isDetachedForTimeout()` and `detachAtCompletion()`, which the executors call. The `input` javadoc states that several tokens yield the oldest value ([CORE-060]); behaviour is unchanged.
+
+#### TypeScript
+
+- `TransitionBuilder.action()` throws `TypeError` on `null` or `undefined` ([CORE-051]).
+- `bindActionsWithResolver` (on `PetriNet` and `SubnetDef`) treats `undefined` as `null`; the resolver's return type widens to `TransitionAction | null | undefined` ([CORE-042]).
+- `PetriNetBuilder.build()` hands the net copies of its sets, so later builder calls, a channel `compose` included, leave a built net intact ([CORE-041]).
+- Places are identified by name throughout: two `place('A')` objects are one place in the builder, the fusion build, the transition place sets and the output-spec place sets, so `fork` and `transform` write `A` once ([CORE-002], [CORE-040]).
+- `TransitionStarted` carries a copy of the consumed tokens ([EVT-001]).
+- `Instance.bindActions` leaves a transition the mapping does not name with its own action, also beside a same-named sibling ([MOD-030]).
+- `SubnetDef.verify` applies the selected environment mode on every call, also for a subnet with no input port ([MOD-051]).
+- Verification under `arrivals(k)` with environment places skips the state-space cache, which never hit there, and says so in the report ([VER-017]); `arrivals(0)` still uses it.
+
+#### Python
+
+- `Transition` defines `__eq__` and `__hash__` on its `TransitionId`, so `net.transitions[0] == net.transitions[0]` ([CORE-021]).
+- `SessionArchiveWriter` gains `write_v1(path, *, session_id, net, store)` and `write_v2(..., tags=None)` beside `write_from_store`, which writes version 3 ([EVT-025]).
+- `write_from_store` keeps every event of a store over 10,000 events, its header's `structure` lists the net's places and transitions, and an empty store gets start time 0 and no end time, so two archives of one empty session are byte-identical.
+- The action context resolves a name through the subnet correspondence before the given name ([MOD-031]), so under a port-name collision `ctx.input`, `ctx.read` and `ctx.output` answer for the bound place. Error messages still name the given name.
+
 ## Java 11.0.0 / TypeScript 10.0.0 / Rust 12.0.0 / Python 8.0.0 — 2026-11-10
 
 **Breaking in all languages:** output specs that used to build and fail or misbehave at runtime are now rejected when the transition is built.

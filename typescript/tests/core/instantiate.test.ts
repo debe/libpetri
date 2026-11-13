@@ -276,6 +276,33 @@ describe('Instance.bindActions', () => {
     expect(inst2Action).toBe(originalAction);
   });
 
+  it('MOD-030: a transition the mapping does not name keeps its own action, even with a same-named sibling', () => {
+    // RD-41: names are assumed distinct (ruling D23) but nothing checks them, so a
+    // body can hold two transitions named `x`. Binding only `y` must leave each `x`
+    // with the action it carried, not the action of the first `x`.
+    const a = place<Item>('a');
+    const b = place<Item>('b');
+    const c = place<Item>('c');
+    const a1: TransitionAction = async () => {};
+    const a2: TransitionAction = async () => {};
+    const bAction: TransitionAction = async () => {};
+    const x1 = Transition.builder('x').inputs(one(a)).action(a1).build();
+    const x2 = Transition.builder('x').inputs(one(b)).action(a2).build();
+    const y = Transition.builder('y').inputs(one(c)).build();
+    const def = SubnetDef.builder('Dup').transition(x1).transition(x2).transition(y).build();
+
+    const rebound = def.instantiate('p').bindActions({ y: bAction });
+
+    const byInput = new Map(
+      [...rebound.renamedBody.transitions].map((t) => [[...t.inputPlaces()][0]!.name, t] as const),
+    );
+    expect(byInput.get('p/a')!.name).toBe('p/x');
+    expect(byInput.get('p/a')!.action).toBe(a1);
+    expect(byInput.get('p/b')!.name).toBe('p/x');
+    expect(byInput.get('p/b')!.action).toBe(a2);
+    expect(byInput.get('p/c')!.action).toBe(bAction);
+  });
+
   it('throws when an unknown original transition name is supplied (typo guard)', () => {
     const def = buildDef();
     const inst = def.instantiate('pre');

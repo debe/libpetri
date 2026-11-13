@@ -5,10 +5,14 @@ import { Transition } from '../../../src/core/transition.js';
 import { PetriNet } from '../../../src/core/petri-net.js';
 import { place, environmentPlace } from '../../../src/core/place.js';
 import { one, all, atLeast, exactly } from '../../../src/core/in.js';
-import { outPlace, xorPlaces } from '../../../src/core/out.js';
+import { andPlaces, outPlace, xorPlaces } from '../../../src/core/out.js';
 import { delayed, window } from '../../../src/core/timing.js';
 import { alwaysAvailable, bounded } from '../../../src/verification/analysis/environment-analysis-mode.js';
 import { produces } from '../../fixtures/producing-actions.js';
+import { SmtVerifier } from '../../../src/verification/smt-verifier.js';
+import { unreachable } from '../../../src/verification/smt-property.js';
+import { matchKey, matchSpec } from '../../../src/core/match-spec.js';
+import { nameId } from '../../../src/core/name.js';
 
 describe('StateClassGraph', () => {
   it('builds graph for simple circular net', () => {
@@ -465,5 +469,47 @@ describe('StateClassGraph — CORE-043', () => {
     const marking = MarkingState.builder().tokens(pA, 1).build();
 
     expect(() => StateClassGraph.build(net, marking, 100)).not.toThrow();
+  });
+});
+
+describe('StateClassGraph class identity over place names (VER-010)', () => {
+  // `t1: x -> a, b` and `t2: x -> 'a:1, b'` from {x:1}: the two successors hold different
+  // markings and no clocks, so a key that renders names unescaped gives them one class.
+  it('VER-010: a place named "a:1, b" does not share a class key with {a:1, b:1}', () => {
+    const x = place('x'), a = place('a'), b = place('b'), odd = place('a:1, b');
+    const net = PetriNet.builder('names').transitions(
+      Transition.builder('t1').inputs(one(x)).outputs(andPlaces(a, b)).action(produces()).build(),
+      Transition.builder('t2').inputs(one(x)).outputs(outPlace(odd)).action(produces()).build(),
+    ).build();
+    const scg = StateClassGraph.build(net, MarkingState.builder().tokens(x, 1).build(), 100);
+    expect(scg.isComplete()).toBe(true);
+    expect(scg.size()).toBe(3);
+    const both = MarkingState.builder().tokens(a, 1).tokens(b, 1).build();
+    const one_ = MarkingState.builder().tokens(odd, 1).build();
+    expect(scg.isReachable(one_)).toBe(true);
+    expect(scg.classesWithMarking(both)).toHaveLength(1);
+    expect(scg.classesWithMarking(one_)).toHaveLength(1);
+    expect(scg.classesWithMarking(both)[0]!.equals(scg.classesWithMarking(one_)[0]!)).toBe(false);
+  });
+
+  it('VER-012: Route B keeps the marking that renders like the first arrival\'s', async () => {
+    // The same pair beside a ν-join, so Route B decides: interned by the unescaped rendering,
+    // the class of {'a:1, b':1} would be dropped as {a:1, b:1} and `odd` read as unreachable.
+    const x = place('x'), a = place('a'), b = place('b'), odd = place('a:1, b');
+    const cx = place<string>('X'), cy = place<string>('Y'), j = place<string>('J');
+    const net = PetriNet.builder('names-nu').transitions(
+      Transition.builder('t1').inputs(one(x)).outputs(andPlaces(a, b)).action(produces()).build(),
+      Transition.builder('t2').inputs(one(x)).outputs(outPlace(odd)).action(produces()).build(),
+      Transition.builder('MINT').inputs(one(place('SEED'))).outputs(andPlaces(cx, cy)).action(produces()).build(),
+      Transition.builder('JOIN').inputs(one(cx), one(cy))
+        .match(matchSpec(matchKey(cx, (v: string) => nameId(v)), matchKey(cy, (v: string) => nameId(v))))
+        .outputs(outPlace(j)).action(produces()).build(),
+    ).build();
+    const r = await SmtVerifier.forNet(net).mintTransitions('MINT')
+      .initialMarking(m => { m.tokens(x, 1); m.tokens(place('SEED'), 1); })
+      .property(unreachable(new Set([odd])))
+      .verify();
+    expect(r.route, r.report).toBe('nu-scg');
+    expect(r.verdict.type, r.report).toBe('violated');
   });
 });

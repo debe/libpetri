@@ -14,6 +14,7 @@ import { all, one, exactly } from '../../src/core/in.js';
 import { outPlace, xorPlaces, andPlaces } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
+import { deadline } from '../../src/core/timing.js';
 import { alwaysAvailable, bounded, ignore } from '../../src/verification/analysis/environment-analysis-mode.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
 import { describeZ3, Z3_AVAILABLE } from '../fixtures/z3.js';
@@ -1231,6 +1232,39 @@ describe('SmtVerifier Route B under environment injection (VER-006)', () => {
     expect(declined.route).toBe('nu-scg');
     const reason = declined.verdict.type === 'unknown' ? declined.verdict.reason : '';
     expect(reason).toContain("environment place 'IN' is read by the property");
+  });
+
+  it('NU-052 / VER-006 AC8: the env decline applies only where conflict priority is in effect', async () => {
+    // `steal` shares the uncoloured environment input IN with `fork`. With a deadline it is
+    // reapable (TIME-013), so Route B turns the pruning off itself and conflict priority is not
+    // in effect: the verdict is the one under 'none'. Immediate, the pruning applies and the
+    // shared input is refused.
+    const run = (timed: boolean, semantics: 'conflict' | 'none') => {
+      const inEnv = environmentPlace<string>('IN');
+      const s2 = place('s2');
+      const stolen = place('stolen');
+      const steal = Transition.builder('steal').inputs(one(inEnv.place), one(s2)).outputs(outPlace(stolen));
+      if (timed) steal.timing(deadline(100));
+      const { net, slot, accepted } = witness(inEnv, [steal.build()]);
+      return SmtVerifier.forNet(net).mintTransitions(...allMints(net))
+        .environmentPlaces(inEnv)
+        .environmentMode(alwaysAvailable())
+        .initialMarking(m => { m.tokens(slot, 1); m.tokens(s2, 1); })
+        .property(unreachable(new Set([accepted])))
+        .prioritySemantics(semantics)
+        .verify();
+    };
+    const none = await run(true, 'none');
+    const conflict = await run(true, 'conflict');
+    expect(none.verdict.type, none.report).toBe('violated');
+    expect(conflict.report).not.toContain('Declined under environment injection');
+    expect(conflict.verdict.type, conflict.report).toBe(none.verdict.type);
+    expect(conflict.route).toBe('nu-scg');
+
+    const pruned = await run(false, 'conflict');
+    expect(pruned.verdict.type, pruned.report).toBe('unknown');
+    const reason = pruned.verdict.type === 'unknown' ? pruned.verdict.reason : '';
+    expect(reason).toContain("environment place 'IN' is a consumed input shared under conflict priority");
   });
 });
 

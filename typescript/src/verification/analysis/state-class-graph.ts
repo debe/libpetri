@@ -252,14 +252,14 @@ export class StateClassGraph {
 
   /** Finds all state classes with a given marking. */
   classesWithMarking(marking: MarkingState): StateClass[] {
-    const key = marking.toString();
-    return this._stateClasses.filter(sc => sc.marking.toString() === key);
+    const key = marking.key();
+    return this._stateClasses.filter(sc => sc.marking.key() === key);
   }
 
   /** Checks if a marking is reachable. */
   isReachable(marking: MarkingState): boolean {
-    const key = marking.toString();
-    return this._stateClasses.some(sc => sc.marking.toString() === key);
+    const key = marking.key();
+    return this._stateClasses.some(sc => sc.marking.key() === key);
   }
 
   /** Gets all reachable markings. */
@@ -297,7 +297,7 @@ export class StateClassGraph {
  * 1.5× class inflation, one marking held by fourteen classes.
  */
 function classKey(sc: StateClass): string {
-  return `${sc.marking.toString()}|${sc.firingDomain.zoneKey()}`;
+  return `${sc.marking.key()}|${sc.firingDomain.zoneKey()}`;
 }
 
 /**

@@ -4520,6 +4520,264 @@ abstract class AbstractNetExecutorEngineTest {
                 assertFalse(result.hasTokens(timeoutPlace), "Timeout branch should be empty");
             }
         }
+
+        /**
+         * MOD-031, IO-013: the rewritten output spec already names the actual places, so the
+         * timeout branch deposits on them as given. Port {@code a} is bound to the caller's
+         * {@code b} and port {@code b} to {@code c}: resolving the actual {@code b} through the
+         * correspondence a second time would land the timeout token on {@code c}.
+         */
+        @Test
+        void outTimeout_portCollision_depositsOnTheBoundPlace_MOD031_IO013() {
+            var job = Place.of("job", String.class);
+            var a = Place.of("a", String.class);
+            var b = Place.of("b", String.class);
+            var work = Transition.builder("work")
+                .inputs(one(job))
+                .outputs(xor(place(b), timeout(Duration.ofMillis(50), place(a))))
+                .action(_ -> CompletableFuture.runAsync(() -> sleep(500), testExecutor))
+                .build();
+            var def = SubnetDef.builder("Worker")
+                .transition(work)
+                .inputPort("job", job)
+                .outputPort("a", a)
+                .outputPort("b", b)
+                .build();
+
+            var hostJob = Place.of("hostJob", String.class);
+            var hostB = Place.of("b", String.class);
+            var hostC = Place.of("c", String.class);
+            var net = PetriNet.builder("TimeoutPortCollision")
+                .place(hostJob).place(hostB).place(hostC)
+                .compose(def.instantiate("w"), Map.of("job", hostJob, "a", hostB, "b", hostC))
+                .build();
+
+            var store = EventStore.inMemory();
+            var initial = Map.<Place<?>, List<Token<?>>>of(hostJob, List.of(Token.of("j")));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertEquals(1, result.tokenCount(hostB), "timeout token on the bound place: " + result);
+                assertEquals(0, result.tokenCount(hostC), "nothing on the place port b maps to: " + result);
+                assertEquals(1, store.eventsOfType(NetEvent.ActionTimedOut.class).size());
+                assertTrue(failures(store).isEmpty(), "no failure: " + failures(store));
+            }
+        }
+
+        /**
+         * MOD-031, IO-014: a timeout {@code ForwardInput} re-emits the tokens consumed from its
+         * actual {@code from} place. Port {@code job} is bound to the caller's {@code q} and port
+         * {@code q} to {@code qq}: resolving {@code from} again would forward the {@code qq} token.
+         */
+        @Test
+        void outTimeout_forwardInput_portCollision_forwardsFromTheBoundPlace_MOD031_IO014() {
+            var job = Place.of("job", String.class);
+            var q = Place.of("q", String.class);
+            var done = Place.of("done", String.class);
+            var retry = Place.of("retry", String.class);
+            var work = Transition.builder("work")
+                .inputs(one(job), one(q))
+                .outputs(xor(place(done), timeout(Duration.ofMillis(50), forwardInput(job, retry))))
+                .action(_ -> CompletableFuture.runAsync(() -> sleep(500), testExecutor))
+                .build();
+            var def = SubnetDef.builder("Worker")
+                .transition(work)
+                .inputPort("job", job)
+                .inputPort("q", q)
+                .outputPort("done", done)
+                .outputPort("retry", retry)
+                .build();
+
+            var hostQ = Place.of("q", String.class);
+            var hostQq = Place.of("qq", String.class);
+            var hostDone = Place.of("hostDone", String.class);
+            var hostRetry = Place.of("hostRetry", String.class);
+            var net = PetriNet.builder("TimeoutForwardPortCollision")
+                .place(hostQ).place(hostQq).place(hostDone).place(hostRetry)
+                .compose(def.instantiate("w"),
+                    Map.of("job", hostQ, "q", hostQq, "done", hostDone, "retry", hostRetry))
+                .build();
+
+            var store = EventStore.inMemory();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                hostQ, List.of(Token.of("fromJob")), hostQq, List.of(Token.of("fromQ")));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(failures(store).isEmpty(), "no failure: " + failures(store));
+                assertEquals(1, result.tokenCount(hostRetry), "one forwarded token: " + result);
+                assertEquals("fromJob", result.peekFirst(hostRetry).value(),
+                    "the token consumed from the bound place is forwarded");
+            }
+        }
+
+        /**
+         * EXEC-021, EXEC-022, IO-013: the timeout outcome is not validated against the output
+         * spec. {@code And(A, Timeout(B))} deposits {@code B} on timeout instead of failing the
+         * firing because the {@code A} sibling is empty.
+         */
+        @Test
+        void outTimeout_andSibling_depositsTheTimeoutChildUnvalidated_EXEC021() {
+            var input = Place.of("Input", SimpleValue.class);
+            var a = Place.of("A", SimpleValue.class);
+            var b = Place.of("B", SimpleValue.class);
+            var t = Transition.builder("slow")
+                .inputs(one(input))
+                .outputs(and(place(a), timeout(Duration.ofMillis(50), place(b))))
+                .action(_ -> CompletableFuture.runAsync(() -> sleep(500), testExecutor))
+                .build();
+            var net = PetriNet.builder("TimeoutAndSibling").transitions(t).build();
+
+            var store = EventStore.inMemory();
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                input, List.of(Token.of(new SimpleValue("go"))));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(failures(store).isEmpty(), "no failure: " + failures(store));
+                assertEquals(1, result.tokenCount(b), "the timeout child is deposited: " + result);
+                assertEquals(0, result.tokenCount(a), "the And sibling is not: " + result);
+                assertEquals(1, store.eventsOfType(NetEvent.ActionTimedOut.class).size());
+            }
+        }
+
+        /**
+         * EXEC-021, IO-014: a timeout {@code ForwardInput} under {@code In.all} next to an
+         * {@code And} sibling forwards every consumed token, and the unvalidated timeout
+         * outcome emits no IO-016 multiplicity warning (IO-016 AC4 covers validated firings).
+         */
+        @Test
+        void outTimeout_andSibling_forwardsEveryTokenWithoutMultiplicityWarning_EXEC021() {
+            var input = Place.of("Input", SimpleValue.class);
+            var a = Place.of("A", SimpleValue.class);
+            var retry = Place.of("Retry", SimpleValue.class);
+            var t = Transition.builder("slow")
+                .inputs(all(input))
+                .outputs(and(place(a), timeout(Duration.ofMillis(50), forwardInput(input, retry))))
+                .action(_ -> CompletableFuture.runAsync(() -> sleep(500), testExecutor))
+                .build();
+            var net = PetriNet.builder("TimeoutAndSiblingForward").transitions(t).build();
+
+            var store = EventStore.inMemory();
+            var initial = Map.<Place<?>, List<Token<?>>>of(input, List.of(
+                Token.of(new SimpleValue("x")), Token.of(new SimpleValue("y"))));
+            try (var executor = createExecutor(net, initial, store)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertTrue(failures(store).isEmpty(), "no failure: " + failures(store));
+                assertEquals(List.of("x", "y"),
+                    result.peekTokens(retry).stream().map(tok -> tok.value().data()).toList());
+                assertEquals(0, result.tokenCount(a));
+                assertTrue(store.events().stream().noneMatch(e ->
+                        e instanceof NetEvent.LogMessage lm && lm.message().contains("(IO-016)")),
+                    "no IO-016 warning on the timeout outcome");
+            }
+        }
+    }
+
+    // ==================== SECTION 14b: OUTPUT READ AT COMPLETION ====================
+
+    /**
+     * CONC-003 line 1, EXEC-020: a commit deposits exactly the tokens the action wrote before
+     * its future completed. A write that arrives later is counted and dropped, whenever the
+     * orchestrator gets round to admitting the completion.
+     */
+    @Nested
+    class OutputAtCompletionTests {
+
+        @Test
+        @Timeout(10)
+        void aWriteAfterCompletionIsNotDeposited_CONC003() throws Exception {
+            var in = Place.of("In", String.class);
+            var out = Place.of("Out", String.class);
+            var blockIn = Place.of("BlockIn", String.class);
+            var blockOut = Place.of("BlockOut", String.class);
+            var blockerStarted = new CountDownLatch(1);
+            var writerDone = new CountDownLatch(1);
+            var writerCtx = new AtomicReference<TransitionContext>();
+
+            // Starts first (higher priority): returns a future a thread of its own completes,
+            // after one write before the completion and one after it.
+            var writer = Transition.builder("writer")
+                .inputs(one(in))
+                .outputs(place(out))
+                .priority(10)
+                .action(ctx -> {
+                    writerCtx.set(ctx);
+                    var future = new CompletableFuture<Void>();
+                    Thread.ofVirtual().start(() -> {
+                        try {
+                            blockerStarted.await();
+                            ctx.output(out, "early");
+                            future.complete(null);
+                            ctx.output(out, "late");
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        } finally {
+                            writerDone.countDown();
+                        }
+                    });
+                    return future;
+                })
+                .build();
+            // Same pass, lower priority: holds the orchestrator (actions run inline on it) until
+            // the writer is done, so the completion is admitted only after the late write.
+            var blocker = Transition.builder("blocker")
+                .inputs(one(blockIn))
+                .outputs(place(blockOut))
+                .action(ctx -> {
+                    blockerStarted.countDown();
+                    try {
+                        writerDone.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    ctx.output(blockOut, "b");
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+            var net = PetriNet.builder("LateWrite").transitions(writer, blocker).build();
+
+            var initial = Map.<Place<?>, List<Token<?>>>of(
+                in, List.of(Token.of("go")), blockIn, List.of(Token.of("go")));
+            try (var executor = createExecutor(net, initial)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertEquals(List.of("early"), result.peekTokens(out).stream().map(Token::value).toList(),
+                    "CONC-003: only what the action wrote before its future completed is deposited");
+                assertEquals(1, writerCtx.get().discardedWriteCount(), "the late write is counted and dropped");
+            }
+        }
+
+        @Test
+        void aLateWriteDoesNotReachTheNextFiring_CONC003() {
+            var in = Place.of("In", String.class);
+            var out = Place.of("Out", String.class);
+            var firstCtx = new AtomicReference<TransitionContext>();
+
+            // The second firing writes through the context the first firing was given, after
+            // that firing completed: the write belongs to no firing and is not deposited.
+            var t = Transition.builder("t")
+                .inputs(one(in))
+                .outputs(place(out))
+                .action(ctx -> {
+                    String value = ctx.input(in);
+                    ctx.output(out, value);
+                    if (!firstCtx.compareAndSet(null, ctx)) firstCtx.get().output(out, "late-from-1");
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build();
+            var net = PetriNet.builder("LateWriteNextFiring").transitions(t).build();
+
+            var initial = Map.<Place<?>, List<Token<?>>>of(in, List.of(Token.of("1"), Token.of("2")));
+            try (var executor = createExecutor(net, initial)) {
+                var result = executor.run(Duration.ofSeconds(5)).toCompletableFuture().join();
+
+                assertEquals(List.of("1", "2"), result.peekTokens(out).stream().map(Token::value).toList(),
+                    "CONC-003: each commit deposits only its own firing's writes");
+                assertEquals(1, firstCtx.get().discardedWriteCount(), "the late write is counted and dropped");
+            }
+        }
     }
 
     // ==================== SECTION 15: OUTPUT VALIDATION TESTS ====================

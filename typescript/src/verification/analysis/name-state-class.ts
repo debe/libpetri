@@ -37,5 +37,5 @@ export class NameStateClass {
  * projections — see {@link DBM.zoneKey} for the over-merge the projections allow.
  */
 export function baseKeyOf(base: StateClass): string {
-  return `${base.marking.toString()}|${base.firingDomain.zoneKey()}`;
+  return `${base.marking.key()}|${base.firingDomain.zoneKey()}`;
 }

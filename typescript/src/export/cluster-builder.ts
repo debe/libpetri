@@ -187,19 +187,29 @@ export function partition(
 }
 
 /**
- * Walks a prefix root-to-leaf, registering every intermediate prefix in
- * `accumulator` (no-op when already present). Ensures parents are inserted
- * before children.
+ * The chain of a cluster key: every non-empty prefix `key[..i]` with
+ * `key[i] === '/'`, outermost first, then the key itself (also when it is
+ * empty). These are the clusters a node with this key sits in, and the
+ * parent of every element ({@link parentOf}) is the element before it, so
+ * parents come before children. Per [EXP-016] / [MOD-040].
  */
-function registerPrefixChain(prefix: string | undefined, accumulator: Map<string, true>): void {
-  if (prefix == null || prefix.length === 0) return;
-  const segments = prefix.split('/');
-  let built = '';
-  for (const seg of segments) {
-    if (built.length > 0) built += '/';
-    built += seg;
-    if (!accumulator.has(built)) {
-      accumulator.set(built, true);
+function keyChain(key: string): string[] {
+  const chain: string[] = [];
+  for (let i = key.indexOf('/'); i !== -1; i = key.indexOf('/', i + 1)) {
+    if (i > 0) chain.push(key.substring(0, i));
+  }
+  chain.push(key);
+  return chain;
+}
+
+/**
+ * Registers every element of the key's chain ({@link keyChain}) in
+ * `accumulator` (no-op when already present), parents before children.
+ */
+function registerPrefixChain(prefix: string, accumulator: Map<string, true>): void {
+  for (const k of keyChain(prefix)) {
+    if (!accumulator.has(k)) {
+      accumulator.set(k, true);
     }
   }
 }
@@ -250,8 +260,9 @@ function synthesizeGhostEdges(
 
   // Walk orphans in nodes order. For each (clusterX_prefix, clusterY_prefix)
   // ordered pair with X !== Y, record the first witness anchor pair.
-  // Map<"X\0Y", { from, to, x, y }> — using an insertion-ordered Map for
-  // deterministic emission order.
+  // Keyed by the length-prefixed `${X.length}:${X}${Y}`, which no two distinct
+  // ordered pairs share (a cluster key may hold any character, NUL included);
+  // an insertion-ordered Map keeps the emission order deterministic.
   const ghosts = new Map<string, { from: string; to: string; x: string; y: string }>();
   for (const node of nodes) {
     if (nodeIdToPrefix.has(node.id)) continue;
@@ -263,7 +274,7 @@ function synthesizeGhostEdges(
       for (const eOut of outgoing) {
         const y = nodeIdToPrefix.get(eOut.to)!;
         if (x === y) continue;
-        const key = `${x}\0${y}`;
+        const key = `${x.length}:${x}${y}`;
         if (!ghosts.has(key)) {
           ghosts.set(key, { from: eIn.from, to: eOut.to, x, y });
         }
@@ -290,23 +301,18 @@ function synthesizeGhostEdges(
 }
 
 /**
- * Returns the deepest prefix that is a (non-strict) ancestor of both sides,
- * or `undefined` when there is no shared cluster (top-level routing).
+ * Returns the deepest cluster both keys sit in: the longest element of
+ * `keyChain(a)` that is also in `keyChain(b)`, or `undefined` when there is
+ * no shared cluster (top-level routing).
  */
 function deepestCommonPrefix(a: string | undefined, b: string | undefined): string | undefined {
   if (a === undefined || b === undefined) return undefined;
   if (a === b) return a;
 
-  const aSegs = a.split('/');
-  const bSegs = b.split('/');
-  let built = '';
-  let matched = 0;
-  const min = Math.min(aSegs.length, bSegs.length);
-  for (let i = 0; i < min; i++) {
-    if (aSegs[i] !== bSegs[i]) break;
-    if (matched > 0) built += '/';
-    built += aSegs[i];
-    matched++;
+  const chain = keyChain(a);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const s = chain[i]!;
+    if (b === s || (s.length > 0 && b.startsWith(s) && b[s.length] === '/')) return s;
   }
-  return matched === 0 ? undefined : built;
+  return undefined;
 }

@@ -149,22 +149,12 @@ export class Instance<P = void> {
       prefixedByName.set(prefixed, actionsByOriginalName[originalName]!);
     }
 
-    // Use the existing PetriNet.bindActionsWithResolver — it preserves the
-    // existing action when the resolver returns it (see petri-net.ts), so
-    // unaffected transitions land in the new net by reference (sharing per
-    // MOD-030).
-    const reboundBody = this.renamedBody.bindActionsWithResolver((name) => {
-      const action = prefixedByName.get(name);
-      if (action !== undefined) return action;
-      // Return the existing action so PetriNet.bindActionsWithResolver
-      // short-circuits the rebuild for unaffected transitions.
-      for (const t of this.renamedBody.transitions) {
-        if (t.name === name) return t.action;
-      }
-      // Unreachable — the resolver is only called for transitions in this.renamedBody.
-      /* istanbul ignore next */
-      throw new Error(`Instance.bindActions: resolver invoked with unknown name '${name}'`);
-    });
+    // PetriNet.bindActionsWithResolver keeps a transition the resolver defers
+    // (`null`) by reference, so a transition the mapping does not name keeps
+    // its own action (MOD-030), even when a sibling shares its name.
+    const reboundBody = this.renamedBody.bindActionsWithResolver(
+      (name) => prefixedByName.get(name) ?? null,
+    );
 
     // Rebuild the channel handles against the rebound body so callers see
     // the post-rebind transition (with its new action) when they ask for a

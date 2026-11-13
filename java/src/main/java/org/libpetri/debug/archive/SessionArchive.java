@@ -1,6 +1,7 @@
 package org.libpetri.debug.archive;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.debug.DebugResponse;
 
 import java.time.Instant;
@@ -144,8 +145,10 @@ public sealed interface SessionArchive permits SessionArchive.V1, SessionArchive
             if (version != 2) {
                 throw new IllegalArgumentException("V2 archive must have version=2, got " + version);
             }
-            // Normalize: never store nulls for the collection-shaped fields.
-            tags = tags == null ? Map.of() : Map.copyOf(tags);
+            // Normalize: never store nulls for the collection-shaped fields. Sorted, not
+            // Map.copyOf, whose order is salted per JVM: the header must render the same
+            // from identical run data ([EVT-025]). Map.copyOf still rejects null entries.
+            tags = tags == null ? Map.of() : CodePointOrder.sortedCopy(Map.copyOf(tags));
             if (metadata == null) {
                 metadata = SessionMetadata.empty();
             }
@@ -178,7 +181,7 @@ public sealed interface SessionArchive permits SessionArchive.V1, SessionArchive
             if (version != 3) {
                 throw new IllegalArgumentException("V3 archive must have version=3, got " + version);
             }
-            tags = tags == null ? Map.of() : Map.copyOf(tags);
+            tags = tags == null ? Map.of() : CodePointOrder.sortedCopy(Map.copyOf(tags));  // see V2
             if (metadata == null) {
                 metadata = SessionMetadata.empty();
             }

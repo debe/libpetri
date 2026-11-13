@@ -245,6 +245,29 @@ class SubnetDotExportTest {
     //  EXP-016 (cross-cluster edges): edges between two prefixes live at top-level
     // ============================================================
 
+    /**
+     * EXP-016 / EXP-017 (RD-12): names whose cluster key has an empty
+     * {@code /}-segment export without throwing. Transition {@code a//x} has key
+     * {@code a/} (chain {@code a}, {@code a/}); place {@code /a/p} has key
+     * {@code /a}, a top-level cluster.
+     */
+    @Test
+    void dotExport_emptySegmentNames_doNotThrow_EXP016() {
+        Place<String> p = Place.of("/a/p", String.class);
+        var t = Transition.builder("a//x").inputs(In.one(p)).build();
+        var net = PetriNet.builder("EmptySegments").transition(t).build();
+
+        var dot = assertDoesNotThrow(() -> DotExporter.export(net));
+
+        int outer = find(dot, "subgraph cluster_a {", 0);
+        int inner = find(dot, "subgraph cluster_a_ {", outer);
+        int tx = find(dot, "t_a__x", inner);
+        assertTrue(tx > inner, "transition 'a//x' must sit in cluster 'a/'. DOT:\n" + dot);
+        assertTrue(dot.contains("subgraph cluster__a {"),
+            "place '/a/p' must sit in the top-level cluster '/a'. DOT:\n" + dot);
+        assertTrue(dot.contains("compound=\"true\""), "EXP-017: compound is set. DOT:\n" + dot);
+    }
+
     @Test
     void dotExport_edgeCrossesCluster_atTopLevel() {
         // Compose two instances that ARE wired through interface places —

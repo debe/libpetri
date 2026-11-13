@@ -190,6 +190,35 @@ class FusionTest {
             "transition must still reference C unchanged");
     }
 
+    /**
+     * MOD-061 step 3 / RD-25: a set that lists its canonical member again
+     * ({@code [A, B, A]}) still keeps the canonical member. The standalone
+     * declared {@code A} must survive, {@code B} must not. No arc names a
+     * member, so no rewritten arc can bring {@code A} back.
+     */
+    @Test
+    void fuse_repeatedCanonicalMember_keepsIt_MOD061() {
+        Place<String> a = Place.of("A", String.class);
+        Place<String> b = Place.of("B", String.class);
+        Place<String> c = Place.of("C", String.class);
+
+        Transition consumeC = Transition.builder("consumeC")
+            .inputs(Arc.In.one(c))
+            .build();
+
+        var net = PetriNet.builder("RepeatedCanonical")
+            .place(a)
+            .place(b)
+            .transitions(consumeC)
+            .fuse(FusionSet.of("aba", a, b, a))
+            .build();
+
+        assertTrue(net.places().contains(a),
+            "MOD-061 step 3: the canonical member A remains even when the set lists it again");
+        assertFalse(net.places().contains(b), "non-canonical B must be removed");
+        assertTrue(net.places().contains(c), "unrelated C must survive");
+    }
+
     // ============================================================
     //  Overlap detection: a place in two fusion sets is rejected
     // ============================================================

@@ -3,9 +3,13 @@ package org.libpetri.debug;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import org.libpetri.core.internal.CodePointOrder;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -298,7 +302,12 @@ public sealed interface DebugResponse {
         @JsonInclude(JsonInclude.Include.NON_EMPTY) Map<String, String> tags,
         String endTime,
         Long durationMs
-    ) {}
+    ) {
+        /** Tags in code-point key order, so a session list renders the same in every JVM ([EVT-025]). */
+        public SessionSummary {
+            tags = tags == null ? null : CodePointOrder.sortedCopy(tags);
+        }
+    }
 
     /**
      * Token information for display and downstream consumption.
@@ -347,7 +356,15 @@ public sealed interface DebugResponse {
         String transitionName,
         String placeName,
         Map<String, Object> details
-    ) {}
+    ) {
+        /**
+         * Details in code-point key order, as Rust's {@code BTreeMap}: one event renders the
+         * same in every JVM ([EVT-014] AC5), which {@code Map.of} does not give.
+         */
+        public NetEventInfo {
+            details = details == null ? null : CodePointOrder.sortedCopy(details);
+        }
+    }
 
     // ======================== Net Structure Types ========================
 
@@ -481,9 +498,22 @@ public sealed interface DebugResponse {
         @com.fasterxml.jackson.annotation.JsonProperty("parentPrefix")
         String parentPrefixOrNull
     ) {
+        /**
+         * Keeps the caller's order ({@code buildSubnetInstances} collects the names in net
+         * order), so a {@code Subscribed} response renders the same in every JVM ([EVT-014]
+         * AC5); {@code Set.copyOf} iterates in an order salted per JVM. Null names are rejected.
+         */
         public SubnetInstanceInfo {
-            transitionNames = Set.copyOf(transitionNames);
-            exposedPlaceNames = Set.copyOf(exposedPlaceNames);
+            transitionNames = orderedCopy(transitionNames);
+            exposedPlaceNames = orderedCopy(exposedPlaceNames);
+        }
+
+        private static Set<String> orderedCopy(Set<String> names) {
+            var copy = new LinkedHashSet<String>(names.size());
+            for (var name : names) {
+                copy.add(Objects.requireNonNull(name));
+            }
+            return Collections.unmodifiableSet(copy);
         }
 
         /**

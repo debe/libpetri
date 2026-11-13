@@ -9,6 +9,7 @@ import org.libpetri.core.Place;
 import org.libpetri.core.Timing;
 import org.libpetri.core.Token;
 import org.libpetri.core.Transition;
+import org.libpetri.core.TransitionAction;
 import org.libpetri.event.EventStore;
 import org.libpetri.event.NetEvent;
 import java.time.Duration;
@@ -1118,6 +1119,100 @@ abstract class AbstractNetExecutorEnvironmentTest {
                     envNet(envPlace, output), Map.of(envPlace, List.of()), Set.of(envInput))) {
                 assertTrue(executor.awaitTermination(Duration.ofMillis(50)),
                     "an executor that never ran has nothing to wait for");
+            }
+        }
+
+        // ENV-016 (ENV_016_await line 1): a run whose submit was rejected never started a loop, so
+        // awaitTermination answers true at once instead of waiting out its timeout. RD-34 (a).
+        @Test
+        void awaitTermination_trueAtOnceAfterARejectedRun_ENV016() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    envNet(envPlace, output), Map.of(envPlace, List.of()), Set.of(envInput))) {
+                executor.close(); // shuts down the executor's own pool, so the submit is rejected
+                assertThrows(RejectedExecutionException.class,
+                    () -> executor.run(Duration.ofSeconds(5)));
+
+                long startNanos = System.nanoTime();
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)),
+                    "a rejected run started no loop, so there is nothing to wait for");
+                assertTrue(System.nanoTime() - startNanos < TimeUnit.SECONDS.toNanos(2),
+                    "awaitTermination must answer at once, not wait out its timeout");
+            }
+        }
+
+        // ENV-016 AC1 and its throwing-store sentence: a loop that dies at boot because the event
+        // store throws has still stopped, and awaitTermination reports it. RD-34 (b).
+        @Test
+        void awaitTermination_trueAfterABootThatThrew_ENV016_AC1() throws Exception {
+            Place<StringValue> envPlace = Place.of("ENV", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envInput = EnvironmentPlace.of(envPlace);
+            var armed = new AtomicBoolean(false);
+            EventStore throwing = new EventStore() {
+                @Override
+                public void append(NetEvent event) {
+                    if (armed.get()) throw new IllegalStateException("store down");
+                }
+
+                @Override
+                public List<NetEvent> events() {
+                    return List.of();
+                }
+            };
+
+            try (PetriNetExecutor executor = createWithEnvPlacesAndStore(
+                    envNet(envPlace, output), Map.of(envPlace, List.of()), throwing, Set.of(envInput))) {
+                armed.set(true);
+                var error = assertThrows(IllegalStateException.class, executor::run);
+                assertEquals("store down", error.getMessage());
+
+                long startNanos = System.nanoTime();
+                assertTrue(executor.awaitTermination(Duration.ofSeconds(5)),
+                    "the loop stopped when its boot threw, so awaitTermination must say so");
+                assertTrue(System.nanoTime() - startNanos < TimeUnit.SECONDS.toNanos(2),
+                    "awaitTermination must answer at once, not wait out its timeout");
+            }
+        }
+
+        // ENV-002: the set of registered environment places is fixed when the executor is built;
+        // a caller changing its own set afterwards neither adds nor removes one. RD-35.
+        @Test
+        void environmentPlacesAreFixedAtBuild_ENV002() throws Exception {
+            Place<StringValue> placeA = Place.of("ENV_A", StringValue.class);
+            Place<StringValue> placeB = Place.of("ENV_B", StringValue.class);
+            Place<StringValue> output = Place.of("OUT", StringValue.class);
+            var envA = EnvironmentPlace.of(placeA);
+            var envB = EnvironmentPlace.of(placeB);
+            PetriNet net = PetriNet.builder("FixedEnvNet").transitions(
+                Transition.builder("fromA")
+                    .inputs(Arc.In.one(placeA))
+                    .outputs(Arc.Out.and(output))
+                    .action(TransitionAction.fork())
+                    .build(),
+                Transition.builder("fromB")
+                    .inputs(Arc.In.one(placeB))
+                    .outputs(Arc.Out.and(output))
+                    .action(TransitionAction.fork())
+                    .build()
+            ).build();
+
+            Set<EnvironmentPlace<?>> callerSet = new java.util.HashSet<>(Set.of(envA));
+            try (PetriNetExecutor executor = createWithEnvPlaces(
+                    net, Map.of(placeA, List.of(), placeB, List.of()), callerSet)) {
+                callerSet.remove(envA);
+                callerSet.add(envB);
+
+                var intoA = executor.inject(envA, Token.of(new StringValue("a")));
+                var intoB = executor.inject(envB, Token.of(new StringValue("b")));
+                assertFalse(intoA.isCompletedExceptionally(),
+                    "ENV_A was registered at build and must stay registered");
+                var ex = assertThrows(ExecutionException.class, () -> intoB.get(1, TimeUnit.SECONDS));
+                assertInstanceOf(IllegalArgumentException.class, ex.getCause(),
+                    "ENV_B was not registered at build and must not become registered");
             }
         }
 

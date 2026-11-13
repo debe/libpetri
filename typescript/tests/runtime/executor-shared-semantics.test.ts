@@ -29,11 +29,12 @@ import { place, environmentPlace } from '../../src/core/place.js';
 import type { Place } from '../../src/core/place.js';
 import { one, exactly, atLeast } from '../../src/core/in.js';
 import type { In } from '../../src/core/in.js';
-import { and, outPlace } from '../../src/core/out.js';
+import { and, forwardInput, outPlace, timeout, timeoutPlace, xor } from '../../src/core/out.js';
 import { matchSpec, matchKey } from '../../src/core/match-spec.js';
 import { nameId } from '../../src/core/name.js';
 import { delayed } from '../../src/core/timing.js';
 import { fork } from '../../src/core/transition-action.js';
+import type { TransitionAction } from '../../src/core/transition-action.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import { InMemoryEventStore, eventsOfType } from '../../src/event/event-store.js';
@@ -1022,5 +1023,126 @@ for (const backendName of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as con
       expect(settled).toBe(true);
       expect(marking.peekTokens(envP.place).map(t => t.value)).toEqual(['outer', 'nested']);
     });
+  });
+}
+
+// ==================== EVT-001 AC2: events carry copies ====================
+
+for (const backend of backends) {
+  describe(`transition-started event (${backend.name})`, () => {
+    it('carries a copy of the consumed tokens (EVT-001 AC2)', async () => {
+      const input = place<string>('IN');
+      const t = Transition.builder('T').inputs(one(input)).build();
+      const net = PetriNet.builder('N').transition(t).build();
+      const store = new InMemoryEventStore();
+      const options = {
+        eventStore: store,
+        // A provider that rewrites its argument must not rewrite the recorded event.
+        executionContextProvider: (_name: string, consumed: Token<any>[]) => {
+          consumed.length = 0;
+          return new Map<string, unknown>();
+        },
+      };
+      const tokens = initialTokens([input, [tokenOf('x')]]);
+
+      await (backend.name === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, tokens, options)
+        : new PrecompiledNetExecutor(net, tokens, options)
+      ).run(5000);
+
+      const started = eventsOfType(store, 'transition-started');
+      expect(started).toHaveLength(1);
+      expect(started[0]!.consumedTokens.map(tok => tok.value)).toEqual(['x']);
+    });
+  });
+}
+
+// ==================== EXEC-021, EXEC-022, IO-013: the timeout outcome is not validated ====================
+
+for (const backend of backends) {
+  describe(`the timeout outcome is not validated (EXEC-021, EXEC-022, IO-013) (${backend.name})`, () => {
+    const run = (net: PetriNet, tokens: Map<Place<any>, Token<any>[]>, store: InMemoryEventStore) =>
+      (backend.name === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, tokens, { eventStore: store })
+        : new PrecompiledNetExecutor(net, tokens, { eventStore: store })
+      ).run(2000);
+
+    it('an And sibling of the Timeout does not fail the timed-out firing (EXEC-021)', async () => {
+      const input = place<string>('IN');
+      const a = place<string>('A');
+      const b = place<string>('B');
+      const t = Transition.builder('T')
+        .inputs(one(input))
+        .outputs(and(outPlace(a), timeoutPlace(30, b)))
+        .action(() => new Promise<void>(() => {}))
+        .build();
+      const net = PetriNet.builder('N').transition(t).build();
+      const store = new InMemoryEventStore();
+
+      const marking = await run(net, initialTokens([input, [tokenOf('x')]]), store);
+
+      // CORE-036: the timed-out firing deposits what the timeout outcome puts in each place.
+      expect(marking.tokenCount(b)).toBe(1);
+      expect(marking.tokenCount(a)).toBe(0);
+      expect(eventsOfType(store, 'action-timed-out')).toHaveLength(1);
+      expect(eventsOfType(store, 'transition-failed')).toHaveLength(0);
+    });
+
+    it('a timeout ForwardInput of a batch next to an And sibling forwards every token, unwarned (EXEC-022, IO-016)', async () => {
+      const input = place<string>('IN');
+      const a = place<string>('A');
+      const retry = place<string>('RETRY');
+      const t = Transition.builder('T')
+        .inputs(exactly(2, input))
+        .outputs(and(outPlace(a), timeout(30, forwardInput(input, retry))))
+        .action(() => new Promise<void>(() => {}))
+        .build();
+      const net = PetriNet.builder('N').transition(t).build();
+      const store = new InMemoryEventStore();
+
+      const marking = await run(net, initialTokens([input, [tokenOf('x'), tokenOf('y')]]), store);
+
+      expect(marking.peekTokens(retry).map(tok => tok.value)).toEqual(['x', 'y']);
+      expect(marking.tokenCount(a)).toBe(0);
+      expect(eventsOfType(store, 'transition-failed')).toHaveLength(0);
+      // IO-016 AC4 covers a validated firing only; the timeout outcome is not one.
+      expect(eventsOfType(store, 'log-message')).toHaveLength(0);
+    });
+  });
+}
+
+// ==================== CONC-003, EXEC-020: the commit deposits what the action wrote before it returned ====================
+
+for (const backend of backends) {
+  describe(`the output collector is read at completion (CONC-003, EXEC-020) (${backend.name})`, () => {
+    // The action returns an already-settled promise `p` and chains two hops on it before
+    // returning: the first hop's reaction runs before the executor's, the second after it,
+    // so the second hop writes once `p` settled and before the orchestrator admits the
+    // completion.
+    const lateWriter = (out: Place<string>): TransitionAction => (ctx) => {
+      const p = Promise.resolve();
+      p.then(() => undefined).then(() => { ctx.output(out, 'late'); });
+      ctx.output(out, 'early');
+      return p;
+    };
+
+    for (const withTimeout of [false, true]) {
+      it(`a token written after the action's promise settled is not deposited${withTimeout ? ' (action timeout armed)' : ''} (CONC-003)`, async () => {
+        const input = place<string>('IN');
+        const out = place<string>('OUT');
+        const timedOut = place<string>('TIMED_OUT');
+        const t = Transition.builder('T')
+          .inputs(one(input))
+          .outputs(withTimeout ? xor(outPlace(out), timeoutPlace(60_000, timedOut)) : outPlace(out))
+          .action(lateWriter(out))
+          .build();
+        const net = PetriNet.builder('N').transition(t).build();
+
+        const marking = await backend.make(net, initialTokens([input, [tokenOf('x')]])).run(5000);
+
+        expect(marking.peekTokens(out).map(tok => tok.value)).toEqual(['early']);
+        expect(marking.tokenCount(timedOut)).toBe(0);
+      });
+    }
   });
 }

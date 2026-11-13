@@ -86,14 +86,15 @@ export class PetriNet {
    * Creates a new PetriNet with actions bound via a resolver function.
    *
    * The resolver is called once per transition with its name. Returning `null`
-   * defers that transition — it keeps whatever action it already carries — which
-   * is what makes staged binding (**MOD-024** AC7) work.
+   * or `undefined` defers that transition — it keeps whatever action it already
+   * carries — which is what makes staged binding (**MOD-024** AC7) work, and lets
+   * a plain lookup such as `name => table[name]` serve as a resolver (**CORE-042**).
    */
-  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction | null): PetriNet {
+  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction | null | undefined): PetriNet {
     const boundTransitions = new Set<Transition>();
     for (const t of this.transitions) {
       const action = actionResolver(t.name);
-      if (action !== null && action !== t.action) {
+      if (action != null && action !== t.action) {
         boundTransitions.add(rebuildWithAction(t, action));
       } else {
         boundTransitions.add(t);
@@ -155,7 +156,9 @@ export class PetriNet {
 
 export class PetriNetBuilder {
   private readonly _name: string;
-  private readonly _places = new Set<Place<any>>();
+  // CORE-002: places by name, keeping the first object seen for a name (TS Place identity is
+  // name-based, and `place(name)` returns a fresh object on each call).
+  private readonly _places = new Map<string, Place<any>>();
   private readonly _transitions = new Set<Transition>();
   private readonly _fusionSets: FusionSet[] = [];
   // MOD-026: node name -> set of subnet names that contributed it via
@@ -175,14 +178,18 @@ export class PetriNetBuilder {
 
   /** Add an explicit place. */
   place(place: Place<any>): this {
-    this._places.add(place);
+    this.addPlace(place);
     return this;
   }
 
   /** Add explicit places. */
   places(...places: Place<any>[]): this {
-    for (const p of places) this._places.add(p);
+    for (const p of places) this.addPlace(p);
     return this;
+  }
+
+  private addPlace(place: Place<any>): void {
+    if (!this._places.has(place.name)) this._places.set(place.name, place);
   }
 
   /**
@@ -198,7 +205,7 @@ export class PetriNetBuilder {
    */
   terminal(place: Place<any>): this {
     if (!this._terminals.has(place.name)) this._terminals.set(place.name, place);
-    this._places.add(place);
+    this.addPlace(place);
     return this;
   }
 
@@ -212,19 +219,19 @@ export class PetriNetBuilder {
   transition(transition: Transition): this {
     this._transitions.add(transition);
     for (const spec of transition.inputSpecs) {
-      this._places.add(spec.place);
+      this.addPlace(spec.place);
     }
     for (const p of transition.outputPlaces()) {
-      this._places.add(p);
+      this.addPlace(p);
     }
     for (const inh of transition.inhibitors) {
-      this._places.add(inh.place);
+      this.addPlace(inh.place);
     }
     for (const r of transition.reads) {
-      this._places.add(r.place);
+      this.addPlace(r.place);
     }
     for (const r of transition.resets) {
-      this._places.add(r.place);
+      this.addPlace(r.place);
     }
     return this;
   }
@@ -373,13 +380,11 @@ export class PetriNetBuilder {
       }
     }
 
-    // Canonicalize place references. TS `Set<Place>` dedups by reference, so
-    // a body place value-equal-by-name to a host place must be funnelled
-    // through the single host reference (same intent as composeAuto). Body
-    // places with a new name are canonical as themselves; arcs referencing
-    // them are left untouched by substitutePlaces.
-    const hostByName = new Map<string, Place<unknown>>();
-    for (const p of this._places) hostByName.set(p.name, p);
+    // Canonicalize place references: a body place value-equal-by-name to a
+    // host place is funnelled through the single host reference (same intent
+    // as composeAuto). Body places with a new name are canonical as
+    // themselves; arcs referencing them are left untouched by substitutePlaces.
+    const hostByName: ReadonlyMap<string, Place<unknown>> = this._places;
 
     // MOD-026: record which subnet each node came from so cluster-aware DOT
     // export can reconstruct subgraphs without prefix names. The subnet name
@@ -444,16 +449,13 @@ export class PetriNetBuilder {
       );
     }
 
-    // Pre-index host places by name. The TS `_places: Set<Place>` dedupes
-    // by reference (Place is an interface with only `name`), so when the
-    // host pre-declared a Place object that is value-equal-by-name but a
-    // different reference from the SubnetDef port's carried place, we
-    // prefer the host reference: arc rewriting funnels through it and the
-    // port's own Place object never enters `_places`. Same intent as
-    // Rust's `place_index.get(&probe).cloned().unwrap_or(probe)` and
-    // Java's record-equality `places.contains(probe)` in this branch.
-    const hostByName = new Map<string, Place<unknown>>();
-    for (const p of this._places) hostByName.set(p.name, p);
+    // Host places by name. When the host pre-declared a Place object that is
+    // value-equal-by-name but a different reference from the SubnetDef port's
+    // carried place, we prefer the host reference: arc rewriting funnels
+    // through it. Same intent as Rust's
+    // `place_index.get(&probe).cloned().unwrap_or(probe)` and Java's
+    // record-equality `places.contains(probe)` in this branch.
+    const hostByName: ReadonlyMap<string, Place<unknown>> = this._places;
 
     if (iface.ports.size > 0) {
       // Explicit interface: each declared port auto-binds to its own
@@ -737,8 +739,9 @@ export class PetriNetBuilder {
         ? EMPTY_TERMINALS
         : new Set<Place<any>>(this._terminals.values());
       requireWellFormedTerminals(this._name, terminals, this._transitions);
-      return new PetriNet(PETRI_NET_KEY, this._name, this._places, this._transitions,
-        membership, terminals);
+      // CORE-041: the net gets copies, so later builder calls do not reach it.
+      return new PetriNet(PETRI_NET_KEY, this._name, new Set(this._places.values()),
+        new Set(this._transitions), membership, terminals);
     }
     return this.buildWithFusion(membership);
   }
@@ -814,6 +817,8 @@ export class PetriNetBuilder {
     for (const set of this._fusionSets) {
       const canonical = set.canonical;
       for (const nc of set.nonCanonical()) {
+        // A set may list its canonical member again; that member remains (MOD-061 step 3).
+        if (nc.name === canonical.name) continue;
         fusionMap.set(nc.name, canonical);
         nonCanonicalNames.add(nc.name);
       }
@@ -840,18 +845,20 @@ export class PetriNetBuilder {
     // unrelated to fusion, drops any standalone declarations of non-canonical
     // members, and ensures canonical places end up present even if a caller
     // never declared them standalone.
-    const rebuiltPlaces = new Set<Place<any>>();
-    for (const p of this._places) {
-      if (!nonCanonicalNames.has(p.name)) {
-        rebuiltPlaces.add(p);
-      }
+    // Keyed by name, first object kept (CORE-002).
+    const rebuiltPlaces = new Map<string, Place<any>>();
+    const addRebuilt = (p: Place<any>): void => {
+      if (!rebuiltPlaces.has(p.name)) rebuiltPlaces.set(p.name, p);
+    };
+    for (const p of this._places.values()) {
+      if (!nonCanonicalNames.has(p.name)) addRebuilt(p);
     }
     for (const t of rewrittenTransitions) {
-      for (const spec of t.inputSpecs) rebuiltPlaces.add(spec.place);
-      for (const p of t.outputPlaces()) rebuiltPlaces.add(p);
-      for (const inh of t.inhibitors) rebuiltPlaces.add(inh.place);
-      for (const r of t.reads) rebuiltPlaces.add(r.place);
-      for (const r of t.resets) rebuiltPlaces.add(r.place);
+      for (const spec of t.inputSpecs) addRebuilt(spec.place);
+      for (const p of t.outputPlaces()) addRebuilt(p);
+      for (const inh of t.inhibitors) addRebuilt(inh.place);
+      for (const r of t.reads) addRebuilt(r.place);
+      for (const r of t.resets) addRebuilt(r.place);
     }
 
     // EXEC-042: a terminal that was a non-canonical fusion member is now its canonical place.
@@ -861,13 +868,13 @@ export class PetriNetBuilder {
       for (const p of this._terminals.values()) {
         const canonical = fusionMap.get(p.name) ?? p;
         if (!byName.has(canonical.name)) byName.set(canonical.name, canonical);
-        rebuiltPlaces.add(canonical);
+        addRebuilt(canonical);
       }
       terminals = new Set(byName.values());
     }
     requireWellFormedTerminals(this._name, terminals, rewrittenTransitions);
 
-    return new PetriNet(PETRI_NET_KEY, this._name, rebuiltPlaces, rewrittenTransitions,
+    return new PetriNet(PETRI_NET_KEY, this._name, new Set(rebuiltPlaces.values()), rewrittenTransitions,
       PetriNetBuilder.filterFusedMembership(membership, nonCanonicalNames), terminals);
   }
 }

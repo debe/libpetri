@@ -621,6 +621,67 @@ class ChannelCompositionTest {
     }
 
     /**
+     * MOD-031 key-set completeness through a merge (RD-23): a side that carries
+     * no correspondence contributes an identity entry for every place it names,
+     * so its declared places stay keys a later pass can carry forward. Without
+     * them the merged transition kept only the other side's map, and a later
+     * pass renaming {@code h} left the caller's declared {@code h} unresolved.
+     */
+    @Test
+    void channelMerge_callerWithoutAlias_keepsItsDeclaredPlacesAsKeys_MOD031() {
+        Place<String> h  = Place.of("h", String.class);
+        Place<String> x  = Place.of("x", String.class);
+        Place<String> hx = Place.of("hx", String.class);
+
+        Transition caller = Transition.builder("call")
+            .inputs(Arc.In.one(h))
+            .build();
+        Transition instance = Transition.builder("s/chan")
+            .inputs(Arc.In.one(hx))
+            .placeAlias(Map.of(x, hx))
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "call");
+
+        assertEquals(Map.of(h, h, x, hx), merged.placeAlias(),
+            "MOD-031: the caller's declared 'h' must be a key of the merged correspondence");
+    }
+
+    @Test
+    void channelMerge_instanceWithoutAlias_keepsItsDeclaredPlacesAsKeys_MOD031() {
+        Place<String> d  = Place.of("d", String.class);
+        Place<String> a  = Place.of("host/a", String.class);
+        Place<String> y  = Place.of("y", String.class);
+
+        Transition caller = Transition.builder("call")
+            .inputs(Arc.In.one(a))
+            .placeAlias(Map.of(d, a))
+            .build();
+        Transition instance = Transition.builder("chan")
+            .reads(y)
+            .build();
+
+        var merged = SubnetRewriter.mergeTransitions(caller, instance, "call");
+
+        assertEquals(Map.of(d, a, y, y), merged.placeAlias(),
+            "MOD-031: the instance's declared 'y' must be a key of the merged correspondence");
+    }
+
+    @Test
+    void channelMerge_neitherSideCarriesAlias_mergedCarriesNone_MOD031_AC9() {
+        Place<String> a = Place.of("a", String.class);
+        Place<String> b = Place.of("b", String.class);
+
+        var merged = SubnetRewriter.mergeTransitions(
+            Transition.builder("call").inputs(Arc.In.one(a)).build(),
+            Transition.builder("chan").outputs(Arc.Out.place(b)).build(),
+            "call");
+
+        assertTrue(merged.placeAlias().isEmpty(),
+            "MOD-031 AC#9: an all-identity merged correspondence is dropped as a whole");
+    }
+
+    /**
      * MOD-031 <b>AC#11</b> — the identity test must agree with the lookup.
      *
      * <p>The rule is not "each implementation picks an equality"; it is that the
@@ -791,6 +852,42 @@ class ChannelCompositionTest {
             assertTrue(marking.hasTokens(attemptCountPlace),
                 "retry-policy attemptCount token must be present after firing");
         }
+    }
+
+    /**
+     * MOD-020 AC6 (ruling D72 (ii)(b)): one caller transition bound to two
+     * channels of one instance in one call is a compose-time error naming the
+     * caller transition and both channels. Without the check both merges were
+     * added under the caller's name, giving two transitions of one name.
+     */
+    @Test
+    void compose_oneCallerTransitionOnTwoChannels_isRejected_MOD020_AC6() {
+        Place<String> o1 = Place.of("o1", String.class);
+        Place<String> o2 = Place.of("o2", String.class);
+        Transition c1 = Transition.builder("c1").outputs(Arc.Out.place(o1)).build();
+        Transition c2 = Transition.builder("c2").outputs(Arc.Out.place(o2)).build();
+        var def = SubnetDef.builder("TwoChannels")
+            .place(o1).place(o2)
+            .transition(c1).transition(c2)
+            .channel("first", c1)
+            .channel("second", c2)
+            .build();
+        var inst = def.instantiate("tc");
+
+        Place<String> trigger = Place.of("trigger", String.class);
+        Transition call = Transition.builder("call")
+            .inputs(Arc.In.one(trigger))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () ->
+            PetriNet.builder("Host")
+                .compose(inst, b -> b.bindChannel("first", call).bindChannel("second", call))
+                .build());
+        var msg = ex.getMessage();
+        assertTrue(msg.contains("'call'"), "message must name the caller transition. Got: " + msg);
+        assertTrue(msg.contains("'first'"), "message must name the first channel. Got: " + msg);
+        assertTrue(msg.contains("'second'"), "message must name the second channel. Got: " + msg);
+        assertTrue(msg.contains("MOD-020"), "message should cite MOD-020. Got: " + msg);
     }
 
     // ============================================================

@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { partition } from '../../src/export/cluster-builder.js';
-import type { GraphEdge, GraphNode } from '../../src/export/graph.js';
+import type { GraphEdge, GraphNode, Subgraph } from '../../src/export/graph.js';
 
 function node(id: string): GraphNode {
   return {
@@ -157,6 +157,34 @@ describe('partition — ghost edges (EXP-017)', () => {
     expect(ghosts[0]!.attrs?.lhead).toBe('cluster_far');
   });
 
+  it('EXP-017: ghost edges dedup by ordered pair; (a\\0b, c) and (a, b\\0c) both get one', () => {
+    // RD-37: a key joined with NUL would merge these two distinct ordered pairs.
+    // o1 bridges cluster "a\0b" -> "c"; o2 bridges "a" -> "b\0c".
+    const nodes = [
+      node('p_ab'), node('p_c'), node('p_a'), node('p_bc'),
+      node('t_o1'), node('t_o2'),
+    ];
+    const edges = [
+      edge('p_ab', 't_o1'), edge('t_o1', 'p_c'),
+      edge('p_a', 't_o2'), edge('t_o2', 'p_bc'),
+    ];
+    const prefix = new Map<string, string>([
+      ['p_ab', 'a\0b'],
+      ['p_c', 'c'],
+      ['p_a', 'a'],
+      ['p_bc', 'b\0c'],
+    ]);
+
+    const result = partition(nodes, edges, prefix);
+
+    const ghosts = result.topLevelEdges.filter(e => e.arcType === 'ghost');
+    expect(ghosts).toHaveLength(2);
+    expect(ghosts.map(g => [g.from, g.to])).toEqual([
+      ['p_ab', 'p_c'],
+      ['p_a', 'p_bc'],
+    ]);
+  });
+
   it('handles multiple orphans bridging multiple cluster pairs', () => {
     // left -> o1 -> right
     // left -> o2 -> mid
@@ -187,6 +215,54 @@ describe('partition — ghost edges (EXP-017)', () => {
       'cluster_left->cluster_mid',
       'cluster_left->cluster_right',
       'cluster_mid->cluster_right',
+    ]);
+  });
+});
+
+describe('partition — cluster key chain (EXP-016, MOD-040)', () => {
+  /** `label > child > ...` lines of the cluster tree, depth-first, with each cluster's node ids. */
+  function tree(subgraphs: readonly Subgraph[], depth = 0): string[] {
+    const lines: string[] = [];
+    for (const s of subgraphs) {
+      lines.push(`${'  '.repeat(depth)}${s.label} [${s.nodes.map(n => n.id).join(',')}]`);
+      lines.push(...tree(s.subgraphs ?? [], depth + 1));
+    }
+    return lines;
+  }
+
+  it('EXP-016: a key with an empty /-segment (a/, a//x, /a) draws its key chain and does not throw', () => {
+    // RD-12: the chain of a key is every non-empty prefix cut at a '/', outermost first, then
+    // the key itself. A leading '/' or an empty key must still register the key.
+    const nodes = [node('n1'), node('n2'), node('n3'), node('n4'), node('n5'), node('n6')];
+    const prefix = new Map<string, string>([
+      ['n1', 'a/'],
+      ['n2', 'a//x'],
+      ['n3', '/a'],
+      ['n4', 'http://host'],
+      ['n5', '/b'],
+      ['n6', ''],
+    ]);
+    const edges = [edge('n1', 'n2'), edge('n3', 'n5'), edge('n2', 'n6')];
+
+    const result = partition(nodes, edges, prefix);
+
+    expect(tree(result.topLevelSubgraphs)).toEqual([
+      'a []',
+      '  a/ [n1]',
+      '    a//x [n2]',
+      '/a [n3]',
+      'http: []',
+      '  http:/ []',
+      '    http://host [n4]',
+      '/b [n5]',
+      ' [n6]',
+    ]);
+    // a/ -> a//x lives in the cluster a/; /a -> /b and a//x -> '' share no cluster.
+    const aSlash = result.topLevelSubgraphs[0]!.subgraphs![0]!;
+    expect(aSlash.edges).toEqual([edge('n1', 'n2')]);
+    expect(result.topLevelEdges.filter(e => e.arcType !== 'ghost')).toEqual([
+      edge('n3', 'n5'),
+      edge('n2', 'n6'),
     ]);
   });
 });

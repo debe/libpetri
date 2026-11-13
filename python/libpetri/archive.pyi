@@ -53,6 +53,25 @@ class SessionArchiveWriter:
         store: InMemoryEventStore,
         tags: dict[str, str] | None = ...,
     ) -> None: ...
+    @classmethod
+    def write_v1(
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        session_id: str,
+        net: BuiltNet,
+        store: InMemoryEventStore,
+    ) -> None: ...
+    @classmethod
+    def write_v2(
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        session_id: str,
+        net: BuiltNet,
+        store: InMemoryEventStore,
+        tags: dict[str, str] | None = ...,
+    ) -> None: ...
 
 class SessionArchiveReader:
     @classmethod

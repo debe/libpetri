@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.libpetri.core.PetriNet;
 import org.libpetri.core.Transition;
+import org.libpetri.core.internal.CodePointOrder;
 import org.libpetri.export.DotExporter;
 import org.libpetri.export.ExportConfig;
 import org.libpetri.export.PlaceAnalysis;
@@ -260,11 +261,12 @@ public class DebugSessionRegistry {
      * Returns a snapshot of the tags attached to a session.
      *
      * @param sessionId the session id
-     * @return immutable tag map, or {@code Map.of()} if the session has no tags or does not exist
+     * @return immutable tag map in code-point key order ([EVT-025]), or {@code Map.of()} if the
+     *         session has no tags or does not exist
      */
     public Map<String, String> tagsFor(String sessionId) {
         var session = sessions.get(sessionId);
-        return session == null ? Map.of() : Map.copyOf(session.tags());
+        return session == null ? Map.of() : CodePointOrder.sortedCopy(session.tags());
     }
 
     /**

@@ -154,12 +154,13 @@ public final class TransitionContext {
     /**
      * Get single consumed input value - throws if place not declared as input.
      *
-     * <p>For batched inputs (In.Exactly, In.All, In.AtLeast), use {@link #inputs(Place)} instead.
+     * <p>When the firing consumed more than one token from the place (In.Exactly, In.All,
+     * In.AtLeast), returns the value of the oldest, the first in consumption order; use
+     * {@link #inputs(Place)} for the whole batch.
      *
      * @param place the input place to read from
      * @return the token value
      * @throws IllegalArgumentException if place not declared as input in structure
-     * @throws IllegalStateException if multiple tokens were consumed (use inputs() instead)
      */
     public <T> T input(Place<T> place) {
         var actual = resolve(place);
@@ -377,10 +378,39 @@ public final class TransitionContext {
     }
 
     /**
-     * Number of action writes rejected since {@link #detachForTimeout()}.
+     * Severs the action's output from the marking when its future completes, keeping what it
+     * wrote before: the executor harvests exactly those tokens ([CONC-003], [EXEC-020]).
      *
-     * <p>Non-zero means the timed-out action was still producing output after the executor
-     * gave up on it.
+     * <p>After this call a write from a thread or timer the action started is counted and
+     * dropped, however long the orchestrator takes to admit the completion. After
+     * {@link #detachForTimeout()} it does nothing more.
+     *
+     * <p>Must be called by the executor, never by an action.
+     */
+    public void detachAtCompletion() {
+        writeTarget.detach();
+    }
+
+    /**
+     * Whether {@link #detachForTimeout()} was called: the firing ended with its timeout
+     * outcome, which the executor deposits without validating it against the output spec
+     * ([EXEC-021], [EXEC-022], [IO-013]).
+     *
+     * <p>Executor machinery: read by the executor, like {@link #detachForTimeout()}.
+     *
+     * @return true once the firing's output was severed for its timeout outcome
+     */
+    public boolean isDetachedForTimeout() {
+        // detachForTimeout() is the only place the harvest collector and the write target part.
+        return rawOutput != writeTarget;
+    }
+
+    /**
+     * Number of action writes rejected since {@link #detachForTimeout()} or
+     * {@link #detachAtCompletion()}.
+     *
+     * <p>Non-zero means the action was still producing output after it timed out or after its
+     * future completed.
      */
     public int discardedWriteCount() {
         return writeTarget.discardedWriteCount();
@@ -389,9 +419,13 @@ public final class TransitionContext {
     /**
      * Produces into the executor's harvest collector rather than the action's write target.
      *
-     * <p>Identical to {@link #output(Place, Object)} before {@link #detachForTimeout()}; after
-     * it, this is the only route that still reaches the marking. Used by the executor to
-     * deposit the timeout branch.
+     * <p>After {@link #detachForTimeout()} this is the only route that still reaches the
+     * marking. Used by the executor to deposit the timeout branch.
+     *
+     * <p>Unlike {@link #output(Place, Object)}, {@code place} is an <em>actual</em> place, as the
+     * transition's (rewritten) output spec names it, and is used as given: the declared&rarr;actual
+     * correspondence is never consulted here ([MOD-031]), since resolving an actual place again
+     * would misroute the token when its name is another port's declared name.
      *
      * <p>Executor machinery — must be called by the executor, never by an action, like
      * {@link #detachForTimeout()}.
@@ -402,9 +436,8 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as output in structure
      */
     public <T> TransitionContext outputToHarvest(Place<T> place, T value) {
-        var actual = resolve(place);
-        requireOutput(actual);
-        rawOutput.add(actual, value);
+        requireOutput(place);
+        rawOutput.add(place, value);
         return this;
     }
 
@@ -413,7 +446,8 @@ public final class TransitionContext {
      * {@code createdAt}. Used by the executor to forward consumed tokens on the timeout outcome
      * (IO-014): a forwarded token is the consumed token itself, not a newly minted one.
      *
-     * <p>Executor machinery, like {@link #outputToHarvest(Place, Object)}.
+     * <p>Executor machinery, like {@link #outputToHarvest(Place, Object)}; {@code place} is an
+     * actual place, used as given ([MOD-031]).
      *
      * @param place the output place to write to
      * @param token the token to produce
@@ -421,9 +455,8 @@ public final class TransitionContext {
      * @throws IllegalArgumentException if place not declared as output in structure
      */
     public <T> TransitionContext forwardToHarvest(Place<T> place, Token<T> token) {
-        var actual = resolve(place);
-        requireOutput(actual);
-        rawOutput.add(actual, token);
+        requireOutput(place);
+        rawOutput.add(place, token);
         return this;
     }
 

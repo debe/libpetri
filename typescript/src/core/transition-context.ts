@@ -251,18 +251,42 @@ export class TransitionContext {
   }
 
   /**
+   * Closes the action's write target when its promise settles, keeping what it collected
+   * as the harvest: the commit deposits exactly the tokens the action wrote before it
+   * returned ([CONC-003], [EXEC-020]). A write after this point (from a timer or a promise
+   * chain the action started) is dropped, as after {@link detachForTimeout}. A no-op on a
+   * target the timeout already severed.
+   *
+   * @internal Executor machinery — must be called by the executor, never by an action.
+   */
+  detachAtCompletion(): void {
+    this.writeTarget.detach();
+  }
+
+  /**
+   * Whether {@link detachForTimeout} ran: the firing ended with its timeout outcome, so the
+   * harvest holds that outcome, which the executor does not validate against the output spec
+   * ([EXEC-021], [EXEC-022], [IO-013]).
+   *
+   * @internal Executor machinery — must be called by the executor, never by an action.
+   */
+  isDetachedForTimeout(): boolean {
+    return this._rawOutput !== this.writeTarget;
+  }
+
+  /**
    * Produces into the executor's harvest collector rather than the action's write target.
    *
-   * Identical to {@link output} before {@link detachForTimeout}; after it, this is the
-   * only route that still reaches the marking. Used by the executor to deposit the
-   * timeout branch.
+   * After {@link detachForTimeout} this is the only route that still reaches the marking.
+   * Used by the executor to deposit the timeout branch. `place` is an *actual* place, taken
+   * from the transition's (rewritten) output spec: unlike {@link output}, this never consults
+   * the declared→actual correspondence, which applies once, to a declared place ([MOD-031]).
    *
    * @internal Executor machinery — must be called by the executor, never by an action.
    */
   outputToHarvest<T>(place: Place<T>, value: T): this {
-    const actual = this.resolve(place);
-    this.requireOutput(actual);
-    this._rawOutput.add(actual, value);
+    this.requireOutput(place);
+    this._rawOutput.add(place, value);
     return this;
   }
 
@@ -270,16 +294,15 @@ export class TransitionContext {
    * Deposits every token the firing consumed from `from` into `to` in the executor's harvest
    * collector, in consumption order, as the tokens themselves: value and `createdAt` both
    * ([IO-014] AC5). A forwarded token is the consumed token, not one the executor mints, so it
-   * does not take the injected epoch clock ([TIME-015]).
+   * does not take the injected epoch clock ([TIME-015]). `from` and `to` are *actual* places of
+   * the rewritten output spec and are not resolved through the correspondence ([MOD-031]).
    *
    * @internal Executor machinery — the timeout branch's `ForwardInput`, never called by an action.
    */
   forwardToHarvest<T>(from: Place<T>, to: Place<T>): this {
-    const source = this.resolve(from);
-    this.requireInput(source);
-    const target = this.resolve(to);
-    this.requireOutput(target);
-    for (const token of this.rawInput.getAll(source)) this._rawOutput.addToken(target, token);
+    this.requireInput(from);
+    this.requireOutput(to);
+    for (const token of this.rawInput.getAll(from)) this._rawOutput.addToken(to, token);
     return this;
   }
 

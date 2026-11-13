@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
-import { deadlockFree } from '../../src/verification/smt-property.js';
+import { deadlockFree, unreachable } from '../../src/verification/smt-property.js';
+import { CompiledNet } from '../../src/runtime/compiled-net.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { outPlace } from '../../src/core/out.js';
+import { andPlaces, outPlace } from '../../src/core/out.js';
+import { matchKey, matchSpec } from '../../src/core/match-spec.js';
+import { nameId } from '../../src/core/name.js';
 import { bindProducers } from '../fixtures/producing-actions.js';
 
 // Its own file rather than a block in smt-verifier.test.ts: vitest isolates test
@@ -41,4 +44,47 @@ describe('SmtVerifier — CORE-043', () => {
       .timeout(30_000)
       .verify()).resolves.toBeDefined();
   }, Z3_TIMEOUT);
+});
+
+/**
+ * A net that compiles: a ν pair (`MINT` → `X`, `Y`, `JOIN` by name), so Route B reads conflict
+ * priority, and a higher-priority **sink** `H: c` on the default passthrough that shares `c`
+ * with `L: c → bad`. Conflict priority splits `H`; its start half must not inherit a
+ * passthrough next to the in-flight output it gains.
+ */
+function passthroughSinkPrunerNet(): PetriNet {
+  const x = place<string>('X'), y = place<string>('Y'), j = place<string>('J');
+  const c = place('c'), bad = place('bad');
+  return PetriNet.builder('conflict-sink')
+    .transition(Transition.builder('MINT').inputs(one(place('SEED'))).outputs(andPlaces(x, y))
+      .action(async ctx => { const n = ctx.freshName(); ctx.output(x, n); ctx.output(y, n); }).build())
+    .transition(Transition.builder('JOIN').inputs(one(x), one(y))
+      .match(matchSpec(matchKey(x, (v: string) => nameId(v)), matchKey(y, (v: string) => nameId(v))))
+      .outputs(outPlace(j)).action(async ctx => { ctx.output(j, ctx.input(x)); }).build())
+    .transition(Transition.builder('H').priority(10).inputs(one(c)).build())
+    .transition(Transition.builder('L').inputs(one(c)).outputs(outPlace(bad))
+      .action(async ctx => { ctx.output(bad, 1); }).build())
+    .build();
+}
+
+describe('SmtVerifier — CORE-043 under a conflict split (RD-08)', () => {
+  const conflictVerifier = () => SmtVerifier.forNet(passthroughSinkPrunerNet())
+    .initialMarking(m => { m.tokens(place('SEED'), 1); m.tokens(place('c'), 1); })
+    .property(unreachable(new Set([place('bad')])))
+    .mintTransitions('MINT')
+    .prioritySemantics('conflict');
+
+  it('a conflict split of a passthrough sink is not refused (CORE-043)', () => {
+    // The net compiles, so verification must not refuse it.
+    expect(() => CompiledNet.compile(passthroughSinkPrunerNet())).not.toThrow();
+    expect(() => conflictVerifier().encodeScripts()).not.toThrow();
+  });
+
+  it('verify() returns a verdict for a conflict split of a passthrough sink (CORE-043)', async () => {
+    const r = await conflictVerifier().timeout(30_000).verify();
+    expect(r.report).toContain('In-flight actions (VER-004): H');
+    // Route B decides it, so no z3 is needed: H pre-empts L, so `bad` is unreachable.
+    expect(r.report).toContain('ν-net Route B');
+    expect(r.verdict.type, r.report).toBe('proven');
+  });
 });

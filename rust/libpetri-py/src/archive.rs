@@ -10,7 +10,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use libpetri::NetEvent;
 use libpetri::debug::archive::{
@@ -18,6 +17,7 @@ use libpetri::debug::archive::{
 };
 use libpetri::debug::debug_event_store::DebugEventStore;
 use libpetri::debug::debug_session_registry::DebugSession;
+use libpetri::debug::place_analysis::PlaceAnalysis;
 use libpetri::export::dot_exporter::dot_export;
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -33,7 +33,9 @@ use crate::model::PyPetriNet;
 /// Writes session archives (v3 by default, gzip-compressed) to disk.
 ///
 /// Wire-compatible with the TypeScript and Rust archive readers; structured
-/// token payloads round-trip as JSON.
+/// token payloads round-trip as JSON. `write_v1` / `write_v2` write the
+/// earlier header versions, as Rust's `SessionArchiveWriter::write_v1` /
+/// `write_v2` do (EVT-025).
 #[pyclass(module = "_libpetri", name = "SessionArchiveWriter")]
 pub struct PySessionArchiveWriter;
 
@@ -62,52 +64,111 @@ impl PySessionArchiveWriter {
         store: &PyEventStoreHandle,
         tags: Option<HashMap<String, String>>,
     ) -> PyResult<()> {
-        let events = store.events_arc_vec();
-        let dot = dot_export(net.net(), None);
-        let transition_names: Vec<String> = net
-            .net()
-            .transitions()
-            .iter()
-            .map(|t| t.name().to_string())
-            .collect();
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        let start_time = events
-            .first()
-            .map(|e| e.timestamp())
-            .unwrap_or(now_ms);
-        let end_time = events.last().map(|e| e.timestamp()).unwrap_or(now_ms);
-        let net_name = net.net().name().to_string();
-        let tags = tags.unwrap_or_default();
-
-        let bytes = py
-            .detach(move || {
-                let debug_store = Arc::new(DebugEventStore::new(session_id.clone()));
-                for event in events {
-                    debug_store.append((*event).clone());
-                }
-                let session = DebugSession {
-                    session_id,
-                    net_name,
-                    dot_diagram: dot,
-                    places: None,
-                    transition_names,
-                    event_store: debug_store,
-                    start_time,
-                    active: false,
-                    imported_structure: None,
-                    end_time: Some(end_time),
-                    tags,
-                };
-                SessionArchiveWriter::write(&session)
-            })
-            .map_err(PyValueError::new_err)?;
-
-        std::fs::write(&path, bytes).map_err(|e| PyIOError::new_err(e.to_string()))?;
-        Ok(())
+        write_archive(py, path, session_id, net, store, tags, SessionArchiveWriter::write)
     }
+
+    /// Class method: `SessionArchiveWriter.write_v1(path, ...)`.
+    ///
+    /// Writes the legacy v1 header, which has no `end_time`, `tags` or
+    /// metadata, so it takes no `tags`.
+    #[classmethod]
+    #[pyo3(signature = (path, *, session_id, net, store))]
+    fn write_v1(
+        _cls: &Bound<'_, PyType>,
+        py: Python<'_>,
+        path: PathBuf,
+        session_id: String,
+        net: &PyPetriNet,
+        store: &PyEventStoreHandle,
+    ) -> PyResult<()> {
+        write_archive(py, path, session_id, net, store, None, SessionArchiveWriter::write_v1)
+    }
+
+    /// Class method: `SessionArchiveWriter.write_v2(path, ...)`.
+    ///
+    /// Writes the v2 header: v3's header shape, without the `structured`
+    /// token payloads v3 adds to the event body.
+    #[classmethod]
+    #[pyo3(signature = (
+        path,
+        *,
+        session_id,
+        net,
+        store,
+        tags = None,
+    ))]
+    fn write_v2(
+        _cls: &Bound<'_, PyType>,
+        py: Python<'_>,
+        path: PathBuf,
+        session_id: String,
+        net: &PyPetriNet,
+        store: &PyEventStoreHandle,
+        tags: Option<HashMap<String, String>>,
+    ) -> PyResult<()> {
+        write_archive(py, path, session_id, net, store, tags, SessionArchiveWriter::write_v2)
+    }
+}
+
+/// Builds the archived session from `net` and the snapshot of `store`, and
+/// writes it with `write`, with the GIL released.
+///
+/// The session is run data only (EVT-025): every event of the snapshot (the
+/// debug store holds exactly as many as the snapshot has, so none is evicted),
+/// the net's places and transitions as the header `structure`, and times taken
+/// from the first and last event. An empty store has no time, so it reads
+/// `start_time` 0 and no `end_time` rather than the wall clock.
+fn write_archive(
+    py: Python<'_>,
+    path: PathBuf,
+    session_id: String,
+    net: &PyPetriNet,
+    store: &PyEventStoreHandle,
+    tags: Option<HashMap<String, String>>,
+    write: fn(&DebugSession) -> Result<Vec<u8>, String>,
+) -> PyResult<()> {
+    let events = store.events_arc_vec();
+    let dot = dot_export(net.net(), None);
+    let places = PlaceAnalysis::from_net(net.net());
+    let transition_names: Vec<String> = net
+        .net()
+        .transitions()
+        .iter()
+        .map(|t| t.name().to_string())
+        .collect();
+    let start_time = events.first().map(|e| e.timestamp()).unwrap_or(0);
+    let end_time = events.last().map(|e| e.timestamp());
+    let net_name = net.net().name().to_string();
+    let tags = tags.unwrap_or_default();
+
+    let bytes = py
+        .detach(move || {
+            let debug_store = Arc::new(DebugEventStore::with_capacity(
+                session_id.clone(),
+                events.len().max(1),
+            ));
+            for event in events {
+                debug_store.append((*event).clone());
+            }
+            let session = DebugSession {
+                session_id,
+                net_name,
+                dot_diagram: dot,
+                places: Some(places),
+                transition_names,
+                event_store: debug_store,
+                start_time,
+                active: false,
+                imported_structure: None,
+                end_time,
+                tags,
+            };
+            write(&session)
+        })
+        .map_err(PyValueError::new_err)?;
+
+    std::fs::write(&path, bytes).map_err(|e| PyIOError::new_err(e.to_string()))?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

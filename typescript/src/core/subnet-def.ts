@@ -354,12 +354,11 @@ export class SubnetDef<P = void> {
       // harness's own, so how injection is modelled is the harness's call
       // ([MOD-051] AC3), not the verifier default's. Under ignore() [VER-006]
       // downgrades every proof about a net with env places to Unknown, so a
-      // subnet with an input port could never be proven.
-      let verifier = SmtVerifier.forNet(syntheticNet).property(property);
-      if (envPlaces.length > 0) {
-        verifier.environmentPlaces(...envPlaces);
-        verifier.environmentMode(envMode);
-      }
+      // subnet with an input port could never be proven. The mode is set even
+      // when the harness has no env place: one the hook registers runs under it.
+      let verifier = SmtVerifier.forNet(syntheticNet).property(property)
+        .environmentPlaces(...envPlaces)
+        .environmentMode(envMode);
       // MOD-051: the caller's hook runs after our setup, so what it sets wins.
       if (configure !== undefined) verifier = configure(verifier, syntheticNet);
       const result = await verifier.verify();
@@ -383,9 +382,10 @@ export class SubnetDef<P = void> {
 
   /**
    * {@link bindActions} with a resolver, mirroring {@link PetriNet.bindActionsWithResolver}:
-   * called once per transition with its unprefixed name; `null` keeps that transition's action.
+   * called once per transition with its unprefixed name; `null` or `undefined` keeps that
+   * transition's action.
    */
-  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction | null): SubnetDef<P> {
+  bindActionsWithResolver(actionResolver: (name: string) => TransitionAction | null | undefined): SubnetDef<P> {
     return this.withBody(this.body.bindActionsWithResolver(actionResolver));
   }
 

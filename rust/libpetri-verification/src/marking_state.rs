@@ -144,16 +144,31 @@ impl MarkingState {
     }
 
     /// Generates a canonical key for deduplication: `name:count` in code-point order,
-    /// comma-separated.
+    /// comma-separated, with every separator in a name escaped ([`push_key_name`]), so
+    /// two markings share a key exactly when they are equal ([VER-010]).
     pub fn canonical_key(&self) -> String {
         let mut key = String::with_capacity(self.entries.iter().map(|(p, _)| p.len() + 4).sum());
         for (i, (p, c)) in self.entries.iter().enumerate() {
             if i > 0 {
                 key.push(',');
             }
-            let _ = write!(key, "{p}:{c}");
+            push_key_name(&mut key, p);
+            let _ = write!(key, ":{c}");
         }
         key
+    }
+}
+
+/// Appends `name` to a dedup key with a backslash before each `\`, `,`, `:`, `|` and `#`,
+/// the separators of the marking, zone, class and interned-base keys. Place and
+/// transition names are arbitrary strings, so an unescaped name could render two
+/// different states alike ([VER-010]); an ordinary name renders unchanged.
+pub(crate) fn push_key_name(key: &mut String, name: &str) {
+    for ch in name.chars() {
+        if matches!(ch, '\\' | ',' | ':' | '|' | '#') {
+            key.push('\\');
+        }
+        key.push(ch);
     }
 }
 
@@ -333,6 +348,18 @@ mod tests {
             .build();
         assert_eq!(order(&ms), vec![("zeta", 4), ("alpha", 2), ("mid", 3)]);
         assert_eq!(ms.canonical_key(), "alpha:2,mid:3,zeta:4");
+    }
+
+    /// [VER-010]: the key escapes every separator in a place name, so two different
+    /// markings never render alike, and an ordinary name renders as before.
+    #[test]
+    fn ver_010_canonical_key_escapes_separators() {
+        let plain = MarkingStateBuilder::new().tokens("a", 1).tokens("b", 1).build();
+        let odd = MarkingStateBuilder::new().tokens("a:1,b", 1).build();
+        assert_eq!(plain.canonical_key(), "a:1,b:1");
+        assert_ne!(plain.canonical_key(), odd.canonical_key());
+        let piped = MarkingStateBuilder::new().tokens("p|q#r\\s", 2).build();
+        assert_eq!(piped.canonical_key(), "p\\|q\\#r\\\\s:2");
     }
 
     /// A place set to zero is removed, and counts from its next mention as a new place.

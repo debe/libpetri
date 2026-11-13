@@ -82,6 +82,34 @@ def test_channel_composition_fuses_caller_and_instance() -> None:
     assert result.count(audit) == 1, "caller action ran in the same firing"
 
 
+def test_one_caller_transition_bound_to_two_channels_is_rejected() -> None:
+    """MOD-020 AC6: one caller transition bound to two channels of one
+    instance in one call is a compose-time error naming the transition and
+    both channels."""
+    a, b = lp.Place("A"), lp.Place("B")
+    go_a = lp.Transition("goA").output(lp.out(a)).build()
+    go_b = lp.Transition("goB").output(lp.out(b)).build()
+    two = (
+        lp.SubnetDef("TwoChannels")
+        .place(a)
+        .place(b)
+        .transition(go_a)
+        .transition(go_b)
+        .channel("first", go_a)
+        .channel("second", go_b)
+        .build()
+    )
+    caller = lp.Transition("gate").build()
+
+    with pytest.raises(ValueError) as err:
+        lp.NetBuilder("Host").compose("tc", two, {}, {"first": caller, "second": caller})
+
+    msg = str(err.value)
+    assert "'gate'" in msg
+    assert "'first'" in msg
+    assert "'second'" in msg
+
+
 def test_identity_alias_yields_to_non_identity_on_merge() -> None:
     """MOD-031 AC#10, positive: caller-side ``P -> P`` merged against
     instance-side ``P -> H`` succeeds and yields ``P -> H``.
@@ -188,3 +216,44 @@ def test_two_differing_non_identity_aliases_still_conflict() -> None:
     # Identical input, identical diagnostic — the property the hash-order fix
     # buys, and the one whose absence made this test flaky.
     assert all(provoke() == message for _ in range(8)), "diagnostic varies run to run"
+
+
+def test_caller_declared_place_survives_a_later_renaming_pass() -> None:
+    """MOD-031 key-set completeness through a channel merge (the Lean
+    ``MOD_031_mergeThenPass_undecided``, reference half).
+
+    The hand-written caller over ``h`` carries no correspondence when it is
+    merged with the worker's channel transition, which does. The merged
+    transition keeps an identity key for each place the caller names, so
+    retrofitting the host and composing it under ``outer`` moves ``h`` to
+    ``outer/h`` and the caller's ``ctx.input("h")`` still resolves. A merge
+    that kept only the instance side's keys leaves ``h`` unresolved, and the
+    firing throws after consuming its inputs (EXEC-031).
+    """
+    worker, _ = _worker()
+    host_in, host_out = lp.Place("H_IN"), lp.Place("H_OUT")
+    h, done = lp.Place("h"), lp.Place("done")
+
+    def call(ctx: lp.TransitionContext) -> None:
+        ctx.output("done", {**ctx.input("h"), "called": True})
+
+    caller = lp.Transition("call").input(lp.one(h)).output(lp.out(done)).action(call).build()
+    host = (
+        lp.NetBuilder("Host")
+        .place(host_in)
+        .place(host_out)
+        .place(h)
+        .place(done)
+        .compose("w", worker, {"p": host_in, "q": host_out}, {"go": caller})
+        .build()
+    )
+    retrofit = lp.SubnetDef.from_net(host, lp.Interface().input_port("in", host_in).build())
+    top = lp.NetBuilder("Top").compose("outer", retrofit, {}).build()
+
+    result = lp.run_sync(
+        top,
+        initial={lp.Place("outer/h"): [{"v": 1}], lp.Place("outer/H_IN"): [{"w": 2}]},
+    )
+    assert result.first(lp.Place("outer/done")) == {"v": 1, "called": True}
+    assert result.first(lp.Place("outer/H_OUT")) == {"w": 2, "worked": True}
+    assert result.count(lp.Place("outer/h")) == 0, "input consumed"

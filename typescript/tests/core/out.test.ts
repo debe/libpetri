@@ -108,6 +108,12 @@ describe('Out', () => {
       expect(places.size).toBe(1);
       expect(places.has(b)).toBe(true);
     });
+
+    it('collects one place per name (CORE-002, IO-017)', () => {
+      // Two separately created place('A') objects are one place.
+      const places = allPlaces(xor(andPlaces(place('A'), b), andPlaces(place('A'), c)));
+      expect([...places].map(p => p.name).sort()).toEqual(['A', 'B', 'C']);
+    });
   });
 
   describe('enumerateBranches', () => {
@@ -126,6 +132,12 @@ describe('Out', () => {
     it('XOR = one branch per child', () => {
       const branches = enumerateBranches(xorPlaces(a, b));
       expect(branches).toHaveLength(2);
+    });
+
+    it('a branch holds one place per name (CORE-002, IO-016)', () => {
+      const branches = enumerateBranches(andPlaces(place('A'), place('A'), b));
+      expect(branches).toHaveLength(1);
+      expect([...branches[0]!].map(p => p.name).sort()).toEqual(['A', 'B']);
     });
 
     it('XOR of ANDs', () => {

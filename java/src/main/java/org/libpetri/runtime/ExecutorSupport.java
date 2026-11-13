@@ -509,8 +509,10 @@ final class ExecutorSupport {
                 // re-emitting only one would silently destroy N-1 of them on the retry path.
                 // The tokens themselves are forwarded, in consumption (FIFO) order, so each
                 // keeps its createdAt (IO-014 AC5); only minted recovery tokens take the clock.
+                // `from` and `to` are actual places (the rewritten spec), read and written as
+                // given: the correspondence is the action's, never the executor's ([MOD-031]).
                 Place<Object> to = (Place<Object>) f.to();
-                for (Token<Object> token : context.inputTokens((Place<Object>) f.from())) {
+                for (Token<Object> token : context.rawInput().getAll((Place<Object>) f.from())) {
                     context.forwardToHarvest(to, token);
                 }
             }

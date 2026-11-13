@@ -68,6 +68,15 @@ export class MarkingState {
     return `{${entries.join(', ')}}`;
   }
 
+  /**
+   * The marking's identity as a string ([VER-010]): two markings share it exactly when they hold
+   * the same count on every place. Unlike {@link toString}, a place name cannot run into the
+   * separators, so `{a:1, b:1}` and `{'a:1, b':1}` get different keys.
+   */
+  key(): string {
+    return JSON.stringify([...this.tokenCounts.entries()].sort(([a], [b]) => compareCodePoints(a, b)));
+  }
+
   static empty(): MarkingState {
     return new MarkingState(MARKING_STATE_KEY, new Map(), new Map());
   }

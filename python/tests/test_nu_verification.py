@@ -645,6 +645,74 @@ def test_priority_semantics_rejects_bad_value():
         _verify_priority(_nu_priority_conflict_net(), "bogus")
 
 
+def _env_witness_with_drop(reapable):
+    """``fork: IN + slot -> A, B``; ν-``join: A, B -> accepted``; ``ack: accepted -> slot``;
+    ``drop: IN + slot -> dropped``, with a deadline when ``reapable``. ``IN`` is an
+    uncoloured environment place two transitions consume. Mirrors Rust
+    ``nu_052_env_decline_only_where_conflict_priority_applies``."""
+    in_p, slot, a, b, accepted, dropped = (
+        lp.Place(n) for n in ("IN", "slot", "A", "B", "accepted", "dropped")
+    )
+    drop = lp.Transition("drop").input(lp.one(in_p)).input(lp.one(slot)).output(lp.out(dropped))
+    if reapable:
+        drop = drop.timing(lp.deadline(5))
+    return (
+        lp.Net("route_b_env_witness_drop")
+        .transition(
+            lp.Transition("fork")
+            .input(lp.one(slot))
+            .input(lp.one(in_p))
+            .output(lp.and_(a, b))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(
+            lp.Transition("join")
+            .input(lp.one(a))
+            .input(lp.one(b))
+            .match_spec(lp.match_spec([(a, lambda s: s), (b, lambda s: s)]))
+            .output(lp.out(accepted))
+            .action(lp.fork)
+            .build()
+        )
+        .transition(lp.Transition("ack").input(lp.one(accepted)).output(lp.out(slot)).action(lp.fork).build())
+        .transition(drop.action(lp.fork).build())
+        .build()
+    )
+
+
+def _verify_env_witness(net, semantics, property):
+    return lp.verify(
+        net,
+        property,
+        initial_marking={"slot": 1},
+        environment_places=["IN"],
+        environment_mode=lp.always_available(),
+        mint_transitions=["fork"],
+        priority_semantics=semantics,
+    )
+
+
+_SHARED_UNDER_CONFLICT = "is a consumed input shared under conflict priority"
+
+
+def test_nu_052_env_decline_only_where_conflict_priority_applies():
+    # NU-052, VER-006 AC8, NU-055: the decline for a shared consumed environment input
+    # reads whether conflict priority applies. With `drop` reapable (TIME-013) Route B
+    # turns the pruning off itself, so CONFLICT verifies the call as NONE does.
+    declined = _verify_env_witness(_env_witness_with_drop(False), "conflict", lp.place_bound("accepted", 1))
+    assert declined.verdict == "unknown", declined.report
+    assert _SHARED_UNDER_CONFLICT in (declined.reason or ""), declined.report
+    net = _env_witness_with_drop(True)
+    for prop in (lp.place_bound("accepted", 1), lp.unreachable(["dropped"])):
+        none = _verify_env_witness(net, "none", prop)
+        conflict = _verify_env_witness(net, "conflict", prop)
+        assert none.route == "nu-scg" and none.verdict != "unknown", none.report
+        assert conflict.route == "nu-scg", conflict.report
+        assert conflict.verdict == none.verdict, conflict.report
+        assert "Declined under environment injection" not in conflict.report, conflict.report
+
+
 # === NU-053: Route A coloured quiescence (EXTENDED + deadlock encoding) ===
 # Mirrors the Rust nu053_* tests in smt_verifier.rs. When the name-aware SCG
 # (Route B) is truncated (nu_max_classes=1), the bounded quiescence proof defers

@@ -34,8 +34,8 @@ const COMPOSE_BINDINGS_KEY = Symbol('ComposeBindings.internal');
  * {@link bindChannel} records a synchronous channel binding: at compose time
  * the named instance-side interface transition is **merged** with the
  * supplied caller-side {@link Transition} into one transition in the
- * resulting flat net. Channel composition is implemented in task #13; until
- * then `compose(...)` raises an `Error` when any channel binding is present.
+ * resulting flat net. One caller transition binds at most one channel per
+ * call (MOD-020).
  *
  * ## Identity
  *
@@ -83,15 +83,20 @@ export class ComposeBindings {
    * the instance-side renamed channel transition is merged with
    * `callerTransition` into a single transition in the resulting flat net.
    *
-   * **Status**: channel composition is implemented in task #13. Recording a
-   * channel binding here is permitted, but `compose(...)` currently raises
-   * an `Error` when any channel binding is present.
-   *
-   * @throws when `channelName` is already bound on this builder
+   * @throws when `channelName` is already bound on this builder, or when
+   *   `callerTransition` is already bound to another channel (MOD-020)
    */
   bindChannel(channelName: string, callerTransition: Transition): this {
     if (this._channelBindings.has(channelName)) {
       throw new Error(`Channel '${channelName}' is already bound`);
+    }
+    for (const [bound, t] of this._channelBindings) {
+      if (t === callerTransition) {
+        throw new Error(
+          `Transition '${callerTransition.name}' is already bound to channel '${bound}'; ` +
+          `it cannot also be bound to channel '${channelName}' (MOD-020)`,
+        );
+      }
     }
     this._channelBindings.set(channelName, callerTransition);
     return this;

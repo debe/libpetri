@@ -107,9 +107,10 @@ pub struct SmtVerifier<'a> {
     /// declared `carrier_places`.
     fragment_mode: FragmentMode,
     /// EXTENDED-only carrier places ([NU-051]): intermediate places that carry a
-    /// fresh name from the minting fork onward to a ν-join input. Ignored under
-    /// `FragmentMode::Base`. An unknown name (not in the net) surfaces as
-    /// `Unknown` from [`SmtVerifier::verify`], never a silent fall-back.
+    /// fresh name from the minting fork onward to a ν-join input. The fragment
+    /// ignores them under `FragmentMode::Base`, but an unknown name (not in the net)
+    /// surfaces as `Unknown` from [`SmtVerifier::verify`] in either mode, never a
+    /// silent fall-back.
     carrier_places: HashSet<String>,
     /// How the ν-aware Route B analyzer treats transition priority ([NU-052]).
     /// [`PrioritySemantics::None`] (default) is the priority-blind
@@ -185,6 +186,11 @@ pub struct SmtVerifier<'a> {
     /// Why the net cannot be verified with its in-flight actions modelled
     /// ([`crate::in_flight`], [VER-004]); every route declines when set.
     in_flight_refusal: Option<String>,
+    /// Why a mint ([NU-010]) or carrier ([NU-051]) declaration names no transition or
+    /// place of the caller's net. Judged when `verify()` is entered, before any rewrite
+    /// adds a transition or place the caller never declared; every route declines when
+    /// set.
+    declaration_refusal: Option<String>,
     /// The transitions a closure added to model the environment ([VER-006] `Arrivals`):
     /// they run no action, so the in-flight split leaves them atomic.
     environment_steps: HashSet<String>,
@@ -270,6 +276,7 @@ impl<'a> SmtVerifier<'a> {
             assume_atomic_firing: false,
             reapable: None,
             in_flight_refusal: None,
+            declaration_refusal: None,
             environment_steps: HashSet::new(),
             #[cfg(test)]
             certificate_override: None,
@@ -449,8 +456,8 @@ impl<'a> SmtVerifier<'a> {
     /// carries a fresh name from the minting fork onward to a ν-join input, so
     /// the fork co-mints one name into it. Effective only under
     /// [`FragmentMode::Extended`]; ignored under `Base`. A name not present in the
-    /// net surfaces as an `Unknown` verdict from [`SmtVerifier::verify`] (Rust's
-    /// fluent builder is infallible), never a silent fall-back.
+    /// net surfaces as an `Unknown` verdict from [`SmtVerifier::verify`] in either
+    /// mode (Rust's fluent builder is infallible), never a silent fall-back.
     pub fn carrier_place(mut self, place: impl Into<String>) -> Self {
         self.carrier_places.insert(place.into());
         self
@@ -769,6 +776,8 @@ impl<'a> SmtVerifier<'a> {
         let _stop = total_budget::enter(self.total_budget_ms, self.cancel_token.clone());
         // [TIME-013]: the reapable transitions are named on the caller's net.
         self.name_reapable();
+        // [NU-010] / [NU-051]: so are the declarations, as `encode_scripts` judges them.
+        self.declaration_refusal = self.unknown_declaration_reason();
         // [CORE-037]: judged on the net as the caller built it, with the
         // environment places the caller registered — the rewrites' arcs are the
         // verifier's own, not the caller's.
@@ -885,6 +894,14 @@ impl<'a> SmtVerifier<'a> {
                 f(verifier, None)
             }
         }
+    }
+
+    /// Why a declared mint transition ([NU-010]) or carrier place ([NU-051]) cannot be
+    /// used on `self.net`: the mint reason first, then the carrier one. `None` when both
+    /// declarations name members of the net.
+    fn unknown_declaration_reason(&self) -> Option<String> {
+        name_fragment::unknown_mint_reason(self.net, &self.mint_transitions)
+            .or_else(|| name_fragment::unknown_carrier_reason(self.net, &self.carrier_places))
     }
 
     /// Whether Route B will read [`PrioritySemantics::Conflict`] ([NU-052]): it is
@@ -1080,6 +1097,7 @@ impl<'a> SmtVerifier<'a> {
             assume_atomic_firing: self.assume_atomic_firing,
             reapable: self.reapable,
             in_flight_refusal: self.in_flight_refusal,
+            declaration_refusal: self.declaration_refusal,
             environment_steps: self.environment_steps,
             #[cfg(test)]
             certificate_override: self.certificate_override,
@@ -1176,9 +1194,11 @@ impl<'a> SmtVerifier<'a> {
             None => desc,
         };
 
-        // [NU-010]: a declared mint transition that is not in the net is a typo, and a
-        // typo'd declaration would silently leave a real mint undeclared. Fail loudly.
-        if let Some(reason) = name_fragment::unknown_mint_reason(self.net, &self.mint_transitions) {
+        // [NU-010] / [NU-051]: a declared mint transition or carrier place that is not in
+        // the caller's net is a typo, and a typo'd declaration would silently leave a real
+        // mint undeclared or let two fork branches mint independent names. Fail loudly,
+        // in either fragment mode, before any route.
+        if let Some(reason) = self.declaration_refusal.clone() {
             let elapsed_ms = start.elapsed().as_millis() as u64;
             report.push_str(&format!("Property: {}\n", describe(self.property.description())));
             report.push_str(&format!("UNKNOWN: {reason}\n"));
@@ -1342,7 +1362,14 @@ impl<'a> SmtVerifier<'a> {
                             &self.sink_places,
                             &self.conditional_sinks,
                             &self.env_places,
-                            self.priority_semantics,
+                            // [NU-052]: `Conflict` only where conflict priority applies;
+                            // Route B turns it off itself on a net with a reapable
+                            // transition, and the split may have turned it off here.
+                            if self.conflict_pruning_applies() {
+                                PrioritySemantics::Conflict
+                            } else {
+                                PrioritySemantics::None
+                            },
                             quiescence_vacuous,
                         )
                     },
@@ -2264,17 +2291,19 @@ no constraint the encoding does not already have; they may still differ in FORM)
     ///
     /// # Panics
     /// When a declared mint transition ([`mint_transition`](Self::mint_transition)) is not
-    /// a transition of the net, with the reason [`verify`](Self::verify) answers `Unknown`
-    /// with ([`name_fragment::unknown_mint_reason`]): scripts without the declaration
-    /// would not be the ones the caller asked about. And for a name-alignment property
-    /// ([NU-055]): only Route B decides it, and Route B sends no script, so there is none
-    /// to return.
+    /// a transition of the net, or a declared carrier place
+    /// ([`carrier_place`](Self::carrier_place)) is not a place of it, with the reason
+    /// [`verify`](Self::verify) answers `Unknown` with
+    /// ([`name_fragment::unknown_mint_reason`], [`name_fragment::unknown_carrier_reason`]):
+    /// scripts without the declaration would not be the ones the caller asked about. And
+    /// for a name-alignment property ([NU-055]): only Route B decides it, and Route B
+    /// sends no script, so there is none to return.
     pub fn encode_scripts(mut self) -> EncodedScripts {
         // [NU-055]: only Route B, which sends no script, decides a name-alignment property.
         if self.property.is_name_alignment() {
             panic!("{}", self.property.route_b_only_reason());
         }
-        if let Some(reason) = name_fragment::unknown_mint_reason(self.net, &self.mint_transitions) {
+        if let Some(reason) = self.unknown_declaration_reason() {
             panic!("{reason}");
         }
         self.name_reapable();
@@ -4880,6 +4909,49 @@ mod tests {
         SmtVerifier::for_net(&net);
     }
 
+    /// [CORE-043]: a verification entry point fails exactly when compiling the submitted
+    /// net does. Under conflict priority ([NU-052]) the split forces every pruner, a sink
+    /// on the default passthrough included, and gives its start half an output place; the
+    /// derived net must not then be refused for an output spec the sink never declared.
+    /// `grab` (priority 10) is a sink pruning `take` on `X`; `fork`/`join` make the net a
+    /// ν-net, so Route B reads the priority.
+    #[test]
+    fn core043_conflict_split_of_a_passthrough_sink_is_not_refused() {
+        use libpetri_core::match_spec::MatchSpec;
+        use libpetri_core::name::NameId;
+        let (source, x, taken) = (Place::<()>::new("source"), Place::<()>::new("X"), Place::<()>::new("taken"));
+        let (a, b, merged) = (Place::<String>::new("A"), Place::<String>::new("B"), Place::<String>::new("merged"));
+        let fork_t = Transition::builder("fork")
+            .input(one(&source))
+            .output(and(vec![out_place(&a), out_place(&b)]))
+            .action(fork())
+            .build();
+        let join = Transition::builder("join")
+            .input(one(&a))
+            .input(one(&b))
+            .match_spec(
+                MatchSpec::builder()
+                    .key(&a, |s: &String| NameId::new(s.clone()))
+                    .key(&b, |s: &String| NameId::new(s.clone()))
+                    .build(),
+            )
+            .output(out_place(&merged))
+            .action(fork())
+            .build();
+        let grab = Transition::builder("grab").input(one(&x)).priority(10).build();
+        let take = Transition::builder("take").input(one(&x)).output(out_place(&taken)).action(fork()).build();
+        let net = PetriNet::builder("core043_conflict_sink").transitions([fork_t, join, grab, take]).build();
+        let result = SmtVerifier::for_net(&net)
+            .mint_transition("fork")
+            .initial_marking(MarkingStateBuilder::new().tokens("source", 1).tokens("X", 1).build())
+            .property(SmtProperty::DeadlockFree)
+            .sink_places(vec!["merged".into(), "taken".into()])
+            .priority_semantics(PrioritySemantics::Conflict)
+            .verify();
+        assert_eq!(result.route, VerificationRoute::NuScg, "{}", result.report);
+        assert!(result.report.contains("grab"), "the split names the pruner\n{}", result.report);
+    }
+
     // === Commoner's theorem governs ORDINARY nets only ([VER-001]) ===
 
     /// Every net below is genuinely DEAD at its initial marking — both executors
@@ -6498,6 +6570,66 @@ mod tests {
                  (NU-050, Route B) models an environment place only as an inexhaustible input, not its \
                  token count or the names injected into it; refusing to certify (VER-006)"
             );
+        }
+    }
+
+    /// [NU-052], [VER-006] AC8, [NU-055]: the env decline for a shared consumed input
+    /// reads whether conflict priority applies, not the selected mode. The plain witness
+    /// plus `drop: one(IN) + one(slot) -> dropped` with a deadline, so `IN` has two consumers and
+    /// `drop` is read as reapable ([TIME-013]): Route B turns the pruning off itself, so
+    /// `CONFLICT` verifies the call as `NONE` does.
+    #[test]
+    fn nu_052_env_decline_only_where_conflict_priority_applies() {
+        use libpetri_core::timing::deadline;
+        let base = route_b_env_witness(EnvWitness::Plain);
+        let (in_p, slot) = (Place::<String>::new("IN"), Place::<String>::new("slot"));
+        let dropped = Place::<String>::new("dropped");
+        let with_drop = |reapable: bool| {
+            let mut drop = Transition::builder("drop").input(one(&in_p)).input(one(&slot)).output(out_place(&dropped));
+            if reapable {
+                drop = drop.timing(deadline(5));
+            }
+            PetriNet::builder("route_b_env_witness_drop")
+                .transitions(base.transitions().iter().cloned().chain([drop.action(fork()).build()]))
+                .build()
+        };
+        // Without the deadline conflict priority applies, and the decline stands.
+        let immediate = with_drop(false);
+        let declined = SmtVerifier::for_net(&immediate)
+            .mint_transition("fork")
+            .initial_marking(slot_marking())
+            .environment_places(vec!["IN".into()])
+            .environment_mode(EnvironmentAnalysisMode::AlwaysAvailable)
+            .priority_semantics(PrioritySemantics::Conflict)
+            .property(SmtProperty::place_bound("accepted", 1))
+            .verify();
+        assert_declined(&declined, "is a consumed input shared under conflict priority");
+        let net = with_drop(true);
+        let run = |semantics: PrioritySemantics, property: SmtProperty| {
+            SmtVerifier::for_net(&net)
+                .mint_transition("fork")
+                .initial_marking(slot_marking())
+                .environment_places(vec!["IN".into()])
+                .environment_mode(EnvironmentAnalysisMode::AlwaysAvailable)
+                .priority_semantics(semantics)
+                .property(property)
+                .verify()
+        };
+        for property in [SmtProperty::place_bound("accepted", 1), SmtProperty::unreachable(vec!["dropped".into()])] {
+            let none = run(PrioritySemantics::None, property.clone());
+            let conflict = run(PrioritySemantics::Conflict, property.clone());
+            assert_eq!(none.route, VerificationRoute::NuScg, "{}", none.report);
+            assert!(!matches!(none.verdict, Verdict::Unknown { .. }), "{:?}\n{}", none.verdict, none.report);
+            assert_eq!(conflict.route, VerificationRoute::NuScg, "{}", conflict.report);
+            assert_eq!(
+                std::mem::discriminant(&conflict.verdict),
+                std::mem::discriminant(&none.verdict),
+                "{:?} vs {:?}\n{}",
+                conflict.verdict,
+                none.verdict,
+                conflict.report
+            );
+            assert!(!conflict.report.contains("Declined under environment injection"), "{}", conflict.report);
         }
     }
 

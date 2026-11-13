@@ -376,6 +376,9 @@ abstract class AbstractTerminationReasonTest {
             assertEquals(1, engineWarnings(store).size(),
                 "EVT-013: an interrupt is exactly the case the caller would otherwise not learn "
                     + "about, so it earns a diagnostic. Events: " + store.events());
+            // EVT-013 AC4 / EVT-030: the diagnostic names no transition, and a consumer that
+            // filters by transition reads past it without failing.
+            assertDoesNotThrow(() -> store.transitionEvents("t1"));
         }
     }
 

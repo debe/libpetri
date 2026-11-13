@@ -23,7 +23,8 @@
 //!
 //! - `t` itself, with every input, read, inhibitor and reset arc, its timing,
 //!   priority and match spec, whose only output is the fresh place
-//!   `inflight:<t>`, and
+//!   `inflight:<t>` (a `t` on `passthrough()`, a sink, gets a [`placeholder_action`]
+//!   there, so the split net compiles exactly when the net does, [CORE-043]), and
 //! - `complete:<t>`, immediate, consuming `inflight:<t>` and depositing `t`'s
 //!   output spec (every branch, the `Timeout` branch included).
 //!
@@ -66,8 +67,11 @@
 //! (`exactly(n)`, `all`, `at_least`, [IO-014]), whose count the completion step
 //! cannot see; and a name the split would add that the net already uses.
 
+use std::any::Any;
 use std::collections::HashSet;
+use std::sync::Arc;
 
+use libpetri_core::action::{BoxedAction, is_passthrough, transform};
 use libpetri_core::input::In;
 use libpetri_core::output::Out;
 use libpetri_core::petri_net::PetriNet;
@@ -386,13 +390,23 @@ fn completion_output(out: &Out) -> Out {
     }
 }
 
-/// The start and the completion step of `t`.
+/// The action a transition gets where verification gives it an output spec it never
+/// runs: a rewrite of a `passthrough()` sink or environment transition must not
+/// manufacture a [CORE-043] violation the submitted net does not have. What it would
+/// produce is immaterial, since verification reads production from the output spec.
+pub(crate) fn placeholder_action() -> BoxedAction {
+    transform(|_| Arc::new(()) as Arc<dyn Any + Send + Sync>)
+}
+
+/// The start and the completion step of `t`. The start half deposits into
+/// `inflight:<t>`; a `t` on `passthrough()` gets a [`placeholder_action`] for it.
 fn halves(t: &Transition) -> (Transition, Transition) {
     let place = PlaceRef::new(in_flight_place(t.name()));
+    let start_action = if is_passthrough(t.action()) { placeholder_action() } else { t.action().clone() };
     let mut start = Transition::builder(t.name_arc().clone())
         .timing(*t.timing())
         .priority(t.priority())
-        .action(t.action().clone())
+        .action(start_action)
         .inputs(t.input_specs().to_vec())
         .inhibitors(t.inhibitors().to_vec())
         .reads(t.reads().to_vec())

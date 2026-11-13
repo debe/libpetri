@@ -14,7 +14,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Writes a debug session to a length-prefixed binary archive format.
@@ -118,9 +117,9 @@ public final class SessionArchiveWriter {
             session.startTime(),
             session.endTime(),
             events.size(),
-            // Snapshot of tags at archive-write time — record the tag state that was current
+            // The header copies the live tags: a snapshot of the tag state that was current
             // when the session was archived, not whatever happens on the live session after.
-            Map.copyOf(session.tags()),
+            session.tags(),
             metadata,
             session.buildNetStructure()
         );
@@ -146,7 +145,7 @@ public final class SessionArchiveWriter {
             session.startTime(),
             session.endTime(),
             events.size(),
-            Map.copyOf(session.tags()),
+            session.tags(),
             metadata,
             session.buildNetStructure()
         );

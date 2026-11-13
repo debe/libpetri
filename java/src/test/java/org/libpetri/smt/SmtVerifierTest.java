@@ -4,6 +4,7 @@ import org.libpetri.analysis.AllMints;
 import org.libpetri.fixtures.StructureOnly;
 import org.libpetri.analysis.EnvironmentAnalysisMode;
 import org.libpetri.analysis.FragmentMode;
+import org.libpetri.analysis.PrioritySemantics;
 import org.libpetri.core.*;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
@@ -656,6 +657,34 @@ class SmtVerifierTest {
             SmtProperty.unreachable(Set.of(AC8_ACCEPTED))).verify();
         assertTrue(unknownReason(result).startsWith(
             "environment place 'IN' carries ν-names (a match key or carrier place);"), result.report());
+    }
+
+    /**
+     * NU-052, VER-006 AC8, NU-055 (RD-39): {@code IN} has a second consumer, but {@code ack} has a
+     * deadline and is read as reapable, so conflict priority does not apply and the shared input
+     * is no reason to decline. Under {@code CONFLICT} the call answers as under {@code NONE}.
+     */
+    @Test
+    void envDeclineReadsWhetherConflictPriorityApplies_NU052_VER006_AC8() {
+        var slot2 = Place.of("slot2", String.class);
+        var hit = Place.of("hit", String.class);
+        var transitions = new ArrayList<>(ac8Witness().subList(0, 2));
+        transitions.add(Transition.builder("ack").inputs(In.one(AC8_ACCEPTED)).outputs(Out.place(AC8_SLOT))
+            .timing(Timing.deadline(Duration.ofMillis(100))).build());
+        transitions.add(Transition.builder("other").inputs(In.one(AC8_IN), In.one(slot2)).outputs(Out.place(hit)).build());
+        for (var property : List.of(SmtProperty.placeBound(AC8_ACCEPTED, 1), SmtProperty.unreachable(Set.of(AC8_ACCEPTED)),
+                SmtProperty.nameAligned(AC8_A, AC8_B))) {
+            var none = ac8Verifier(transitions, EnvironmentAnalysisMode.alwaysAvailable(), property).verify();
+            var conflict = ac8Verifier(transitions, EnvironmentAnalysisMode.alwaysAvailable(), property)
+                .prioritySemantics(PrioritySemantics.CONFLICT).verify();
+            var tag = property.description() + "\n" + conflict.report() + "\n" + none.report();
+            assertFalse(conflict.report().contains("is a consumed input shared under conflict priority"), tag);
+            assertEquals(SmtVerificationResult.Route.NU_SCG, conflict.route(), tag);
+            assertEquals(none.verdict().getClass(), conflict.verdict().getClass(), tag);
+            if (!(property instanceof SmtProperty.NameAligned)) {
+                assertFalse(conflict.verdict() instanceof SmtVerificationResult.Verdict.Unknown, tag);
+            }
+        }
     }
 
     @Test

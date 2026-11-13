@@ -54,7 +54,7 @@ export class StateClass {
 
   equals(other: StateClass): boolean {
     if (this === other) return true;
-    return this.marking.toString() === other.marking.toString()
+    return this.marking.key() === other.marking.key()
       && this.firingDomain.equals(other.firingDomain);
   }
 

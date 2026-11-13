@@ -126,6 +126,27 @@ describe('PetriNetBuilder.fuse — fusion resolution at build (MOD-061)', () => 
     expect(outNames.has('B')).toBe(false);
   });
 
+  it('fuse_repeatedCanonicalMember_keepsIt (MOD-061 step 3)', () => {
+    // RD-25: a set listing its first member again must not count that member
+    // among the non-canonical ones; the canonical member remains.
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const c = place<string>('C');
+    const t = Transition.builder('t').inputs(one(c)).build();
+
+    const net = PetriNet.builder('Fused')
+      .place(a)
+      .place(b)
+      .transition(t)
+      .fuse(FusionSet.builder('aba').member(a).member(b).member(a).build())
+      .build();
+
+    const names = placeNames(net);
+    expect(names.has('A')).toBe(true);
+    expect(names.has('B')).toBe(false);
+    expect(names.has('C')).toBe(true);
+  });
+
   // ============================================================
   //  Unrelated places are untouched
   // ============================================================

@@ -146,6 +146,30 @@ class ComposeDirectMembershipTest {
     }
 
     @Test
+    void directCompose_thenFuseWithRepeatedCanonical_keepsCanonicalEntry_MOD026() {
+        // MOD-026 AC5 / RD-25: the set [a, b, a] repeats its canonical member;
+        // the surviving canonical place 'a' keeps its own membership entry.
+        Place<String> a = Place.of("a", String.class);
+        Place<String> b = Place.of("b", String.class);
+        var subnet = SubnetDef.builder("AB")
+            .transition(Transition.builder("move")
+                .inputs(In.one(a))
+                .outputs(Out.place(b))
+                .build())
+            .build();
+
+        var net = PetriNet.builder("Host")
+            .compose(subnet)
+            .fuse(FusionSet.of("aba", a, b, a))
+            .build();
+
+        assertEquals("AB", net.subnetMembership().get("a"),
+            "MOD-026 AC5: the canonical fused place keeps its entry even when the set repeats it");
+        assertFalse(net.subnetMembership().containsKey("b"),
+            "the non-canonical fused place must lose its membership entry");
+    }
+
+    @Test
     void bindActions_preservesMembership() {
         var net = PetriNet.builder("Host")
             .compose(pipeProducer())

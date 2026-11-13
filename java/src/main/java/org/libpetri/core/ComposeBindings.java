@@ -89,8 +89,9 @@ public final class ComposeBindings {
      * @param callerTransition   the caller-side transition to fuse with the interface channel
      * @return this binding builder, for chaining
      * @throws IllegalArgumentException when {@code channelName} or
-     *         {@code callerTransition} is null, or when {@code channelName}
-     *         was already bound
+     *         {@code callerTransition} is null, when {@code channelName}
+     *         was already bound, or when {@code callerTransition} is already
+     *         bound to another channel (MOD-020)
      */
     public ComposeBindings bindChannel(String channelName, Transition callerTransition) {
         Objects.requireNonNull(channelName, "channelName");
@@ -98,6 +99,14 @@ public final class ComposeBindings {
         if (channelBindings.containsKey(channelName)) {
             throw new IllegalArgumentException(
                 "Channel '" + channelName + "' is already bound");
+        }
+        for (var e : channelBindings.entrySet()) {
+            if (e.getValue() == callerTransition) {
+                throw new IllegalArgumentException(
+                    "Transition '" + callerTransition.name() + "' is already bound to channel '"
+                        + e.getKey() + "'; it cannot also be bound to channel '"
+                        + channelName + "' (MOD-020)");
+            }
         }
         channelBindings.put(channelName, callerTransition);
         return this;

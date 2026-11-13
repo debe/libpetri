@@ -223,3 +223,57 @@ fn all_identity_correspondence_still_resolves_after_a_later_pass() {
 
     assert_eq!(final_marking.count("outer/z"), 1);
 }
+
+/// MOD-031 key-set completeness through a channel merge, on the executor run:
+/// the hand-written caller over `h` carries no correspondence when it is merged
+/// with the instance's channel transition, and a later fusion moves `h` onto
+/// `f`. The caller's action resolves its declared `h` to `f` and fires; a merge
+/// that dropped `h` from the keys leaves it unresolved, and the action fails its
+/// declared-place check after consuming its inputs ([EXEC-031]).
+#[test]
+fn channel_merge_then_fusion_caller_action_fires_mod031() {
+    use libpetri::core::fusion::FusionSet;
+
+    let x = Place::<String>::new("x");
+    let fire = Transition::builder("fire").input(one(&x)).build();
+    let def = SubnetDef::<()>::builder("Chan")
+        .place(&x)
+        .transition(fire.clone())
+        .input_port("x", &x)
+        .channel("fire", &fire)
+        .build();
+
+    let h = Place::<String>::new("h");
+    let f = Place::<String>::new("f");
+    let hx = Place::<String>::new("hx");
+    let done = Place::<String>::new("done");
+    let call = Transition::builder("call")
+        .input(one(&h))
+        .output(out_place(&done))
+        .action(sync_action(|ctx: &mut TransitionContext| -> Result<(), ActionError> {
+            let h = resolve_declared(ctx, "h");
+            let done = resolve_declared(ctx, "done");
+            let v = ctx.input::<String>(&h)?;
+            ctx.output(&done, format!("{v}!"))?;
+            Ok(())
+        }))
+        .build();
+    let net = PetriNet::builder("Host")
+        .compose_with(&def.instantiate_unit("s"), |b| {
+            b.bind_port::<String>("x", &hx);
+            b.bind_channel("fire", &call);
+        })
+        .fuse([FusionSet::of("fh", &f, &[&h])])
+        .build();
+
+    let mut marking = Marking::new();
+    marking.add(&f, Token::at("F".to_string(), 0));
+    marking.add(&hx, Token::at("X".to_string(), 0));
+    let mut executor =
+        BitmapNetExecutor::<NoopEventStore>::new(&net, marking, ExecutorOptions::default());
+    let final_marking = executor.run_sync();
+
+    assert_eq!(final_marking.count("done"), 1, "the caller's action produced");
+    assert_eq!(final_marking.count("f"), 0, "input must have been consumed");
+    assert_eq!(final_marking.count("hx"), 0, "input must have been consumed");
+}

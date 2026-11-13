@@ -770,9 +770,9 @@ fn py_verify_net(
             Some(obj) => parse_fragment_mode(obj)?,
             None => FragmentMode::Base,
         };
-        // EXTENDED-only carrier places (NU-051): ignored under Base; an unknown
-        // name surfaces as an Unknown verdict from verify(), never a silent
-        // fall-back.
+        // EXTENDED-only carrier places (NU-051): the fragment ignores them under Base,
+        // but an unknown name surfaces as an Unknown verdict from verify() in either
+        // mode, never a silent fall-back.
         let carrier_places = carrier_places.unwrap_or_default();
         // NU-010 mint declarations: the transitions whose writes into a coloured
         // place the ν routes may read as fresh names, beside those consuming a
@@ -946,10 +946,13 @@ fn py_encode_smt_scripts(
         let semiflow_invariants = parse_semiflow_mode(semiflow_invariants.as_ref())?;
         let witness_depth = parse_witness_depth(witness_depth)?;
         let mint_transitions = mint_transitions.unwrap_or_default();
-        // NU-010: `encode_scripts` panics on a declared mint that is not a transition of
-        // the net; raise the same reason as a ValueError, as `verify_net` answers Unknown.
+        // NU-010 / NU-051: `encode_scripts` panics on a declared mint that is not a
+        // transition of the net, or a declared carrier that is not a place of it; raise
+        // the same reason as a ValueError, as `verify_net` answers Unknown.
+        let carrier_places = carrier_places.unwrap_or_default();
         if let Some(reason) =
             libpetri::verification::name_fragment::unknown_mint_reason(&net, &mint_transitions)
+                .or_else(|| libpetri::verification::name_fragment::unknown_carrier_reason(&net, &carrier_places))
         {
             return Err(pyo3::exceptions::PyValueError::new_err(reason));
         }
@@ -962,7 +965,7 @@ fn py_encode_smt_scripts(
                 .sink_places(sink_places.unwrap_or_default())
                 .budget_places(budget_places.unwrap_or_default())
                 .fragment_mode(fragment_mode)
-                .carrier_places(carrier_places.unwrap_or_default())
+                .carrier_places(carrier_places)
                 .mint_transitions(mint_transitions)
                 .counterexample_replay(counterexample_replay)
                 .semiflow_invariants(semiflow_invariants)

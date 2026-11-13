@@ -39,8 +39,9 @@ export class TokenOutput {
 
   /**
    * Once true, further writes are dropped instead of appended. Set by the executor
-   * (via {@link import('./transition-context.js').TransitionContext.detachForTimeout})
-   * when a firing times out, so the action it has stopped waiting for can no longer
+   * (via {@link import('./transition-context.js').TransitionContext.detachForTimeout} or
+   * {@link import('./transition-context.js').TransitionContext.detachAtCompletion})
+   * when a firing times out or its action's promise settles, so the action can no longer
    * reach the marking. Irreversible.
    */
   private detached = false;
@@ -68,7 +69,8 @@ export class TokenOutput {
 
   /**
    * @internal Severs this collector: subsequent {@link add}/{@link addToken} calls are
-   * dropped. Executor machinery invoked when a firing times out — never call from an action.
+   * dropped. Executor machinery invoked when a firing times out or its action completes —
+   * never call from an action.
    */
   detach(): void {
     this.detached = true;

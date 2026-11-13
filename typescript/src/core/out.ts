@@ -114,20 +114,24 @@ export function forwardInput(from: Place<any>, to: Place<any>): OutForwardInput 
 
 // ==================== Helper Functions ====================
 
-/** Collects all leaf places from this output spec (flattened). */
+/**
+ * Collects all leaf places from this output spec (flattened), one per name: places are
+ * identified by name (CORE-002), so two `place('A')` objects are one place and the first
+ * one met is kept.
+ */
 export function allPlaces(out: Out): Set<Place<any>> {
-  const result = new Set<Place<any>>();
+  const result = new Map<string, Place<any>>();
   collectPlaces(out, result);
-  return result;
+  return new Set(result.values());
 }
 
-function collectPlaces(out: Out, result: Set<Place<any>>): void {
+function collectPlaces(out: Out, result: Map<string, Place<any>>): void {
   switch (out.type) {
     case 'place':
-      result.add(out.place);
+      if (!result.has(out.place.name)) result.set(out.place.name, out.place);
       break;
     case 'forward-input':
-      result.add(out.to);
+      if (!result.has(out.to.name)) result.set(out.to.name, out.to);
       break;
     case 'and':
     case 'xor':
@@ -251,8 +255,16 @@ function crossProduct(
   const result: Set<Place<any>>[] = [];
   for (const setA of a) {
     for (const setB of b) {
+      // One place per name in a branch (CORE-002): the first object met is kept.
+      const names = new Set<string>();
+      for (const p of setA) names.add(p.name);
       const merged = new Set<Place<any>>(setA);
-      for (const p of setB) merged.add(p);
+      for (const p of setB) {
+        if (!names.has(p.name)) {
+          names.add(p.name);
+          merged.add(p);
+        }
+      }
       result.push(merged);
     }
   }

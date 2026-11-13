@@ -49,7 +49,6 @@ import { earliest as timingEarliest, latest as timingLatest, hasDeadline as timi
 interface InFlightTransition {
   promise: Promise<void>;
   context: TransitionContext;
-  consumed: Token<any>[];
   startMs: number;
   resolve: () => void;
   error?: unknown;
@@ -547,9 +546,10 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       this.processExternalEvents();
       if (this.terminalReached) break;
       this.updateDirtyTransitions();
-      // Single timestamp for this loop iteration: ensures deadline enforcement and
-      // firing readiness checks use the same time reference, preventing races where
-      // a transition passes the deadline check but is disabled before the fire check.
+      // Single timestamp for this loop iteration: ensures deadline enforcement, the
+      // firing readiness checks and the decision to wait use the same time reference
+      // (TIME-010), preventing races where a transition passes the deadline check but is
+      // disabled before the fire check.
       const cycleNowMs = this.nowMs();
       // Deadline enforcement: separate pass over ALL enabled transitions (not just dirty
       // ones), since deadlines tick independently of place changes. Gated by
@@ -563,7 +563,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       // disabled a conflicting transition). Bounded: without microtask yield no new
       // completions arrive, so the loop converges in at most one extra pass.
       if (this.hasDirtyBits()) continue;
-      await this.awaitWork();
+      await this.awaitWork(cycleNowMs);
     }
 
     this.running = false;
@@ -1094,12 +1094,15 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     // disabled, before any output lands (TIME-012)
     this.updateBitmapAfterConsumption(tid);
 
-    this.emitEvent({
-      type: 'transition-started',
-      timestamp: this.epochMs(),
-      transitionName: t.name,
-      consumedTokens: consumed,
-    });
+    if (this.eventStoreEnabled) {
+      // EVT-001 AC2: the event holds its own copy; `consumed` also goes to the provider.
+      this.emitEvent({
+        type: 'transition-started',
+        timestamp: this.epochMs(),
+        transitionName: t.name,
+        consumedTokens: consumed.slice(),
+      });
+    }
 
     const execCtx = this.executionContextProvider?.(t.name, consumed);
     const logFn = (level: string, message: string, error?: Error) => {
@@ -1135,7 +1138,9 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       if (timeoutSpec === null) throw new Error(`Expected actionTimeout on ${t.name}`);
       const timeoutMs = timeoutSpec.afterMs;
       actionPromise = Promise.race([
-        actionPromise,
+        // CONC-003: close the write target at the action's own settlement, not after the
+        // race's extra hops (the success callback below covers the untimed path).
+        actionPromise.then(() => { context.detachAtCompletion(); }),
         new Promise<void>((_, reject) =>
           setTimeout(() => reject(new TimeoutSentinel()), timeoutMs)
         ),
@@ -1164,7 +1169,6 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     const flight: InFlightTransition = {
       promise: completionPromise,
       context,
-      consumed,
       startMs: this.nowMs(),
       resolve: resolveInFlight,
       matchedName: chosen,
@@ -1172,6 +1176,9 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     actionPromise.then(
       () => {
+        // CONC-003, EXEC-020: the commit deposits what the action wrote before it returned;
+        // a later write (from a timer or chain it started) must not reach admission.
+        context.detachAtCompletion();
         this.completionQueue.push(t);
         this.wakeUp();
         resolveInFlight();
@@ -1247,8 +1254,11 @@ export class BitmapNetExecutor implements PetriNetExecutor {
       try {
         const outputs = flight.context.rawOutput();
 
-        // Validate output against spec
-        if (t.outputSpec !== null) {
+        // Validate output against spec. A timeout outcome is not validated (EXEC-021,
+        // EXEC-022, IO-013): only NU-054's relay check runs on it.
+        if (t.outputSpec !== null && flight.context.isDetachedForTimeout()) {
+          validateRelays(t, outputs.entries(), flight.matchedName);
+        } else if (t.outputSpec !== null) {
           const produced = outputs.placesWithTokens();
           const claim = validateOutSpec(t.name, t.outputSpec, produced);
           // NU-054: every token in a relay target carries the matched name.
@@ -1386,7 +1396,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
    * yield lets those fire, avoiding ~5 allocations when work is already available.
    * After the yield, re-checks queues and `this.closed` for close-during-yield safety.
    */
-  private async awaitWork(): Promise<void> {
+  private async awaitWork(cycleNowMs: number): Promise<void> {
     // When closed, ignore external queue — processExternalEvents() won't consume it,
     // and drainPendingExternalEvents() handles it after the loop exits.
     if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
@@ -1422,14 +1432,17 @@ export class BitmapNetExecutor implements PetriNetExecutor {
 
     // When closed, only wait for in-flight completions — skip event/timer promises
     if (!this.closed) {
+      // The boundary is judged at the cycle's reading, not a fresh one (TIME-010): a
+      // boundary that falls due during this setup still gets its timer (CONC-010 AC3),
+      // where a later reading would find it passed and, with an action in flight, set none.
       // Zero means a timing boundary is already due: an earliest firing time has
       // been reached, or a deadline needs enforcing. There is nothing to wait for,
       // and with no action in flight the race below would hold only the external
       // wake-up promise — which a net with no environment places has nobody to
       // resolve, so the loop would sleep until its run budget expired. Return and
       // let the next cycle act on the boundary. Rust reaches the same outcome via
-      // sleep(0); Java returns early on `millisUntilNextTimedTransition() <= 0`.
-      const timerMs = this.millisUntilNextTimedTransition();
+      // sleep(0) on its `cycle_now`.
+      const timerMs = this.millisUntilNextTimedTransition(cycleNowMs);
       if (timerMs === 0 && promises.length === 0) return;
 
       // 2. External event wake-up
@@ -1470,8 +1483,7 @@ export class BitmapNetExecutor implements PetriNetExecutor {
     }
   }
 
-  private millisUntilNextTimedTransition(): number {
-    const nowMs = this.nowMs();
+  private millisUntilNextTimedTransition(nowMs: number): number {
     let minWaitMs = Infinity;
 
     for (let tid = 0; tid < this.compiled.transitionCount; tid++) {

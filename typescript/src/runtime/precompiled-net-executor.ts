@@ -228,7 +228,6 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
   // ==================== In-Flight Tracking ====================
   private readonly inFlightPromises: (Promise<void> | null)[];
   private readonly inFlightContexts: (TransitionContext | null)[];
-  private readonly inFlightConsumed: (Token<any>[] | null)[];
   /** Per transition: the name its in-flight ν-join firing matched, for the relay check (NU-054). */
   private readonly inFlightMatched: (NameId | null)[];
   private readonly inFlightStartMs: Float64Array;
@@ -429,7 +428,6 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     // ==================== In-Flight Arrays ====================
     this.inFlightPromises = new Array(tc).fill(null);
     this.inFlightContexts = new Array(tc).fill(null);
-    this.inFlightConsumed = new Array(tc).fill(null);
     this.inFlightMatched = new Array(tc).fill(null);
     this.inFlightStartMs = new Float64Array(tc);
     this.inFlightResolves = new Array(tc).fill(null);
@@ -615,7 +613,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
       this.fireReadyTransitions(cycleNowMs);
       if (this.hasDirtyBits()) continue;
-      await this.awaitWork();
+      await this.awaitWork(cycleNowMs);
     }
 
     this.running = false;
@@ -1048,7 +1046,6 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       if (this.inFlightFlags[tid]) {
         this.inFlightPromises[tid] = null;
         this.inFlightContexts[tid] = null;
-        this.inFlightConsumed[tid] = null;
         this.inFlightMatched[tid] = null;
         this.inFlightResolves[tid] = null;
         this.inFlightErrors[tid] = null;
@@ -1193,12 +1190,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     // before any output lands (TIME-012)
     this.updateBitmapAfterConsumption(tid);
 
-    this.emitEvent({
-      type: 'transition-started',
-      timestamp: this.epochMs(),
-      transitionName: t.name,
-      consumedTokens: consumed,
-    });
+    if (this.eventStoreEnabled) {
+      // EVT-001 AC2: the event holds its own copy; `consumed` also goes to the provider.
+      this.emitEvent({
+        type: 'transition-started',
+        timestamp: this.epochMs(),
+        transitionName: t.name,
+        consumedTokens: consumed.slice(),
+      });
+    }
 
     const execCtx = this.executionContextProvider?.(t.name, consumed);
     const logFn = (level: string, message: string, error?: Error) => {
@@ -1239,7 +1239,9 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       if (timeoutSpec === null) throw new Error(`Expected actionTimeout on ${t.name}`);
       const timeoutMs = timeoutSpec.afterMs;
       actionPromise = Promise.race([
-        actionPromise,
+        // CONC-003: close the write target at the action's own settlement, not after the
+        // race's extra hops (the success callback below covers the untimed path).
+        actionPromise.then(() => { context.detachAtCompletion(); }),
         new Promise<void>((_, reject) =>
           setTimeout(() => reject(new TimeoutSentinel()), timeoutMs)
         ),
@@ -1267,13 +1269,15 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     this.inFlightPromises[tid] = completionPromise;
     this.inFlightContexts[tid] = context;
-    this.inFlightConsumed[tid] = consumed;
     this.inFlightStartMs[tid] = this.nowMs();
     this.inFlightResolves[tid] = resolveInFlight;
     this.inFlightErrors[tid] = null;
 
     actionPromise.then(
       () => {
+        // CONC-003, EXEC-020: the commit deposits what the action wrote before it returned;
+        // a later write (from a timer or chain it started) must not reach admission.
+        context.detachAtCompletion();
         this.completionQueue.push(tid);
         this.wakeUp();
         resolveInFlight();
@@ -1415,7 +1419,6 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       this.inFlightFlags[tid] = 0;
       this.inFlightPromises[tid] = null;
       this.inFlightContexts[tid] = null;
-      this.inFlightConsumed[tid] = null;
       this.inFlightMatched[tid] = null;
       this.inFlightResolves[tid] = null;
       this.inFlightErrors[tid] = null;
@@ -1444,7 +1447,11 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         // Validate output (NU-054's relay check included, after the spec check on either path)
         if (!this.skipOutputValidation && t.outputSpec !== null) {
           const simplePid = prog.simpleOutputPlaceId[tid]!;
-          if (simplePid >= 0) {
+          if (context.isDetachedForTimeout()) {
+            // A timeout outcome is not validated (EXEC-021, EXEC-022, IO-013): only the
+            // relay check runs on it.
+            validateRelays(t, outputs.entries(), matched);
+          } else if (simplePid >= 0) {
             const produced = outputs.placesWithTokens();
             const named = prog.places[simplePid]!.name;
             if (!produced.has(named)) {
@@ -1616,7 +1623,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   // ======================== Await Work ========================
 
-  private async awaitWork(): Promise<void> {
+  private async awaitWork(cycleNowMs: number): Promise<void> {
     // When closed, ignore external queue — processExternalEvents() won't consume it,
     // and drainPendingExternalEvents() handles it after the loop exits.
     if (this.completionQueue.length > 0 || (!this.closed && this.externalQueue.length > 0)) return;
@@ -1655,14 +1662,17 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
     // When closed, only wait for in-flight completions — skip event/timer promises
     if (!this.closed) {
+      // The boundary is judged at the cycle's reading, not a fresh one (TIME-010): a
+      // boundary that falls due during this setup still gets its timer (CONC-010 AC3),
+      // where a later reading would find it passed and, with an action in flight, set none.
       // Zero means a timing boundary is already due: an earliest firing time has
       // been reached, or a deadline needs enforcing. There is nothing to wait for,
       // and with no action in flight the race below would hold only the external
       // wake-up promise — which a net with no environment places has nobody to
       // resolve, so the loop would sleep until its run budget expired. Return and
       // let the next cycle act on the boundary. Rust reaches the same outcome via
-      // sleep(0); Java returns early on `millisUntilNextTimedTransition() <= 0`.
-      const timerMs = this.millisUntilNextTimedTransition();
+      // sleep(0) on its `cycle_now`.
+      const timerMs = this.millisUntilNextTimedTransition(cycleNowMs);
       if (timerMs === 0 && promises.length === 0) return;
 
       // 2. External event wake-up
@@ -1703,8 +1713,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     }
   }
 
-  private millisUntilNextTimedTransition(): number {
-    const nowMs = this.nowMs();
+  private millisUntilNextTimedTransition(nowMs: number): number {
     const prog = this.program;
     const tc = prog.transitionCount;
     let minWaitMs = Infinity;

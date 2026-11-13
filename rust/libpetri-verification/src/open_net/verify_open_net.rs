@@ -162,6 +162,8 @@ const GRAPH_SKIPPED_BUDGET: &str = "class budget 0";
 const GRAPH_SKIPPED_IN_FLIGHT: &str = "the closed net has in-flight actions the verifier cannot split (VER-004)";
 /// Why the graph was not built when a declared mint transition is not in the net.
 const GRAPH_SKIPPED_MINT: &str = "a declared mint transition is not in the net (NU-010)";
+/// Why the graph was not built when a declared carrier place is not in the net.
+const GRAPH_SKIPPED_CARRIER: &str = "a declared carrier place is not in the net (NU-051)";
 /// The phase a cancellation of the graph build is reported in ([VER-013]).
 const PHASE_GRAPH: &str = "open-net state-class graph";
 
@@ -187,15 +189,17 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     let mut closed = close_open_net(net, contract);
     // [NU-051] / [NU-010]: the carrier places and mint transitions a `configure_smt` hook
     // declares. The split below refuses a writer into a carrier as the SMT route's own
-    // would, and a declared mint that is not in the net is rejected before either route
-    // runs, as `SmtVerifier::verify` rejects it.
-    let (carriers, unknown_mint) = match options.configure_smt.as_ref() {
+    // would, and a declared mint or carrier that is not in the net is rejected before
+    // either route runs, as `SmtVerifier::verify` rejects it.
+    let (carriers, unknown_mint, unknown_carrier) = match options.configure_smt.as_ref() {
         Some(configure) => {
             let probe = configure(SmtVerifier::for_net(&closed.net));
             let carriers = probe.configured_carrier_places().clone();
-            (carriers, name_fragment::unknown_mint_reason(&closed.net, probe.configured_mint_transitions()))
+            let unknown_mint = name_fragment::unknown_mint_reason(&closed.net, probe.configured_mint_transitions());
+            let unknown_carrier = name_fragment::unknown_carrier_reason(&closed.net, &carriers);
+            (carriers, unknown_mint, unknown_carrier)
         }
-        None => (HashSet::new(), None),
+        None => (HashSet::new(), None, None),
     };
     // [VER-004]: a transition whose output another tests non-monotonically is verified as a
     // start and a completion step, environment transitions included. Before the terminal
@@ -255,6 +259,8 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
     // the SMT pipeline has exact ν routes.
     let graph_skipped: Option<&'static str> = if unknown_mint.is_some() {
         Some(GRAPH_SKIPPED_MINT)
+    } else if unknown_carrier.is_some() {
+        Some(GRAPH_SKIPPED_CARRIER)
     } else if in_flight_refusal.is_some() {
         Some(GRAPH_SKIPPED_IN_FLIGHT)
     } else if closed.net.transitions().iter().any(|t| t.match_spec().is_some()) {
@@ -323,7 +329,7 @@ pub fn verify_open_net(net: &PetriNet, contract: &OpenNetContract, options: &Ope
         }
     };
 
-    if let Some(reason) = unknown_mint {
+    if let Some(reason) = unknown_mint.or(unknown_carrier) {
         return result(Verdict::Unknown { reason }, OpenNetRoute::Enumeration, Vec::new(), None);
     }
     if let Some(reason) = in_flight_refusal {

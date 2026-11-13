@@ -4159,3 +4159,170 @@ for_each_backend!(
     clock_persists_across_same_pass_refills,
     nu_join_clock_persists_across_same_pass_refills,
 );
+
+/// \[EXEC-022\] line 4 and \[CONC-003\] line 2: a flush is a publication made
+/// before the action completes ([IO-015]). A flush callback kept past the end
+/// of its firing (a timeout, a normal return or an error return) is refused
+/// with `Err`, and nothing it carried is deposited. A batch flushed before the
+/// budget ran out stays in the marking.
+#[cfg(feature = "tokio")]
+mod late_flush {
+    use super::*;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    use libpetri_core::action::async_action;
+    use libpetri_core::context::{FlushFn, OutputEntry};
+    use libpetri_core::output::timeout_place;
+    use libpetri_core::timing::delayed;
+    use libpetri_core::token::ErasedToken;
+
+    #[derive(Clone, Copy, Debug)]
+    enum Backend {
+        Bitmap,
+        Precompiled,
+    }
+
+    const BACKENDS: [Backend; 2] = [Backend::Bitmap, Backend::Precompiled];
+
+    #[derive(Clone, Copy, Debug)]
+    enum Ending {
+        Timeout,
+        Return,
+        Error,
+    }
+
+    type Stash = Arc<Mutex<Option<FlushFn>>>;
+    type Seen = Arc<Mutex<Vec<Result<(), String>>>>;
+
+    async fn run_async(backend: Backend, net: &PetriNet, marking: Marking) -> Marking {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(tx);
+        match backend {
+            Backend::Bitmap => {
+                let mut ex = BitmapNetExecutor::<NoopEventStore>::new(
+                    net,
+                    marking,
+                    ExecutorOptions::default(),
+                );
+                ex.run_async(rx).await.into_owned()
+            }
+            Backend::Precompiled => {
+                let prog = PrecompiledNet::from_compiled(CompiledNet::compile(net));
+                let mut ex = PrecompiledNetExecutor::<NoopEventStore>::builder(&prog, marking)
+                    .build();
+                ex.run_async(rx).await.into_owned()
+            }
+        }
+    }
+
+    /// `t` keeps its flush callback and ends by `ending`; the sync `after`
+    /// fires once `t` has ended (on `t`'s `ended` token, or on its own
+    /// delayed trigger after an error return) and flushes one token to
+    /// `leak` through the kept callback.
+    fn late_flush_net(ending: Ending, stash: &Stash, seen: &Seen) -> PetriNet {
+        let start = Place::<i32>::new("start");
+        let leak = Place::<i32>::new("leak");
+        let ended = Place::<i32>::new("ended");
+        let trigger = Place::<i32>::new("trigger");
+        let keep = Arc::clone(stash);
+        let t = Transition::builder("t")
+            .input(one(&start))
+            .output(match ending {
+                Ending::Timeout => xor(vec![out_place(&leak), timeout_place(30, &ended)]),
+                Ending::Return | Ending::Error => xor(vec![out_place(&leak), out_place(&ended)]),
+            })
+            .action(async_action(move |ctx| {
+                let keep = Arc::clone(&keep);
+                async move {
+                    *keep.lock().unwrap() = ctx.flush_fn();
+                    match ending {
+                        Ending::Timeout => {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            Ok(ctx)
+                        }
+                        Ending::Return => {
+                            let mut ctx = ctx;
+                            ctx.output("ended", 1)?;
+                            Ok(ctx)
+                        }
+                        Ending::Error => Err(ActionError::new("t failed")),
+                    }
+                }
+            }))
+            .build();
+        let kept = Arc::clone(stash);
+        let record = Arc::clone(seen);
+        let mut after = Transition::builder("after");
+        after = match ending {
+            Ending::Error => after.input(one(&trigger)).timing(delayed(100)),
+            Ending::Timeout | Ending::Return => after.input(one(&ended)),
+        };
+        let after = after
+            .action(sync_action(move |_ctx| {
+                let flush = kept.lock().unwrap().clone().expect("t kept its flush callback");
+                let result = flush(vec![OutputEntry {
+                    place_name: Arc::from("leak"),
+                    token: ErasedToken::from_typed(&Token::at(9i32, 0)),
+                }]);
+                record.lock().unwrap().push(result.map_err(|e| e.message));
+                Ok(())
+            }))
+            .build();
+        PetriNet::builder("late-flush").transitions([t, after]).build()
+    }
+
+    #[tokio::test]
+    async fn exec_022_a_flush_after_the_firing_ended_is_refused() {
+        for backend in BACKENDS {
+            for ending in [Ending::Timeout, Ending::Return, Ending::Error] {
+                let stash: Stash = Arc::default();
+                let seen: Seen = Arc::default();
+                let net = late_flush_net(ending, &stash, &seen);
+                let mut marking = Marking::new();
+                marking.add(&Place::<i32>::new("start"), Token::at(1, 0));
+                if let Ending::Error = ending {
+                    marking.add(&Place::<i32>::new("trigger"), Token::at(1, 0));
+                }
+                let end = run_async(backend, &net, marking).await;
+                let case = format!("{backend:?}, {ending:?}");
+                let seen = seen.lock().unwrap().clone();
+                assert_eq!(seen.len(), 1, "{case}: `after` fired once");
+                let error = seen[0].clone().expect_err(&case);
+                assert!(error.contains("EXEC-022"), "{case}: {error}");
+                assert_eq!(end.count("leak"), 0, "{case}: the late batch was deposited");
+                assert_eq!(end.count("ended"), 0, "{case}");
+            }
+        }
+    }
+
+    /// The other half of EXEC-022's line: a batch the action flushed before
+    /// its budget ran out stays in the marking beside the timeout outcome.
+    #[tokio::test]
+    async fn exec_022_a_flush_before_the_timeout_is_deposited() {
+        for backend in BACKENDS {
+            let start = Place::<i32>::new("start");
+            let early = Place::<i32>::new("early");
+            let timed_out = Place::<i32>::new("timed_out");
+            let t = Transition::builder("t")
+                .input(one(&start))
+                .output(xor(vec![
+                    out_place(&early),
+                    timeout_place(30, &timed_out),
+                ]))
+                .action(async_action(|mut ctx| async move {
+                    ctx.output("early", 1)?;
+                    ctx.flush()?;
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    Ok(ctx)
+                }))
+                .build();
+            let net = PetriNet::builder("early-flush").transition(t).build();
+            let mut marking = Marking::new();
+            marking.add(&start, Token::at(1, 0));
+            let end = run_async(backend, &net, marking).await;
+            assert_eq!(end.count("early"), 1, "{backend:?}");
+            assert_eq!(end.count("timed_out"), 1, "{backend:?}");
+        }
+    }
+}

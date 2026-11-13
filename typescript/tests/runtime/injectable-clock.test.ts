@@ -209,6 +209,44 @@ describe('TIME-015 — injectable clock', () => {
       }
     });
 
+    it('CONC-010 AC3 / TIME-010: a boundary that falls due during the wait setup still gets a timer', async () => {
+      // The decision to wait judges the next boundary at the cycle's reading. `t` is armed at 0
+      // and not Ready at the cycle reading 0; the clock then moves to 10.05 inside the wait's
+      // setup (the microtask runs in awaitWork's flush yield). A fresh reading there finds the
+      // boundary already passed, sets no timer, and blocks on `u`, which only `t` releases.
+      const A = place<string>('A');
+      const B = place<string>('B');
+      const OUT = place<string>('OUT');
+      const clock = new VirtualClock();
+      let releaseU!: () => void;
+      const uDone = new Promise<void>((resolve) => { releaseU = resolve; });
+      const t = Transition.builder('t')
+        .inputs(one(A))
+        .outputs(outPlace(OUT))
+        .timing(delayed(10))
+        .action(async (ctx) => {
+          ctx.output(OUT, ctx.input(A));
+          releaseU();
+        })
+        .build();
+      const u = Transition.builder('u')
+        .inputs(one(B))
+        .action(() => {
+          queueMicrotask(() => { clock.monotonicMs = 10.05; });
+          return uDone;
+        })
+        .build();
+      const net = PetriNet.builder('N').transitions(t, u).build();
+
+      const executor = makeExecutor(
+        backend, net, initial([A, [tokenOf('a')]], [B, [tokenOf('b')]]), { clock });
+      const marking = await executor.run(1000);
+
+      expect(marking.hasTokens(OUT)).toBe(true);
+      // The wait set a timer measured from the cycle reading: 10, not "none".
+      expect(clock.sleeps).toContain(10);
+    });
+
     it('AC#8: a completing action wakes the wait without the interval being waited out', async () => {
       // SuspendingClock never resolves a sleep on its own. The only way this net can
       // finish is the in-flight completion promise still being in the race — a seam

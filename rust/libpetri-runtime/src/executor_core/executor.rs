@@ -973,6 +973,16 @@ struct ActionFlush {
     outputs: Vec<OutputEntry>,
 }
 
+/// The state an async firing's flush closure shares with its task: `ended`
+/// once the action completed, failed or timed out ([EXEC-022]), and the
+/// relay diagnostic of a refused batch ([NU-054]).
+#[cfg(feature = "tokio")]
+#[derive(Default)]
+struct FlushGate {
+    ended: bool,
+    relay_error: Option<String>,
+}
+
 #[cfg(feature = "tokio")]
 impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
     /// Run the executor asynchronously with tokio. Supports sync and
@@ -1648,20 +1658,30 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                         .filter(|ms| !ms.relays().is_empty())
                         .cloned()
                 };
-            let relay_slot: Option<Arc<std::sync::Mutex<Option<String>>>> =
-                relay_guard.as_ref().map(|_| Arc::new(std::sync::Mutex::new(None)));
-            let flush_slot = relay_slot.clone();
+            // [EXEC-022], [CONC-003]: a flush publishes only while the firing
+            // is in flight. The task sets `ended` when the action completed,
+            // failed or timed out, and the closure refuses from then on. The
+            // check and the send share the lock, so a batch is either sent
+            // before the firing ended (and deposited) or refused.
+            let gate = Arc::new(std::sync::Mutex::new(FlushGate::default()));
+            let flush_gate = Arc::clone(&gate);
             let flush_matched = matched.clone();
             ctx.set_flush_fn(Arc::new(move |outputs: Vec<OutputEntry>| {
-                if let (Some(ms), Some(slot)) = (&relay_guard, &flush_slot) {
-                    let mut failed = slot.lock().unwrap_or_else(|p| p.into_inner());
-                    if let Some(error) = failed.as_ref() {
+                let mut gate = flush_gate.lock().unwrap_or_else(|p| p.into_inner());
+                if gate.ended {
+                    return Err(libpetri_core::action::ActionError::new(format!(
+                        "'{flush_name}': the firing already ended; a flush after its action \
+                         completed or its budget ran out is not published (EXEC-022)"
+                    )));
+                }
+                if let Some(ms) = &relay_guard {
+                    if let Some(error) = gate.relay_error.as_ref() {
                         return Err(libpetri_core::action::ActionError::new(error.clone()));
                     }
                     if let Some(error) =
                         relay_violation(&flush_name, ms, &outputs, flush_matched.as_ref())
                     {
-                        *failed = Some(error.clone());
+                        gate.relay_error = Some(error.clone());
                         return Err(libpetri_core::action::ActionError::new(error));
                     }
                 }
@@ -1706,13 +1726,14 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                     action_completion(&name, tid, action.run_async(ctx).await)
                 };
                 completion.matched = matched;
+                let mut gate = gate.lock().unwrap_or_else(|p| p.into_inner());
+                gate.ended = true;
                 // [NU-054]: a flushed batch that broke the relay contract
                 // failed the firing when it was published.
-                if let Some(slot) = relay_slot
-                    && let Some(error) = slot.lock().unwrap_or_else(|p| p.into_inner()).take()
-                {
+                if let Some(error) = gate.relay_error.take() {
                     completion.result = Err(error);
                 }
+                drop(gate);
                 let _ = tx.send(completion);
             });
         }

@@ -334,23 +334,29 @@ fn build_local_name_map(
         map.insert(local, post);
     };
 
-    for spec in t.input_specs() {
-        record(spec.place());
-    }
-    for rd in t.reads() {
-        record(&rd.place);
-    }
-    for inh in t.inhibitors() {
-        record(&inh.place);
-    }
-    for rs in t.resets() {
-        record(&rs.place);
-    }
-    if let Some(out) = t.output_spec() {
-        collect_out_places(out, &mut record);
-    }
+    named_places(t, &mut record);
 
     wholesale_drop_if_all_identity(map)
+}
+
+/// Visits every place `t` names: its input, read, inhibitor and reset arcs and
+/// every place of its output spec.
+fn named_places(t: &Transition, f: &mut impl FnMut(&PlaceRef)) {
+    for spec in t.input_specs() {
+        f(spec.place());
+    }
+    for rd in t.reads() {
+        f(&rd.place);
+    }
+    for inh in t.inhibitors() {
+        f(&inh.place);
+    }
+    for rs in t.resets() {
+        f(&rs.place);
+    }
+    if let Some(out) = t.output_spec() {
+        collect_out_places(out, f);
+    }
 }
 
 /// Collapses a fully-identity correspondence to `None`. A map in which no
@@ -625,8 +631,7 @@ pub(crate) fn merge_transitions(
     let merged_priority = pick_priority(caller.priority(), instance.priority());
     let merged_action = compose_actions(caller.action(), instance.action());
     let merged_match = merge_match_specs(caller.match_spec(), instance.match_spec(), &merged_name);
-    let merged_local =
-        merge_local_name_maps(caller.local_name_map(), instance.local_name_map(), &merged_name);
+    let merged_local = merge_local_name_maps(caller, instance, &merged_name);
 
     // MOD-021 rule (d): cross-side arc-kind conflicts on one place reject.
     reject_cross_side_kind_conflicts(caller, instance, &merged_name);
@@ -730,55 +735,75 @@ fn merge_match_specs(
 /// declared name bound to two different **non-identity** actual names) is
 /// rejected with a panic naming the declared place.
 ///
+/// A side that carries no map contributes an identity entry for every place it
+/// names ([`side_map`]). The merged map is never re-derived from the arcs by a
+/// later pass, so without those keys a later pass that renames one of that
+/// side's places would leave it unresolved (MOD-031 key-set completeness; the
+/// Lean reference merge `corrMergeVia corrSideFull`).
+///
 /// An **identity** entry (`X → X`) carries no assertion — it records that some
 /// pass did not rename the place, not that the author required the name to
 /// stay. So identity loses to a non-identity mapping on the other side and the
 /// merge succeeds (MOD-031, AC#10). Without this rule, keeping identity entries
 /// (which MOD-031 requires, for key-set completeness across passes) would
-/// manufacture conflicts that the older, lossy map never raised.
+/// manufacture conflicts that the older, lossy map never raised. A merged map
+/// that is all identity is dropped whole (AC#9).
 fn merge_local_name_maps(
-    caller: Option<&Arc<HashMap<Arc<str>, Arc<str>>>>,
-    instance: Option<&Arc<HashMap<Arc<str>, Arc<str>>>>,
+    caller: &Transition,
+    instance: &Transition,
     channel_name: &str,
 ) -> Option<Arc<HashMap<Arc<str>, Arc<str>>>> {
-    match (caller, instance) {
-        (None, None) => None,
-        (Some(m), None) | (None, Some(m)) => Some(Arc::clone(m)),
-        (Some(c), Some(i)) => {
-            let mut merged: HashMap<Arc<str>, Arc<str>> = (**c).clone();
-            // Collect *every* conflict rather than panicking on the first.
-            // This walks a `HashMap`, whose iteration order is not
-            // deterministic, so reporting the first would name an arbitrary
-            // one of N — the same ambiguity would be blamed on a different
-            // place from run to run, and a test asserting on the named place
-            // would be flaky. Sorted by declared name before reporting.
-            let mut conflicts: Vec<AliasConflict> = Vec::new();
-            for (declared, actual) in i.iter() {
-                if let Some(existing) = merged.get(declared) {
-                    if existing == actual {
-                        continue;
-                    }
-                    // Identity carries no assertion: whichever side is the
-                    // identity yields to the other (MOD-031 AC#10).
-                    if actual == declared {
-                        continue;
-                    }
-                    if existing != declared {
-                        conflicts.push(AliasConflict {
-                            declared: Arc::clone(declared),
-                            caller: Arc::clone(existing),
-                            instance: Arc::clone(actual),
-                        });
-                        continue;
-                    }
-                }
-                merged.insert(Arc::clone(declared), Arc::clone(actual));
+    if caller.local_name_map().is_none() && instance.local_name_map().is_none() {
+        return None;
+    }
+    let mut merged = side_map(caller);
+    // Collect *every* conflict rather than panicking on the first.
+    // This walks a `HashMap`, whose iteration order is not
+    // deterministic, so reporting the first would name an arbitrary
+    // one of N — the same ambiguity would be blamed on a different
+    // place from run to run, and a test asserting on the named place
+    // would be flaky. Sorted by declared name before reporting.
+    let mut conflicts: Vec<AliasConflict> = Vec::new();
+    for (declared, actual) in side_map(instance) {
+        if let Some(existing) = merged.get(&declared) {
+            if *existing == actual {
+                continue;
             }
-            if !conflicts.is_empty() {
-                conflicts.sort_by(|a, b| a.declared.cmp(&b.declared));
-                panic!("{}", describe_alias_conflicts(channel_name, &conflicts));
+            // Identity carries no assertion: whichever side is the
+            // identity yields to the other (MOD-031 AC#10).
+            if actual == declared {
+                continue;
             }
-            Some(Arc::new(merged))
+            if *existing != declared {
+                conflicts.push(AliasConflict {
+                    declared,
+                    caller: Arc::clone(existing),
+                    instance: actual,
+                });
+                continue;
+            }
+        }
+        merged.insert(declared, actual);
+    }
+    if !conflicts.is_empty() {
+        conflicts.sort_by(|a, b| a.declared.cmp(&b.declared));
+        panic!("{}", describe_alias_conflicts(channel_name, &conflicts));
+    }
+    wholesale_drop_if_all_identity(merged).map(Arc::new)
+}
+
+/// One side of a channel merge as the merge reads it: the correspondence the
+/// transition carries, or, when it carries none, an identity entry for every
+/// place it names.
+fn side_map(t: &Transition) -> HashMap<Arc<str>, Arc<str>> {
+    match t.local_name_map() {
+        Some(map) => (**map).clone(),
+        None => {
+            let mut map = HashMap::new();
+            named_places(t, &mut |p: &PlaceRef| {
+                map.insert(Arc::clone(p.name_arc()), Arc::clone(p.name_arc()));
+            });
+            map
         }
     }
 }

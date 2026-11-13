@@ -284,12 +284,20 @@ impl Dbm {
     /// either may go first. Keying on the projections merges those, and since
     /// the graph explores only the first arrival's successors, a marking
     /// reachable only from the second is lost: a false `proven`. This key is
-    /// what `PartialEq` compares, rendered.
+    /// what `PartialEq` compares, rendered. A clock name's separators are escaped
+    /// ([VER-010]), so a name cannot run into the bounds.
     pub fn zone_key(&self) -> String {
         if self.empty {
             return "DBM[empty]".to_string();
         }
-        let mut parts = vec![self.clock_names.join(",")];
+        let mut names = String::new();
+        for (i, name) in self.clock_names.iter().enumerate() {
+            if i > 0 {
+                names.push(',');
+            }
+            crate::marking_state::push_key_name(&mut names, name);
+        }
+        let mut parts = vec![names];
         parts.extend(self.data.iter().map(|&b| format_bound(b)));
         parts.join("|")
     }
@@ -660,5 +668,13 @@ mod tests {
         // Shape: names, then every matrix entry row-major.
         let one = Dbm::create(vec!["t1".into()], &[5.0], &[10.0]);
         assert_eq!(one.zone_key(), "t1|0|-5|10|0");
+    }
+
+    /// [VER-010]: a clock is named after its transition, and a name may hold the key's
+    /// separators; they are escaped so the names cannot run into the bounds.
+    #[test]
+    fn ver_010_zone_key_escapes_clock_names() {
+        let odd = Dbm::create(vec!["a,b|c".into()], &[5.0], &[10.0]);
+        assert_eq!(odd.zone_key(), "a\\,b\\|c|0|-5|10|0");
     }
 }

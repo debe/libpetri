@@ -17,6 +17,11 @@ import java.util.Set;
  * that races the detach lands in a collector nobody harvests; its only visible effect is that
  * {@link #discardedWriteCount()} may not count it.
  *
+ * <p><b>Completion.</b> When the action's future completes, the executor detaches this collector
+ * too but harvests it: what was written before the completion is the firing's output, and a
+ * write after it is counted and dropped ([CONC-003]). A write from another thread that is not
+ * ordered after the completion races the harvest, as it always did.
+ *
  * <h3>Example</h3>
  * <pre>{@code
  * .action((in, out) -> {
@@ -66,10 +71,11 @@ public final class TokenOutput {
     /**
      * Once true, further writes are rejected and counted instead of appended.
      *
-     * <p>Volatile so the abandoned action's thread observes the flag promptly. The executor
-     * stops harvesting this collector at the same moment it detaches, so the flag is a
-     * best-effort courtesy — it turns an abandoned write into a counted no-op rather than a
-     * silent one — not a correctness barrier.
+     * <p>Volatile so the abandoned action's thread observes the flag promptly. On a timeout
+     * the executor stops harvesting this collector at the same moment it detaches, so there
+     * the flag only turns an abandoned write into a counted no-op rather than a silent one. At
+     * completion the executor still harvests this collector, and the flag is what keeps a
+     * write made after the completion out of the harvest ([CONC-003]).
      */
     private volatile boolean detached = false;
 
@@ -127,7 +133,8 @@ public final class TokenOutput {
      *
      * <p>Called by the executor (via {@link TransitionContext#detachForTimeout()}) when a
      * firing times out, so that the action it has stopped waiting for can no longer reach the
-     * marking. Package-private — this is executor machinery, not part of the action-facing
+     * marking, and (via {@link TransitionContext#detachAtCompletion()}) when the action's future
+     * completes, so that a later write is not deposited ([CONC-003]). Package-private — this is executor machinery, not part of the action-facing
      * surface. Irreversible.
      */
     void detach() {

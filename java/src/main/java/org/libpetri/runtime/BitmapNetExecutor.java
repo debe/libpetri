@@ -347,8 +347,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         this.executor = executor;
         this.ownsExecutor = ownsExecutor;
         this.uncaughtActionHandler = uncaughtActionHandler;
-        this.environmentPlaces = environmentPlaces;
-        this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
+        this.environmentPlaces = Set.copyOf(environmentPlaces); // [ENV-002] fixed at build
+        this.hasEnvironmentPlaces = !this.environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
         this.deadlineToleranceMillis = deadlineToleranceMillis;
         this.startNanos = clockNanos();
@@ -850,8 +850,16 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     @Override
     public CompletionStage<Marking> run(Duration timeout, RunTimeoutPolicy policy) {
+        boolean wasStarted = started;
         started = true; // before submit, so awaitTermination cannot mistake this for "never started"
-        CompletableFuture<Marking> loop = CompletableFuture.supplyAsync(this::executeLoop, executor);
+        CompletableFuture<Marking> loop;
+        try {
+            loop = CompletableFuture.supplyAsync(this::executeLoop, executor);
+        } catch (RuntimeException rejected) {
+            // [ENV-016] the submit failed, so no loop started: awaitTermination must not wait for it.
+            started = wasStarted;
+            throw rejected;
+        }
         // copy() so the timer never completes the loop's own future: ABANDON must leave the
         // orchestrator running and still able to report its real result to terminatedFuture.
         return loop.copy()
@@ -1001,22 +1009,25 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         // Take it down before the first action can trip over it; run() puts it back.
         interruptDeferred = false;
         absorbInterruptFlag();
-        emitEvent(new NetEvent.ExecutionStarted(
-            clockInstant(), compiled.net().name(), executionId()));
-
-        // Initialize bitmap from initial marking
-        initializeMarkedBitmap();
-        // [EXEC-042] check point 1: the initial marking, before the first cycle.
-        if (hasTerminals) checkInitialTerminals();
-        // Mark all transitions dirty for initial enablement check
-        markAllDirty();
-        emitMarkingSnapshot();
 
         // The loop body must never leave pending inject() futures uncompleted, even when it
         // exits by exception: those callers are blocked on join() and their tokens have
-        // already been consumed. Termination bookkeeping therefore lives in the finally.
+        // already been consumed. Termination bookkeeping therefore lives in the finally, and
+        // the boot is inside the try: a store that throws on ExecutionStarted or the first
+        // snapshot still ends the run as stopped, so awaitTermination observes it ([ENV-016]).
         boolean quiesced = false;
         try {
+            emitEvent(new NetEvent.ExecutionStarted(
+                clockInstant(), compiled.net().name(), executionId()));
+
+            // Initialize bitmap from initial marking
+            initializeMarkedBitmap();
+            // [EXEC-042] check point 1: the initial marking, before the first cycle.
+            if (hasTerminals) checkInitialTerminals();
+            // Mark all transitions dirty for initial enablement check
+            markAllDirty();
+            emitMarkingSnapshot();
+
             // NOTE: the thread's interrupt flag is deliberately NOT a loop condition.
             // [EXEC-041] forbids treating ambient host state as a stop request: the flag
             // may be inherited from earlier work on a reused thread, or set by this run's
@@ -1039,8 +1050,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 // channel. Serviced first, every inject-then-snapshot came back "not a restore
                 // point" and cost the host a retry.
                 serviceMarkingRequest();
-                updateDirtyTransitions();
-                if (hasAnyDeadlines) enforceDeadlines();
+                // [TIME-010]/[EXEC-001]: one firing-clock reading per cycle. The enablement
+                // update stamps at it; the deadline step, the firing pass and the decision to
+                // wait judge at it, and no later step reads the clock for these judgements.
+                long cycleNanos = clockNanos();
+                updateDirtyTransitions(cycleNanos);
+                if (hasAnyDeadlines) enforceDeadlines(cycleNanos);
 
                 if (shouldTerminate()) {
                     // shouldTerminate() is also true for a close with nothing in flight, so it
@@ -1051,13 +1066,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                     break;
                 }
 
-                fireReadyTransitions();
+                fireReadyTransitions(cycleNanos);
 
                 // Sync fast-path firings set dirty bits that need processing
                 // before the orchestrator can sleep — skip awaitWork and re-loop.
                 if (hasDirtyBits()) continue;
 
-                awaitWork();
+                awaitWork(cycleNanos);
             }
         } finally {
             running = false;
@@ -1288,8 +1303,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      *       the new enablement state against the previous one and update accordingly.</li>
      * </ol>
      */
-    private void updateDirtyTransitions() {
-        long nowNanos = clockNanos();
+    private void updateDirtyTransitions(long nowNanos) {
 
         // Read and clear dirty bitmap into reusable buffer
         for (int w = 0; w < transitionWords; w++) {
@@ -1447,8 +1461,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * Disables transitions that have exceeded their timing deadline.
      * Uses bitmap iteration to visit only enabled transitions.
      */
-    private void enforceDeadlines() {
-        long nowNanos = clockNanos();
+    private void enforceDeadlines(long nowNanos) {
         for (int w = 0; w < transitionWords; w++) {
             long word = enabledBitmap[w];
             while (word != 0) {
@@ -1484,12 +1497,12 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     // ======================== Firing ========================
 
-    private void fireReadyTransitions() {
+    private void fireReadyTransitions(long nowNanos) {
         if (allImmediate && allSamePriority) {
             fireReadyImmediate();
             return;
         }
-        fireReadyGeneral();
+        fireReadyGeneral(nowNanos);
     }
 
     /**
@@ -1524,8 +1537,7 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     /**
      * General-purpose firing path with timing checks, priority sorting, and FIFO ordering.
      */
-    private void fireReadyGeneral() {
-        long nowNanos = clockNanos();
+    private void fireReadyGeneral(long nowNanos) {
 
         // Collect ready transitions into reusable buffer using bitmap iteration
         readyBuffer.clear();
@@ -1763,6 +1775,9 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         } else {
             // Async path: track in-flight, process on completion
             transitionFuture.whenComplete((_, _) -> {
+                // [CONC-003]: the output is what the action wrote before its future completed;
+                // detach before queueing, so a later write never reaches the admission.
+                context.detachAtCompletion();
                 completionQueue.offer(t);
                 wakeUp();
             });
@@ -1779,6 +1794,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
     private void processSyncOutput(Transition t, int tid, CompletableFuture<Void> future,
                                    TransitionContext context, List<Token<?>> consumed,
                                    NameId matchedName) {
+        // [CONC-003]: the future is done, so the output is what the action wrote until now.
+        context.detachAtCompletion();
         try {
             future.join(); // won't block; may throw CompletionException
 
@@ -1895,7 +1912,13 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 flight.future().join();
 
                 TokenOutput outputs = flight.context().rawOutput();
-                validateOutput(t, outputs, flight.matchedName());
+                if (flight.context().isDetachedForTimeout()) {
+                    // [EXEC-021]/[EXEC-022]/[IO-013]: the timeout outcome is not validated
+                    // against the output spec; the [NU-054] relay check still runs on it.
+                    ExecutorSupport.validateRelays(t, outputs, flight.matchedName());
+                } else {
+                    validateOutput(t, outputs, flight.matchedName());
+                }
 
                 // One entry = add token, set its presence bit, mark dirty — kept together so a
                 // throw mid-commit cannot leave a token in the marking with its bit unset. A
@@ -2002,20 +2025,20 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
     // ======================== Await Work ========================
 
-    private void awaitWork() {
+    private void awaitWork(long cycleNanos) {
         // When closed, ignore external queue — processExternalEvents() won't consume it,
         // drainPendingExternalEvents() handles it after the loop exits.
         if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         if (!inFlight.isEmpty()) {
-            awaitCompletionOrEvent();
+            awaitCompletionOrEvent(cycleNanos);
         } else if (enabledTransitionCount > 0 || (hasEnvironmentPlaces && !draining.get())) {
             // Wait for timed transitions to become ready, or for external events
-            awaitExternalEvent();
+            awaitExternalEvent(cycleNanos);
         }
     }
 
-    private void awaitCompletionOrEvent() {
+    private void awaitCompletionOrEvent(long cycleNanos) {
         for (var flight : inFlight.values()) {
             if (flight.future().isDone()) return;
         }
@@ -2023,13 +2046,15 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
 
         if (inFlight.isEmpty()) return;
 
+        // [TIME-010]/[CONC-010]: the next boundary is judged at the cycle reading, once.
+        long waitNanos = allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition(cycleNanos);
         absorbInterruptFlag();
         if (environment != null) {
             // The host owns both halves of the wait ([TIME-015]): `workReady` is the signal
             // the semaphore carries by default, the delay is the timeout. No poll loop — a
             // host may return spuriously and the orchestrator re-checks on its next cycle
             // (contract point 3), which is what makes the poll bound unnecessary here.
-            awaitHostedWork(allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition());
+            awaitHostedWork(waitNanos);
             return;
         }
 
@@ -2043,17 +2068,26 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         // The whole loop is one park ([ENV-014] AC#9): between polls it only reads.
         parkEpoch++;
         try {
-            awaitCompletionPolling();
+            awaitCompletionPolling(waitNanos);
         } finally {
             parkEpoch++;
         }
     }
 
-    /** The built-in poll of {@link #awaitCompletionOrEvent()}, run while parked. */
-    private void awaitCompletionPolling() {
+    /**
+     * The built-in poll of {@link #awaitCompletionOrEvent(long)}, run while parked.
+     *
+     * @param waitNanos the timer the decision to wait set at the cycle reading ([TIME-010],
+     *     [CONC-010]); the poll only runs it down and never judges a boundary again. Running it
+     *     down reads the real clock, which is this path's firing clock: it is taken only when
+     *     no environment is installed.
+     */
+    private void awaitCompletionPolling(long waitNanos) {
+        long parkedAt = System.nanoTime();
         while (true) {
-            long pollMs = allImmediate ? awaitPollMillis
-                : Math.max(1, Math.min(awaitPollMillis, nanosUntilNextTimedTransition() / 1_000_000));
+            long remainingNanos = waitNanos - (System.nanoTime() - parkedAt);
+            if (remainingNanos <= 0) return; // the timer ran out: the next cycle judges
+            long pollMs = Math.max(1, Math.min(awaitPollMillis, remainingNanos / 1_000_000));
             try {
                 if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
                     wakeUpSignal.drainPermits();
@@ -2071,9 +2105,6 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 return;
             }
             if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
-
-            // Timed transition may have become ready (pollMs was bounded by timer)
-            if (!allImmediate && nanosUntilNextTimedTransition() <= 0) return;
         }
     }
 
@@ -2086,9 +2117,10 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
      * remaining interval by up to a millisecond and waiting marginally longer than needed.
      * Only the wait bound is affected: enablement and deadline decisions are taken elsewhere
      * from {@code enabledAtNanos}, and the orchestrator re-checks after every wait.
+     *
+     * @param nowNanos the cycle reading, at which the decision to wait judges ([TIME-010])
      */
-    private long nanosUntilNextTimedTransition() {
-        long nowNanos = clockNanos();
+    private long nanosUntilNextTimedTransition(long nowNanos) {
         long minWaitNanos = Long.MAX_VALUE;
 
         for (int w = 0; w < transitionWords; w++) {
@@ -2118,8 +2150,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
         return minWaitNanos;
     }
 
-    private void awaitExternalEvent() {
-        long waitNanos = nanosUntilNextTimedTransition();
+    private void awaitExternalEvent(long cycleNanos) {
+        long waitNanos = nanosUntilNextTimedTransition(cycleNanos); // [TIME-010]: at the cycle reading
         // Boundary already due: return and let the next cycle act on it rather than waiting.
         // Hoisted above the environment branch so an injected clock cannot make the
         // short-circuit diverge from the default one ([TIME-015], [EXEC-001], [CONC-010]).

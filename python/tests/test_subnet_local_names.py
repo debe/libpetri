@@ -16,6 +16,8 @@ the *local* and the *host* names work.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 import libpetri as lp
@@ -651,3 +653,62 @@ def test_nested_instantiation_resolves_doubly_prefixed() -> None:
     result = lp.run_sync(host, initial={host_req: [{"v": 7}]})
     assert result.count(lp.Place("outer/inner/xDecl")) == 1
     assert result.first(lp.Place("outer/inner/xDecl")) == {"v": 7, "emitted": True}
+
+
+def _collision_net(kind: str, action: Callable[[lp.TransitionContext], None]) -> lp.BuiltNet:
+    """Ports ``a`` and ``b`` over the subnet places ``a`` and ``b`` (``kind``:
+    input arcs, read arcs or output places), bound to the host places ``b``
+    and ``c``: the correspondence is ``a -> b``, ``b -> c``, so the given name
+    ``b`` is both a declared place and an actual place of the composed
+    transition (``mod031ctx_collision``)."""
+    a, b, go, out = lp.Place("a"), lp.Place("b"), lp.Place("go"), lp.Place("out")
+    builder = lp.Transition("t")
+    if kind == "input":
+        builder = builder.input(lp.one(a)).input(lp.one(b)).output(lp.out(out))
+    elif kind == "read":
+        builder = builder.input(lp.one(go)).read(lp.read(a)).read(lp.read(b)).output(lp.out(out))
+    else:
+        builder = builder.input(lp.one(go)).output(lp.xor(lp.out(a), lp.out(b)))
+    subnet = lp.SubnetDef("Collide").transition(builder.action(action).build())
+    if kind == "output":
+        subnet = subnet.output_port("a", a).output_port("b", b).input_port("go", go)
+        extra = {"go": lp.Place("go")}
+    else:
+        subnet = subnet.input_port("a", a).input_port("b", b).output_port("out", out)
+        extra = {"out": lp.Place("host_out")}
+        if kind == "read":
+            subnet = subnet.input_port("go", go)
+            extra["go"] = lp.Place("go")
+    bindings = {"a": lp.Place("b"), "b": lp.Place("c"), **extra}
+    return lp.NetBuilder("Host").compose("s", subnet.build(), bindings).build()
+
+
+@pytest.mark.parametrize("kind", ["input", "read"])
+def test_correspondence_resolves_before_the_given_name_mod031(kind: str) -> None:
+    """MOD-031 line 6 (``mod031ctx_collision``): ``ctx.input("b")`` and
+    ``ctx.read("b")`` answer for the place the correspondence resolves ``b`` to
+    (the host place ``c``), not for the composed transition's place named
+    ``b``."""
+
+    def action(ctx: lp.TransitionContext) -> None:
+        got = ctx.input("b") if kind == "input" else ctx.read("b")
+        ctx.output("out", got)
+
+    net = _collision_net(kind, action)
+    initial: dict[str, list[object]] = {"b": [{"from": "b"}], "c": [{"from": "c"}]}
+    if kind == "read":
+        initial["go"] = [1]
+    result = lp.run_sync(net, initial=initial)
+    assert result.first("host_out") == {"from": "c"}
+
+
+def test_output_resolves_before_the_given_name_mod031() -> None:
+    """MOD-031 line 6 for ``ctx.output``: the token written to ``b`` lands on
+    the host place ``c`` that the correspondence resolves ``b`` to."""
+
+    def action(ctx: lp.TransitionContext) -> None:
+        ctx.output("b", "v")
+
+    result = lp.run_sync(_collision_net("output", action), initial={"go": [1]})
+    assert result.count("c") == 1
+    assert result.count("b") == 0

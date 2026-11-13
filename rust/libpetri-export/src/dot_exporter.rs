@@ -303,4 +303,27 @@ mod tests {
             "ClusterSource::Metadata must not fall back to prefix detection. DOT:\n{dot}"
         );
     }
+
+    /// EXP-016 / EXP-017 (ruling D46 (a)): names whose cluster key holds an
+    /// empty `/`-segment (`a//x` -> key `a/`, `/a/p` -> key `/a`,
+    /// `http://host/x` -> key `http://host`) export instead of panicking.
+    #[test]
+    fn exp_016_empty_segment_names_export_without_panic() {
+        let lead = Place::<String>::new("/a/p");
+        let web = Place::<String>::new("http://host/x");
+        let t = Transition::builder("a//x")
+            .input(one(&lead))
+            .output(out_place(&web))
+            .build();
+        let net = PetriNet::builder("EmptySegments").transition(t).build();
+
+        let dot = dot_export(&net, None);
+
+        assert!(dot.contains("compound=\"true\""), "DOT:\n{dot}");
+        let a = cluster_body(&dot, "subgraph cluster_a {");
+        assert!(a.contains("subgraph cluster_a_ {"), "cluster a/ nests in a. DOT:\n{dot}");
+        assert!(cluster_body(&dot, "subgraph cluster_a_ {").contains("t_a__x"));
+        assert!(cluster_body(&dot, "subgraph cluster__a {").contains("p__a_p"));
+        assert!(dot.contains("subgraph cluster_http___host {"), "DOT:\n{dot}");
+    }
 }

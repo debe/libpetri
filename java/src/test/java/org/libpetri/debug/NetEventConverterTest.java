@@ -281,6 +281,38 @@ class NetEventConverterTest {
         }
     }
 
+    /**
+     * EVT-014 AC5 / EVT-025: rendering the same event stream twice onto the debug protocol
+     * yields identical output, so the details may not pass through a map whose iteration order
+     * is salted per JVM ({@code Map.of}, {@code Map.copyOf}). They render in ascending key
+     * order, as Rust's {@code BTreeMap} does.
+     */
+    @Test
+    void detailsRenderInKeyOrder_EVT014_AC5() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var events = List.<NetEvent>of(
+            new NetEvent.ExecutionStarted(NOW, "MyNet", "exec-1"),
+            new NetEvent.ExecutionCompleted(NOW, "MyNet", "exec-1", Duration.ofMillis(5)),
+            new NetEvent.TransitionStarted(NOW, "inst/t", List.of(Token.of("a"))),
+            new NetEvent.TransitionCompleted(NOW, "inst/t", List.of(Token.of("b")), Duration.ofMillis(1)),
+            new NetEvent.TransitionFailed(NOW, "inst/t", "boom", "RuntimeException"),
+            new NetEvent.TransitionTimedOut(NOW, "inst/t", Duration.ofMillis(1), Duration.ofMillis(2)),
+            new NetEvent.ActionTimedOut(NOW, "inst/t", Duration.ofMillis(1)),
+            new NetEvent.TokenAdded(NOW, "inst/p", Token.of("x")),
+            new NetEvent.LogMessage(NOW, "inst/t", "logger", "WARN", "msg", "java.lang.Error", "bad"));
+        for (var event : events) {
+            var info = NetEventConverter.toEventInfo(event);
+            var keys = List.copyOf(info.details().keySet());
+            assertTrue(keys.size() >= 2, info.type() + " has two or more details");
+            assertEquals(keys.stream().sorted().toList(), keys, info.type() + " details iterate in key order");
+
+            var rendered = new java.util.ArrayList<String>();
+            mapper.readTree(mapper.writeValueAsString(info)).get("details").fieldNames()
+                .forEachRemaining(rendered::add);
+            assertEquals(keys, rendered, info.type() + " details render in key order");
+        }
+    }
+
     public record SampleMessage(String kind, String text, int length) {}
 
     public enum SampleMode { TEXT, VOICE }

@@ -208,6 +208,15 @@ class TransitionTest {
         assertSame(action, t.action());
     }
 
+    // CORE-051: a transition built without an action gets the passthrough default; an explicit
+    // null is not "without an action" and is rejected at the setter (RD-06).
+    @Test
+    void core051_builder_rejectsNullAction() {
+        var builder = Transition.builder("t");
+        var error = assertThrows(NullPointerException.class, () -> builder.action(null));
+        assertTrue(error.getMessage().contains("action must not be null"), error.getMessage());
+    }
+
     @Test
     void builder_multipleInputSpecs_addMultiple() {
         var p1 = Place.of("P1", TestValue.class);

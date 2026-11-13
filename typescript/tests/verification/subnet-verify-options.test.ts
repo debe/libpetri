@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { SubnetDef } from '../../src/core/subnet-def.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { Transition } from '../../src/core/transition.js';
-import { place, type Place } from '../../src/core/place.js';
+import { environmentPlace, place, type Place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
 import { outPlace } from '../../src/core/out.js';
 import { fork, passthrough, transform } from '../../src/core/transition-action.js';
+import type { TransitionAction } from '../../src/core/transition-action.js';
 import { tokenOf } from '../../src/core/token.js';
 import { deadlockFree, placeBound } from '../../src/verification/smt-property.js';
 import { arrivals, bounded } from '../../src/verification/analysis/environment-analysis-mode.js';
@@ -85,6 +86,29 @@ describe('SubnetDef.verify options (MOD-051)', () => {
     });
     const r = [...sunk.perProperty.values()][0]!;
     expect(r.verdict.type, r.report).toBe('proven');
+  });
+
+  it('a hook on a subnet with no input port runs under the selected mode (MOD-051)', async () => {
+    // No input or in-out port, so the harness has no environment place of its own. The hook
+    // registers one that `make` deposits into: under the selected bounded(1) that is outside the
+    // premises (VER-006 AC3), which the verifier default alwaysAvailable() never reports.
+    const a = place<string>('a');
+    const x = place<string>('x');
+    const out = place<string>('out');
+    const def0 = SubnetDef.builder('NoInput')
+      .transition(Transition.builder('make').inputs(one(a)).outputs(outPlace(x)).action(produces()).build())
+      .transition(Transition.builder('drain').inputs(one(x)).outputs(outPlace(out)).action(produces()).build())
+      .outputPort('out', out)
+      .build();
+    const result = await def0.verify(
+      { params: undefined as never, portInputGenerators: {}, properties: [placeBound(OUT, 1)] },
+      {
+        environmentMode: bounded(1),
+        configure: v => v.environmentPlaces(environmentPlace('sut/x')),
+      },
+    );
+    const r = [...result.perProperty.values()][0]!;
+    expect(reasonOf(r)).toContain("environment place 'sut/x' is outside the Bounded(1) premises");
   });
 });
 
@@ -186,6 +210,19 @@ describe('SubnetDef.bindActions (MOD-051 AC8)', () => {
     expect(actionOf(bound.body, 'other')).toBe(second);
     // The map form substitutes passthrough for what it omits (CORE-042 divergence note).
     expect(actionOf(def0.bindActions({ other: second }).body, 'work')).toBe(passthrough());
+  });
+
+  it('the resolver form defers a transition on undefined, as on null (CORE-042)', () => {
+    const input = place<string>('in');
+    const out = place<string>('out');
+    const first = transform(() => null);
+    const def0 = SubnetDef.builder('Stage')
+      .transition(Transition.builder('work').inputs(one(input)).outputs(outPlace(out)).action(first).build())
+      .inputPort('in', input)
+      .build();
+    const table: Record<string, TransitionAction> = {};
+    const bound = def0.bindActionsWithResolver(n => table[n]);
+    expect(actionOf(bound.body, 'work')).toBe(first);
   });
 
   it('verify still applies CORE-043 to the bound definition', async () => {

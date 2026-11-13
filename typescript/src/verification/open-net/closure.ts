@@ -18,7 +18,8 @@ import { place, type Place } from '../../core/place.js';
 import { Transition } from '../../core/transition.js';
 import { one } from '../../core/in.js';
 import { outPlace } from '../../core/out.js';
-import { fork, isPassthrough, transform } from '../../core/transition-action.js';
+import { fork, isPassthrough } from '../../core/transition-action.js';
+import { NEVER_RUN_ACTION } from '../../core/internal/output-action-check.js';
 import { MarkingState } from '../marking-state.js';
 import { OpenNetContract, transitionPlaces } from './contract.js';
 
@@ -47,9 +48,6 @@ export interface ClosedNet {
    */
   readonly undeclared: readonly string[];
 }
-
-/** The action an environment transition that declares outputs gets when it has none: it never runs. */
-const ENVIRONMENT_ACTION = transform(() => null);
 
 /**
  * Closes `net` with the environment of `contract`: its environment transitions, and for
@@ -138,7 +136,7 @@ export function closeOpenNet(net: PetriNet, contract: OpenNetContract): ClosedNe
     .transitions(...net.transitions, ...contract.environment, ...envTransitions)
     .terminals(...net.terminals) // EXEC-042
     .build()
-    .bindActionsWithResolver(name => (placeholder.has(name) ? ENVIRONMENT_ACTION : null));
+    .bindActionsWithResolver(name => (placeholder.has(name) ? NEVER_RUN_ACTION : null));
   return {
     net: closed,
     initialMarking: marking.build(),

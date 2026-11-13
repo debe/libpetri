@@ -245,3 +245,76 @@ def test_a_single_string_is_not_a_list_of_mints() -> None:
     for call in calls:
         with pytest.raises(TypeError, match=r"not a single string: pass \['fork'\]"):
             call()
+
+
+# ============ declarations judged on the caller's net (NU-010 AC6, NU-051) ============
+
+
+def _rewritten_by_verify():
+    """``t: p0 -> p1`` and ``u: q -> r`` inhibited by ``p1``. With ``p0`` an environment
+    place under ``arrivals(1, 1)``, verification adds ``env:arrive[0]:p0``, and the
+    in-flight split (VER-004) adds ``complete:t``. Mirrors Rust ``mint_declarations.rs``."""
+    p0, p1, q, r = (lp.Place(n) for n in ("p0", "p1", "q", "r"))
+    return (
+        lp.Net("rewritten")
+        .transition(lp.Transition("t").input(lp.one(p0)).output(lp.out(p1)).action(lp.fork).build())
+        .transition(
+            lp.Transition("u")
+            .input(lp.one(q))
+            .inhibitor(lp.inhibitor(p1))
+            .output(lp.out(r))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+
+
+@pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
+@pytest.mark.parametrize("name", ["env:arrive[0]:p0", "complete:t"])
+def test_nu_010_ac6_mint_naming_a_rewrite_added_transition_is_refused(name) -> None:
+    """A transition only verification's own rewrites add is not in the caller's net, so
+    ``verify`` refuses it as ``encode_smt_scripts`` does. Before, it answered a verdict."""
+    result = lp.verify(
+        _rewritten_by_verify(),
+        lp.place_bound("r", 1),
+        initial_marking={"q": 1},
+        environment_places=["p0"],
+        environment_mode=lp.arrivals(1, 1),
+        mint_transitions=[name],
+    )
+    assert result.verdict == "unknown", result.report
+    assert result.reason == f"declared mint transition '{name}' not in the net (NU-010)"
+
+
+_CARRIER_TYPO = "declared carrier place '7' not in the net (NU-051)"
+
+
+@pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
+@pytest.mark.parametrize("fragment_mode", ["base", "extended"])
+@pytest.mark.parametrize("property", [lp.deadlock_free(), lp.place_bound("merged", 1)], ids=["deadlock", "bound"])
+def test_nu_051_an_unknown_carrier_is_refused_in_both_modes(fragment_mode, property) -> None:
+    """Under BASE nothing used to look at the declaration, and under EXTENDED a budgeted
+    query never refused it: a bound stays on Route A, and a quiescence query deferred
+    Route B's refusal to Route A, whose plan skips a carrier it cannot resolve."""
+    result = lp.verify(
+        _fork_join(),
+        property,
+        initial_marking={"source": 1},
+        sink_places=["merged"],
+        budget_places=["source"],
+        mint_transitions=["fork"],
+        fragment_mode=fragment_mode,
+        carrier_places=["7"],
+    )
+    assert result.verdict == "unknown", result.report
+    assert result.reason == _CARRIER_TYPO
+
+
+@pytest.mark.skipif(not lp.HAS_Z3, reason="z3 feature not enabled")
+def test_nu_051_encode_smt_scripts_rejects_a_carrier_not_in_the_net() -> None:
+    with pytest.raises(ValueError, match=r"^declared carrier place '7' not in the net \(NU-051\)$") as err:
+        lp.encode_smt_scripts(
+            _fork_join(), lp.deadlock_free(), initial_marking={"source": 1}, mint_transitions=["fork"], carrier_places=["7"]
+        )
+    assert type(err.value) is ValueError

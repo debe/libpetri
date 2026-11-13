@@ -177,3 +177,93 @@ fn an_undeclared_mint_refuses_the_coloured_plan_before_the_slot_bound_is_solved(
         assert!(!report.contains("semiflow"), "{report}");
     }
 }
+
+/// `t: p0 → p1` with `p0` an environment place under `ArrivalsBetween(1, 1)`, and `u: q → r`
+/// inhibited by `p1`, so the closure adds `env:arrive[0]:p0` and the in-flight split
+/// ([VER-004]) adds `complete:t`.
+fn rewritten_by_verify() -> PetriNet {
+    let (p0, p1, q, r) = (Place::<()>::new("p0"), Place::<()>::new("p1"), Place::<()>::new("q"), Place::<()>::new("r"));
+    let t = Transition::builder("t").input(one(&p0)).output(out_place(&p1)).action(fork()).build();
+    let u = Transition::builder("u").input(one(&q)).inhibitor(inhibitor(&p1)).output(out_place(&r)).action(fork()).build();
+    PetriNet::builder("rewritten").transitions([t, u]).build()
+}
+
+/// NU-010 AC6: `verify` checks the declaration against the caller's net, as
+/// `encode_scripts` does, not against the net its own rewrites built. A transition only
+/// the `Arrivals` closure or the in-flight split adds is not in the net.
+#[test]
+fn nu_010_ac6_mint_naming_a_rewrite_added_transition_is_refused() {
+    use libpetri_verification::environment::EnvironmentAnalysisMode;
+    use libpetri_verification::result::VerificationRoute;
+    let net = rewritten_by_verify();
+    for name in ["env:arrive[0]:p0", "complete:t"] {
+        let result = SmtVerifier::for_net(&net)
+            .initial_marking(MarkingStateBuilder::new().tokens("q", 1).build())
+            .property(SmtProperty::place_bound("r", 1))
+            .environment_places(["p0".to_string()])
+            .environment_mode(EnvironmentAnalysisMode::ArrivalsBetween { min_tokens: 1, max_tokens: 1 })
+            .mint_transition(name)
+            .verify();
+        let expected = format!("declared mint transition '{name}' not in the net (NU-010)");
+        assert!(matches!(&result.verdict, Verdict::Unknown { reason } if *reason == expected), "{}", result.report);
+        assert_eq!(result.route, VerificationRoute::Unavailable, "{}", result.report);
+    }
+}
+
+const CARRIER_TYPO: &str = "declared carrier place '7' not in the net (NU-051)";
+
+/// NU-051: a declared carrier that is not a place of the net is refused in either fragment
+/// mode and whatever the route, before any route runs. Under BASE nothing used to look; under
+/// EXTENDED a bounded quiescence query deferred Route B's refusal to Route A, whose plan
+/// skips a carrier it cannot resolve; and a reachability bound with a budget never reached
+/// Route B at all.
+#[test]
+fn nu_051_an_unknown_carrier_is_refused_in_both_modes_on_every_route() {
+    use libpetri_verification::name_fragment::FragmentMode;
+    use libpetri_verification::result::VerificationRoute;
+    let net = fork_join();
+    let cases = [
+        (FragmentMode::Base, SmtProperty::DeadlockFree),
+        (FragmentMode::Extended, SmtProperty::DeadlockFree),
+        (FragmentMode::Base, SmtProperty::place_bound("merged", 1)),
+        (FragmentMode::Extended, SmtProperty::place_bound("merged", 1)),
+    ];
+    for (mode, property) in cases {
+        let result = verifier(&net)
+            .property(property.clone())
+            .mint_transition("fork")
+            .budget_place("source")
+            .fragment_mode(mode)
+            .carrier_place("7")
+            .verify();
+        assert!(
+            matches!(&result.verdict, Verdict::Unknown { reason } if reason == CARRIER_TYPO),
+            "{mode:?} {property:?}: {:?}\n{}",
+            result.verdict,
+            result.report
+        );
+        assert_eq!(result.route, VerificationRoute::Unavailable, "{}", result.report);
+    }
+}
+
+/// NU-051: `encode_scripts` refuses an unknown carrier as it refuses an unknown mint, with
+/// the reason `verify` answers `Unknown` with.
+#[test]
+#[should_panic(expected = "declared carrier place '7' not in the net (NU-051)")]
+fn nu_051_encode_scripts_panics_for_a_carrier_not_in_the_net() {
+    let net = fork_join();
+    let _ = verifier(&net).mint_transition("fork").carrier_place("7").encode_scripts();
+}
+
+/// NU-051: a `configure_smt` hook's unknown carrier is refused before either open-net route
+/// runs; the graph route never read the declaration.
+#[test]
+fn nu_051_verify_open_net_answers_unknown_for_a_carrier_not_in_the_net() {
+    let net = fork_join();
+    let contract = OpenNetContract::builder().initial_tokens("source", 1).rest(["merged"]).build();
+    let options = OpenNetOptions::default()
+        .with_configure_smt(Box::new(|v| v.mint_transition("fork").carrier_place("7")));
+    let result = verify_open_net(&net, &contract, &options);
+    assert!(matches!(&result.verdict, Verdict::Unknown { reason } if reason == CARRIER_TYPO), "{}", result.report);
+    assert_eq!(result.class_count, 0, "{}", result.report);
+}

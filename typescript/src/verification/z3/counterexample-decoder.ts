@@ -60,7 +60,7 @@ export function decodeStateSet(answer: string, flatNet: FlatNet, counterCount = 
       const args = parseGroundIntArgs(inner);
       if (args != null && args.length === P + counterCount) {
         const marking = toMarking(counterCount === 0 ? args : args.slice(0, P), flatNet);
-        const key = marking.toString();
+        const key = marking.key();
         if (!byKey.has(key)) byKey.set(key, marking);
       }
     }

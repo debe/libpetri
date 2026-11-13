@@ -1,5 +1,5 @@
 import type { PetriNet } from '../petri-net.js';
-import { isPassthrough } from '../transition-action.js';
+import { isPassthrough, transform, type TransitionAction } from '../transition-action.js';
 
 /**
  * CORE-043: a transition that declares an output spec must not carry the built-in
@@ -20,3 +20,10 @@ export function requireOutputProducingActions(net: PetriNet): void {
     }
   }
 }
+
+/**
+ * The action a rewrite gives a transition it derives with outputs when the source carries the
+ * built-in passthrough: verification never runs it, and it keeps the derived net passing the
+ * CORE-043 check exactly when the submitted net does.
+ */
+export const NEVER_RUN_ACTION: TransitionAction = transform(() => null);

@@ -1538,7 +1538,7 @@ public final class SmtVerifier {
 
     /** The pipeline of {@link #verify()}, writing its report into {@code report}. */
     private SmtVerificationResult pipeline(StringBuilder report) {
-        OutputActionCheck.requireOutputProducingActions(net);
+        OutputActionCheck.requireOutputProducingActions(callerNet);
         prepare();
         var start = Instant.now();
         report.append("=== IC3/PDR SAFETY VERIFICATION ===\n\n");
@@ -1728,10 +1728,14 @@ public final class SmtVerifier {
             String colouredArrival = routeBBuilds.test(
                     NameFragment.classify(net, fragmentMode, carrierPlaces, everyTransition(net), nameAlignment))
                 ? colouredArrivalReason() : null;
+            // [NU-052]: the shared-input refusal reads whether conflict priority is in effect,
+            // not the selected mode; Route B turns it off itself on a net with a reapable
+            // transition, so CONFLICT reaches the check only where it applies.
             String envObservation = colouredArrival != null ? colouredArrival
                 : routeBBuilds.test(fragment) ? routeBEnvObservation(
                     net, fragment, property, sinkPlaces, conditional, environmentPlaces, environmentMode,
-                    effectivePriority(), quiescenceVacuous)
+                    conflictPruningApplies(preSplitNet) ? effectivePriority() : PrioritySemantics.NONE,
+                    quiescenceVacuous)
                 : null;
             if (envObservation != null) {
                 return routeBDeclined(report, "Declined under environment injection", envObservation, start);
@@ -2435,8 +2439,12 @@ public final class SmtVerifier {
                         Duration.between(start, Instant.now()), stats);
                 }
 
-                if (!counterexampleReplay) {
-                    report.append("  Counterexample replay: disabled (counterexampleReplay(false))\n\n");
+                // VER-003 AC8: the replay reads flat count vectors, so on the name-coloured
+                // encoding it does not apply, and the tri-state stays null there too.
+                if (!counterexampleReplay || colouredPlan != null) {
+                    report.append(colouredPlan != null
+                        ? "  Counterexample replay: not applicable (name-coloured encoding, NU-053)\n\n"
+                        : "  Counterexample replay: disabled (counterexampleReplay(false))\n\n");
                     report.append("=== RESULT ===\n\n");
                     report.append("VIOLATED: ").append(propDesc).append("\n");
                     appendDecodedStates(report, decoded);
@@ -3127,7 +3135,7 @@ public final class SmtVerifier {
         if (NameAlignment.isNameAlignment(property)) {
             throw new IllegalStateException(NameAlignment.routeBOnlyReason(property));
         }
-        OutputActionCheck.requireOutputProducingActions(net);
+        OutputActionCheck.requireOutputProducingActions(callerNet);
         prepare();
         FlatNet flatNet = flatNet();
         // AUTO decides from the same fact here as in verify() — whether the basis lost a law

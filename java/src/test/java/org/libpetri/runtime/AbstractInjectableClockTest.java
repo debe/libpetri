@@ -97,6 +97,21 @@ abstract class AbstractInjectableClockTest {
         }
     }
 
+    /**
+     * A host clock that moves by {@link #tickNanos} after every firing-clock reading: time
+     * passes between the steps of one cycle, so a step that takes a reading of its own judges
+     * at a later time than the cycle's deadline step (RD-16).
+     */
+    static class TickingClock extends VirtualClock {
+        long tickNanos = Duration.ofMillis(1).toNanos();
+
+        @Override public long nanoTime() {
+            long reading = super.nanoTime();
+            nanos += tickNanos;
+            return reading;
+        }
+    }
+
     // ============================================================
     //  Fixtures
     // ============================================================
@@ -618,5 +633,68 @@ abstract class AbstractInjectableClockTest {
         assertEquals(stamped, untouched.marking().peekFirst(IN).createdAt(),
             "TIME-015 AC#12: the executor must not silently re-stamp host-supplied tokens");
         untouched.close();
+    }
+
+    // ============================================================
+    //  TIME-010 / TIME-014 / EXEC-001: one firing-clock reading per cycle
+    // ============================================================
+
+    @Test
+    void firingPassJudgesReadinessAtTheDeadlineStepsReading_TIME014_TIME010() {
+        // `fast` (Delayed 2ms, priority 10) and `slow` (immediate, priority 0) share the token
+        // in `a`. Both are armed at the cycle reading, where `fast` is not ready, so the pass
+        // of that cycle starts `slow`. A pass that reads the clock again, 2ms later on this
+        // clock, finds `fast` ready and lets it win on priority.
+        Place<String> a = Place.of("a", String.class);
+        Place<String> fastOut = Place.of("fastOut", String.class);
+        Place<String> slowOut = Place.of("slowOut", String.class);
+        Place<String> never = Place.of("never", String.class);
+        var net = PetriNet.builder("onePassReading")
+            .transition(Transition.builder("fast").inputs(one(a)).outputs(place(fastOut))
+                .timing(Timing.delayed(Duration.ofMillis(2))).priority(10)
+                .action(ctx -> { ctx.output(fastOut, ctx.input(a)); return CompletableFuture.completedFuture(null); })
+                .build())
+            .transition(Transition.builder("slow").inputs(one(a)).outputs(place(slowOut))
+                .action(ctx -> { ctx.output(slowOut, ctx.input(a)); return CompletableFuture.completedFuture(null); })
+                .build())
+            // Only there so the net has a deadline step at all.
+            .transition(Transition.builder("guard").inputs(one(never)).outputs(place(never))
+                .timing(Timing.deadline(Duration.ofHours(1)))
+                .action(ctx -> { ctx.output(never, ctx.input(never)); return CompletableFuture.completedFuture(null); })
+                .build())
+            .build();
+
+        try (var executor = create(net, Map.of(a, List.of(new Token<>("x", Instant.EPOCH))), new TickingClock())) {
+            var marking = executor.run();
+            assertEquals(1, marking.tokenCount(slowOut),
+                "TIME-014/TIME-010: the pass judges readiness at the deadline step's reading. Marking: " + marking);
+            assertEquals(0, marking.tokenCount(fastOut), "Marking: " + marking);
+        }
+    }
+
+    @Test
+    void firingPassNeverStartsAReapableTransitionPastItsLatestBound_TIME013_TIME010() {
+        // Window(1ms, 1ms), tolerance 0. At the cycle reading the transition is neither ready
+        // nor expired. A pass judging at a later reading of its own (here elapsed 2ms) finds it
+        // ready and starts it past its latest bound, which no deadline step judged.
+        var net = timedNet(Timing.window(Duration.ofMillis(1), Duration.ofMillis(1)));
+        try (var executor = create(net, seed(), new TickingClock(), Duration.ZERO, Set.of())) {
+            var marking = executor.run();
+            assertFalse(marking.hasTokens(OUT),
+                "TIME-013: never started with an elapsed time past latest + tolerance. Marking: " + marking);
+        }
+    }
+
+    @Test
+    void decisionToWaitJudgesTheNextBoundaryAtTheCycleReading_TIME010_CONC010() {
+        // Delayed(10ms), armed at the cycle reading: the boundary is 10ms after that reading.
+        // A decision to wait that reads the clock again judges it from a later reading.
+        var clock = new TickingClock();
+        try (var executor = create(timedNet(Timing.delayed(Duration.ofMillis(10))), seed(), clock)) {
+            var marking = executor.run();
+            assertTrue(marking.hasTokens(OUT), "the delayed transition fired");
+            assertEquals(Duration.ofMillis(10).toNanos(), clock.requestedDelays.get(0),
+                "TIME-010: the wait is judged at the cycle reading. Requested delays: " + clock.requestedDelays);
+        }
     }
 }

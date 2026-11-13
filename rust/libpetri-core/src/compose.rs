@@ -23,13 +23,6 @@
 //!   unknown port is a build-time wiring mistake catchable in dev/CI by the
 //!   test suite, not a recoverable runtime fault.
 //!
-//! ## Status
-//!
-//! Port composition is fully implemented (this task). Channel composition is
-//! deferred to task #21: recording channel bindings here is permitted, but
-//! [`crate::petri_net::PetriNetBuilder::compose_with`] panics when any channel
-//! binding is present until task #21 lands the merge primitive.
-//!
 //! ## Identity
 //!
 //! [`ComposeBindingsBuilder`] is a write-only collector: callers register
@@ -52,8 +45,8 @@ use crate::transition::Transition;
 ///
 /// Callers register port bindings via [`Self::bind_port`] and channel
 /// bindings via [`Self::bind_channel`]. The host builder drains the recorded
-/// mappings inside `compose_with` to build the place-substitution map and (in
-/// task #21) the channel-merge work list.
+/// mappings inside `compose_with` to build the place-substitution map and the
+/// channel-merge work list.
 ///
 /// ## Lifetime parameter
 ///
@@ -108,17 +101,14 @@ impl<'a> ComposeBindingsBuilder<'a> {
     }
 
     /// Records a synchronous channel binding per **MOD-021**: at compose time
-    /// (task #21), the instance-side renamed channel transition is merged
-    /// with `caller_transition` into a single transition in the resulting
-    /// flat net.
-    ///
-    /// **Status**: channel composition is implemented in task #21. Recording
-    /// a channel binding here is permitted, but
-    /// [`crate::petri_net::PetriNetBuilder::compose_with`] currently panics
-    /// when any channel binding is present.
+    /// the instance-side renamed channel transition is merged with
+    /// `caller_transition` into a single transition in the resulting flat
+    /// net.
     ///
     /// # Panics
-    /// Panics if the channel name was already bound on this builder.
+    /// Panics if the channel name was already bound on this builder, or if
+    /// `caller_transition` is already bound to another channel (MOD-020: one
+    /// caller transition bound to two channels in one call is an error).
     pub fn bind_channel(
         &mut self,
         channel_name: impl Into<Arc<str>>,
@@ -127,6 +117,19 @@ impl<'a> ComposeBindingsBuilder<'a> {
         let name: Arc<str> = channel_name.into();
         if self.channel_bindings.contains_key(&name) {
             panic!("Channel '{}' is already bound", name);
+        }
+        if let Some((bound, _)) = self
+            .channel_bindings
+            .iter()
+            .find(|(_, t)| *t == caller_transition)
+        {
+            panic!(
+                "Transition '{}' is already bound to channel '{}'; it cannot also be bound to \
+                 channel '{}' (MOD-020)",
+                caller_transition.name(),
+                bound,
+                name
+            );
         }
         self.channel_bindings.insert(name, caller_transition.clone());
         self
@@ -311,6 +314,52 @@ mod tests {
         let mut b = ComposeBindingsBuilder::new();
         b.bind_channel("c", &t1);
         b.bind_channel("c", &t2);
+    }
+
+    /// MOD-020 AC6: one caller transition bound to two channels of one
+    /// instance in one call is a compose-time error naming the transition
+    /// and both channels.
+    #[test]
+    #[should_panic(expected = "is already bound to channel")]
+    fn bind_channel_rejects_one_caller_transition_on_two_channels_mod020() {
+        let t = Transition::builder("callerSide").build();
+        let mut b = ComposeBindingsBuilder::new();
+        b.bind_channel("first", &t);
+        b.bind_channel("second", &t);
+    }
+
+    #[test]
+    fn compose_one_caller_transition_on_two_channels_names_both_mod020() {
+        let a = Place::<String>::new("a");
+        let b_place = Place::<String>::new("b");
+        let go_a = Transition::builder("goA").output(out_place(&a)).build();
+        let go_b = Transition::builder("goB").output(out_place(&b_place)).build();
+        let def = SubnetDef::<()>::builder("TwoChannels")
+            .place(&a)
+            .place(&b_place)
+            .transition(go_a.clone())
+            .transition(go_b.clone())
+            .channel("first", &go_a)
+            .channel("second", &go_b)
+            .build();
+        let inst = def.instantiate("tc", ());
+        let caller_t = Transition::builder("callerSide").build();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = PetriNet::builder("host").compose_with(&inst, |b| {
+                b.bind_channel("first", &caller_t);
+                b.bind_channel("second", &caller_t);
+            });
+        }));
+        let err = result.expect_err("compose_with must reject one caller transition on two channels");
+        let msg: String = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&'static str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(msg.contains("'callerSide'"), "message must name the caller transition: {msg}");
+        assert!(msg.contains("'first'"), "message must name the first channel: {msg}");
+        assert!(msg.contains("'second'"), "message must name the second channel: {msg}");
     }
 
     // ============================================================

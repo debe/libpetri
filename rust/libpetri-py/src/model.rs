@@ -222,6 +222,20 @@ impl PyTransition {
     fn __repr__(&self) -> String {
         format!("Transition({:?})", self.inner.name())
     }
+
+    /// Identity equality (CORE-021): two wrappers of one built transition are
+    /// equal, two builds are not. Anything that is not a `Transition` gets
+    /// `NotImplemented`.
+    fn __eq__(&self, other: PyRef<'_, Self>) -> bool {
+        self.inner == other.inner
+    }
+
+    /// Hashes the transition's identity, consistent with `__eq__`.
+    fn __hash__(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&self.inner, &mut hasher);
+        std::hash::Hasher::finish(&hasher)
+    }
 }
 
 /// Built-in action selector for the Python builder.

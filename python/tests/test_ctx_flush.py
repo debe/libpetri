@@ -204,3 +204,59 @@ def test_flush_raises_under_sync_execution() -> None:
     # The buffered token still flushes at action end (the standard
     # behaviour), so the sink still receives it.
     assert result.count(sink) == 1
+
+
+async def _late_flush(ending: str) -> tuple[list[str], lp.MarkingView]:
+    """EXEC-022 line 4, CONC-003 line 2: ``slow`` keeps its ``ctx``; once its
+    firing ended (``ending``: the budget ran out, or the action returned), the
+    sync ``after`` buffers one token to ``leak`` on the kept ``ctx`` and
+    flushes it."""
+    stash: list[lp.TransitionContext] = []
+    outcome: list[str] = []
+
+    async def slow(ctx: lp.TransitionContext) -> None:
+        stash.append(ctx)
+        if ending == "timeout":
+            await lp.action_on_loop(asyncio.sleep(2))
+        else:
+            ctx.output("ended", 1)
+
+    def after(ctx: lp.TransitionContext) -> None:
+        _ = ctx.input("ended")
+        stash[0].output("leak", 1)
+        try:
+            stash[0].flush()
+            outcome.append("published")
+        except RuntimeError as exc:
+            outcome.append(str(exc))
+
+    leak, ended = lp.Place("leak"), lp.Place("ended")
+    branch = lp.timeout(20, lp.out(ended)) if ending == "timeout" else lp.out(ended)
+    net = (
+        lp.Net("late-flush")
+        .transition(
+            lp.Transition("slow")
+            .input(lp.one(lp.Place("start")))
+            .output(lp.xor(lp.out(leak), branch))
+            .action(slow)
+            .build()
+        )
+        .transition(lp.Transition("after").input(lp.one(ended)).action(after).build())
+        .build()
+    )
+    result = await lp.run_async(net, initial={"start": ["job"]})
+    return outcome, result
+
+
+@pytest.mark.asyncio
+async def test_a_flush_after_the_timeout_is_refused_exec_022() -> None:
+    outcome, result = await _late_flush("timeout")
+    assert len(outcome) == 1 and "EXEC-022" in outcome[0], outcome
+    assert result.count("leak") == 0
+
+
+@pytest.mark.asyncio
+async def test_a_flush_after_the_action_returned_is_refused_exec_022() -> None:
+    outcome, result = await _late_flush("return")
+    assert len(outcome) == 1 and "EXEC-022" in outcome[0], outcome
+    assert result.count("leak") == 0

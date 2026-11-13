@@ -10,7 +10,8 @@ import { MarkingState } from '../../src/verification/marking-state.js';
 import { StateClassGraph } from '../../src/verification/analysis/state-class-graph.js';
 import { Transition } from '../../src/core/transition.js';
 import { PetriNet } from '../../src/core/petri-net.js';
-import { place } from '../../src/core/place.js';
+import { environmentPlace, place } from '../../src/core/place.js';
+import { arrivals, type EnvironmentAnalysisMode } from '../../src/verification/analysis/environment-analysis-mode.js';
 import type { Place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
 import { and, outPlace } from '../../src/core/out.js';
@@ -441,4 +442,43 @@ describe('VER-017 — the cache key covers the VER-004 in-flight split', () => {
       expect(observable(again)).toEqual(observable(split));
     });
   }
+});
+
+describe('VER-017 AC7 — under Arrivals the cache is not used and the report says so', () => {
+  const NOT_USED = 'Bounded state-space enumeration: state-space cache not used — the net was closed by '
+    + 'arrivals(k) (VER-006, VER-017).';
+  const IN = environmentPlace<unknown>('in');
+  const MID = place<unknown>('mid');
+  const OUT = place<unknown>('out');
+  const net = PetriNet.builder('arrivalsPipeline').transitions(
+    Transition.builder('t0').inputs(one(IN.place)).outputs(outPlace(MID)).action(produces()).build(),
+    Transition.builder('t1').inputs(one(MID)).outputs(outPlace(OUT)).action(produces()).build(),
+  ).build();
+  const q = (mode: EnvironmentAnalysisMode, cache: StateSpaceCache | null) => {
+    const v = SmtVerifier.forNet(net).linearBound(false).partialOrderReduction(false)
+      .environmentPlaces(IN).environmentMode(mode).property(placeBound(OUT, 1));
+    return (cache === null ? v : v.stateSpaceCache(cache)).verify();
+  };
+
+  it('two arrivals(k) queries through one cache each build, and carry the line', async () => {
+    const cache = new StateSpaceCache();
+    const [cached, built] = await builds(async () => [await q(arrivals(1), cache), await q(arrivals(1), cache)]);
+    expect(built).toBe(2);
+    const plain = await q(arrivals(1), null);
+    for (const r of cached) {
+      expect(r.report).toContain(NOT_USED);
+      expect(r.report).not.toContain(REUSED);
+      expect(observable(r)).toEqual(observable(plain));
+      expect(r.route).toBe('enumeration');
+    }
+    expect(plain.report).not.toContain(NOT_USED);
+  });
+
+  it('arrivals(0) does not close the net, so the cache is used', async () => {
+    const cache = new StateSpaceCache();
+    const [cached, built] = await builds(async () => [await q(arrivals(0), cache), await q(arrivals(0), cache)]);
+    expect(built).toBe(1);
+    expect(cached[1]!.report).toContain(REUSED);
+    for (const r of cached) expect(r.report).not.toContain(NOT_USED);
+  });
 });

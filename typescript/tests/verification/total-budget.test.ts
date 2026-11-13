@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SmtVerifier } from '../../src/verification/smt-verifier.js';
+import { Deadline, TotalBudgetExhausted } from '../../src/verification/total-budget.js';
 import { StateSpaceCache } from '../../src/verification/state-space-cache.js';
 import { stateSpaceBuildCount } from '../../src/verification/scg-verifier.js';
 import { placeBound, unreachable } from '../../src/verification/smt-property.js';
@@ -94,6 +95,28 @@ describeZ3('total budget unset or ample (VER-013 AC8)', () => {
       expect(ample.route).toBe(unset.route);
       expect(ample.counterexampleTransitions).toEqual(unset.counterexampleTransitions);
       expect(ample.report.replace('Total budget: 600000 ms\n', '')).toBe(unset.report);
+    }
+  });
+});
+
+describe('total budget on whole milliseconds (VER-013)', () => {
+  it('VER-013 AC9: with less than one whole millisecond left the poll stops as the clamp refuses', () => {
+    // The z3 clamp starts no process once no whole millisecond remains; the poll must read the
+    // same clock, or a refused call records no stop and the next step is still entered.
+    const now = vi.spyOn(performance, 'now');
+    try {
+      now.mockReturnValue(1000);
+      const deadline = Deadline.start(10);
+      now.mockReturnValue(1009.5);
+      expect(Math.floor(deadline.remainingMs())).toBe(0);
+      expect(deadline.passed()).toBe(true);
+      expect(() => deadline.check()).toThrow(TotalBudgetExhausted);
+      expect(deadline.stopped()).toBeInstanceOf(TotalBudgetExhausted);
+      now.mockReturnValue(1008.5);
+      expect(deadline.passed()).toBe(false);
+      expect(() => deadline.check()).not.toThrow();
+    } finally {
+      now.mockRestore();
     }
   });
 });

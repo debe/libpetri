@@ -126,6 +126,32 @@ class DebugProtocolSubnetTest {
         assertEquals(Optional.empty(), consumerDescriptor.parentPrefix());
     }
 
+    /**
+     * EVT-014 AC5: the same net renders the same {@code Subscribed} response in every JVM.
+     * {@code buildSubnetInstances} collects the names in net order; the descriptor must keep
+     * that order rather than copy it into a set whose iteration order is salted per JVM.
+     */
+    @Test
+    void subnetInstanceNamesKeepBuildOrder_EVT014_AC5() {
+        var order = java.util.List.of("inst/m", "inst/c", "inst/x", "inst/a", "inst/k", "inst/e",
+            "inst/z", "inst/b");
+        Place<String> in = Place.of("inst/in", String.class);
+        var builder = PetriNet.builder("Ordered");
+        for (var name : order) {
+            builder.transition(Transition.builder(name).inputs(In.one(in)).build());
+        }
+        var session = new DebugSessionRegistry().register("ordered", builder.build());
+
+        var descriptor = session.buildSubnetInstances().getFirst();
+        assertEquals(order, java.util.List.copyOf(descriptor.transitionNames()));
+
+        var direct = new DebugResponse.SubnetInstanceInfo("inst", null,
+            new java.util.LinkedHashSet<>(order), new java.util.LinkedHashSet<>(order.reversed()),
+            (String) null);
+        assertEquals(order, java.util.List.copyOf(direct.transitionNames()));
+        assertEquals(order.reversed(), java.util.List.copyOf(direct.exposedPlaceNames()));
+    }
+
     // ============================================================
     //  MOD-041 AC#4: nested instance has parentPrefix set
     // ============================================================

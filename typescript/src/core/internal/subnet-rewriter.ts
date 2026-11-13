@@ -306,25 +306,37 @@ function buildPlaceAlias(
       alias.set(declaredName, replaced !== undefined ? replaced : prevActual);
     }
   } else {
-    const record = (p: Place<unknown>): void => {
+    forEachNamedPlace(t, (p) => {
       if (alias.has(p.name)) return;
       const replaced = remap.get(p.name);
       alias.set(p.name, replaced !== undefined ? replaced : p);
-    };
-    for (const spec of t.inputSpecs) record(spec.place as Place<unknown>);
-    for (const rd of t.reads) record(rd.place as Place<unknown>);
-    for (const inh of t.inhibitors) record(inh.place as Place<unknown>);
-    for (const rs of t.resets) record(rs.place as Place<unknown>);
-    if (t.outputSpec !== null) {
-      for (const p of allPlaces(t.outputSpec)) record(p as Place<unknown>);
-    }
+    });
   }
 
-  // All-identity → drop wholesale (MOD-025 AC#4). A single non-identity entry
-  // makes the whole map live, identity entries included. Identity is **name**
-  // equality per MOD-031 AC#11 — the same equality the correspondence's own
-  // lookup uses (`TransitionContext.resolve` does `placeAlias.get(place.name)`,
-  // and TS `Place<T>` carries no runtime token type; cf. MOD-024).
+  return dropIfAllIdentity(alias);
+}
+
+/** Visits every place an arc of `t` names: inputs, reads, inhibitors, resets, then outputs. */
+function forEachNamedPlace(t: Transition, visit: (p: Place<unknown>) => void): void {
+  for (const spec of t.inputSpecs) visit(spec.place as Place<unknown>);
+  for (const rd of t.reads) visit(rd.place as Place<unknown>);
+  for (const inh of t.inhibitors) visit(inh.place as Place<unknown>);
+  for (const rs of t.resets) visit(rs.place as Place<unknown>);
+  if (t.outputSpec !== null) {
+    for (const p of allPlaces(t.outputSpec)) visit(p as Place<unknown>);
+  }
+}
+
+/**
+ * All-identity → drop wholesale (MOD-025 AC#4). A single non-identity entry
+ * makes the whole map live, identity entries included. Identity is **name**
+ * equality per MOD-031 AC#11 — the same equality the correspondence's own
+ * lookup uses (`TransitionContext.resolve` does `placeAlias.get(place.name)`,
+ * and TS `Place<T>` carries no runtime token type; cf. MOD-024).
+ */
+function dropIfAllIdentity(
+  alias: ReadonlyMap<string, Place<any>>,
+): ReadonlyMap<string, Place<any>> {
   for (const [declaredName, actual] of alias) {
     if (actual.name !== declaredName) {
       return alias;
@@ -497,7 +509,7 @@ export function mergeTransitions(
   const mergedPriority = pickPriority(caller.priority, instance.priority);
   const mergedAction = composeActions(caller.action, instance.action);
   const mergedMatch = mergeMatchSpecs(caller.matchSpec, instance.matchSpec, mergedName);
-  const mergedAlias = mergePlaceAlias(caller.placeAlias, instance.placeAlias, mergedName);
+  const mergedAlias = mergePlaceAlias(sideAlias(caller), sideAlias(instance), mergedName);
 
   const builder = Transition.builder(mergedName)
     .timing(mergedTiming)
@@ -600,8 +612,6 @@ function mergePlaceAlias(
   instance: ReadonlyMap<string, Place<any>>,
   channelName: string,
 ): ReadonlyMap<string, Place<any>> {
-  if (caller.size === 0) return instance;
-  if (instance.size === 0) return caller;
   const merged = new Map<string, Place<any>>(caller);
   for (const [declared, actual] of instance) {
     const existing = merged.get(declared);
@@ -625,7 +635,24 @@ function mergePlaceAlias(
     }
     merged.set(declared, actual);
   }
-  return merged;
+  return dropIfAllIdentity(merged);
+}
+
+/**
+ * One side's correspondence for a channel merge: its own when it carries one,
+ * else an identity entry for every place it names. A side that carries none
+ * still declares those places, so they must stay keys of the merged map, or a
+ * later pass that renames one leaves it unresolved (MOD-031 key-set
+ * completeness). Identity entries carry no assertion (AC#10), so they never
+ * change how {@link mergePlaceAlias} resolves a place.
+ */
+function sideAlias(t: Transition): ReadonlyMap<string, Place<any>> {
+  if (t.placeAlias.size > 0) return t.placeAlias;
+  const alias = new Map<string, Place<unknown>>();
+  forEachNamedPlace(t, (p) => {
+    if (!alias.has(p.name)) alias.set(p.name, p);
+  });
+  return alias;
 }
 
 /**

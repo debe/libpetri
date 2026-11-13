@@ -84,9 +84,13 @@ export class Deadline {
     return this.endsAt - performance.now();
   }
 
-  /** Whether verification must stop: cancelled, or the budget has run out. */
+  /**
+   * Whether verification must stop: cancelled, or no whole millisecond of the budget is left.
+   * Whole milliseconds, as the z3 clamp reads them, so a call the clamp refuses is a call a poll
+   * stops ([VER-013]).
+   */
   passed(): boolean {
-    return this.remainingMs() <= 0;
+    return Math.floor(this.remainingMs()) <= 0;
   }
 
   /** Throws {@link VerificationCancelled} or {@link TotalBudgetExhausted} once verification must stop. */

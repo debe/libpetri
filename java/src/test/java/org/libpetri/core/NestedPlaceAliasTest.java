@@ -168,6 +168,65 @@ class NestedPlaceAliasTest {
                 + "author-original keys, so the action still resolves them");
     }
 
+    /**
+     * MOD-031 key-set completeness through a channel merge (RD-23). The caller
+     * {@code call} carries no correspondence and consumes host place {@code h};
+     * the instance channel transition carries {@code x -> hx}. Fusion
+     * {@code {f, h}} at build then moves {@code h} to {@code f}. The merged
+     * transition must resolve the caller's declared {@code h} to {@code f}; if the
+     * merge kept only the instance side's map, {@code h} is no key, the chained
+     * fusion pass cannot carry it, and the caller's action fails after its inputs
+     * were consumed (EXEC-031).
+     */
+    @Test
+    void channelMergeThenFusion_callerResolvesItsDeclaredPlace_MOD031() {
+        Place<String> x = Place.of("x", String.class);
+        Transition chan = Transition.builder("chan").inputs(one(x)).build();
+        SubnetDef<Void> def = SubnetDef.builder("chanNet")
+            .inputPort("x", x)
+            .transition(chan)
+            .channel("ch", chan)
+            .build();
+
+        Place<String> h   = Place.of("h",   String.class);
+        Place<String> f   = Place.of("f",   String.class);
+        Place<String> hx  = Place.of("hx",  String.class);
+        Place<String> out = Place.of("out", String.class);
+        Transition call = Transition.builder("call")
+            .inputs(one(h))
+            .outputs(place(out))
+            .action(ctx -> {
+                ctx.output(out, ctx.input(h));
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+
+        PetriNet net = PetriNet.builder("host")
+            .compose(def.instantiate("s"), b -> b.bindPort("x", hx).bindChannel("ch", call))
+            .fuse(FusionSet.of("fh", f, h))
+            .build();
+
+        assertEquals(f, findTransition(net, "call").placeAlias().get(h),
+            "MOD-031: after the merge and the fusion pass the caller's declared 'h' resolves to 'f'");
+
+        Map<Place<?>, List<Token<?>>> initial = Map.of(
+            f, List.of(Token.of("ok")), hx, List.of(Token.of("go")));
+        var failures = new ArrayList<Throwable>();
+        try (var exec = BitmapNetExecutor.builder(net, initial)
+                .uncaughtActionHandler((t, cause) -> failures.add(cause))
+                .build()) {
+            assertProduced("BitmapNetExecutor", exec.run(), failures, out, "ok",
+                "MOD-031: the caller's declared 'h' must resolve to the fused 'f'");
+        }
+        var precompiledFailures = new ArrayList<Throwable>();
+        try (var exec = PrecompiledNetExecutor.builder(net, initial)
+                .uncaughtActionHandler((t, cause) -> precompiledFailures.add(cause))
+                .build()) {
+            assertProduced("PrecompiledNetExecutor", exec.run(), precompiledFailures, out, "ok",
+                "MOD-031: the caller's declared 'h' must resolve to the fused 'f'");
+        }
+    }
+
     // ============================================================
     //  Helpers
     // ============================================================

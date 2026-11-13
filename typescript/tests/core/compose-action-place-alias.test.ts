@@ -5,9 +5,12 @@ import { Transition } from '../../src/core/transition.js';
 import { PetriNet } from '../../src/core/petri-net.js';
 import { SubnetDef } from '../../src/core/subnet-def.js';
 import { Interface } from '../../src/core/interface.js';
+import { FusionSet } from '../../src/core/fusion-set.js';
 import { one } from '../../src/core/in.js';
-import { outPlace, xorPlaces } from '../../src/core/out.js';
+import { forwardInput, outPlace, timeout, timeoutPlace, xor, xorPlaces } from '../../src/core/out.js';
 import { BitmapNetExecutor } from '../../src/runtime/bitmap-net-executor.js';
+import { PrecompiledNetExecutor } from '../../src/runtime/precompiled-net-executor.js';
+import { InMemoryEventStore, eventsOfType } from '../../src/event/event-store.js';
 import { tokenOf } from '../../src/core/token.js';
 import type { Token } from '../../src/core/token.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
@@ -340,4 +343,150 @@ describe('MOD-031 — action place resolution under composition', () => {
     expect(marking.peekFirst(finalOut!)?.value).toBe('A+B');
     expect(marking.tokenCount(hostReq)).toBe(0);
   });
+
+  it('channel merge then fusion: caller action resolves its declared place (MOD-031 key-set completeness)', async () => {
+    // RD-23: the caller `call` carries no correspondence; the instance's channel transition
+    // carries one. The merge must still give every place the caller names a key, or the later
+    // fusion pass (h -> f) leaves `h` unresolved and the action throws after consuming inputs.
+    const x = place<string>('x');
+    const done = place<string>('done');
+    const serve = Transition.builder('serve')
+      .inputs(one(x))
+      .outputs(outPlace(done))
+      .build();
+    const def = SubnetDef.builder('Svc')
+      .place(done)
+      .transition(serve)
+      .inputPort('x', x)
+      .channel('serve', serve)
+      .build();
+    const inst = def.instantiate('s').bindActions({
+      serve: async (ctx) => {
+        ctx.output(done, ctx.input(x));
+      },
+    });
+
+    const h = place<string>('h');
+    const f = place<string>('f');
+    const hx = place<string>('hx');
+    const out = place<string>('out');
+    const call = Transition.builder('call')
+      .inputs(one(h))
+      .outputs(outPlace(out))
+      .action(async (ctx) => {
+        ctx.output(out, ctx.input(h) + '!');
+      })
+      .build();
+
+    const net = PetriNet.builder('host')
+      .place(f)
+      .place(h)
+      .place(hx)
+      .place(out)
+      .compose(inst, (b) => b.bindPort('x', hx).bindChannel('serve', call))
+      .fuse(FusionSet.of('F', f, h))
+      .build();
+
+    const merged = [...net.transitions].find((t) => t.name === 'call')!;
+    expect(merged.placeAlias.get('h')?.name).toBe('f');
+    expect(merged.placeAlias.get('x')?.name).toBe('hx');
+
+    const initial = new Map<Place<unknown>, Token<unknown>[]>();
+    initial.set(f as Place<unknown>, [tokenOf('F')] as Token<unknown>[]);
+    initial.set(hx as Place<unknown>, [tokenOf('X')] as Token<unknown>[]);
+    const store = new InMemoryEventStore();
+    const marking = await new BitmapNetExecutor(net, initial as Map<Place<any>, Token<any>[]>, {
+      eventStore: store,
+    }).run(2000);
+
+    expect(eventsOfType(store, 'transition-failed')).toHaveLength(0);
+    expect(marking.peekFirst(out)?.value).toBe('F!');
+    const sDone = [...net.places].find((p) => p.name === 's/done') as Place<string>;
+    expect(marking.peekFirst(sDone)?.value).toBe('X');
+  });
+
+  // The timeout outcome is deposited on the places of the rewritten output spec, which are
+  // already the actual places: the correspondence is applied once, to a declared place, and
+  // never again in firing (MOD-031, IO-013, IO-014, CORE-036). Under a port-name collision
+  // (declared `a` bound to the caller's `b`, declared `b` bound to `c`) a second resolution
+  // would move the timeout token meant for `b` onto `c`.
+  for (const backend of ['BitmapNetExecutor', 'PrecompiledNetExecutor'] as const) {
+    const run = async (net: PetriNet, initial: Map<Place<any>, Token<any>[]>, store: InMemoryEventStore) =>
+      (backend === 'BitmapNetExecutor'
+        ? new BitmapNetExecutor(net, initial, { eventStore: store })
+        : new PrecompiledNetExecutor(net, initial, { eventStore: store })
+      ).run(2000);
+    const never: TransitionAction = () => new Promise<void>(() => {});
+
+    it(`the timeout branch deposits on the bound place under a port-name collision (MOD-031, IO-013, ${backend})`, async () => {
+      const job = place<string>('job');
+      const a = place<string>('a');
+      const b = place<string>('b');
+      const work = Transition.builder('work')
+        .inputs(one(job))
+        .outputs(xor(outPlace(b), timeoutPlace(30, a)))
+        .action(never)
+        .build();
+      const def = SubnetDef.builder('Work')
+        .transition(work)
+        .inputPort('job', job)
+        .outputPort('a', a)
+        .outputPort('b', b)
+        .build();
+
+      const hostJob = place<string>('hostJob');
+      const hostB = place<string>('b');
+      const hostC = place<string>('c');
+      const net = PetriNet.builder('h')
+        .place(hostJob).place(hostB).place(hostC)
+        .compose(def.instantiate('w'), (bb) =>
+          bb.bindPort('job', hostJob).bindPort('a', hostB).bindPort('b', hostC))
+        .build();
+
+      const store = new InMemoryEventStore();
+      const marking = await run(net, seed(hostJob, 'j'), store);
+
+      expect(eventsOfType(store, 'action-timed-out')).toHaveLength(1);
+      expect(eventsOfType(store, 'transition-failed')).toHaveLength(0);
+      expect(marking.tokenCount(hostB)).toBe(1);
+      expect(marking.tokenCount(hostC)).toBe(0);
+    });
+
+    it(`a timeout ForwardInput reads and deposits on the actual places under a collision (MOD-031, IO-014, ${backend})`, async () => {
+      // Declared `job` is bound to the caller's `a`, declared `a` to `b`, declared `b` to `c`:
+      // resolving the rewritten `from` (actual `a`) again names `b`, which is no input.
+      const job = place<string>('job');
+      const a = place<string>('a');
+      const b = place<string>('b');
+      const work = Transition.builder('work')
+        .inputs(one(job))
+        .outputs(xor(outPlace(b), timeout(30, forwardInput(job, a))))
+        .action(never)
+        .build();
+      const def = SubnetDef.builder('Work')
+        .transition(work)
+        .inputPort('job', job)
+        .outputPort('a', a)
+        .outputPort('b', b)
+        .build();
+
+      const hostA = place<string>('a');
+      const hostB = place<string>('b');
+      const hostC = place<string>('c');
+      const net = PetriNet.builder('h')
+        .place(hostA).place(hostB).place(hostC)
+        .compose(def.instantiate('w'), (bb) =>
+          bb.bindPort('job', hostA).bindPort('a', hostB).bindPort('b', hostC))
+        .build();
+
+      const store = new InMemoryEventStore();
+      const marking = await run(net, seed(hostA, 'j'), store);
+
+      expect(eventsOfType(store, 'action-timed-out')).toHaveLength(1);
+      expect(eventsOfType(store, 'transition-failed')).toHaveLength(0);
+      expect(marking.tokenCount(hostA)).toBe(0);
+      expect(marking.peekTokens(hostB).map((tok) => tok.value)).toEqual(['j']);
+      expect(marking.tokenCount(hostC)).toBe(0);
+    });
+  }
 });

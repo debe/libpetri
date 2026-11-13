@@ -51,6 +51,8 @@ import { one, type In } from '../core/in.js';
 import type { Out } from '../core/out.js';
 import { immediate } from '../core/timing.js';
 import { compareCodePoints } from '../core/internal/code-point-order.js';
+import { NEVER_RUN_ACTION } from '../core/internal/output-action-check.js';
+import { isPassthrough } from '../core/transition-action.js';
 import type { SmtProperty } from './smt-property.js';
 import type { MarkingState } from './marking-state.js';
 
@@ -363,10 +365,15 @@ function completionOutput(out: Out): Out {
   }
 }
 
-/** The start and the completion step of `t`. */
+/**
+ * The start and the completion step of `t`. The start gains an output, so a sink on the
+ * built-in passthrough (one conflict priority splits, [NU-052]) gets an action that never runs
+ * instead: the derived net then passes [CORE-043] exactly when `t`'s net does.
+ */
 function halves(t: Transition): [Transition, Transition] {
   const p: Place<any> = place(inFlightPlace(t.name));
-  const start = Transition.builder(t.name).timing(t.timing).priority(t.priority).action(t.action);
+  const startAction = isPassthrough(t.action) ? NEVER_RUN_ACTION : t.action;
+  const start = Transition.builder(t.name).timing(t.timing).priority(t.priority).action(startAction);
   if (t.placeAlias.size > 0) start.placeAlias(t.placeAlias);
   if (t.inputSpecs.length > 0) start.inputs(...t.inputSpecs);
   for (const arc of t.inhibitors) start.inhibitor(arc.place);

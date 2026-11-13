@@ -147,10 +147,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     private final int[] readyQueueTail;
     private final int[] readyQueueSize;
 
-    // ==================== Pooled Per-Transition Objects (sync fast path) ====================
-
-    private final TransitionContext[] contextPool;  // one per transition, reused on sync path
-
     // ==================== In-Flight Tracking (Flat Arrays) ====================
 
     @SuppressWarnings("unchecked")
@@ -347,8 +343,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         this.executor = executor;
         this.ownsExecutor = ownsExecutor;
         this.uncaughtActionHandler = uncaughtActionHandler;
-        this.environmentPlaces = environmentPlaces;
-        this.hasEnvironmentPlaces = !environmentPlaces.isEmpty();
+        this.environmentPlaces = Set.copyOf(environmentPlaces); // [ENV-002] fixed at build
+        this.hasEnvironmentPlaces = !this.environmentPlaces.isEmpty();
         this.executionContextProvider = executionContextProvider;
         this.skipOutputValidation = skipOutputValidation;
         this.deadlineToleranceMillis = deadlineToleranceMillis;
@@ -423,20 +419,6 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
             readyQueues[i] = new int[Math.max(program.transitionCount, 4)];
         }
 
-        // Pooled per-transition objects for sync fast path
-        this.contextPool = new TransitionContext[program.transitionCount];
-        for (int tid = 0; tid < program.transitionCount; tid++) {
-            Transition t = program.transitionsById[tid];
-            var ctx = new TransitionContext(
-                t, new TokenInput(program.inputPlaceCount[tid]), newOutput());
-            // Install the ν-name minter once per pooled context (NU-010, NU-030):
-            // monotonic across the run, instance-prefixed via the transition name.
-            final String freshNameBase = t.name();
-            ctx.setFreshNameSupplier(() ->
-                new NameId(freshNameBase + "#" + executionScope() + ":" + freshNameCounter.getAndIncrement()));
-            contextPool[tid] = ctx;
-        }
-
         // In-flight tracking
         this.inFlightFutures = new CompletableFuture[program.transitionCount];
         this.inFlightContexts = new TransitionContext[program.transitionCount];
@@ -451,11 +433,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     }
 
     /**
-     * Builds a fresh, unpooled context for one firing of {@code tid}.
+     * Builds the context for one firing of {@code tid}, with its ν-name minter (NU-010, NU-030):
+     * monotonic across the run, instance-prefixed via the transition name.
      *
-     * <p>Used only for transitions carrying an {@code Out.Timeout}, whose firings can outlive
-     * the executor's interest in them. Identical in construction to the pooled entry,
-     * including the ν-name minter.
+     * <p>Every firing gets its own. Its collector is detached when the firing completes or
+     * times out ([CONC-003], [EXEC-022]), and an action may keep the context past that: reused,
+     * a late write through it would land in the next firing's output.
      */
     private TransitionContext newFiringContext(int tid, Transition t) {
         var ctx = new TransitionContext(
@@ -1268,8 +1251,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     @Override
     public CompletionStage<Marking> run(Duration timeout, RunTimeoutPolicy policy) {
+        boolean wasStarted = started;
         started = true; // before submit, so awaitTermination cannot mistake this for "never started"
-        CompletableFuture<Marking> loop = CompletableFuture.supplyAsync(this::executeLoop, executor);
+        CompletableFuture<Marking> loop;
+        try {
+            loop = CompletableFuture.supplyAsync(this::executeLoop, executor);
+        } catch (RuntimeException rejected) {
+            // [ENV-016] the submit failed, so no loop started: awaitTermination must not wait for it.
+            started = wasStarted;
+            throw rejected;
+        }
         // copy() so the timer never completes the loop's own future: ABANDON must leave the
         // orchestrator running and still able to report its real result to terminatedFuture.
         return loop.copy()
@@ -1830,22 +1821,25 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // Take it down before the first action can trip over it; run() puts it back.
         interruptDeferred = false;
         absorbInterruptFlag();
-        if (eventStoreEnabled) {
-            emitEvent(new NetEvent.ExecutionStarted(
-                clockInstant(), netName(), executionId()));
-        }
-
-        initializeMarkingBitmap();
-        // [EXEC-042] check point 1: the initial marking, before the first cycle.
-        if (program.hasTerminals) checkInitialTerminals();
-        markAllDirty();
-        emitMarkingSnapshot();
 
         // The loop body must never leave pending inject() futures uncompleted, even when it
         // exits by exception: those callers are blocked on join() and their tokens have
-        // already been consumed. Termination bookkeeping therefore lives in the finally.
+        // already been consumed. Termination bookkeeping therefore lives in the finally, and
+        // the boot is inside the try: a store that throws on ExecutionStarted or the first
+        // snapshot still ends the run as stopped, so awaitTermination observes it ([ENV-016]).
         boolean quiesced = false;
         try {
+            if (eventStoreEnabled) {
+                emitEvent(new NetEvent.ExecutionStarted(
+                    clockInstant(), netName(), executionId()));
+            }
+
+            initializeMarkingBitmap();
+            // [EXEC-042] check point 1: the initial marking, before the first cycle.
+            if (program.hasTerminals) checkInitialTerminals();
+            markAllDirty();
+            emitMarkingSnapshot();
+
             // NOTE: the thread's interrupt flag is deliberately NOT a loop condition.
             // [EXEC-041] forbids treating ambient host state as a stop request: the flag
             // may be inherited from earlier work on a reused thread, or set by this run's
@@ -1868,8 +1862,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 // channel. Serviced first, every inject-then-snapshot came back "not a restore
                 // point" and cost the host a retry.
                 serviceMarkingRequest();
-                updateDirtyTransitions();
-                if (program.anyDeadlines) enforceDeadlines();
+                // [TIME-010]/[EXEC-001]: one firing-clock reading per cycle. The enablement
+                // update stamps at it; the deadline step, the firing pass and the decision to
+                // wait judge at it, and no later step reads the clock for these judgements.
+                long cycleNanos = clockNanos();
+                updateDirtyTransitions(cycleNanos);
+                if (program.anyDeadlines) enforceDeadlines(cycleNanos);
 
                 if (shouldTerminate()) {
                     // shouldTerminate() is also true for a close with nothing in flight, so it
@@ -1880,11 +1878,11 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                     break;
                 }
 
-                fireReadyTransitions();
+                fireReadyTransitions(cycleNanos);
 
                 if (hasDirtyBits()) continue;
 
-                awaitWork();
+                awaitWork(cycleNanos);
             }
         } finally {
             running = false;
@@ -2005,8 +2003,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     // ==================== Dirty Set Processing ====================
 
-    private void updateDirtyTransitions() {
-        long nowNanos = clockNanos();
+    private void updateDirtyTransitions(long nowNanos) {
 
         // Snapshot and clear dirty bitmap using summary to visit only non-zero words
         for (int s = 0; s < summaryWords; s++) {
@@ -2106,8 +2103,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     // ==================== Deadline Enforcement ====================
 
-    private void enforceDeadlines() {
-        long nowNanos = clockNanos();
+    private void enforceDeadlines(long nowNanos) {
         for (int s = 0; s < summaryWords; s++) {
             long summary = enabledWordSummary[s];
             while (summary != 0) {
@@ -2153,12 +2149,12 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     // ==================== Firing ====================
 
-    private void fireReadyTransitions() {
+    private void fireReadyTransitions(long nowNanos) {
         if (program.allImmediate && program.allSamePriority) {
             fireReadyImmediate();
             return;
         }
-        fireReadyGeneral();
+        fireReadyGeneral(nowNanos);
     }
 
     /**
@@ -2198,8 +2194,7 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     /**
      * General firing path using priority-partitioned ready queues.
      */
-    private void fireReadyGeneral() {
-        long nowNanos = clockNanos();
+    private void fireReadyGeneral(long nowNanos) {
 
         // Populate ready queues from enabled bitmap using summary
         clearAllReadyQueues();
@@ -2309,21 +2304,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     private void fireTransition(int tid) {
         Transition t = program.transitionsById[tid];
 
-        // Pooled contexts are reused across firings of the same tid, which is only safe
-        // while a firing cannot outlive the executor's interest in it. An Out.Timeout
-        // firing can: the timeout deposits its branch and clears the in-flight bit, so this
-        // tid may re-fire in the very same loop iteration while the abandoned action still
-        // holds this context and keeps writing to it. A pooled context would then be
-        // cleared underneath that action and its late writes would land in the next
-        // firing's output. Timeout transitions therefore get a fresh context per firing;
-        // everything else keeps the zero-allocation fast path.
-        TransitionContext context = t.hasActionTimeout()
-            ? newFiringContext(tid, t)
-            : contextPool[tid];
+        TransitionContext context = newFiringContext(tid, t);
         TokenInput inputs = context.rawInput();
-        inputs.clear();
-        TokenOutput output = context.rawOutput();
-        output.clear();
 
         List<Token<?>> consumed = trackConsumed ? new ArrayList<>() : null;
 
@@ -2384,16 +2366,16 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         enabledTransitionCount--;
         enabledAtNanos[tid] = Long.MIN_VALUE;
 
-        // Sync fast path — pooled context reused, no allocation
+        // Sync fast path
         if (!t.hasActionTimeout() && transitionFuture.isDone()) {
             processSyncOutput(tid, transitionFuture, context, consumed);
         } else {
-            // Async path. The pooled context is safe here: a non-timeout transition cannot
-            // re-fire while in-flight, and a timeout transition was given a fresh context above
-            // (see newFiringContext) precisely because that invariant does not hold once the
-            // timeout can clear its in-flight bit and let the same tid re-fire in this iteration.
+            // Async path
             int tidCapture = tid;
             transitionFuture.whenComplete((_, _) -> {
+                // [CONC-003]: the output is what the action wrote before its future completed;
+                // detach before queueing, so a later write never reaches the admission.
+                context.detachAtCompletion();
                 completionQueue.offer(tidCapture);
                 wakeUp();
             });
@@ -2520,6 +2502,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
     private void processSyncOutput(int tid, CompletableFuture<Void> future,
                                    TransitionContext context, List<Token<?>> consumed) {
         Transition t = program.transitionsById[tid];
+        // [CONC-003]: the future is done, so the output is what the action wrote until now.
+        context.detachAtCompletion();
         try {
             future.join();
 
@@ -2588,7 +2572,14 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 future.join();
 
                 TokenOutput outputs = context.rawOutput();
-                validateOutput(tid, t, outputs);
+                if (context.isDetachedForTimeout()) {
+                    // [EXEC-021]/[EXEC-022]/[IO-013]: the timeout outcome is not validated
+                    // against the output spec; the [NU-054] relay check still runs on it,
+                    // skipped only where output validation is (CONC-026).
+                    if (!skipOutputValidation) ExecutorSupport.validateRelays(t, outputs, matchedNames[tid]);
+                } else {
+                    validateOutput(tid, t, outputs);
+                }
 
                 // Defensive copy: a misbehaving action that kept a reference cannot mutate the
                 // list mid-iteration. Each entry is added, bit-set and marked dirty together.
@@ -2688,20 +2679,20 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
     // ==================== Await Work ====================
 
-    private void awaitWork() {
+    private void awaitWork(long cycleNanos) {
         // When closed, ignore external queue — processExternalEvents() won't consume it,
         // drainPendingExternalEvents() handles it after the loop exits.
         if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
 
         if (inFlightCount > 0) {
-            awaitCompletionOrEvent();
+            awaitCompletionOrEvent(cycleNanos);
         } else if (enabledTransitionCount > 0 || (hasEnvironmentPlaces && !draining.get())) {
             // Wait for timed transitions to become ready, or for external events
-            awaitExternalEvent();
+            awaitExternalEvent(cycleNanos);
         }
     }
 
-    private void awaitCompletionOrEvent() {
+    private void awaitCompletionOrEvent(long cycleNanos) {
         // Check if any in-flight is already done
         for (int tid = 0; tid < program.transitionCount; tid++) {
             if (inFlightFutures[tid] != null && inFlightFutures[tid].isDone()) return;
@@ -2710,13 +2701,15 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
 
         if (inFlightCount == 0) return;
 
+        // [TIME-010]/[CONC-010]: the next boundary is judged at the cycle reading, once.
+        long waitNanos = program.allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition(cycleNanos);
         absorbInterruptFlag();
         if (environment != null) {
             // The host owns both halves of the wait ([TIME-015]): `workReady` is the signal
             // the semaphore carries by default, the delay is the timeout. No poll loop — a
             // host may return spuriously and the orchestrator re-checks on its next cycle
             // (contract point 3), which is what makes the poll bound unnecessary here.
-            awaitHostedWork(program.allImmediate ? Long.MAX_VALUE : nanosUntilNextTimedTransition());
+            awaitHostedWork(waitNanos);
             return;
         }
 
@@ -2730,17 +2723,26 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         // The whole loop is one park ([ENV-014] AC#9): between polls it only reads.
         parkEpoch++;
         try {
-            awaitCompletionPolling();
+            awaitCompletionPolling(waitNanos);
         } finally {
             parkEpoch++;
         }
     }
 
-    /** The built-in poll of {@link #awaitCompletionOrEvent()}, run while parked. */
-    private void awaitCompletionPolling() {
+    /**
+     * The built-in poll of {@link #awaitCompletionOrEvent(long)}, run while parked.
+     *
+     * @param waitNanos the timer the decision to wait set at the cycle reading ([TIME-010],
+     *     [CONC-010]); the poll only runs it down and never judges a boundary again. Running it
+     *     down reads the real clock, which is this path's firing clock: it is taken only when
+     *     no environment is installed.
+     */
+    private void awaitCompletionPolling(long waitNanos) {
+        long parkedAt = System.nanoTime();
         while (true) {
-            long pollMs = program.allImmediate ? awaitPollMillis
-                : Math.max(1, Math.min(awaitPollMillis, nanosUntilNextTimedTransition() / 1_000_000));
+            long remainingNanos = waitNanos - (System.nanoTime() - parkedAt);
+            if (remainingNanos <= 0) return; // the timer ran out: the next cycle judges
+            long pollMs = Math.max(1, Math.min(awaitPollMillis, remainingNanos / 1_000_000));
             try {
                 if (wakeUpSignal.tryAcquire(pollMs, TimeUnit.MILLISECONDS)) {
                     wakeUpSignal.drainPermits();
@@ -2758,14 +2760,10 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 return;
             }
             if (!completionQueue.isEmpty() || (!closed.get() && !externalEventQueue.isEmpty())) return;
-
-            // Timed transition may have become ready (pollMs was bounded by timer)
-            if (!program.allImmediate && nanosUntilNextTimedTransition() <= 0) return;
         }
     }
 
-    private long nanosUntilNextTimedTransition() {
-        long nowNanos = clockNanos();
+    private long nanosUntilNextTimedTransition(long nowNanos) {
         long minWaitNanos = Long.MAX_VALUE;
 
         for (int s = 0; s < summaryWords; s++) {
@@ -2798,8 +2796,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
         return minWaitNanos;
     }
 
-    private void awaitExternalEvent() {
-        long waitNanos = nanosUntilNextTimedTransition();
+    private void awaitExternalEvent(long cycleNanos) {
+        long waitNanos = nanosUntilNextTimedTransition(cycleNanos); // [TIME-010]: at the cycle reading
         // Boundary already due: return and let the next cycle act on it rather than waiting.
         // Hoisted above the environment branch so an injected clock cannot make the
         // short-circuit diverge from the default one ([TIME-015], [EXEC-001], [CONC-010]).

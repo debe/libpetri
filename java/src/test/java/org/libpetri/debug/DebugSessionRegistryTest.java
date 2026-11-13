@@ -370,6 +370,28 @@ class DebugSessionRegistryTest {
         assertEquals(Map.of("channel", "voice", "env", "staging"), registry.tagsFor("session-1"));
     }
 
+    /**
+     * EVT-025 (no per-JVM-randomised container on the path to the debug protocol) and
+     * EVT-014 AC5: the tags of a session render in ascending key order, so a session list
+     * renders the same in every JVM. Twelve tags make a salted order come out sorted by chance
+     * about once in 12!.
+     */
+    @Test
+    void tagsForIsSortedByKey_EVT025() {
+        var registry = new DebugSessionRegistry();
+        var tags = new java.util.LinkedHashMap<String, String>();
+        for (var key : List.of("m", "c", "x", "a", "k", "e", "z", "b", "q", "g", "t", "i")) {
+            tags.put(key, "v-" + key);
+        }
+        var session = registry.register("session-1", TEST_NET, tags);
+        var sorted = tags.keySet().stream().sorted().toList();
+
+        assertEquals(sorted, List.copyOf(registry.tagsFor("session-1").keySet()));
+        assertEquals(sorted, List.copyOf(registry.summaryOf(session).tags().keySet()));
+        var handBuilt = new DebugResponse.SessionSummary("s", "n", "t", true, 0, tags, null, null);
+        assertEquals(sorted, List.copyOf(handBuilt.tags().keySet()));
+    }
+
     @Test
     void shouldDefaultToEmptyTagsWithoutTagsArg() {
         var registry = new DebugSessionRegistry();

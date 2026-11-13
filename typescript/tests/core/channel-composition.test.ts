@@ -21,6 +21,7 @@ import {
 } from '../../src/core/internal/subnet-rewriter.js';
 import { BitmapNetExecutor } from '../../src/runtime/bitmap-net-executor.js';
 import { retryPolicy } from '../fixtures/subnet-fixtures.js';
+import { SubnetDef } from '../../src/core/subnet-def.js';
 
 /**
  * Tests for synchronous-channel composition per **MOD-021**: the caller-side
@@ -449,6 +450,30 @@ describe('SubnetRewriter.mergeTransitions — channel composition (MOD-021)', ()
   });
 });
 
+describe('ComposeBindings.bindChannel — one caller transition per call (MOD-020 AC6)', () => {
+  it('compose_oneCallerTransitionOnTwoChannels_isRejected (MOD-020 AC6)', () => {
+    const a = place<string>('a');
+    const b = place<string>('b');
+    const left = Transition.builder('left').outputs(outPlace(a)).build();
+    const right = Transition.builder('right').outputs(outPlace(b)).build();
+    const def = SubnetDef.builder('TwoChannels')
+      .place(a)
+      .place(b)
+      .transition(left)
+      .transition(right)
+      .channel('left', left)
+      .channel('right', right)
+      .build();
+    const inst = def.instantiate('s').bindActions({ left: passthrough(), right: passthrough() });
+
+    const call = Transition.builder('call').inputs(one(place<string>('h'))).build();
+
+    expect(() =>
+      PetriNet.builder('Host').compose(inst, (bb) => bb.bindChannel('left', call).bindChannel('right', call)),
+    ).toThrow(/Transition 'call' is already bound to channel 'left'; it cannot also be bound to channel 'right' \(MOD-020\)/);
+  });
+});
+
 describe('SubnetRewriter.mergeTransitions — ν-net match + declared→actual alias (NU-060 / MOD-031)', () => {
   const cidKey = (a: Place<string>, b: Place<string>) =>
     matchSpec(matchKey(a, (s: string) => nameId(s)), matchKey(b, (s: string) => nameId(s)));
@@ -567,6 +592,34 @@ describe('SubnetRewriter.mergeTransitions — ν-net match + declared→actual a
     );
     expect(swappedMerged.placeAlias.get('declaredX')?.name).toBe('host/y');
     expect(swappedMerged.placeAlias.get('declaredZ')?.name).toBe('host/z');
+  });
+
+  it('channelMerge_callerWithoutAlias_keepsItsDeclaredPlacesAsKeys (MOD-031 key-set completeness)', () => {
+    // RD-23: a side that carries no correspondence contributes an identity entry for every
+    // place it names, so a later pass can still move them.
+    const h = place<string>('h');
+    const out = place<string>('out');
+    const hx = place<string>('hx');
+    const done = place<string>('s/done');
+    const caller = Transition.builder('call').inputs(one(h)).outputs(outPlace(out)).build();
+    const instance = Transition.builder('s/serve')
+      .inputs(one(hx))
+      .outputs(outPlace(done))
+      .placeAlias(new Map<string, Place<unknown>>([['x', hx], ['done', done]]))
+      .build();
+
+    const merged = mergeTransitions(caller, instance, 'call');
+    const alias = new Map([...merged.placeAlias].map(([k, v]) => [k, v.name]));
+    expect(alias).toEqual(new Map([['h', 'h'], ['out', 'out'], ['x', 'hx'], ['done', 's/done']]));
+
+    // Symmetric case: the instance side carries none.
+    const reversed = mergeTransitions(instance, caller, 's/serve');
+    const alias2 = new Map([...reversed.placeAlias].map(([k, v]) => [k, v.name]));
+    expect(alias2).toEqual(new Map([['x', 'hx'], ['done', 's/done'], ['h', 'h'], ['out', 'out']]));
+
+    // Both sides without one: the all-identity map drops wholesale (MOD-031 AC#9).
+    const plain = mergeTransitions(caller, Transition.builder('i').inputs(one(hx)).build(), 'call');
+    expect(plain.placeAlias.size).toBe(0);
   });
 
   it('channelMerge_mixedAliasTwoNonIdentityMappings_stillThrows: MOD-031 AC#10 negative', () => {

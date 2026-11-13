@@ -90,26 +90,10 @@ export class Transition {
     this.placeAlias = placeAlias.size === 0 ? EMPTY_PLACE_ALIAS : placeAlias;
     this.matchSpec = matchSpec;
 
-    // Precompute place sets
-    const inputPlaces = new Set<Place<any>>();
-    for (const spec of inputSpecs) {
-      inputPlaces.add(spec.place);
-    }
-    this._inputPlaces = inputPlaces;
-
-    const readPlaces = new Set<Place<any>>();
-    for (const r of reads) {
-      readPlaces.add(r.place);
-    }
-    this._readPlaces = readPlaces;
-
-    const outputPlaces = new Set<Place<any>>();
-    if (outputSpec !== null) {
-      for (const p of allPlaces(outputSpec)) {
-        outputPlaces.add(p);
-      }
-    }
-    this._outputPlaces = outputPlaces;
+    // Precompute place sets, one place per name (CORE-002)
+    this._inputPlaces = placesByName(inputSpecs.map(spec => spec.place));
+    this._readPlaces = placesByName(reads.map(r => r.place));
+    this._outputPlaces = outputSpec !== null ? allPlaces(outputSpec) : new Set<Place<any>>();
   }
 
   /** Returns set of input places — consumed tokens. */
@@ -218,8 +202,17 @@ export class TransitionBuilder {
     return this;
   }
 
-  /** Set the transition action. */
+  /**
+   * Set the transition action. Omit the call for the passthrough default; a `null` or
+   * `undefined` action is rejected (CORE-051).
+   */
   action(action: TransitionAction): this {
+    if (action == null) {
+      throw new TypeError(
+        `Transition '${this._name}': action must not be null or undefined; ` +
+        'omit action() for the passthrough default',
+      );
+    }
     this._action = action;
     return this;
   }
@@ -405,6 +398,15 @@ export function inputAndReadArcMessage(transitionName: string, placeName: string
   return `Transition '${transitionName}' declares an input arc and a read arc on place '${placeName}'. `
     + 'A read of a place the same firing consumes from has no coherent semantics and is rejected '
     + '(EXEC-012). Remove the read arc: the input arc already hands the consumed tokens to the action.';
+}
+
+/** The places, one per name (CORE-002), keeping the first object met for a name. */
+function placesByName(places: readonly Place<any>[]): Set<Place<any>> {
+  const byName = new Map<string, Place<any>>();
+  for (const p of places) {
+    if (!byName.has(p.name)) byName.set(p.name, p);
+  }
+  return new Set(byName.values());
 }
 
 /** Recursively searches the output spec for a Timeout node. */

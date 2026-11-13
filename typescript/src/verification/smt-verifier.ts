@@ -1131,8 +1131,9 @@ export class SmtVerifier {
     // NU-010: scripts without a declaration the caller made would not be the scripts it asked for.
     const unknownMint = unknownMintReason(this.callerNet, this._mintTransitions);
     if (unknownMint !== null) throw new Error(unknownMint);
+    // CORE-043: the caller's net, once, before any rewrite.
+    requireOutputProducingActions(this.callerNet);
     this.prepare();
-    requireOutputProducingActions(this.net);
     const flatNet = this.flatNet();
     const matrix = IncidenceMatrix.from(flatNet);
     const { valid: basis, dropped: basisDropped } = validateInvariantsExact(
@@ -1212,8 +1213,9 @@ export class SmtVerifier {
     const deadline = this._totalBudgetMs === null && this._signal === null
       ? null
       : Deadline.start(this._totalBudgetMs, this._signal);
+    // CORE-043: the caller's net, once, before any rewrite.
+    requireOutputProducingActions(this.callerNet);
     this.prepare();
-    requireOutputProducingActions(this.net);
     const start = performance.now();
     const report: string[] = [];
     const run: RunState = { deadline, phase: 'net preparation', route: 'unavailable' };
@@ -1493,11 +1495,15 @@ export class SmtVerifier {
         this.net, this._fragmentMode, this._carrierPlaces, everyTransition(this.net), nameAlignment,
       );
       const arrivalReason = routeBBuilds(anyFragment) ? this.colouredArrivalReason() : null;
+      // [NU-052]: the shared-input refusal reads whether conflict priority is in effect, not the
+      // selected mode; on a net with a reapable transition Route B turns the pruning off itself.
+      const conflictInEffect = this._effectivePriority === 'conflict' && this.conflictPruningApplies();
       const envReason = arrivalReason ?? (
         routeBBuilds(fragment)
           ? routeBEnvObservation(
               this.net, fragment, this._property, this._sinkPlaces, this._conditionalSinks,
-              this._environmentPlaces, this._environmentMode, this._effectivePriority, quiescenceVacuous,
+              this._environmentPlaces, this._environmentMode, conflictInEffect ? 'conflict' : 'none',
+              quiescenceVacuous,
             )
           : null);
       if (envReason !== null) {
@@ -2235,17 +2241,25 @@ export class SmtVerifier {
 
   /**
    * Runs the VER-017 enumeration, through the {@link StateSpaceCache} when one is set.
-   * `cacheLine` is the report line for a cached graph or cached truncation, else `null`.
+   * `cacheLine` is the report line for a cached graph, a cached truncation or a cache the
+   * arrivals closure bypasses, else `null`.
    */
   private enumerate(deadline: Deadline | null): { enumerated: ScgOutcome; cacheLine: string | null } {
     const cache = this._stateSpaceCache;
-    if (cache === null) {
+    // [VER-017] AC7: the key names the caller's net, and the arrivals closure is a new net with
+    // new source places on every call, so it could never hit; the cache is bypassed and the
+    // report says so.
+    const closedByArrivals = this._arrivals !== null && this._arrivals.injected.length > 0;
+    if (cache === null || closedByArrivals) {
       return {
         enumerated: verifyViaStateClassGraph(
           this.net, this._initialMarking, this._property, this._sinkPlaces,
           this._enumerationMaxClasses, this._conditionalSinks, deadline, this.stubbornEnumeration,
         ),
-        cacheLine: null,
+        cacheLine: cache === null
+          ? null
+          : 'Bounded state-space enumeration: state-space cache not used — the net was closed by '
+            + 'arrivals(k) (VER-006, VER-017).',
       };
     }
     const lookup = resolveStateSpace(
@@ -3019,8 +3033,9 @@ function propertyPlaces(property: SmtProperty): Place<any>[] {
  * every implementation names the same culprit:
  * 1. an environment place is coloured (a match key or carrier place);
  * 2. an environment place is tested by an inhibitor arc;
- * 3. under `conflict` priority, an environment place is a consumed input of two or more
- *    transitions (the pruning compares against the frozen count);
+ * 3. where conflict priority is in effect ([NU-052]; `prioritySemantics` is `'conflict'` only
+ *    then), an environment place is a consumed input of two or more transitions (the pruning
+ *    compares against the frozen count);
  * 4. the property observes an environment place. Quiescence properties observe nothing when
  *    `quiescenceVacuous`, since no quiescent marking exists to read.
  */

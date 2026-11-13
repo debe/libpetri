@@ -2,6 +2,8 @@ package org.libpetri.smt;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.libpetri.analysis.AllMints;
+import org.libpetri.analysis.FragmentMode;
 import org.libpetri.analysis.MarkingState;
 import org.libpetri.core.Arc.In;
 import org.libpetri.core.Arc.Out;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -70,5 +73,61 @@ class InitialViolationTraceTest {
                 assertTrue(r.report().contains("the initial marking violates the property"), tag);
             }
         }
+    }
+
+    /**
+     * {@code n} with {@code r} tokens in its budget {@code budget}, decided by the name-coloured
+     * fixpoint query (NU-053): every phase ahead of it is off.
+     */
+    private static SmtVerificationResult nameColoured(JoinRelayTest.Net n, String budget, int r,
+            List<String> carriers, SmtProperty property) {
+        var net = n.build();
+        return SmtVerifier.forNet(net).mintTransitions(AllMints.names(net))
+            .initialMarking(m -> m.tokens(n.p(budget), r))
+            .property(property)
+            .fragmentMode(FragmentMode.EXTENDED)
+            .budgetPlaces(n.p(budget))
+            .carrierPlaces(carriers.stream().map(n::p).toArray(Place<?>[]::new))
+            .enumerationMaxClasses(0)
+            .linearBound(false)
+            .stateEquationPhase(false)
+            .firingBound(false)
+            .witnessDepth(0)
+            .verify();
+    }
+
+    /**
+     * VER-003 AC8 (RD-26): no replay applies on the name-coloured encoding, so a violation of the
+     * initial marking there leaves {@code counterexampleConfirmed} absent, never {@code false}.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void VER003_AC8_aNameColouredInitialViolationLeavesCounterexampleConfirmedAbsent() {
+        var n = JoinRelayTest.fig12c(true);
+        var r = nameColoured(n, "R", 2, JoinRelayTest.FIG12C_CARRIERS, SmtProperty.placeBound(n.p("R"), 1));
+        assertTrue(r.isViolated(), r.report());
+        assertEquals(SmtVerificationResult.Route.SMT, r.route(), r.report());
+        assertTrue(r.report().contains("ν-encoding: name-coloured"), r.report());
+        assertNull(r.counterexampleConfirmed(), r.report());
+        assertTrue(r.report().contains("Counterexample replay: not applicable (name-coloured encoding, NU-053)"), r.report());
+    }
+
+    /**
+     * VER-003 AC8 (RD-26): a violation after a step, on the name-coloured encoding, also leaves
+     * {@code counterexampleConfirmed} absent.
+     */
+    @Test
+    @EnabledIf("z3Available")
+    void VER003_AC8_aNameColouredViolationLeavesCounterexampleConfirmedAbsent() {
+        // mint: S -> X, Y writes one fresh name into both; join: X, Y -> J joins it by name.
+        var n = new JoinRelayTest.Net("one-name")
+            .t("mint", List.of("S"), List.of("X", "Y"))
+            .t("join", List.of("X", "Y"), List.of("J"), List.of("X", "Y"), List.of());
+        var r = nameColoured(n, "S", 1, List.of(), SmtProperty.placeBound(n.p("J"), 0));
+        assertTrue(r.isViolated(), r.report());
+        assertEquals(SmtVerificationResult.Route.SMT, r.route(), r.report());
+        assertTrue(r.report().contains("ν-encoding: name-coloured"), r.report());
+        assertNull(r.counterexampleConfirmed(), r.report());
+        assertTrue(r.report().contains("Counterexample replay: not applicable (name-coloured encoding, NU-053)"), r.report());
     }
 }

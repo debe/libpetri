@@ -264,34 +264,28 @@ pub fn partition(
     }
 }
 
-/// Walks a prefix root-to-leaf, registering every intermediate prefix in
-/// `accumulator` (no-op when already present). Ensures parents are
-/// inserted before children.
+/// Registers the key chain of `prefix` in `accumulator` (no-op for entries
+/// already present): every non-empty `/`-prefix `prefix[..i]` with
+/// `prefix[i] == '/'`, shortest first, then `prefix` itself (EXP-016, the
+/// glossary `keyChain`). An empty `/`-segment (`a//x`, `/a`, `a/`) is kept,
+/// so [`parent_of`] of every registered entry is registered too and parents
+/// are inserted before children.
 fn register_prefix_chain(
     prefix: &str,
     accumulator: &mut Vec<String>,
     seen: &mut std::collections::HashSet<String>,
 ) {
-    if prefix.is_empty() {
-        return;
-    }
-    let mut built = String::new();
-    for seg in prefix.split('/') {
-        if seg.is_empty() {
-            continue;
-        }
-        if !built.is_empty() {
-            built.push('/');
-        }
-        built.push_str(seg);
-        if seen.insert(built.clone()) {
-            accumulator.push(built.clone());
+    let cuts = prefix.match_indices('/').map(|(i, _)| i).filter(|&i| i > 0);
+    for chained in cuts.map(|i| &prefix[..i]).chain(std::iter::once(prefix)) {
+        if seen.insert(chained.to_string()) {
+            accumulator.push(chained.to_string());
         }
     }
 }
 
-/// Returns the deepest prefix that is a (non-strict) ancestor of both
-/// sides, or [`None`] when there is no shared cluster (top-level routing).
+/// Returns the deepest cluster that holds both sides: the longest entry of
+/// the key chain of `a` that is also in the key chain of `b`, or [`None`]
+/// when there is no shared cluster (top-level routing).
 fn deepest_common_prefix<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
     let (a, b) = match (a, b) {
         (Some(a), Some(b)) => (a, b),
@@ -300,26 +294,18 @@ fn deepest_common_prefix<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&
     if a == b {
         return Some(a);
     }
-    let a_segs: Vec<&str> = a.split('/').collect();
-    let b_segs: Vec<&str> = b.split('/').collect();
-    let mut matched = 0usize;
-    let mut byte_len = 0usize;
-    let min = a_segs.len().min(b_segs.len());
-    for i in 0..min {
-        if a_segs[i] != b_segs[i] {
-            break;
-        }
-        if matched > 0 {
-            byte_len += 1; // for the '/'
-        }
-        byte_len += a_segs[i].len();
-        matched += 1;
+    // `s` is in the chain of `b` iff it is `b`, or a non-empty prefix of `b`
+    // followed by a `/` in `b`.
+    let in_chain_of_b =
+        |s: &str| b == s || (!s.is_empty() && b.starts_with(s) && b.as_bytes().get(s.len()) == Some(&b'/'));
+    if in_chain_of_b(a) {
+        return Some(a);
     }
-    if matched == 0 {
-        None
-    } else {
-        Some(&a[..byte_len])
-    }
+    a.rmatch_indices('/')
+        .map(|(i, _)| i)
+        .filter(|&i| i > 0)
+        .map(|i| &a[..i])
+        .find(|s| in_chain_of_b(s))
 }
 
 #[cfg(test)]
@@ -408,6 +394,72 @@ mod tests {
         assert_eq!(outer.nodes.len(), 1);
         assert_eq!(outer.subgraphs.len(), 1);
         assert_eq!(outer.subgraphs[0].nodes.len(), 1);
+    }
+
+    /// `label{child,child}` for a cluster tree, with each cluster's node ids
+    /// in brackets: `a[n1]{a/[n2]}`.
+    fn tree(sg: &Subgraph) -> String {
+        let nodes: Vec<&str> = sg.nodes.iter().map(|n| n.id.as_str()).collect();
+        let mut out = format!("{}[{}]", sg.label.as_deref().unwrap_or(""), nodes.join(","));
+        if !sg.subgraphs.is_empty() {
+            let kids: Vec<String> = sg.subgraphs.iter().map(tree).collect();
+            out.push_str(&format!("{{{}}}", kids.join(",")));
+        }
+        out
+    }
+
+    fn edges_of(sg: &Subgraph, out: &mut Vec<String>) {
+        for e in &sg.edges {
+            out.push(format!("{}:{}->{}", sg.label.as_deref().unwrap_or(""), e.from, e.to));
+        }
+        for c in &sg.subgraphs {
+            edges_of(c, out);
+        }
+    }
+
+    /// EXP-016 / MOD-040 (ruling D46 (a)): a key with an empty `/`-segment
+    /// opens its key chain (every non-empty `/`-prefix, then the key itself),
+    /// so every node sits in the cluster of its own key instead of panicking.
+    #[test]
+    fn exp_016_key_with_empty_segment_registers_its_key_chain() {
+        let ids = ["n_a_", "n_a__x", "n_slash_a", "n_slash_b", "n_http", "n_empty"];
+        let nodes: Vec<GraphNode> = ids.iter().map(|id| make_node(id)).collect();
+        let edges = vec![
+            make_edge("n_a__x", "n_a_"),
+            make_edge("n_slash_a", "n_slash_b"),
+        ];
+        let mut prefix = HashMap::new();
+        prefix.insert("n_a_".to_string(), "a/".to_string());
+        prefix.insert("n_a__x".to_string(), "a//x".to_string());
+        prefix.insert("n_slash_a".to_string(), "/a".to_string());
+        prefix.insert("n_slash_b".to_string(), "/b".to_string());
+        prefix.insert("n_http".to_string(), "http://host".to_string());
+        prefix.insert("n_empty".to_string(), "".to_string());
+
+        let p = partition(nodes, edges, &prefix);
+
+        let trees: Vec<String> = p.top_level_subgraphs.iter().map(tree).collect();
+        assert_eq!(
+            trees,
+            vec![
+                "a[]{a/[n_a_]{a//x[n_a__x]}}".to_string(),
+                "/a[n_slash_a]".to_string(),
+                "/b[n_slash_b]".to_string(),
+                "http:[]{http:/[]{http://host[n_http]}}".to_string(),
+                "[n_empty]".to_string(),
+            ]
+        );
+        assert!(p.top_level_nodes.is_empty());
+
+        // a//x -> a/ shares the cluster a/; /a -> /b shares none.
+        let mut inner = Vec::new();
+        for sg in &p.top_level_subgraphs {
+            edges_of(sg, &mut inner);
+        }
+        assert_eq!(inner, vec!["a/:n_a__x->n_a_".to_string()]);
+        let top: Vec<(&str, &str)> =
+            p.top_level_edges.iter().map(|e| (e.from.as_str(), e.to.as_str())).collect();
+        assert_eq!(top, vec![("n_slash_a", "n_slash_b")]);
     }
 
     // ===== EXP-017: ghost-edge synthesis =====

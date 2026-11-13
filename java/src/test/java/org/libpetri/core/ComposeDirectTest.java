@@ -228,6 +228,25 @@ class ComposeDirectTest {
     }
 
     @Test
+    void composeDirect_placeTokenTypeConflict_withTwoSameNamedHostPlaces_throws_MOD025() {
+        // MOD-025 line 4 (RD-24): the builder holds 'output':Integer and then
+        // 'output':String (two places, Java Place equality is structural). The
+        // body's 'output':String matches the place added last, but the builder
+        // also holds 'output' with another token type, so compose must reject.
+        var hostBuilder = PetriNet.builder("Host")
+            .place(Place.of("output", Integer.class))
+            .place(Place.of("output", String.class));
+
+        var ex = assertThrows(IllegalArgumentException.class,
+            () -> hostBuilder.compose(SubnetFixtures.producer()));
+        var msg = ex.getMessage();
+        assertTrue(msg.contains("output"),
+            "error must name the conflicting place 'output'. Got: " + msg);
+        assertTrue(msg.contains("Integer") && msg.contains("String"),
+            "error must name both token types. Got: " + msg);
+    }
+
+    @Test
     void composeDirect_emptySubnet_isNoOp() {
         // MOD-025 AC7.
         var empty = SubnetDef.builder("Empty").build();

@@ -289,6 +289,47 @@ class SplitDemandTest {
         assertTrue(result.counterexampleTransitions().contains("L"), result.counterexampleTransitions().toString());
     }
 
+    /**
+     * {@code H: c} priority 10, a sink on the default passthrough, prunes {@code L: c -> bad}.
+     * The net compiles, so CORE-043 lets every verification of it through.
+     */
+    private static PetriNet passthroughSinkPrunerNet() {
+        var ts = new ArrayList<>(List.of(
+            Transition.builder("H").priority(10).inputs(In.one(unit("c"))).build(),
+            Transition.builder("L").inputs(In.one(unit("c"))).outputs(Out.place(unit("bad"))).action(inline(unit("bad"))).build()));
+        ts.addAll(nuPair(0));
+        return net("conflict-sink", ts);
+    }
+
+    /**
+     * CORE-043 (RD-08): conflict priority splits the sink pruner {@code H}, and the split's start
+     * half gains an output place. The check reads the submitted net, which compiles, so a verdict
+     * comes back on Route B and the derived net is not refused.
+     */
+    @Test
+    void CORE043_aConflictSplitOfAPassthroughSinkIsNotRefused() {
+        var result = verifyConflict(passthroughSinkPrunerNet(), state("c", "SEED"), false);
+        assertEquals(SmtVerificationResult.Route.NU_SCG, result.route(), result.report());
+        assertTrue(result.isProven(), result.verdict() + "\n" + result.report());
+        assertTrue(result.report().contains("In-flight actions (VER-004): H"), result.report());
+    }
+
+    /**
+     * CORE-043: a reused verifier checks the caller's net on every call, not the net its previous
+     * call left rewritten (no z3: {@link SmtVerifier#encodeScripts()} sends nothing).
+     */
+    @Test
+    void CORE043_aReusedVerifierChecksTheCallersNet() {
+        var verifier = SmtVerifier.forNet(passthroughSinkPrunerNet())
+            .initialMarking(state("c", "SEED"))
+            .property(SmtProperty.unreachable(Set.of(unit("bad"))))
+            .mintTransitions("MINT")
+            .prioritySemantics(PrioritySemantics.CONFLICT);
+        var first = verifier.encodeScripts();
+        var second = verifier.encodeScripts();
+        assertEquals(first, second);
+    }
+
     /** F2 fallback: a ν-join pruner cannot be split, so the pruning is off and the report says why. */
     @Test
     void conflictPriorityIsOffWhenAPrunerCannotBeSplit() {

@@ -9,6 +9,8 @@ import { nameId } from '../../src/core/name.js';
 import type { TransitionAction } from '../../src/core/transition-action.js';
 import { fork, isPassthrough } from '../../src/core/transition-action.js';
 import { CompiledNet } from '../../src/runtime/compiled-net.js';
+import { FusionSet } from '../../src/core/fusion-set.js';
+import { retryPolicy } from '../fixtures/subnet-fixtures.js';
 
 describe('PetriNet', () => {
   const p1 = place<string>('P1');
@@ -287,5 +289,83 @@ describe('PetriNet', () => {
 
     expect(net.transitions.size).toBe(2);
     expect(net.places.size).toBe(3);
+  });
+  // ============================================================
+  //  CORE-041: a built net does not see later builder calls
+  // ============================================================
+
+  it('a built net keeps its places and transitions when the builder is used again (CORE-041)', () => {
+    const t1 = Transition.builder('T1').inputs(one(p1)).outputs(outPlace(p2)).build();
+    const t2 = Transition.builder('T2').inputs(one(p2)).outputs(outPlace(p3)).build();
+    const end = place<string>('End');
+
+    const builder = PetriNet.builder('Net').transition(t1);
+    const n1 = builder.build();
+    builder.transition(t2).terminal(end).place(place('Extra'));
+    const n2 = builder.build();
+
+    expect([...n1.transitions]).toEqual([t1]);
+    expect([...n1.places].map(p => p.name).sort()).toEqual(['P1', 'P2']);
+    expect([...n2.transitions]).toEqual([t1, t2]);
+    expect([...n2.places].map(p => p.name).sort()).toEqual(['End', 'Extra', 'P1', 'P2', 'P3']);
+  });
+
+  it('a channel compose after build leaves the built net intact (CORE-041)', () => {
+    const callerT = Transition.builder('callerSide').build();
+    const builder = PetriNet.builder('host').transition(callerT);
+    const n1 = builder.build();
+
+    builder.compose(retryPolicy().instantiate('rp1'), (b) => b.bindChannel('attempt', callerT));
+
+    expect([...n1.transitions]).toEqual([callerT]);
+  });
+
+  // ============================================================
+  //  CORE-002 / CORE-040: one place per name
+  // ============================================================
+
+  it('holds one place for two place objects with one name (CORE-002, CORE-040)', () => {
+    const a1 = place<string>('A');
+    const a2 = place<string>('A');
+    const a3 = place<string>('A');
+    const t1 = Transition.builder('T1').inputs(one(p1)).outputs(outPlace(a2)).build();
+    const t2 = Transition.builder('T2').inputs(one(a3)).build();
+
+    const net = PetriNet.builder('Net').place(a1).transitions(t1, t2).places(place('A')).build();
+
+    const named = [...net.places].filter(p => p.name === 'A');
+    expect(named).toHaveLength(1);
+    expect(named[0], 'the first object added is kept').toBe(a1);
+    expect(net.places.size).toBe(2);
+  });
+
+  it('holds one place for two place objects with one name after fusion (CORE-002, CORE-040)', () => {
+    const a = place<string>('A');
+    const b = place<string>('B');
+    const c1 = place<string>('C');
+    const c2 = place<string>('C');
+    const t1 = Transition.builder('T1').inputs(one(a)).outputs(outPlace(c1)).build();
+    const t2 = Transition.builder('T2').inputs(one(c2)).outputs(outPlace(b)).build();
+
+    const net = PetriNet.builder('Net').transitions(t1, t2).fuse(FusionSet.of('ab', a, b)).build();
+
+    expect([...net.places].map(p => p.name).sort()).toEqual(['A', 'C']);
+  });
+
+  // ============================================================
+  //  CORE-042: a resolver that returns no action defers
+  // ============================================================
+
+  it('bindActionsWithResolver defers a transition when the resolver returns undefined (CORE-042)', () => {
+    const a: TransitionAction = async () => {};
+    const t = Transition.builder('T').inputs(one(p1)).outputs(outPlace(p2)).action(a).build();
+    const net = PetriNet.builder('Net').transition(t).build();
+    const table: Record<string, TransitionAction> = {};
+
+    const bound = net.bindActionsWithResolver((name) => table[name]);
+
+    const [boundT] = [...bound.transitions];
+    expect(boundT).toBe(t);
+    expect(boundT!.action).toBe(a);
   });
 });

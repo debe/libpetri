@@ -764,6 +764,24 @@ mod tests {
     use libpetri_core::place::Place;
     use libpetri_core::transition::Transition;
 
+    /// [VER-010]: two classes share a key exactly when they have the same marking and
+    /// zone. `t1: x -> a, b` and `t2: x -> 'a:1,b'` reach {a:1, b:1} and {'a:1,b':1}, both
+    /// with no clocks, and a rendering that does not escape place names keyed them alike:
+    /// the graph closed with 2 classes and lost the second marking.
+    #[test]
+    fn ver_010_class_key_does_not_merge_markings_through_place_names() {
+        use libpetri_core::output::and;
+        let (x, a, b, odd) = (Place::<()>::new("x"), Place::<()>::new("a"), Place::<()>::new("b"), Place::<()>::new("a:1,b"));
+        let t1 = Transition::builder("t1").input(one(&x)).output(and(vec![out_place(&a), out_place(&b)])).action(fork()).build();
+        let t2 = Transition::builder("t2").input(one(&x)).output(out_place(&odd)).action(fork()).build();
+        let net = PetriNet::builder("names").transitions([t1, t2]).build();
+        let graph = StateClassGraph::build(&net, &MarkingStateBuilder::new().tokens("x", 1).build(), 100);
+        assert!(graph.is_complete());
+        assert_eq!(graph.class_count(), 3);
+        assert!(graph.is_reachable(&MarkingStateBuilder::new().tokens("a:1,b", 1).build()));
+        assert!(graph.is_reachable(&MarkingStateBuilder::new().tokens("a", 1).tokens("b", 1).build()));
+    }
+
     /// `t: <input on a> -> xor(c, timeout(50, forward_input(a, b)))` from `a = 2`.
     fn forward_graph(input: In) -> StateClassGraph {
         use libpetri_core::output::{forward_input, timeout, xor};

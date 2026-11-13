@@ -309,6 +309,16 @@ public final class SubnetRewriter {
             return compactIdentityAlias(alias);
         }
 
+        recordArcAliases(t, remap, alias);
+        return compactIdentityAlias(alias);
+    }
+
+    /** Records an entry for every place {@code t}'s arcs and output specification name. */
+    private static void recordArcAliases(
+        Transition t,
+        Map<Place<?>, Place<?>> remap,
+        Map<Place<?>, Place<?>> alias
+    ) {
         for (var in  : t.inputSpecs())  recordAlias(in.place(),  remap, alias);
         for (var rd  : t.reads())       recordAlias(rd.place(),  remap, alias);
         for (var inh : t.inhibitors())  recordAlias(inh.place(), remap, alias);
@@ -316,7 +326,20 @@ public final class SubnetRewriter {
         if (t.outputSpec() != null) {
             for (var p : t.outputSpec().allPlaces()) recordAlias(p, remap, alias);
         }
-        return compactIdentityAlias(alias);
+    }
+
+    /**
+     * One side of a channel merge as <b>MOD-031</b> reads it: the correspondence
+     * {@code t} carries, or, when it carries none, an identity entry for every
+     * place it names. Without those entries the merged correspondence would hold
+     * only the other side's keys, and a later pass renaming one of this side's
+     * places would leave that declared place unresolved (key-set completeness).
+     */
+    private static Map<Place<?>, Place<?>> sideAlias(Transition t) {
+        if (!t.placeAlias().isEmpty()) return t.placeAlias();
+        var alias = new HashMap<Place<?>, Place<?>>();
+        recordArcAliases(t, Map.of(), alias);
+        return alias;
     }
 
     /**
@@ -546,7 +569,7 @@ public final class SubnetRewriter {
         int mergedPriority  = pickPriority(caller.priority(), instance.priority());
         TransitionAction mergedAction = composeActions(caller.action(), instance.action());
         MatchSpec mergedMatch = mergeMatchSpecs(caller.matchSpec(), instance.matchSpec(), mergedName);
-        Map<Place<?>, Place<?>> mergedAlias = mergePlaceAlias(caller.placeAlias(), instance.placeAlias(), mergedName);
+        Map<Place<?>, Place<?>> mergedAlias = mergePlaceAlias(sideAlias(caller), sideAlias(instance), mergedName);
 
         var builder = Transition.builder(mergedName)
             .timing(mergedTiming)
@@ -645,14 +668,16 @@ public final class SubnetRewriter {
      * {@link #compactIdentityAlias} applies, as MOD-031 AC#11 requires: the identity
      * test must agree with the lookup, and one notion must not be used in the test
      * and another in the lookup.
+     *
+     * <p>Both sides arrive through {@link #sideAlias}, so a side that carries no
+     * correspondence still contributes its places as keys; an all-identity result
+     * is dropped as a whole (AC#9).
      */
     private static Map<Place<?>, Place<?>> mergePlaceAlias(
         Map<Place<?>, Place<?>> caller,
         Map<Place<?>, Place<?>> instance,
         String channelName
     ) {
-        if (caller.isEmpty()) return instance;
-        if (instance.isEmpty()) return caller;
         var merged = new HashMap<Place<?>, Place<?>>(caller);
         List<AliasConflict> conflicts = null;
         for (var e : instance.entrySet()) {
@@ -675,7 +700,7 @@ public final class SubnetRewriter {
             conflicts.add(new AliasConflict(declared.name(), existing.name(), incoming.name()));
         }
         if (conflicts != null) throw aliasConflict(conflicts, channelName);
-        return merged;
+        return compactIdentityAlias(merged);
     }
 
     /** One declared place bound to two different non-identity actual places across a merge. */

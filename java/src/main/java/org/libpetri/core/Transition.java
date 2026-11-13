@@ -365,7 +365,10 @@ public final class Transition {
         }
 
         public Builder action(TransitionAction action) {
-            this.action = action;
+            // [CORE-051] null is not "built without an action": reject it here rather than
+            // let every firing fail. Omitting the call keeps the passthrough default.
+            this.action = Objects.requireNonNull(action,
+                "action must not be null; omit action(...) for the passthrough default");
             return this;
         }
 

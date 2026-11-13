@@ -27,20 +27,22 @@ public final class MarkingCache {
     static final int SNAPSHOT_INTERVAL = 256;
 
     private final List<ComputedState> snapshots = new ArrayList<>();
-    private int indexedUpTo = 0;
 
     /**
      * Computes the {@link ComputedState} at the given event index, using cached snapshots
      * to minimize the number of events that need to be replayed.
      *
      * @param events the full event list for the session
-     * @param targetIndex the event index to compute state at (exclusive upper bound, like subList)
+     * @param targetIndex the event index to compute state at (exclusive upper bound, like subList);
+     *                    an index beyond the end of {@code events} is clamped to it ([EVT-032] AC2)
      * @return the computed state at the target index
      */
     public ComputedState computeAt(List<NetEvent> events, int targetIndex) {
         if (targetIndex <= 0) {
             return DebugProtocolHandler.computeState(List.of());
         }
+        // The protocol steps back from a stored index after the debug store evicted events.
+        targetIndex = Math.min(targetIndex, events.size());
 
         // Extend cache if needed
         // snapshots.get(i) = state at event index (i+1)*INTERVAL
@@ -76,7 +78,6 @@ public final class MarkingCache {
      */
     public void invalidate() {
         snapshots.clear();
-        indexedUpTo = 0;
     }
 
     /**
@@ -100,7 +101,6 @@ public final class MarkingCache {
                 var delta = events.subList(prevSnapshotIndex, nextSnapshotIndex);
                 snapshots.add(replayDelta(snapshots.getLast(), delta));
             }
-            indexedUpTo = nextSnapshotIndex;
         }
     }
 

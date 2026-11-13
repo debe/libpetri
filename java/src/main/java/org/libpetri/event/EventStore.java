@@ -1,6 +1,7 @@
 package org.libpetri.event;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -132,20 +133,23 @@ public interface EventStore {
     /**
      * Returns all events for a specific transition.
      *
+     * <p>Total ([EVT-030]): an event that names no transition, such as an engine diagnostic
+     * no transition is responsible for ([EVT-013]), is skipped, not dereferenced.
+     *
      * @param transitionName name of the transition
      * @return list of events related to the transition
      */
     default List<NetEvent> transitionEvents(String transitionName) {
         return stream()
             .filter(e -> switch (e) {
-                case NetEvent.TransitionEnabled t -> t.transitionName().equals(transitionName);
-                case NetEvent.TransitionClockRestarted t -> t.transitionName().equals(transitionName);
-                case NetEvent.TransitionStarted t -> t.transitionName().equals(transitionName);
-                case NetEvent.TransitionCompleted t -> t.transitionName().equals(transitionName);
-                case NetEvent.TransitionFailed t -> t.transitionName().equals(transitionName);
-                case NetEvent.TransitionTimedOut t -> t.transitionName().equals(transitionName);
-                case NetEvent.ActionTimedOut t -> t.transitionName().equals(transitionName);
-                case NetEvent.LogMessage t -> t.transitionName().equals(transitionName);
+                case NetEvent.TransitionEnabled t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.TransitionClockRestarted t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.TransitionStarted t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.TransitionCompleted t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.TransitionFailed t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.TransitionTimedOut t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.ActionTimedOut t -> Objects.equals(t.transitionName(), transitionName);
+                case NetEvent.LogMessage t -> Objects.equals(t.transitionName(), transitionName);
                 default -> false;
             })
             .toList();

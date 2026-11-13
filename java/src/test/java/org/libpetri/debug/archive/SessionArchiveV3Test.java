@@ -69,6 +69,62 @@ class SessionArchiveV3Test {
         assertTrue(v3.metadata().eventTypeHistogram().containsKey("TokenAdded"));
     }
 
+    // ======================== EVT-025: reproducible header ========================
+
+    /**
+     * EVT-025: two archives written from identical run data are identical, so the header may
+     * not pass its tags or histogram through a map whose iteration order is salted per JVM
+     * ({@code Map.copyOf}). Twelve tags and thirteen event types make a salted order come out
+     * sorted by chance about once in 12!.
+     */
+    @Test
+    void headerRendersTagsAndHistogramInAscendingKeyOrder_EVT025() throws IOException {
+        var tags = new java.util.LinkedHashMap<String, String>();
+        for (var key : List.of("m", "c", "x", "a", "k", "e", "z", "b", "q", "g", "t", "i")) {
+            tags.put(key, "v-" + key);
+        }
+        var session = registerEmpty("ordered-header", tags);
+        appendEveryEventType(session);
+
+        for (int version : List.of(2, 3)) {
+            var buf = new ByteArrayOutputStream();
+            if (version == 2) {
+                new SessionArchiveWriter().writeV2(session, buf);
+            } else {
+                new SessionArchiveWriter().write(session, buf);
+            }
+            var header = rawHeader(buf.toByteArray());
+            assertEquals(version, header.get("version").asInt());
+
+            var tagKeys = fieldNames(header.get("tags"));
+            assertEquals(12, tagKeys.size());
+            assertEquals(tagKeys.stream().sorted().toList(), tagKeys,
+                "v" + version + " header tags must render in ascending key order");
+
+            var histogramKeys = fieldNames(header.get("metadata").get("eventTypeHistogram"));
+            assertEquals(13, histogramKeys.size());
+            assertEquals(histogramKeys.stream().sorted().toList(), histogramKeys,
+                "v" + version + " header histogram must render in ascending key order");
+        }
+    }
+
+    @Test
+    void readBackTagsAndHistogramIterateInAscendingKeyOrder_EVT025() {
+        var scrambled = new java.util.LinkedHashMap<String, String>();
+        var histogram = new java.util.LinkedHashMap<String, Long>();
+        for (var key : List.of("m", "c", "x", "a", "k", "e", "z", "b", "q", "g", "t", "i")) {
+            scrambled.put(key, key);
+            histogram.put(key, 1L);
+        }
+        var v3 = new SessionArchive.V3(3, "s", "n", "", Instant.EPOCH, null, 0, scrambled,
+            new SessionMetadata(histogram, null, null, false), null);
+        var sorted = scrambled.keySet().stream().sorted().toList();
+        assertEquals(sorted, List.copyOf(v3.tags().keySet()));
+        assertEquals(sorted, List.copyOf(v3.metadata().eventTypeHistogram().keySet()));
+        var v2 = new SessionArchive.V2(2, "s", "n", "", Instant.EPOCH, null, 0, scrambled, null, null);
+        assertEquals(sorted, List.copyOf(v2.tags().keySet()));
+    }
+
     // ======================== typed token round-trips ========================
 
     @Test
@@ -208,6 +264,40 @@ class SessionArchiveV3Test {
         session.eventStore().append(new NetEvent.ExecutionStarted(t0, "TestNet", "exec-1"));
         session.eventStore().append(new NetEvent.TokenAdded(t0.plusMillis(5), "Input",
             Token.of(new TestMessage("USER", "x", 1))));
+    }
+
+    private void appendEveryEventType(DebugSessionRegistry.DebugSession session) {
+        var t0 = Instant.parse("2026-04-17T10:00:00Z");
+        var store = session.eventStore();
+        store.append(new NetEvent.ExecutionStarted(t0, "TestNet", "exec-1"));
+        store.append(new NetEvent.MarkingSnapshot(t0, Map.of()));
+        store.append(new NetEvent.TransitionEnabled(t0, "Process"));
+        store.append(new NetEvent.TransitionClockRestarted(t0, "Process"));
+        store.append(new NetEvent.TokenAdded(t0, "Input", Token.of("x")));
+        store.append(new NetEvent.TokenRemoved(t0, "Input", Token.of("x")));
+        store.append(new NetEvent.TransitionStarted(t0, "Process", List.of()));
+        store.append(new NetEvent.TransitionCompleted(t0, "Process", List.of(), Duration.ofMillis(1)));
+        store.append(new NetEvent.TransitionFailed(t0, "Process", "boom", "RuntimeException"));
+        store.append(new NetEvent.TransitionTimedOut(t0, "Process", Duration.ofMillis(1), Duration.ofMillis(2)));
+        store.append(new NetEvent.ActionTimedOut(t0, "Process", Duration.ofMillis(1)));
+        store.append(new NetEvent.LogMessage(t0, "Process", "logger", "INFO", "hello", null, null));
+        store.append(new NetEvent.ExecutionCompleted(t0, "TestNet", "exec-1", Duration.ofMillis(3)));
+    }
+
+    /** Reads the length-prefixed header JSON of an archive as written, keeping its key order. */
+    private com.fasterxml.jackson.databind.JsonNode rawHeader(byte[] archive) throws IOException {
+        try (var in = new java.io.DataInputStream(
+                new net.jpountz.lz4.LZ4FrameInputStream(new ByteArrayInputStream(archive)))) {
+            var bytes = new byte[in.readInt()];
+            in.readFully(bytes);
+            return new com.fasterxml.jackson.databind.ObjectMapper().readTree(bytes);
+        }
+    }
+
+    private static List<String> fieldNames(com.fasterxml.jackson.databind.JsonNode node) {
+        var names = new java.util.ArrayList<String>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 
     private SessionArchive writeDefaultAndReadHeader(DebugSessionRegistry.DebugSession session) throws IOException {

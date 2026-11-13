@@ -214,6 +214,38 @@ fn fuse_unrelated_places_unchanged() {
     assert!(read_names.contains("C"));
 }
 
+/// MOD-061 step 3: a set that lists its canonical (first) member again keeps
+/// that member. Only the members other than the first declared member are
+/// substituted away, so `[A, B, A]` removes `B` and keeps the standalone `A`.
+#[test]
+fn fuse_repeated_canonical_member_keeps_it_mod061() {
+    let a = Place::<String>::new("A");
+    let b = Place::<String>::new("B");
+    let c = Place::<String>::new("C");
+
+    // Neither A nor B is named by an arc, so A can only survive as the
+    // caller-declared standalone place.
+    let net = PetriNet::builder("Repeated")
+        .place(a.as_ref())
+        .place(b.as_ref())
+        .transition(Transition::builder("usesC").read(read(&c)).build())
+        .fuse([FusionSet::of("aba", &a, &[&b, &a])])
+        .build();
+
+    let names = place_names(&net);
+    assert!(names.contains("A"), "the canonical member must remain: {names:?}");
+    assert!(!names.contains("B"), "the non-canonical member is substituted away");
+
+    // An arc on B still lands on A.
+    let net = PetriNet::builder("RepeatedArc")
+        .transition(Transition::builder("eatB").input(one(&b)).build())
+        .fuse([FusionSet::of("aba", &a, &[&b, &a])])
+        .build();
+    let eat = find_transition(&net, "eatB");
+    let inputs: HashSet<&str> = eat.input_specs().iter().map(|s| s.place().name()).collect();
+    assert_eq!(inputs, HashSet::from(["A"]));
+}
+
 #[test]
 fn fuse_overlapping_fusion_sets_panics() {
     let a = Place::<String>::new("A");

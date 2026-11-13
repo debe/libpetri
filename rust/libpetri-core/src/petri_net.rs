@@ -905,6 +905,11 @@ fn build_with_fusion(
         let canonical = set.canonical().clone();
         set_name_of.insert(Arc::clone(canonical.name_arc()), Arc::from(set.name()));
         for nc in set.non_canonical() {
+            // MOD-061 step 3: a set that lists its first member again keeps
+            // it; only members other than the canonical one are fused away.
+            if nc == &canonical {
+                continue;
+            }
             fusion_map.insert(Arc::clone(nc.name_arc()), canonical.clone());
             non_canonical_names.insert(Arc::clone(nc.name_arc()));
         }
@@ -1509,6 +1514,34 @@ mod tests {
             Some("AB"),
             "transitions are unaffected by fusion"
         );
+    }
+
+    /// MOD-026 AC5: a set that repeats its first member keeps the surviving
+    /// canonical place's membership entry.
+    #[test]
+    fn direct_compose_then_fuse_repeated_canonical_keeps_its_entry_mod026() {
+        let a = Place::<String>::new("a");
+        let b = Place::<String>::new("b");
+        let subnet = SubnetDef::<()>::builder("AB")
+            .transition(
+                Transition::builder("move")
+                    .input(one(&a))
+                    .output(out_place(&b))
+                    .build(),
+            )
+            .build();
+
+        let net = PetriNet::builder("Host")
+            .compose_direct(&subnet)
+            .fuse([FusionSet::of("aba", &a, &[&b, &a])])
+            .build();
+
+        assert_eq!(
+            net.subnet_membership().get("a").map(|s| s.as_ref()),
+            Some("AB"),
+            "the canonical fused place keeps its membership entry"
+        );
+        assert!(!net.subnet_membership().contains_key("b"));
     }
 
     #[test]

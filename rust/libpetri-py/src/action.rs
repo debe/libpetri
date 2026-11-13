@@ -164,9 +164,9 @@ pub struct PyActionContext {
     /// source.
     fresh_name_fn: Option<FreshNameFn>,
     /// Author-local → composed-name map inherited from the
-    /// transition's `local_name_map`. Lookups try the literal name
-    /// first, then fall back through this map. `None` when the
-    /// transition was not composed.
+    /// transition's `local_name_map`. Lookups resolve a given name
+    /// through this map first and use the given name only when it is
+    /// no key (\[MOD-031\]). `None` when the transition was not composed.
     local_name_map: Option<Arc<HashMap<Arc<str>, Arc<str>>>>,
     /// Place names published by `flush()`. This context invokes the raw
     /// `FlushFn` directly, bypassing `TransitionContext::flush`, so the
@@ -304,47 +304,40 @@ impl PyActionContext {
 }
 
 impl PyActionContext {
-    fn require_output(&self, place_name: &str) -> PyResult<Arc<str>> {
-        if let Some(name) = self.allowed_outputs.get(place_name) {
-            return Ok(Arc::clone(name));
-        }
-        // Fall back through the local→composed name map: the user
-        // wrote a SubnetDef-local name and after composition the actual
-        // host place is what's in `allowed_outputs`.
-        if let Some(map) = &self.local_name_map {
-            if let Some(host) = map.get(place_name) {
-                if let Some(name) = self.allowed_outputs.get(host.as_ref()) {
-                    return Ok(Arc::clone(name));
-                }
-            }
-        }
-        Err(PyValueError::new_err(format!(
-            "unknown output place: {place_name}"
-        )))
+    /// \[MOD-031\] The place the transition's correspondence resolves
+    /// `place_name` to, or `place_name` itself when it is no declared key.
+    /// The correspondence is applied first and the given name is never
+    /// tried after it, as the Java and TypeScript contexts do.
+    fn resolve<'a>(&'a self, place_name: &'a str) -> &'a str {
+        self.local_name_map
+            .as_ref()
+            .and_then(|map| map.get(place_name))
+            .map_or(place_name, |actual| actual.as_ref())
     }
 
-    /// Resolves a place name against an inputs / reads map, falling back
-    /// through `local_name_map` for composed transitions. Returns the
-    /// key to use against the underlying map.
+    fn require_output(&self, place_name: &str) -> PyResult<Arc<str>> {
+        match self.allowed_outputs.get(self.resolve(place_name)) {
+            Some(name) => Ok(Arc::clone(name)),
+            None => Err(PyValueError::new_err(format!(
+                "unknown output place: {place_name}"
+            ))),
+        }
+    }
+
+    /// Resolves a place name through `local_name_map` (\[MOD-031\]) and
+    /// returns the key to use against an inputs / reads map.
     fn resolve_lookup_key(
         &self,
         map: &HashMap<Arc<str>, Vec<Py<PyAny>>>,
         place_name: &str,
         kind: &str,
     ) -> PyResult<Arc<str>> {
-        if let Some((k, _)) = map.get_key_value(place_name) {
-            return Ok(Arc::clone(k));
+        match map.get_key_value(self.resolve(place_name)) {
+            Some((k, _)) => Ok(Arc::clone(k)),
+            None => Err(PyValueError::new_err(format!(
+                "unknown {kind} place: {place_name}"
+            ))),
         }
-        if let Some(local_map) = &self.local_name_map {
-            if let Some(host) = local_map.get(place_name) {
-                if let Some((k, _)) = map.get_key_value(host.as_ref()) {
-                    return Ok(Arc::clone(k));
-                }
-            }
-        }
-        Err(PyValueError::new_err(format!(
-            "unknown {kind} place: {place_name}"
-        )))
     }
 
     fn from_transition_context(py: Python<'_>, ctx: &TransitionContext) -> PyResult<Self> {

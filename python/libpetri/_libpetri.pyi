@@ -59,6 +59,8 @@ class Transition:
     @property
     def name(self) -> str: ...
     def __repr__(self) -> str: ...
+    def __eq__(self, value: object, /) -> bool: ...
+    def __hash__(self) -> int: ...
 
 class BuiltinAction(Enum):
     Passthrough = ...
@@ -415,6 +417,25 @@ class SessionArchive:
 class SessionArchiveWriter:
     @classmethod
     def write_from_store(
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        session_id: str,
+        net: Net,
+        store: InMemoryEventStore,
+        tags: dict[str, str] | None = ...,
+    ) -> None: ...
+    @classmethod
+    def write_v1(
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        session_id: str,
+        net: Net,
+        store: InMemoryEventStore,
+    ) -> None: ...
+    @classmethod
+    def write_v2(
         cls,
         path: str | os.PathLike[str],
         *,
