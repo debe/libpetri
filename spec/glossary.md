@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Glossary.lean, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # Glossary: firing semantics
 
 This glossary fixes the terms the CORE and IO firing requirements, the TIME timing
@@ -10,8 +11,8 @@ for the timing terms, `lean/Libpetri/Spec/GlossaryQueue.lean` for the execution 
 `lean/Libpetri/Spec/GlossaryEnable.lean` for the enablement-check terms,
 `lean/Libpetri/Spec/GlossaryNu.lean` for the ν-net terms,
 `lean/Libpetri/Spec/GlossaryNuVer.lean` for the ν verification terms and
-`lean/Libpetri/Spec/GlossaryCompose.lean` for the composition terms, whose docstrings quote
-these entries.
+`lean/Libpetri/Spec/GlossaryCompose.lean` for the composition terms, whose docstrings refer to
+these entries by name (`Glossary: *Place* (spec/glossary.md)`).
 
 ---
 

@@ -21,4 +21,5 @@ Implementations MAY emit a build-time warning when declared direction conflicts 
 3. A subnet whose `Input` port place is also read internally by transitions is accepted at build.
 4. Where a warning channel exists, an obvious mismatch (declared `Input` with no internal consumer; declared `Output` with no internal producer) MAY emit a warning but MUST NOT raise an error.
 
+**Depends on:** [CORE-030], [CORE-031], [CORE-032], [CORE-033], [CORE-034], [CORE-035]
 **Test derivation:** Build a subnet whose `Output` port place has both an internal output arc (producer) and an internal input arc (consumer); verify build succeeds."#

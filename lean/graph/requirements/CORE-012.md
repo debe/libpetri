@@ -9,7 +9,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/GlossaryAction.lean"]
-    n7987["Libpetri.Spec.IsUnitToken"]
+    n8023["Libpetri.Spec.IsUnitToken"]
   end
   subgraph g1["Libpetri/Spec/Req/CORE_011.lean"]
     n5324["Libpetri.Spec.CORE_011"]
@@ -19,38 +19,38 @@ flowchart TD
     n7575["Libpetri.Spec.FacTok.mk"]
     n7576["Libpetri.Spec.FacTok.stamp"]
     n7577["Libpetri.Spec.FacTok.val"]
-    n10454["Libpetri.Spec.TokenFactory"]
-    n10455["Libpetri.Spec.TokenFactory.make"]
-    n10456["Libpetri.Spec.TokenFactory.makeAt"]
-    n10458["Libpetri.Spec.TokenFactory.unit"]
-    n13309["Libpetri.Spec.core011_unit_isUnit"]
+    n10553["Libpetri.Spec.TokenFactory"]
+    n10554["Libpetri.Spec.TokenFactory.make"]
+    n10555["Libpetri.Spec.TokenFactory.makeAt"]
+    n10557["Libpetri.Spec.TokenFactory.unit"]
+    n13408["Libpetri.Spec.core011_unit_isUnit"]
   end
   n5324 --> n5982
   n5324 --> n7575
   n5324 --> n7576
   n5324 --> n7577
-  n5324 --> n7987
-  n5324 --> n10455
-  n5324 --> n10456
-  n5324 --> n10458
+  n5324 --> n8023
+  n5324 --> n10554
+  n5324 --> n10555
+  n5324 --> n10557
   n5982 --> n5979
   n7575 --> n7574
   n7576 --> n7574
   n7577 --> n7574
-  n10455 --> n5979
-  n10455 --> n7574
-  n10455 --> n10454
-  n10456 --> n5979
-  n10456 --> n7574
-  n10456 --> n10454
-  n10458 --> n5979
-  n10458 --> n7574
-  n10458 --> n10454
-  n13309 --> n5324
+  n10554 --> n5979
+  n10554 --> n7574
+  n10554 --> n10553
+  n10555 --> n5979
+  n10555 --> n7574
+  n10555 --> n10553
+  n10557 --> n5979
+  n10557 --> n7574
+  n10557 --> n10553
+  n13408 --> n5324
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13309 root
+  class n13408 root
 ```
 
 Axioms used:

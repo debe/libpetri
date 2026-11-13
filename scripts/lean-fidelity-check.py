@@ -255,11 +255,14 @@ _CITATION = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_/.\-]*\.rs\b")
 def lean_citations() -> list[tuple[str, str]]:
     """(cited .rs path, citing lean file) for every distinct citation."""
     lean_dir = REPO_ROOT / "lean"
-    # The spec text (Libpetri/Spec/Text) is the requirements' prose, not a Lean model of code.
+    # The spec text (Libpetri/Spec/Text) is the requirements' prose and the runtime ledger
+    # (Libpetri/Spec/Ledger) is spec/runtime-defects.md's prose: neither is a Lean model of code.
     text_dir = lean_dir / "Libpetri" / "Spec" / "Text"
+    ledger_dir = lean_dir / "Libpetri" / "Spec" / "Ledger"
     files = [lean_dir / "Libpetri.lean"] + sorted(
         f for f in (lean_dir / "Libpetri").rglob("*.lean")
-        if not f.is_relative_to(text_dir) and f != text_dir.with_suffix(".lean"))
+        if not f.is_relative_to(text_dir) and f != text_dir.with_suffix(".lean")
+        and not f.is_relative_to(ledger_dir))
     seen: dict[str, str] = {}
     for f in files:
         for m in _CITATION.finditer(f.read_text(encoding="utf-8")):

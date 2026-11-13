@@ -17,6 +17,7 @@ import Libpetri.Spec.Text.EXEC_042
 import Libpetri.Spec.Text.EXEC_050
 
 spec_chapter "04-execution-model.md"
+  scope "Orchestrator loop, scheduling, token consumption, failure, quiescence, terminal places"
   md r#"# 04 — Execution Model
 
 This document specifies the orchestrator loop, scheduling, token consumption, output validation, failure handling, and quiescence detection.

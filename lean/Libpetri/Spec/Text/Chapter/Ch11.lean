@@ -28,6 +28,7 @@ import Libpetri.Spec.Text.MOD_060
 import Libpetri.Spec.Text.MOD_061
 
 spec_chapter "11-modular-composition.md"
+  scope "Open-net subnet definition, instantiation, port composition, bound-port references, channel fusion, action binding per instance, place fusion"
   md r#"# 11 — Modular Composition
 
 This document specifies the **modular composition** extension of the CTPN engine: open net fragments (subnets) with declared interfaces, instantiation, structural composition by port mapping, synchronous channel fusion of interface transitions, action binding per instance, and orthogonal fusion of N places.

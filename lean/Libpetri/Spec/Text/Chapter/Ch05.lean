@@ -19,6 +19,7 @@ import Libpetri.Spec.Text.CONC_011
 import Libpetri.Spec.Text.CONC_012
 
 spec_chapter "05-concurrency.md"
+  scope "Single-threaded orchestrator, bitmap executor, precompiled flat-array executor, async actions, wake-up"
   md r#"# 05 — Concurrency
 
 This document specifies the concurrency model: single-threaded orchestrator, async action dispatch, bitmap executor optimization, precompiled flat-array executor, and wake-up mechanisms.

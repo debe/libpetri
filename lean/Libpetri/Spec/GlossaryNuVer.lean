@@ -11,7 +11,7 @@ The verifier-side terms of the ν requirements ([NU-051], [NU-052], [NU-055]), a
 for definitions the Route B model already has (`Libpetri/Novel/RouteB/`): the fragment classifier
 `classifyS`, the conflict prune `dominated`, the name-alignment predicate `alignedAll`, and the
 verdict of the name-partition graph `Decide.verdict`. Nothing here redefines them. Each glossary
-term quotes its entry in section "ν verification" of `spec/glossary.md`.
+term refers to its glossary entry by name, `Glossary: *Place* (spec/glossary.md)`, rather than copying it (section "ν verification").
 
 Each wrapper is registered as a witness model with `#spec_witness`, so that a requirement block
 can state its predicate over an abstract classifier, prune or decider and check it against the
@@ -29,20 +29,14 @@ open Libpetri Libpetri.Novel.RouteB Libpetri.Novel.CanonicalKey Libpetri.Novel.F
 
 /-! ## Coloured places and the fragment classifier -/
 
-/-- **Glossary: Coloured place.** "A place whose tokens carry a correlation name in the name
-layer of Route B: a match key of a matched transition [NU-020] and, under EXTENDED, also a
-declared carrier place [NU-051] and a relay target [NU-054]. Under BASE the coloured set is the
-match keys alone [NU-055]. The classifier computes the coloured set for each call."
+/-- Glossary: *Coloured place* (spec/glossary.md).
 
 `ColouredInputs col T`: the input arcs of `T` on a place of the coloured set `col`, in
 declaration order. -/
 def ColouredInputs (col : PlaceId → Bool) (T : NuTrans) : List InSpec :=
   T.base.inputs.filter fun s => col s.place
 
-/-- **Glossary: Fragment classifier.** "The function a ν verifier applies to each transition of a
-net, in the fragment mode BASE or EXTENDED, to give it a role in the fragment Route B decides
-exactly (a mint, a matched join, a coloured consumer or an ordinary transition), or no role, in
-which case the net falls back to the sound over-approximation [NU-050], [NU-051]."
+/-- Glossary: *Fragment classifier* (spec/glossary.md).
 
 A classifier, abstractly: from the coloured set, the mode, whether the transition is a declared
 mint, the places its timeout outcome writes (with what it writes there) and the transition, the
@@ -72,10 +66,7 @@ def refPrune {β : Type} : Prune β :=
 
 #spec_witness refPrune
 
-/-- **Glossary: Pre-empt.** "Under conflict-only priority, a transition H pre-empts a transition L
-in a class when H is enabled, is not L, has strictly higher priority, is ready no later than L,
-has no firing in flight, fires in the class and competes with L for a consumed input. L is then
-not expanded from the class [NU-052]."
+/-- Glossary: *Pre-empt* (spec/glossary.md).
 
 `PreEmpts base role S H L`, with "fires in the class" read as `willFire` (a join needs an
 enabling name, a consumer a resident one) and "competes" as the base layer's `compete`. -/
@@ -88,9 +79,7 @@ def PreEmpts {co : List PlaceId} {β : Type} (base : BaseLayer β) (role : NuTra
 
 /-! ## Name alignment and the verdict -/
 
-/-- **Glossary: Name-aligned.** "A list S of places is name-aligned in a marking when the places
-of S together hold at most one distinct name: any two names resident in places of S, in the same
-place or in two, are equal [NU-055]."
+/-- Glossary: *Name-aligned* (spec/glossary.md).
 
 On a class of the Route B graph: `alignedAll`, every pair of places of `ps`, self pairs included,
 is `aligned`. -/
@@ -101,8 +90,7 @@ instance {co : List PlaceId} {β : Type} (ps : List PlaceId) (S : NState co β) 
     Decidable (NameAligned ps S) :=
   inferInstanceAs (Decidable (_ = true))
 
-/-- **Glossary: Verdict.** "The answer a verifier gives for a property: `Proven`, `Violated`
-or `Unknown` [VER-003]."
+/-- Glossary: *Verdict* (spec/glossary.md).
 
 The verdict of the Route B graph (`Novel.RouteB.Decide.Verdict`); a `Violated` carries the index
 of the violating class. -/

@@ -9,35 +9,35 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12514["Libpetri.Spec.cites_perf010_noop"]
+    n12613["Libpetri.Spec.cites_perf010_noop"]
   end
   subgraph g1["Libpetri/Spec/GlossaryStore.lean"]
-    n10034["Libpetri.Spec.StoreObs"]
-    n10035["Libpetri.Spec.StoreObs.enabled"]
-    n10037["Libpetri.Spec.StoreObs.mk"]
-    n10039["Libpetri.Spec.StoreObs.read"]
-    n10040["Libpetri.Spec.StoreOp"]
-    n20247["Libpetri.Spec.refNoopStore"]
+    n10127["Libpetri.Spec.StoreObs"]
+    n10128["Libpetri.Spec.StoreObs.enabled"]
+    n10130["Libpetri.Spec.StoreObs.mk"]
+    n10132["Libpetri.Spec.StoreObs.read"]
+    n10133["Libpetri.Spec.StoreOp"]
+    n20346["Libpetri.Spec.refNoopStore"]
   end
   subgraph g2["Libpetri/Spec/Req/EVT_022.lean"]
     n6522["Libpetri.Spec.EVT_022"]
     n6528["Libpetri.Spec.EVT_022_reference"]
   end
-  n6522 --> n10035
-  n6522 --> n10039
+  n6522 --> n10128
+  n6522 --> n10132
   n6528 --> n6522
-  n6528 --> n20247
-  n10035 --> n10034
-  n10037 --> n10034
-  n10037 --> n10040
-  n10039 --> n10034
-  n10039 --> n10040
-  n12514 --> n6528
-  n20247 --> n10037
+  n6528 --> n20346
+  n10128 --> n10127
+  n10130 --> n10127
+  n10130 --> n10133
+  n10132 --> n10127
+  n10132 --> n10133
+  n12613 --> n6528
+  n20346 --> n10130
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12514 root
+  class n12613 root
 ```
 
 Axioms used:

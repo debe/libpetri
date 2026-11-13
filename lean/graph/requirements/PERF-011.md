@@ -13,7 +13,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12512["Libpetri.Spec.cites_inline_sync"]
+    n12611["Libpetri.Spec.cites_inline_sync"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
@@ -25,33 +25,33 @@ flowchart TD
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
   c131["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/GlossaryExec.lean (154 declarations, collapsed)"]
-  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
-  c233["📁 Libpetri/Spec/Req/EXEC_003.lean (8 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c140["📁 Libpetri/Spec/GlossaryExec.lean (154 declarations, collapsed)"]
+  c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c235["📁 Libpetri/Spec/Req/EXEC_003.lean (8 declarations, collapsed)"]
   c54 --> c0
-  c80 --> c139
+  c80 --> c140
   c91 --> c94
   c94 --> c54
   c98 --> c66
   c98 --> c94
   c103 --> c109
-  c132 --> c94
-  c139 --> c91
-  c139 --> c232
-  c146 --> c98
-  c146 --> c132
-  c232 --> c103
-  c232 --> c146
-  c233 --> c80
-  c233 --> c131
-  n12512 --> c233
+  c133 --> c94
+  c140 --> c91
+  c140 --> c234
+  c147 --> c98
+  c147 --> c133
+  c234 --> c103
+  c234 --> c147
+  c235 --> c80
+  c235 --> c131
+  n12611 --> c235
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12512 root
-  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232,c233 collapsed
+  class n12611 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c133,c140,c147,c234,c235 collapsed
 ```
 
 Axioms used:

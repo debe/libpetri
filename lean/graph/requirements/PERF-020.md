@@ -13,15 +13,15 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12505["Libpetri.Spec.citesToTest"]
-    n12515["Libpetri.Spec.cites_perf020_chain"]
-    n12518["Libpetri.Spec.cites_state_of_check"]
-    n19852["Libpetri.Spec.perf020Cfg"]
-    n19853["Libpetri.Spec.perf020Hop"]
-    n19854["Libpetri.Spec.perf020M0"]
-    n19855["Libpetri.Spec.perf020Names"]
-    n19856["Libpetri.Spec.perf020Run"]
-    n19857["Libpetri.Spec.perf020T"]
+    n12604["Libpetri.Spec.citesToTest"]
+    n12614["Libpetri.Spec.cites_perf020_chain"]
+    n12617["Libpetri.Spec.cites_state_of_check"]
+    n19951["Libpetri.Spec.perf020Cfg"]
+    n19952["Libpetri.Spec.perf020Hop"]
+    n19953["Libpetri.Spec.perf020M0"]
+    n19954["Libpetri.Spec.perf020Names"]
+    n19955["Libpetri.Spec.perf020Run"]
+    n19956["Libpetri.Spec.perf020T"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -32,44 +32,44 @@ flowchart TD
   c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/GlossaryExec.lean (154 declarations, collapsed)"]
-  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c140["📁 Libpetri/Spec/GlossaryExec.lean (154 declarations, collapsed)"]
+  c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
-  c80 --> c139
+  c80 --> c140
   c91 --> c94
   c94 --> c54
   c98 --> c66
   c98 --> c94
   c103 --> c109
-  c132 --> c94
-  c139 --> c91
-  c139 --> c232
-  c146 --> c98
-  c146 --> c132
-  c232 --> c103
-  c232 --> c146
-  n12505 --> c139
-  n12515 --> c80
-  n12515 --> n12518
-  n12515 --> n19852
-  n12515 --> n19854
-  n12515 --> n19856
-  n12518 --> c139
-  n19852 --> c139
-  n19852 --> n19857
-  n19853 --> n12505
-  n19853 --> n19855
-  n19854 --> c91
-  n19856 --> n19853
-  n19857 --> c94
-  n19857 --> n19855
+  c133 --> c94
+  c140 --> c91
+  c140 --> c234
+  c147 --> c98
+  c147 --> c133
+  c234 --> c103
+  c234 --> c147
+  n12604 --> c140
+  n12614 --> c80
+  n12614 --> n12617
+  n12614 --> n19951
+  n12614 --> n19953
+  n12614 --> n19955
+  n12617 --> c140
+  n19951 --> c140
+  n19951 --> n19956
+  n19952 --> n12604
+  n19952 --> n19954
+  n19953 --> c91
+  n19955 --> n19952
+  n19956 --> c94
+  n19956 --> n19954
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12515 root
-  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c132,c139,c146,c232 collapsed
+  class n12614 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c133,c140,c147,c234 collapsed
 ```
 
 Axioms used:

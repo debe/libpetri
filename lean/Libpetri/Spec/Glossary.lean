@@ -10,8 +10,8 @@ set_option linter.missingDocs true
 The terms of `spec/glossary.md`, as Lean definitions over the reference semantics
 (`Libpetri/Reference/Semantics.lean`). Nothing here redefines firing: every term is a name for,
 or a reading of, a definition the reference semantics already has (`Seam.enabledNA`,
-`Seam.nconsumed`, `Seam.fireNC`, `Reference.deposit`, `Reference.Fires`). Each docstring quotes
-its glossary entry; the bridge lemmas at the end show that the readable forms agree with the
+`Seam.nconsumed`, `Seam.fireNC`, `Reference.deposit`, `Reference.Fires`). Each docstring
+refers to its glossary entry by name, `Glossary: *Place* (spec/glossary.md)`, rather than copying it; the bridge lemmas at the end show that the readable forms agree with the
 reference definitions.
 
 A requirement statement is a predicate over an abstract firing relation `F : FireRel N`, so that
@@ -26,29 +26,24 @@ variable {N : Type}
 
 /-! ## Places, token counts, markings -/
 
-/-- **Glossary: Place.** "A named container that holds tokens [CORE-001]. Two places are the
-same place exactly when they have the same identity [CORE-002]."
+/-- Glossary: *Place* (spec/glossary.md).
 
 The firing semantics identifies a place with its name, of a type `N` with decidable equality;
 the identity of [CORE-002] is equality on `N`. -/
 abbrev PlaceName (N : Type) := N
 
-/-- **Glossary: Marking.** "The distribution of tokens across all places at one instant
-[CORE-070]. A place no arc touches keeps its tokens and is inert [CORE-072]."
+/-- Glossary: *Marking* (spec/glossary.md).
 
 At the granularity of the firing semantics a marking is its token counts, by place name. -/
 abbrev CountMarking (N : Type) := N → Nat
 
-/-- **Glossary: Token count.** "The number of tokens a place holds in a marking, written `m(p)`.
-Enablement and firing read token counts only: no input arc tests a token's value [IO-006]. The
-exception is a correlated input of a ν-net match specification, where they count the tokens of one
-name [NU-020]."
+/-- Glossary: *Token count* (spec/glossary.md).
 
 The Lean definitions here are the count-level part; a correlated input of a match specification
 is NU-020's (wave W9). -/
 abbrev TokenCount (m : CountMarking N) (p : N) : Nat := m p
 
-/-- **Glossary: Marked.** "A place is marked when its token count is not zero." -/
+/-- Glossary: *Marked* (spec/glossary.md). -/
 def Marked (m : CountMarking N) (p : N) : Prop := m p ≠ 0
 
 instance (m : CountMarking N) (p : N) : Decidable (Marked m p) :=
@@ -56,10 +51,7 @@ instance (m : CountMarking N) (p : N) : Decidable (Marked m p) :=
 
 /-! ## Arcs -/
 
-/-- **Glossary: Input arc.** "An arc from a place to a transition that the transition consumes
-from when it fires, according to the arc's cardinality `One`, `Exactly(n)`, `All` or
-`AtLeast(m)` [CORE-030], [IO-001]–[IO-004]. A transition declares at most one input arc per
-place [CORE-030]."
+/-- Glossary: *Input arc* (spec/glossary.md).
 
 `InputArc t p c`: the input arc of `t` on `p` has cardinality `c`. It reads the arc the way the
 reference semantics does (`Seam.nspecAt`, the first input arc on `p`), so it names the one arc
@@ -68,8 +60,7 @@ that enablement and consumption use. A malformed transition with two input arcs 
 def InputArc [DecidableEq N] (t : Trans N) (p : N) (c : Card) : Prop :=
   ∃ s, nspecAt t.core p = some s ∧ s.card = c
 
-/-- **Glossary: Inhibitor arc.** "An arc from a place to a transition that disables the
-transition while the place is marked [CORE-031]. It never consumes." -/
+/-- Glossary: *Inhibitor arc* (spec/glossary.md). -/
 abbrev InhibitorArc (t : Trans N) (p : N) : Prop := p ∈ t.core.inhibitors
 
 /-- `t` with every inhibitor arc on `p` removed, and nothing else changed: the transition a
@@ -77,12 +68,10 @@ marking-independent inhibitor on `p` would leave behind. -/
 def withoutInhibitor [DecidableEq N] (t : Trans N) (p : N) : Trans N :=
   { t with core := { t.core with inhibitors := t.core.inhibitors.filter (· ≠ p) } }
 
-/-- **Glossary: Read arc.** "An arc from a place to a transition that requires the place to be
-marked for the transition to be enabled [CORE-032]. It never consumes." -/
+/-- Glossary: *Read arc* (spec/glossary.md). -/
 abbrev ReadArc (t : Trans N) (p : N) : Prop := p ∈ t.core.reads
 
-/-- **Glossary: Reset arc.** "An arc from a place to a transition that removes every token from
-the place when the transition fires [CORE-034]. It never affects enablement." -/
+/-- Glossary: *Reset arc* (spec/glossary.md). -/
 abbrev ResetArc (t : Trans N) (p : N) : Prop := p ∈ t.core.resets
 
 /-- Every place an output spec names, `allPlaces` of [IO-017]: a `ForwardInput` contributes its
@@ -94,8 +83,7 @@ def outPlaces : Out N → List N
   | .xor l r => outPlaces l ++ outPlaces r
   | .timeout c => outPlaces c
 
-/-- **Glossary: Output arc.** "An arc from a transition to a place: a place that the
-transition's output spec names [CORE-035], [IO-017]." -/
+/-- Glossary: *Output arc* (spec/glossary.md). -/
 def OutputArc (t : Trans N) (p : N) : Prop :=
   ∃ o, t.out = some o ∧ p ∈ outPlaces o
 
@@ -111,26 +99,17 @@ instance [DecidableEq N] (t : Trans N) (p : N) : Decidable (OutputArc t p) :=
 
 /-! ## Cardinality -/
 
-/-- **Glossary: Required count.** "`requiredCount()`: the fewest tokens an input place must hold
-for the transition to be enabled. It is 1 for `One` and `All`, `n` for `Exactly(n)` and `m` for
-`AtLeast(m)` [IO-007]." This is `Card.required`. -/
+/-- Glossary: *Required count* (spec/glossary.md). This is `Card.required`. -/
 abbrev requiredCount (c : Card) : Nat := c.required
 
-/-- **Glossary: Consumption count.** "`consumptionCount(available)`: the tokens a firing removes
-from an input place that holds `available` tokens. It is 1 for `One`, `n` for `Exactly(n)` and
-`available` for `All` and `AtLeast(m)` [IO-007]. On a correlated input of a ν-net match
-specification, `available` is the number of tokens of the chosen name [NU-020]." Here `available`
+/-- Glossary: *Consumption count* (spec/glossary.md). Here `available`
 is the place's whole count: the count-level part, with correlated inputs NU-020's (wave W9). -/
 def consumptionCount (c : Card) (available : Nat) : Nat :=
   if c.consumesAll then available else c.required
 
 /-! ## Enablement and firing -/
 
-/-- **Glossary: Enabled.** "A transition is enabled in a marking when every input place holds
-at least its required count, every read place is marked and no inhibitor place is marked
-[CORE-022], [IO-005]. Reset arcs and output arcs play no part. For a transition with a ν-net match
-specification this is the count-level part of enablement only: its enablement check also needs a
-name of which every correlated input holds at least its required count of tokens [NU-020]." This
+/-- Glossary: *Enabled* (spec/glossary.md). This
 is `Seam.enabledNA`; `enabled_iff` is the readable form. It is the count-level part: the
 transitions here carry no match specification, and the ν-match check is NU-020's (wave W9). -/
 def Enabled (t : Trans N) (m : CountMarking N) : Prop := enabledNA m t.core = true
@@ -138,10 +117,7 @@ def Enabled (t : Trans N) (m : CountMarking N) : Prop := enabledNA m t.core = tr
 instance (t : Trans N) (m : CountMarking N) : Decidable (Enabled t m) :=
   inferInstanceAs (Decidable (enabledNA m t.core = true))
 
-/-- **Glossary: Consume.** "To remove tokens from an input place when the transition fires: as
-many as the consumption count, oldest first [CORE-030], [IO-007]. On a correlated input of a
-ν-net match specification the count and the order apply to the tokens of the chosen name only
-[EXEC-010], [NU-020]. Read arcs and inhibitor arcs never consume [CORE-031], [CORE-032]."
+/-- Glossary: *Consume* (spec/glossary.md).
 
 This is the count-level part; consumption on a correlated input is NU-020's (wave W9).
 
@@ -151,22 +127,16 @@ granularity. -/
 abbrev Consumes [DecidableEq N] (t : Trans N) (m : CountMarking N) (p : N) : Nat :=
   nconsumed m t.core p
 
-/-- **Glossary: Deposit.** "The tokens a firing adds to the marking, counted per place: how many
-tokens each place receives. It may be written as a list of places with repetition, a place
-receiving one token per occurrence, but only the count per place is normative: two deposits that
-put the same number of tokens in every place are the same deposit, whatever their order
-[CORE-036]. A reset place ends a firing holding exactly what the firing deposited there
-[CORE-034]."
+/-- Glossary: *Deposit* (spec/glossary.md).
 
 `Deposits d p` is the number of tokens the deposit `d` puts in `p` (`Seam.depProd`). -/
 abbrev Deposits [DecidableEq N] (d : List N) (p : N) : Nat := depProd d p
 
-/-- **Glossary: Deposit**, "two deposits that put the same number of tokens in every place are
-the same deposit, whatever their order [CORE-036]": `SamePerPlace d d'`. -/
+/-- Glossary: *Deposit* (spec/glossary.md), on when two deposits are the same deposit:
+`SamePerPlace d d'`. -/
 def SamePerPlace [DecidableEq N] (d d' : List N) : Prop := ∀ p, Deposits d p = Deposits d' p
 
-/-- **Glossary: Produced set.** "The places that received at least one token from a firing
-[IO-015]." -/
+/-- Glossary: *Produced set* (spec/glossary.md). -/
 abbrev Produced (d : List N) (p : N) : Prop := p ∈ d
 
 /-- The produced set of `d` is exactly the places of `b`: one or more tokens in each place of
@@ -174,10 +144,7 @@ abbrev Produced (d : List N) (p : N) : Prop := p ∈ d
 not how many"). -/
 def OnPlacesOf (d b : List N) : Prop := ∀ p, Produced d p ↔ p ∈ b
 
-/-- **Glossary: Fire.** "To fire is to perform one firing. One firing of an enabled transition
-consumes from its input places, empties its reset places and deposits the tokens of one outcome
-[CORE-030], [CORE-034], [CORE-035]. Read as one step from a marking `m` to a marking `m'`, a
-firing ignores timing and priority."
+/-- Glossary: *Fire* (spec/glossary.md).
 
 A firing relation: `F t m d m'` says that `t` fires from `m`, deposits `d`, and leaves `m'`.
 Requirements are predicates over an arbitrary `F`; `Reference.Fires` is the reference one. -/
@@ -197,18 +164,10 @@ against it. -/
 
 /-! ## Outcomes -/
 
-/-- **Glossary: Output spec.** "The tree of `Place`, `And`, `Xor`, `Timeout` and `ForwardInput`
-nodes that says where a transition's action may write [IO-010]–[IO-014]. A transition with no
-output spec deposits nothing." The output spec of `t` is `t.out`, an `Option (Out N)`. -/
+/-- Glossary: *Output spec* (spec/glossary.md). The output spec of `t` is `t.out`, an `Option (Out N)`. -/
 abbrev OutputSpec (t : Trans N) : Option (Out N) := t.out
 
-/-- **Glossary: Output branch.** "One way the action can satisfy the output spec: a set of
-places, taking one child at every `Xor` and the union at every `And` [IO-015], [IO-016]. With
-output validation enabled [CONC-026], a firing that ends with its action deposits one or more
-tokens in each place of one output branch and none in any other place: the branch fixes which
-places receive tokens, not how many [IO-015], [CORE-036]. The output branches of a spec that
-builds are pairwise distinct sets [IO-012]. The analyses that enumerate them model one token per
-place [IO-016]."
+/-- Glossary: *Output branch* (spec/glossary.md).
 
 `OutputBranch t b`: `b` is one of the branches of `t`'s output spec (`Out.branches`); a
 transition with no output spec has the one empty branch. A `Timeout` node offers its child's
@@ -219,10 +178,7 @@ def OutputBranch (t : Trans N) (b : List N) : Prop :=
   | none => b = []
   | some o => b ∈ o.branches
 
-/-- **Glossary: Forward.** "`ForwardInput(from, to)`, allowed only inside the child of a
-`Timeout` node: on the timeout outcome, one token in `to` for each token the firing consumed from
-`from`, in consumption order, each keeping the consumed token's value and `created_at` [IO-014].
-In an output branch it claims `to` [IO-015]." Values and `created_at` are below the count
+/-- Glossary: *Forward* (spec/glossary.md). Values and `created_at` are below the count
 granularity of the firing semantics.
 
 `forwardDeposit consumed src dst` is the deposit of `ForwardInput(src, dst)` on the timeout
@@ -230,14 +186,7 @@ outcome of a firing that consumed `consumed p` tokens from each `p`. -/
 def forwardDeposit (consumed : N → Nat) (src dst : N) : List N :=
   List.replicate (consumed src) dst
 
-/-- **Glossary: Timeout outcome.** "The way a firing ends when the executor's own budget timer
-on the `Timeout` node fires before the action completes [IO-013]. An output spec holds at most
-one `Timeout` node, so a transition has at most one timeout outcome [IO-013]. The `Timeout` child
-holds no `Xor` node, so that outcome deposits in one fixed set of places [IO-013]. The marking
-then receives the `Timeout` child's tokens and nothing else: one minted token in each place the
-child names through `Place`, and for each `ForwardInput(from, to)` the tokens the firing consumed
-from `from`, each keeping its value and `created_at` [IO-014]. It is compared with other deposits
-per place [CORE-036], [IO-012]. An exception the action raises is not a timeout outcome."
+/-- Glossary: *Timeout outcome* (spec/glossary.md).
 
 `TimeoutOutcome t consumed d`: `d` is a deposit of the timeout outcome of `t`, for a firing
 that consumed `consumed p` tokens from each `p`. The reference reads the first `Timeout` node in
@@ -253,17 +202,7 @@ def ExactOn (o : Out N) (d : List N) (b : List N) : Prop :=
 
 /-! ## Building a transition: the build-time checks
 
-**Glossary: Build-time checks.** "The checks building a transition runs: the input-arc check of
-[CORE-030], the input-count checks of [IO-002] and [IO-004], the input-and-read check of
-[EXEC-012], the timing check of [TIME-001], then, on its output spec and in this order, a place
-named twice in one output branch
-[IO-011], more than one `Timeout` node [IO-013], an `Xor` node inside the child of the `Timeout`
-node [IO-013], a `ForwardInput` outside the child of a `Timeout` node [IO-014], a `ForwardInput`
-whose `from` is not an input place [IO-014], and two output branches that claim the same set of
-places [IO-012], then, for a transition with a match specification, a place the match keys
-twice and a key on a place that is not an input place [NU-020], and per relay target one
-declared twice and one that is not an output place [NU-054]. The first check that fails names
-the error. No executor option skips them [CONC-026]."
+Glossary: *Build-time checks* (spec/glossary.md).
 
 `WellFormedOut` is the output-spec part, `PreOutputChecks` the checks that run before it
 ([CORE-030], the [IO-002]/[IO-004] input counts, and [EXEC-012]'s input-and-read check), `Builds`
@@ -669,10 +608,7 @@ def xorInTimeout : Out N → Bool
   | .xor l r => xorInTimeout l || xorInTimeout r
   | _ => false
 
-/-- **Glossary: Same set of places.** "Two lists of places name the same set of places when every
-place of each is a place of the other, whatever the order or repetition. Places are the same
-under the implementation's own `Place` equality [CORE-002], [MOD-024]. Output branches are
-compared this way [IO-012], [IO-015]." Place identity is equality on `N`. -/
+/-- Glossary: *Same set of places* (spec/glossary.md). Place identity is equality on `N`. -/
 def SameSet (a b : List N) : Prop := ∀ q, q ∈ a ↔ q ∈ b
 
 /-- `SameSet`, as a `Bool`. -/
@@ -758,9 +694,7 @@ def WellFormedOut [DecidableEq N] (inputs : List N) (o : Out N) : Prop :=
 instance [DecidableEq N] (inputs : List N) (o : Out N) : Decidable (WellFormedOut inputs o) := by
   unfold WellFormedOut; infer_instance
 
-/-- **Glossary: Builds.** "A transition builds when it passes every build-time check. A
-definition that fails one is not a transition of any net: no executor holds it, so it is never
-enabled and never fires [CORE-022]."
+/-- Glossary: *Builds* (spec/glossary.md).
 
 `Builds t`: the checks before the output-spec checks pass (`PreOutputChecks`: distinct input
 places [CORE-030], positive input counts [IO-002]/[IO-004], no input arc and read arc on one

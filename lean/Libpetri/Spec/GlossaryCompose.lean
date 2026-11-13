@@ -39,10 +39,7 @@ open Libpetri.Novel.TimedScg (Timing)
 
 /-! ## Names -/
 
-/-- **Glossary: Prefix.** "The string a subnet definition is instantiated under. A prefix is
-non-empty and contains no `/`, the reserved separator [MOD-010]. Under prefix `p` a place or
-transition named `x` is renamed `p/x` [MOD-010]; nesting gives names of the form
-`outer/inner/x` [MOD-013]."
+/-- Glossary: *Prefix* (spec/glossary.md).
 
 The validity half (ruling D25 (a): what Rust, Java and TypeScript check before renaming, `SubnetDef::instantiate` in `rust/libpetri-core/src/subnet_def.rs`,
 `validatePrefix` in `java/src/main/java/org/libpetri/core/SubnetDef.java`,
@@ -272,10 +269,7 @@ structure SubnetIn (N A : Type) where
   /-- The interface's channels. -/
   chans     : List Chan
 
-/-- **Glossary: Subnet definition.** "A net fragment that is never run on its own: a body net
-(its places and transitions) and an interface of ports, each exposing one body place with a
-direction, and channels, each exposing one body transition [MOD-001], [MOD-003], [MOD-005].
-Instantiating it under a prefix gives a module instance [MOD-010]."
+/-- Glossary: *Subnet definition* (spec/glossary.md).
 
 A subnet definition as the subnet builder returns it: the same fields as its input. -/
 structure SubnetDef (N A : Type) where
@@ -292,12 +286,7 @@ structure SubnetDef (N A : Type) where
   /-- The interface's channels. -/
   chans     : List Chan
 
-/-- **Glossary: Module instance.** "What instantiating a subnet definition under a prefix gives:
-the prefix, a renamed copy of the body, in which every place and transition is renamed under the
-prefix, every arc names the renamed places and every timing, priority and action is kept, and
-handles that resolve the definition's port and channel names to the renamed places and
-transitions [MOD-010], [MOD-011]. Two instances of one definition under different prefixes share
-no place and no transition name [MOD-010]."
+/-- Glossary: *Module instance* (spec/glossary.md).
 
 A module instance: the prefix, the renamed body (places, definitions in order), the handles
 (`port`, `chan`: the renamed place of a port name, the renamed transition name of a channel

@@ -49,4 +49,5 @@ A firing's inputs leave the marking in step 5 and its outputs arrive in step 1 o
 [EXEC-003]). Other transitions fire in between. Verification models that gap for every
 transition whose output another transition tests with an inhibitor, reset or drain ([VER-004]).
 
+**Depends on:** [ENV-003]
 **Test derivation:** Trace execution of a simple net; verify step ordering via event log."#

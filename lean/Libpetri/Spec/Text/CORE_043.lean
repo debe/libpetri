@@ -33,5 +33,6 @@ output validation the firing may succeed, but the net stays structurally incoher
 4. A transition that declares no output spec (a sink) may carry passthrough; [CORE-042] is untouched.
 5. The built-in is recognised by identity, so a hand-written action that happens to produce nothing is not claimed; that stays [IO-015]'s business at run time.
 
+**Depends on:** [CORE-042], [CORE-051], [IO-015]
 **Test derivation:** Compile a net whose transition declares `Out.place(P)` and carries the builder default, then with passthrough bound explicitly, then omitted from a `bindActions` mapping, then declaring `Out.timeout(d, Out.forwardInput(P, Q))`; verify each is rejected naming the transition, and that a sink, a `fork()`-bound transition and a hand-written no-op all compile.
 Verify the same rejection at the state-class-graph and SMT entry points."#

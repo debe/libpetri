@@ -20,43 +20,43 @@ flowchart TD
     n5290["Libpetri.Spec.CORE_003_bare"]
     n5291["Libpetri.Spec.CORE_003_engine_unchecked"]
     n6028["Libpetri.Spec.CompatibleMarking"]
-    n10452["Libpetri.Spec.TokenCompatible"]
-    n13236["Libpetri.Spec.core003_M"]
-    n13237["Libpetri.Spec.core003_M_compatible"]
-    n13238["Libpetri.Spec.core003_compatB"]
-    n13239["Libpetri.Spec.core003_compat_iff"]
-    n13242["Libpetri.Spec.core003_has"]
-    n17237["Libpetri.Spec.instDecidableTokenCompatibleNatOptionIdCore003_has"]
+    n10551["Libpetri.Spec.TokenCompatible"]
+    n13335["Libpetri.Spec.core003_M"]
+    n13336["Libpetri.Spec.core003_M_compatible"]
+    n13337["Libpetri.Spec.core003_compatB"]
+    n13338["Libpetri.Spec.core003_compat_iff"]
+    n13341["Libpetri.Spec.core003_has"]
+    n17336["Libpetri.Spec.instDecidableTokenCompatibleNatOptionIdCore003_has"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (13 declarations, collapsed)"]
   c91["📁 Libpetri/Reference/Queue.lean (17 declarations, collapsed)"]
   c94["📁 Libpetri/Reference/Semantics.lean (16 declarations, collapsed)"]
-  c144["📁 Libpetri/Spec/GlossaryQueue.lean (3 declarations, collapsed)"]
+  c145["📁 Libpetri/Spec/GlossaryQueue.lean (3 declarations, collapsed)"]
   c54 --> c0
   c91 --> c94
   c94 --> c28
   c94 --> c54
-  c144 --> c91
+  c145 --> c91
   n5290 --> n6028
   n5291 --> n5290
-  n5291 --> n13237
-  n6028 --> c144
-  n6028 --> n10452
-  n13236 --> c144
-  n13237 --> n6028
-  n13237 --> n13236
-  n13237 --> n17237
-  n13239 --> n10452
-  n13239 --> n13238
-  n13239 --> n13242
-  n17237 --> n13239
+  n5291 --> n13336
+  n6028 --> c145
+  n6028 --> n10551
+  n13335 --> c145
+  n13336 --> n6028
+  n13336 --> n13335
+  n13336 --> n17336
+  n13338 --> n10551
+  n13338 --> n13337
+  n13338 --> n13341
+  n17336 --> n13338
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n5291 root
-  class c0,c28,c54,c91,c94,c144 collapsed
+  class c0,c28,c54,c91,c94,c145 collapsed
 ```
 
 ### `Libpetri.Spec.CORE_003_unit_compatible`
@@ -92,26 +92,26 @@ flowchart TD
     n3455["Libpetri.Reference.Trans.core"]
   end
   subgraph g3["Libpetri/Spec/Ears.lean"]
-    n10032["Libpetri.Spec.StepShall"]
+    n10125["Libpetri.Spec.StepShall"]
   end
   subgraph g4["Libpetri/Spec/Glossary.lean"]
-    n9804["Libpetri.Spec.ReadArc"]
-    n9871["Libpetri.Spec.ResetArc"]
-    n17061["Libpetri.Spec.inPlaces"]
+    n9897["Libpetri.Spec.ReadArc"]
+    n9964["Libpetri.Spec.ResetArc"]
+    n17160["Libpetri.Spec.inPlaces"]
   end
   subgraph g5["Libpetri/Spec/GlossaryQueue.lean"]
     n6112["Libpetri.Spec.Delivered"]
     n7139["Libpetri.Spec.EmittedTo"]
-    n9747["Libpetri.Spec.QFireRel"]
-    n9758["Libpetri.Spec.QueueMarking"]
+    n9840["Libpetri.Spec.QFireRel"]
+    n9851["Libpetri.Spec.QueueMarking"]
   end
   subgraph g6["Libpetri/Spec/Req/CORE_003.lean"]
     n5298["Libpetri.Spec.CORE_003_lines123"]
     n6027["Libpetri.Spec.CompatibleDeposit"]
     n6028["Libpetri.Spec.CompatibleMarking"]
-    n10452["Libpetri.Spec.TokenCompatible"]
-    n13244["Libpetri.Spec.core003_lines123_of_CORE_010"]
-    n13245["Libpetri.Spec.core003_mem_emittedTo"]
+    n10551["Libpetri.Spec.TokenCompatible"]
+    n13343["Libpetri.Spec.core003_lines123_of_CORE_010"]
+    n13344["Libpetri.Spec.core003_mem_emittedTo"]
   end
   subgraph g7["Libpetri/Spec/Req/CORE_010.lean"]
     n5303["Libpetri.Spec.CORE_010"]
@@ -134,43 +134,43 @@ flowchart TD
   n5298 --> n3333
   n5298 --> n6027
   n5298 --> n6028
-  n5298 --> n9747
-  n5298 --> n9804
-  n5298 --> n10032
-  n5298 --> n17061
+  n5298 --> n9840
+  n5298 --> n9897
+  n5298 --> n10125
+  n5298 --> n17160
   n5303 --> n3118
   n5303 --> n3331
   n5303 --> n3333
   n5303 --> n7139
-  n5303 --> n9747
-  n5303 --> n9804
-  n5303 --> n9871
-  n5303 --> n10032
-  n5303 --> n17061
-  n6027 --> n10452
-  n6028 --> n9758
-  n6028 --> n10452
+  n5303 --> n9840
+  n5303 --> n9897
+  n5303 --> n9964
+  n5303 --> n10125
+  n5303 --> n17160
+  n6027 --> n10551
+  n6028 --> n9851
+  n6028 --> n10551
   n6112 --> n3330
   n7139 --> n4206
-  n9747 --> n3454
-  n9747 --> n6112
-  n9747 --> n9758
-  n9758 --> n3335
-  n9804 --> n1960
-  n9804 --> n3455
-  n9871 --> n1961
-  n9871 --> n3455
-  n13244 --> n5298
-  n13244 --> n5303
-  n13244 --> n13245
-  n13245 --> n7139
-  n17061 --> n1939
-  n17061 --> n1957
-  n17061 --> n3455
+  n9840 --> n3454
+  n9840 --> n6112
+  n9840 --> n9851
+  n9851 --> n3335
+  n9897 --> n1960
+  n9897 --> n3455
+  n9964 --> n1961
+  n9964 --> n3455
+  n13343 --> n5298
+  n13343 --> n5303
+  n13343 --> n13344
+  n13344 --> n7139
+  n17160 --> n1939
+  n17160 --> n1957
+  n17160 --> n3455
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13244 root
+  class n13343 root
 ```
 
 Axioms used:

@@ -45,13 +45,7 @@ variable {N T A : Type}
 
 /-! ## Actions -/
 
-/-- **Glossary: Action.** "What a transition runs when it fires: it receives a transition context
-holding the tokens the firing consumed and the tokens its read arcs read, and it either completes
-with output tokens, written through the context or returned, or fails [CORE-050], [EXEC-030]. A
-firing that ends with the completion of its action deposits exactly those tokens [CORE-050],
-[EXEC-020]; a firing that ends with its timeout outcome deposits none of them [IO-013], except
-tokens the action already published with ctx.flush() (Rust, Python; [IO-015]). The built-in
-passthrough action completes with no token and is recognised by identity [CORE-051]."
+/-- Glossary: *Action* (spec/glossary.md).
 
 `a t δ r`: the action `a` of transition `t`, handed the delivery `δ`, may end with `r`:
 `.ok e` (it completes with the emission `e`, places and tokens in emission order) or `.error msg`

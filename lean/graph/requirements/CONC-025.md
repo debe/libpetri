@@ -13,12 +13,12 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CONC_025.lean"]
-    n8556["Libpetri.Spec.Materialiser"]
-    n8558["Libpetri.Spec.Materialiser.mat"]
-    n8559["Libpetri.Spec.Materialiser.mk"]
-    n8562["Libpetri.Spec.Materialiser.σ"]
-    n13196["Libpetri.Spec.conc025_matches_bitmap"]
-    n20230["Libpetri.Spec.refMaterialiser"]
+    n8649["Libpetri.Spec.Materialiser"]
+    n8651["Libpetri.Spec.Materialiser.mat"]
+    n8652["Libpetri.Spec.Materialiser.mk"]
+    n8655["Libpetri.Spec.Materialiser.σ"]
+    n13295["Libpetri.Spec.conc025_matches_bitmap"]
+    n20329["Libpetri.Spec.refMaterialiser"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -32,7 +32,7 @@ flowchart TD
   c105["📁 Libpetri/Ring/Core.lean (54 declarations, collapsed)"]
   c106["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
   c108["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
-  c144["📁 Libpetri/Spec/GlossaryQueue.lean (6 declarations, collapsed)"]
+  c145["📁 Libpetri/Spec/GlossaryQueue.lean (6 declarations, collapsed)"]
   c1 --> c106
   c2 --> c1
   c2 --> c3
@@ -44,22 +44,22 @@ flowchart TD
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  c144 --> c91
-  c144 --> c106
-  n8556 --> c144
-  n8558 --> n8562
-  n8559 --> n8556
-  n8562 --> n8556
-  n13196 --> c99
-  n13196 --> n8558
-  n13196 --> n20230
-  n20230 --> c101
-  n20230 --> n8559
+  c145 --> c91
+  c145 --> c106
+  n8649 --> c145
+  n8651 --> n8655
+  n8652 --> n8649
+  n8655 --> n8649
+  n13295 --> c99
+  n13295 --> n8651
+  n13295 --> n20329
+  n20329 --> c101
+  n20329 --> n8652
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13196 root
-  class c0,c1,c2,c3,c4,c91,c99,c100,c101,c105,c106,c108,c144 collapsed
+  class n13295 root
+  class c0,c1,c2,c3,c4,c91,c99,c100,c101,c105,c106,c108,c145 collapsed
 ```
 
 Axioms used:

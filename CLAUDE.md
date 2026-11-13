@@ -235,13 +235,18 @@ contents change, and they're identical across the three destinations.
 
 `spec/` contains the spec files `00-index.md` … `12-nu-nets.md`. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
-**The spec chapters are generated from Lean; never edit `spec/01-*.md` … `spec/12-*.md` by hand.**
-Each requirement's text lives in `lean/Libpetri/Spec/Text/<ID>.lean` (`requirement_text`, its
-normative sentences marked `⟦s1|…⟧`), each chapter's order and prose in
-`lean/Libpetri/Spec/Text/Chapter/ChNN.lean`. Edit there, then run `lake env lean
-spec-tools/Render.lean` from `lean/`; CI renders and fails on any difference. A requirement block
-names the sentences it formalises with `covers ID.sN`, so editing a covered sentence changes that
-block's statement hash and resets its sign-off.
+**All of `spec/*.md` except `coverage-matrix.md` (written by `scripts/spec-coverage-matrix.py`) is
+generated from Lean; never edit it by hand.** Each requirement's text lives in
+`lean/Libpetri/Spec/Text/<ID>.lean` (`requirement_text`, its normative sentences marked
+`⟦s1|…⟧`), each chapter's order and prose in `lean/Libpetri/Spec/Text/Chapter/ChNN.lean`. The
+index (`Ch00.lean`) computes every table and count from the texts; the glossary is
+`Chapter/Glossary.lean` (`term` entries, which Lean docstrings reference as
+`Glossary: *Place* (spec/glossary.md)` instead of copying); the runtime ledger is typed
+declarations under `lean/Libpetri/Spec/Ledger/` (`runtime_defect`, `unbuilt_requirement`,
+`ledger_divergence`). Edit there, then run `lake env lean spec-tools/Render.lean` from `lean/`;
+CI renders and fails on any difference. A requirement block names the sentences it formalises
+with `covers ID.sN`, so editing a covered sentence changes that block's statement hash and
+resets its sign-off.
 
 ## Release
 

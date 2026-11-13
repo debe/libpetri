@@ -6,8 +6,8 @@ set_option linter.missingDocs true
 # Glossary: the enablement check
 
 The terms the enablement-check requirements use ([CONC-004], [CONC-008], and the sparse masks of
-[PERF-042]), as Lean definitions at the count level of `Glossary.lean`. Each docstring quotes
-its entry in section "Enablement check" of `spec/glossary.md`.
+[PERF-042]), as Lean definitions at the count level of `Glossary.lean`. Each docstring
+refers to its glossary entry by name, `Glossary: *Place* (spec/glossary.md)`, rather than copying it (section "Enablement check").
 
 A bitmap is read here as one bit per place, `N → Bool`, and a mask as the set of places whose bit
 is set. Word layout, place indices and the cost of the check are below this level: they are the
@@ -26,39 +26,30 @@ variable {N : Type}
 
 /-! ## Masks and bitmaps -/
 
-/-- **Glossary: Needs-mask.** "The bitmap of a transition with a bit set for each of its input
-places and read places: all of them must be marked [CONC-004]." -/
+/-- Glossary: *Needs-mask* (spec/glossary.md). -/
 def NeedsMask (t : Trans N) (p : N) : Prop := p ∈ inPlaces t ∨ ReadArc t p
 
-/-- **Glossary: Inhibitor-mask.** "The bitmap of a transition with a bit set for each of its
-inhibitor places: none of them may be marked [CONC-004]." -/
+/-- Glossary: *Inhibitor-mask* (spec/glossary.md). -/
 abbrev InhibitorMask (t : Trans N) (p : N) : Prop := InhibitorArc t p
 
-/-- **Glossary: Presence bitmap.** "The bitmap of a marking with one bit per place, set exactly
-when the place is marked [CONC-004]." -/
+/-- Glossary: *Presence bitmap* (spec/glossary.md). -/
 def presenceOf (m : CountMarking N) : N → Bool := fun p => decide (Marked m p)
 
 /-! ## The phases of the check -/
 
-/-- **Glossary: Presence check.** "Phase 1 of the enablement check. It passes on a bitmap when
-every bit of the transition's needs-mask is set and no bit of its inhibitor-mask is set:
-`(marking & needs-mask) == needs-mask AND (marking & inhibitor-mask) == 0` [CONC-004],
-[CONC-008]. Reset arcs and output arcs play no part."
+/-- Glossary: *Presence check* (spec/glossary.md).
 
 `MaskCheck t bits`: the presence check of `t` passes on the bitmap `bits`. -/
 def MaskCheck (t : Trans N) (bits : N → Bool) : Prop :=
   (∀ p, NeedsMask t p → bits p = true) ∧ (∀ p, InhibitorMask t p → bits p = false)
 
-/-- **Glossary: Cardinality check.** "Phase 2 of the enablement check. It passes when every input
-place holds at least its required count [CONC-008], [IO-007]."
+/-- Glossary: *Cardinality check* (spec/glossary.md).
 
 `CardinalityOk t m`: the cardinality check of `t` passes on the marking `m`. -/
 def CardinalityOk (t : Trans N) (m : CountMarking N) : Prop :=
   ∀ s ∈ t.core.inputs, requiredCount s.card ≤ m s.place
 
-/-- **Glossary: Enablement check.** "The check an executor runs to decide whether a transition is
-enabled: the presence check on the presence bitmap of the marking, then the cardinality check,
-then, for a transition with a match specification, the ν-match check [CONC-008], [NU-020]."
+/-- Glossary: *Enablement check* (spec/glossary.md).
 
 The interface of a check for transitions without a match specification: its presence phase on a
 bitmap, its cardinality phase on token counts, and the whole check on a marking. The ν-match

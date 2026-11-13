@@ -22,11 +22,11 @@ flowchart TD
     n137["Libpetri.InSpec.mk"]
     n138["Libpetri.InSpec.place"]
     n2723["Libpetri.PlaceId"]
-    n22401["Libpetri.Transition"]
-    n22402["Libpetri.Transition.inhibitors"]
-    n22403["Libpetri.Transition.inputs"]
-    n22404["Libpetri.Transition.mk"]
-    n22407["Libpetri.Transition.reads"]
+    n22500["Libpetri.Transition"]
+    n22501["Libpetri.Transition.inhibitors"]
+    n22502["Libpetri.Transition.inputs"]
+    n22503["Libpetri.Transition.mk"]
+    n22506["Libpetri.Transition.reads"]
   end
   subgraph g1["Libpetri/Compile.lean"]
     n22["Libpetri.ConsumeOp"]
@@ -36,7 +36,7 @@ flowchart TD
     n26["Libpetri.ConsumeOp.one"]
     n27["Libpetri.ConsumeOp.reset"]
     n34["Libpetri.DistinctInputPlaces"]
-    n22466["Libpetri.canEnable"]
+    n22565["Libpetri.canEnable"]
   end
   subgraph g2["Libpetri/Conservation.lean"]
     n28["Libpetri.ConsumeResult"]
@@ -44,19 +44,19 @@ flowchart TD
     n30["Libpetri.ConsumeResult.inputs"]
     n31["Libpetri.ConsumeResult.mk"]
     n32["Libpetri.ConsumeResult.pool"]
-    n22539["Libpetri.execOp"]
-    n22542["Libpetri.execOpsFrom"]
+    n22638["Libpetri.execOp"]
+    n22641["Libpetri.execOpsFrom"]
   end
   subgraph g3["Libpetri/Conservation/Pop.lean"]
-    n22400["Libpetri.TokenBag"]
-    n22423["Libpetri.addBag"]
-    n22529["Libpetri.emptyBag"]
-    n22646["Libpetri.popN"]
+    n22499["Libpetri.TokenBag"]
+    n22522["Libpetri.addBag"]
+    n22628["Libpetri.emptyBag"]
+    n22745["Libpetri.popN"]
   end
   subgraph g4["Libpetri/RetrodictExec.lean"]
-    n22468["🔒 Libpetri.canEnable_insufficient_for_totality"]
-    n22513["Libpetri.demoPool"]
-    n22731["Libpetri.tDup"]
+    n22567["🔒 Libpetri.canEnable_insufficient_for_totality"]
+    n22612["Libpetri.demoPool"]
+    n22830["Libpetri.tDup"]
   end
   subgraph g5["Libpetri/Ring/Core.lean"]
     n2730["Libpetri.Pool"]
@@ -74,7 +74,7 @@ flowchart TD
     n2850["Libpetri.Pool.tail"]
   end
   subgraph g6["Libpetri/RingArith.lean"]
-    n22689["Libpetri.ringPos"]
+    n22788["Libpetri.ringPos"]
   end
   n9 --> n8
   n10 --> n8
@@ -95,16 +95,16 @@ flowchart TD
   n27 --> n22
   n27 --> n2723
   n29 --> n28
-  n29 --> n22400
+  n29 --> n22499
   n30 --> n28
-  n30 --> n22400
+  n30 --> n22499
   n31 --> n28
   n31 --> n2730
-  n31 --> n22400
+  n31 --> n22499
   n32 --> n28
   n32 --> n2730
   n34 --> n138
-  n34 --> n22403
+  n34 --> n22502
   n132 --> n21
   n135 --> n8
   n135 --> n134
@@ -141,58 +141,58 @@ flowchart TD
   n2845 --> n2745
   n2845 --> n2774
   n2845 --> n2798
-  n2845 --> n22689
+  n2845 --> n22788
   n2850 --> n2723
   n2850 --> n2730
-  n22400 --> n21
-  n22400 --> n2723
-  n22402 --> n2723
-  n22402 --> n22401
-  n22403 --> n134
-  n22403 --> n22401
-  n22404 --> n134
-  n22404 --> n2723
-  n22404 --> n22401
-  n22407 --> n2723
-  n22407 --> n22401
-  n22423 --> n22400
-  n22466 --> n14
-  n22466 --> n135
-  n22466 --> n138
-  n22466 --> n2746
-  n22466 --> n22402
-  n22466 --> n22403
-  n22466 --> n22407
-  n22468 --> n34
-  n22468 --> n22466
-  n22468 --> n22513
-  n22468 --> n22529
-  n22468 --> n22542
-  n22468 --> n22731
-  n22513 --> n2796
-  n22529 --> n22400
-  n22539 --> n23
-  n22539 --> n24
-  n22539 --> n25
-  n22539 --> n26
-  n22539 --> n27
-  n22539 --> n29
-  n22539 --> n30
-  n22539 --> n31
-  n22539 --> n32
-  n22539 --> n22423
-  n22539 --> n22646
-  n22542 --> n22539
-  n22646 --> n2751
-  n22646 --> n2826
-  n22731 --> n13
-  n22731 --> n137
-  n22731 --> n22404
+  n22499 --> n21
+  n22499 --> n2723
+  n22501 --> n2723
+  n22501 --> n22500
+  n22502 --> n134
+  n22502 --> n22500
+  n22503 --> n134
+  n22503 --> n2723
+  n22503 --> n22500
+  n22506 --> n2723
+  n22506 --> n22500
+  n22522 --> n22499
+  n22565 --> n14
+  n22565 --> n135
+  n22565 --> n138
+  n22565 --> n2746
+  n22565 --> n22501
+  n22565 --> n22502
+  n22565 --> n22506
+  n22567 --> n34
+  n22567 --> n22565
+  n22567 --> n22612
+  n22567 --> n22628
+  n22567 --> n22641
+  n22567 --> n22830
+  n22612 --> n2796
+  n22628 --> n22499
+  n22638 --> n23
+  n22638 --> n24
+  n22638 --> n25
+  n22638 --> n26
+  n22638 --> n27
+  n22638 --> n29
+  n22638 --> n30
+  n22638 --> n31
+  n22638 --> n32
+  n22638 --> n22522
+  n22638 --> n22745
+  n22641 --> n22638
+  n22745 --> n2751
+  n22745 --> n2826
+  n22830 --> n13
+  n22830 --> n137
+  n22830 --> n22503
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22468 root
-  class n22468 locked
+  class n22567 root
+  class n22567 locked
 ```
 
 Axioms used:

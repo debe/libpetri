@@ -24,6 +24,7 @@ import Libpetri.Spec.Text.EVT_031
 import Libpetri.Spec.Text.EVT_032
 
 spec_chapter "08-events-observability.md"
+  scope "Event types, event store, log capture"
   md r#"# 08 — Events & Observability
 
 This document specifies the event types emitted during execution, the event store interface, and observability features.

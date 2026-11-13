@@ -13,6 +13,7 @@ import Libpetri.Spec.Text.TIME_014
 import Libpetri.Spec.Text.TIME_015
 
 spec_chapter "03-timing.md"
+  scope "Firing intervals, clock semantics, deadline enforcement, injectable clock"
   md r#"# 03 — Timing
 
 This document specifies firing interval semantics based on classical Time Petri Net (TPN) theory.

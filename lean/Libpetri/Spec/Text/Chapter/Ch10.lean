@@ -15,6 +15,7 @@ import Libpetri.Spec.Text.PERF_041
 import Libpetri.Spec.Text.PERF_042
 
 spec_chapter "10-performance.md"
+  scope "Scaling, benchmarks, memory efficiency, flat-array executor performance"
   md r#"# 10 — Performance
 
 This document specifies scaling requirements, benchmark expectations, and performance-related design constraints.

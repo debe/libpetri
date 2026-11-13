@@ -9,7 +9,7 @@ set_option linter.missingDocs true
 
 The terms the token-order requirements use ([EXEC-010], [EXEC-012], [EXEC-013], [EXEC-020]),
 as Lean definitions over the reference queue firing (`Libpetri/Reference/Queue.lean`).
-`QueueMarking` quotes the glossary entry "Queue order" (section "Execution" of
+`QueueMarking` refers to the glossary entry *Queue order* (section "Execution" of
 `spec/glossary.md`); the other terms have no glossary entry and quote the requirement sentence
 they read. The glossary's "Admitted completion" is not here: a single firing has no completion
 to accept, and it belongs to the executor model (`RefExec`). As in `Glossary.lean`, nothing here
@@ -39,10 +39,7 @@ variable {N T : Type}
 
 /-! ## Queue markings -/
 
-/-- **Glossary: Queue order.** "The tokens of a place are kept in the order they were added. The
-oldest token is the head of the place; a firing consumes from the head, except on a correlated
-input of a ν-net match [EXEC-010], [NU-020], and reads the head [EXEC-012], and a deposit adds
-at the tail [EXEC-020]."
+/-- Glossary: *Queue order* (spec/glossary.md).
 
 A queue marking holds every place's tokens in queue order, the head first; `T` is the type of
 token identities. Correlated ν inputs are not modelled (`RefQFire` consumes oldest first from

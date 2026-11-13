@@ -26,24 +26,24 @@ flowchart TD
     n136["Libpetri.InSpec.guard"]
     n138["Libpetri.InSpec.place"]
     n2723["Libpetri.PlaceId"]
-    n22401["Libpetri.Transition"]
-    n22402["Libpetri.Transition.inhibitors"]
-    n22403["Libpetri.Transition.inputs"]
-    n22404["Libpetri.Transition.mk"]
-    n22405["Libpetri.Transition.name"]
-    n22406["Libpetri.Transition.priority"]
-    n22407["Libpetri.Transition.reads"]
-    n22408["Libpetri.Transition.resets"]
-    n22429["Libpetri.alphaFireC"]
-    n22478["Libpetri.consumeAllAt"]
-    n22479["Libpetri.consumeCount"]
-    n22492["Libpetri.consumedAt"]
-    n22531["Libpetri.enabledC"]
-    n22552["Libpetri.fireA"]
-    n22618["Libpetri.matchCount"]
-    n22648["Libpetri.post"]
-    n22653["Libpetri.pre"]
-    n22708["Libpetri.specAt"]
+    n22500["Libpetri.Transition"]
+    n22501["Libpetri.Transition.inhibitors"]
+    n22502["Libpetri.Transition.inputs"]
+    n22503["Libpetri.Transition.mk"]
+    n22504["Libpetri.Transition.name"]
+    n22505["Libpetri.Transition.priority"]
+    n22506["Libpetri.Transition.reads"]
+    n22507["Libpetri.Transition.resets"]
+    n22528["Libpetri.alphaFireC"]
+    n22577["Libpetri.consumeAllAt"]
+    n22578["Libpetri.consumeCount"]
+    n22591["Libpetri.consumedAt"]
+    n22630["Libpetri.enabledC"]
+    n22651["Libpetri.fireA"]
+    n22717["Libpetri.matchCount"]
+    n22747["Libpetri.post"]
+    n22752["Libpetri.pre"]
+    n22807["Libpetri.specAt"]
   end
   subgraph g1["Libpetri/Novel/ResetArc.lean"]
     n1150["Libpetri.Novel.ResetArc.OnlyReset"]
@@ -81,71 +81,71 @@ flowchart TD
   n138 --> n134
   n138 --> n2723
   n1150 --> n138
-  n1150 --> n22402
-  n1150 --> n22403
-  n1150 --> n22407
-  n1152 --> n22429
+  n1150 --> n22501
+  n1150 --> n22502
+  n1150 --> n22506
+  n1152 --> n22528
   n1153 --> n1152
   n1155 --> n6
   n1158 --> n1150
   n1158 --> n1151
-  n1158 --> n22531
+  n1158 --> n22630
   n1159 --> n1155
   n1159 --> n1158
-  n1160 --> n22404
-  n1160 --> n22405
-  n1160 --> n22406
-  n1160 --> n22531
-  n1161 --> n22552
+  n1160 --> n22503
+  n1160 --> n22504
+  n1160 --> n22505
+  n1160 --> n22630
+  n1161 --> n22651
   n1162 --> n1161
   n1163 --> n1153
   n1163 --> n1159
   n1163 --> n1160
-  n22402 --> n2723
-  n22402 --> n22401
-  n22403 --> n134
-  n22403 --> n22401
-  n22404 --> n134
-  n22404 --> n2723
-  n22404 --> n22401
-  n22405 --> n22401
-  n22406 --> n22401
-  n22407 --> n2723
-  n22407 --> n22401
-  n22408 --> n2723
-  n22408 --> n22401
-  n22429 --> n0
-  n22429 --> n22408
-  n22429 --> n22492
-  n22478 --> n11
-  n22478 --> n135
-  n22478 --> n22708
-  n22479 --> n11
-  n22479 --> n14
-  n22479 --> n135
-  n22479 --> n22618
-  n22492 --> n22479
-  n22492 --> n22708
-  n22531 --> n14
-  n22531 --> n135
-  n22531 --> n22402
-  n22531 --> n22403
-  n22531 --> n22407
-  n22531 --> n22618
-  n22552 --> n0
-  n22552 --> n22408
-  n22552 --> n22478
-  n22552 --> n22648
-  n22552 --> n22653
-  n22618 --> n6
-  n22618 --> n136
-  n22618 --> n138
-  n22648 --> n2723
-  n22653 --> n14
-  n22653 --> n135
-  n22653 --> n22708
-  n22708 --> n138
-  n22708 --> n22403
+  n22501 --> n2723
+  n22501 --> n22500
+  n22502 --> n134
+  n22502 --> n22500
+  n22503 --> n134
+  n22503 --> n2723
+  n22503 --> n22500
+  n22504 --> n22500
+  n22505 --> n22500
+  n22506 --> n2723
+  n22506 --> n22500
+  n22507 --> n2723
+  n22507 --> n22500
+  n22528 --> n0
+  n22528 --> n22507
+  n22528 --> n22591
+  n22577 --> n11
+  n22577 --> n135
+  n22577 --> n22807
+  n22578 --> n11
+  n22578 --> n14
+  n22578 --> n135
+  n22578 --> n22717
+  n22591 --> n22578
+  n22591 --> n22807
+  n22630 --> n14
+  n22630 --> n135
+  n22630 --> n22501
+  n22630 --> n22502
+  n22630 --> n22506
+  n22630 --> n22717
+  n22651 --> n0
+  n22651 --> n22507
+  n22651 --> n22577
+  n22651 --> n22747
+  n22651 --> n22752
+  n22717 --> n6
+  n22717 --> n136
+  n22717 --> n138
+  n22747 --> n2723
+  n22752 --> n14
+  n22752 --> n135
+  n22752 --> n22807
+  n22807 --> n138
+  n22807 --> n22502
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

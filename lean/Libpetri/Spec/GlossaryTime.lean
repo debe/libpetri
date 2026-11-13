@@ -11,7 +11,8 @@ The timing terms of `spec/glossary.md` (section "Timing"), as Lean definitions o
 reference step (`Libpetri/Reference/Timed.lean`). As in `Glossary.lean`, nothing here redefines
 the step: each term is a readable name for a definition the reference already has
 (`TSt.armed`, `TSt.elapsed`, `tExpired`, `mid`, `arcPlaces`, `writes`), and the bridge lemmas at
-the end show that the two agree. Each docstring quotes its glossary entry.
+the end show that the two agree. Each docstring
+refers to its glossary entry by name, `Glossary: *Place* (spec/glossary.md)`, rather than copying it.
 
 A timing requirement is a predicate over an abstract timed step relation `R : TRel N`, so that
 it can be checked against the reference (`RefTStep`) and against a mutant. Three conditions keep
@@ -40,43 +41,29 @@ variable {N : Type}
 
 /-! ## Timings and the clock -/
 
-/-- **Glossary: Timing.** "The interval `[earliest, latest]` a transition's timing specification
-gives: `Immediate`, `Deadline(by)`, `Delayed(after)`, `Window(earliest, latest)` or `Exact(at)`
-[TIME-001]–[TIME-006]. `Immediate` and `Delayed` have no finite latest bound; their `latest()`
-is the maximum duration."
+/-- Glossary: *Timing* (spec/glossary.md).
 
 The timing of `t` in the timed net `X` (`Novel.TimedScg.Timing`, milliseconds). -/
 abbrev TimingOf (X : TimedNet N) (t : Trans N) : Timing := X.timing t
 
-/-- **Glossary: Maximum duration.** "The finite stand-in for "no latest bound", about 100 years:
-`MAX_DURATION_MS` = 3153600000000 ms, or `MAX_DURATION` in Java [TIME-001]. No valid timing has
-an earliest bound above it, no valid `Deadline` has a `by` above it, and no valid `Window` has a
-latest bound above it [TIME-001]." -/
+/-- Glossary: *Maximum duration* (spec/glossary.md). -/
 abbrev MaxDuration : Nat := maxDurationMs
 
-/-- **Glossary: Firing clock.** "The monotonic time source from which the executor stamps armed
-transitions and computes elapsed time [TIME-010], [TIME-015]. Its readings never decrease and
-may repeat [TIME-015]."
+/-- Glossary: *Firing clock* (spec/glossary.md).
 
 The current reading of the firing clock in state `s`. -/
 abbrev ClockReading (s : TSt N) : Nat := s.now
 
-/-- **Glossary: Deadline tolerance.** "The per-executor grace band added to a latest bound
-before a transition is reaped: 5 ms by default, and `0` for strict enforcement [TIME-013]." -/
+/-- Glossary: *Deadline tolerance* (spec/glossary.md). -/
 abbrev Tolerance (X : TimedNet N) : Nat := X.tol
 
 /-! ## Arc places and writes -/
 
-/-- **Glossary: Arc place.** "A place on which a transition has an input, read, inhibitor or
-reset arc [CORE-030]–[CORE-034]. A place the transition only deposits into is not one of its arc
-places." -/
+/-- Glossary: *Arc place* (spec/glossary.md). -/
 def ArcPlace (u : Trans N) (p : N) : Prop :=
   p ∈ inPlaces u ∨ ReadArc u p ∨ InhibitorArc u p ∨ ResetArc u p
 
-/-- **Glossary: Write.** "A firing writes a place when it consumes from it, deposits into it or
-drains it through a reset arc. Draining a reset place that is already empty counts as a write.
-An injected token writes the place it lands in [ENV-003]. Reading through a read arc and testing
-through an inhibitor arc never write [TIME-013]."
+/-- Glossary: *Write* (spec/glossary.md).
 
 `Writes t d p`: the firing of `t` with deposit `d` writes `p`. "Consumes from it" is read as "has
 an input arc on it", as the runtimes mark every input place of a fired transition dirty. The
@@ -97,54 +84,40 @@ def Mid [DecidableEq N] (t : Trans N) (m : CountMarking N) : CountMarking N :=
 
 /-! ## Armed, elapsed, ready, expired, reaped -/
 
-/-- **Glossary: Armed.** "A transition is armed when it is enabled and holds a clock: a stamp,
-the firing-clock reading taken by the enablement update that most recently newly armed it
-[TIME-010]. A transition is newly armed when it is enabled in the initial marking, when it is
-enabled after a firing or an injected token that wrote one of its arc places while it was not
-armed, and when its clock restarts [TIME-012]. A transition that is not enabled is not armed. Armed is not Enabled: a
-reaped transition is enabled but not armed [TIME-013]." -/
+/-- Glossary: *Armed* (spec/glossary.md). -/
 def Armed (s : TSt N) (t : Trans N) : Prop :=
   Enabled t s.m ∧ (s.stamp t.core.name).isSome
 
 instance (s : TSt N) (t : Trans N) : Decidable (Armed s t) :=
   inferInstanceAs (Decidable (_ ∧ _))
 
-/-- **Glossary: Elapsed time.** "The current reading of the firing clock minus an armed
-transition's stamp [TIME-010]. Only an armed transition has one."
+/-- Glossary: *Elapsed time* (spec/glossary.md).
 
 Defined for every transition; without a stamp it is 0. -/
 def Elapsed (s : TSt N) (t : Trans N) : Nat :=
   ClockReading s - (s.stamp t.core.name).getD (ClockReading s)
 
-/-- **Glossary: Reapable.** "A transition is reapable when its timing is `Deadline` or `Window`
-[TIME-013]. `Exact`, `Immediate` and `Delayed` are not reapable, though `Exact` has a deadline
-in the sense of `hasDeadline()` [TIME-001], [TIME-006]." -/
+/-- Glossary: *Reapable* (spec/glossary.md). -/
 def Reapable (X : TimedNet N) (t : Trans N) : Prop := (TimingOf X t).reapable = true
 
 instance (X : TimedNet N) (t : Trans N) : Decidable (Reapable X t) :=
   inferInstanceAs (Decidable (_ = true))
 
-/-- **Glossary: Expired.** "A reapable transition is expired when it is armed and its elapsed
-time is strictly greater than its latest bound plus the deadline tolerance [TIME-013]." -/
+/-- Glossary: *Expired* (spec/glossary.md). -/
 def Expired (X : TimedNet N) (s : TSt N) (t : Trans N) : Prop :=
   Reapable X t ∧ Armed s t ∧ (TimingOf X t).latest + Tolerance X < Elapsed s t
 
 instance (X : TimedNet N) (s : TSt N) (t : Trans N) : Decidable (Expired X s t) :=
   inferInstanceAs (Decidable (_ ∧ _))
 
-/-- **Glossary: Ready.** "A transition is ready when it is armed, its elapsed time is at least
-its earliest bound and it is not expired [TIME-010], [EXEC-002]." -/
+/-- Glossary: *Ready* (spec/glossary.md). -/
 def Ready (X : TimedNet N) (s : TSt N) (t : Trans N) : Prop :=
   Armed s t ∧ (TimingOf X t).earliest ≤ Elapsed s t ∧ ¬ Expired X s t
 
 instance (X : TimedNet N) (s : TSt N) (t : Trans N) : Decidable (Ready X s t) :=
   inferInstanceAs (Decidable (_ ∧ _))
 
-/-- **Glossary: Reaped.** "To reap an expired transition is to disarm it in the deadline step
-of a cycle without firing it, emitting `TransitionTimedOut` [TIME-013], [EXEC-001], [EVT-009].
-A reaped transition keeps its tokens and stays enabled but not armed, and does not fire, until a
-firing or an injected token writes one of its arc places; it is then newly armed if it is
-enabled [TIME-013]."
+/-- Glossary: *Reaped* (spec/glossary.md).
 
 The state reading: enabled at the marking and not armed. -/
 def Reaped (s : TSt N) (t : Trans N) : Prop := Enabled t s.m ∧ ¬ Armed s t
@@ -167,9 +140,7 @@ def NamesDistinct (X : TimedNet N) : Prop :=
 
 /-! ## The initial state and unknown places -/
 
-/-- **Glossary: Unknown place.** "A place the net does not declare: no transition of the net has
-an arc on it or names it in its output spec. Its tokens are retained in the marking, inert,
-since no arc can reference them [CORE-072]."
+/-- Glossary: *Unknown place* (spec/glossary.md).
 
 A net of the model is its list of transitions, and a place exists by use, so a place declared
 through a builder but touched by no arc and named by no output spec is an unknown place here too. -/

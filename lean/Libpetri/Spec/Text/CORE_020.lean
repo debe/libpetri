@@ -28,4 +28,5 @@ requirement_text CORE_020
 1. A transition can be constructed with all the above fields via a builder pattern.
 2. All fields are accessible after construction.
 
+**Depends on:** [IO-001], [IO-010], [TIME-001]
 **Test derivation:** Build a transition with inputs, outputs, inhibitors, reads, resets, timing, priority, and action; verify all fields match."#

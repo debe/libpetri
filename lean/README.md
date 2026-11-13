@@ -472,28 +472,51 @@ matrix stays on the old tags and CI fails the report freshness step.
 
 ### The spec text lives in Lean
 
-A chapter whose text has moved into Lean (so far `spec/10-performance.md`) is generated:
-never edit that markdown file, edit its Lean source. Its first line, an HTML comment, names the
-source.
+Every file of `spec/*.md` except `coverage-matrix.md` (written by
+`scripts/spec-coverage-matrix.py`) is generated from Lean: never edit one, edit its Lean source.
+Its first line, an HTML comment, names the source.
 
 - `Libpetri/Spec/Text/<ID>.lean` holds one requirement's text (`requirement_text`, defined in
   `Libpetri/Spec/Text.lean`): ID, title, priority, kind, an optional status, and the body as
   raw markdown in a raw string (`r#"…"#`). A normative span of the body is marked
-  `⟦s1|…⟧`; the markdown shows it without the markers.
-- `Libpetri/Spec/Text/Chapter/Ch<NN>.lean` holds the chapter (`spec_chapter`): markdown chunks
-  (`md r#"…"#`) and requirement texts (`req PERF_001`) in order.
+  `⟦s1|…⟧`; the markdown shows it without the markers. The body's `**Depends on:**` line is the
+  one place a dependency is written.
+- `Libpetri/Spec/Text/Chapter/Ch<NN>.lean` holds a chapter (`spec_chapter "NN-name.md" scope
+  "…"`): markdown chunks (`md r#"…"#`) and requirement texts (`req PERF_001`) in order. The
+  `scope` is the chapter's cell in the index's Spec Files table.
+- `Libpetri/Spec/Text/Chapter/Ch00.lean` is the index. Its prose is markdown chunks; every table
+  and count is a generated block (`table files`, `table tombstones`, `table crossref`,
+  `table priorities`) that `Libpetri/Spec/Generate.lean` computes from the chapters and the
+  requirement texts: the per-file and total counts of active requirements, the tombstones (texts
+  with `status Removed`), each requirement's title, priority and the IDs of its
+  `**Depends on:**` line, and the priority distribution.
+- `Libpetri/Spec/Text/Chapter/Glossary.lean` is `spec/glossary.md`: markdown chunks and one
+  `term "Name" r#"…"#` per entry. A Lean docstring names an entry instead of copying it:
+  `Glossary: *Place* (spec/glossary.md)`.
+- The runtime ledger, `spec/runtime-defects.md`, is typed declarations
+  (`Libpetri/Spec/Ledger.lean`): `runtime_defect RD_NN` (one module per entry under
+  `Libpetri/Spec/Ledger/`), `unbuilt_requirement UB_NN` (`Ledger/Unbuilt.lean`) and
+  `ledger_divergence` (`Ledger/Divergences.lean`), rendered by the generated blocks of
+  `Text/Chapter/Ledger.lean`. Each command checks at build time that every spec ID it names is a
+  requirement text (an unbuilt entry's a `Proposed` one), that every Lean name of a defect's
+  evidence, written `⟪name⟫`, is a declaration (the entry module imports the modules that declare
+  them), that the runtimes are known and that the status is `open`, `fixed, unreleased` or
+  `fixed in <version>`.
 - A requirement block names spans of its text with `covers PERF_030.s1, PERF_030.s2` instead of
   copying them with `quote "…"`. Each reference resolves at build time to the span with its line
   breaks joined into spaces; an unknown text or label is a build error. The resolved strings are
   the block's quotes, so the statement hash, and with it the sign-off, covers the text the block
   names: editing a covered span changes the hash.
 
-After editing a text, run `lake build` and then `lake env lean spec-tools/Render.lean` from
-`lean/`, which rewrites `spec/<chapter>.md` for every chapter declared in Lean; then regenerate
-the report as above. CI renders the chapters and fails when a generated file differs from the
-committed one. `scripts/spec-md-to-lean.py spec/NN-name.md` moves a chapter from markdown into
-Lean (it writes the text modules, wraps the quotes of the chapter's blocks as spans and rewrites
-those blocks to `covers`); it is a one-shot migration tool.
+After editing a text, a chapter, a term or a ledger entry, run `lake build` and then
+`lake env lean spec-tools/Render.lean` from `lean/`, which rewrites every `spec/*.md` declared in
+Lean; then regenerate the report as above. Before it writes, Render checks the whole program:
+every requirement text is listed by exactly one chapter, every `**Depends on:**` ID is a
+requirement text, every `RD-NN` and `UB-NN` a Lean source under `Libpetri/` names is a ledger
+entry, and every `Glossary: *…* (spec/glossary.md)` reference names a term. CI renders and fails
+when a generated file differs from the committed one. `scripts/spec-md-to-lean.py spec/NN-name.md`
+moved the chapters from markdown into Lean (it writes the text modules, wraps the quotes of the
+chapter's blocks as spans and rewrites those blocks to `covers`); it is a one-shot migration tool.
 
 Nothing in `theory/` is edited by this development; the papers are read-only
 reference for the theorem statements.

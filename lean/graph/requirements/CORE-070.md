@@ -21,46 +21,46 @@ flowchart TD
   end
   subgraph g1["Libpetri/Spec/Glossary.lean"]
     n6080["Libpetri.Spec.CountMarking"]
-    n8529["Libpetri.Spec.Marked"]
+    n8622["Libpetri.Spec.Marked"]
   end
   subgraph g2["Libpetri/Spec/GlossaryQueue.lean"]
     n7139["Libpetri.Spec.EmittedTo"]
-    n8530["Libpetri.Spec.MarkingOps"]
-    n8531["Libpetri.Spec.MarkingOps.add"]
-    n8532["Libpetri.Spec.MarkingOps.count"]
-    n8533["Libpetri.Spec.MarkingOps.empty"]
-    n8535["Libpetri.Spec.MarkingOps.ok"]
-    n8537["Libpetri.Spec.MarkingOps.removeFirst"]
-    n8538["Libpetri.Spec.MarkingOps.view"]
-    n8539["Libpetri.Spec.MarkingOps.σ"]
-    n9758["Libpetri.Spec.QueueMarking"]
+    n8623["Libpetri.Spec.MarkingOps"]
+    n8624["Libpetri.Spec.MarkingOps.add"]
+    n8625["Libpetri.Spec.MarkingOps.count"]
+    n8626["Libpetri.Spec.MarkingOps.empty"]
+    n8628["Libpetri.Spec.MarkingOps.ok"]
+    n8630["Libpetri.Spec.MarkingOps.removeFirst"]
+    n8631["Libpetri.Spec.MarkingOps.view"]
+    n8632["Libpetri.Spec.MarkingOps.σ"]
+    n9851["Libpetri.Spec.QueueMarking"]
   end
   subgraph g3["Libpetri/Spec/Req/CORE_070.lean"]
     n5783["Libpetri.Spec.CORE_070"]
     n5784["Libpetri.Spec.CORE_070_adds"]
     n5785["Libpetri.Spec.CORE_070_derivation"]
   end
-  n5783 --> n8529
-  n5783 --> n8531
-  n5783 --> n8532
-  n5783 --> n8533
-  n5783 --> n8535
-  n5783 --> n8537
-  n5783 --> n8538
+  n5783 --> n8622
+  n5783 --> n8624
+  n5783 --> n8625
+  n5783 --> n8626
+  n5783 --> n8628
+  n5783 --> n8630
+  n5783 --> n8631
   n5784 --> n5783
   n5784 --> n7139
   n5785 --> n5784
   n7139 --> n4206
-  n8529 --> n6080
-  n8531 --> n8539
-  n8532 --> n8539
-  n8533 --> n8539
-  n8535 --> n8539
-  n8537 --> n8539
-  n8538 --> n8539
-  n8538 --> n9758
-  n8539 --> n8530
-  n9758 --> n3335
+  n8622 --> n6080
+  n8624 --> n8632
+  n8625 --> n8632
+  n8626 --> n8632
+  n8628 --> n8632
+  n8630 --> n8632
+  n8631 --> n8632
+  n8631 --> n9851
+  n8632 --> n8623
+  n9851 --> n3335
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
@@ -76,41 +76,41 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_070.lean"]
     n5783["Libpetri.Spec.CORE_070"]
     n5811["Libpetri.Spec.CORE_070_ringStore"]
-    n14083["Libpetri.Spec.core070_le_max"]
-    n14088["Libpetri.Spec.core070_onePerPlace"]
-    n14089["Libpetri.Spec.core070_onePerPlace_wf"]
-    n14092["Libpetri.Spec.core070_proj_of_cnt_zero"]
-    n14094["Libpetri.Spec.core070_ringMarking"]
+    n14182["Libpetri.Spec.core070_le_max"]
+    n14187["Libpetri.Spec.core070_onePerPlace"]
+    n14188["Libpetri.Spec.core070_onePerPlace_wf"]
+    n14191["Libpetri.Spec.core070_proj_of_cnt_zero"]
+    n14193["Libpetri.Spec.core070_ringMarking"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
   c91["📁 Libpetri/Reference/Queue.lean (1 declarations, collapsed)"]
   c105["📁 Libpetri/Ring/Core.lean (53 declarations, collapsed)"]
   c106["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
   c108["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c144["📁 Libpetri/Spec/GlossaryQueue.lean (13 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
+  c145["📁 Libpetri/Spec/GlossaryQueue.lean (13 declarations, collapsed)"]
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  c144 --> c91
-  c144 --> c106
-  n5783 --> c132
-  n5783 --> c144
+  c145 --> c91
+  c145 --> c106
+  n5783 --> c133
+  n5783 --> c145
   n5811 --> n5783
-  n5811 --> n14083
-  n5811 --> n14089
-  n5811 --> n14092
-  n5811 --> n14094
-  n14083 --> c0
-  n14088 --> c105
-  n14089 --> n14088
-  n14092 --> c105
-  n14094 --> c144
+  n5811 --> n14182
+  n5811 --> n14188
+  n5811 --> n14191
+  n5811 --> n14193
+  n14182 --> c0
+  n14187 --> c105
+  n14188 --> n14187
+  n14191 --> c105
+  n14193 --> c145
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
   class n5811 root
-  class c0,c91,c105,c106,c108,c132,c144 collapsed
+  class c0,c91,c105,c106,c108,c133,c145 collapsed
 ```
 
 Axioms used:

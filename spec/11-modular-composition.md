@@ -114,6 +114,7 @@ Implementations MAY emit a build-time warning when declared direction conflicts 
 3. A subnet whose `Input` port place is also read internally by transitions is accepted at build.
 4. Where a warning channel exists, an obvious mismatch (declared `Input` with no internal consumer; declared `Output` with no internal producer) MAY emit a warning but MUST NOT raise an error.
 
+**Depends on:** [CORE-030], [CORE-031], [CORE-032], [CORE-033], [CORE-034], [CORE-035]
 **Test derivation:** Build a subnet whose `Output` port place has both an internal output arc (producer) and an internal input arc (consumer); verify build succeeds.
 
 ---
@@ -186,6 +187,7 @@ A terminal place that the body declares ([EXEC-042]) and that no body transition
 2. Error messages name the offending port, channel, place, or transition.
 3. A valid subnet definition is immutable after build.
 
+**Depends on:** [CORE-040], [CORE-041]
 **Test derivation:** Construct invalid subnets covering rejection cases 1 to 4; verify each fails at build with a message naming the offending element. Case 5 has no test: the subnet-definition builder takes only places, transitions, ports and channels, the net builder rejects none of these on its own, and `fromNet` ([MOD-014]) takes a net that is already built.
 
 ---
@@ -365,6 +367,7 @@ An interface holds at most one port and at most one channel of each name in ever
 2. The interface validation rules of [MOD-006] apply.
 3. The resulting subnet definition is unparameterised (its parameter type is the implementation unit/void type).
 
+**Depends on:** [MOD-001], [MOD-006]
 **Test derivation:** Build a `PetriNet` with places `a`, `b`; call `fromNet(net, iface{port: in -> a})`; verify the resulting subnet exposes port `in` over place `a`.
 
 ---

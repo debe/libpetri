@@ -4,7 +4,10 @@
 Inputs (all read-only):
   (a) spec/00-index.md              — canonical active-requirement registry
       (table rows in the "Alphabetical Cross-Reference Index" section;
-      struck-through ~~ID~~ tombstones are excluded).
+      struck-through ~~ID~~ tombstones are excluded). The index is generated
+      from the Lean requirement texts (lean/spec-tools/Render.lean), so its
+      counts are computed, not written by hand; this script checks that its
+      parse agrees with the index's own Total and per-file counts.
   (b) lean/report/proof-coverage.json — theorem -> spec-ID annotations,
       generated from the @[evidence cites "ID" "fragment"] tags on the
       theorems by lean/spec-tools/Report.lean. The attribute already checks
@@ -50,11 +53,6 @@ PROOF_COVERAGE = REPO / "lean" / "report" / "proof-coverage.json"
 REQUIREMENTS = REPO / "lean" / "report" / "requirements.json"
 OUTPUT = REPO / "spec" / "coverage-matrix.md"
 LEAN_DIR = REPO / "lean"
-
-# The canonical active-requirement count. spec/00-index.md is the registry;
-# if the spec gains or loses a requirement, update this constant in the same
-# change — the hard failure is deliberate, so index drift surfaces here.
-EXPECTED_ACTIVE = 224
 
 EXCLUDED_DIR_NAMES = {"target", "node_modules", ".lake", ".venv", "dist"}
 SPEC_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d{3})\b")
@@ -149,18 +147,13 @@ def parse_spec_index(text: str):
 
     # -- consistency checks: the parse must agree with the index's own counts.
     total = sum(len(v) for v in active.values())
-    if total != EXPECTED_ACTIVE:
+    if total != declared_total:
         per = ", ".join(f"{p}={len(v)}" for p, v in sorted(active.items()))
         fail(
-            f"parsed {total} active requirements from {SPEC_INDEX}, expected "
-            f"{EXPECTED_ACTIVE} ({per}; tombstones excluded: {sorted(tombstones)}). "
-            f"If the spec index legitimately changed, update EXPECTED_ACTIVE in "
-            f"scripts/spec-coverage-matrix.py in the same change."
-        )
-    if declared_total != EXPECTED_ACTIVE:
-        fail(
-            f"the Spec Files table in {SPEC_INDEX} declares a total of "
-            f"{declared_total}, expected {EXPECTED_ACTIVE}"
+            f"parsed {total} active requirements from the cross-reference index of "
+            f"{SPEC_INDEX}, but its Spec Files table declares a total of {declared_total} "
+            f"({per}; tombstones excluded: {sorted(tombstones)}). The index is generated: "
+            f"rerun lean/spec-tools/Render.lean."
         )
     for fname, prefix, declared in spec_files:
         got = len(active.get(prefix, []))
@@ -372,7 +365,7 @@ def render(spec_files, active, proven, lean_refs, tests, blocks, kinds) -> str:
     langs = ("java", "typescript", "rust", "python")
     all_ids = [rid for _, prefix, _ in spec_files for rid, _, _ in active[prefix]]
     n = len(all_ids)
-    assert n == EXPECTED_ACTIVE, f"internal error: rendering {n} rows, expected {EXPECTED_ACTIVE}"
+    assert n == sum(len(v) for v in active.values()), f"internal error: rendering {n} rows"
 
     proven_ids = set(proven)
     forms = {rid: lean_form(rid, blocks, proven) for rid in all_ids}
@@ -503,7 +496,7 @@ def main() -> int:
         OUTPUT.write_text(content, encoding="utf-8")
         print(
             f"spec-coverage-matrix: wrote {OUTPUT.relative_to(REPO)} "
-            f"({EXPECTED_ACTIVE} requirements)"
+            f"({len(active_ids)} requirements)"
         )
         return 0
 

@@ -32,4 +32,5 @@ An interface holds at most one port and at most one channel of each name in ever
 2. The interface validation rules of [MOD-006] apply.
 3. The resulting subnet definition is unparameterised (its parameter type is the implementation unit/void type).
 
+**Depends on:** [MOD-001], [MOD-006]
 **Test derivation:** Build a `PetriNet` with places `a`, `b`; call `fromNet(net, iface{port: in -> a})`; verify the resulting subnet exposes port `in` over place `a`."#

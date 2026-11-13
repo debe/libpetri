@@ -16,6 +16,7 @@ import Libpetri.Spec.Text.NU_054
 import Libpetri.Spec.Text.NU_055
 
 spec_chapter "12-nu-nets.md"
+  scope "Token name identity, fresh-name minting (ν-binder/fork), join by name equality, join relay, name alignment, bounded-budget decidability ledger"
   md r#"# 12 — ν-nets: Correlated Fork / Join by Identity
 
 This document specifies **ν-net** capability: tokens carrying an opaque

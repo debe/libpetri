@@ -16,6 +16,7 @@ import Libpetri.Spec.Text.IO_016
 import Libpetri.Spec.Text.IO_017
 
 spec_chapter "02-input-output-specs.md"
+  scope "Input cardinality, composite output routing, validation"
   md r#"# 02 — Input & Output Specifications
 
 This document specifies input cardinality and composite output routing semantics.

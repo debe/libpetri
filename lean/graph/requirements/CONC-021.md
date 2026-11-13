@@ -21,8 +21,8 @@ flowchart TD
     n6057["Libpetri.Spec.ConsumeOut.mk"]
     n6059["Libpetri.Spec.ConsumeOut.store"]
     n6060["Libpetri.Spec.ConsumeProgram"]
-    n13110["Libpetri.Spec.conc021_program"]
-    n20064["Libpetri.Spec.refConsume"]
+    n13209["Libpetri.Spec.conc021_program"]
+    n20163["Libpetri.Spec.refConsume"]
   end
   c0["📁 Libpetri/Basic.lean (14 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (8 declarations, collapsed)"]
@@ -32,7 +32,7 @@ flowchart TD
   c105["📁 Libpetri/Ring/Core.lean (17 declarations, collapsed)"]
   c106["📁 Libpetri/Ring/Grow.lean (3 declarations, collapsed)"]
   c108["📁 Libpetri/RingArith.lean (2 declarations, collapsed)"]
-  c144["📁 Libpetri/Spec/GlossaryQueue.lean (6 declarations, collapsed)"]
+  c145["📁 Libpetri/Spec/GlossaryQueue.lean (6 declarations, collapsed)"]
   c1 --> c0
   c2 --> c1
   c2 --> c3
@@ -40,26 +40,26 @@ flowchart TD
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  c144 --> c91
-  c144 --> c106
+  c145 --> c91
+  c145 --> c106
   n6056 --> c3
   n6056 --> n6055
   n6057 --> c3
   n6057 --> n6055
   n6059 --> n6055
-  n6060 --> c144
+  n6060 --> c145
   n6060 --> n6055
-  n13110 --> n6056
-  n13110 --> n6059
-  n13110 --> n20064
-  n20064 --> c2
-  n20064 --> n6057
-  n20064 --> n6060
+  n13209 --> n6056
+  n13209 --> n6059
+  n13209 --> n20163
+  n20163 --> c2
+  n20163 --> n6057
+  n20163 --> n6060
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13110 root
-  class c0,c1,c2,c3,c91,c105,c106,c108,c144 collapsed
+  class n13209 root
+  class c0,c1,c2,c3,c91,c105,c106,c108,c145 collapsed
 ```
 
 ### `Libpetri.precompiled_refines_bitmap_immediate`
@@ -69,23 +69,23 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Refinement.lean"]
-    n22491["🔒 Libpetri.consume_marking_rel"]
-    n22516["🔒 Libpetri.disable_rel"]
-    n22558["🔒 Libpetri.fireConsume_rel"]
-    n22566["🔒 Libpetri.foldFire_rel"]
-    n22578["🔒 Libpetri.inputs_bag_rel"]
-    n22604["Libpetri.iterate"]
-    n22640["🔒 Libpetri.pcCycle_rel"]
-    n22642["🔒 Libpetri.pcFire_rel"]
-    n22650["🔒 Libpetri.postFire_rel"]
-    n22659["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
-    n22665["🔒 Libpetri.produceMany_rel"]
-    n22668["🔒 Libpetri.produceOne_rel"]
-    n22675["🔒 Libpetri.reads_bag_rel"]
-    n22680["🔒 Libpetri.recheck_rel"]
-    n22710["🔒 Libpetri.specAt_none"]
-    n22711["🔒 Libpetri.specAt_some_mem"]
-    n22752["🔒 Libpetri.updateEnablement_rel"]
+    n22590["🔒 Libpetri.consume_marking_rel"]
+    n22615["🔒 Libpetri.disable_rel"]
+    n22657["🔒 Libpetri.fireConsume_rel"]
+    n22665["🔒 Libpetri.foldFire_rel"]
+    n22677["🔒 Libpetri.inputs_bag_rel"]
+    n22703["Libpetri.iterate"]
+    n22739["🔒 Libpetri.pcCycle_rel"]
+    n22741["🔒 Libpetri.pcFire_rel"]
+    n22749["🔒 Libpetri.postFire_rel"]
+    n22758["🔒 Libpetri.precompiled_refines_bitmap_immediate"]
+    n22764["🔒 Libpetri.produceMany_rel"]
+    n22767["🔒 Libpetri.produceOne_rel"]
+    n22774["🔒 Libpetri.reads_bag_rel"]
+    n22779["🔒 Libpetri.recheck_rel"]
+    n22809["🔒 Libpetri.specAt_none"]
+    n22810["🔒 Libpetri.specAt_some_mem"]
+    n22851["🔒 Libpetri.updateEnablement_rel"]
   end
   c0["📁 Libpetri/Basic.lean (18 declarations, collapsed)"]
   c1["📁 Libpetri/Compile.lean (16 declarations, collapsed)"]
@@ -107,41 +107,41 @@ flowchart TD
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  n22491 --> c101
-  n22491 --> n22710
-  n22491 --> n22711
-  n22516 --> c101
-  n22558 --> n22491
-  n22566 --> n22516
-  n22566 --> n22642
-  n22566 --> n22680
-  n22578 --> c101
-  n22578 --> n22710
-  n22578 --> n22711
-  n22640 --> n22566
-  n22640 --> n22752
-  n22642 --> n22558
-  n22642 --> n22578
-  n22642 --> n22650
-  n22642 --> n22665
-  n22642 --> n22675
-  n22650 --> c101
-  n22659 --> n22604
-  n22659 --> n22640
-  n22665 --> n22668
-  n22668 --> c101
-  n22675 --> c101
-  n22675 --> n22710
-  n22675 --> n22711
-  n22680 --> c100
-  n22710 --> c0
-  n22711 --> c0
-  n22752 --> c100
+  n22590 --> c101
+  n22590 --> n22809
+  n22590 --> n22810
+  n22615 --> c101
+  n22657 --> n22590
+  n22665 --> n22615
+  n22665 --> n22741
+  n22665 --> n22779
+  n22677 --> c101
+  n22677 --> n22809
+  n22677 --> n22810
+  n22739 --> n22665
+  n22739 --> n22851
+  n22741 --> n22657
+  n22741 --> n22677
+  n22741 --> n22749
+  n22741 --> n22764
+  n22741 --> n22774
+  n22749 --> c101
+  n22758 --> n22703
+  n22758 --> n22739
+  n22764 --> n22767
+  n22767 --> c101
+  n22774 --> c101
+  n22774 --> n22809
+  n22774 --> n22810
+  n22779 --> c100
+  n22809 --> c0
+  n22810 --> c0
+  n22851 --> c100
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22659 root
-  class n22491,n22516,n22558,n22566,n22578,n22640,n22642,n22650,n22659,n22665,n22668,n22675,n22680,n22710,n22711,n22752 locked
+  class n22758 root
+  class n22590,n22615,n22657,n22665,n22677,n22739,n22741,n22749,n22758,n22764,n22767,n22774,n22779,n22809,n22810,n22851 locked
   class c0,c1,c2,c3,c4,c100,c101,c105,c106,c108 collapsed
 ```
 

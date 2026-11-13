@@ -24,6 +24,7 @@ import Libpetri.Spec.Text.VER_021
 import Libpetri.Spec.Text.VER_022
 
 spec_chapter "07-verification.md"
+  scope "SMT/IC3, total budget, state-equation phase, firing bound, bounded witness phase, state class graph, stubborn-set reduction, timed counterexample check, structural analysis, open-net contracts"
   md r#"# 07 — Verification
 
 This document specifies formal verification capabilities: SMT/IC3 safety proofs, state class graph analysis, and structural analysis.

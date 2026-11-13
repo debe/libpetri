@@ -9,7 +9,8 @@ set_option linter.missingDocs true
 # Glossary: ν-net terms (match specification, chosen name, correlated take)
 
 The executor-side terms of the ν requirements ([NU-020], [NU-021], [NU-022], [NU-054]) on queue
-markings. Each glossary term quotes its entry in section "ν-nets" of `spec/glossary.md`.
+markings. Each glossary term refers to its glossary entry by name, `Glossary: *Place* (spec/glossary.md)`, rather than copying it
+(section "ν-nets").
 
 * **Tokens and names.** A ν token is `Stamped V`: a value and its `createdAt` stamp ([CORE-011]).
   A key projection is partial (`KeyFn V Nm := V → Option Nm`, ruling D37 (a)): a token whose key
@@ -54,14 +55,10 @@ structure Stamped (V : Type) where
   stamp : Int
   deriving DecidableEq, Repr
 
-/-- **Glossary: Key projection.** "The function a match specification gives a correlated input:
-from a token's value to a name, or to no name. A token whose key yields no name has no name on
-that input: it is never matched and never consumed by that input [NU-020]." -/
+/-- Glossary: *Key projection* (spec/glossary.md). -/
 abbrev KeyFn (V Nm : Type) := V → Option Nm
 
-/-- **Glossary: Match specification.** "What a transition may declare to join by name: a list of
-its input places, each with a key projection, and optionally relay targets, each an output place
-with a key projection [NU-020], [NU-054]. A transition with one is a matched transition."
+/-- Glossary: *Match specification* (spec/glossary.md).
 
 The key type `K` is abstract (`KeyFn V Nm` at firing), so a rewrite that maps places maps the
 `N` component of keys and relays and keeps `K`. -/
@@ -185,10 +182,7 @@ variable [LinearOrder Nm]
 /-- The selection key: the earliest stamp of the name, then the name order ([NU-001]). -/
 def selKey (I : MatchIn Nm) (n : Nm) : Lex (WithTop Int × Nm) := toLex (oldest I n, n)
 
-/-- **Glossary: Chosen name.** "The name a firing of a matched transition joins on: among the
-names of which every correlated input holds at least its required count of tokens, the one
-whose earliest `createdAt` among all tokens of the name in the correlated inputs is earliest,
-ties broken by the name order [NU-020], [NU-022]."
+/-- Glossary: *Chosen name* (spec/glossary.md).
 
 `Selected I n`: `n` is eligible and least by `selKey` among the eligible names. At most one name
 is `Selected` (`selected_unique`). -/
@@ -284,10 +278,7 @@ def matchIn [DecidableEq N] (ms : MatchSpec N (KeyFn V Nm)) (t : NuTrans N (KeyF
 section Fire
 variable [DecidableEq N] [DecidableEq Nm]
 
-/-- **Glossary: Correlated take.** "The tokens a firing takes from a correlated input: the first
-tokens of the chosen name in queue order, as many as the consumption count of the input arc with
-`available` the number of tokens of the chosen name [IO-007], [NU-020]. Tokens of other names stay
-in the place, in their order."
+/-- Glossary: *Correlated take* (spec/glossary.md).
 
 `corrTake ms t M n p`: how many tokens the firing takes from `p` for the chosen name `n`: on a
 correlated input, the consumption count over the tokens of `n` (0 without an input arc); on any
@@ -328,9 +319,7 @@ def nuDelivered (ms : MatchSpec N (KeyFn V Nm)) (t : NuTrans N (KeyFn V Nm))
     (M : QMarking N (Stamped V)) (n : Nm) : QDelivered N (Stamped V) :=
   ⟨nuInputs ms t M n, qReadsBag (nuPost ms t M n) t.base.core.reads⟩
 
-/-- **Glossary: Relay target.** "An output place a match specification declares for its
-transition, with a key projection: every token the firing deposits there must project to the
-chosen name [NU-054]."
+/-- Glossary: *Relay target* (spec/glossary.md).
 
 `RelayOk ms n e`: every token the emission `e` puts on a relay target projects to `n` under that
 target's projection. -/

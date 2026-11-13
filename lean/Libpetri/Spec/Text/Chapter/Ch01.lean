@@ -37,6 +37,7 @@ import Libpetri.Spec.Text.CORE_072
 import Libpetri.Spec.Text.CORE_073
 
 spec_chapter "01-core-model.md"
+  scope "Places, tokens, transitions, arcs, dead-arc warning, net construction, actions, context, marking"
   md r#"# 01 — Core Model
 
 This document specifies the foundational model of the CTPN engine: places, tokens, transitions, arcs, net construction, actions, and context.

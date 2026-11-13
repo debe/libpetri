@@ -14,6 +14,7 @@ import Libpetri.Spec.Text.ENV_015
 import Libpetri.Spec.Text.ENV_016
 
 spec_chapter "06-environment-places.md"
+  scope "External event injection, implicit long-running behavior, executor lifecycle"
   md r#"# 06 — Environment Places
 
 This document specifies external event injection via environment places, implicit long-running behavior, and executor lifecycle (drain/close).

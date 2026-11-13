@@ -3,19 +3,23 @@ import Lean
 # The spec text
 
 This module is tooling, not specification. It holds the text of the spec (`spec/*.md` is generated
-from it) and gives the spec modules three commands:
+from it) and gives the spec modules two commands:
 
 * `requirement_text`, the text of one requirement: its ID, title, priority, kind, status and its
   body, the requirement's raw markdown. Normative spans of the body are marked `⟦s1|…⟧`, so that
   a `requirement` block can name them (`covers PERF_030.s1`) instead of copying them;
 * `spec_chapter`, one generated markdown file: an ordered list of raw markdown chunks
-  (`md r#"…"#`) and requirement texts (`req PERF_001`);
-* `#render_spec "dir"`, which writes every chapter into `dir` (`lean/spec-tools/Render.lean`).
+  (`md r#"…"#`), requirement texts (`req PERF_001`), glossary terms (`term "Place" r#"…"#`) and
+  generated blocks (`table files`), with an optional `scope` that the index lists it with.
+
+`#render_spec "dir"` (`Libpetri.Spec.Generate`) writes every chapter into `dir`.
 
 A chapter renders as its items joined by a blank line: a chunk is its text and a line break; a
 requirement is its `#### ID: Title` heading, a blank line, its `**Priority:**`, `**Kind:**` and
 `**Status:**` lines (those it has), a blank line, then its body with the markers removed and a
-line break. The first line of every generated file is a banner naming the Lean source.
+line break; a term is its `### Term` heading, a blank line, its text and a line break; a
+generated block is what `Libpetri.Spec.Generate` computes for it. The first line of every
+generated file is a banner naming the Lean source.
 
 It imports only Lean core, so that a text module builds fast and light.
 -/
@@ -84,12 +88,19 @@ inductive Item where
   | md (text : String)
   /-- The text of a requirement, by its key. -/
   | req (key : Name)
+  /-- A glossary term: its name, as the `### Term` heading shows it, and its text. -/
+  | term (title body : String)
+  /-- A block computed from the other declarations (`tableKinds`), e.g. `files`. -/
+  | table (kind : String)
   deriving Inhabited
 
 /-- One generated markdown file. -/
 structure Chapter where
   /-- The file name under `spec/`, e.g. `10-performance.md`. -/
   file : String
+  /-- What the index's Spec Files table says the chapter covers; empty for a chapter that the
+  table does not list (the index, the glossary, the ledger). -/
+  scope : String
   /-- The items, in order. -/
   items : Array Item
   /-- The module the chapter is declared in. -/
@@ -183,6 +194,39 @@ def joinLines (s : String) : String := Id.run do
       out := out.push c
   return out
 
+/-- The spec IDs cited as `[ID]` in `s`, in order, each once. -/
+def bracketIds (s : String) : Array String := Id.run do
+  let mut out : Array String := #[]
+  for part in (s.splitOn "[").drop 1 do
+    let id := (part.splitOn "]").headD ""
+    if isSpecId id && !out.contains id && part.contains ']' then out := out.push id
+  return out
+
+/-- The requirements a body depends on: every `[ID]` of its `**Depends on:**` line and the lines
+that continue it up to the next blank line or the next `**Label:**` line, in order, each once.
+It is read from the body's markdown, so the dependency is written once, in the body; the index's
+Depends On column is computed from it. -/
+def dependsOn (plain : String) : Array String := Id.run do
+  let mut on := false
+  let mut out : Array String := #[]
+  for line in plain.splitOn "\n" do
+    if line.startsWith "**Depends on:**" then
+      on := true
+    else if line.trimAscii.toString.isEmpty || line.startsWith "**" then
+      on := false
+    if on then
+      for id in bracketIds line do
+        unless out.contains id do out := out.push id
+  return out
+
+/-- The kinds of generated block a chapter may hold (`table KIND`): the index's `files` (Spec Files
+table), `tombstones` (the removed requirements), `crossref` (the cross-reference index) and
+`priorities` (the priority distribution); the ledger's `unbuilt` and `defects` entries,
+`defectTable` (its summary table) and `divergences` (its divergence table). -/
+def tableKinds : List String :=
+  ["files", "tombstones", "crossref", "priorities", "unbuilt", "defectTable", "defects",
+    "divergences"]
+
 /-- The requirement text declared as `key`, if any module of the environment declares it. -/
 def findText? (env : Environment) (key : Name) : Option TextEntry :=
   (textExt.getState env).find? (·.key == key)
@@ -267,10 +311,17 @@ syntax chapterMd := &"md" str
 /-- A requirement text of a chapter, by its name. -/
 syntax chapterReq := &"req" ident
 
+/-- A glossary term of a chapter: its name, then its text. -/
+syntax chapterTerm := &"term" str str
+
+/-- A generated block of a chapter, by its kind (`tableKinds`). -/
+syntax chapterTable := &"table" ident
+
 /-- The `spec_chapter` command: one generated markdown file under `spec/`.
 
 ```
 spec_chapter "10-performance.md"
+  scope "Scaling, benchmarks, memory efficiency, flat-array executor performance"
   md r#"# 10 — Performance
 
 …
@@ -282,25 +333,52 @@ spec_chapter "10-performance.md"
 ```
 
 The items render in order, separated by a blank line: a chunk as its text, a requirement as its
-heading, its priority, kind and status lines and its body (see the module docstring). A chunk
-holds no leading or trailing line break of its own unless the markdown has more than one blank
-line there. Every requirement text it names must be imported. -/
-syntax (name := specChapterCmd) "spec_chapter " str (chapterMd <|> chapterReq)* : command
+heading, its priority, kind and status lines and its body (see the module docstring), a term
+(`term "Place" r#"A named container …"#`) as its `### Place` heading and its text, and a
+generated block (`table crossref`) as `Libpetri.Spec.Generate` computes it. A chunk holds no
+leading or trailing line break of its own unless the markdown has more than one blank line there.
+Every requirement text it names must be imported. A chapter with a `scope` is a row of the
+index's Spec Files table: its requirements share one prefix, and its first chunk starts with its
+`# NN — Title` heading, which names the prefix's section of the cross-reference index. -/
+syntax (name := specChapterCmd) "spec_chapter " str (&"scope" str)?
+  (chapterMd <|> chapterReq <|> chapterTerm <|> chapterTable)* : command
 
 @[command_elab specChapterCmd, inherit_doc specChapterCmd]
 def elabSpecChapter : CommandElab := fun stx => do
   let file := (stx[1].isStrLit?).getD ""
+  let scope := if stx[2].getNumArgs == 2 then (stx[2][1].isStrLit?).getD "" else ""
   let fail {α : Type} (msg : String) : CommandElabM α :=
     throwErrorAt stx[1] m!"spec_chapter {repr file}: {msg}"
   unless file.endsWith ".md" && !file.contains '/' && !blank file do
     fail "the file must be a markdown file name under spec/, e.g. 10-performance.md"
+  if stx[2].getNumArgs == 2 && blank scope then fail "empty scope"
   let env ← getEnv
   if (chapterExt.getState env).any (·.file == file) then fail "the chapter is declared twice"
   let mut items : Array Item := #[]
   let mut seen : Array Name := #[]
-  for it in stx[2].getArgs do
+  let mut terms : Array String := #[]
+  for it in stx[3].getArgs do
     if it.getKind == ``chapterMd then
       items := items.push (.md ((it[1].isStrLit?).getD ""))
+    else if it.getKind == ``chapterTerm then
+      let title := (it[1].isStrLit?).getD ""
+      let body := (it[2].isStrLit?).getD ""
+      if blank title || title.contains '\n' || title.contains '*' then
+        throwErrorAt it[1] m!"spec_chapter {repr file}: a term's name is one line of text"
+      if blank body then
+        throwErrorAt it[2] m!"spec_chapter {repr file}: the term {title} has no text"
+      if terms.contains title then
+        throwErrorAt it[1] m!"spec_chapter {repr file}: the term {title} is listed twice"
+      terms := terms.push title
+      items := items.push (.term title body)
+    else if it.getKind == ``chapterTable then
+      let kind := it[1].getId.toString
+      unless tableKinds.contains kind do
+        throwErrorAt it[1] m!"spec_chapter {repr file}: no generated block {kind}; the kinds \
+          are {tableKinds}"
+      if items.any (fun | .table k => k == kind | _ => false) then
+        throwErrorAt it[1] m!"spec_chapter {repr file}: the block {kind} is listed twice"
+      items := items.push (.table kind)
     else
       let key := it[1].getId
       if (findText? env key).isNone then
@@ -311,7 +389,7 @@ def elabSpecChapter : CommandElab := fun stx => do
       seen := seen.push key
       items := items.push (.req key)
   if items.isEmpty then fail "the chapter has no items"
-  modifyEnv (chapterExt.addEntry · { file, items, module := env.mainModule })
+  modifyEnv (chapterExt.addEntry · { file, scope, items, module := env.mainModule })
 
 /-! ## Rendering -/
 
@@ -326,43 +404,13 @@ def TextEntry.render (e : TextEntry) : String :=
 def moduleSource (m : Name) : String :=
   "lean/" ++ "/".intercalate (m.components.map toString) ++ ".lean"
 
-/-- The first line of a generated file. -/
-def banner (c : Chapter) : String :=
-  s!"<!-- Generated from {moduleSource c.module} and the requirement texts it lists, by \
-    lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run \
-    `lake env lean spec-tools/Render.lean` from lean/. -->"
+/-- The requirement texts a chapter lists, in order. -/
+def Chapter.texts (env : Environment) (c : Chapter) : Array TextEntry :=
+  c.items.filterMap fun | .req k => findText? env k | _ => none
 
-/-- The markdown of a chapter, banner first. -/
-def Chapter.render (env : Environment) (c : Chapter) : String :=
-  let item : Item → String
-    | .md s => s ++ "\n"
-    | .req k => match findText? env k with
-      | some e => e.render
-      | none => ""
-  banner c ++ "\n" ++ "\n".intercalate (c.items.toList.map item)
-
-/-- `#render_spec "dir"` writes every chapter into `dir` (`dir/<file>`), after checking the whole
-program: every requirement text is listed by exactly one chapter. -/
-syntax (name := renderSpecCmd) "#render_spec " str : command
-
-@[command_elab renderSpecCmd, inherit_doc renderSpecCmd]
-def elabRenderSpec : CommandElab := fun stx => do
-  let env ← getEnv
-  let chapters := (chapterExt.getState env).qsort (·.file < ·.file)
-  let texts := textExt.getState env
-  let mut bad : Array String := #[]
-  for e in texts do
-    let n := (chapters.filter fun c => c.items.any fun | .req k => k == e.key | _ => false).size
-    if n != 1 then
-      bad := bad.push s!"the text {e.key} ({moduleSource e.module}) is listed by {n} chapters, \
-        not 1"
-  unless bad.isEmpty do
-    throwError m!"#render_spec:\n{"\n".intercalate bad.toList}"
-  let dir : System.FilePath := (stx[1].isStrLit?).getD ""
-  IO.FS.createDirAll dir
-  for c in chapters do
-    IO.FS.writeFile (dir / c.file) (c.render env)
-  logInfo m!"rendered {chapters.size} chapters ({texts.size} requirement texts) into {dir}"
+/-- The glossary terms of a chapter, in order, as (name, text). -/
+def Chapter.terms (c : Chapter) : Array (String × String) :=
+  c.items.filterMap fun | .term t b => some (t, b) | _ => none
 
 end Text
 

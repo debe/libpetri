@@ -16,17 +16,17 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_014.lean"]
-    n10326["Libpetri.Spec.TIME_014_twoReadings"]
-    n21156["Libpetri.Spec.time014_cAC"]
-    n21161["Libpetri.Spec.time014_cfg"]
-    n21183["Libpetri.Spec.time014_m0"]
-    n21189["Libpetri.Spec.time014_orderNames"]
-    n21200["Libpetri.Spec.time014_run"]
-    n21203["Libpetri.Spec.time014_scene"]
-    n21204["Libpetri.Spec.time014_scene_check"]
-    n21207["Libpetri.Spec.time014_tr"]
-    n21208["Libpetri.Spec.time014_trace"]
-    n21209["Libpetri.Spec.time014_trace_run"]
+    n10419["Libpetri.Spec.TIME_014_twoReadings"]
+    n21255["Libpetri.Spec.time014_cAC"]
+    n21260["Libpetri.Spec.time014_cfg"]
+    n21282["Libpetri.Spec.time014_m0"]
+    n21288["Libpetri.Spec.time014_orderNames"]
+    n21299["Libpetri.Spec.time014_run"]
+    n21302["Libpetri.Spec.time014_scene"]
+    n21303["Libpetri.Spec.time014_scene_check"]
+    n21306["Libpetri.Spec.time014_tr"]
+    n21307["Libpetri.Spec.time014_trace"]
+    n21308["Libpetri.Spec.time014_trace_run"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -37,47 +37,47 @@ flowchart TD
   c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/GlossaryExec.lean (157 declarations, collapsed)"]
-  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
+  c140["📁 Libpetri/Spec/GlossaryExec.lean (157 declarations, collapsed)"]
+  c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
-  c80 --> c139
+  c80 --> c140
   c91 --> c94
   c94 --> c54
   c98 --> c66
   c98 --> c94
   c103 --> c109
-  c132 --> c94
-  c139 --> c91
-  c139 --> c232
-  c146 --> c98
-  c146 --> c132
-  c232 --> c103
-  c232 --> c146
-  n10326 --> c80
-  n10326 --> n21156
-  n10326 --> n21183
-  n10326 --> n21189
-  n10326 --> n21204
-  n21156 --> n21161
-  n21156 --> n21207
-  n21161 --> c139
-  n21183 --> c91
-  n21189 --> c139
-  n21200 --> c139
-  n21203 --> n21200
-  n21203 --> n21208
-  n21204 --> n21203
-  n21204 --> n21209
-  n21207 --> c94
-  n21208 --> c139
-  n21209 --> n21208
+  c133 --> c94
+  c140 --> c91
+  c140 --> c234
+  c147 --> c98
+  c147 --> c133
+  c234 --> c103
+  c234 --> c147
+  n10419 --> c80
+  n10419 --> n21255
+  n10419 --> n21282
+  n10419 --> n21288
+  n10419 --> n21303
+  n21255 --> n21260
+  n21255 --> n21306
+  n21260 --> c140
+  n21282 --> c91
+  n21288 --> c140
+  n21299 --> c140
+  n21302 --> n21299
+  n21302 --> n21307
+  n21303 --> n21302
+  n21303 --> n21308
+  n21306 --> c94
+  n21307 --> c140
+  n21308 --> n21307
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n10326 root
-  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c132,c139,c146,c232 collapsed
+  class n10419 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c133,c140,c147,c234 collapsed
 ```
 
 ### `Libpetri.Spec.time010_gate`
@@ -87,7 +87,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_010.lean"]
-    n20979["Libpetri.Spec.time010_gate"]
+    n21078["Libpetri.Spec.time010_gate"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -95,22 +95,22 @@ flowchart TD
   c66["📁 Libpetri/Novel/TimedScg/Timing.lean (10 declarations, collapsed)"]
   c94["📁 Libpetri/Reference/Semantics.lean (18 declarations, collapsed)"]
   c98["📁 Libpetri/Reference/Timed.lean (34 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c146["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
+  c147["📁 Libpetri/Spec/GlossaryTime.lean (4 declarations, collapsed)"]
   c54 --> c0
   c94 --> c28
   c94 --> c54
   c98 --> c66
   c98 --> c94
-  c132 --> c94
-  c146 --> c98
-  c146 --> c132
-  n20979 --> c146
+  c133 --> c94
+  c147 --> c98
+  c147 --> c133
+  n21078 --> c147
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20979 root
-  class c0,c28,c54,c66,c94,c98,c132,c146 collapsed
+  class n21078 root
+  class c0,c28,c54,c66,c94,c98,c133,c147 collapsed
 ```
 
 Axioms used:

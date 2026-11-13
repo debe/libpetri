@@ -40,9 +40,7 @@ open Libpetri Libpetri.Reference
 
 /-! ## The word layer -/
 
-/-- **Glossary: Word** (no other Lean term). "A machine word of a bitmap: it holds the bits of a
-run of consecutive place indices. A bitmap is a sequence of words, and a word past the end of a
-bitmap reads as zero [CONC-004], [PERF-042]."
+/-- Glossary: *Word* (spec/glossary.md); no other Lean term.
 
 A bitmap as a list of words, each a natural number; `FitsIn` bounds them by a word size. -/
 abbrev Words := List Nat

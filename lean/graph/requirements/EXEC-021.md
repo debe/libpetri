@@ -14,9 +14,9 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
     n5955["Libpetri.Spec.ClashExec.some_of_map"]
-    n10432["Libpetri.Spec.TimeoutValidated"]
-    n12563["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
-    n21263["Libpetri.Spec.timeoutRejected"]
+    n10531["Libpetri.Spec.TimeoutValidated"]
+    n12662["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
+    n21362["Libpetri.Spec.timeoutRejected"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -28,41 +28,41 @@ flowchart TD
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
   c131["📁 Libpetri/Spec/Ears.lean (1 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (9 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
-  c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
-  c238["📁 Libpetri/Spec/Req/EXEC_021.lean (11 declarations, collapsed)"]
-  c271["📁 Libpetri/Spec/Req/IO_015.lean (24 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (9 declarations, collapsed)"]
+  c140["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
+  c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
+  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c240["📁 Libpetri/Spec/Req/EXEC_021.lean (11 declarations, collapsed)"]
+  c273["📁 Libpetri/Spec/Req/IO_015.lean (24 declarations, collapsed)"]
   c54 --> c0
-  c80 --> c139
+  c80 --> c140
   c91 --> c94
   c94 --> c54
   c98 --> c66
   c98 --> c94
   c103 --> c109
-  c132 --> c94
-  c139 --> c91
-  c139 --> c232
-  c139 --> c271
-  c146 --> c98
-  c146 --> c132
-  c232 --> c103
-  c232 --> c146
-  c238 --> c80
-  c238 --> c131
-  c271 --> c132
-  n5955 --> c139
-  n10432 --> n21263
-  n12563 --> c238
-  n12563 --> n5955
-  n12563 --> n10432
-  n21263 --> c139
+  c133 --> c94
+  c140 --> c91
+  c140 --> c234
+  c140 --> c273
+  c147 --> c98
+  c147 --> c133
+  c234 --> c103
+  c234 --> c147
+  c240 --> c80
+  c240 --> c131
+  c273 --> c133
+  n5955 --> c140
+  n10531 --> n21362
+  n12662 --> c240
+  n12662 --> n5955
+  n12662 --> n10531
+  n21362 --> c140
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12563 root
-  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232,c238,c271 collapsed
+  class n12662 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c133,c140,c147,c234,c240,c273 collapsed
 ```
 
 Axioms used:

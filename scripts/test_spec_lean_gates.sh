@@ -268,6 +268,18 @@ expect_caught "covers an unknown span label  -> requirement command" 'lake env l
   'sed -i "s/covers PERF_030.s1, /covers PERF_030.s9, /" Libpetri/Spec/Req/PERF_030.lean' \
   "requirement Libpetri.Spec.PERF_030: covers PERF_030.s9: the text of PERF-030 has no span labelled s9"
 
+# 15d. A Lean source cites a runtime-ledger entry that does not exist. Render checks every RD-NN
+#      and UB-NN under Libpetri/ against the ledger declarations (lean/Libpetri/Spec/Ledger/)
+#      before it writes anything.
+expect_caught "RD-99 cited in Lean           -> render ledger check" 'lake env lean spec-tools/Render.lean' \
+  "plant_core '-- planted: the executor still breaks this (RD-99).'" \
+  "lean/Libpetri/Spec/Core.lean cites RD-99, which is not a defect of the runtime ledger"
+
+# 15e. A docstring refers to a glossary term that spec/glossary.md does not define.
+expect_caught "unknown glossary reference    -> render glossary check" 'lake env lean spec-tools/Render.lean' \
+  "plant_core '-- planted: Glossary: *Planted term* (spec/glossary.md).'" \
+  "lean/Libpetri/Spec/Core.lean refers to the glossary term *Planted term*"
+
 # ---- line-number citations -----------------------------------------------------------------
 
 # A line-number citation in Lean prose and one in the spec: the no-line-hints lint must reject

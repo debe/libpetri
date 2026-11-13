@@ -18,6 +18,7 @@ import Libpetri.Spec.Text.EXP_017
 import Libpetri.Spec.Text.EXP_018
 
 spec_chapter "09-export.md"
+  scope "Graph export, formal interchange"
   md r#"# 09 — Export
 
 This document specifies graph export formats for visualization and formal analysis interchange.

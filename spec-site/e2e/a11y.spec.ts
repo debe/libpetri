@@ -35,6 +35,9 @@ for (const scheme of ['light', 'dark'] as const) {
 
     for (const [name, hash] of VIEWS) {
       test(`axe: ${name}`, async ({ page }) => {
+        // One axe scan of the conformance table (about 6,600 nodes) takes 17 to 20 s on an
+        // idle machine, too close to the 30 s default to survive a loaded one.
+        if (name === 'conformance') test.slow();
         const errors: string[] = [];
         await openRoute(page, hash, errors);
         expect(await seriousViolations(page)).toEqual([]);

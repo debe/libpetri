@@ -39,4 +39,5 @@ A terminal place that the body declares ([EXEC-042]) and that no body transition
 2. Error messages name the offending port, channel, place, or transition.
 3. A valid subnet definition is immutable after build.
 
+**Depends on:** [CORE-040], [CORE-041]
 **Test derivation:** Construct invalid subnets covering rejection cases 1 to 4; verify each fails at build with a message naming the offending element. Case 5 has no test: the subnet-definition builder takes only places, transitions, ports and channels, the net builder rejects none of these on its own, and `fromNet` ([MOD-014]) takes a net that is already built."#

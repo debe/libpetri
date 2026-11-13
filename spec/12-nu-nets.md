@@ -63,6 +63,7 @@ Identity is a **projection of the token payload**, not a field on the token: a
    renamed chosen name the chosen name of the renamed join, does not change which
    tokens the join consumes or the marking it leaves.
 
+**Depends on:** [CORE-010]
 **Test derivation:** Construct `NameId("a")` twice; verify equal. Verify
 `NameId("a") < NameId("b")`. Verify a net with no match spec emits identical
 token events with and without the ν-net APIs linked. Run a two-branch join on a

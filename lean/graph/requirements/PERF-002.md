@@ -31,27 +31,27 @@ flowchart TD
   end
   subgraph g3["Libpetri/Spec/Glossary.lean"]
     n6080["Libpetri.Spec.CountMarking"]
-    n7963["Libpetri.Spec.InhibitorArc"]
-    n8529["Libpetri.Spec.Marked"]
-    n9804["Libpetri.Spec.ReadArc"]
-    n17061["Libpetri.Spec.inPlaces"]
-    n17214["Libpetri.Spec.instDecidableMarked"]
-    n20501["Libpetri.Spec.requiredCount"]
+    n7999["Libpetri.Spec.InhibitorArc"]
+    n8622["Libpetri.Spec.Marked"]
+    n9897["Libpetri.Spec.ReadArc"]
+    n17160["Libpetri.Spec.inPlaces"]
+    n17313["Libpetri.Spec.instDecidableMarked"]
+    n20600["Libpetri.Spec.requiredCount"]
   end
   subgraph g4["Libpetri/Spec/GlossaryEnable.lean"]
     n7146["Libpetri.Spec.EnableCheck"]
     n7149["Libpetri.Spec.EnableCheck.mk"]
     n7150["Libpetri.Spec.EnableCheck.presence"]
-    n7964["Libpetri.Spec.InhibitorMask"]
-    n8540["Libpetri.Spec.MaskCheck"]
-    n9204["Libpetri.Spec.NeedsMask"]
-    n19923["Libpetri.Spec.presenceOf"]
+    n8000["Libpetri.Spec.InhibitorMask"]
+    n8633["Libpetri.Spec.MaskCheck"]
+    n9297["Libpetri.Spec.NeedsMask"]
+    n20022["Libpetri.Spec.presenceOf"]
   end
   subgraph g5["Libpetri/Spec/Req/CONC_004.lean"]
     n5081["Libpetri.Spec.CONC_004"]
     n5090["Libpetri.Spec.CONC_004_reference"]
-    n20119["Libpetri.Spec.refEnableCheck"]
-    n20123["Libpetri.Spec.refEnableCheck_presence"]
+    n20218["Libpetri.Spec.refEnableCheck"]
+    n20222["Libpetri.Spec.refEnableCheck_presence"]
   end
   n9 --> n8
   n10 --> n8
@@ -71,40 +71,40 @@ flowchart TD
   n3455 --> n1955
   n3455 --> n3454
   n5081 --> n7150
-  n5081 --> n8540
+  n5081 --> n8633
   n5090 --> n5081
-  n5090 --> n20123
+  n5090 --> n20222
   n7149 --> n3454
   n7149 --> n6080
   n7149 --> n7146
   n7150 --> n3454
   n7150 --> n7146
-  n7963 --> n1956
-  n7963 --> n3455
-  n7964 --> n7963
-  n8529 --> n6080
-  n8540 --> n7964
-  n8540 --> n9204
-  n9204 --> n9804
-  n9204 --> n17061
-  n9804 --> n1960
-  n9804 --> n3455
-  n17061 --> n1939
-  n17061 --> n1957
-  n17061 --> n3455
-  n17214 --> n8529
-  n19923 --> n17214
-  n20119 --> n1937
-  n20119 --> n1956
-  n20119 --> n1960
-  n20119 --> n7149
-  n20119 --> n17061
-  n20119 --> n19923
-  n20119 --> n20501
-  n20123 --> n7150
-  n20123 --> n8540
-  n20123 --> n20119
-  n20501 --> n14
+  n7999 --> n1956
+  n7999 --> n3455
+  n8000 --> n7999
+  n8622 --> n6080
+  n8633 --> n8000
+  n8633 --> n9297
+  n9297 --> n9897
+  n9297 --> n17160
+  n9897 --> n1960
+  n9897 --> n3455
+  n17160 --> n1939
+  n17160 --> n1957
+  n17160 --> n3455
+  n17313 --> n8622
+  n20022 --> n17313
+  n20218 --> n1937
+  n20218 --> n1956
+  n20218 --> n1960
+  n20218 --> n7149
+  n20218 --> n17160
+  n20218 --> n20022
+  n20218 --> n20600
+  n20222 --> n7150
+  n20222 --> n8633
+  n20222 --> n20218
+  n20600 --> n14
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

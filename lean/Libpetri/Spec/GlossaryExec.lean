@@ -529,13 +529,7 @@ def restB (C : Cfg N T) (s : XSt N T) : Bool :=
 
 /-! ## Glossary terms -/
 
-/-- **Glossary: Admitted completion.** "A completion is an action that returned normally
-[EXEC-020]. The executor admits it when it processes it, in step 1 of a cycle or, for a
-synchronous action, inside the firing pass [EXEC-001]. It never admits the completion of a
-firing that ended with its timeout outcome [EXEC-022], that a stop on a terminal place abandoned
-[EXEC-042] or that an immediate termination abandoned [ENV-015]. Only an admitted completion
-deposits, and only when output validation, if enabled [CONC-026], does not reject its produced
-set [EXEC-020], [EXEC-021]."
+/-- Glossary: *Admitted completion* (spec/glossary.md).
 
 Firing `i` (record `f`) returned normally with emission `e`, and state `s` may settle it: the
 loop runs, no terminal place is marked, its outcome is queued and the phase allows it. The
@@ -639,16 +633,12 @@ def nothingDue [DecidableEq N] (C : Cfg N T) (s : XSt N T) : Bool :=
 
 /-! ## Glossary terms of the executor state -/
 
-/-- **Glossary: Armed**, in the executor state. "A transition is armed when it is enabled and
-holds a clock: a stamp, the firing-clock reading taken by the enablement update that most
-recently newly armed it [TIME-010]."
+/-- Glossary: *Armed* (spec/glossary.md), in the executor state.
 
 `u` is enabled at the marking and its name holds an armed status. -/
 def ArmedE (s : XSt N T) (u : Trans N) : Prop := armedB s u = true
 
-/-- **Glossary: Reaped**, in the executor state. "A reaped transition keeps its tokens and stays
-enabled but not armed, and does not fire, until a firing or an injected token writes one of its
-arc places; it is then newly armed if it is enabled [TIME-013]."
+/-- Glossary: *Reaped* (spec/glossary.md), in the executor state.
 
 `u`'s name holds the reaped status (the write that ends it is `unreap`, ruling D6). -/
 def ReapedE (s : XSt N T) (u : Trans N) : Prop := s.st u.core.name = .reaped
@@ -714,9 +704,7 @@ def startOrDeposit : XLbl N T → Bool
   | .start _ _ | .commit _ | .tdeposit _ | .publish _ | .inject _ => true
   | _ => false
 
-/-- **Glossary: Write**, at the grain of the executor. "A firing writes a place when it consumes
-from it, deposits into it or drains it through a reset arc. Draining a reset place that is already
-empty counts as a write. An injected token writes the place it lands in [ENV-003]."
+/-- Glossary: *Write* (spec/glossary.md), at the grain of the executor.
 
 The places a step labelled `l` from state `s` writes: a start consumes from the input places and
 drains the reset places of the head of the pass's order; a commit or a timeout deposit deposits the

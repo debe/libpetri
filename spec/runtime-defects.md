@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ledger.lean and the ledger entries of lean/Libpetri/Spec/Ledger/, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # Runtime Ledger
 
 This file is not a requirement file. It holds no requirement IDs of its own and is not counted

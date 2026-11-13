@@ -459,6 +459,7 @@ This is achieved by having all three doc generators delegate to their language's
 2. Building Rust docs for the same net produces a DOT source that, modulo whitespace, matches the Java DOT.
 3. Building TypeScript docs for the same net produces a DOT source that matches.
 
+**Depends on:** [EXP-011], [EXP-012], [EXP-013]
 **Test derivation:** Build docs in each language for a small net with `XOR(A, B)` and `Out.Place(P) + reset(P)`; extract the embedded DOT (the `data-dot` attribute) and assert content via grep for the expected shape/color signatures.
 
 ---

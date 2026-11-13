@@ -13,29 +13,29 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12516["Libpetri.Spec.cites_perf031_store"]
+    n12615["Libpetri.Spec.cites_perf031_store"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
   c91["📁 Libpetri/Reference/Queue.lean (2 declarations, collapsed)"]
   c105["📁 Libpetri/Ring/Core.lean (53 declarations, collapsed)"]
   c106["📁 Libpetri/Ring/Grow.lean (40 declarations, collapsed)"]
   c108["📁 Libpetri/RingArith.lean (7 declarations, collapsed)"]
-  c132["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
-  c144["📁 Libpetri/Spec/GlossaryQueue.lean (14 declarations, collapsed)"]
-  c158["📁 Libpetri/Spec/Req/CONC_022.lean (5 declarations, collapsed)"]
+  c133["📁 Libpetri/Spec/Glossary.lean (2 declarations, collapsed)"]
+  c145["📁 Libpetri/Spec/GlossaryQueue.lean (14 declarations, collapsed)"]
+  c160["📁 Libpetri/Spec/Req/CONC_022.lean (5 declarations, collapsed)"]
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  c144 --> c91
-  c144 --> c106
-  c144 --> c132
-  c158 --> c144
-  n12516 --> c158
+  c145 --> c91
+  c145 --> c106
+  c145 --> c133
+  c160 --> c145
+  n12615 --> c160
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12516 root
-  class c0,c91,c105,c106,c108,c132,c144,c158 collapsed
+  class n12615 root
+  class c0,c91,c105,c106,c108,c133,c145,c160 collapsed
 ```
 
 Axioms used:
