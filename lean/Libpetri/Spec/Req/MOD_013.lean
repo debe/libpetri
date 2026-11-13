@@ -5,6 +5,7 @@ import Libpetri.Reference.ComposeDef
 import Libpetri.Reference.ComposeBuild
 import Libpetri.Spec.Req.MOD_010
 import Libpetri.Spec.Req.MOD_014
+import Libpetri.Spec.Text.MOD_013
 
 set_option linter.missingDocs true
 
@@ -47,9 +48,7 @@ requirement MOD_013
   kind F
   scope "every instantiation of a subnet definition whose body holds places or transitions of a composed instance"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* the body of a subnet definition `S` holds the place `i/x` of an instance under prefix `i` of a subnet definition `T`, for a place `x` of `T`, and `S` is instantiated with prefix `o`, the instance *shall* hold the place `o/i/x`."
-        "*When* the body of a subnet definition `S` holds the transition `i/t` of an instance under prefix `i` of a subnet definition `T`, for a transition `t` of `T`, and `S` is instantiated with prefix `o`, the instance *shall* hold the transition `o/i/t`."
-        "*When* `instantiate` is given a non-empty prefix that contains no `/` and the body of the subnet definition declares no terminal place, `instantiate` *shall* succeed, also when names of the body contain `/` because the body holds a composed instance."
+  covers MOD_013.s1, MOD_013.s2, MOD_013.s3
   reading "For every naming model Nm (how a prefix renames a place) and every instantiation function Inst:"
           "if Inst instantiates T under i to J and S under o to I, then for every place x of T whose renamed place Nm.pre i x is a place of J and a place of the body of S, the place Nm.pre o (Nm.pre i x) is a place of I (its name is o/i/x, by the naming law pre_name);"
           "if Inst instantiates T under i to J and S under o to I, then for every transition of T named t such that i/t names a transition of J and a transition of the body of S, o/i/t names a transition of I;"

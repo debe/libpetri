@@ -270,8 +270,10 @@ jobs:
       # gate. Both checks below are: grep catches the source text, and
       # `#print axioms` catches anything that reached a theorem by any route
       # (sorryAx shows up there even if the text is generated).
+      # Libpetri/Spec/Text holds the spec prose, which may use "admit" as an English word; the
+      # literal-aware escape-hatch scan below still covers its code.
       - name: No sorry / admit in source
-        run: '! grep -rnE "\bsorry\b|\badmit\b" Libpetri Libpetri.lean'
+        run: '! grep -rnE --exclude-dir=Text "\bsorry\b|\badmit\b" Libpetri Libpetri.lean'
       # GitHub's implicit shell for a `run:` block is `bash -e {0}` — no
       # pipefail — so piping `lake env lean` into anything would mask its exit
       # status. `shell: bash` is `bash --noprofile --norc -eo pipefail {0}`, and

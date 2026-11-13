@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.CONC_010
 
 set_option linter.missingDocs true
 
@@ -138,21 +139,9 @@ requirement CONC_010
   kind B
   scope "all executors"
   source verbatim "spec/05-concurrency.md"
-  quote "When the orchestrator is idle (no transitions ready, waiting for work), it must be woken by each of these causes:"
-        "**Action completion:** an action returns, or its timeout expires ([EXEC-022]), and its outcome is queued for the orchestrator."
-        "**External event injection:** `inject()` accepts a token for an environment place ([ENV-003])."
-        "**Timer expiry:** the timer the wait set for a timing boundary of an armed transition runs out."
-        "**Lifecycle:** the executor is drained ([ENV-011]), closed ([ENV-013]) or terminated immediately ([ENV-015])."
-        "**Publication:** an action's flush queues a batch of outputs before the action returns ([IO-015]), in an implementation with mid-action publication."
-        "A flush that the join-relay check rejects ([NU-054]) queues nothing and is no wake cause; the firing then ends with an error when its action returns."
-        "A timing boundary of an armed transition is its earliest bound, while its elapsed time has not reached it, and, for a reapable transition, the reading at which it becomes expired ([TIME-013])."
-        "The orchestrator judges Ready, Expired and the timing boundaries for its wait at the firing-clock reading its deadline step took in the current cycle ([EXEC-001] step 4), which is not earlier than the reading of its enablement update ([TIME-010])."
-        "*While* the outcome of an action, a flushed publication or an accepted injection is queued and not yet processed, the executor *shall not* block in its wait ([EXEC-001] step 6)."
-        "*While* a transition is Ready or Expired at the reading of the cycle's deadline step, the executor *shall not* block in its wait."
-        "*When* an action's outcome is queued, an action's flush queues a publication, `inject()` accepts a token, or the executor is drained, closed or terminated immediately, the executor *shall* end any block of its wait at once and be ready to leave the wait for the start of its loop ([EXEC-001] step 1) without waiting for a timer."
-        "*When* the executor blocks in its wait while an armed transition has a timing boundary ahead, it *shall* set a timer no longer than the time from the reading of the cycle's deadline step to the nearest such boundary, plus the timer resolution."
-        "*When* an action returns or its timeout expires, the executor *shall* queue the action's outcome for the orchestrator."
-        "So no queued work waits for a timer or a poll, and a wait with a timing boundary ahead carries a timer that runs out no later than that boundary, within timer resolution, counted from the reading of the cycle's deadline step."
+  covers CONC_010.s1, CONC_010.s2, CONC_010.s3, CONC_010.s4, CONC_010.s5, CONC_010.s6, CONC_010.s7,
+        CONC_010.s8, CONC_010.s9, CONC_010.s10, CONC_010.s11, CONC_010.s12, CONC_010.s13,
+        CONC_010.s14, CONC_010.s15
   reading "For every executor R and every configuration C:"
           "no park step starts in a state whose completion, publication or event queue is not empty;"
           "no park step starts in a state in which a transition of the net is Ready or Expired at the cycle reading;"

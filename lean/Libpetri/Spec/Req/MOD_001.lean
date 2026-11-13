@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryCompose
 import Libpetri.Spec.Req.CORE_040
 import Libpetri.Spec.Req.MOD_006
 import Libpetri.Spec.Req.MOD_010
+import Libpetri.Spec.Text.MOD_001
 
 set_option linter.missingDocs true
 
@@ -45,11 +46,7 @@ requirement MOD_001
   kind F
   scope "every subnet builder"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* building the subnet definition succeeds, its interface *shall* hold exactly the declared ports, each with the name, direction and place it was declared with."
-        "*When* building the subnet definition succeeds, its interface *shall* hold exactly the declared channels, each with the name and transition it was declared with."
-        "*When* building the subnet definition succeeds, its body *shall* hold the places and terminal places of the net that the net builder builds from the declaration, and the declared transitions in the order they were added, none of them renamed."
-        "*When* building the subnet definition succeeds, the subnet definition *shall* keep the name it was declared with."
-        "*When* the net builder builds the body and the interface declares no port and no channel, building the subnet definition *shall* succeed."
+  covers MOD_001.s1, MOD_001.s2, MOD_001.s3, MOD_001.s4, MOD_001.s5
   reading "For every net builder NB of subnet bodies and every subnet builder SB:"
           "if SB builds S as the definition D, the ports of D are the ports of S (same name, direction and place), each as often as in S, in any order;"
           "if SB builds S as D, the channels of D are the channels of S (same name and transition name), each as often as in S, in any order;"

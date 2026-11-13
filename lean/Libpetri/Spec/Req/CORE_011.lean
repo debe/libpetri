@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryAction
+import Libpetri.Spec.Text.CORE_011
 
 set_option linter.missingDocs true
 
@@ -95,9 +96,7 @@ requirement CORE_011
   kind F
   scope "the host token factories of Java, TypeScript and Rust"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a host creates a token from a value through the default factory, the token *shall* hold that value and carry the reading of the host's wall clock at the call as its creation timestamp, whatever clock an executor runs on ([TIME-015])."
-        "*When* a host creates a token from a value and a timestamp through the explicit-timestamp factory, the token *shall* hold that value and carry that timestamp, whatever the clocks read at the call."
-        "*When* a host creates the canonical unit token, the token *shall* hold no value and carry the timestamp 0, whatever the clocks read at the call."
+  covers CORE_011.s1, CORE_011.s2, CORE_011.s3
   reading "For the token factory K (make the default factory, makeAt the explicit-timestamp factory, unit the canonical unit-token constructor, each called when the host's wall clock reads r.wall and an executor's epoch clock reads r.epoch, timestamps being integers):"
           "for all readings r and every value v, the default factory's token holds v and carries the timestamp r.wall;"
           "for all readings r, every timestamp s (negative ones included) and every value v, the explicit-timestamp factory's token holds v and carries the timestamp s;"

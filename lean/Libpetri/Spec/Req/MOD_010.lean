@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeDef
+import Libpetri.Spec.Text.MOD_010
 
 set_option linter.missingDocs true
 
@@ -43,10 +44,7 @@ requirement MOD_010
   kind F
   scope "every instantiation of a subnet definition"
   source verbatim "spec/11-modular-composition.md"
-  quote "*If* the prefix given to `instantiate` is empty or contains `/`, *then* `instantiate` *shall* fail."
-        "*When* `instantiate` is given a non-empty prefix that contains no `/` and the body of the subnet definition declares no terminal place ([EXEC-042]), `instantiate` *shall* succeed."
-        "*When* `instantiate` succeeds with prefix `p`, the renamed body *shall* hold exactly the body's places and, in the body's order, the body's transitions, each renamed from `x` to `p/x`, with every arc and output specification of a transition naming the renamed places and its timing, priority and action unchanged."
-        "*If* the prefix given to `instantiate` is non-empty and contains no `/` and the body of the subnet definition declares a terminal place ([EXEC-042]), *then* `instantiate` *shall* fail with an error that names one of those terminal places."
+  covers MOD_010.s1, MOD_010.s2, MOD_010.s4, MOD_010.s3
   reading "For every naming model Nm (how a prefix renames a place) and every instantiation function Inst:"
           "if the prefix p is not valid (empty, or containing '/'), Inst fails on every subnet definition;"
           "if p is valid and the definition's body declares no terminal place (and every port exposes a body place and every channel a body transition), Inst succeeds;"

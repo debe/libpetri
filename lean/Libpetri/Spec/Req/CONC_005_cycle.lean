@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.CONC_005
 
 set_option linter.missingDocs true
 
@@ -107,10 +108,7 @@ requirement CONC_005_cycle
   kind B
   scope "all executors"
   source verbatim "spec/05-concurrency.md"
-  quote "*When* a firing or an injected token writes one of a transition's arc places, the executor *shall* re-run the transition's enablement check."
-        "The executor *shall* re-run a transition's enablement check only when a firing or an injected token writes one of its arc places, or when the transition itself fires."
-        "*If* the consumption of a firing, the deposit of a firing or an injected token writes none of a transition's arc places, *then* the transition's enablement check *shall* pass after it exactly when it passed before it."
-        "*While* a transition is reaped ([TIME-013]), the executor *shall not* re-run its enablement check, and only a firing or an injected token that writes one of its arc places *shall* end its reaped state."
+  covers CONC_005.s1, CONC_005.s2, CONC_005.s3, CONC_005.s4
   reading "For every executor R, every configuration C and every transition u:"
           "if the net of C holds u under its name, a step of R that writes one of u's arc places (a start from a state whose pass order begins with a transition that consumes from it or drains it, a commit, timeout deposit or publication that deposits into it, an injection that lands in it) leaves u not reaped when u was reaped before it;"
           "if the net of C holds u under its name, an update step of R leaves u reaped when u was reaped before it;"

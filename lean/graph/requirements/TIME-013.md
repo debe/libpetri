@@ -6,8 +6,8 @@ Theorems carrying this ID:
 
 - `Libpetri.Novel.ReapAware.rest_sound` (theorem, `Libpetri/Novel/ReapAware.lean:314`)
 - `Libpetri.Spec.clashExec_twoReadings` (theorem, `Libpetri/Spec/ClashesExec.lean:233`)
-- `Libpetri.Spec.evt009_ac1` (theorem, `Libpetri/Spec/Req/EVT_009.lean:386`)
-- `Libpetri.Spec.time001_reap_past_latest` (theorem, `Libpetri/Spec/Req/TIME_001.lean:713`)
+- `Libpetri.Spec.evt009_ac1` (theorem, `Libpetri/Spec/Req/EVT_009.lean:385`)
+- `Libpetri.Spec.time001_reap_past_latest` (theorem, `Libpetri/Spec/Req/TIME_001.lean:708`)
 - `Libpetri.bb_never_fires_after_reap` (theorem, `Libpetri/TimedCycle.lean:327`) 🔒 locked
 - `Libpetri.bb_reaped_stays_disabled` (theorem, `Libpetri/TimedCycle.lean:256`) 🔒 locked
 - `Libpetri.deadline_reap_dirty_diverges` (theorem, `Libpetri/TimedCycle.lean:309`) 🔒 locked

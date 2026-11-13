@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.EventsLink
 import Libpetri.Spec.Req.EVT_032
+import Libpetri.Spec.Text.EVT_032
 
 set_option linter.missingDocs true
 
@@ -47,7 +48,7 @@ requirement EVT_032_B
   kind B
   scope "every executor (event store enabled), read over the whole event stream of a run"
   source verbatim "spec/08-events-observability.md"
-  quote "The replay of all events a run has emitted before its first step, or up to the end of any of its steps, *shall* count, for every place the net declares, the tokens that place holds at that point, and *shall* list among the enabled transitions every transition that holds a clock at that point, also one whose clock restart is pending ([EVT-005])."
+  covers EVT_032.s4
   reading "For every executor with events E and every configuration C, every initial marking M0, every reading r0 and every labelled run of E from the initial state of M0 at r0, with the boot events as its history, the run with no step included:"
           "the replay of the boot events followed by the events of the run counts, on every place the net declares, the tokens that place holds in the state the run ends in;"
           "and lists as enabled every transition whose status in that state holds a clock."

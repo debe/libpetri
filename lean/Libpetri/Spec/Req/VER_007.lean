@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Semiflow
 import Libpetri.Novel.RouteA.Simulate
+import Libpetri.Spec.Text.VER_007
 
 set_option linter.missingDocs true
 
@@ -137,18 +138,8 @@ requirement VER_007
   kind F
   scope "the SMT pipeline's Phase 3 and every encoder it feeds (flat and name-coloured), all implementations"
   source verbatim "spec/07-verification.md"
-  quote "The verifier's encoders conjoin every accepted conservation law `y·M = y·M0` into the transition-rule bodies of the CHC/IC3 encoding ([VER-004], [VER-005])."
-        "A law is accepted only by the **exact gate**: `y·C = 0` against the incidence matrix and `y·M0 = c` are re-checked in exact (overflow-checked) integer arithmetic, and `y` MUST carry zero weight on every place a transition consumes with `all()` / `atLeast(n)` or clears with a reset arc, because the encoder's fire relation is not linear there (Lean `Strengthening.lean`, hypotheses H1/H2; injected environment places are covered by [VER-006], H3')."
-        "A law that fails the gate is dropped from the encoding and listed in the report."
-        "The encoders *shall* receive a conservation law only when the law passed the exact gate: `y·C = 0` against every column of the incidence matrix, each column counting every token its flat transition deposits and the injector columns of [VER-006] included, and `y·M0` equal to the law's constant, both in exact integer arithmetic, and zero weight on every place a transition consumes with `all()` / `atLeast(n)` or clears with a reset arc."
-        "The encoders *shall* receive every basis row of [VER-005] that passed the gate, whatever the option's setting."
-        "A law whose weights or exact sums leave the implementation's integer range fails the gate with a weight-overflow reason."
-        "Every implementation's range holds a law whose weights, and the sum of the absolute values of the terms of each of its sums `y·C` and `y·M0`, are at most `2^31 − 1`."
-        "An implementation SHOULD therefore offer an option that unions the gate-validated semiflows into the invariant list the encoders receive, and SHOULD offer an **`auto`** setting that applies the condition above on the caller's behalf: compute and union the semiflows exactly when the basis lost a law to the H1 guard, and skip them otherwise."
-        "*While* the option is off, the encoders *shall* receive exactly the basis rows that passed the gate."
-        "*While* the option is on, the encoders *shall* receive exactly the basis rows and the enumerated semiflows that passed the gate."
-        "*While* the option is `auto`, the encoders *shall* receive what they receive with the option on when the gate dropped a basis row for its weight on a consume-all or reset place, and what they receive with the option off otherwise."
-        "Semiflows are re-validated by the same exact gate as the basis rows before use; a semiflow that fails it is dropped with a `Dropped semiflow:` report line and is never encoded."
+  covers VER_007.s1, VER_007.s2, VER_007.s3, VER_007.s4, VER_007.s5, VER_007.s6, VER_007.s7,
+        VER_007.s8, VER_007.s9, VER_007.s10, VER_007.s11, VER_007.s12
   reading "For every encoding function E, and all flat nets given as deposit rows, injected places envs, place counts n, initial markings a0, basis rows basis, semiflows sfs and laws y:"
           "y is in the list E hands the encoders with the option off only when y is a basis row and passes the gate LawGate rows envs n (H1: zero on every consume-all or reset place; H2: y·C = 0 on the column of every deposit row, the column counting each deposited token; H3': zero on every injected place below n), and every basis row that passes the gate and fits the range 2^31 − 1 (LawFits: every weight, and the sum of the absolute values of the terms of each row's y·C and of y·a0, at most 2^31 − 1) is in it;"
           "y is in the list with the option on only when y is a basis row or a semiflow and passes the gate, and every basis row or semiflow that passes the gate and fits the range is in it;"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_013
 
 set_option linter.missingDocs true
 
@@ -54,17 +55,8 @@ requirement IO_013
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`Timeout(duration, child)` is a node of an output spec that gives the action of a firing a budget of `duration` to complete."
-        "*If* the action does not complete within `duration`, the firing *shall* end with the timeout outcome: it is abandoned, and it deposits the tokens of `child`."
-        "*When* a firing ends with the timeout outcome, it *shall not* deposit any output of the action, so the marking receives the tokens of `child` and nothing else."
-        "*If* an output spec holds more than one `Timeout` node, whether one is nested in the child of another or they sit apart, *then* building the transition *shall* fail with"
-        "where `<n>` is the number of `Timeout` nodes in the spec."
-        "The check runs when the transition is built, on every construction path, as the check of [IO-011] does."
-        "A transition that builds therefore has at most one timeout outcome, and the `child` of its `Timeout` holds no `Timeout` node."
-        "The executor, not the action, makes the deposit of the timeout outcome, so nothing chooses among alternatives inside the `Timeout` child."
-        "*If* the child of an output spec's `Timeout` node holds an `Xor` node at any depth, *then* building the transition *shall* fail with"
-        "The check runs after the `Timeout` count check above, so the spec it sees holds at most one `Timeout` node."
-        "The timeout outcome of a transition that builds therefore deposits in one fixed set of places: every place the `Timeout` child names."
+  covers IO_013.s1, IO_013.s2, IO_013.s3, IO_013.s4, IO_013.s5, IO_013.s6, IO_013.s7, IO_013.s8,
+        IO_013.s9, IO_013.s10, IO_013.s11
   reading "Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg), F the firings and T the firings that end with the timeout outcome."
           "For every transition t whose output spec o holds two or more Timeout nodes, building t fails; and if t's input places are distinct and no output branch of o names a place twice, it fails with the IO-013 message for t and the number of Timeout nodes in o."
           "Every transition that passes every build check (distinct input places, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward from an input place, no two output branches claiming one set of places) builds."

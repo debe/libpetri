@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Spec.GlossaryEvents
 import Libpetri.Spec.Req.EVT_021
+import Libpetri.Spec.Text.EVT_023
 
 set_option linter.missingDocs true
 
@@ -140,14 +141,8 @@ requirement EVT_023
   kind F
   scope "the logging event store decorator (Java EventStore.logging() and EventStore.logging(delegate)); TypeScript, Rust and Python have none"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* an event is appended to the logging event store, the store *shall* log the event once, at the level of the event's kind, *shall* then pass the event once to the wrapped store, and *shall* log no other record and pass no other event, whatever store it wraps."
-        "The logging event store *shall* make the logging call of an event whenever the logging framework has the call's level enabled, and *may* skip the call when the framework has that level disabled."
-        "The logging event store *shall* log TransitionFailed, TransitionTimedOut and ActionTimedOut events at WARN level."
-        "The logging event store *shall* log ExecutionStarted and ExecutionCompleted events at INFO level."
-        "The logging event store *shall* log TransitionEnabled, TransitionClockRestarted, TransitionStarted and TransitionCompleted events at DEBUG level."
-        "The logging event store *shall* log TokenAdded, TokenRemoved, MarkingSnapshot and LogMessage events at TRACE level."
-        "The logging event store *shall* return from `events()` what the wrapped store returns."
-        "The logging event store *shall* report itself as enabled, whatever the wrapped store reports (`isEnabled()` returns true)."
+  covers EVT_023.s1, EVT_023.s2, EVT_023.s3, EVT_023.s4, EVT_023.s5, EVT_023.s6, EVT_023.s7,
+        EVT_023.s8
   reading "For every event type E with its kind function kind : E → NetEventKind, and every logging decorator D over E:"
           "for every wrapped store W, every framework threshold th and every event e, the effects of an append of e that a caller observes with the framework at th (the log calls at a level th enables, which are the records the framework writes, and every pass) are those of one log call for e at the level eventLogLevel (kind e) followed by one pass of e to the wrapped store, and no other; the table eventLogLevel gives WARN to the three failure kinds, INFO to ExecutionStarted and ExecutionCompleted, DEBUG to the other four transition kinds, and TRACE to TokenAdded, TokenRemoved, MarkingSnapshot and LogMessage;"
           "for every wrapped store W and all histories h and h', a call of events() on D around W shows what a call of events() on W shows;"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Novel.LinearBound
 import Libpetri.Reference.Semantics
 import Libpetri.Spec.Verifier.Pipeline
+import Libpetri.Spec.Text.VER_015
 
 set_option linter.missingDocs true
 
@@ -166,16 +167,8 @@ requirement VER_015
   kind F
   scope "the bound phase of the SMT verifier, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "The violation of such a property is a lower demand `d` on some places (`m_p ≥ 1` for each place of an `Unreachable` or a two-place `MutualExclusion`, `m_p ≥ k+1` for a bound `k`); if `y·d > y·M0` for some such `y`, no reachable marking meets the demand and the property is **proven structurally**, without IC3."
-        "A pairwise `MutualExclusion` over three or more places ([VER-002]) is a disjunction of demands, one per pair: it is proven when every pair's demand is separated, each pair with its own query."
-        "A `sat` model is **re-checked in exact integer arithmetic** (`y ≥ 0`, the zero weights, every row, the demand) before it is believed; a model that fails the check is discarded."
-        "The verifier *shall* accept a weighting `y` for a demand `d` in the exact re-check only when `y_p ≥ 0` on every flat place, `y_p = 0` on every consume-all, reset and injected environment place, `Σ_p C[p][t]·y_p ≤ 0` for every flat transition `t`, and `Σ_p d_p·y_p ≥ 1 + Σ_p M0_p·y_p`, and *shall* accept every weighting that meets these conditions when every weight, and the sum of the absolute values of the terms of each of these sums, is at most `2^127 − 2`."
-        "A weighting whose sums overflow the implementation's integer arithmetic is rejected; that costs a proof and never makes one."
-        "In the re-check, `C[p][t]` is the number of tokens the flat transition `t` deposits on `p` minus the number its input on `p` requires, which for a consume-all input (`all`, `atLeast`) is its required minimum."
-        "The verifier *shall* take as the demands of a property one demand `m_p ≥ 1` on every listed place for `Unreachable`, one demand `m ≥ 1` on the entries at positions `i` and `j` for every pair of positions `i < j` of a `MutualExclusion` of two or more entries, in lexicographic order of `(i, j)`, and one demand `m_q ≥ k + 1` on the bounded place `q` for `PlaceBound` and `BranchPlaceBound` with bound `k`."
-        "A `MutualExclusion` of fewer than two entries is never violated ([VER-002]), so its demands are left to the implementation and every choice is sound."
-        "*When* the verifier runs the bound phase on a property, it *shall* return `Proven` exactly when, for every demand of the property, the query returned a `sat` model whose weighting the exact re-check accepts for that demand."
-        "The verifier *shall not* return `Violated` from the bound phase; every outcome of the phase other than `Proven` hands over to the next phase of the dispatch."
+  covers VER_015.s1, VER_015.s2, VER_015.s3, VER_015.s6, VER_015.s7, VER_015.s8, VER_015.s9,
+        VER_015.s10, VER_015.s11, VER_015.s12
   reading "For every flat net (deposit rows, n places), injected places envs, seed a0, demand d and weighting y: the re-check C accepts y for d only when y is non-negative on every place below n, zero on every place below n that some row resets or consumes all of, zero on every injected place, does not increase along any row (y·(post − pre) ≤ 0 over the row's count column), and y·a0 + 1 ≤ y·d; and C accepts every y that meets these conditions and fits the range 2^127 − 2 (LinFits: every weight, and the sum of the absolute values of the terms of each row's y·C, of y·a0 and of y·d, at most 2^127 − 2);"
           "the demands of Unreachable(ps) are the one demand 1 on every place of ps and 0 elsewhere;"
           "the demands of MutualExclusion(ps) with at least two entries are, per position pair i < j of ps in lexicographic order of (i, j) (pairsOf), the demand 1 on the entries ps[i] and ps[j] and 0 elsewhere;"
@@ -1303,25 +1296,9 @@ requirement VER_015_order
   kind B
   scope "the dispatch of the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the bound phase)"
   source verbatim "spec/07-verification.md"
-  quote "*When* the bound phase proves the property, it *shall* return `Proven` with method `structural`, an empty counterexample trace and no `counterexampleConfirmed`."
-        "A property with a demand is a `PlaceBound`, `BranchPlaceBound`, `MutualExclusion` or `Unreachable` property; the name-alignment properties of [NU-055] have no demand."
-        "The verifier *shall not* run the bound phase on a property without a demand, while the phase is disabled, or under `Ignore` with environment places registered."
-        "The verifier *shall* run the bound phase at most once in one verification call."
-        "The verifier *shall* send the `bound` query of each demand at most once in one verification call."
-        "The verifier *shall not* run Route B ([VER-012]) after the bound phase, and *shall not* run the bound phase after the colour-slot bound of the coloured encoding ([NU-053]) or after the fixpoint query."
-        "*When* the bound phase is enabled and the verifier runs the colour-slot bound or the fixpoint query on a property with a demand, not under `Ignore` with environment places registered, it *shall* have run the bound phase earlier in the same call."
-        "*When* the bound phase is enabled and the verifier runs the enumeration of [VER-017] on a property with a demand, and the enumeration route applies to a net with no drained forward, it *shall* have run the bound phase earlier in the same call, and *shall not* run the bound phase after the enumeration."
-        "*When* the bound phase runs ahead of the enumeration and does not prove the property, the next phase the verifier runs *shall* be the enumeration."
-        "On a net where the enumeration route does not apply, or that has a drained forward, the verifier *shall not* run the bound phase before the enumeration."
-        "*When* the verifier runs the bound phase on a property, it *shall* return `Proven` exactly when, for every demand of the property, the query returned a `sat` model whose weighting the exact re-check accepts for that demand."
-        "The verifier *shall not* return `Violated` from the bound phase; every outcome of the phase other than `Proven` hands over to the next phase of the dispatch."
-        "`unsat`, `unknown` and any transport failure hand over to the next phase of the dispatch."
-        "The phase is skipped under `Ignore` with environment places registered ([VER-006] AC4) and for the quiescence properties, whose violation is not a linear demand."
-        "Route B ([VER-012]) keeps its place in the dispatch: the bound runs after it, never before."
-        "The coloured plan is built only after the bound fails to prove; nothing before it reads the plan."
-        "When the enumeration route of [VER-017] applies to a net with no ν-join (untimed, no environment places, a positive class budget) and the net has no drained forward ([IO-014], [VER-001] AC5), the bound runs **before** the enumeration, not after it."
-        "Anything else falls through to the enumeration, and the fixpoint query later does not send the `bound` query again."
-        "When the solver cannot be started, the early bound sends no query and hands over with a report line, and the enumeration runs without a solver, as it did before; the `Unknown` with route `Unavailable` of [VER-013] comes only from the later phases."
+  covers VER_015.s13, VER_015.s14, VER_015.s15, VER_015.s16, VER_015.s17, VER_015.s18, VER_015.s19,
+        VER_015.s20, VER_015.s21, VER_015.s22, VER_015.s11, VER_015.s12, VER_015.s4, VER_015.s5,
+        VER_015.s24, VER_015.s23, VER_015.s25, VER_015.s26, VER_015.s27
   reading "For every dispatch D, solver O, stop, options o, call q and trail t whose log of entered steps is empty, in the log of the steps the run of D enters from t: no step named Route B (ν name-partition graph) is entered after a step named linear bound;"
           "no linear bound is entered after a colour-slot bound;"
           "no linear bound is entered after an IC3/PDR query;"

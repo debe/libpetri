@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryContext
 import Libpetri.Spec.Req.CORE_050
+import Libpetri.Spec.Text.CORE_054
 
 set_option linter.missingDocs true
 
@@ -73,8 +74,7 @@ requirement CORE_054
   kind F
   scope "the built-in produce action of Java, TypeScript and Rust (the Python binding exposes no produce built-in)"
   source verbatim "spec/01-core-model.md"
-  quote "*When* the built-in produce action of a place and a value runs on a transition whose output spec names that place, the action *shall* complete with exactly one output token, which carries that value and goes to that place, and with no output token in any other place."
-        "*If* the built-in produce action of a place and a value runs on a transition whose output spec does not name that place, *then* the action *shall* fail."
+  covers CORE_054.s1, CORE_054.s2
   reading "For every value projection value and every produce action family produce (produce p v is the built-in action that produces the value v to the place p), every place p, value v, transition t and delivery δ:"
           "if the output specification of t names p and some token carries v, produce p v ends on t and δ in some way;"
           "if the output specification of t names p, every way produce p v ends on t and δ is a completion with the emission [(p, x)] for a token x whose value is v: exactly one output token, in p, and no token in any other place;"

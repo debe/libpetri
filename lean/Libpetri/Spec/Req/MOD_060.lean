@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.Fuse
 import Libpetri.Reference.ComposeBuild
 import Libpetri.Spec.Req.MOD_061
+import Libpetri.Spec.Text.MOD_060
 
 set_option linter.missingDocs true
 
@@ -38,9 +39,7 @@ requirement MOD_060
   kind F
   scope "every fusion-set declaration check"
   source verbatim "spec/11-modular-composition.md"
-  quote "*If* a fusion set is declared with no member, *then* declaring it *shall* fail."
-        "*When* a fusion set is declared with a non-empty name and at least one member and no two of its members have different run-time token types, declaring it *shall* succeed and *shall* return the set with its name and with its members in the order they were declared."
-        "*Where* an implementation keeps a run-time token type for places (Java and Rust), *if* two members of a fusion set have different token types, *then* declaring the set *shall* fail."
+  covers MOD_060.s1, MOD_060.s2, MOD_060.s3
   reading "A fusion-set declaration check D meets MOD-060 under a token-type reading tyOf of places when:"
           "for every name n, D rejects the set named n with no member;"
           "for every set s with a non-empty name and at least one member whose members all have the same token type under tyOf, D returns s itself: its name and its members in declaration order;"

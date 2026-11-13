@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.ComposeBuild
 import Libpetri.Reference.Decide
+import Libpetri.Spec.Text.MOD_050
 
 set_option linter.missingDocs true
 
@@ -75,8 +76,7 @@ requirement MOD_050
   kind B
   scope "every verification facility of section 07, on every net build() returns"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* a verification facility specified in section 07 (VER) runs on a net that `build()` returned, it *shall* give the result that section 07 specifies for the hand-written net with the same name, the same places in the same order, the same transitions in the same order with the same names, arcs, output specifications, timing, priorities and actions, and the same terminal places in the same order."
-        "The result of a verification facility specified in section 07 (VER) *shall not* depend on which subnet a place or transition belongs to ([MOD-026]) or on the place correspondence of a transition ([MOD-031])."
+  covers MOD_050.s1, MOD_050.s2
   reading "For every result type R, every facility F on built nets (the facility as section 07 specifies it) and every facility V on the nets build() returns:"
           "on the hand-written net of every built net b (no correspondence, no membership), V gives what F gives on b;"
           "on two nets c and c' with the same built net (the same places, transitions and terminal places, in the same order), V gives the same result, whatever correspondence and membership each carries."

@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Compiled
+import Libpetri.Spec.Text.CONC_007
 
 set_option linter.missingDocs true
 
@@ -102,14 +103,8 @@ requirement CONC_007
   kind F
   scope "all compilers of the bitmap executor's compiled net (Rust CompiledNet::compile, Java CompiledNet.compile, TypeScript CompiledNet.compile), on every net, read as its arcs and output specifications together with which of its transitions carry a match specification"
   source verbatim "spec/05-concurrency.md"
-  quote "The compiled net *shall* number the places of the net from 0 to P-1, where P is the number of places of the net, so that each place has exactly one ID and each ID names exactly one place."
-        "The compiled net *shall* give each transition its declaration position as its ID, numbering the transitions from 0 in the order the net declares them."
-        "The needs-mask of a transition *shall* hold exactly the IDs of its input and read places, and its inhibitor-mask exactly the IDs of its inhibitor places."
-        "The consumption places of a transition *shall* be exactly the IDs of its input and reset places."
-        "The reverse index *shall* map the ID of each place to exactly the IDs of the transitions that have an input, read, inhibitor or reset arc on that place."
-        "*If* a transition has no cardinality check, *then* each of its inputs *shall* require at most one token."
-        "Each entry of a cardinality check *shall* be the ID of an input place of the transition with the required count of that input, and each input that requires more than one token *shall* have an entry."
-        "The compiled net *shall* set the match presence flag of a transition exactly when the transition carries a match specification ([NU-020])."
+  covers CONC_007.s1, CONC_007.s2, CONC_007.s3, CONC_007.s4, CONC_007.s5, CONC_007.s6, CONC_007.s7,
+        CONC_007.s8
   reading "For every compile function Cmp, every match predicate hm (hm t: the transition t carries a match specification) and every net n, with c the compiled net Cmp hm n:"
           "(line 1) a place p has ID i exactly when i < P and i names p; every i < P names a place; a name has an ID exactly when it is a place of n (netPlaceList n: its declared places and every place an arc or the output specification of a transition names);"
           "(line 2) the transitions of c, indexed by ID, are the transitions of n in declaration order;"

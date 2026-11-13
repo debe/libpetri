@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_002
 
 set_option linter.missingDocs true
 
@@ -25,10 +26,7 @@ requirement IO_002
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`Exactly(place, n)` is an input arc whose required count and consumption count are both N, where N >= 1."
-        "*While* the input place of an `Exactly(n)` input arc holds fewer than N tokens, the transition *shall not* fire."
-        "*When* a transition with an `Exactly(n)` input arc fires, it *shall* consume exactly N tokens from the input place."
-        "*When* a transition with an `Exactly(n)` input arc fires, and the input place is neither a reset place nor an output place of the transition, the input place *shall* end the firing holding exactly N fewer tokens than it held before the firing."
+  covers IO_002.s1, IO_002.s2, IO_002.s3, IO_002.s4
   reading "For every transition t, place p and count N such that the input arc of t on p is Exactly(N):"
           "t does not fire from a marking in which p holds fewer than N tokens;"
           "unless p is also a reset place of t, every firing of t from m that deposits d and leaves m' has m'(p) + N = m(p) + d(p): p loses exactly N tokens, besides what the firing deposits there; and if p is not an output place of t either, m'(p) + N = m(p): p loses exactly N tokens, whatever deposit the firing reports."
@@ -286,7 +284,7 @@ requirement IO_002_build
   kind F
   scope "all transition builders"
   source verbatim "spec/02-input-output-specs.md"
-  quote "Construction with N < 1 is rejected (error or panic). Where the language lets the spec be written out without the constructor (a public enum variant, an object literal), building the transition rejects it."
+  covers IO_002.s5
   reading "For the transition builder Build (Build t = none: t builds; Build t = some msg: building t fails with msg):"
           "every transition t one of whose input arcs is Exactly(0) fails to build."
   assumes "Build is the transition builder read as the message it rejects a transition with (none: the transition builds), as in IO-011, IO-013 and EXEC-012; the witness is the reference builder refBuild (glossary: Build-time checks), whose count check (InputCountsPositive, stand-in message msgCount) rejects an input arc that requires fewer than one token. The cardinality of the model (Card) is a value written out directly, so a transition carrying Exactly(0) is the spec written out without the constructor: the second quoted sentence. N ranges over the naturals, so N < 1 is N = 0."

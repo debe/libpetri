@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
 import Libpetri.Reference.Nu
+import Libpetri.Spec.Text.CORE_042
 
 set_option linter.missingDocs true
 
@@ -49,17 +50,8 @@ requirement CORE_042
   kind F
   scope "Java, TypeScript, Rust (net-level bindActions, both forms); Python rides on the Rust binding and exposes no net-level binding"
   source verbatim "spec/01-core-model.md"
-  quote "The net's static structure (places, transitions, arcs, timing, priority) MUST be separable from the runtime behavior (actions)."
-        "A `bindActions()` operation takes a structure and a mapping of transition names to actions, producing a new net with actions bound."
-        "*When* actions are bound to a net, in either form, the new net *shall* have the name, the places and the terminal places of the original net and, for each transition of the original net, in the same order, a transition with the same name, arcs, output specification, timing and priority."
-        "*When* actions are bound with a resolver that returns an action for a transition's name, the transition *shall* carry that action in the new net."
-        "*When* actions are bound with a resolver that returns no action (`null`/`None`) for a transition's name, the transition *shall* carry in the new net the action it carried before."
-        "*When* actions are bound with a mapping that maps a transition's name to an action, the transition *shall* carry that action in the new net."
-        "*When* actions are bound with a mapping whose values are actions and that does not map a transition's name, the transition *shall* carry in the new net either the passthrough action or the action it carried before, and an implementation makes the same one of these two choices for every transition, every net and every mapping, so a transition that carried passthrough still carries passthrough."
-        "Binding actions to a net *shall* return a new net for every net and every resolver or mapping, and *shall* leave the original net unchanged."
-        "Binding is lazy and total: it never rejects, so a partially bound net is a legitimate intermediate value and an action MAY be bound after instantiation ([MOD-031] AC7); the declared structure is reconciled against the bound behaviour at compile time ([CORE-043])."
-        "**Divergence:** the map form substitutes passthrough for every transition the map omits in Java and TypeScript (so a second call clobbers the first's bindings) but leaves them untouched in Rust; only the resolver form, where a `null`/`None` result defers a transition, binds in stages identically across implementations."
-        "In Java a mapping may hold a name with a `null` value, and the map form then defers that transition as the resolver form does; TypeScript substitutes passthrough for a `null` or `undefined` value."
+  covers CORE_042.s1, CORE_042.s2, CORE_042.s3, CORE_042.s4, CORE_042.s5, CORE_042.s6, CORE_042.s7,
+        CORE_042.s9, CORE_042.s10, CORE_042.s11, CORE_042.s12
   reading "For every resolver-form binding Bind and map-form binding BindMap:"
           "for every built net b and every resolver r, the net Bind b r and the net BindMap b r each have b's places and b's terminal places, and their transition lists match b's position by position (same length, same order), each transition with b's name and arcs (core), output specification, timing and priority;"
           "for every b and r, the transition at each position of Bind b r carries the action a whenever r answers that position's name in b with a;"
@@ -805,7 +797,7 @@ requirement CORE_042_nu
   kind F
   scope "Java, TypeScript, Rust (net-level bindActions, both forms, on a net whose transitions may have a match specification); Python rides on the Rust binding"
   source verbatim "spec/01-core-model.md"
-  quote "*When* actions are bound to a net, in either form, a transition that has a match specification ([NU-020]) *shall* have the same match specification in the new net."
+  covers CORE_042.s8
   reading "For every resolver-form binding Bind and map-form binding BindMap on ν nets (built nets whose transition definitions may carry a match specification):"
           "for every ν net b and every resolver or map r, the transition lists of Bind b r and of BindMap b r match b's position by position, and at each position where b's transition has a match specification ms, the transition of the new net has ms."
   assumes "A ν net (NuBuiltNet) is a built net (BuiltNet, Reference/Build.lean) whose transition definitions are ν definitions (NuDef, Reference/Nu.lean: a TransDef and an optional match specification). A binding in either form is a function from a ν net and a resolver or map, both read as a function from names to an optional action, to a ν net, as in CORE_042. What binding does to the places, the terminal places and the TransDef part of each transition (its name, arcs, output specification, timing, priority and action) is CORE_042's lines, on the shadow of the ν net (NuBuiltNet.shadow: the match dropped); the reference binding here shadows refBind (core042RefNuBind_shadow). This block adds only the match."

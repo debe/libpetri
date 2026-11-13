@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.EXEC_040
 
 set_option linter.missingDocs true
 
@@ -67,18 +68,8 @@ requirement EXEC_040
   kind B
   scope "executors without environment places"
   source verbatim "spec/04-execution-model.md"
-  quote "When no environment places are registered and the net has no terminal places ([EXEC-042]), the executor terminates when ALL of the following hold at the termination test of a cycle, which follows the cycle's enablement update and deadline step ([EXEC-001]):"
-        "No transition is armed ([TIME-010])."
-        "A reaped transition that is still enabled holds no clock and does not keep the executor running ([TIME-013])."
-        "No transitions are in-flight (executing actions)."
-        "A firing counts as in flight until its completion and its queued publications are processed."
-        "No external events are pending."
-        "The final marking is returned."
-        "The test is made there and nowhere else: straight after a deposit, before the next enablement update, a transition the deposit enabled is not yet armed ([TIME-010]), so the three conditions can hold while the net still has work to do."
-        "*While* no terminal place is marked ([EXEC-042]), *when* the termination test of a cycle finds that no transition is armed, no firing is in flight and no completion, publication or external event is queued, an executor without environment places *shall* terminate and *shall* return the marking as it is."
-        "An executor without environment places *shall not* terminate as quiescent ([EXEC-041]) anywhere in a cycle except at its termination test."
-        "*When* an executor without environment places takes a step other than an enablement update or a deadline step, it *shall not* terminate as quiescent until it has run an enablement update."
-        "*If* a transition is armed, a firing is in flight, or a completion, publication or external event is queued, *then* an executor without environment places *shall not* terminate as quiescent."
+  covers EXEC_040.s1, EXEC_040.s2, EXEC_040.s3, EXEC_040.s4, EXEC_040.s5, EXEC_040.s6, EXEC_040.s7,
+        EXEC_040.s8, EXEC_040.s9, EXEC_040.s10, EXEC_040.s11, EXEC_040.s12
   reading "For every executor R and every configuration C without environment places:"
           "a finish quiescent step happens only at the termination test (phase test);"
           "a finish quiescent step happens only at rest: no transition armed, no firing in flight, and the completion, publication and event queues empty;"

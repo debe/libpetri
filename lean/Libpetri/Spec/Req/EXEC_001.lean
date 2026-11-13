@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Enablement
+import Libpetri.Spec.Text.EXEC_001
 
 set_option linter.missingDocs true
 
@@ -175,14 +176,8 @@ requirement EXEC_001
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "*When* the executor begins a cycle or deposits tokens outside a firing pass, it *shall not* run a deadline step until it has run an enablement update."
-        "*When* the executor begins a cycle or deposits tokens outside a firing pass, it *shall not* start a transition until it has run a deadline step."
-        "*When* the executor begins a cycle, it *shall not* run an enablement update until it has ended step 2."
-        "*When* the executor begins a cycle or enters step 1, it *shall not* deposit a publication, inject an external event or start a transition until it has processed every finished action queued at that moment, whether the action completed, failed or timed out."
-        "*When* the executor enters step 2 of a cycle while it is neither closed nor terminated immediately, it *shall not* run the next enablement update until it has injected or discarded every external event queued at that moment ([ENV-003], [ENV-013], [ENV-015])."
-        "*If* the deadline step of a cycle reaps a transition, *then* the executor *shall not* start that transition before its next enablement update."
-        "*When* the executor starts a transition that has an input or reset arc, or deposits tokens outside a firing pass or inside a firing pass that has started a transition, it *shall not* wait for work until it has run an enablement update."
-        "*When* the executor runs an enablement update, it *shall* leave every transition whose enablement check fails without a clock, and every transition whose enablement check passes armed or reaped unless the executor is not re-entrant and a firing of that transition is in flight ([CONC-002], [NU-020])."
+  covers EXEC_001.s1, EXEC_001.s2, EXEC_001.s3, EXEC_001.s4, EXEC_001.s5, EXEC_001.s6, EXEC_001.s7,
+        EXEC_001.s8
   reading "For every executor R and every configuration C, every run of R under C from any state satisfies lines 1 to 7, and every update step of R under C satisfies line 8:"
           "after each step that begins a cycle (leaves the firing pass or the wait for a running phase that is neither) or deposits tokens outside a firing pass (a commit, a timeout deposit, a publication or an injection taken in a phase other than the firing pass), no deadline step happens before the next enablement update;"
           "after each such step, no start happens before the next deadline step;"

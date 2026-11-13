@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.Fuse
+import Libpetri.Spec.Text.MOD_061
 
 set_option linter.missingDocs true
 
@@ -78,18 +79,8 @@ requirement MOD_061
   kind F
   scope "fusion at build() of every builder that declares fusion sets"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* fusion at `build()` succeeds on fusion sets of which no two share a member, the transitions of the result *shall* be the builder's transitions, in the same order and number, each with every member of a fusion set replaced by the first declared member of that set in every input, inhibitor, read and reset arc and in the output specification, with its name, timing, priority and action unchanged and, where at least one of its declared input arcs is on a member that is not the first declared member of its set, with its input arcs merged by the canonical merge table of [MOD-021] into one arc per place at the position of the first arc on that place."
-        "*When* fusion at `build()` succeeds, every transition of the result *shall* pass the checks of the transition builder ([CORE-030], [IO-011], [IO-012], [EXEC-012])."
-        "*When* fusion at `build()` succeeds on fusion sets of which no two share a member, the set of places of the result *shall* be the builder's places other than the members that are not the first declared member of their fusion set, together with the places a transition of the result names and the terminal places of the result."
-        "*When* fusion at `build()` succeeds on fusion sets of which no two share a member, the set of terminal places ([EXEC-042]) of the result *shall* be the declared terminal places with every member of a fusion set replaced by the first declared member of that set."
-        "*Where* no two declared fusion sets share a member, the outcome of fusion at `build()` *shall* be the same for every order in which the fusion sets are declared: the same failure with the same message, or a fused net with the same transitions in the same order, the same set of places and the same set of terminal places."
-        "*When* no two declared fusion sets share a member and the rewrite of every transition meets no pair of input arcs that the canonical merge table of [MOD-021] does not list and passes the checks of the transition builder, fusion at `build()` *shall* succeed."
-        "*If* no two declared fusion sets share a member and merging the input arcs of a rewritten transition meets two arcs on one place whose pair the canonical merge table of [MOD-021] does not list, *then* fusion at `build()` *shall* fail."
-        "*If* no two declared fusion sets share a member and the transition builder rejects the rewrite of a transition, *then* fusion at `build()` *shall* fail."
-        "*If* two declared fusion sets that differ in name or in members share a member, *then* fusion at `build()` *shall* fail with the message `Fusion overlap: place '<p>' appears in two fusion sets ('<first>' and '<second>'). A place may appear in at most one fusion set (MOD-060).`, where `<p>` is a member that two declared fusion sets both list and `<first>` and `<second>` are the names of those two sets, the one declared first named first."
-        "*If* exactly two fusion sets that differ in name or in members are declared and they share exactly one member `p`, *then* the message of that failure *shall* name `p`, then the set declared first, then the set declared second."
-        "*If* every transition before a transition `t` rewrites and passes the checks of the transition builder, no two declared fusion sets share a member, and the first off-table pair met while merging the input arcs of `t` lies on a member of a fusion set, *then* fusion at `build()` *shall* fail with the [MOD-021] rule (c) diagnostic for that pair, whose earlier side is the merge of the arcs before it on that place, whose seam is `Fusion set '<name>'` with the name of that set, and whose method spelling is one of the two that [MOD-021] allows."
-        "*If* every transition before a transition `t` rewrites and passes the checks of the transition builder, no two declared fusion sets share a member, and the first off-table pair met while merging the input arcs of `t` lies on a place that no fusion set lists, *then* fusion at `build()` *shall* fail with the same diagnostic, the name of that place standing in the seam for the name of a set."
+  covers MOD_061.s1, MOD_061.s2, MOD_061.s3, MOD_061.s4, MOD_061.s5, MOD_061.s6, MOD_061.s7,
+        MOD_061.s8, MOD_061.s9, MOD_061.s10, MOD_061.s11, MOD_061.s12
   reading "For every transition-builder check Build and every fusion function F (fusion sets and a builder's places, transition definitions and terminal places give the fused content or a rejection message), where 'disjoint' means FusionDisjoint (no place is a member of two sets at two list positions) and σ is the substitution SubstSpec asks for (a member goes to the first member of its set, every other place stays):"
           "line 1: on disjoint sets, if F succeeds with Y, then rewriting the builder's definitions in order with fuseDef σ succeeds, and the rewritten definitions are Y's definitions, compared as a list of TransDef, so in the same order and number (every arc place and output place through σ; name, timing, priority, action kept; when some input arc is on a place σ moves, the input arcs merged by the MOD-021 table at the first-seen position; read, inhibitor and reset arcs kept as they are);"
           "line 2: if F succeeds with Y, every definition of Y passes Build;"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_022
 
 set_option linter.missingDocs true
 
@@ -27,12 +28,7 @@ requirement CORE_022
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "A transition is **enabled** in a marking when every input place holds at least its required count (see [IO-001]–[IO-004]), every read place is marked and no inhibitor place is marked."
-        "*While* an input place of a transition holds fewer tokens than its required count, the transition *shall not* fire."
-        "*While* a read place of a transition is unmarked, the transition *shall not* fire."
-        "*While* an inhibitor place of a transition is marked, the transition *shall not* fire."
-        "*While* a transition that has no match specification ([NU-020]) is enabled, the transition *shall* be able to fire."
-        "This requirement concerns transitions that build. A definition that building the transition rejects ([CORE-030], [IO-002], [IO-004], [EXEC-012], [IO-011]–[IO-014]) is not a transition of any net and is never enabled anywhere; in particular an output spec whose alternatives no write can tell apart ([IO-012]) never reaches a marking."
+  covers CORE_022.s1, CORE_022.s2, CORE_022.s3, CORE_022.s4, CORE_022.s5, CORE_022.s6
   reading "For every transition t that builds (Builds t: at most one input arc per place, every input arc requiring at least one token, no place with both an input arc and a read arc, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward's from an input place, no two output branches claiming the same set of places):"
           "t does not fire from a marking in which the place of some input arc of t holds fewer tokens than that arc's required count;"
           "t does not fire from a marking in which some read place of t is unmarked;"

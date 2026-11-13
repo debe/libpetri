@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.Text.TIME_001
 
 set_option linter.missingDocs true
 
@@ -107,14 +108,8 @@ requirement TIME_001
   kind F
   scope "all timing variants, all implementations"
   source verbatim "spec/03-timing.md"
-  quote "`earliest()` *shall* return 0 for `Immediate` and `Deadline`, `after` for `Delayed(after)`, `earliest` for `Window(earliest, latest)` and `at` for `Exact(at)`."
-        "`latest()` *shall* return the maximum duration for `Immediate` and `Delayed`, `by` for `Deadline(by)`, `latest` for `Window(earliest, latest)` and `at` for `Exact(at)`."
-        "`hasDeadline()` *shall* return true for `Deadline`, `Window` and `Exact`, and false for `Immediate` and `Delayed`."
-        "A timing is **valid** exactly when its bounds satisfy these rules, which are canonical for every variant ([TIME-002]–[TIME-006] restate them):"
-        "*If* a factory is called with bounds that make the timing invalid, *then* the factory *shall* fail with the message the table below gives for the first rule the bounds break (Rust panics; Python raises `ValueError` with the Rust message; Java throws `IllegalArgumentException`; TypeScript throws `Error`)."
-        "The checks run in the order of the table."
-        "*If* a transition is built with a timing written out without a factory and that timing is invalid, *then* building the transition *shall* fail with the factory's message."
-        "Each transition has a timing specification (defaults to Immediate)."
+  covers TIME_001.s1, TIME_001.s2, TIME_001.s3, TIME_001.s4, TIME_001.s5, TIME_001.s6, TIME_001.s7,
+        TIME_001.s8
   reading "For every timing contract K:"
           "earliest() is 0 for Immediate and Deadline(by), after for Delayed(after), earliest for Window(earliest, latest) and at for Exact(at);"
           "latest() is the maximum duration (3153600000000 ms) for Immediate and Delayed(after), by for Deadline(by), latest for Window(earliest, latest) and at for Exact(at);"

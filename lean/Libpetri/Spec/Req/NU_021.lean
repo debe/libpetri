@@ -2,6 +2,7 @@ import Mathlib.Data.List.Forall2
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Req.NU_020
+import Libpetri.Spec.Text.NU_021
 
 set_option linter.missingDocs true
 
@@ -519,9 +520,7 @@ requirement NU_021
   kind B
   scope "every executor; one firing of any transition, with or without a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a transition fires, it *shall* also fire with the same chosen name from every marking that differs from its marking only by a pairing its keys and relay targets cannot tell apart, for every emission that differs from its emission by the same pairing, delivering tokens and leaving a marking that differ from its own by the same pairing."
-        "*When* a transition with a match specification fires, every token it delivers from a correlated input *shall* project to the chosen name under that input's key."
-        "*When* a transition with a match specification fires, each correlated input that is not one of its reset places *shall* end the firing holding, of the tokens that do not project to the chosen name, exactly the ones it held before, in their order, followed by the ones the firing deposited there, in the order deposited."
+  covers NU_021.s1, NU_021.s2, NU_021.s3
   reading "For every transition t and every pairing ρ, which gives for each place p a relation ρ p between token values, under which every key of t on a place p and every relay target of t at p gives two values that ρ p relates the same name, or no name to both (KeepsNames; on a place that no key and no relay target reads ρ p is free, and a transition without a match has no key, so every ρ qualifies): for every firing of t in R from M with chosen name c, delivery δ and emission e, leaving M', every marking M₂ that corresponds to M under ρ (every place p holds as many tokens in both, and the tokens at one queue position of p have values that ρ p relates and the same createdAt) and every emission e₂ that corresponds to e (the same places in the same order, the tokens sent to p related by ρ p with the same createdAt), R has a firing of t from M₂ with chosen name c and emission e₂ whose delivery corresponds to δ, place by place, and whose result corresponds to M'."
           "For every transition t with match specification ms and every firing of t in R with chosen name n: every token delivered from a correlated input p with key f has f(value) = n."
           "For every transition t with match specification ms and every firing of t in R from M to M' with chosen name n: for every correlated input p with key f that is not a reset place of t, the tokens of M' p whose key does not give n are the tokens of M p whose key does not give n, in order, followed by the tokens emitted to p whose key does not give n, in emission order."

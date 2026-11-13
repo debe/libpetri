@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Text.CONC_005
 
 set_option linter.missingDocs true
 
@@ -37,9 +38,7 @@ requirement CONC_005
   kind B
   scope "all executors"
   source verbatim "spec/05-concurrency.md"
-  quote "*When* a firing or an injected token writes one of a transition's arc places, the executor *shall* re-run the transition's enablement check."
-        "The executor *shall* re-run a transition's enablement check only when a firing or an injected token writes one of its arc places, or when the transition itself fires."
-        "*If* the consumption of a firing, the deposit of a firing or an injected token writes none of a transition's arc places, *then* the transition's enablement check *shall* pass after it exactly when it passed before it."
+  covers CONC_005.s1, CONC_005.s2, CONC_005.s3
   reading "For every timed net X:"
           "a transition of the net that is not armed before a step and is armed after it was armed by a firing, either of a transition of its own name or one that writes one of its arc places;"
           "a firing that writes an arc place of the net's transition u leaves u armed if u is enabled after it, whether or not u was armed before it;"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_004
 
 set_option linter.missingDocs true
 
@@ -116,22 +117,9 @@ requirement EXP_004
   kind F
   scope "every exporter, the input, output, inhibitor, read and reset edges"
   source verbatim "spec/09-export.md"
-  quote "Each arc type has a visually distinct rendering."
-        "Input arc: solid arrow from place to transition, row `input` (a correlated input of [EXP-018] takes row `match-input`)"
-        "Output arc: solid arrow from transition, or from one of its junction nodes ([EXP-012]), to place, row `output`; the edge of a `ForwardInput` leaf is dashed and labelled with its source place ([EXP-012])"
-        "Inhibitor arc: arrow with circle arrowhead (standard notation) from place to transition, without a label, row `inhibitor`"
-        "Read arc: dashed arrow from place to transition, labelled `read`, row `read`"
-        "Reset arc: bold arrow from transition to place, labelled `reset`, row `reset`; a reset arc into a place that a leaf of the output spec also ends in is drawn as the combined edge of [EXP-013]"
-        "The reset edge points from the transition to the place it empties. This is a drawing convention: the reset arc itself goes from the place to the transition ([CORE-034])."
-        "Visually distinct means that any two edges of different types among these five differ in drawn direction, colour, line style or arrowhead."
-        "The mapper *shall* draw each input arc as a solid edge of arc type `input` from its place to its transition, in the `match-input` row where [EXP-018] correlates its place and in the `input` row otherwise."
-        "The mapper *shall* draw each output arc of a transition into a place that the transition does not reset as an edge of arc type `output` in the `output` row, from the transition or one of its junction nodes to the place."
-        "Every edge of arc type `output` that the mapper draws *shall* run from a transition or one of its junction nodes to a place or to a junction node of that transition, in the `output` row."
-        "An edge of arc type `output` *shall* be solid, except the edge of a `ForwardInput` leaf of its transition's output spec from place F to a place P that the transition does not reset, which is dashed, ends in P and is labelled `⟵F`, after another label and a space when it has one."
-        "The mapper *shall* draw each inhibitor arc as a solid edge of arc type `inhibitor` from its place to its transition, in the `inhibitor` row and without a label."
-        "The mapper *shall* draw each read arc as an edge of arc type `read` from its place to its transition, in the `read` row and labelled `read`."
-        "*Where* no leaf of a transition's output spec ends in the place of one of its reset arcs, the mapper *shall* draw that reset arc as an undashed edge of arc type `reset` from the transition to the place, in the `reset` row and labelled `reset`."
-        "Every edge of arc type `input`, `inhibitor`, `read` or `reset` that the mapper draws *shall* be the edge of one arc of that type, with the ends, row and line style the sentences above give it and the label they give it where they give one; an edge of arc type `reset` is the edge of a reset arc into a place that no leaf of its transition's output spec ends in."
+  covers EXP_004.s1, EXP_004.s2, EXP_004.s3, EXP_004.s4, EXP_004.s5, EXP_004.s6, EXP_004.s7,
+        EXP_004.s8, EXP_004.s9, EXP_004.s10, EXP_004.s11, EXP_004.s12, EXP_004.s13, EXP_004.s14,
+        EXP_004.s15, EXP_004.s16
   reading "For every configuration cfg and net X, in the drawn graph E cfg X:"
           "(input) every input arc s of every transition t of X has an edge drawn for it (exp004InputEdge t s: arc type input, from the place of s to the node of t, solid, row match-input if t correlates the place, else row input), and every edge of arc type input is drawn so for some input arc of some transition of X;"
           "(output) for every transition t of X and every leaf place p of its output spec that t does not reset, some edge into p is an output edge of t (exp004OutputEdge t: arc type output, row output, from the node of t or one of its junctions, into a place or a junction of t, and dashed only if it ends in the target P of a ForwardInput leaf from F of t, with P a place t does not reset, and is labelled forwardLabel l F for some l), for every ForwardInput leaf from F to P of t with P not reset by t, some output edge of t into P is dashed and labelled forwardLabel l F for some l (exp004ForwardEdge t), and every edge of arc type output is an output edge of some transition of X;"
@@ -144,7 +132,7 @@ requirement EXP_004
           "AC1 (each arc type is visually distinguishable) and the body sentence defining visually distinct are EXP_004_distinguishable, proved from the statement alone: for any exporter that meets EXP-004, two drawn edges whose arc types are two different ones of the five have different looks (exp004Look: whether the edge starts at a place, and the row's style with the line style dashed when the edge is drawn dashed), so they differ in drawn direction, colour, line style or arrowhead without reading a label. Input and output edges share the row style (colour, solid, normal arrowhead) and differ in drawn direction; a dashed output edge differs from a read edge in colour. The first body sentence is the same fact."
           "Out of scope here: the combined reset+output edge (arc type resetOutput) is EXP-013's subject, and so are its label reset+out and the leaf edge it replaces (which is why the output existence half and the forward part ask only for places the transition does not reset, and the reset existence half only for places no leaf ends in). The rows reset and reset-output have the same style, so the body sentence on the combined edge (it differs from the reset edge only in its label) is an exception to visually distinct that EXP-013 states; this block reads no label for AC1. That a reset arc into a place a leaf ends in gets no standalone reset edge is stated here as the second half of line (reset) and again by EXP-013. Ghost edges (arc type ghost) are EXP-017's. Which output edges are drawn, from which junction and with which label, is EXP-012's: line (output) fixes only arc type, row, drawn direction, that the edge of each ForwardInput leaf is dashed and labelled with its source place, and that no output edge is dashed unless it ends in the target P of a ForwardInput leaf from F of its transition, P a place the transition does not reset, and is labelled with F (so a dashed output edge into a reset place violates the block, EXP_004_forbids_fwdIntoReset). It does not tie that dash to the leaf's own edge (another output edge of the transition into P with the same label may be dashed too), nor require an output edge to end in a leaf place of its transition: the exact drawing, one edge per leaf from its junction, is EXP-012's, which ExportAgrees carries to the exporter. The labels of input edges (cardinality, EXP-006; the correlation prefix, EXP-018) and EXP-018's choice of correlated places are other blocks'; this block fixes the row of a correlated input edge as the bullet says. That every place and transition has a node is EXP-001's; how many edges an arc gets is EXP-001's line 5 for input, inhibitor and read arcs and EXP-013's for output and reset arcs (this block asks for at least one edge per arc and reads no count)."
           "The test derivation (all five arc types, each with a distinct rendering) is EXP_004_nonvacuous on the reference: a transition with two input arcs (one correlated), an Xor output with a Place leaf and a ForwardInput leaf below a Timeout, an inhibitor, a read and a reset arc, whose drawn edges are listed with their ends, arc types, rows, dash and labels. Line and arrowhead values, pen widths and the DOT text are kind Q."
-  signoff "2026-11-13 7d63f79419c27b91 ai"
+  signoff "2026-11-13 f2d084ab1cbd747f ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       ((∀ t ∈ X.trans, ∀ s ∈ t.core.inputs, ∃ e ∈ (E cfg X).edges, exp004InputEdge t s e) ∧

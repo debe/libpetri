@@ -1,5 +1,6 @@
 import Libpetri.Spec.Verifier.Scg
 import Libpetri.Spec.Req.VER_011
+import Libpetri.Spec.Text.VER_010
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -116,13 +117,7 @@ requirement VER_010
   kind B
   scope "the timed state class graph builder (StateClassGraph.build), Java, TypeScript and Rust (MAY; the shall sentences bind an implementation that offers it)"
   source verbatim "spec/07-verification.md"
-  quote "In them a timed run of the net starts at an initial marking with every clock at zero, on a net in which no transition's earliest firing time is below zero or above its latest, and follows the Time Petri net semantics: time may pass only as far as no enabled transition goes past its latest firing time, a transition fires no earlier than its earliest firing time and deposits its outputs at the instant it fires, and a clock is kept or restarted by the persistence rule below."
-        "A class holds a state when the class's marking is the state's marking and its firing domain holds every combination of firing times the state allows the class's clocks."
-        "A class is well formed when its clocks are the transitions enabled in its marking and its firing domain has the form letting time pass leaves: the closure of a matrix with a finite reference bound in which every clock's lower bound is zero."
-        "*When* a timed run of the net reaches a state, the state class graph *shall* hold a class, reachable from its initial class, that holds the state."
-        "Every class the state class graph reaches from its initial class *shall* be well formed and *shall* list its clocks once each, in ascending order of transition name compared by Unicode code point ([VER-013])."
-        "*When* a transition can fire with one of its outcomes ([VER-001]) from a state in which no enabled transition is past its latest firing time, and a well-formed class holds that state, the state class graph *shall* give that class a successor, labelled with the transition's name and the outcome's index, that holds the state the firing leaves."
-        "Every successor of a class *shall* be labelled with the name of a transition among the class's clocks and the index of one of that transition's outcomes, and *shall* have the marking that firing the transition with that outcome leaves: each input place less the `consumptionCount(available)` of [IO-007], so an `All` or `AtLeast` input empties its place, each reset place emptied, and the outcome's tokens added."
+  covers VER_010.s1, VER_010.s2, VER_010.s3, VER_010.s4, VER_010.s5, VER_010.s6, VER_010.s7
   reading "For every step G (an initial class per net and initial marking, and the labelled successors of a class) and every net N whose static intervals are well formed (0 ≤ eft ≤ lft for every transition):"
           "for every initial marking m0, G gives N an initial class C0; every class C reachable from C0 along G's successors is well formed (ClsWF: its clocks are the transitions enabled in its marking, and its zone is the closure of a matrix whose clock lower bounds are zero and whose reference entry is finite) and lists its clocks once each in ascending order of the code points of their names (ClocksOrdered); and every state s of every timed run of N from m0 (TReach from s0 m0, every clock at 0: delays that take no enabled transition past its latest bound, firings at or after the earliest bound, clocks kept by persists) lies in a class C reachable from C0 that holds s (InCls: C has s's marking and its zone holds every combination of the possible firing times of C's clocks in s);"
           "for every well-formed class C, every urgent state s that C holds (no enabled clock past its latest bound), and every transition f enabled in s whose clock has reached its earliest bound, with the outcome row d at index i: G gives C a successor labelled (name of f, i) that holds the state the firing leaves (firedState);"
@@ -185,7 +180,7 @@ requirement VER_010_persist
   kind F
   scope "the survival test of the timed state class graph successor (compute_successor), Java, TypeScript and Rust"
   source verbatim "spec/07-verification.md"
-  quote "*When* a transition `t` fires from marking `M` into marking `M'`, the successor step of the state class graph *shall* keep the clock of a transition `t'` enabled in `M` exactly when `t'` is not `t` and is enabled both in `M'` and in the intermediate marking `M - Pre(t)`, which has the inputs of `t` consumed, its reset places drained and none of its outputs deposited."
+  covers VER_010.s8
   reading "For every net N, marking M, fired transition t, outcome row d and transition t' enabled in M, with M' = fireAD M t d (the successor marking) and Mid = inter M t (the intermediate marking: inputs consumed by consumptionCount, reset places drained, nothing deposited): the survival test keeps t' exactly when t' ≠ t, t' is enabled in M' and t' is enabled in Mid."
   assumes "The survival test is abstract (SurvTest): the successor of the graph is succWith (surv N), compute_successor_gated with both gates true (compute_successor in state_class_graph.rs), and the test is read only at the clocks of the class, the transitions enabled in its marking. The witness is refSurv = survives (since 6.0.0); it meets the line by its definition (persistence_rule). Any test that meets the line gives the reference successor on every class whose clocks are enabled in its marking (ver010_succWith_of), so VER_010 holds of the graph built with it. The line is stronger than the sentence in one way: the fired transition and the outcome row are arbitrary, not only an enabled transition and one of its rows."
           "The pre-6.0.0 rule (survivesOld, Rust 5.x and earlier: not the fired transition and enabled after, with no look at the intermediate marking) is killed on the refresh net of the test derivation (VER_010_persist_forbids_old: Retrodict.netRT, where Refresh takes and puts back the timer token that CloseSession waits on). Retrodict.old_rule_loses_run shows what the old rule cost: a timed run whose state no successor of the old graph holds (ver010_old_rule_loses_run)."
@@ -217,8 +212,7 @@ requirement VER_010_key
   kind F
   scope "the canonical clock order and the class key of the timed state class graph, Java, TypeScript and Rust"
   source verbatim "spec/07-verification.md"
-  quote "The canonical order of the state class graph *shall* either keep a list of transitions or return a permutation of its positions, and *shall* leave every list it is given in ascending order of transition name, compared by Unicode code point ([VER-013])."
-        "*If* the transition names of the net are unique, *then* the class key of the state class graph *shall* give two classes, each with the transitions enabled in its marking as clocks, once each in that order, and a canonical firing domain (closed, zero on the diagonal, every clock with a finite lower bound), the same key exactly when they have the same marking and their firing domains hold the same firing times."
+  covers VER_010.s9, VER_010.s10
   reading "For every canonical order co (from a net and a clock list to no reordering or an order of the positions) and every class identity same (from a net and two classes to whether they share a key):"
           "for every net N and every list l of transitions, co N either keeps l or returns a permutation of its positions (CoWF), and l reordered by co N is in ascending order of the code points of the transition names;"
           "for every net N whose transition names are unique and every two classes C, C' whose clocks are the transitions enabled in their marking, listed once each in name order, and whose firing domains are canonical (closed, zero on the diagonal, a finite reference row): same N C C' holds exactly when C and C' have the same marking and their firing domains hold the same valuations."

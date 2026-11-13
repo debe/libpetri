@@ -1,4 +1,5 @@
 import Libpetri.Spec.Req.EVT_004
+import Libpetri.Spec.Text.EVT_005
 
 set_option linter.missingDocs true
 
@@ -53,10 +54,7 @@ requirement EVT_005
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "A transition's clock restart is pending when it is armed, a start of another transition since the last enablement update left it not enabled in that start's intermediate marking ([TIME-012]), and neither the enablement recheck of a firing pass nor a start of its own has disarmed it since."
-        "An enablement update restarts the clock of a transition when it leaves the transition armed with the update's clock reading as its stamp and its clock restart no longer pending."
-        "*When* an enablement update restarts the clock of a transition whose clock restart was pending before the update, the executor *shall* emit, at that update, exactly one TransitionClockRestarted event naming the transition."
-        "The executor *shall* emit a TransitionClockRestarted event naming a transition only at an enablement update before which the transition's clock restart was pending and that restarts the transition's clock."
+  covers EVT_005.s1, EVT_005.s2, EVT_005.s3, EVT_005.s4
   reading "For every executor with events E and every configuration C:"
           "when the transition names of C's net are pairwise distinct, for every history H, an enablement update from state s to state s' that appends the events evs contains, for every name n, exactly one TransitionClockRestarted event naming n if n is a transition of the net whose clock restart is pending in s and whose status in s' is armed at the cycle reading of s' with no restart pending, and none otherwise;"
           "the events a run emits before its first step contain no TransitionClockRestarted event, whatever the initial marking, and for every history H a step whose label is not the enablement update appends no TransitionClockRestarted event."

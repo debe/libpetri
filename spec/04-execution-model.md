@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ch04.lean and the requirement texts it lists, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # 04 — Execution Model
 
 This document specifies the orchestrator loop, scheduling, token consumption, output validation, failure handling, and quiescence detection.

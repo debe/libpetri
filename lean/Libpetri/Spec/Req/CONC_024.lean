@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_001
 import Libpetri.Spec.Req.EXEC_002
+import Libpetri.Spec.Text.CONC_024
 
 set_option linter.missingDocs true
 
@@ -78,10 +79,7 @@ requirement CONC_024
   kind F
   scope "the precompiled net of every implementation"
   source verbatim "spec/05-concurrency.md"
-  quote "*When* a net is precompiled, the timing arrays *shall* hold, for each transition, the `earliest()` of its timing in the array's unit and the `hasDeadline()` of its timing ([TIME-001])."
-        "*When* a net is precompiled, the timing arrays *shall* hold, for each transition whose timing's `hasDeadline()` is true, the `latest()` of its timing in the array's unit."
-        "*When* a net is precompiled, `allImmediate` *shall* be true exactly when every transition of the net has the timing `Immediate`."
-        "*When* a net is precompiled, `anyDeadlines` *shall* be true exactly when some transition of the net has a timing whose `hasDeadline()` is true."
+  covers CONC_024.s1, CONC_024.s2, CONC_024.s3, CONC_024.s4
   reading "For every timing contract K (the accessors of TIME-001) and every net of n transitions whose timings, by transition id, are tm:"
           "for every transition id i below n, the earliest entry is K's earliest() of tm i (in K's unit, milliseconds) and the deadline flag is K's hasDeadline() of tm i;"
           "for every transition id i below n with K's hasDeadline() of tm i true, the latest entry is K's latest() of tm i (in K's unit);"

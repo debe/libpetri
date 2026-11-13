@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
+import Libpetri.Spec.Text.EVT_012
 
 set_option linter.missingDocs true
 
@@ -50,9 +51,7 @@ requirement EVT_012
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "Emitted when a token is removed from a place (consumed by input arc or cleared by reset arc)."
-        "*When* a transition starts, the executor *shall* emit, for each place, one TokenRemoved event naming that place for each token the start removes from it, whether an input arc consumes the token or a reset arc drains it."
-        "The executor *shall* emit TokenRemoved events only when a transition starts."
+  covers EVT_012.s1, EVT_012.s2, EVT_012.s3
   reading "For every executor with events E and every configuration C:"
           "for every history H of the events emitted before the step, a start step of a name n, from state s to state s', that appends the events evs leaves, for every place p, the number of TokenRemoved events in evs naming p plus the length of p's queue in s' equal to the length of p's queue in s;"
           "the events a run emits before its first step contain no TokenRemoved event, whatever the initial marking, and for every history H a step whose label is not a start appends no TokenRemoved event."
@@ -96,7 +95,7 @@ requirement EVT_012_payload
   kind B
   scope "Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled); places without a correlated input of a match specification (NU-020)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the TokenRemoved event carries the token (Java and TypeScript; Rust and Python when the event store captures tokens), the TokenRemoved events of a start *shall* carry, for each place, the tokens the start removes from it in the order they stood in the place's queue, and, where no correlated input of a match specification takes them ([NU-020]), these tokens followed by the tokens the place keeps *shall* be the place's queue before the start."
+  covers EVT_012.s4
   reading "For every executor with events E, every configuration C and every history H: a start step of a name n, from state s to state s', that appends the events evs leaves, for every place p, the tokens of the TokenRemoved events in evs naming p, in event order, followed by p's queue in s', equal to p's queue in s."
   assumes "This is the second block of EVT-012 (rulings D33 (a) and D38 (a)): the token payload, for the executors whose TokenRemoved event carries the token. The first block, EVT_012, states the count and the emission point for every executor; this block adds which tokens and in which order. Java and TypeScript events always carry the token (fireTransition in BitmapNetExecutor.java and bitmap-net-executor.ts). Rust and Python carry it only when the event store captures tokens (the debug-aware stores and a Python store with capture on set CAPTURES_TOKENS; rust/libpetri-debug/src/debug_aware_event_store.rs, rust/libpetri-py/src/events.rs); otherwise the event carries no token and only the first block applies."
           "The model is an executor with events E : EvExec N T, as in the first block; the witness is refEvExec polJT. The line is the quoted sentence: per place, the tokens of the TokenRemoved events naming it, in emission order, followed by what the place holds after the start, are its queue before the start, so the reported tokens are the oldest of the queue, oldest first, and exactly the removed ones. The count line of the first block follows from it (evt012_of_payload). An executor that reports the right number of tokens per place but newest first meets the first block and breaks this line (EVT_012_payload_mutant_reversed)."

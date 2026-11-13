@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_036
 
 set_option linter.missingDocs true
 
@@ -39,17 +40,8 @@ requirement CORE_036
   kind B
   scope "all executors; the outcome line with output validation enabled (CONC-026, the default)"
   source verbatim "spec/01-core-model.md"
-  quote "*While* an input place of the transition holds fewer tokens than the required count of its input arc, the transition *shall not* fire."
-        "*While* a read place of the transition is unmarked, the transition *shall not* fire."
-        "*While* an inhibitor place of the transition is marked, the transition *shall not* fire."
-        "*While* the transition has no match specification ([NU-020]) and is enabled, it *shall* be able to fire, whatever its output places and reset places hold."
-        "*When* the transition fires, each input place that is not a reset place *shall* lose the consumption count of its input arc, and gain what the firing deposits there."
-        "*When* the transition fires, each place that is neither an input place nor a reset place *shall* lose no tokens, and gain what the firing deposits there."
-        "*When* the transition fires, each reset place *shall* end holding exactly what the firing deposited there."
-        "*When* the transition fires and the firing ends with its action, on an executor with output validation enabled ([CONC-026], the default), the places in which it deposits *shall* be exactly the places of one output branch of its output spec, each receiving one or more tokens."
-        "*When* the transition fires and the firing ends with the timeout outcome, it *shall* deposit in every place as many tokens as the timeout outcome puts there ([IO-013], [IO-014])."
-        "Deposits are compared per place: the order in which a firing deposits its tokens is not normative, and two deposits that put the same number of tokens in every place are the same deposit."
-        "As in [CORE-022], the transitions these sentences describe are transitions that build: a definition that building rejects is not a transition of any net and never fires."
+  covers CORE_036.s1, CORE_036.s2, CORE_036.s3, CORE_036.s4, CORE_036.s5, CORE_036.s6, CORE_036.s7,
+        CORE_036.s8, CORE_036.s9, CORE_036.s10, CORE_036.s11
   reading "For every transition t:"
           "t does not fire from a marking in which an input place p holds fewer tokens than the required count c of its input arc;"
           "t does not fire from a marking in which a read place p is unmarked;"

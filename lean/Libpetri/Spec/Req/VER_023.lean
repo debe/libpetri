@@ -1,5 +1,6 @@
 import Libpetri.Spec.Verifier.Result
 import Libpetri.Spec.Verifier.Scg
+import Libpetri.Spec.Text.VER_023
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -130,17 +131,8 @@ requirement VER_023
   kind B
   scope "the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the check)"
   source verbatim "spec/07-verification.md"
-  quote "The verifier *shall* run the timed check exactly when the option is on, the verdict is `Violated`, some transition of the verified net is not `immediate`, no environment place is still registered on the verified net (the `Arrivals` rewrite of [VER-006] removes them), the net declares no match transition, and the route that decided is not Route B ([VER-012])."
-        "*If* the build of the timed graph is stopped by the total budget or cancelled ([VER-013]), *then* the timed check *shall* answer `TIMED_UNDECIDED`."
-        "*While* the build is neither stopped by the total budget nor cancelled, the timed check *shall* answer `TIMED_CONFIRMED` when a counted class of the timed graph violates the property, a counted class being any stored class for a safety property and a class the builder expanded for a quiescence property."
-        "*When* the timed graph is closed and no class of it violates the property, the timed check *shall* answer `SPURIOUS_UNDER_TIMING`."
-        "*When* the timed graph is truncated at the class budget and no counted class of it violates the property, the timed check *shall* answer `TIMED_UNDECIDED`."
-        "*When* the timed check answers `TIMED_CONFIRMED`, the path it reports *shall* lead, in the timed graph it built, from the initial class to the first class, in the order the builder stored the classes, that is counted and violates the property, and *shall* be no longer than any other path of that graph from the initial class to that class."
-        "*If* the timed check does not run, *then* the verifier *shall* leave the result unchanged, its `counterexampleTiming` at the value [VER-003] gives it."
-        "*When* the timed check runs, the verifier *shall* leave the verdict, the route and the reported P-invariants unchanged."
-        "*When* the timed check answers `TIMED_CONFIRMED`, the verifier *shall* report `counterexampleTiming` `TIMED_CONFIRMED`, replace the counterexample's transitions by those of the path the check reports, and report `counterexampleConfirmed` as `true`."
-        "*When* the timed check answers `SPURIOUS_UNDER_TIMING`, the verifier *shall* report it as `counterexampleTiming` and keep the counterexample's transitions and `counterexampleConfirmed`."
-        "*When* the timed check answers `TIMED_UNDECIDED`, the verifier *shall* report it as `counterexampleTiming` and keep the counterexample's transitions and `counterexampleConfirmed`."
+  covers VER_023.s1, VER_023.s2, VER_023.s3, VER_023.s4, VER_023.s5, VER_023.s6, VER_023.s7,
+        VER_023.s8, VER_023.s9, VER_023.s10, VER_023.s11
   reading "The gate A runs the check on an input with option on, verdict v, route r, timed net X, match flag hasMatch and environment places env still registered on X (none after the Arrivals rewrite of VER-006) exactly when on is true, v is Violated, some transition of X is not immediate (not Untimed X), env is empty, hasMatch is false and r is not the ν route (Route B)."
           "For every explorer E, class budget n, stop oracle cut, fuel, initial class x0 and property p, with o the build of the graph layer's loop at E with no early stop: if o was stopped, Θ answers TIMED_UNDECIDED;"
           "if o was not stopped and some class of o violates p under the shared predicate Decide.violatesAt (any stored class for a safety property, an expanded class whose successors are all reapable for a quiescence property), Θ answers TIMED_CONFIRMED with some path;"
@@ -878,9 +870,7 @@ requirement VER_023_graph
   kind B
   scope "the timed state-class graph the timed check builds, all implementations (SHOULD; the shall sentences bind an implementation that offers the check)"
   source verbatim "spec/07-verification.md"
-  quote "*While* every finite bound of the net is a whole number of milliseconds, a class of the timed graph *shall* have no successor exactly when its marking enables no transition."
-        "*When* the timed graph is closed and no class of it violates a safety property, the property *shall* hold on every marking that an on-time run with atomic firings reaches from the initial marking."
-        "*When* the timed graph is closed and no class of it violates a quiescence property, the property *shall* hold on every resting marking that an on-time run with atomic firings reaches from the initial marking, a marking resting when every transition it enables is reapable ([VER-002], [TIME-013]), which under `assumeNoReaping` means when it enables none."
+  covers VER_023.s12, VER_023.s13, VER_023.s14
   reading "For every flat timed net N whose intervals are well formed (0 ≤ earliest ≤ latest) and whose every transition has an outcome row, every emptiness tolerance eps that is exact for N (eps = 0, or below the grid step of N's bounds), every initial marking m0 with initial class C0 (initCls in canonical name order) and every class C that σ reaches from C0: σ gives C no successor exactly when no transition of N is enabled in C's marking."
           "For every flat timed net N with well-formed intervals, eps ≥ 0, initial marking m0 with initial class C0, class budget n, stop oracle cut, fuel and marking predicate b: if the build of the graph layer's loop at σ's class-key explorer is closed, not stopped, and no class of it has a marking b holds of, then b holds of no marking a run of the timed semantics TStep reaches from m0."
           "For the same data and a reapable set r over transition names: if that build is closed, not stopped, and no expanded class whose successors are all labelled by reapable transitions has a marking b holds of, then b holds of no marking that a run of TStep reaches from m0 and in which every enabled transition is reapable (with r empty: no transition is enabled)."

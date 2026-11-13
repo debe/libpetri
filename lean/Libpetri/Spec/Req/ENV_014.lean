@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Reference.Snapshot
+import Libpetri.Spec.Text.ENV_014
 
 set_option linter.missingDocs true
 
@@ -41,19 +42,8 @@ requirement ENV_014
   kind B
   scope "all executors"
   source verbatim "spec/06-environment-places.md"
-  quote "The executor exposes a `snapshot()` operation that returns a point-in-time copy of the current marking **without affecting lifecycle** — unlike `drain()` ([ENV-011]) and `close()` ([ENV-013]), it neither stops nor pauses execution."
-        "**Work in flight** means either of two things: an **action** that has started and not completed, or an **external event the executor has accepted but not yet injected** ([ENV-003], [ENV-004])."
-        "Consequently a snapshot offered as a restore point for [CORE-073] MUST be taken at a moment when no work is in flight — no action, and no accepted external event still awaiting injection."
-        "A firing therefore counts as in flight **from the moment its inputs are consumed** — not from the moment its action first suspends — so the window covers the action's synchronous prefix and any event-store callback the firing triggers, and the indication MUST report work in flight throughout it."
-        "**The answer and its two readings.** An answer to `snapshot()` is either a rejection or a marking, and a marking either reports a restore point (no work in flight) or reports work in flight."
-        "A refusal of a restore-point snapshot while work is in flight reports work in flight; the rejection is reserved, while the run lasts, for an executor that has been drained, closed or terminated."
-        "An answer that reports a restore point describes the instant at which the executor captured it."
-        "An answer to a request the orchestrator could not serve reports work in flight and may describe an earlier instant of the same run, while a parked executor still answers with the current marking (AC9)."
-        "*When* the executor answers a `snapshot()` request, it *shall* leave its whole state as it was, among it the marking, the lifecycle, the firings in flight, the queued completions, publications and external events, the clocks of the transitions, and the orchestrator's place in its cycle, a wait it is parked in included ([CORE-071])."
-        "*If* the executor has been drained or closed ([ENV-011], [ENV-013]), or terminated immediately ([ENV-015]), *then* it *shall* reject a `snapshot()` request."
-        "*While* the executor is running and has been neither drained, closed nor terminated, it *shall not* reject a `snapshot()` request."
-        "*If* a firing is in flight at the instant the executor captures the marking for a `snapshot()` answer, counted from the moment its inputs are consumed until the executor has processed its completion and deposited every token its action published ([IO-015]), *then* the executor *shall not* report that answer as a restore point."
-        "*If* an external event that the executor accepted before a `snapshot()` request is still queued for injection at the instant the executor captures the marking for that request's answer, *then* the executor *shall not* report that answer as a restore point."
+  covers ENV_014.s1, ENV_014.s2, ENV_014.s3, ENV_014.s4, ENV_014.s5, ENV_014.s6, ENV_014.s7,
+        ENV_014.s8, ENV_014.s9, ENV_014.s10, ENV_014.s11, ENV_014.s12, ENV_014.s13
   reading "For every executor R and every configuration C:"
           "for every answer a, a snapshot step answered a ends in the state it starts from;"
           "for every answer a, a snapshot step answered a from a state whose mode is not open (draining, closed or stopped) answers none;"

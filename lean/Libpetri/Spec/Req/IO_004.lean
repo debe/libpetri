@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_004
 
 set_option linter.missingDocs true
 
@@ -31,10 +32,7 @@ requirement IO_004
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "*While* the input place of an `AtLeast(place, minimum)` input arc holds fewer than `minimum` tokens, the transition *shall not* fire."
-        "*While* the input place of an `AtLeast(place, minimum)` input arc holds at least `minimum` tokens and is not a correlated input of the transition's match specification ([NU-020]), the input arc *shall not* affect whether the transition can fire."
-        "*When* a transition with an `AtLeast(place, minimum)` input arc fires, it *shall* consume every token the input place holds, unless the input place is a correlated input of its match specification ([NU-020])."
-        "*When* a transition with an `AtLeast(place, minimum)` input arc fires, and the input place is neither an output place nor a correlated input of the match specification of the transition, the input place *shall* end the firing empty."
+  covers IO_004.s1, IO_004.s2, IO_004.s3, IO_004.s4
   reading "For every transition t, place p and number n such that the input arc of t on p is AtLeast(p, n):"
           "t does not fire from a marking in which p holds fewer than n tokens;"
           "from a marking m in which p holds at least n tokens, t can fire from m exactly when t without its input arc on p can fire from m;"
@@ -448,7 +446,7 @@ requirement IO_004_build
   kind F
   scope "all transition builders"
   source verbatim "spec/02-input-output-specs.md"
-  quote "Construction with minimum < 1 is rejected (error or panic), also when building a transition from a spec written out without the constructor, as for [IO-002]."
+  covers IO_004.s5
   reading "For the transition builder Build (Build t = none: t builds; Build t = some msg: building t fails with msg):"
           "every transition t one of whose input arcs is AtLeast(0) fails to build."
   assumes "Build is the transition builder read as the message it rejects a transition with (none: the transition builds), as in IO-011, IO-013, EXEC-012 and IO_002_build; the witness is the reference builder refBuild (glossary: Build-time checks), whose count check (InputCountsPositive, stand-in message msgCount) rejects an input arc that requires fewer than one token. The cardinality of the model (Card) is a value written out directly, so a transition carrying AtLeast(0) is the spec written out without the constructor. The minimum ranges over the naturals, so minimum < 1 is minimum = 0."

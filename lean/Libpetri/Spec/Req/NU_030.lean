@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.Nu
 import Libpetri.Reference.NuMint
 import Libpetri.Reference.ComposeBind
+import Libpetri.Spec.Text.NU_030
 
 set_option linter.missingDocs true
 
@@ -86,11 +87,7 @@ requirement NU_030
   kind F
   scope "every rebuild of a transition through a place rewrite, such as prefix renaming, port binding, place fusion and the identity rewrite of action binding; the channel merge of two transitions (MOD-021) is not such a rebuild"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a transition is rebuilt through a place rewrite (such as prefix renaming [MOD-010], port binding [MOD-020], place fusion [MOD-061], or the identity rewrite of action binding [CORE-042]), the set of input places of the rebuilt transition *shall* be the image under the rewrite of the set of input places of the original transition."
-        "*When* a transition is rebuilt through a place rewrite, the set of places of the output specification of the rebuilt transition *shall* be the image under the rewrite of the set of places of the output specification of the original transition."
-        "*When* a transition that carries a match specification is rebuilt through a place rewrite, the rebuilt transition *shall* carry a match specification whose correlated places and relay targets ([NU-054]) are the images under the same rewrite of the original ones, in the same order, each with the key projection it had."
-        "*When* a transition that carries no match specification is rebuilt through a place rewrite, the rebuilt transition *shall* carry no match specification."
-        "*When* a transition is rebuilt through a place rewrite, the name of the rebuilt transition *shall* be the original name with the instance prefix under prefix renaming ([MOD-010]) and the original name under every other rebuild."
+  covers NU_030.s1, NU_030.s2, NU_030.s3, NU_030.s4, NU_030.s5
   reading "For every ν rebuild Rw (a place rewrite σ and a name map g take a transition definition with an optional match specification to the rebuilt definition), every σ, every g and every definition d:"
           "a place is an input place of the rebuilt definition exactly when it is σ of an input place of d;"
           "a place is a place of the output specification of the rebuilt definition exactly when it is σ of a place of the output specification of d;"

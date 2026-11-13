@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Spec.GlossaryBuild
+import Libpetri.Spec.Text.EXEC_042
 
 set_option linter.missingDocs true
 
@@ -41,29 +42,10 @@ requirement EXEC_042
   kind B
   scope "all executors, for a net that declares terminal places (SHOULD)"
   source verbatim "spec/04-execution-model.md"
-  quote "A net MAY declare **terminal places** (`terminal(place)` on the net builder)."
-        "A terminal place states, in the model, that the run is over once the place holds a token."
-        "The executor ends the run at that point."
-        "on the initial marking, before the first cycle;"
-        "after every token it deposits, from an action's completion, a mid-action publication ([IO-015]), an external injection, or a synchronous action's output within the firing pass ([EXEC-001])."
-        "Once a deposit marks a terminal place, **no transition starts afterwards**."
-        "That includes a transition that was already enabled later in the same firing pass."
-        "The deposit that marks the terminal place completes atomically: all the tokens of that completion's outcome, or of that published batch, are deposited."
-        "*While* a terminal place holds a token, the executor *shall not* take any step of its loop other than ending the run with the termination reason `terminal`: it starts no transition and processes no completion, publication or external event."
-        "*When* the executor deposits the outcome of a completion (its returned emission or its timeout outcome) or a published batch ([IO-015]) and one of its tokens marks a terminal place, it *shall* deposit all of that outcome or batch before the run ends."
-        "Actions still in flight are abandoned. Their late results are discarded and never deposited, as in [ENV-015]."
-        "Completions and external events still queued behind the deposit are not admitted. A queued external event is refused ([ENV-004]), exactly as after [ENV-013]."
-        "The run ends with the termination reason `terminal` ([EXEC-041]), a completed reason."
-        "The reason `terminal` takes precedence: while a terminal place holds a token, the run does not end `quiescent`, `closed` or `stopped` ([EXEC-041]); a caller whose run budget expired earlier may still have been told `stopped` ([ENV-016])."
-        "A firing whose mid-action publication ([IO-015]) marked the terminal place is still running: it is abandoned like any other action in flight."
-        "A snapshot taken afterwards ([ENV-014]) still reports abandoned work as work in flight."
-        "Answering a snapshot request changes nothing and is not a step of the loop; [ENV-014] states the answer."
-        "*If* no terminal place holds a token, *then* the executor *shall not* end the run with the termination reason `terminal`."
-        "*When* a terminal place holds a token, the executor *shall* end the run with the termination reason `terminal` without waiting for the actions still in flight."
-        "*When* the executor ends the run on a terminal place, it *shall* return the marking it holds at that point and *shall not* restore the tokens that abandoned firings consumed."
-        "*When* the executor ends the run on a terminal place, it *shall* keep every firing still in flight as abandoned work in flight and *shall* refuse every external event still queued ([ENV-004])."
-        "A terminal place MAY be an environment place: injecting into it ends the run."
-        "*When* the executor injects an external event into a terminal place, it *shall* deposit the event's token there, which ends the run."
+  covers EXEC_042.s1, EXEC_042.s2, EXEC_042.s3, EXEC_042.s4, EXEC_042.s5, EXEC_042.s6, EXEC_042.s7,
+        EXEC_042.s8, EXEC_042.s9, EXEC_042.s10, EXEC_042.s11, EXEC_042.s12, EXEC_042.s13,
+        EXEC_042.s14, EXEC_042.s15, EXEC_042.s16, EXEC_042.s17, EXEC_042.s18, EXEC_042.s19,
+        EXEC_042.s20, EXEC_042.s21, EXEC_042.s23, EXEC_042.s24
   reading "For every executor R and every configuration C, where a state is live when none of the terminal places of C holds a token:"
           "while the state is not live, R takes no executor step (a step that is not an outside step) other than finish terminal, except an answer to a snapshot request that leaves the state as it is;"
           "a commit or tdeposit step of a firing i whose target state is not live deposits exactly the whole outcome e the firing ended with (its returned emission, or its timeout outcome), each token at the tail of its place;"
@@ -893,9 +875,7 @@ requirement EXEC_042_build
   kind F
   scope "the net builder of every implementation, used without composition and without fusion sets"
   source verbatim "spec/04-execution-model.md"
-  quote "A terminal place MUST NOT be an input or a read-arc place of any transition: such a transition could never fire, so the net is rejected when it is built."
-        "*If* a declared terminal place is an input place or a read-arc place of a transition of the net, *then* building the net *shall* fail."
-        "*When* a net is built without composition and without fusion sets and no declared terminal place is an input place or a read-arc place of one of its transitions, building it *shall* succeed, and the built net's terminal places *shall* be exactly the declared ones."
+  covers EXEC_042.s22, EXEC_042.s25, EXEC_042.s26
   reading "For every transition builder B, every net builder NB over its instances, and every input inp (declared places, added transitions, declared terminal places):"
           "if a declared terminal place of inp is an input place or a read place of one of its added transitions, NB rejects inp;"
           "if none is, NB returns a net;"

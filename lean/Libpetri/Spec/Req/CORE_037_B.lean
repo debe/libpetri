@@ -4,6 +4,7 @@ import Libpetri.Reference.Events
 import Libpetri.Spec.Req.CORE_037
 import Libpetri.Spec.Req.EVT_013
 import Libpetri.Spec.Req.VER_006
+import Libpetri.Spec.Text.CORE_037
 
 set_option linter.missingDocs true
 
@@ -101,9 +102,7 @@ requirement CORE_037_events
   kind B
   scope "every executor backend with its event store enabled (SHOULD; the shall sentences bind an executor that reports dead arcs); for Java, on a net and initial marking where no two places share a name with different token types ([MOD-024])"
   source verbatim "spec/01-core-model.md"
-  quote "*Where* an executor reports dead arcs, the events that carry the warning text of an arc of the net (its dead-arc events) and that it emits before `ExecutionStarted` *shall* be, in report order, one `WARN` log-message event per entry of the dead-arc report for its net, its environment places and its initial marking, each carrying the name of the transition that declares the arc and the warning text of that arc."
-        "*Where* an executor reports dead arcs, it *shall not* emit a dead-arc event as an engine diagnostic after `ExecutionStarted`."
-        "*Where* an executor reports dead arcs, its other events and its steps *shall* be those of the same executor that does not report dead arcs, as if its dead-arc events had never been emitted."
+  covers CORE_037.s4, CORE_037.s5, CORE_037.s6
   reading "For every pair of executors with events E (the executor that reports dead arcs) and E0 (the same executor that does not report dead arcs), every token type T and every configuration C, with places named by strings:"
           "for every initial marking M0, the boot events of E for C and M0 that are dead-arc events (a log message whose text is refDeadArcMsg of a read, inhibitor or reset arc of C's net) are exactly, in order, one WARN log message per entry a of refDeadArcs for C's net, C's environment places and the token counts of M0, named a.transition, with the text refDeadArcMsg a;"
           "for every initial marking M0, no boot event of E for C and M0 that follows an ExecutionStarted is a dead-arc event;"
@@ -138,8 +137,7 @@ requirement CORE_037_verifier
   kind B
   scope "the SMT verifier, all implementations (SHOULD; the shall sentences bind a verifier that reports dead arcs)"
   source verbatim "spec/01-core-model.md"
-  quote "*Where* the SMT verifier reports dead arcs, the lines of a verification's report that are `WARNING: ` followed by the warning text of an arc of the net (its dead-arc lines) *shall* be, in report order, one line per entry of the dead-arc report for the net as the caller passed it, the verification's initial marking and its environment places, each `WARNING: ` followed by the warning text of that arc."
-        "*Where* the SMT verifier reports dead arcs, its report with the dead-arc lines and the blank line after them left out *shall* be the report of the same verifier that does not report dead arcs, and every other field of its result except the elapsed time *shall* be as it is in that verifier."
+  covers CORE_037.s7, CORE_037.s8
   reading "For every pair of environment-aware verifiers D (the verifier that reports dead arcs) and D0 (the same verifier that does not report dead arcs), on nets whose places are their names, and for every environment mode, environment places envs, options o, net X, property φ and initial marking m0:"
           "the notes of D's result that are dead-arc lines (WARNING: followed by refDeadArcMsg of a read, inhibitor or reset arc of X's net) are exactly, in order, one line per entry a of refDeadArcs for X's net as the caller passed it, envs and the counts of m0, the line being WARNING: followed by refDeadArcMsg a;"
           "D's result with the dead-arc lines left out of its notes (core037bStrip) is D0's result: the same verdict, route, trace, counterexampleConfirmed, counterexampleTiming, invariants and other notes."

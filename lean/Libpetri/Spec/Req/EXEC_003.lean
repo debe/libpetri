@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.EXEC_003
 
 set_option linter.missingDocs true
 
@@ -38,19 +39,8 @@ requirement EXEC_003
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "When multiple transitions compete for the same input tokens, the highest-priority ready transition fires first and consumes the tokens."
-        "Lower-priority transitions become disabled if their inputs are no longer satisfied."
-        "A firing pass takes the transitions of its ready order ([EXEC-002]) one at a time from the front: it starts the next transition, or it drops it and goes on with the rest."
-        "The pass-visible marking is the marking a firing pass began with, minus the tokens earlier firings of the same pass consumed or drained; tokens a synchronous action deposited during the pass are not part of it."
-        "*When* a firing pass starts or drops a transition, the transition *shall* be the next one of the pass's ready order, and it *shall* leave that order."
-        "*When* a firing pass starts a transition, the transition *shall* hold a clock and be enabled on the pass-visible marking, with input counts, read arcs and inhibitor arcs all judged on that marking."
-        "*If* the next transition of a firing pass's ready order holds a clock and is enabled on the pass-visible marking, *then* the executor *shall not* drop it."
-        "*When* a firing pass drops a transition, the transition *shall* lose its clock ([TIME-012]), and the marking *shall* stay unchanged."
-        "*While* a firing pass is under way, its ready order *shall* change only when the pass starts or drops a transition."
-        "*When* a firing pass ends, its ready order *shall* be empty, so a transition of the order that does not hold a clock or is not enabled on the pass-visible marking when it is next is dropped, loses its clock and does not start in that pass."
-        "*When* a transition starts in a firing pass, it *shall* consume, drain and hand its action only tokens of the pass-visible marking, so a token a synchronous action deposited earlier in the same pass survives its `all()`, `atLeast(n)` and reset arcs and does not reach its action."
-        "*While* a firing pass is under way, the executor *shall* change the pass-visible marking only by starting a transition, and *shall* keep every token deposited earlier in the pass, so a token a synchronous action deposits in the pass does not become part of the pass-visible marking."
-        "*When* a firing pass begins, the executor *shall* keep the marking, and every token of the marking *shall* be part of the pass-visible marking of the new pass."
+  covers EXEC_003.s1, EXEC_003.s2, EXEC_003.s3, EXEC_003.s4, EXEC_003.s5, EXEC_003.s6, EXEC_003.s7,
+        EXEC_003.s8, EXEC_003.s9, EXEC_003.s10, EXEC_003.s11, EXEC_003.s12, EXEC_003.s13
   reading "For every executor R and every configuration C:"
           "a start step of the name n starts the head t of the pass's order, named n, holding a clock and enabled on the pass-visible marking (input counts, read arcs and inhibitor arcs), and removes it from the order;"
           "a start step of t leaves in every place p the pass-visible queue of p with t's consumption and drains applied, followed by the tail of p deposited inside the pass, keeps that tail hidden, and every firing it adds is handed what t takes from the pass-visible marking;"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Reference.Archive
 import Libpetri.Reference.Snapshot
+import Libpetri.Spec.Text.EVT_025
 
 set_option linter.missingDocs true
 
@@ -54,13 +55,7 @@ requirement EVT_025
   kind F
   scope "where an implementation provides session archives: the Java, TypeScript and Rust SessionArchiveWriter and SessionArchiveReader, and Python's, which run Rust's"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* an implementation provides session archives, *when* its reader reads a well-formed archive of header version 1, 2 or 3 in its own implementation's format (one whose `eventCount` and metadata are those of its body, as its writer writes them), the reader *shall* return the header variant of that version (`V1`, `V2` or `V3`)."
-        "*Where* an implementation provides session archives, *if* its reader reads an archive in its own implementation's format whose header version is not 1, 2 or 3, *then* the reader *shall* reject the archive with the error `Unsupported archive version: <version> (reader supports 1..3)`, which names the version it found and the supported range."
-        "*Where* an implementation provides session archives, *when* its reader accepts a well-formed archive in its own implementation's format, it *shall* return the header's `eventCount` unchanged, the header's session fields and metadata as written, and one event for each record of the body, in body order."
-        "*Where* an implementation provides session archives, *when* its writer writes an archive of a session for header version 1, 2 or 3 (`writeV1`, `writeV2`, or `write` for version 3), the header *shall* carry that version and the session's own header fields."
-        "*Where* an implementation provides session archives, *when* its writer writes an archive, the writer *shall* take one snapshot of the event store, the header's `eventCount` *shall* be the number of events in that snapshot, a V1 header *shall* carry no metadata, the V2 and V3 metadata *shall* be computed from that snapshot, and the body *shall* hold one record for each event of that snapshot, in the order of the snapshot."
-        "*Where* an implementation provides session archives, two archives its writer writes for the same header version from identical run data *shall* be identical."
-        "*Where* an implementation provides session archives, its writer *shall* write an archive of any session for each of the header versions 1, 2 and 3 (`writeV1`, `writeV2`, and `write` for version 3), whatever the session's event store holds."
+  covers EVT_025.s1, EVT_025.s2, EVT_025.s3, EVT_025.s4, EVT_025.s5, EVT_025.s6, EVT_025.s7
   reading "For every archive codec C (an implementation's writer and reader) over session header fields D and events E, each with its notion of same content (the same JSON value, read as an unordered object):"
           "for every well-formed archive a (its version is that of a variant w, and its eventCount, its metadata and its body come from one list of events l as the writer forms them), the reader returns a result whose variant is the variant of a's version;"
           "for every archive a whose header version v is not 1, 2 or 3, the reader fails with the message Unsupported archive version: v (reader supports 1..3);"

@@ -6,7 +6,7 @@ Theorems carrying this ID:
 
 - `Libpetri.Spec.cites_core071_completion` (theorem, `Libpetri/Spec/Cites.lean:61`)
 - `Libpetri.Spec.cites_core071_ctx` (theorem, `Libpetri/Spec/Cites.lean:50`)
-- `Libpetri.Spec.env014_snapshot_frame` (theorem, `Libpetri/Spec/Req/ENV_014.lean:474`)
+- `Libpetri.Spec.env014_snapshot_frame` (theorem, `Libpetri/Spec/Req/ENV_014.lean:464`)
 
 > **Note:** the full tree has 105 nodes (limit 60), so it is drawn as one diagram per theorem (3 theorems).
 

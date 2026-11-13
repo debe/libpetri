@@ -1,4 +1,5 @@
 import Libpetri.Spec.Req.MOD_006
+import Libpetri.Spec.Text.MOD_005
 
 set_option linter.missingDocs true
 
@@ -37,9 +38,7 @@ requirement MOD_005
   kind B
   scope "every subnet builder"
   source verbatim "spec/11-modular-composition.md"
-  quote "*If* two channels of the interface have the same name, *then* building the subnet definition *shall* fail."
-        "*If* a channel of the interface exposes a transition whose name is not the name of a transition of the built body, *then* building the subnet definition *shall* fail."
-        "*When* the net builder builds the body, the subnet definition builds without its channels, every channel exposes a transition of the built body, no two channels have the same name, and no channel has the name of a port, building the subnet definition with its channels *shall* succeed."
+  covers MOD_005.s1, MOD_005.s2, MOD_005.s3
   reading "For every net builder NB of subnet bodies and every subnet builder SB:"
           "if two channels of S have the same name, SB fails on S;"
           "if NB builds the body of S as the net b and some channel of S names a transition that is not the name of a transition of b, SB fails on S;"

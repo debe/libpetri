@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_034
 
 set_option linter.missingDocs true
 
@@ -30,10 +31,7 @@ requirement CORE_034
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition fires, each of its reset places *shall* lose every token it held before the firing and end the firing holding exactly the tokens the firing deposited there."
-        "A reset arc *shall not* affect whether its transition can fire, whether the reset place is marked or not."
-        "A reset arc *shall not* change what its transition can deposit: from every marking, the transition and the same transition without its reset arcs *shall* be able to make exactly the same deposits, so a reset arc neither adds a deposit nor removes one."
-        "A reset arc *shall not* change the token count of any place other than its own."
+  covers CORE_034.s1, CORE_034.s2, CORE_034.s3, CORE_034.s4
   reading "For every transition t and every reset place p of t, writing t∖p for t without its reset arcs on p:"
           "every firing of t that deposits d leaves p with exactly as many tokens as d puts in p, whatever p held before;"
           "every firing of t∖p from a marking m that deposits d is matched by a firing of t from m whose deposit puts the same number of tokens in every place (a reset arc removes no deposit, and t fires wherever t∖p does);"

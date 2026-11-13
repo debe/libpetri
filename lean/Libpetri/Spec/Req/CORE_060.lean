@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryContext
 import Libpetri.Spec.Req.EXEC_010
+import Libpetri.Spec.Text.CORE_060
 
 set_option linter.missingDocs true
 
@@ -48,11 +49,7 @@ requirement CORE_060
   kind F
   scope "the transition context of every implementation; line 3 and the inputToken part of line 4 only where the context gives access to tokens: Java and TypeScript"
   source verbatim "spec/01-core-model.md"
-  quote "*When* an action calls `inputs(place)` on an input place of its transition, the call *shall* return the values of the tokens the firing consumed from that place, in the order the firing consumed them ([EXEC-010])."
-        "*When* an action calls `input(place)` on an input place from which the firing consumed exactly one token, the call *shall* return the value of that token."
-        "*Where* the transition context gives access to tokens (Java, TypeScript), *when* an action calls `inputToken(place)` on an input place from which the firing consumed exactly one token, the call *shall* return that token, with its creation timestamp."
-        "*If* an action calls `inputs(place)`, `input(place)` or `inputToken(place)` (where it exists) on a place that does not resolve to an input place of its transition ([MOD-031]), *then* the call *shall* report an error ([CORE-063])."
-        "What `input(place)` and `inputToken(place)` return when the firing consumed more than one token from the place is not specified; an action reads a batch with `inputs(place)`."
+  covers CORE_060.s1, CORE_060.s2, CORE_060.s3, CORE_060.s4, CORE_060.s5
   reading "For every value projection value and every context C, every transition t, every delivery δ (the tokens the firing consumed from each input place and the tokens its read arcs read) and every place p:"
           "if p is an input place of t and δ delivered at least one token from p, inputs on t, δ and p returns the values of the tokens δ delivered from p, in the order δ delivered them;"
           "if p is an input place of t and δ delivered exactly one token x from p, input on t, δ and p returns the value of x;"

@@ -1,5 +1,6 @@
 import Libpetri.Spec.Verifier.Bridges
 import Libpetri.Spec.Verifier.Split
+import Libpetri.Spec.Text.VER_004
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -67,10 +68,7 @@ requirement VER_004_timed
   kind A
   scope "the executor's timed runs, as every verifier route reads them (SHOULD; the shall sentences bind an implementation that offers verification)"
   source verbatim "spec/07-verification.md"
-  quote "Each firing the executor takes under its timing *shall* be a firing of a transition of the untimed net, from the same marking to the same marking."
-        "A reap ([TIME-013]) and the passing of time *shall* change no marking."
-        "*Where* the transitions of a net have distinct names, a marking at which a timed run from the initial marking ([TIME-010]) rests, with no transition it enables armed, *shall* be quiescent as [VER-002] reads quiescence by default: every transition it enables is reapable."
-        "*Where* the transitions of a net have distinct names, a marking at which an on-time run from the initial marking ([TIME-010]) rests, one that reaps no transition and lets no armed transition pass its latest bound, *shall* enable no transition."
+  covers VER_004.s2, VER_004.s3, VER_004.s4, VER_004.s5
   reading "For every timed step relation R and firing relation F:"
           "every firing step of R, of transition t with deposit d, fires a transition of the net, and is a firing of t under F from the step's marking to its successor's;"
           "a delay or a reap step of R leaves the marking as it is (FramesMarking R);"
@@ -476,16 +474,8 @@ requirement VER_004_split
   kind F
   scope "the verified-net function of every verifier entry point, before the terminal rewrite of EXEC-042 (SHOULD; the shall sentences bind an implementation that offers verification)"
   source verbatim "spec/07-verification.md"
-  quote "A place is tested non-monotonically when it is a terminal place, when some transition has an inhibitor arc, a reset arc or an `all` or `atLeast` input on it, or when one of the two readings below counts it so."
-        "*If* the property is a `QuiescentCount` with `min > 0` and the net has a terminal place its waiver places do not name, *then* the verifier *shall* count the property's places and its waiver places as tested non-monotonically."
-        "*While* conflict priority applies, the verifier *shall* count the input and read places of every pruning transition, one with strictly higher priority than another transition that shares an input place with it, as tested non-monotonically."
-        "*While* `assumeAtomicFiring` is not set, the verifier *shall* split exactly the transitions that model no environment, are not a completion step (a transition named `complete:<x>` whose one input is `one(inflight:<x>)` and that has no read or reset arc), and either are pruning transitions while conflict priority applies or have an output place, in any branch with the `Timeout` branch included, that is tested non-monotonically."
-        "The verifier *shall* replace each split transition `t`, at its position in the transition order, by `t` with every input, read, inhibitor and reset arc and its timing, whose only output is the place `inflight:<t>`, directly followed by `complete:<t>`, `immediate()`, whose one input is `one(inflight:<t>)`, which has no other arc, and whose output spec is that of `t` with each `forwardInput(from, to)` leaf replaced by the place `to`."
-        "The places of the split net *shall* be the places of the net followed by `inflight:<t>` for each split transition `t` in the transition order, and every transition that is not split *shall* stay as it is."
-        "*If* no transition is to be split, *then* the verifier *shall* verify the net as it is."
-        "*If* a transition to split is a ν-join, writes a coloured place, has a `Timeout` that forwards an input whose cardinality is not `one`, or would add a name the net already uses for a place or a transition, *then* the verifier *shall* refuse the split with a reason that opens with `transition '<t>'` for the first such transition `t` in the transition order, and *shall* answer `Unknown` on every route."
-        "*While* `assumeAtomicFiring` is not set, *if* conflict priority applies, the net has a pruning transition, and a transition the verifier would split under conflict priority cannot be split, *then* the verifier *shall*, instead of refusing the split, turn conflict priority off for that call and split the net as it does without conflict priority."
-        "*While* `assumeAtomicFiring` is set, the verifier *shall* verify the net as it is and *shall* keep conflict priority as it applies."
+  covers VER_004.s6, VER_004.s7, VER_004.s8, VER_004.s9, VER_004.s10, VER_004.s11, VER_004.s12,
+        VER_004.s13, VER_004.s14, VER_004.s15
   reading "For every split S and plan P, every split configuration cfg (terminal, coloured, ν-join and environment data, and the demand: the places counted as tested and the transitions forced), options o and timed net X:"
           "if o sets assumeAtomicFiring, S returns X unchanged with no split transition;"
           "if o does not, and no transition splits under cfg (splits: in net order, every transition that is no completion step and no environment step and is forced or has an output place that is terminal, inhibited, reset, drained or tested by the demand), S returns X unchanged with no split transition;"

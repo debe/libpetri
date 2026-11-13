@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Basic
+import Libpetri.Spec.Text.EXP_006
 
 set_option linter.missingDocs true
 
@@ -45,14 +46,8 @@ requirement EXP_006
   kind F
   scope "every exporter, on the input arcs of a net (the only arcs with a cardinality)"
   source verbatim "spec/09-export.md"
-  quote "Multi-token arcs (Exactly(n), All, AtLeast(m)) display count notation on the arc label:"
-        "Exactly(n): label shows \"×n\""
-        "All: label shows \"*\""
-        "AtLeast(m): label shows \"≥m\""
-        "The export *shall* give an input arc with cardinality `One` no cardinality label."
-        "The export *shall* give an input arc with cardinality `Exactly(n)` the cardinality label `×n`."
-        "The export *shall* give an input arc with cardinality `All` the cardinality label `*`."
-        "The export *shall* give an input arc with cardinality `AtLeast(m)` the cardinality label `≥m`."
+  covers EXP_006.s1, EXP_006.s2, EXP_006.s3, EXP_006.s4, EXP_006.s5, EXP_006.s6, EXP_006.s7,
+        EXP_006.s8
   reading "For the cardinality labeller L of an export (none: no cardinality label):"
           "One has no cardinality label;"
           "for every count n of at least 1, Exactly(n) is labelled ×n;"

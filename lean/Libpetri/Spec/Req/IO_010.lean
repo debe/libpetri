@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_010
 
 set_option linter.missingDocs true
 
@@ -24,11 +25,7 @@ requirement IO_010
   kind B
   scope "executors with output validation enabled (the default)"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`Place(place)` is a leaf node of an output spec that names a single output place."
-        "*When* a transition whose output spec is `Place(place)` fires, it *shall* deposit one or more tokens in `place`."
-        "*When* a transition whose output spec is `Place(place)` fires, it *shall not* deposit a token in any other place."
-        "*When* a transition whose output spec is `Place(place)` fires, the marking the firing leaves *shall* hold in `place` the tokens the firing deposited there, in addition to the tokens `place` kept through the firing."
-        "This requirement applies to an executor with output validation enabled, which is the default ([CONC-026])."
+  covers IO_010.s1, IO_010.s2, IO_010.s3, IO_010.s4, IO_010.s5
   reading "For every transition t whose output spec is the leaf Place(p), and every deposit d:"
           "every firing of t that deposits d puts at least one token in p;"
           "every firing of t that deposits d puts no token in any place other than p;"

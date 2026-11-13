@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ch02.lean and the requirement texts it lists, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # 02 — Input & Output Specifications
 
 This document specifies input cardinality and composite output routing semantics.

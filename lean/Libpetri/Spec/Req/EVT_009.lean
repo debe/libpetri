@@ -6,6 +6,7 @@ import Libpetri.Spec.Req.TIME_cycle
 import Libpetri.Spec.Req.CONC_005_cycle
 import Libpetri.Spec.Req.CONC_001
 import Libpetri.Spec.Req.EXEC_003
+import Libpetri.Spec.Text.EVT_009
 
 set_option linter.missingDocs true
 
@@ -71,9 +72,7 @@ requirement EVT_009
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* the executor reaps a transition ([TIME-013]), it *shall* emit exactly one TransitionTimedOut event naming that transition."
-        "The executor *shall* emit a TransitionTimedOut event only when it reaps a transition, and the event *shall* name the transition it reaps."
-        "Transition names are taken to be pairwise distinct, as in the timing requirements ([TIME-010])."
+  covers EVT_009.s1, EVT_009.s2, EVT_009.s4
   reading "For every executor with events E and every configuration C:"
           "if the transition names of C are pairwise distinct, then for every history H a step from state s to state s' that appends the events evs and leaves a name n reaped that was not reaped in s appends exactly one TransitionTimedOut event naming n;"
           "the events a run emits before its first step contain no TransitionTimedOut event, whatever the initial marking, and for every history H every TransitionTimedOut event a step from s to s' appends names a name that is not reaped in s and is reaped in s'."
@@ -123,7 +122,7 @@ requirement EVT_009_payload
   kind B
   scope "Java and TypeScript executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the TransitionTimedOut event carries the deadline and the elapsed time (Java and TypeScript), the deadline *shall* be the latest bound of the transition, without the deadline tolerance, and the elapsed time *shall* be the transition's elapsed time ([TIME-010]) at the reading of the deadline step that reaps it."
+  covers EVT_009.s3
   reading "For every executor with events E, every configuration C and every history H: every TransitionTimedOut event naming n with deadline d and elapsed time el that a step from state s to state s' appends names a transition u of the net under n, with d the latest bound of u's timing and el the elapsed time of u on the timed view of s at the cycle reading of s'."
   assumes "This is the second block of EVT-009 (rulings D33 (a) and D38 (a)): the deadline and elapsed fields, for the executors whose TransitionTimedOut event carries them. The first block, EVT_009, states when the event is emitted for every executor; this block adds what the two duration fields hold. Java builds the event from t.timing().latest() and the elapsed milliseconds the deadline check compared (enforceDeadlines in java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java and PrecompiledNetExecutor.java), TypeScript from timingLatest(t.timing) and the elapsed time it compared (enforceDeadlines in typescript/src/runtime/bitmap-net-executor.ts and precompiled-net-executor.ts). Rust and Python carry neither field (rust/libpetri-event/src/net_event.rs TransitionTimedOut), so only the first block applies to them."
           "The model is an executor with events E : EvExec N T, as in the first block; the witness is refEvExec polJT. The reading of a step is the cycle reading of its target state: a reap happens only in the deadline step (TIME_013_cycle), which moves the cycle reading to the reading it judges at (viewAt s s'.cyc, ruling D61 (c)), so the elapsed time is the one the deadline step compared with the bound plus the tolerance. The elapsed time is the glossary's Elapsed time, the time since the transition was last newly armed ([TIME-010], ruling D5), not the time since it was first enabled: a clock restart ([TIME-012]) starts it again. An executor whose deadline field adds the tolerance meets the first block and breaks this line (EVT_009_payload_mutant_plusTol), and so does one whose elapsed field is read at the update's reading while the reap is judged at the deadline step's (EVT_009_payload_mutant_updateReading)."

@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNu
+import Libpetri.Spec.Text.NU_022
 
 set_option linter.missingDocs true
 
@@ -36,8 +37,7 @@ requirement NU_022
   kind F
   scope "the match selection of every executor: select_match_name / selectMatchName and every incremental matcher"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* some name is eligible at a matched transition, *then* the selection *shall* return a name."
-        "*When* the selection returns a name, that name *shall* be eligible, and no eligible name *shall* precede it in the order by oldest correlated-token timestamp, then by name order."
+  covers NU_022.s1, NU_022.s2
   reading "For every selection input I and name n: if S returns n on I, then n is eligible on I (the match has a key, and every correlated input holds at least one token of n and at least its required count of them), and for every eligible name m, (oldest stamp of n, n) is at most (oldest stamp of m, m) in the lexicographic order, the oldest stamp being the earliest createdAt over every token of the name in every correlated input."
           "For every selection input I: if some name is eligible on I, then S returns a name on I."
   assumes "The model is one selection function S from the selection input to an optional name, for one name order. The selection input (MatchIn) is what select_match_name reads: per correlated input, in key order, the name and createdAt of every token whose key yields a name, in queue order, and the input's required count (Exactly n: n, AtLeast m: m, One and All: 1). A token whose key yields no name is not in it (ruling D37 (a)). Reading the input off a marking is matchIn (GlossaryNu), and that the firing's chosen name is the selection's answer is the conjunct NuSelectsBy of the consistency theorem; neither is a line here."

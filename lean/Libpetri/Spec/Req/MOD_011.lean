@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeDef
 import Libpetri.Spec.Req.MOD_010
+import Libpetri.Spec.Text.MOD_011
 
 set_option linter.missingDocs true
 
@@ -52,11 +53,7 @@ requirement MOD_011
   kind F
   scope "every module instance (Java, TypeScript, Rust, Python)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* `instantiate` succeeds with prefix `p` and the interface declares a port named `n` that exposes the body place `x`, the instance's port lookup for `n` *shall* return the place `x` renamed under `p`, the place `p/x`."
-        "*When* `instantiate` succeeds with prefix `p` and the interface declares a channel named `n` that exposes the body transition `t`, the instance's channel lookup for `n` *shall* return the renamed transition `p/t`."
-        "*If* the port lookup of an instance is given a name that is not a port of the interface, *then* the lookup *shall* fail."
-        "*If* the channel lookup of an instance is given a name that is not a channel of the interface, *then* the lookup *shall* fail."
-        "*When* `instantiate` succeeds with prefix `p`, the instance's `prefix()` *shall* return `p`."
+  covers MOD_011.s1, MOD_011.s2, MOD_011.s3, MOD_011.s4, MOD_011.s5
   reading "For every naming model Nm (how a prefix renames a place) and every instantiation function Inst, whenever Inst returns an instance I for the subnet definition S under the prefix p:"
           "if the port names of S are distinct, then for every port q of S, I.port q.name is some (Nm.pre p q.place): the place the port exposes, renamed under p;"
           "if the channel names of S are distinct, then for every channel c of S, I.chan c.name is some (p/c.trans): the name of the transition the channel exposes, renamed under p;"
@@ -523,9 +520,7 @@ requirement MOD_011_typed
   kind F
   scope "implementations that keep a run-time token type for each port (Java, Rust)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *when* a port lookup names a port of the interface and requests the token type the port was declared with, the lookup *shall* return the port's renamed place."
-        "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names a port of the interface and requests a token type other than the one the port was declared with, *then* the lookup *shall* fail."
-        "*Where* an implementation keeps a run-time token type for each port (Java, Rust), *if* a port lookup names no port of the interface, *then* the lookup *shall* fail, whatever type it requests."
+  covers MOD_011.s6, MOD_011.s7, MOD_011.s8
   reading "For every reader tyOf of the token type a place handle carries and every typed port lookup PortAs, for every instance I, name n and requested type ty:"
           "if the port handle I.port n gives the place x (the port's renamed place, MOD_011 line 1) and ty is tyOf x, the type x carries (on typedNaming the type the port was declared with, mod011_typed_declared), PortAs I n ty returns x;"
           "if I.port n gives the place x and ty is not tyOf x (on typedNaming a type other than the one the port was declared with), PortAs I n ty fails;"

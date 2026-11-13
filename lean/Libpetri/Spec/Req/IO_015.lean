@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_015
 
 set_option linter.missingDocs true
 
@@ -80,14 +81,7 @@ requirement IO_015
   kind F
   scope "every declared output spec"
   source verbatim "spec/02-input-output-specs.md"
-  quote "An *assignment* selects exactly one child at each `Xor` node it reaches; nodes beneath an unselected `Xor` child are never evaluated."
-        "Claims are compared with the produced set on the places the output spec names."
-        "A token in a place the output spec never names takes no part in validation: a transition context never produces to such a place ([CORE-063]), and a token that bypasses the context is [CORE-072]'s subject, not an [IO-015] violation."
-        "*If* exactly one assignment claims a set *equal* to the produced set, *then* validation *shall* succeed."
-        "*If* no assignment claims a set equal to the produced set, *then* validation *shall* fail, because nothing explains what was written."
-        "*If* two or more assignments claim a set equal to the produced set, *then* validation *shall* fail, because the write is genuinely ambiguous."
-        "For a transition that builds, no two assignments claim the same set ([IO-012]), so on a firing this third case does not arise."
-        "The comparison is over **sets of places**: a spec names places, not counts, so an action that deposits several tokens into one claimed place conforms."
+  covers IO_015.s1, IO_015.s2, IO_015.s3, IO_015.s4, IO_015.s5, IO_015.s6, IO_015.s7, IO_015.s8
   reading "For every declared output spec o and every deposit d, with assignment i of o claiming the i-th entry of Out.branches o, and an assignment exact for d when its claim equals the produced set of d on every place o names (NamedExact):"
           "if some assignment i is exact for d and every assignment that is exact for d is i, validation of d against o succeeds;"
           "if no assignment is exact for d, validation fails;"

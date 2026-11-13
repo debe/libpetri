@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Spec.Req.CORE_073
+import Libpetri.Spec.Text.EVT_014
 
 set_option linter.missingDocs true
 
@@ -63,10 +64,7 @@ requirement EVT_014
   kind B
   scope "every executor (event store enabled); Rust and Python carry token counts rather than tokens (RD-50)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking."
-        "*When* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event."
-        "The marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token."
-        "The marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073])."
+  covers EVT_014.s1, EVT_014.s2, EVT_014.s3, EVT_014.s4
   reading "For every executor with events E over string place names and every configuration C:"
           "for every initial marking M0, the events a run emits before its first step contain a MarkingSnapshot event with an ExecutionStarted event before it, and the snapshot m it carries is canonical (names strictly ascending, no empty queue), restores every declared place to its queue in M0, and lists every place with its queue in M0;"
           "for every history H, a finish step from state s to state s' that appends the events evs contains a MarkingSnapshot event with an ExecutionCompleted event after it, and the snapshot m it carries is canonical, restores every declared place to its queue in s', and lists every place with its queue in s';"

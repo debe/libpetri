@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
+import Libpetri.Spec.Text.EVT_007
 
 set_option linter.missingDocs true
 
@@ -55,9 +56,7 @@ requirement EVT_007
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* the executor deposits an admitted completion ([EXEC-021]), it *shall* emit the TokenAdded events of the deposited tokens followed by exactly one TransitionCompleted event naming the firing's transition, and no other event in that deposit except log messages ([EVT-013])."
-        "The executor *shall* emit TransitionCompleted events only when it deposits an admitted completion or a timeout outcome ([EXEC-022])."
-        "*If* the executor emits a TransitionCompleted event when it deposits a timeout outcome, *then* that event *shall* name the firing's transition and be the only TransitionCompleted event of the deposit and its last event other than log messages."
+  covers EVT_007.s1, EVT_007.s2, EVT_007.s3
   reading "For every executor with events E and every configuration C:"
           "for every history H of the events emitted before the step, a commit step of a firing identity i, from state s to state s', that appends the events evs: if f is the firing with identity i in flight in s, the events of evs that are not log messages are a list of TokenAdded events followed by one TransitionCompleted event naming f's transition;"
           "the events a run emits before its first step contain no TransitionCompleted event, whatever the initial marking, and for every history H a step that is neither a commit step nor a timeout deposit step appends no TransitionCompleted event;"
@@ -132,9 +131,7 @@ requirement EVT_007_payload
   kind B
   scope "Java and TypeScript executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the TransitionCompleted event carries the produced tokens (Java and TypeScript), the TokenAdded events of the deposit of an admitted completion *shall* carry the tokens the action produced at completion in emission order ([EXEC-020]), and the TransitionCompleted event *shall* list the same tokens in the same order."
-        "*Where* the TransitionCompleted event carries the produced tokens (Java and TypeScript), a TransitionCompleted event emitted when the executor deposits a timeout outcome *shall* list the tokens of that timeout outcome."
-        "*Where* the TransitionCompleted event carries the duration of the action (Java and TypeScript), the duration *shall* be at most the firing-clock time from the start of the firing to the moment the executor deposits its outcome ([TIME-015])."
+  covers EVT_007.s4, EVT_007.s5, EVT_007.s6
   reading "For every executor with events E, every configuration C, every history H, every firing identity i and every list of events evs:"
           "a commit step of i from state s to state s' that appends evs, where f is the firing with identity i in flight in s and f's outcome is the returned emission e: the events of evs that are not log messages are the TokenAdded events of e, one per token in emission order, followed by one TransitionCompleted event naming f's transition that lists e, with some duration;"
           "a timeout deposit step of i from s to s' that appends evs, where f is the firing with identity i in flight in s and f's outcome is the timeout outcome e: every TransitionCompleted event in evs lists e;"

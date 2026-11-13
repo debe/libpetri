@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_003
 
 set_option linter.missingDocs true
 
@@ -100,15 +101,8 @@ requirement ENV_003
   kind B
   scope "all executors with environment places"
   source verbatim "spec/06-environment-places.md"
-  quote "The inject operation is safe to call from any thread, task, or coroutine — not just the orchestrator thread."
-        "It enqueues the token for processing on the next orchestrator cycle."
-        "*When* the executor accepts an `inject()` call, it *shall* append the event to the tail of its queue of accepted events, as a new entry under a fresh ticket that identifies the call, and *shall not* change the marking or any other part of its state, except that it moves its ticket supply on and wakes the orchestrator if it is waiting ([ENV-005])."
-        "*When* the orchestrator injects an accepted event, it *shall* take the oldest entry of the queue, *shall* remove that entry from the queue, *shall* add its token at the tail of its place (glossary: Queue order) and *shall not* change any other place."
-        "The executor *shall not* change its queue of accepted events in any other way than appending a newly accepted event, injecting the oldest entry, discarding entries once it is closed ([ENV-013]) or terminated immediately ([ENV-015]), and emptying the queue when the run ends ([EXEC-041]), so that it injects accepted events in the order it accepted them."
-        "*When* the executor discards queued events or the run ends, the executor *shall* only remove entries from its queue of accepted events and *shall* keep the remaining entries in the order it accepted them."
-        "The executor *shall not* move its ticket supply back, so that no two accepted calls share a ticket."
-        "*When* the executor accepts an `inject()` call, the orchestrator *shall* inject its token before the run finishes, unless after accepting it the executor is closed ([ENV-013]), is terminated immediately ([ENV-015]), stops because a terminal place is marked ([EXEC-042]) or ends its run on a cancellation it observes in its wait ([EXEC-041])."
-        "*While* the orchestrator is in the external-events step of a cycle ([EXEC-001] step 2), no terminal place is marked, the executor is neither closed ([ENV-013]) nor terminated immediately ([ENV-015]) and its queue of accepted events is not empty, the orchestrator *shall* inject the oldest entry."
+  covers ENV_003.s1, ENV_003.s2, ENV_003.s3, ENV_003.s4, ENV_003.s5, ENV_003.s6, ENV_003.s7,
+        ENV_003.s8, ENV_003.s9
   reading "For every executor R and every configuration C:"
           "an accepted request of token x into place p leaves the state as it was except that the event queue gains (n, p, x) at its tail, n the ticket supply's value before the step, the supply moves on to n + 1, and the parked flag is cleared;"
           "an injection with ticket k happens only when the event queue starts with an entry (k, p, x): it leaves the rest of the queue and adds x at the tail of place p, every other place unchanged;"

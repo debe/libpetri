@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryCompose
 import Libpetri.Spec.GlossaryContext
 import Libpetri.Spec.Req.CORE_060
 import Libpetri.Spec.Req.CORE_062
+import Libpetri.Spec.Text.MOD_031
 
 set_option linter.missingDocs true
 
@@ -111,13 +112,7 @@ requirement MOD_031
   kind F
   scope "the declared-to-actual place correspondence of every composed transition, through rewrite passes, channel merges and action binding"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* a transition that carries no correspondence goes through a sequence of rewrite passes (instantiation, port binding, fusion) with no channel merge among them, the resulting correspondence *shall* resolve every place that the transition's arcs and output specification named before the passes to the place that the same sequence of place maps sends it to, which is the place that the same arc or output now names, and *shall* resolve every other place to itself."
-        "*When* a rewrite pass rewrites a transition, the places that the transition's input, inhibitor, read and reset arcs and its output specification name, and in particular its input places and its output places, *shall* be the places they named before the pass, each sent through the pass's place map, so that place-set discovery returns the actual composed places."
-        "A transition that carries no correspondence *shall* resolve every place to itself."
-        "*If* the two correspondences that a channel merge joins for one transition resolve one place to two different places, neither of them that place itself, *then* the merge of the two correspondences *shall* fail."
-        "*When* the two correspondences that a channel merge joins for one transition have no such conflict, the merge of the two correspondences *shall* succeed."
-        "*When* a merge of two correspondences succeeds, the merged correspondence *shall* resolve each place to the place the caller side resolves it to when that differs from the place itself, and otherwise to the place the instance side resolves it to."
-        "*When* an action is bound or rebound to a transition, before or after instantiation, the transition's correspondence, arcs and output specification *shall* stay unchanged."
+  covers MOD_031.s1, MOD_031.s2, MOD_031.s3, MOD_031.s4, MOD_031.s5, MOD_031.s6, MOD_031.s7
   reading "For every set of correspondence operations O (a rewrite pass, a lookup, a channel merge, an action binding):"
           "for every transition definition d that carries no correspondence and every sequence of passes ss (each a place map and a name map), every place p that d names resolves, through the correspondence of d after the passes, to the place the passes' place maps send p to, and every place x that d does not name resolves to x;"
           "for every pass (place map σ, name map g) and every d, the passed definition's input places are, as a set, d's input places mapped by σ, and, each kind on its own and in order, its inhibitor places, read places, reset places and output places are d's places of that kind mapped by σ;"
@@ -1537,7 +1532,7 @@ requirement MOD_031_ctx
   kind F
   scope "the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter; not the Rust native context, which hands the correspondence to native actions"
   source verbatim "spec/11-modular-composition.md"
-  quote "*Where* an implementation resolves declared places in its context operations, *when* an action calls `inputs`, `input`, `inputToken`, `read` or the single or bulk `output` with a place, the call *shall* give the result, or report the error, that the same call gives on the same transition without a correspondence for the place that the transition's correspondence resolves the given place to."
+  covers MOD_031.s8
   reading "For every value projection value, every set of correspondence operations O and every family R of transition contexts, one for each correspondence a transition can carry:"
           "for every correspondence c, transition t, delivery δ, output buffer e, place p and list of values vs, the calls inputs, input, inputToken and read on t, δ and p and the output call on t, e, p and vs of the context R c give what the same calls of the context R none give with p replaced by O.look c p, the place c resolves p to; results are compared whole, so a call reports an error (none) exactly when that call does."
   assumes "The model is the triple (value, O, R). O is the correspondence operations of the first block, and line 6 resolves through its lookup O.look, the lookup that lines 1 to 4 constrain, so a context resolves a place the way the correspondence's own lookup does (AC11). R gives, for each correspondence a transition can carry (none: it carries none), the transition context (Ctx, Spec/GlossaryContext.lean) its action calls: inputs, input, inputToken and read take the transition, the delivery and a place and return none when the call reports an error; output takes the transition, the buffer written so far, a place and the values of one call. R none is the context of a transition without a correspondence, the context CORE-060 to CORE-063 constrain, and line 6 says that R c is R none behind the lookup. The value projection value is not used by the line; it keeps the block on the model of CORE-060. The witness is refResCtx, refCtx called with the place corrResolve gives (refResCtx_none: without a correspondence it is refCtx), and mod031ctx_joint_ref gives MOD-031, line 6, CORE-060 and CORE-062 on the reference together."

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Snapshot
 import Libpetri.Spec.Req.CORE_072
+import Libpetri.Spec.Text.CORE_073
 
 set_option linter.missingDocs true
 
@@ -65,14 +66,8 @@ requirement CORE_073
   kind F
   scope "all implementations; line 6 binds every executor, an executor built from a restored marking alone (Rust, Python) included; lines 5 and 7 bind every executor that accepts a restored marking and an explicit initial marking together (Java, TypeScript)"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a snapshot of a marking is restored, the restored marking *shall* hold on every place exactly the tokens the marking held there, in the same FIFO order, each token unchanged in its value and its `created_at`."
-        "A snapshot an implementation returns to the host *shall* list its places in strictly ascending code-point order of the place name and *shall not* list a place that holds no token."
-        "*When* a snapshot whose place names are pairwise distinct is restored, the restored marking *shall* hold on each place the snapshot names exactly the tokens of that place's entry, in their order, whatever the place name and whether or not the receiving net declares the place."
-        "*When* a snapshot whose place names are pairwise distinct is restored, the restored marking *shall* hold no token on a place the snapshot does not name."
-        "*If* an executor is constructed with a restored marking together with an explicit initial marking that holds a token, *then* the construction *shall* fail with an error to the caller, and the executor *shall not* merge the two markings or keep either one."
-        "*When* an executor is constructed with a restored marking together with an explicit initial marking that names no place, the executor's initial marking *shall* be the restored marking."
-        "*When* an executor is constructed with a restored marking together with an explicit initial marking that holds no token and the construction succeeds, the executor's initial marking *shall* be the restored marking."
-        "*When* a restored marking seeds a new executor, each restored token *shall* keep its value and its `created_at`, whatever the executor's epoch clock ([TIME-015])."
+  covers CORE_073.s1, CORE_073.s2, CORE_073.s3, CORE_073.s4, CORE_073.s5, CORE_073.s6, CORE_073.s7,
+        CORE_073.s8
   reading "Let Snap be the snapshot (Snap F: the snapshot of the queue marking F.M, given with a finite list covering its marked places), Restore the restore (Restore s p: the queue the snapshot s restores on the place p) and Seed the seeding (Seed r E: the initial marking an executor is constructed with, token for token, from an optional restored snapshot r and an explicit initial marking E, or an error; an executor given an epoch clock has one Seed per clock reading, and the block binds each). Place names are strings."
           "For every F: Restore (Snap F) is F.M, on every place, token for token and in order."
           "For every F: Snap F is canonical (QCanon): its names are strictly ascending in String order, which is code-point order, and no entry has an empty queue."
@@ -773,8 +768,7 @@ requirement CORE_073_T
   kind T
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a restored marking seeds a new executor, that executor's initial marking *shall* hold on every place the token count the restored marking holds there, whether or not the net declares the place ([CORE-072])."
-        "*When* execution resumes from a restored marking, each transition of the net that the restored marking enables *shall* be armed with the firing clock's reading at that moment as its stamp, so that its elapsed time starts at 0 whatever the `created_at` of the restored tokens ([TIME-010])."
+  covers CORE_073.s9, CORE_073.s10
   reading "Let Restore be the restore (Restore s: the queue marking the snapshot s restores) and Rs the resume (Rs X s now0: the timed state a new executor of the timed net X starts from when the snapshot s seeds it and its firing clock first reads now0)."
           "For every timed net X, snapshot s and reading now0: the marking of Rs X s now0 is the token count of Restore s, on every place, declared or not."
           "For every timed net X, snapshot s, reading now0 and transition u of X that the counts of Restore s enable: u's stamp in Rs X s now0 is that state's own clock reading."

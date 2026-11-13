@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_032
 
 set_option linter.missingDocs true
 
@@ -30,9 +31,7 @@ requirement CORE_032
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*While* a read place of a transition is unmarked, the transition *shall not* fire."
-        "*While* a read place of a transition is marked, the read arc *shall not* affect whether the transition can fire or the marking its firing leaves."
-        "*When* a transition fires, each of its read places on which it has neither an input arc nor a reset arc *shall* end the firing with its token count before the firing plus the tokens the firing deposits there."
+  covers CORE_032.s1, CORE_032.s2, CORE_032.s3
   reading "For every transition t and every read place p of t:"
           "t does not fire from a marking in which p is unmarked;"
           "from a marking m in which p is marked, t fires to m' exactly when t without its read arcs on p fires from m to m';"

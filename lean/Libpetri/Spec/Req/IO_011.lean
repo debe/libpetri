@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_011
 
 set_option linter.missingDocs true
 
@@ -64,23 +65,9 @@ requirement IO_011
   kind B
   scope "executors with output validation enabled (the default, CONC-026)"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`And(children)` is a node of an output spec that represents a parallel fork in which all children are active."
-        "*When* a transition whose output spec is `And(children)` fires and its action completes, every child, with nested `And`s flattened, *shall* have received tokens: the produced set contains a place that the child names."
-        "The same holds for an `And` nested in the alternative that an inner `Xor` chose: the produced set *shall* equal, on the places the output spec names, one output branch of the output spec."
-        "That output branch is unique, because the output branches of a spec that builds are pairwise distinct sets ([IO-012])."
-        "This requirement applies to an executor with output validation enabled, which is the default ([CONC-026])."
-        "*If* a single output branch (one choice at every `Xor`, with nested `And`s flattened) names the same place twice, *then* the output spec *shall* be rejected, with"
-        "*If* the output spec names a place twice in one output branch, *then* `<P>` in the message *shall* be the place that the following walk of the spec reports first, so that every implementation names the same place:"
-        "A `Place(P)` node and a `ForwardInput(from, P)` node name `P`."
-        "A `Timeout` node walks its child and names the places its child names."
-        "An `Xor` node walks its children left to right."
-        "*If* a child reports a place, *then* the `Xor` *shall* report that place."
-        "Otherwise the `Xor` names the places its children name, each once, in the order the walk first meets them."
-        "An `And` node walks its children left to right."
-        "*If* a child reports a place, *then* the `And` *shall* report that place."
-        "Otherwise, *if* a place the child names, taken in the order the walk first met them, is already named by an earlier child, *then* the `And` *shall* report the first such place."
-        "Otherwise the `And` names the places its children name, each once, in the order the walk first meets them."
-        "The walk reports a place exactly when some output branch names a place twice, because the alternatives of an `Xor` under an `And` are chosen independently of the `And`'s other children."
+  covers IO_011.s1, IO_011.s2, IO_011.s3, IO_011.s4, IO_011.s5, IO_011.s6, IO_011.s7, IO_011.s8,
+        IO_011.s9, IO_011.s10, IO_011.s11, IO_011.s12, IO_011.s13, IO_011.s14, IO_011.s15,
+        IO_011.s16, IO_011.s17
   reading "Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and F the firings."
           "For every transition t whose output spec o names a place twice in one output branch (DupBranch), building t fails; and if t's input places are distinct, it fails with IO-011's message for t and the place p the walk of o reports (firstDup o = some p, msgDup t p)."
           "For every transition t that builds (Builds) whose output spec is an And node o with no Timeout node in it:"

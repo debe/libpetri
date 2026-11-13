@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Novel.RouteA.SlotBound
 import Libpetri.Novel.RouteA.Shipped
+import Libpetri.Spec.Text.NU_053
 
 set_option linter.missingDocs true
 
@@ -120,12 +121,7 @@ requirement NU_053
   kind F
   scope "the colour-slot bound, its exact re-check and the coloured consumer and quiescence terms of the Route A coloured encoding, where offered"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* the verifier sets the colour-slot bound to `k`, *then* some covering weighting `y` *shall* have `⌊y·M0⌋ = k`, and no covering weighting *shall* have `⌊y·M0⌋ < k`, a covering weighting being one with `y ≥ 0`, `y_p ≥ 1` on every coloured place and `y·C_t ≤ 0` on every flat transition."
-        "*When* the verifier solves the colour-slot program of a flat net with `n` places and `m` transitions that has a covering weighting `y` with `⌊y·M0⌋ ≤ 2^31 − 1`, and `n ≤ 4096`, `m ≤ 16384`, `C(n+m, n)·(2n+1)·(n+m+1) ≤ 4000000` and `(n+1)!·E^(n+1) ≤ 2^63 − 1`, where `E` is the largest of 1, every initial count and `n` times every `pre + post` of a flat transition at a place, it *shall* set a colour-slot bound unless the solve is stopped ([VER-013])."
-        "*If* the verifier sets the colour-slot bound to `k`, *then* the exact re-check *shall* have accepted a weighting and given it the bound `k`."
-        "The exact re-check *shall* accept a weighting `y` exactly when `y ≥ 0`, `y_p ≥ 1` on every coloured place, `y·C_t ≤ 0` on every flat transition and `⌊y·M0⌋ ≤ 2^31 − 1`, and *shall* give an accepted weighting the bound `⌊y·M0⌋`."
-        "*When* the coloured encoding emits the rule of a coloured consumer for a colour `c` below `k`, the rule *shall* be enabled only when colour `c` of the input holds a token, and *shall* subtract one from colour `c` of the input, add one to colour `c` of each coloured output, and leave unchanged colour `c` of a place that is both the input and an output and every other colour column."
-        "*When* the coloured encoding decides a quiescence property, it *shall* treat an encoding state as violating exactly when every flat row (each XOR branch is its own row) whose transition is not reapable ([VER-002]) is disabled in the state for an uncoloured reason or, when the row touches a coloured place, for every colour below `k`, and the property's own clause holds of the state's all-colour token counts."
+  covers NU_053.s2, NU_053.s14, NU_053.s3, NU_053.s4, NU_053.s5, NU_053.s1
   reading "For every colour-slot bound B, re-check K, consumer rule U and violation term V:"
           "for every place count n, coloured places C, flat rows and initial marking a0: if B answers k, there is a scaled cover at k (some D > 0 and Y with Y ≥ 0 below n, Y ≥ D on every place of C, Y not increasing along any row and Y·a0 < D·(k + 1)), and there is none at any j < k;"
           "if the flat net meets Nu053Fits (at most 4096 places and 16384 rows, C(n+m, n)·(2n+1)·(n+m+1) ≤ 4000000 and (n+1)!·E^(n+1) ≤ 2^63 − 1 with E = nu053Entry) and there is a scaled cover at some k ≤ slotCap, then B answers some bound;"

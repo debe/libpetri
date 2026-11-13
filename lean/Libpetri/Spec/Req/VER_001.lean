@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
 import Libpetri.Reference.Link
+import Libpetri.Spec.Text.VER_001
 
 set_option linter.missingDocs true
 
@@ -156,12 +157,7 @@ requirement VER_001
   kind F
   scope "every verification route, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*When* the verifier verifies a net from an initial marking, it *shall* verify the net whose places are the declared places followed by every place the initial marking marks that the net does not declare, in the order the marking lists them, and whose transitions are the net's own, with no arc added."
-        "*When* the verifier expands a transition that has an output spec and no `Timeout` that forwards an `All` or `AtLeast` input, it *shall* produce one virtual transition per output branch the action may write, in enumeration order, then one virtual transition for the timeout outcome when the spec has a `Timeout` and that outcome deposits differently from every branch."
-        "The verifier *shall* expand a transition with no output spec into one virtual transition that deposits nothing."
-        "The virtual transition of the timeout outcome *shall* deposit one token in each place the `Timeout` child names through `Place` and, for each `ForwardInput(from, to)` of the child, as many tokens in `to` as the required count of the input on `from`."
-        "The verifier *shall* name a virtual transition `<t>` when its transition `t` has one virtual transition, and `<t>_b<i>` when it is the `i`-th of several, counting from 0."
-        "*If* the `Timeout` of a transition forwards an `All` or `AtLeast` input, *then* no route *shall* read an expansion of that transition into virtual transitions."
+  covers VER_001.s1, VER_001.s2, VER_001.s3, VER_001.s4, VER_001.s5, VER_001.s6
   reading "For every verified-net function V and expansion X, where X is the expansion every route reads:"
           "the places of V net m0 are the places of net followed by the places m0 marks that net does not hold, in m0's order;"
           "the transitions of V net m0 are those of net;"

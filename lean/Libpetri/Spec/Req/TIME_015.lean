@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Text.TIME_015
 
 set_option linter.missingDocs true
 
@@ -40,8 +41,7 @@ requirement TIME_015
   kind A
   scope "all executors, on the default or an injected firing clock"
   source verbatim "spec/03-timing.md"
-  quote "*While* an executor runs on an injected clock, successive readings of its firing clock *shall* be non-decreasing."
-        "*When* the executor's wait completes, the executor *shall* re-check its boundary conditions before it fires any transition, so an armed transition *shall not* fire before its earliest bound because a wait completed early ([TIME-010])."
+  covers TIME_015.s1, TIME_015.s2
   reading "For every timed net X:"
           "no step lowers the reading of the firing clock;"
           "a delay of δ advances the reading by exactly δ;"

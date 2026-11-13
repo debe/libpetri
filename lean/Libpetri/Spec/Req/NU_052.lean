@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNuVer
 import Libpetri.Novel.RouteB.Exec
 import Libpetri.Novel.RouteB.Retrodict
+import Libpetri.Spec.Text.NU_052
 
 set_option linter.missingDocs true
 
@@ -82,10 +83,7 @@ requirement NU_052
   kind F
   scope "the Route B successor step, under CONFLICT and NONE"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* the mode is `CONFLICT`, the Route B graph *shall* leave a base-enabled transition `L` unexpanded from a class exactly when another transition `H` of the net pre-empts `L` in that class, and *shall* expand every other base-enabled transition of the class as under `NONE`, in the same order."
-        "*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` to compete in a class exactly when some place is a consumed input of both and its token count in the class marking is less than the sum of their demands on it, where a transition's demand on a place is the sum of the required counts ([IO-007]) of its input arcs on that place."
-        "*While* the mode is `NONE`, the Route B graph *shall* expand each base-enabled transition of a class, in the class's clock order (the code-point order of the transitions' names, [VER-010] AC1), with the successors the transition has when it is expanded alone from the same class and the same base layer, *shall* expand no other transition, and *shall not* read the readiness, in-flight state or competition of any transition."
-        "*While* the mode is `NONE`, the Route B graph *shall* give a base-enabled transition at least one successor labelled with its name when the base layer can fire one of its branches in the class and the transition will fire on the name layer (always for an ordinary or minting transition, with an enabling name for a join, with a resident name for a consumer)."
+  covers NU_052.s1, NU_052.s2, NU_052.s3, NU_052.s4
   reading "Let E be the Route B expansion and C the competition test."
           "For every net whose transition names are distinct, every base layer whose competition is C read on the count marking κ of the class, and every class: the CONFLICT successors of the class are its NONE successors, in order, without those labelled with the name of a transition L of the net that some transition H of the net pre-empts in the class (glossary: Pre-empt, read as PreEmpts over the base layer's enabled, readyLe, idle and compete and the will-fire test of H's role)."
           "For every count marking a and transitions H and L: C a H L holds exactly when some input arc of H is on a place that is also the place of an input arc of L and holds fewer tokens in a than the sum of H's and L's demands on it, a transition's demand on a place being the sum of the required counts of its input arcs there (demandOn over Card.required: 1 for One and All, n for Exactly(n) and AtLeast(n))."

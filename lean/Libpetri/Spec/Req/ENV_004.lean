@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_004
 
 set_option linter.missingDocs true
 
@@ -74,18 +75,8 @@ requirement ENV_004
   kind B
   scope "executors with an admission signal (Java, TypeScript); Rust and Python report acceptance only (ruling D44 (a))"
   source verbatim "spec/06-environment-places.md"
-  quote "In Java and TypeScript the inject operation returns a future/promise that completes with true when the token has been added to the marking."
-        "In Rust and Python the return value indicates whether the injection was accepted; in Java and TypeScript the future's value indicates whether the token was injected."
-        "In Java and TypeScript the future is the admission signal of the accepted event."
-        "The orchestrator completes it with true in the external-events step ([EXEC-001] step 2), when it adds the token to the marking."
-        "It completes it with false when it discards the event because the executor is closed or stopped ([ENV-013], [ENV-015]), or when the run ends with the event still queued ([EXEC-041], [EXEC-042])."
-        "A drain does not discard the events accepted before it: the orchestrator still injects them ([ENV-011]), unless close() is called or the run ends first."
-        "Each accepted event has an admission signal of its own: an injection into a place whose earlier event is still queued neither replaces that event nor merges with it ([ENV-003])."
-        "*When* the executor accepts an injection request, it *shall* queue the event as a new event, apart from every event already queued."
-        "*When* the executor completes the admission signal of an accepted event with true, it *shall*, in the same step, add the event's token at the tail of its place's queue and change no other part of the marking."
-        "*If* the executor completes the admission signal of an accepted event with false, *then* it *shall* leave the marking unchanged in that step."
-        "*If* a step leaves the executor open or draining and does not end the run, *then* the executor *shall not* complete the admission signal of an accepted event with false in that step."
-        "The executor *shall* complete the admission signal of an accepted event at most once."
+  covers ENV_004.s1, ENV_004.s2, ENV_004.s3, ENV_004.s4, ENV_004.s5, ENV_004.s6, ENV_004.s7,
+        ENV_004.s8, ENV_004.s9, ENV_004.s10, ENV_004.s11, ENV_004.s12
   reading "For every executor R and every configuration C, and in the first three lines for every ticket k:"
           "an inject step of k (the admission signal of k completes with true) starts in a state whose event queue holds an event with ticket k for some place p and token x, and its marking is the source marking with x appended at the tail of p and no other change;"
           "a step that removes the ticket k from the event queue and is not the inject step of k (the signal completes with false) leaves the marking unchanged, and after it the executor is closed or stopped, or the run has finished;"

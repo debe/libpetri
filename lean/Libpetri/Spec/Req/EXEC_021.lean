@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.EXEC_021
 
 set_option linter.missingDocs true
 
@@ -37,15 +38,8 @@ requirement EXEC_021
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "Before depositing tokens, the executor validates that the produced tokens satisfy the declared output specification (see [IO-015])."
-        "An executor with the validation skip of [CONC-026] enabled does not validate."
-        "*When* an executor with output validation enabled admits the completion of an action, it *shall* validate the produced tokens against the transition's output spec ([IO-015]) before it deposits any of them."
-        "*If* the produced tokens of an admitted completion fail output validation, *then* the executor *shall* deposit none of them and *shall* emit a TransitionFailed event ([EVT-008])."
-        "*If* the produced tokens of an admitted completion fail output validation, *then* the executor *shall not* restore the tokens the firing consumed and *shall not* remove the tokens the action published before it completed ([IO-015])."
-        "*When* an executor with output validation enabled validates the produced tokens of an admitted completion, it *shall* count the places of every batch the action published before it completed ([IO-015]) as produced, together with the places of the produced tokens."
-        "*If* the produced tokens of an admitted completion pass output validation, *then* the executor *shall not* fail the firing."
-        "The timeout outcome is not a completion of the action: [EXEC-022] and [IO-013] govern its deposit."
-        "*When* a firing ends with its timeout outcome, the executor *shall not* validate the timeout outcome against the transition's output spec; the join-relay check of [NU-054] still runs on it."
+  covers EXEC_021.s1, EXEC_021.s2, EXEC_021.s3, EXEC_021.s4, EXEC_021.s5, EXEC_021.s6, EXEC_021.s7,
+        EXEC_021.s8, EXEC_021.s9
   reading "For every executor R, every configuration C whose output verdict reads a set of places, and every firing identity i:"
           "a commit step of i deposits exactly the emission e the action of i returned, each token at the tail of its place in emission order, and only when output validation accepts the places of e followed by the places i has already published, and the join-relay check accepts e;"
           "a fail step of i changes neither the marking nor the queue of publications not yet deposited;"

@@ -1,5 +1,6 @@
 import Libpetri.Spec.Req.VER_004
 import Libpetri.Spec.Req.NU_052
+import Libpetri.Spec.Text.NU_052
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -151,13 +152,7 @@ requirement NU_052_split
   kind F
   scope "the verifier's setup of a call under CONFLICT and NONE (MAY; the shall sentences bind an implementation that offers CONFLICT), and the in-flight test of the Route B base layer"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* the mode is `NONE`, conflict priority *shall not* apply to any call, and the verifier *shall* hand the in-flight split ([VER-004]) the `QuiescentCount` demand alone."
-        "*While* the mode is `CONFLICT`, conflict priority *shall* apply to a call exactly when no transition of the net is read as reapable ([VER-002]) and either the property is a name-alignment one ([NU-055]) or the net has a ν-join and the property is not a reachability-safety one with a declared budget place ([NU-050]), and the verifier *shall* verify every other call as under `NONE`."
-        "*While* conflict priority applies to a call and `assumeAtomicFiring` is set, the verifier *shall* keep conflict priority on."
-        "*While* conflict priority applies to a call and `assumeAtomicFiring` is not set, *if* the net has no pruner or every transition the verifier would split under conflict priority can be split, *then* the verifier *shall* split every pruner and every transition that deposits into an input or read place of a pruner, except a transition that models an environment or is a completion step ([VER-004]), and *shall* keep conflict priority on."
-        "*While* conflict priority applies to a call and `assumeAtomicFiring` is not set, *if* the net has a pruner and a transition the verifier would split under conflict priority cannot be split, *then* the verifier *shall* hand the in-flight split and Route B what it hands them under `NONE`, so the verdict is the `NONE` verdict, and *shall* name the first such transition, in the transition order, in the report, unless the split under `NONE` is refused too, when the call answers `Unknown` with that refusal ([VER-004])."
-        "*While* the mode is `CONFLICT`, the Route B graph *shall* take a transition `H` to have a firing in flight in a class exactly when the class marking holds a token on the place `inflight:<H>`."
-        "*While* the mode is `CONFLICT`, the Route B graph *shall* take two transitions `H` and `L` to compete in a class exactly when some place is a consumed input of both and its token count in the class marking is less than the sum of their demands on it, where a transition's demand on a place is the sum of the required counts ([IO-007]) of its input arcs on that place."
+  covers NU_052.s5, NU_052.s6, NU_052.s7, NU_052.s8, NU_052.s9, NU_052.s10, NU_052.s2
   reading "Let M be the verifier's setup of a call and B the base layer given the in-flight places. For every options o, call k, priorities prio, property φ, split configuration cfg and timed net X, write M sel for M o sel k prio φ cfg X (sel true for CONFLICT) and N for M false, the NONE setup."
           "N hands on cfg with the QuiescentCount demand added (ver004WithCount), prunes nothing and names no transition."
           "If conflict priority does not apply (nu052sApplies o true k X is false: a transition is read as reapable, or k.routeB is false), M true is N."

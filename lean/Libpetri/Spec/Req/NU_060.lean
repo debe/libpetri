@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNu
 import Libpetri.Spec.Req.MOD_021
 import Libpetri.Reference.Nu
+import Libpetri.Spec.Text.NU_060
 
 set_option linter.missingDocs true
 
@@ -83,10 +84,7 @@ requirement NU_060
   kind F
   scope "channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to, when either carries a ν-net match"
   source verbatim "spec/12-nu-nets.md"
-  quote "A correlated input behaves, under channel composition ([MOD-021]), as the input arc it layers on: its arc dedup/conflict rules are unchanged."
-        "A merge MUST NOT silently drop a match, and no implementation fuses two matches into one: when both merged sides carry a match, whatever places the two matches correlate, the merge MUST be rejected with an error naming the caller-side transition."
-        "*When* at most one side of a channel merge carries a match, the channel merge *shall* reject with the same error when the same merge of the two transitions without their matches rejects, and otherwise *shall* give the merged transition of that merge with that side's match unchanged, or with no match when neither side carries one."
-        "*If* both sides of a channel merge carry a match, *then* the channel merge *shall* be rejected with an error that names the caller-side transition."
+  covers NU_060.s1, NU_060.s2, NU_060.s3, NU_060.s4
   reading "For every plain channel merge Mg (MOD-021's, on definitions without a match) and every ν channel merge NMg of the same implementation (on definitions c, i that may carry a match):"
           "line 1: if c or i carries no match, NMg c i is Mg applied to c and i without their matches, with every success given the match c.mspec.or i.mspec (c's when c has one, i's when i has one, none when neither has one), and every rejection the same rejection;"
           "line 2: if c and i both carry a match, NMg c i fails with a message that contains c's name."

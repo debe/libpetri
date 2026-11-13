@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Glossary
 import Libpetri.Export.Styles
+import Libpetri.Spec.Text.EXP_008
 
 set_option linter.missingDocs true
 
@@ -78,14 +79,8 @@ requirement EXP_008
   kind F
   scope "every exporter's mapper, on the place nodes of a net (before a documentation generator restyles interface ports)"
   source verbatim "spec/09-export.md"
-  quote "The export applies visual styling to distinguish node categories:"
-        "The export *shall* give a terminal place the terminal category."
-        "The export *shall* give an environment place that is not a terminal place the environment category."
-        "The export *shall* give an ordinary place the start category exactly when no transition's output spec names it."
-        "The export *shall* give the end category to an ordinary place that some transition's output spec names and on which no transition has an input arc or a read arc."
-        "The export *shall not* give the end category to an ordinary place on which some transition has an input arc."
-        "The export *shall* give an ordinary place the start, the end or the regular place category."
-        "The export *shall* give the same category to all ordinary places, in one net or in different nets, that some transition's output spec names, on which some transition has a read arc and on which no transition has an input arc."
+  covers EXP_008.s1, EXP_008.s2, EXP_008.s3, EXP_008.s4, EXP_008.s5, EXP_008.s6, EXP_008.s7,
+        EXP_008.s8
   reading "For the place classifier C, every net X with environment places env and terminal places term, and every place p:"
           "a terminal place is terminal;"
           "an environment place that is not terminal is environment;"

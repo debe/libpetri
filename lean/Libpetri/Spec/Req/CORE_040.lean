@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
+import Libpetri.Spec.Text.CORE_040
 
 set_option linter.missingDocs true
 
@@ -37,12 +38,7 @@ requirement CORE_040
   kind F
   scope "all net builders used without composition or fusion sets"
   source verbatim "spec/01-core-model.md"
-  quote "The sentences below concern a net builder used without composition ([MOD-020], [MOD-025], [MOD-027]) and without fusion sets ([MOD-060], [MOD-061]), which rewrite arcs, drop places or reject at build under their own requirements."
-        "*When* a net is built from transitions, each added once, whose names are pairwise distinct ([TIME-010]), the net *shall* hold exactly the added transitions, in the order they were added, which is the declaration order of its transitions."
-        "*When* a net is built, every declared place, every declared terminal place ([EXEC-042]), every place that an input, inhibitor, read or reset arc of an added transition names and every place in the `allPlaces` set of the output specification of an added transition ([IO-017]) *shall* be a place of the net."
-        "*When* a net is built, the net *shall not* hold any other place, and *shall not* hold a place twice ([CORE-002])."
-        "Building a net that declares no terminal place ([EXEC-042]) *shall* succeed."
-        "Which nets that declare terminal places build, and which terminal places a built net holds, are stated by [EXEC-042]."
+  covers CORE_040.s1, CORE_040.s2, CORE_040.s3, CORE_040.s4, CORE_040.s5, CORE_040.s6
   reading "For every transition builder B and every net builder NB over B's instances:"
           "if NB returns the net b for the input inp and the added transitions of inp have pairwise distinct names, the transitions of b are the definitions of the added transitions, in the order added;"
           "if NB returns b for inp, every declared place of inp, every declared terminal place of inp and every place an added transition has an arc on (an arc place: input, read, inhibitor or reset) or holds in the allPlaces set of its output specification (an output arc, IO-017) is a place of b;"

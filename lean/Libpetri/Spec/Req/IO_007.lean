@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_007
 
 set_option linter.missingDocs true
 
@@ -47,9 +48,7 @@ requirement IO_007
   kind F
   scope "all input cardinalities"
   source verbatim "spec/02-input-output-specs.md"
-  quote "The required count *shall* be 1 for `One` and `All`, `n` for `Exactly(n)` and `m` for `AtLeast(m)`."
-        "*While* `available` is at least the required count, `consumptionCount(available)` *shall* return 1 for `One`, `n` for `Exactly(n)` and `available` for `All` and `AtLeast(m)`."
-        "*If* `consumptionCount(available)` is called with `available` less than the required count, *then* the call *shall* fail with an error."
+  covers IO_007.s1, IO_007.s2, IO_007.s3
   reading "requiredCount() is 1 for One, n for Exactly(n), 1 for All and m for AtLeast(m);"
           "for every cardinality c and every available ≥ requiredCount(c), consumptionCount(available) returns 1 for One, n for Exactly(n), available for All and available for AtLeast(m);"
           "for every cardinality c and every available < requiredCount(c), consumptionCount(available) fails (none)."

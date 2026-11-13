@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryCompose
 import Libpetri.Spec.GlossaryAction
 import Libpetri.Reference.ComposeBind
 import Libpetri.Spec.Req.MOD_006
+import Libpetri.Spec.Text.MOD_025
 
 set_option linter.missingDocs true
 
@@ -71,14 +72,8 @@ requirement MOD_025
   kind B
   scope "every direct composition of a subnet definition into an enclosing builder (Java, TypeScript, Rust, Python); the token-type line where place identity carries the token type (Java)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* direct composition of a subnet definition into an enclosing builder succeeds, the builder *shall* hold its earlier transitions followed by the body's transitions in the body's order, each unchanged and under its original name, and its earlier places together with every body place and every place a body transition names, a body place equal to a place it already holds being that place, no place added twice, and nothing else of the builder changed but the subnet membership of [MOD-026]."
-        "*If* a body transition's name is the name of a transition already in the enclosing builder, *then* direct composition *shall* fail at the call."
-        "*If* the subnet definition declares no terminal place and no channel and exactly one name of its body transitions is the name of a transition already in the enclosing builder, *then* the error *shall* name that transition and the subnet definition."
-        "*If* the interface of a subnet definition declares a channel, *then* direct composition of that definition *shall* fail at the call."
-        "*Where* place identity carries the token type ([CORE-002]), *if* a body place has the name of a place the enclosing builder holds and a different token type, *then* direct composition *shall* fail at the call."
-        "*When* a subnet definition that declares no terminal place ([EXEC-042]) and no channel is composed directly into an enclosing builder that holds no transition with the name of a body transition and, where place identity carries the token type, no place with the name of a body place and a different token type, direct composition *shall* succeed."
-        "*If* two subnet definitions that declare no terminal place, and whose body transitions name only their own body places, are composed directly one after the other into one builder and both calls succeed, *then* composing them in the other order *shall* also succeed in both calls and give a builder with the same places and the same transitions, each with its arcs, timing, priority and action."
-        "*If* the body of a subnet definition declares a terminal place ([EXEC-042]), *then* direct composition of that definition *shall* fail at the call."
+  covers MOD_025.s1, MOD_025.s2, MOD_025.s3, MOD_025.s4, MOD_025.s5, MOD_025.s6, MOD_025.s7,
+        MOD_025.s8
   reading "For every naming model Nm, every token type map tyOf on places and every direct-composition function D:"
           "if D b S returns the builder b', then the definitions of b' are those of b followed by those of S (the same values, so name, arcs, output specification, timing, priority and action unchanged); a place is in b' exactly when it is in b, is a place of S, or is named by a definition of S; the places of b' are, in some order, those of b (each as often as in b) and some new places, each once and none of them a place of b; and the terminal places, retired ports and fusion sets of b' are those of b;"
           "if some definition of S has the name of a definition of b, D b S fails; if moreover S declares no terminal place and no channel and every such definition of S has the name n, D b S fails with a message that contains n and contains the name of S;"

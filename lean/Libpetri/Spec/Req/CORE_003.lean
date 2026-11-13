@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
 import Libpetri.Spec.Req.CORE_010
+import Libpetri.Spec.Text.CORE_003
 
 set_option linter.missingDocs true
 
@@ -70,13 +71,7 @@ requirement CORE_003
   kind A
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "A place has a declared token type, and a token is compatible with a place when its value is of that type."
-        "A token without a value, the unit token ([CORE-012]), is compatible with every place."
-        "The engine does not check the type of a token it deposits or a host adds: the net's author and the host keep an action's outputs, a forwarded token ([IO-014]) and an injected token compatible with their places."
-        "*When* a transition fires from a marking in which every token is compatible with its place, nothing else changes the marking between the firing's consumption and its deposit, and every token the firing deposits is compatible with the place it is deposited to, every token a place holds after the firing *shall* be compatible with that place."
-        "*When* a transition fires from a marking in which every token is compatible with its place, every token its action receives from one of its input places or read places *shall* be compatible with that place."
-        "*When* a transition can fire from a marking and deposit tokens to a list of places, it *shall* also be able to fire from that marking, delivering the same tokens to its action, and deposit to the same places, in the same order, any tokens compatible with them, except that a relay target of a match specification takes only tokens carrying the matched name ([NU-054])."
-        "A firing whose action outputs a token with a compatible value to a place succeeds."
+  covers CORE_003.s1, CORE_003.s2, CORE_003.s3, CORE_003.s4, CORE_003.s5, CORE_003.s6, CORE_003.s7
   reading "For a net whose places have the declared types ty (a token is compatible with place p when every value val gives it is of type ty p by HasType; a token without a value is compatible with every place), every transition t with no input arc and read arc on one place (ruling D15), and every firing of t from M that delivers δ, deposits e and leaves M':"
           "if every token of M is compatible with its place and every token of e is compatible with the place it is deposited to, every token of M' is compatible with its place;"
           "if every token of M is compatible with its place, every token δ delivers as consumed from an input place p is compatible with p;"

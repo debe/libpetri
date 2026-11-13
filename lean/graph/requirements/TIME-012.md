@@ -8,9 +8,9 @@ Theorems carrying this ID:
 - `Libpetri.Novel.TimedScg.persistence_rule` (theorem, `Libpetri/Novel/TimedScg/Run.lean:101`)
 - `Libpetri.Novel.TimedScg.reset_restarts` (theorem, `Libpetri/Novel/TimedScg/Run.lean:142`)
 - `Libpetri.Novel.TimedScg.surplus_keeps` (theorem, `Libpetri/Novel/TimedScg/Run.lean:164`)
-- `Libpetri.Spec.EVT_005_time012_ac4` (theorem, `Libpetri/Spec/Req/EVT_005.lean:340`)
-- `Libpetri.Spec.EVT_005_time012_ac6` (theorem, `Libpetri/Spec/Req/EVT_005.lean:319`)
-- `Libpetri.Spec.evt005_one_of` (theorem, `Libpetri/Spec/Req/EVT_005.lean:255`)
+- `Libpetri.Spec.EVT_005_time012_ac4` (theorem, `Libpetri/Spec/Req/EVT_005.lean:338`)
+- `Libpetri.Spec.EVT_005_time012_ac6` (theorem, `Libpetri/Spec/Req/EVT_005.lean:317`)
+- `Libpetri.Spec.evt005_one_of` (theorem, `Libpetri/Spec/Req/EVT_005.lean:253`)
 
 > **Note:** the full tree has 425 nodes (limit 60), so it is drawn as one diagram per theorem (7 theorems).
 

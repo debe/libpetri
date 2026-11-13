@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryEnable
+import Libpetri.Spec.Text.CONC_004
 
 set_option linter.missingDocs true
 
@@ -49,7 +50,7 @@ requirement CONC_004
   kind F
   scope "all executors (the mask test of the bitmap executor; the precompiled executor's sparse form is PERF-042)"
   source verbatim "spec/05-concurrency.md"
-  quote "The presence check of a transition *shall* pass on a bitmap exactly when every bit of its needs-mask is set in the bitmap and no bit of its inhibitor-mask is set."
+  covers CONC_004.s1
   reading "For every transition t and every bitmap (one bit per place), the presence check of t passes exactly when every input place and every read place of t has its bit set and no inhibitor place of t has its bit set."
   assumes "A bitmap is read as one bit per place (N → Bool) and a mask as the set of places whose bit is set; the needs-mask is the input places and the read places, the inhibitor-mask the inhibitor places (glossary: Needs-mask, Inhibitor-mask, Presence check). Place numbering, word layout and when the masks are computed are CONC-007's and PERF-042's subject. The presence check is a function of the transition and the bitmap only (the type of EnableCheck.presence): it reads no token count, which is what 'bitmap-based' adds to the glossary's Enabled."
           "The line ranges over every bitmap, not only the presence bitmap of a marking, and says nothing about what a bit means. The parentheses '(all must have tokens)' and '(none may have tokens)' and the operand 'marking' of the formula, which tie a bit to a marked place, are carried by CONC-008, whose lines apply the presence check to the presence bitmap of the marking (glossary: Presence bitmap). Which bitmap the executor passes (the live presence bitmap, or the snapshot of a firing pass, EXEC-003) is not this ID's subject."

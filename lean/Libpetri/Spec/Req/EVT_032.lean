@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Replay
+import Libpetri.Spec.Text.EVT_032
 
 set_option linter.missingDocs true
 
@@ -41,9 +42,7 @@ requirement EVT_032
   kind F
   scope "the replay cache of the debug protocol (Rust libpetri-debug MarkingCache, Python MarkingCache, Java org.libpetri.debug.MarkingCache, TypeScript MarkingCache in libpetri/debug)"
   source verbatim "spec/08-events-observability.md"
-  quote "*While* every snapshot in the replay cache is at an index no greater than the length of `events` and is the replay of `events` up to that index, `compute_at(events, index)` *shall* return the replay of the first `index` events of `events`, or of all of `events` when `index` is beyond its length."
-        "*When* `compute_at(events, index)` returns, every snapshot it leaves in the replay cache *shall* be at an index no greater than the length of `events` and be the replay of `events` up to that index, provided every snapshot in the cache met both conditions before the call."
-        "The replay of an event stream *shall* start from the empty state (no token in any place, no enabled and no in-flight transition) and apply its events in order, each as follows: a `MarkingSnapshot` sets the token count of every place it carries to the count it carries and of every other place to zero; a `TokenAdded` adds one token to its place; a `TokenRemoved` removes one token from its place, and does nothing if the place has none; a `TransitionEnabled` adds its transition to the enabled transitions; a `TransitionStarted` removes its transition from the enabled transitions and adds it to the in-flight transitions; a `TransitionCompleted`, `TransitionFailed`, `TransitionTimedOut` or `ActionTimedOut` removes its transition from the in-flight transitions; any other event (`ExecutionStarted`, `ExecutionCompleted`, `TransitionClockRestarted`, `LogMessage`) leaves the state unchanged."
+  covers EVT_032.s1, EVT_032.s2, EVT_032.s3
   reading "For every replay view view : E → REv N of an event type E onto the places N, and every call of compute_at, call : CacheCall N E:"
           "for every cache c coherent with the stream es (every snapshot k of c stands for the index (k + 1) * iv, which is no greater than the length of es, and is the replay of the first (k + 1) * iv events of es) and every index i, the state the call answers is the replay of the first i events of es from the empty state (of all of es when i is past its length);"
           "and the cache the call leaves is coherent with es."

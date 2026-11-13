@@ -1,4 +1,5 @@
 import Libpetri.Spec.Verifier.Pipeline
+import Libpetri.Spec.Text.VER_013
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -169,7 +170,7 @@ requirement VER_013_order
   kind F
   scope "every ordering of place or transition names that reaches a script, a flat index, a report, a witness or a violation list, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "Every ordering of place or transition names that reaches a script, a flat index, a report, a witness or a violation list MUST compare names by Unicode code point, never by host locale or UTF-16 code unit: the flat place index above, the canonical clock order of a state class ([VER-010]), and the markings and violation lists of an open-net report ([VER-022])."
+  covers VER_013.s2
   reading "For every name order lt and all names a and b: lt a b holds exactly when the code points of a are lexicographically smaller than those of b."
   assumes "Names are Lean strings, sequences of Unicode scalar values; codePoints reads them as numbers. Where the order is used (the flat place index of the scripts, the clock order of a state class of VER-010, the markings and violation lists of an open-net report of VER-022) is those requirements' and the encoders'; the block fixes the comparison. The runtimes: Rust compares str, which is code-point order; Java and TypeScript compare with a code-point comparator (TypeScript compareCodePoints, the ICU fix-up on the first differing UTF-16 unit pair). A UTF-16 code-unit order, JavaScript's < and Java's String.compareTo, is killed (VER_013_order_forbids_utf16): it puts U+1D400 before U+E000."
           "AC7 (the names \"\", Z, a, ab, Ä, 中, U+E000, Ａ, U+1D400 and U+1F600 sort in exactly that order, and a UTF-16 sort puts U+1D400 and U+1F600 before U+E000) is the line, checked on that vector (VER_013_order_nonvacuous). AC1 (byte-identical HORN and certificate scripts in every implementation, the goldens under spec/verification-fixtures/scripts/) and the Script determinism paragraph are kind Q: they are checked by the script-parity tests of every language against the goldens Rust writes, and the order of places in a script is this line."
@@ -209,8 +210,7 @@ requirement VER_013_args
   kind F
   scope "every z3 process the verifier starts, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*When* the verifier starts a `z3` process with a timeout of `t` milliseconds, `t` at least 1, it *shall* pass `-t:t` and, as `-T`, the smallest whole number of seconds that is at least `(t + 1000) / 1000`, and *shall* kill the process at `t + 2000` milliseconds if it has not exited."
-        "*While* a total budget is set, the verifier *shall* give each `z3` process the smaller of its normal timeout and the whole milliseconds that remain, and *shall* start no process when none remain."
+  covers VER_013.s3, VER_013.s4
   reading "For every timeout formula B and clamp Cl, and every budget t of at least 1 millisecond: the -t value of B t is t;"
           "the -T value of B t is the smallest number of seconds whose milliseconds reach t + 1000;"
           "the watchdog of B t is t + 2000;"
@@ -351,9 +351,7 @@ requirement VER_013_classify
   kind F
   scope "every z3 reply the verifier reads, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "The verifier *shall* read the verdict of a reply off the first stdout line that, trimmed, equals `sat`, `unsat` or `unknown`, wherever that line appears."
-        "*If* no stdout line of a reply is a verdict line, *then* the verifier *shall* give as the reason of the failure the first of these that applies: a `timeout` line on stdout, the watchdog kill, the first `(error …)` line on stdout and then on stderr, any other stderr text, the stdout itself."
-        "A verdict line decides whatever else the reply carries, an `(error …)` line or a non-zero exit included."
+  covers VER_013.s5, VER_013.s6, VER_013.s1
   reading "For every classifier C and raw reply r (trimmed stdout lines, trimmed stderr lines, whether the watchdog killed the process, the exit status): if the first verdict line of r's stdout spells a, C r is the answer a, whatever the stderr lines, the kill flag and the exit status;"
           "otherwise, if some stdout line is timeout, C r is a timeout-line failure;"
           "otherwise, if the watchdog killed the process, C r is a kill failure;"
@@ -618,11 +616,7 @@ requirement VER_013_stop
   kind B
   scope "the verifier pipeline of every implementation that offers a total budget or cancellation (SHOULD), and every solver call"
   source verbatim "spec/07-verification.md"
-  quote "*If* a `z3` process gives no verdict line, or no process is started, *then* the step that asked for it *shall* read the failure as no answer, so a step that proves a property only on a solver answer *shall not* return `Proven` from it."
-        "*When* the poll made on entering a step finds the total budget spent or the call cancelled, the verifier *shall* charge the stop to the step that was running before, *shall* not enter the new step, and *shall* end the pipeline without a verdict."
-        "*While* a stop is recorded, the verifier *shall* start no `z3` process, enter no step and reach no verdict."
-        "*When* a stop is recorded, the verifier *shall* keep a `Proven` or `Violated` reached before it, and *shall* give an `Unknown` the reason `total verification budget of <N> ms exhausted during <phase>` or `verification cancelled during <phase>`, `<phase>` the step the stop was charged to."
-        "*While* no total budget is set and the caller does not cancel, the verifier *shall* record no stop."
+  covers VER_013.s7, VER_013.s8, VER_013.s9, VER_013.s10, VER_013.s11
   reading "For every runner RP and finisher Fin, every solver O, stop, options o, query q, first step s, remaining steps ss and trail t:"
           "with no step left, RP decides nothing and leaves t as it is;"
           "if s's guard fails, RP on s followed by ss is RP on ss: s is skipped and makes no poll;"

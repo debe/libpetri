@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.CONC_003
 
 set_option linter.missingDocs true
 
@@ -93,11 +94,7 @@ requirement CONC_003
   kind B
   scope "all executors"
   source verbatim "spec/05-concurrency.md"
-  quote "All writes performed by an action (output tokens, side effects) are visible to the orchestrator after the action's future/promise completes."
-        "The completion mechanism provides a happens-before edge."
-        "*When* the executor deposits the produced tokens of an admitted completion ([EXEC-020]), it *shall* deposit exactly the tokens the action wrote after its last publication, if any ([IO-015]), and before it returned, each at the tail of its place, in the order the action wrote them."
-        "*When* the executor deposits a batch an action published before it completed ([IO-015]), it *shall* deposit the earliest publication of that action it has not yet deposited, as exactly the tokens the action wrote before that publication and after the one before it, each at the tail of its place, in the order the action wrote them."
-        "The executor *shall* keep the batches an action published queued, in the order the action published them, until it deposits each one, unless a terminal place or an immediate termination stops the run ([EXEC-042], [ENV-015])."
+  covers CONC_003.s1, CONC_003.s2, CONC_003.s3, CONC_003.s4, CONC_003.s5
   reading "For every executor R, every configuration C and every firing identity i, on every run of R that starts in a state in which no firing with identity i is in flight and no publication of i is queued:"
           "a commit step of i, taken after the steps pre of the run, happens only when the action of i returned normally in pre, and it appends to the marking, at the tails and in order, exactly the tokens the action wrote after its last flush in pre and before that return;"
           "a publish step of i, taken after the steps pre of the run, appends to the marking, at the tails and in order, exactly the oldest batch of i that pre still owes: a batch is the tokens the action wrote between two consecutive flushes (the first one counted from the action's start) before the action completed, and it is owed from its flush until a publish step of i pays it or a terminal or stopped finish discards it;"

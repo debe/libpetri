@@ -6,6 +6,7 @@ import Libpetri.Reference.ComposeBind
 import Libpetri.Spec.Req.MOD_006
 import Libpetri.Spec.Req.MOD_011
 import Libpetri.Spec.Req.MOD_020
+import Libpetri.Spec.Text.MOD_022
 
 set_option linter.missingDocs true
 
@@ -52,9 +53,7 @@ requirement MOD_022
   kind B
   scope "implementations whose place identity carries the token type (Java)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*Where* place identity carries the token type (Java), *if* a compose call binds no port twice and binds a port to a caller place whose token type differs from the token type of the port's place, *then* the compose call *shall* fail."
-        "*Where* place identity carries the token type (Java), *if* a compose call binds no port twice, binds no channel twice, binds no caller-side transition to two channels, binds only ports of the interface and binds some port to a caller place of another token type, *then* the error message of its failure *shall* name such a port, the token type of the port's place and the token type of the caller place."
-        "*Where* place identity carries the token type (Java), *when* a coherent compose call ([MOD-020]) binds no channel, binds no port twice, binds only ports of the interface, binds each port it binds to a caller place of the token type of the port's place, sends no two different port places that one transition consumes from or that one output branch of a transition names to one caller place, and every transition rewritten through the bindings passes the transition builder's checks, the compose call *shall* succeed."
+  covers MOD_022.s1, MOD_022.s2, MOD_022.s3
   reading "For every run-time token type tyOf of a place, every transition builder check Build and every composition function C, for every builder b, instance I, port bindings ports (port name, caller place) and channel bindings chans:"
           "if no port is bound twice in ports and some binding (n, X) has a port place q = I.port n with tyOf q ≠ tyOf X, C b I ports chans fails;"
           "if no channel and no port is bound twice, no caller-side transition is bound to two channels (the caller-side definitions of the channel bindings have pairwise distinct names), every bound port is a port of I, some binding has a port place of another type than its caller place, and C b I ports chans fails with the message m, then m contains, for some binding (n, X) whose port place q has tyOf q ≠ tyOf X, the name n, the text of tyOf q and the text of tyOf X;"

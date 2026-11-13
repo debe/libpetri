@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.Req.CORE_050
 import Libpetri.Spec.Req.CORE_020
 import Libpetri.Spec.Req.CORE_052
+import Libpetri.Spec.Text.CORE_051
 
 set_option linter.missingDocs true
 
@@ -68,10 +69,7 @@ requirement CORE_051
   kind F
   scope "all implementations"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition fires under the built-in passthrough action, the action *shall* complete with no output token and *shall not* fail."
-        "The identity predicate *shall* accept the built-in passthrough action and reject every other action, including `fork()` ([CORE-052]) and a hand-written action that produces no token."
-        "*When* a transition is built without an action, the built transition *shall* carry the built-in passthrough action."
-        "Every retrieval of the built-in passthrough action *shall* yield the same instance, which the identity predicate accepts."
+  covers CORE_051.s1, CORE_051.s2, CORE_051.s3, CORE_051.s4
   reading "Let interp be the action each identity tag names, isPT the identity predicate, B the transition builder and pt k the k-th retrieval of the built-in."
           "For every transition t, delivery δ and outcome r: the passthrough tag ends with r on t and δ exactly when r is completion with no token."
           "For every tag x: isPT x holds exactly when x is the passthrough tag."

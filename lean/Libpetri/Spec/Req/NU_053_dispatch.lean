@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Verifier.Pipeline
 import Libpetri.Spec.Req.VER_015
+import Libpetri.Spec.Text.NU_053
 
 set_option linter.missingDocs true
 
@@ -182,14 +183,7 @@ requirement NU_053_dispatch
   kind B
   scope "the dispatch of the SMT verifier on ν-nets, where the coloured encoding of Route A is offered (MAY; the shall sentences bind an implementation that offers it)"
   source verbatim "spec/12-nu-nets.md"
-  quote "The verifier routes a bounded quiescence query to Route B first; when Route B truncates (`Unknown`), it **defers** to this scalable Route A encoding rather than returning `Unknown`."
-        "A verdict from the coloured plan is not downgraded as a name-blind verdict would be (the colour-aware deadlock does not over-fire joins); only the `Ignore` downgrade of [VER-006] applies to it."
-        "The verifier *shall not* run Route B ([VER-012]) after the colour-slot bound in one verification call."
-        "*When* the verifier runs the colour-slot bound for a `DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered` or `QuiescentCount` property, it *shall* have run Route B ([VER-012]) in the same verification call."
-        "The verifier *shall not* run the colour-slot bound on a net without a ν-join or without a declared budget place, or when environment injection is modelled or an arrival feeds a coloured place ([VER-006])."
-        "*When* Route B builds its name-partition graph for a `DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered` or `QuiescentCount` property of a ν-net with a declared budget place and the graph returns `Unknown`, the verifier *shall not* return that `Unknown` from Route B and *shall* hand the query over to the next phase of the dispatch."
-        "*When* the verifier has built the coloured plan and the call is not under `Ignore` with environment places registered, the fixpoint query *shall* decide with the verdict of the coloured query and *shall not* downgrade it."
-        "*When* the verifier has not built the coloured plan for a `DeadlockFree`, `TerminatesAtSink`, `JoinedOrDeadLettered` or `QuiescentCount` property of a ν-net with a ν-join, the fixpoint query *shall not* return `Proven`."
+  covers NU_053.s6, NU_053.s7, NU_053.s8, NU_053.s9, NU_053.s10, NU_053.s11, NU_053.s12, NU_053.s13
   reading "For every dispatch D, solver O, stop, options o, call q and trail t whose log of entered steps is empty, in the log of the steps the run of D enters from t: no step named Route B (ν name-partition graph) is entered after a step named colour-slot bound;"
           "on a call whose property is a quiescence property, a colour-slot bound is entered only in a run that also enters a step named Route B (ν name-partition graph);"
           "and a colour-slot bound is entered only on a call with a ν-join, a declared budget place and no injection;"

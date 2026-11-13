@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Novel.RouteA.Simulate
+import Libpetri.Spec.Text.VER_005
 
 set_option linter.missingDocs true
 
@@ -94,9 +95,7 @@ requirement VER_005
   kind F
   scope "the SMT pipeline's invariant phase, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*When* the SMT pipeline ([VER-003]) builds its CHC encoding, the verifier *shall* compute the P-invariants of the verified net from the net's incidence matrix, with one injector column for each environment place into which it models injection ([VER-006])."
-        "The verifier *shall* report a nonzero weight vector `w` with a constant `c` as a P-invariant only when the product of `w` with every column of that incidence matrix is zero and `w · M = c` holds on every marking `M` reachable in the untimed abstraction of the verified net ([VER-004]), injections included."
-        "*When* the verifier computes the P-invariants of a net that has a transition and in which no transition has a reset arc, an `All` input or an `AtLeast` input, it *shall* report P-invariants such that every weight vector of zeros and ones over the net's places whose product with every column of that incidence matrix is zero is a rational linear combination of their weight vectors."
+  covers VER_005.s1, VER_005.s2, VER_005.s3
   reading "For every invariant computation I, all deposit rows rows, environment places envs, place counts n and initial markings a0:"
           "every pair (w, c) in I rows envs n a0 has a nonzero weight below n, and the product of w with the incidence column of every row is zero (dotIncD);"
           "every pair (w, c) in I rows envs n a0 has w · a = c for every marking a reachable from a0 over rows with injection into envs (ReachADInj);"

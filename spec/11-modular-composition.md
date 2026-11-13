@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ch11.lean and the requirement texts it lists, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # 11 — Modular Composition
 
 This document specifies the **modular composition** extension of the CTPN engine: open net fragments (subnets) with declared interfaces, instantiation, structural composition by port mapping, synchronous channel fusion of interface transitions, action binding per instance, and orthogonal fusion of N places.

@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeDef
 import Libpetri.Spec.Req.MOD_010
+import Libpetri.Spec.Text.MOD_030
 
 set_option linter.missingDocs true
 
@@ -188,11 +189,7 @@ requirement MOD_030
   kind F
   scope "every per-instance action binding (Instance.bindActions in Java, TypeScript and Rust; Python's Instance.bind_actions rides on the Rust binding)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* `bindActions` is called on a module instance with prefix `p` and a mapping in which every key `k` names a transition `p/k` of the instance, the call *shall* return a derived instance."
-        "*When* `bindActions` on a module instance returns a derived instance, the derived instance *shall* have the prefix, the places, the interface and the port and channel handles of the receiver and exactly as many transitions as the receiver, each with the same name, arcs, output specification, timing, priority and declared-to-actual place correspondence ([MOD-031]) as the receiver's transition at the same position."
-        "*When* `bindActions` on a module instance with prefix `p` returns a derived instance and the mapping maps a key `k` to an action, the transition `p/k` *shall* carry that action in the derived instance."
-        "*When* `bindActions` on a module instance with prefix `p` returns a derived instance, a transition whose name is not `p/k` for any key `k` of the mapping *shall* carry in the derived instance the action it carried in the receiver."
-        "Whether a call whose mapping holds a key `k` for which the instance has no transition `p/k` returns a derived instance (Rust, Python: the key is ignored) or is rejected (Java, TypeScript: an error naming the key) is not specified."
+  covers MOD_030.s1, MOD_030.s2, MOD_030.s3, MOD_030.s4, MOD_030.s5
   reading "For every per-instance binding function Bind (a module instance and an override mapping give a derived instance or a rejection):"
           "if every key k of the mapping m names a transition p/k of the instance I, where p is I's prefix, Bind I m succeeds;"
           "if Bind I m returns J, then J has I's prefix, places, port and channel handles and interface, and J's transition definitions match I's position by position (same length, same order), each with I's name and arcs (core), output specification, timing, priority and correspondence;"

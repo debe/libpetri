@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Build
+import Libpetri.Spec.Text.CORE_002
 
 set_option linter.missingDocs true
 
@@ -40,9 +41,7 @@ requirement CORE_002
   kind F
   scope "all implementations"
   source verbatim "spec/01-core-model.md"
-  quote "Two places that are the same place *shall* have the same name."
-        "Two places with the same name and the same token type *shall* be the same place."
-        "An implementation *shall* identify a place either by its name, so that two places with the same name are the same place, or by its name and its token type, so that two places that are the same place have the same token type."
+  covers CORE_002.s1, CORE_002.s2, CORE_002.s3
   reading "For every place model M (place objects with a name, a token type and a key; two objects are the same place when their keys are equal):"
           "for all place objects p and q, if p and q are the same place, p and q have the same name;"
           "for all place objects p and q, if p and q have the same name and the same token type, p and q are the same place;"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Spec.Req.EXP_012
+import Libpetri.Spec.Text.EXP_005
 
 set_option linter.missingDocs true
 
@@ -93,12 +94,7 @@ requirement EXP_005
   kind F
   scope "every exporter, the output side of one transition"
   source verbatim "spec/09-export.md"
-  quote "XOR output branches should be labeled to indicate the branching structure."
-        "Each branch of a XOR should be visually identifiable."
-        "The mapper *shall* draw each `Xor` group with two or more children in an output spec as an `Xor` junction node with exactly one edge out of it for each child, in the order of the children."
-        "The mapper *shall* draw the edges below the edge into a child of an `Xor` junction so that following them down reaches the places of that child's leaves, one path into a place for each leaf, and no other place."
-        "The edge into a `Place`, `ForwardInput` or `Timeout` child of an `Xor` junction *shall* carry the label [EXP-012] gives it, and be dashed exactly when [EXP-012] draws it dashed."
-        "*Where* [EXP-013] combines that edge into a reset place, the edge *shall* carry a label that is not empty in place of the one above."
+  covers EXP_005.s1, EXP_005.s2, EXP_005.s3, EXP_005.s4, EXP_005.s5, EXP_005.s6
   reading "For every transition name t, reset places R and output tree o without an empty group (OutTree.toOut o is some), and for every Xor group of o with two or more children cs, at any depth (exp005XorGroups), E draws some xor junction j of t with exactly as many edges out of it as cs has children; the k-th edge out, in the order drawn, is paired with the k-th child c;"
           "the places reached from the end of the k-th edge, following the drawn edges down and counting the paths that end in a place (exp005Below, as deep as E draws edges), are the leaf places of c, one per leaf, up to order (List.Perm);"
           "and when c is a Place, ForwardInput or Timeout child (glossary branchLabel is some), the k-th edge has the dash and the label of the edge EXP-012 draws into c below an Xor junction (exp005Head, from the branch label), unless it ends in a reset place, where its label is some text that is not empty."

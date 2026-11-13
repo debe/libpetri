@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_018
 
 set_option linter.missingDocs true
 
@@ -43,15 +44,8 @@ requirement EXP_018
   kind F
   scope "every exporter, on the input edges of the graph it draws for a configuration and a net"
   source verbatim "spec/09-export.md"
-  quote "When a transition declares a ν-net join correlation ([NU-020]), each **input edge** to a correlated place is decorated to mark it as a name-matched input:"
-        "Label prefixed with the bound-name variable `⟨n⟩` (U+27E8 `n` U+27E9)."
-        "When the input also carries a cardinality label ([EXP-006]), the two are joined with a single space: `⟨n⟩ ×2`, `⟨n⟩ *`, `⟨n⟩ ≥3`."
-        "A correlated `One` input shows `⟨n⟩` alone."
-        "Non-correlated inputs of the same transition are unaffected."
-        "The export *shall* draw each input arc of a transition as an edge of arc type input from the arc's place to the transition, whether or not the transition correlates the place."
-        "*Where* the match specification of a transition ([NU-020]) correlates the place of one of its input arcs, the export *shall* draw the edge of that arc with the `match-input` style row and label it `⟨n⟩` if the arc's cardinality is `One`, and otherwise `⟨n⟩`, one space and the arc's cardinality label ([EXP-006])."
-        "*Where* a transition does not correlate the place of one of its input arcs, the export *shall* draw the edge of that arc with the `input` style row and give it the arc's cardinality label alone, or no label if the cardinality is `One`."
-        "Apart from ghost edges ([EXP-017]), the export *shall* draw only the input edges of correlated places with the `match-input` style row."
+  covers EXP_018.s1, EXP_018.s2, EXP_018.s3, EXP_018.s4, EXP_018.s5, EXP_018.s6, EXP_018.s7,
+        EXP_018.s8, EXP_018.s9
   reading "For the exporter E, every configuration cfg and every net X:"
           "for every transition t of X and every input arc s of t, the graph E cfg X has an edge of arc type input from the place of s to the node of t;"
           "for every input arc s of a transition t whose place t correlates, some such edge has the match-input style row and the label ⟨n⟩, followed by a space and the cardinality label of s when s has one (corrLabel of refCardLabel), and, when the transitions of X have distinct names and no transition has two input arcs on one place, every such edge has that row and that label;"
@@ -74,7 +68,7 @@ requirement EXP_018
           "AC3 (the label combines with cardinality as ⟨n⟩ ×n, ⟨n⟩ *, ⟨n⟩ ≥m) is line 2 with EXP-006's pinned forms; a mapper that replaces the cardinality label by ⟨n⟩ violates it (EXP_018_forbids_replace)."
           "AC4 (the emitted DOT for a ν-net is byte-identical across the Java, TypeScript and Rust exporters) is kind Q: a Lean function is deterministic and cross-language equality is a property of three programs (ruling D60 (c)); the export corpus EP-2 replays the reference against the runtimes after the migration."
           "The test derivation (a join with match correlating two One inputs, both correlated edges teal and labelled ⟨n⟩, a third non-correlated input unchanged) is EXP_018_nonvacuous on the reference, with a second transition whose correlated Exactly(2), All and AtLeast(3) inputs show ⟨n⟩ ×2, ⟨n⟩ * and ⟨n⟩ ≥3 next to an uncorrelated Exactly(2) input labelled ×2."
-  signoff "2026-11-13 d54927ab0c3ea7a8 ai"
+  signoff "2026-11-13 8d8e8f61b13cc8dc ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (∀ t ∈ X.trans, ∀ s ∈ t.core.inputs, ∃ e ∈ (E cfg X).edges,

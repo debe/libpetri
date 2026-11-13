@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeBuild
+import Libpetri.Spec.Text.MOD_026
 
 set_option linter.missingDocs true
 
@@ -149,9 +150,7 @@ requirement MOD_026_resolve
   kind F
   scope "the resolution of the subnet contributions recorded by direct composition into the membership mapping (Java, TypeScript, Rust, Python)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* a node name is recorded as contributed by exactly one subnet, the resolution of the recorded contributions *shall* map that node name to that subnet."
-        "*If* a node name is recorded as contributed by two or more different subnets, *then* the resolution *shall* have no entry for that node name."
-        "*If* a node name is recorded as contributed by no subnet, *then* the resolution *shall* have no entry for that node name."
+  covers MOD_026.s3, MOD_026.s4, MOD_026.s5
   reading "For every resolution function res, which maps a list c of records (node name, subnet name) and a node name n to an optional subnet name:"
           "if (n, s) is a record of c and every record of c for n names s, res c n is s;"
           "if (n, s₁) and (n, s₂) are records of c and s₁ differs from s₂, res c n is absent;"
@@ -204,12 +203,7 @@ requirement MOD_026
   kind B
   scope "every build of a net through an enclosing builder (Java, TypeScript, Rust, Python) and every action binding of a built net"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* a `compose(SubnetDef)` call succeeds, the builder *shall* record each body place and each body transition of the subnet definition, by name, as contributed by that subnet under the definition's name with each `/` replaced by `_`."
-        "The builder *shall* record contributions only in `compose(SubnetDef)` calls."
-        "*When* a build succeeds, the membership mapping of the built net *shall* be the resolution of the contributions the build recorded, except for the names of the places that fusion ([MOD-061]) removed."
-        "*If* fusion removes a member place other than the first member of its fusion set, *then* the membership mapping of the built net *shall* have no entry for that member's name."
-        "*When* a build succeeds, a build that differs from it only in the names of the subnet definitions it composes directly *shall* also succeed and give the same places, transitions, terminal places and transition correspondences ([MOD-031])."
-        "*When* actions are bound to a built net ([CORE-042]), the net that binding returns *shall* carry the same membership mapping."
+  covers MOD_026.s1, MOD_026.s2, MOD_026.s6, MOD_026.s7, MOD_026.s8, MOD_026.s9
   reading "For every naming model Nm, every build-script function S and every action-binding function Rb on composed nets, where the records of a script are, in the order of its calls, for each direct composition of a subnet definition D one record (name of p, slashFree D.name) per body place p and one record (name of t, slashFree D.name) per body transition t, and nothing for any other call, and a name n is fused away in a script when some fusion set the script declares has a member other than its first member whose name is n:"
           "if S ops returns the composed net c and n is not fused away in ops, then c.member n is s exactly when the records of ops resolve n to s (MemberOf: (n, s) is a record and every record for n names s);"
           "if S ops returns c and n is fused away in ops, then c.member n is absent;"

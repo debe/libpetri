@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.EXEC_022
 
 set_option linter.missingDocs true
 
@@ -133,21 +134,9 @@ requirement EXEC_022
   kind T
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "When a transition's output specification includes a Timeout node, the executor races the action against the timeout duration:"
-        "Action completes first → normal output validation."
-        "Timeout fires first → the firing is abandoned (the action is stopped where the runtime can; see [IO-013]); the timeout child output receives tokens; ActionTimedOut event emitted."
-        "The budget is host time: it elapses in real time, not on the firing clock ([TIME-015])."
-        "Only an action that hands control back to the executor before it completes races its budget; an action that completes before it hands control back, a synchronous action for example, never times out."
-        "When the action completes at the instant the budget runs out, either side may win."
-        "*If* the output spec of a firing's transition has no `Timeout` node, or the action of the firing completed before it handed control back to the executor, *then* the executor *shall not* end the firing with its timeout outcome."
-        "*While* the budget of a firing has not elapsed, the executor *shall not* end the firing with its timeout outcome."
-        "*If* the action of a firing completes before the firing ends with its timeout outcome, *then* the executor *shall not* end the firing with its timeout outcome."
-        "*If* a firing has already ended, by the return of its action or by its budget running out, *then* the executor *shall not* change how it ended."
-        "*When* the budget of a firing runs out before its action completes, the executor *shall* take as the timeout outcome the tokens of the `Timeout` child ([IO-013], [IO-014]): one minted token for each `Place` node, and for each `ForwardInput(from, to)` every token the firing consumed from `from`, in consumption order, each keeping its value and `created_at`."
-        "*When* the executor deposits the timeout outcome of a firing, it *shall* add exactly the tokens of that outcome, each at the tail of its place, and *shall not* deposit an outcome of that firing again or fail it afterwards."
-        "*If* the budget of a firing runs out before its action completes, *then* the executor *shall not* deposit the completion of the action, and *shall not* deposit or publish any other output the action had not published before the budget ran out."
-        "Output the action published before the budget ran out stays in the marking ([EXEC-020], [IO-015])."
-        "The timeout outcome is not validated against the output spec, and the join-relay check of [NU-054] still runs on it ([EXEC-021])."
+  covers EXEC_022.s1, EXEC_022.s2, EXEC_022.s3, EXEC_022.s4, EXEC_022.s5, EXEC_022.s6, EXEC_022.s7,
+        EXEC_022.s8, EXEC_022.s9, EXEC_022.s10, EXEC_022.s11, EXEC_022.s12, EXEC_022.s13,
+        EXEC_022.s14, EXEC_022.s15
   reading "For every executor R, every configuration C and every firing identity i:"
           "an expiry step of i with timeout outcome e happens only for a firing i in flight whose action has not reported (no outcome set), that is not synchronous, and whose transition's output spec has a Timeout node (hasTimeoutB), and, if the timeout outcomes C accepts are token-level timeout outcomes (exec022_OutcomeSound), e is the token-level timeout outcome of that node's child for what the firing delivered (exec022_QOutcome);"
           "an expiry step of i with timeout outcome e changes neither the marking nor the queue of publications not yet deposited, and after it every firing i holds the outcome e (an error, if a flushed batch of it failed the join-relay check);"

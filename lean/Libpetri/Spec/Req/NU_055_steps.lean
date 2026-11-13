@@ -1,4 +1,5 @@
 import Libpetri.Spec.Registry
+import Libpetri.Spec.Text.NU_055
 
 set_option linter.missingDocs true
 
@@ -244,31 +245,10 @@ requirement NU_055_refusal
   kind F
   scope "every verifier that offers NameAligned or QuiescentNameAligned (MAY); the refusals before Route B builds the graph"
   source verbatim "spec/12-nu-nets.md"
-  quote "A call can meet several of these refusals at once."
-        "Its verdict is `Unknown` with the reason of the first that applies, in this order, so every implementation names the same place:"
-        "The refusals that precede every route for every property, in this order: a call cancelled or out of total budget before it starts ([VER-013]); a place of `S` that the net does not declare and the initial marking does not mark ([VER-003] AC5), naming the first such place of `S`; a `Bounded(k)` environment outside its premises ([VER-006] AC3); the in-flight refusal of [VER-004]."
-        "The net is outside the fragment of the mode even when every transition counts as a mint: the fragment decline of the mode, under EXTENDED the note of **EXTENDED** above, under BASE a decline that names EXTENDED."
-        "Under `Arrivals(k)` or `Arrivals(min, max)`, an arrival into a coloured place ([VER-006] AC10), naming the first such place in the order the environment places were registered."
-        "The net is outside the fragment only because a transition writes a coloured place without consuming one and is not a declared mint: the decline names those transitions in declaration order ([NU-010])."
-        "Under `AlwaysAvailable` or `Bounded(k)`, an environment place Route B cannot model ([VER-006] AC8). The rules run in this order, each over the environment places the net declares in code-point order of names: one that is coloured; one that an inhibitor arc tests (naming the first such transition in code-point order); where conflict priority is in effect ([NU-052]), one that two or more transitions consume; then, for `QuiescentNameAligned`, the first of them (**Modelled injection** above), and for `NameAligned`, the first that is in `S`."
-        "The first place of `S`, in the order of `S`, that is not coloured. Under BASE the reason also names EXTENDED."
-        "A coloured place the initial marking marks: the first in code-point order of place names."
-        "Steps 3 and 5 apply whether or not the coloured places start empty."
-        "Every place of `S` MUST be a coloured place of the fragment Route B classified for the call: match keys ([NU-020]), declared carriers ([NU-051]) and relay targets ([NU-054])."
-        "A place that is uncoloured, or absent from the net (the net does not declare it and the initial marking does not mark it), MUST fail loudly: the verdict is `Unknown`, never `Proven`, and where no earlier refusal of the refusal order below applies, its reason names a place of `S`: the first absent place of `S`, otherwise the first uncoloured one."
-        "The coloured places MUST start empty (the `hempty` premise of the Lean theorems)."
-        "A call whose initial marking holds a token in a coloured place (a restored marking, [CORE-073], [NU-011]) is `Unknown`, and where no earlier refusal of the refusal order below applies, its reason names the place, the first in code-point order of place names when several are marked; since nothing else decides the property, there is no fallback."
-        "Under **BASE** the coloured set is the match keys alone ([NU-051], [NU-054]), so a property place that is a carrier or a relay target is uncoloured there."
-        "Such a call is refused at step 2 or at step 6 of the refusal order below unless an earlier step refuses it, and the reason of either step MUST name EXTENDED."
-        "In addition, under these modes `QuiescentNameAligned` with a registered environment place that the net declares is `Unknown`, and where no earlier refusal of the refusal order below applies, nor an earlier rule of its step 5, the reason names the first such place in code-point order and points to `Arrivals` ([VER-006]); the vacuity reading of [VER-006] AC6 does not apply to it."
-        "*If* a name-alignment call meets a refusal of step 1 of the refusal order, *then* the verifier *shall* answer `Unknown` with the reason of the first refusal of step 1 that applies, in the order step 1 lists them, naming for an absent place the first place of `S` that the net does not declare and the initial marking does not mark."
-        "*If* no refusal of step 1 applies and the net is outside the fragment of the mode even when every transition counts as a mint, *then* the verifier *shall* answer `Unknown` with the fragment decline of the mode, whose reason names EXTENDED under BASE."
-        "*If* no refusal of steps 1 and 2 applies and, under `Arrivals(k)` or `Arrivals(min, max)`, an arrival feeds a coloured place, *then* the verifier *shall* answer `Unknown` naming the first such place in the order the environment places were registered."
-        "*If* no refusal of steps 1 to 3 applies and transitions write a coloured place without consuming one and are not declared mints, *then* the verifier *shall* answer `Unknown` naming those transitions in declaration order."
-        "*If* no refusal of steps 1 to 4 applies and, under `AlwaysAvailable` or `Bounded(k)`, a rule of step 5 applies, *then* the verifier *shall* answer `Unknown` naming the first environment place, in code-point order, that the first applicable rule finds, and for an inhibitor arc also the first transition in code-point order that tests it."
-        "*If* no refusal of steps 1 to 5 applies and a place of `S` is not coloured, *then* the verifier *shall* answer `Unknown` naming the first such place in the order of `S`, and under BASE the reason *shall* also name EXTENDED."
-        "*If* no refusal of steps 1 to 6 applies and the initial marking marks a coloured place, *then* the verifier *shall* answer `Unknown` naming the first marked coloured place in code-point order of place names."
-        "*If* no step of the refusal order applies, *then* the verifier *shall not* refuse the call with a refusal of that order: unless the call is the caller's error of a declared mint or carrier that is not in the net, or a later poll sees a stop ([VER-013]), Route B builds the graph, and the verdict is the one it reads off that graph."
+  covers NU_055.s18, NU_055.s19, NU_055.s20, NU_055.s21, NU_055.s22, NU_055.s23, NU_055.s24,
+        NU_055.s25, NU_055.s26, NU_055.s27, NU_055.s11, NU_055.s12, NU_055.s13, NU_055.s14,
+        NU_055.s15, NU_055.s16, NU_055.s17, NU_055.s28, NU_055.s29, NU_055.s30, NU_055.s31,
+        NU_055.s32, NU_055.s33, NU_055.s34, NU_055.s35
   reading "For every call c, with step1 to step7 the seven steps of the refusal order read on c (each the reason of its first refusal that applies, or none):"
           "if step 1 gives the reason r, R refuses c with r;"
           "if step 1 gives none and step 2 gives r, R refuses c with r;"

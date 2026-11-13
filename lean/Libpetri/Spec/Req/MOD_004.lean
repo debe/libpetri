@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeDef
 import Libpetri.Spec.Req.MOD_006
+import Libpetri.Spec.Text.MOD_004
 
 set_option linter.missingDocs true
 
@@ -45,9 +46,7 @@ requirement MOD_004
   kind B
   scope "every subnet builder and every instantiation of a subnet definition"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* two subnet declarations differ only in the directions of their ports, building the subnet definition *shall* succeed for both or fail for both."
-        "*When* two subnet definitions differ only in the directions of their ports, `instantiate` with one prefix *shall* succeed for both or fail for both, and two successes *shall* give the same places, the same transitions, the same port and channel handles, and the same ports apart from their directions."
-        "*When* building a subnet definition succeeds, the definition *shall* have a port with the name of each declared port, and each such port *shall* carry the declared direction."
+  covers MOD_004.s1, MOD_004.s2, MOD_004.s3
   reading "For every naming model Nm (the renaming an instantiation uses, MOD-010; the lines do not read it), every subnet builder SB and every instantiation function Inst:"
           "if the port list ps has, port by port, the names and places of the ports of the subnet input S, then SB succeeds on S exactly when it succeeds on S with its ports replaced by ps;"
           "if ps has, port by port, the names and places of the ports of the subnet definition S, then for every prefix p Inst succeeds on S under p exactly when it succeeds on S with its ports replaced by ps, and two such successes I and J hold the same places (as a set), the same transition definitions (whole, with timing, priority, action and correspondence, in order), the same port handle and channel handle for every name, and the same names and places of ports (as a set);"

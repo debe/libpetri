@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Spec.Req.EXEC_040
+import Libpetri.Spec.Text.ENV_015
 
 set_option linter.missingDocs true
 
@@ -40,31 +41,10 @@ requirement ENV_015
   kind B
   scope "all executors; the operation itself is optional (MAY) and only Java provides it"
   source verbatim "spec/06-environment-places.md"
-  quote "An implementation MAY provide an immediate-termination operation (`terminateNow()`) that stops the orchestrator loop **without** waiting for in-flight actions, unlike `close()` ([ENV-013]) which lets them complete."
-        "New `inject()` calls are rejected (return error / false), as after [ENV-013]."
-        "Queued external events are discarded (completed with false)."
-        "The loop stops at the end of its current cycle, or at the termination test of that cycle ([EXEC-040]) if it finds no action in flight there; it does NOT wait for in-flight actions, and their results are discarded rather than admitted to the marking."
-        "In-flight actions keep running where the runtime cannot cancel them ([IO-013]); their consumed tokens are lost ([EXEC-031])."
-        "It is an explicit escape hatch and MUST NOT be invoked implicitly by `close()`."
-        "The executor is **stopped** from the moment `terminateNow()` takes effect."
-        "The call takes effect between two steps of the loop ([EXEC-001]): a call that lands while a step is under way takes effect when that step ends."
-        "The current cycle is the one under way when the call takes effect; it ends where the next cycle would start, before its step 1."
-        "If the termination test of the current cycle ([EXEC-040]) finds no action in flight, the run ends there, as a closed run does ([ENV-013]), and the firing pass of that cycle does not run."
-        "A request that lands before the call takes effect may still be accepted; its event is then discarded, and its admission completes with `false` ([ENV-004])."
-        "*When* `terminateNow()` takes effect, the executor *shall* become stopped, *shall* discard every external event still queued ([ENV-004]) and *shall* end a wait under way in step 6 ([CONC-010])."
-        "*When* `terminateNow()` takes effect, the executor *shall not* change the marking and *shall not* move its loop to another step: the tokens that the firings in flight consumed stay consumed ([EXEC-031]), and the current cycle goes on."
-        "The executor *shall* become stopped only when `terminateNow()` takes effect, and once stopped it *shall* stay stopped; `close()` *shall not* stop it ([ENV-013])."
-        "*While* the executor is stopped, *if* `inject()` is called, *then* it *shall* return an error or `false` ([ENV-006])."
-        "*While* the executor is stopped, it *shall not* inject an external event into the marking."
-        "*While* the executor is stopped, it *shall not* process the outcome of a firing, except in the firing pass of the current cycle, for a synchronous action that pass waits for ([EXEC-001])."
-        "*While* the executor is stopped and its loop is at the start of a cycle, it *shall not* take any step of the loop other than ending the run (answering a snapshot request ([ENV-014]) is not a step of the loop)."
-        "*When* the executor is stopped and its loop reaches the start of a cycle, it *shall* end the run without waiting for the actions still in flight."
-        "*When* a stopped executor ends its run, it *shall* return the marking it holds at that point without restoring the tokens that the firings in flight consumed, and *shall* discard every external event still queued ([ENV-004]); unless a terminal place is marked ([EXEC-042]), it *shall* end the run only at the start of a cycle or at a termination test ([EXEC-040]) that finds no action in flight."
-        "*While* the executor is stopped, no terminal place is marked and no action is in flight, it *shall* take no step at a termination test ([EXEC-040]) other than ending its run."
-        "*While* the executor is stopped, it *shall not* deposit a batch that an action published mid-action ([IO-015]), except to finish a step 1b that was under way when the call took effect."
-        "*While* the executor is stopped, it *shall not* end the firing pass of the current cycle while transitions remain in its ready order: the pass still starts each of them that it can start ([EXEC-002], [TIME-014])."
-        "Which termination reason the run reports is [EXEC-041]'s."
-        "Whether an action left running is cancelled is the runtime's capability ([IO-013]); the executor never deposits its result."
+  covers ENV_015.s1, ENV_015.s2, ENV_015.s3, ENV_015.s4, ENV_015.s5, ENV_015.s6, ENV_015.s7,
+        ENV_015.s8, ENV_015.s9, ENV_015.s10, ENV_015.s11, ENV_015.s12, ENV_015.s13, ENV_015.s14,
+        ENV_015.s15, ENV_015.s16, ENV_015.s17, ENV_015.s18, ENV_015.s19, ENV_015.s20, ENV_015.s21,
+        ENV_015.s22, ENV_015.s23, ENV_015.s24, ENV_015.s25
   reading "For every executor R and every configuration C, where an executor state is stopped when its lifecycle mode is stopped:"
           "a step that leads from a state that is not stopped to a stopped state is a terminateNow step;"
           "every step from a stopped state leads to a stopped state;"

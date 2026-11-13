@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.CONC_002
 
 set_option linter.missingDocs true
 
@@ -45,15 +46,8 @@ requirement CONC_002
   kind B
   scope "all executors"
   source verbatim "spec/05-concurrency.md"
-  quote "An action returns a future/promise/task; the orchestrator does not *await* its completion inline before continuing."
-        "*When* the executor starts a transition, it *shall not* deposit any token; the outputs of the firing are deposited in a later step ([CONC-003])."
-        "*When* the executor starts a transition, it *shall* add a firing of that transition, its action not yet completed, to the firings in flight, and *shall* leave every other firing in flight as it was."
-        "From its termination test ([EXEC-040]) the executor *shall* either begin a firing pass or finish the run; it *shall not* wait at the test for a firing in flight to complete."
-        "The executor *shall* pass over a transition of the ready order without starting it only when the transition holds no clock or is not enabled on the marking the firing pass judges ([EXEC-003]), whatever firings are in flight."
-        "*When* the executor updates enablement ([TIME-010]), it *shall* leave every enabled transition that is not reaped ([TIME-013]) holding a clock, whatever firings are in flight, unless the executor is not re-entrant and a firing of that transition is in flight."
-        "*Where* the executor is not re-entrant (Java, TypeScript), it *shall not* arm ([TIME-010]) or start a transition while a firing of that transition is in flight."
-        "While an action runs its inputs are consumed and its outputs not yet deposited, and other transitions fire."
-        "Whether an executor starts a transition again while an earlier firing of it is in flight is not specified: a re-entrant executor does (Rust, Python), one that is not re-entrant does not (Java, TypeScript)."
+  covers CONC_002.s1, CONC_002.s2, CONC_002.s3, CONC_002.s4, CONC_002.s5, CONC_002.s6, CONC_002.s7,
+        CONC_002.s8, CONC_002.s9
   reading "For every executor R, every configuration C and every transition name n:"
           "a start step of n deposits nothing: every queue after it is a sublist of the queue before it (the step only takes the tokens the firing consumes and drains);"
           "a start step of n with sync flag sy adds one firing whose transition is the head of the pass's ready order, named n, whose sync flag is sy and whose outcome is not set, and the firings in flight after it are those before it and that one;"

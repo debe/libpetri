@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Text.TIME_005
 
 set_option linter.missingDocs true
 
@@ -34,9 +35,7 @@ requirement TIME_005
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "*While* a transition with `Window(earliest, latest)` timing is armed and its elapsed time is less than `earliest`, the transition *shall not* fire."
-        "*While* a transition with `Window(earliest, latest)` timing is armed and its elapsed time is at least `earliest`, its timing *shall not* stop it from being ready until it is expired."
-        "*If* a transition with `Window(earliest, latest)` timing is armed and its elapsed time exceeds `latest` plus the deadline tolerance, *then* the executor *shall* reap it ([TIME-013])."
+  covers TIME_005.s1, TIME_005.s2, TIME_005.s3
   reading "For every timed net X, every transition u and all bounds e and l such that u's timing is Window(e, l):"
           "no firing of u starts from a state in which u is armed and its elapsed time is below e (this restates [TIME-010] line 4 for this timing);"
           "from every state in which u, the net's transition of its name, is armed and its elapsed time is at least e and at most l plus the tolerance, every reference firing of u is a step, to the marking that firing gives;"

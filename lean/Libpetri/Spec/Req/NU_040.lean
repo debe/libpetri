@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Nu
 import Libpetri.Reference.Semantics
+import Libpetri.Spec.Text.NU_040
 
 set_option linter.missingDocs true
 
@@ -75,9 +76,7 @@ requirement NU_040_mint
   kind F
   scope "the mint declaration every verifier route reads (declared_mints / declaredMints), Route A and Route B of NU-050"
   source verbatim "spec/12-nu-nets.md"
-  quote "*Where* a place is declared to the verifier as a budget place, the ν routes *shall* read every transition that has an input arc on that place as a declared mint ([NU-010])."
-        "The ν routes *shall* read a transition named as a mint transition on the verifier (`mintTransitions` / `mint_transitions`) as a declared mint, whatever budget places are declared."
-        "The ν routes *shall* read a transition as a declared mint only when it is named as a mint transition on the verifier or has an input arc on a place declared to the verifier as a budget place."
+  covers NU_040.s1, NU_040.s2, NU_040.s3
   reading "Let DM B E t say whether the transition t is a declared mint, when B are the places declared to the verifier as budget places and E the names declared to it as mint transitions."
           "For all B, E and t: if some input arc of t is on a place of B, then DM B E t is true."
           "For all B, E and t: if the name of t is in E, then DM B E t is true, whatever B is."
@@ -117,9 +116,7 @@ requirement NU_040_jodl
   kind F
   scope "every verifier route that decides JoinedOrDeadLettered: Route B, Route A, and on a net without a matched transition the untimed encoder, the structural and abstract-replay checks"
   source verbatim "spec/12-nu-nets.md"
-  quote "Every route that decides `JoinedOrDeadLettered(pending)` *shall* count a marking as violating it when the marking is quiescent ([VER-002]) and `pending` holds a token, whether or not a declared sink place is marked."
-        "Every route that decides `JoinedOrDeadLettered(pending)` *shall* count a marking as violating it only when the marking is quiescent and `pending` holds a token."
-        "In that quiescence a transition with a match specification *shall* count as enabled exactly when it is enabled as [NU-020] says: on its token counts, and with a name of which every correlated input holds at least one token and at least its required count; a match that correlates no input is never enabled."
+  covers NU_040.s4, NU_040.s5, NU_040.s6
   reading "Let PS X S p M say that the marking M violates JoinedOrDeadLettered(p) on the net with transitions X and declared sink places S."
           "For all X, S, p and M: if M rests on X (every transition of X that is ν-enabled at M, enabled on its counts and, with a match, with some name eligible, is reapable: NuRests) and p holds a token in M, then PS X S p M, whatever the sink places S are and whether or not they are marked."
           "For all X, S, p and M: if PS X S p M, then M rests on X and p holds a token in M."

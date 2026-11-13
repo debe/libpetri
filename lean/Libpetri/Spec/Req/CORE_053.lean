@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryContext
 import Libpetri.Spec.Req.CORE_050
+import Libpetri.Spec.Text.CORE_053
 
 set_option linter.missingDocs true
 
@@ -79,8 +80,7 @@ requirement CORE_053
   kind F
   scope "implementations that provide transform()"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition fires under the transform action, the action *shall* call its function with the transition context of that firing, and *shall* complete or fail with the outcome of one such call."
-        "*When* the function returns a value, the transform action *shall* complete with the output tokens the function wrote through the context, followed in every place the output spec names by one token carrying that value."
+  covers CORE_053.s1, CORE_053.s2
   reading "Let X be the transform: X f is the action built from the host's function f; f t δ (ok (w, v)) says that one call of f, handed the transition t and the delivery δ, may return v after writing w through the context, and f t δ (error m) that one call may fail; val reads the value a token carries."
           "For every function f, transition t, delivery δ and emission e: if the action X f, handed t and δ, completes with e, then some single call of f on that same t and δ wrote w and returned v, and in every place the output specification of t names e holds the tokens w sent there followed by exactly one token carrying v, and in every other place exactly the tokens w sent there."
           "For every function f, transition t, delivery δ, writes w and value v that some token carries: if one call of f, handed t and δ, may write w and return v, then X f, handed t and δ, may complete with an emission of that shape for w and v."

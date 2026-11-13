@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Novel.Dbm
 import Libpetri.Novel.TimedScg.Grid
+import Libpetri.Spec.Text.VER_011
 
 set_option linter.missingDocs true
 
@@ -122,14 +123,8 @@ requirement VER_011
   kind F
   scope "the zone library of every state class graph, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*When* the zone library creates a zone from one lower and one upper bound per clock, the zone *shall* hold exactly the firing times that lie between the bounds of each clock."
-        "Canonicalising a zone *shall not* change the firing times it holds."
-        "*When* a zone holds some firing times, its canonical matrix *shall* be closed: no bound exceeds the sum of the two bounds of a detour through any clock of the matrix, the reference clock included."
-        "The zone library *shall* report a zone empty only when it holds no firing times."
-        "*If* every finite bound of a zone is a whole number of milliseconds and every clock, the reference clock included, has a finite lower bound, *then* the zone library *shall* report the zone empty exactly when it holds no firing times."
-        "*When* a transition fires from a zone, the successor zone, with the persistent clocks first in the order given and the newly enabled clocks after them, *shall* hold every firing time the firing rule allows: the fired clock is not later than any other clock, each persistent clock keeps the time it had left after the fired clock, and each newly enabled clock lies between its static bounds."
-        "*When* the clocks of a zone that holds some firing times are permuted, the zone library *shall* keep the reference clock first, move every other bound of the matrix with its two clocks, and write zero as the bound of the reference clock against itself."
-        "*If* two zones each hold some firing times and every finite bound of both is a whole number of milliseconds, *then* their dedup keys *shall* be equal exactly when their matrices are equal entry by entry, the bounds between two clocks included."
+  covers VER_011.s1, VER_011.s2, VER_011.s3, VER_011.s4, VER_011.s5, VER_011.s6, VER_011.s7,
+        VER_011.s8
   reading "create n lb ub (one lower and one upper bound per clock) holds a valuation θ exactly when every clock i < n lies between lb[i] and ub[i], relative to the reference clock."
           "canon d D holds exactly the valuations D holds, on every matrix, empty ones included."
           "When D holds some valuation, canon d D is closed on its d × d corner: D i j ≤ D i k + D k j for every i, j, k < d, the reference index 0 and repeated indices included."

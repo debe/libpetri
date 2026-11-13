@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_030
 
 set_option linter.missingDocs true
 
@@ -32,8 +33,7 @@ requirement CORE_030
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition fires, it *shall* consume from each of its input places that is not also one of its reset places ([CORE-034]) as many tokens as the input arc's consumption count ([IO-001]–[IO-004], [IO-007]), oldest first."
-        "*When* a transition fires, each of its input places that is neither one of its reset places nor one of its output places *shall* end the firing holding exactly the consumption count of its input arc fewer tokens than it held before the firing."
+  covers CORE_030.s1, CORE_030.s2
   reading "For every transition t that declares at most one input arc per place, every input place p of t whose input arc has cardinality c, p not a reset place of t, and every deposit d, every firing of t from m to m' depositing d, from a marking in which p holds at least the arc's required count:"
           "leaves m'(p) + consumptionCount(c, m(p)) = m(p) + (the tokens d deposits in p): the firing removes exactly the consumption count from p, besides what it deposits there;"
           "and, if p is not an output place of t either, leaves m'(p) + consumptionCount(c, m(p)) = m(p): p ends holding exactly the consumption count fewer tokens, whatever deposit the firing reports."

@@ -3,6 +3,7 @@ import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
 import Libpetri.Spec.Req.EXP_014
+import Libpetri.Spec.Text.EXP_016
 
 set_option linter.missingDocs true
 
@@ -76,22 +77,9 @@ requirement EXP_016
   kind F
   scope "every exporter, the clusters of the exported graph"
   source verbatim "spec/09-export.md"
-  quote "DOT export of a net produced by modular composition (per [MOD-020]) SHOULD emit a `subgraph cluster_<sanitizedKey>` block grouping each subnet's nodes."
-        "**Subnet-membership metadata** ([MOD-026]) carried by a directly-composed net — a node mapped to subnet `S` clusters under `cluster_<sanitize(S)>`; a shared (multi-subnet) place has no entry and is not grouped by metadata."
-        "**Instance-prefix detection** — a node whose name begins with `<prefix>/` (the separator established by [MOD-010]) clusters under `cluster_<sanitize(prefix)>`. Nested instance prefixes (per [MOD-013]) MUST produce nested cluster subgraphs."
-        "When the net carries membership metadata the exporter SHOULD prefer it and fall back to instance-prefix detection for any node without an entry, so direct and instance composition coexist."
-        "The cluster source MAY be caller-selectable (metadata-only, prefix-only, or no clustering); the default SHOULD be metadata-when-present."
-        "The sanitization function applied to the key MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`). The cluster `label` attribute SHOULD carry the original (un-sanitized) key string for human readability."
-        "This requirement does NOT alter the styling, junction, or arc rendering rules of EXP-002..EXP-015; it adds grouping structure only. A net with neither composed instances nor membership metadata (no `/` in any node name) MUST produce no cluster subgraphs."
-        "The SHOULD priority is whether an exporter draws cluster subgraphs at all. For an exporter that draws them, every MAY, SHOULD and MUST sentence of this requirement reads as *shall*: it lets the caller select each cluster source named above, takes the default source when the caller selects none, and follows the sentences below."
-        "Under the default cluster source the cluster key of a place or a transition is its membership entry when it has one and otherwise its instance prefix; under the metadata-only source it is the membership entry alone, under the prefix-only source the instance prefix alone, and under no clustering there is none. The instance prefix of a name is the part before its last `/`; a name without `/`, or whose only `/` is its first character, has none. A junction node has the cluster key of its transition. A node without a cluster key is a top-level node. A `/`-prefix of a key is the non-empty beginning of the key up to, and not including, one of its `/` characters."
-        "These sentences cover nets whose place names and transition names are ASCII, in which no two place names and no two transition names become equal under the sanitization of [EXP-014], and in which every cluster key of a place or transition name is ASCII, non-empty and has no empty `/`-segment: it neither starts nor ends with `/` and holds no `//`. On other nets the clustering, and whether it changes the nodes and edges drawn, is implementation-defined."
-        "The mapper *shall* make each node that has a cluster key a direct member of the cluster of that key and of no other cluster, and a top-level node a member of no cluster."
-        "The mapper *shall* list as a member of a cluster only a node it draws, and, on a net whose transition names are pairwise distinct, list each such node at most once."
-        "The mapper *shall* draw exactly one cluster for each cluster key of a drawn node and for each `/`-prefix of such a key, and no other cluster."
-        "The mapper *shall* nest each cluster directly in the cluster whose key is the part of its own key before the last `/`, and draw a cluster whose key has no `/` at the top level."
-        "The mapper *shall* give the cluster of key K the ID `cluster_` followed by K with each character outside `[A-Za-z0-9_]` replaced by `_`, and the label K."
-        "The mapper *shall* draw, in any order, the same nodes, and the same edges other than the ghost edges of [EXP-017], as it draws for the same net and configuration under no clustering."
+  covers EXP_016.s1, EXP_016.s2, EXP_016.s3, EXP_016.s4, EXP_016.s5, EXP_016.s6, EXP_016.s7,
+        EXP_016.s8, EXP_016.s9, EXP_016.s10, EXP_016.s11, EXP_016.s12, EXP_016.s13, EXP_016.s14,
+        EXP_016.s15, EXP_016.s16
   reading "For every configuration cfg and net X that meets the name assumption (ExportNet.ClusterNames: EXP-014's ExportNet.IdNames, ASCII place and transition names with no two place names and no two transition names equal after sanitize, and every cluster key of a place or transition name of X under cfg.cluster ASCII and non-empty with no empty /-segment), with key the glossary's nodeKey cfg.cluster X.member (membership entry, else instancePrefix, per cluster source; a junction takes its transition's key), the graph E cfg X satisfies:"
           "every drawn node is a direct member of a cluster exactly when the cluster's key is the node's key (so a node with a key is in the cluster of its key and no other, and a node without a key is in no cluster);"
           "every member of a cluster is the reference of a drawn node, and when the transition names of X are pairwise distinct no cluster lists a member twice;"

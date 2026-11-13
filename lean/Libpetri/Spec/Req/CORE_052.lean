@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryContext
+import Libpetri.Spec.Text.CORE_052
 
 set_option linter.missingDocs true
 
@@ -50,12 +51,7 @@ requirement CORE_052
   kind F
   scope "all implementations (the built-in fork action; Python rides on the Rust action)"
   source verbatim "spec/01-core-model.md"
-  quote "A built-in fork action that copies a single input token value to all declared output places."
-        "*When* the fork action runs for a transition with exactly one input place and the firing consumed exactly one token from that place, the action *shall* complete with one token carrying that token's value in every place the output spec names and with no token in any other place."
-        "*If* the transition does not have exactly one input place, *then* the fork action *shall* fail."
-        "*When* the firing consumed two or more tokens from the single input place, the fork action *shall* either fail or complete with one token carrying the oldest consumed token's value in every place the output spec names and with no token in any other place."
-        "**Divergence:** when the firing consumed two or more tokens from the single input place, the fork action copies the oldest consumed token to every output place in Java, Rust and Python and fails in TypeScript."
-        "**Note:** The fork action writes every place the output spec names, so on an output spec `Xor(a, b)` with two different places it writes both, and an executor with output validation enabled rejects its completion ([IO-015], [EXEC-021])."
+  covers CORE_052.s1, CORE_052.s2, CORE_052.s3, CORE_052.s4, CORE_052.s5, CORE_052.s6
   reading "For every value projection val and every fork action function Fork, for every transition t and every delivery δ:"
           "for every place i and token x, if i is the sole input place of t (the input places of t, as a set, are {i}) and δ delivers exactly [x] from i, then Fork t δ completes with an emission e such that, for every place p, the values of the tokens e sends to p are [val x] if t's output spec names p and [] otherwise;"
           "if t has no sole input place (it has none, or two or more) and every input place of t delivered at least one token in δ, then Fork t δ fails with some message;"

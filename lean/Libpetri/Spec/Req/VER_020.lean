@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Novel.SiphonSearch
 import Libpetri.Reference.Nu
 import Libpetri.Novel.EnvSemantics.Arrivals
+import Libpetri.Spec.Text.VER_020
 
 set_option linter.missingDocs true
 
@@ -95,15 +96,8 @@ requirement VER_020
   kind F
   scope "the structural deadlock pre-check (siphon search, trap contraction, structural check) of every implementation"
   source verbatim "spec/07-verification.md"
-  quote "*When* the siphon search returns, every set it returns *shall* be a nonempty siphon that contains no other nonempty siphon."
-        "*When* the siphon search returns, every nonempty siphon *shall* contain a set it returns."
-        "The maximal trap the check computes inside a set of places *shall* be a trap inside that set that contains every trap inside it."
-        "*If* the net has more than 50 places or no transition, *then* the structural check *shall* answer inconclusive."
-        "The structural check *shall* pass the siphon search a budget of 10 000 search nodes."
-        "*If* the siphon search does not return, *then* the structural check *shall* answer inconclusive."
-        "*When* the siphon search returns on a net with at most 50 places and at least one transition, the structural check *shall* answer no potential deadlock exactly when the maximal trap inside each returned siphon holds a token in the initial marking, and potential deadlock otherwise."
-        "*While* the total budget of [VER-013] is not spent, the siphon search *shall* return at a budget of 10 000 search nodes on the two witnesses above with minimal siphons `{x, y}` and `{a, b}`."
-        "*If* the total budget of [VER-013] is spent before the siphon search starts on a net with at least one place, *then* the siphon search *shall not* return."
+  covers VER_020.s1, VER_020.s2, VER_020.s3, VER_020.s4, VER_020.s5, VER_020.s6, VER_020.s7,
+        VER_020.s8, VER_020.s9
   reading "For every flat net net with n places, every budget b, stop oracle stop and list sips that F returns: every K in sips is nonempty, lies below n, is a siphon, and every nonempty siphon inside K is all of K."
           "For every flat net net, n, b, stop and list sips that F returns: every nonempty siphon below n contains some K in sips."
           "For every flat net net, n and list sip below n: T net n sip lies inside sip, is a trap, and contains every trap that lies inside sip."
@@ -616,7 +610,7 @@ requirement VER_020_guard
   kind B
   scope "the verifier's structural route (the step that turns the structural check's answer into a Proven) of every implementation"
   source verbatim "spec/07-verification.md"
-  quote "The verifier *shall* convert a no-potential-deadlock answer into a `Proven` only when it decides `DeadlockFree` on a net with no match transition ([NU-020]), no reapable transition ([VER-002]) unless `assumeNoReaping` is set, no read, inhibitor or reset arc, no consume-all input, no input arc weight above one, no declared sink or conditional sink and no environment place registered on the net it decides (the `Arrivals` rewrite of [VER-006] leaves none)."
+  covers VER_020.s10
   reading "For every structural check C, input x, stop oracle stop and initial marking a0: when R answers Proven, C answers no potential deadlock on the flat net of x with its place count, stop and a0; the property is DeadlockFree; x has no match transition; no transition is reapable or assumeNoReaping is set; the flat net is ordinary (no inhibitor, read or reset arc, every input arc neither consume-all nor of weight above one); and the declared sinks, the conditional sinks and the environment places registered on the net the route receives are all empty."
   assumes "The model is a route R : StructRouteFn over StructInput, what the route reads of the net it receives: the property as the flag deadlockFree, the flags hasMatch, reapable and assumeNoReaping, the flat net with its place count (Soundness.FlatNet, as in VER_020), the declared sinks, the markers of the declared conditional sinks, and the environment places registered on the net it receives. The witness is refStructRoute: refStructGate (structural_candidate in smt_verifier.rs, the same conjunction in SmtVerifier.java and smt-verifier.ts) and the check's answer. R takes the check C as an argument and the line holds for every C, so the line does not depend on the check being the one of VER_020; VER_020_guard_sound composes the two blocks."
           "'Registered on the net it decides (the Arrivals rewrite of VER-006 leaves none)' is the W1 review note W1-SK-7: under Arrivals and ArrivalsBetween all three verifiers close the net and clear the environment places before any route (with_arrivals in smt_verifier.rs, applyArrivals in SmtVerifier.java and smt-verifier.ts), Arrivals(0) included; under AlwaysAvailable, Bounded and Ignore no rewrite runs, the registered places stay and the route does not run. The field envPlaces is the list on the net the route receives, and the formula is the one the older wording 'no registered environment place' gives; the parenthesis names which net that is. That the rewrite clears the list is VER-006's (VER_006_arrivals assumes, kind N there): the closure of Novel/EnvSemantics returns rows and a marking, no registration. What the rewrite leaves the route is VER_020_guard_arrivals, on the reference closure of VER-006: under Arrivals(0) nothing is added and the route proves t: a → a; once an arrival is injected the closure adds a source place that no transition refills, so the source is a siphon with no trap inside it and the check answers potential deadlock (shown under Arrivals(1, 1); the optional source of Arrivals(k) with k ≥ 1 is the same kind of siphon). So the structural route proves a net whose places were registered only under Arrivals(0); a closed net with a source goes to the other routes. A route that reads the places before the rewrite only refuses more and breaks no line; that the route does prove on the net it receives is the offer in Ver020GuardCovers, which such a route fails."

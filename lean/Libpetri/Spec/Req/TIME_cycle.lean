@@ -1,6 +1,10 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.TIME_010
+import Libpetri.Spec.Text.TIME_012
+import Libpetri.Spec.Text.TIME_013
+import Libpetri.Spec.Text.TIME_015
 
 set_option linter.missingDocs true
 
@@ -623,15 +627,8 @@ requirement TIME_010_cycle
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "The executor arms transitions in the enablement update of a cycle ([EXEC-001] step 3)."
-        "A transition is newly armed by the first enablement update that finds it enabled while it is not armed, and its stamp is the firing-clock reading that update takes."
-        "A synchronous action's deposit is first seen by the enablement update of the next cycle, and an asynchronous completion or an injected token by the enablement update of the cycle that takes it in (steps 1 and 2)."
-        "So the stamp is neither the reading of the cycle in which the arming firing started nor the moment an action completed."
-        "A clock restarted in a firing ([TIME-012]) is stamped the same way, by the next enablement update that finds the transition enabled."
-        "*When* a transition is newly armed, the executor *shall* stamp it with the firing-clock reading taken by the enablement update that newly arms it ([EXEC-001] step 3)."
-        "The executor *shall not* arm a transition or give an armed transition a different stamp in any step other than an enablement update ([EXEC-001] step 3); another step may only take a stamp away ([TIME-012], [TIME-013])."
-        "*When* the executor runs the enablement update of a cycle ([EXEC-001] step 3), it *shall* take the current reading of the firing clock, and the deadline step of that cycle ([EXEC-001] step 4) *shall* judge expiry at that reading or at a later reading it takes itself."
-        "The firing pass and the decision to wait of a cycle *shall* judge elapsed time at the reading of its deadline step, and no other step of the cycle *shall* take a new reading for these judgements."
+  covers TIME_010.s3, TIME_010.s4, TIME_010.s5, TIME_010.s6, TIME_010.s7, TIME_010.s8, TIME_010.s12,
+        TIME_010.s13, TIME_010.s14
   reading "For every executor R and every configuration C:"
           "an update step that leaves a name armed with stamp k, when before it the name was off, reaped, or armed with a restart pending, has k equal to the cycle reading the update takes and leaves no restart pending for the name;"
           "every step other than an update leaves the stamp of every name as it was, or leaves the name without a stamp;"
@@ -957,19 +954,8 @@ requirement TIME_012_cycle
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "The intermediate marking comes from the live marking `t` fires from: the tokens in the places when `t` fires, minus what `t` consumes."
-        "Inside a firing pass this includes tokens a synchronous action deposited earlier in the same pass, because they are really there and a transition they keep enabled was never disabled."
-        "Outputs of an asynchronous action still in flight are not in the marking yet, so they do not count."
-        "A transition that the recheck finds disabled ([EXEC-003] AC3) is disarmed and loses its clock as well, even when a same-pass deposit refilled its place and keeps it enabled in the live marking."
-        "It is newly armed, with a fresh stamp, by a later enablement update that finds it enabled ([TIME-010])."
-        "*When* a transition `t` fires, each armed transition other than `t` that is not enabled in the intermediate marking *shall* lose its clock."
-        "*When* a transition `t` fires, each armed transition other than `t` that is enabled in the intermediate marking and after the firing *shall* keep its stamp."
-        "*When* a transition fires, it *shall* lose its clock."
-        "*When* a transition `t` fires and a transition that lost its clock in that firing is enabled after it, that transition *shall* be newly armed ([TIME-010])."
-        "*If* the enablement recheck of a firing pass finds a transition disabled ([EXEC-003] AC3), *then* the transition *shall* lose its clock, even when a same-pass deposit keeps it enabled in the live marking."
-        "A reset arc drains its place, so every armed transition with a read arc on a reset place, or an input arc on it whose required count is positive, starts a fresh clock when it is enabled again, unless a same-pass deposit that the reset does not take ([EXEC-003] AC5) keeps it enabled in the intermediate marking."
-        "*When* a firing pass starts a transition `t`, each other armed transition that is not enabled in the intermediate marking of `t` *shall* lose its clock at the next enablement update ([EXEC-001] step 3), even when a deposit before that update refills its places, and that update *shall* stamp it with the reading the update takes if it is enabled ([TIME-010]), after which its clock runs from that stamp."
-        "Until that update the transition keeps its old stamp, so it can still start later in the same pass on that stamp if the recheck finds it enabled; this needs an inhibitor arc, because without one a transition that is not enabled in the intermediate marking of `t` is not enabled in the pass-visible marking at a later start either."
+  covers TIME_012.s3, TIME_012.s4, TIME_012.s5, TIME_012.s6, TIME_012.s7, TIME_012.s8, TIME_012.s9,
+        TIME_012.s10, TIME_012.s11, TIME_012.s16, TIME_012.s20, TIME_012.s17, TIME_012.s18
   reading "For every executor R and every configuration C:"
           "a start step of the name n from a state whose pass order begins with t leaves every other name m, whose transition u the net holds and which is armed with stamp k and restart flag r, armed with stamp k, its restart flag set exactly when r was set or u is not enabled in the live intermediate marking of t (the pass-visible marking with t's consumption and drains applied, followed by the tokens deposited earlier in the pass);"
           "a start step of the name n leaves n off;"
@@ -1408,14 +1394,8 @@ requirement TIME_013_cycle
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "When a reapable transition is expired, that is, armed with an elapsed time strictly greater than its latest bound plus the deadline tolerance, the executor reaps it: it disarms the transition without firing it and emits a `TransitionTimedOut` event."
-        "*If* a reapable transition is armed and its elapsed time is greater than its latest bound plus the deadline tolerance, *then* the executor *shall* reap it in the deadline step of that cycle ([EXEC-001] step 4) and emit `TransitionTimedOut` ([EVT-009])."
-        "The executor *shall not* reap a transition that is not reapable."
-        "*When* a firing or an injected token writes one of a reaped transition's arc places (an input, read, inhibitor or reset place) and the transition is enabled afterwards, the transition *shall* be newly armed with a fresh clock ([TIME-010])."
-        "*While* a transition is reaped, an enablement update *shall* leave it reaped, and only a firing or an injected token that writes one of its arc places *shall* end its reaped state."
-        "The deadline step *shall* judge expiry at its reading of the firing clock ([TIME-010]), and it *shall not* reap a transition that is not expired at that reading or change the marking."
-        "A firing writes a place when it consumes from it, deposits into it or drains it through a reset arc; draining a reset place that is already empty counts as a write."
-        "A reaped transition keeps its input tokens and is not armed again until one of its arc places is written, so an executor that fell behind can come to rest at a marking that still enables it."
+  covers TIME_013.s1, TIME_013.s4, TIME_013.s6, TIME_013.s9, TIME_013.s10, TIME_013.s7,
+        TIME_013.s11, TIME_013.s12
   reading "For every executor R and every configuration C:"
           "a deadline step from s to s' leaves reaped every transition of the net that is expired in s at the reading of the deadline step (the cycle reading of s');"
           "a deadline step from s to s' leaves the marking as it was and changes the status of a name only to reaped, and only of a name of a transition of the net that is expired in s at the reading of the deadline step;"
@@ -1853,9 +1833,7 @@ requirement TIME_015_cycle
   kind A
   scope "all executors, on the default or an injected firing clock"
   source verbatim "spec/03-timing.md"
-  quote "*While* an executor runs on an injected clock, successive readings of its firing clock *shall* be non-decreasing."
-        "*When* the executor's wait completes, the executor *shall* re-check its boundary conditions before it fires any transition, so an armed transition *shall not* fire before its earliest bound because a wait completed early ([TIME-010])."
-        "The executor MUST re-check its boundary conditions and MUST NOT treat \"the wait completed\" as \"the boundary is reached\"."
+  covers TIME_015.s1, TIME_015.s2, TIME_015.s3
   reading "For every executor R and every configuration C:"
           "no step lowers the host's reading of the firing clock;"
           "in every run of R, after a step that completes the wait (a wake), no start happens before the next update."

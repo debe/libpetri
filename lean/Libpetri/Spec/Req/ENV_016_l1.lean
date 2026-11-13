@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Spec.Req.EXEC_041
 import Libpetri.Spec.Req.ENV_016
+import Libpetri.Spec.Text.ENV_016
 
 set_option linter.missingDocs true
 
@@ -95,16 +96,8 @@ requirement ENV_016_await
   kind B
   scope "executors that provide awaitTermination (Java: BitmapNetExecutor and PrecompiledNetExecutor), for the first run of an executor"
   source verbatim "spec/06-environment-places.md"
-  quote "An implementation MAY provide `awaitTermination(timeout)`, which blocks until the orchestrator loop has finished its termination bookkeeping (pending `inject()` futures completed, `ExecutionCompleted` emitted), returning whether termination was observed within the timeout."
-        "It returns promptly when the loop was never started, and it MUST NOT itself be defeated by a failure in that bookkeeping (for example a throwing event store)."
-        "*Where* an implementation provides `awaitTermination`, *when* it is called on an executor whose loop was never started, the implementation *shall* answer true at once, without waiting for the timeout."
-        "*Where* an implementation provides `awaitTermination`, *when* it is called on an executor whose loop has started, the implementation *shall* wait until the loop has finished its termination bookkeeping or the timeout has expired, whichever comes first."
-        "*Where* an implementation provides `awaitTermination`, *when* its wait ends while the loop is still running, the implementation *shall* answer false."
-        "*Where* an implementation provides `awaitTermination`, the implementation *shall not* answer true for a run before the loop has taken the step that ends the run and, in that step, answered every accepted `inject()` still pending."
-        "*Where* an implementation provides `awaitTermination`, the implementation *shall not* answer true for a run while the emission of `ExecutionCompleted` ([EVT-003]) for that run is still to come."
-        "*Where* an implementation provides `awaitTermination`, *when* its wait ends after the loop has finished, the implementation *shall* answer true, even if a part of the termination bookkeeping failed, such as an event store that throws when the termination events are appended."
-        "*Where* an implementation provides `awaitTermination`, a failure in the termination bookkeeping *shall not* keep the call from returning its answer."
-        "These sentences on `awaitTermination` concern the first run of an executor; whether an executor may be run again, and what `awaitTermination` answers then, is not specified."
+  covers ENV_016.s1, ENV_016.s2, ENV_016.s3, ENV_016.s4, ENV_016.s5, ENV_016.s6, ENV_016.s7,
+        ENV_016.s8, ENV_016.s9, ENV_016.s10
   reading "For every executor with events E, every answer relation A of its awaitTermination and every configuration C:"
           "a call on an executor whose loop was never started answers true;"
           "at every point of a run of E, with the events H emitted so far and the state s, an answer given while the loop is running is false;"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_016
 
 set_option linter.missingDocs true
 
@@ -54,11 +55,7 @@ requirement IO_016
   kind F
   scope "all output specs"
   source verbatim "spec/02-input-output-specs.md"
-  quote "The branch enumeration of a `Place` node *shall* be one output branch, holding that place."
-        "The branch enumeration of a `ForwardInput(from, to)` node *shall* be one output branch, holding `to`."
-        "The branch enumeration of an `And` node *shall* be the Cartesian product of its children's branch enumerations: one output branch for each choice of one output branch per child, holding the union of the chosen output branches, with the first child's choice varying slowest."
-        "The branch enumeration of an `Xor` node *shall* be the union of its children's branch enumerations: one output branch for each output branch of each child, the first child's output branches first."
-        "The branch enumeration of a `Timeout` node *shall* be its child's branch enumeration."
+  covers IO_016.s1, IO_016.s2, IO_016.s3, IO_016.s4, IO_016.s5
   reading "Place(p) enumerates exactly the one branch {p};"
           "ForwardInput(from, to) enumerates exactly the one branch {to};"
           "And(l, r) enumerates, for each branch x of l in order and, within it, each branch y of r in order, the branch x ∪ y, and nothing else;"

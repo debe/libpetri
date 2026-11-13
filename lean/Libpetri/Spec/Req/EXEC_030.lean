@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.EXEC_030
 
 set_option linter.missingDocs true
 
@@ -36,18 +37,8 @@ requirement EXEC_030
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "If an action throws an exception or returns an error, the executor:"
-        "Emits a TransitionFailed event with error details."
-        "Does NOT restore consumed input tokens (no rollback)."
-        "The transition is no longer in-flight."
-        "Execution continues with remaining transitions."
-        "A firing fails when its action throws an exception or returns an error, or when output validation or the join-relay check of [NU-054] rejects its outcome ([EXEC-021])."
-        "*If* a firing fails, *then* the executor *shall* emit a TransitionFailed event ([EVT-008]) and *shall not* change the marking: it *shall not* restore the tokens the firing consumed and *shall not* deposit any token its action produced at completion."
-        "*If* a firing fails, *then* the executor *shall* remove that firing from the firings in flight and its outcome from the queued outcomes, and *shall* leave every other firing in flight as it was and the other queued outcomes as they were, in the order they arrived."
-        "*Where* an executor starts a transition again while an earlier firing of it is in flight ([CONC-002]), *if* one of those firings fails, *then* the executor *shall* leave the other firings of that transition in flight."
-        "*If* a firing fails, *then* the executor *shall not* end the run and *shall not* change its lifecycle mode, and a failure inside a firing pass *shall* leave the pass to go on with its remaining transitions."
-        "*If* a firing fails, *then* the executor *shall* leave the clock of every transition as it was, so that the next enablement update ([EXEC-001] step 3) evaluates the transition of the failed firing as it evaluates any other transition."
-        "A fault of the host runtime itself is not an action failure: in Java, a `VirtualMachineError` or a `LinkageError` thrown inside a firing ends the run with that error, which [EXEC-041] requires the caller to be able to tell apart from quiescence."
+  covers EXEC_030.s1, EXEC_030.s2, EXEC_030.s3, EXEC_030.s4, EXEC_030.s5, EXEC_030.s6, EXEC_030.s7,
+        EXEC_030.s8, EXEC_030.s9, EXEC_030.s10, EXEC_030.s11, EXEC_030.s12
   reading "For every executor R, every configuration C and every firing identity i, a fail step of i:"
           "leaves the marking unchanged;"
           "leaves no firing with identity i in flight;"

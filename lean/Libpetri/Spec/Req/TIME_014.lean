@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.TIME_014
 
 set_option linter.missingDocs true
 
@@ -104,10 +105,7 @@ requirement TIME_014
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "When multiple transitions compete for the same tokens, timing interacts with priority:"
-        "Higher priority transitions are preferred."
-        "*While* several ready transitions compete for the same tokens, the executor *shall* fire them in the order of [EXEC-002], so the transition with the highest priority takes the tokens first ([EXEC-003])."
-        "*While* a `Delayed` transition is armed and its elapsed time is less than its earliest bound, it *shall not* fire, so a ready transition competing for the same tokens takes them first whatever their priorities ([TIME-004])."
+  covers TIME_014.s1, TIME_014.s2, TIME_014.s3, TIME_014.s4
   reading "For every executor R and every configuration C:"
           "in every run of R that opens with a begin step from state s, read up to the next begin step, the names of its start and lose steps, in order, are a prefix of the names of the ready order of EXEC-002 at the cycle reading of s (readyOrder C s);"
           "in every such run, if the pass closes, at the first step whose label a pass cannot hold (anything but a start, a lose, a settle of a synchronous firing, or an outside step), and that step is not a terminal finish, the start and lose steps before it name the whole of that order;"

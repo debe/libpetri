@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExportCluster
+import Libpetri.Spec.Text.MOD_040
 
 set_option linter.missingDocs true
 
@@ -96,13 +97,7 @@ requirement MOD_040
   kind F
   scope "the subnetOf accessor of every built net, and the instance-prefix helper"
   source verbatim "spec/11-modular-composition.md"
-  quote "For `subnetOf` and the instance-prefix helper, the SHOULD priority is whether an implementation offers them at all; an implementation that offers them answers as the next six sentences say."
-        "In the four sentences on `subnetOf` that follow, a `/`-prefix of a name is a non-empty beginning of the name that is immediately followed by a `/`, and a `/`-prefix `P` heads a transition of the net when the name of some transition of the net begins with `P/`."
-        "*If* `name` is neither a place nor a transition of the net, *then* `subnetOf(name)` *shall* be absent."
-        "*When* `name` is a place or a transition of the net and the net's membership mapping ([MOD-026]) has an entry for `name`, `subnetOf(name)` *shall* return that entry."
-        "*When* `name` is a place or a transition of the net with no membership entry and some `/`-prefix of `name` heads a transition of the net, `subnetOf(name)` *shall* return the longest such `/`-prefix."
-        "*When* `name` is a place or a transition of the net with no membership entry and no `/`-prefix of `name` heads a transition of the net, `subnetOf(name)` *shall* be absent."
-        "The instance-prefix helper (`instancePrefixOf`) *shall* return the part of a name before its last `/` when that part is not empty, and be absent otherwise."
+  covers MOD_040.s2, MOD_040.s3, MOD_040.s4, MOD_040.s5, MOD_040.s6, MOD_040.s7, MOD_040.s8
   reading "For the pair M of an accessor M.subnetOf and an instance-prefix helper M.prefixOf, with a net X given by its place names, its transition names and its membership mapping X.member, a name n of X a node when it is one of those place or transition names, and a /-prefix P heading a transition of X (X.Heads P) when IsSlashPrefix P t for some transition name t of X (P is not empty and t begins with P followed by /):"
           "a name that is no node of X is absent;"
           "a node with a membership entry s gets s;"

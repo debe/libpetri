@@ -4,6 +4,7 @@ import Libpetri.Novel.Certificate
 import Libpetri.Novel.Commoner
 import Libpetri.Novel.FiringBound.Ranking
 import Libpetri.Spec.Req.VER_019
+import Libpetri.Spec.Text.VER_018
 
 set_option linter.missingDocs true
 
@@ -938,28 +939,10 @@ requirement VER_018
   kind B
   scope "the SMT verifier's state-equation phase on the flat path, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*When* the state-equation query answers `unsat`, the phase *shall* end with a proof over the refinements it has added so far."
-        "*If* the state-equation query fails in the transport, answers `unknown`, gives a model that cannot be decoded, or the timeout runs out before its answer, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue."
-        "*When* the state-equation query answers `sat`, the phase *shall* first run the witness search on the candidate, and *shall* return `Violated` with the run the search reports before it tries any refinement."
-        "The witness search *shall* fire each flat transition at most as often as the candidate's counts allow, under the exact abstract semantics of [VER-004] and with no injection step, and *shall* report a run only when every step is enabled and the last marking violates the property."
-        "A run the witness search reports *shall* be no longer than any other run within the counts that ends in a violating marking."
-        "The witness search *shall* report that no violating run exists only when it has completed, no run within the counts ends in a violating marking, and no environment place is declared for injection."
-        "*While* environment places are declared for injection, the phase *shall* still run the witness search, and the search *shall* report the same run it reports on the same net without injection."
-        "*If* a run within the candidate's counts ends in a violating marking, *then* the witness search *shall* report a run whenever its node budget is large enough."
-        "The trap search *shall* return a set `Q` of places of the flat net only when every flat transition that can take a token from `Q`, through an input arc, a consume-all input or a reset arc, also puts a token into `Q`, some place of `Q` is marked in `M0`, and the candidate leaves every place of `Q` empty."
-        "The trap search *shall* return a trap whenever some initially marked trap among the places of the flat net is empty in the candidate."
-        "The exact re-check *shall* accept an inequality `a·M ≤ b` only when it holds at `M0` and every firing and every injection step of the exact step relation keeps it."
-        "The exact re-check *shall* accept an inequality `a·M ≤ b` that holds at `M0`, gives no injected place a positive weight, and for which every flat transition that can fire, taken from the least marking its guard allows, passes the keep test or the restore test: the keep test, that the firing does not raise `a·M` and every place the firing clears without inhibiting has a weight of at least 0; the restore test, that the marking after the firing meets the bound and every place the firing neither clears nor inhibits has a weight of at most 0."
-        "*When* the witness search reports no run and the phase has added fewer refinements than the refinement limit, the phase *shall* settle the candidate in this order: with `Σ_{q∈Q} m_q ≥ 1` when the trap search returns a trap `Q`; otherwise with the inequality the `invariant` query returns, marked inductive, when the exact re-check accepts it and the candidate violates it; otherwise, when that query answers `unsat`, with the inequality the same query returns with the marking equation as a premise of every step, marked relative, when the candidate violates it."
-        "*When* the phase adds a refinement, it *shall* ask the state-equation query again with every refinement added so far."
-        "*If* no trap and no inequality settles the candidate, an inequality fails the exact re-check or holds at the candidate, or an `invariant` query fails in the transport, answers `unknown`, gives a model that cannot be decoded, or the timeout runs out before its answer, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue."
-        "*If* the witness search reports no run on a candidate after the phase has added as many refinements as the refinement limit, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue."
-        "*While* the certificate check is enabled, the verifier *shall* return the phase's proof as `Proven` with method `state-equation` and neither a counterexample nor `counterexampleConfirmed` when the certificate check of [VER-016] passes on the invariant `SE(M, n) ∧ ⋀ refinements(M)`, and a failed or inconclusive check *shall* withhold the `Proven` and let the pipeline continue."
-        "*While* the certificate check is disabled, the verifier *shall* return the phase's proof as `Proven` with method `state-equation` and neither a counterexample nor `counterexampleConfirmed`, and the report *shall* carry `  Certificate check: not applicable (disabled)` in place of the check."
-        "*When* the phase returns `Violated`, the verifier *shall* return the markings and transitions of the run, in firing order, as the counterexample, with `counterexampleConfirmed` `true`."
-        "The refinement limit *shall* be 32 in every implementation."
-        "The node budget of one witness search *shall* be 100 000 in every implementation."
-        "Each weight of an inductive or relative inequality *shall* have a magnitude of at most the larger of 8 and the number of tokens in `M0`."
+  covers VER_018.s1, VER_018.s2, VER_018.s3, VER_018.s4, VER_018.s5, VER_018.s6, VER_018.s7,
+        VER_018.s8, VER_018.s9, VER_018.s10, VER_018.s11, VER_018.s12, VER_018.s13, VER_018.s14,
+        VER_018.s15, VER_018.s16, VER_018.s20, VER_018.s21, VER_018.s22, VER_018.s17, VER_018.s18,
+        VER_018.s19
   reading "A run the witness search S reports fires each flat transition k at most c k times (SEWithin) and replays from M0 under enabledA and fireA, with no injection step, to a marking the violation bad accepts (seHits)."
           "A run S reports is no longer than any run within the counts that replays to a violating marking."
           "S reports none (a completed search that found nothing) only when no place is injected and no run within the counts replays to a violating marking."
@@ -2105,10 +2088,7 @@ requirement VER_018_order
   kind B
   scope "the SMT verifier's pipeline, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "The pipeline *shall* place the state-equation phase at one point, after the linear bound of [VER-015] and before the fixpoint query."
-        "*While* the phase is enabled, the pipeline *shall* run it on exactly the queries whose verified net has no match transition and that are not verified under `Ignore` with environment places registered ([VER-006]), unless an earlier step has decided the query or the run has stopped."
-        "*If* the phase is disabled, *then* the verifier *shall not* run it, and the verdicts and reports *shall* be those of the pipeline without the phase."
-        "Every implementation *shall* turn the phase on by default."
+  covers VER_018.s23, VER_018.s24, VER_018.s25, VER_018.s26
   reading "In the pipeline's step names, the linear bound comes before the state-equation phase: the list splits so that every linear-bound step is in the first part and every state-equation step in the second, and each part holds one of them."
           "In the same sense, the state-equation phase comes before the fixpoint query (the IC3/PDR query)."
           "The state-equation phase occurs exactly once in the step names."

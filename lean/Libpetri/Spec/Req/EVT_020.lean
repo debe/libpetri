@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Spec.Req.EVT_022
+import Libpetri.Spec.Text.EVT_020
 
 set_option linter.missingDocs true
 
@@ -88,9 +89,7 @@ requirement EVT_020
   kind F
   scope "every event store (the interface: the in-memory, noop, logging, debug and debug-aware stores of Java, TypeScript and Rust, and the Python binding's store)"
   source verbatim "spec/08-events-observability.md"
-  quote "The list `events()` returns *shall* be a subsequence of the events appended to the store: only appended events, in the order they were appended, each append at most once."
-        "A store that keeps token payloads only for some places (the Python binding's `capture_tokens` filter) is compared with the appended events after the same payloads are removed from them."
-        "Which appended events the list leaves out, and whether it is a copy or a live view of the store, is up to each store ([EVT-021], [EVT-022], [EVT-024])."
+  covers EVT_020.s1, EVT_020.s2, EVT_020.s3
   reading "For every store S over any event type E, with S.norm the store's own normalisation of an event:"
           "after every history h of appends and clears, the list a call of events() returns, as it shows once any further operations h' have run (S.read h h', the call itself being h' = []), read through S.norm, is a sublist of the events h and h' appended, in append order (appended (h ++ h')), read through S.norm."
   assumes "The normalisation S.norm is part of the store's observation and is fixed by the store and how the caller configured it, not chosen to meet the line (glossary: StoreObs.norm, the identity unless a store says otherwise): it is the identity for every store but the Python binding's in-memory store, so for them the line is the subsequence law itself (evt020_id_iff), and for the binding's store it is the strip of the capture filter the caller gave it as capture_tokens (see below). A normalisation the store's configuration does not declare is no reading of the block: read through a constant, every store would meet the line."

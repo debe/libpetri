@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Reference.Nu
+import Libpetri.Spec.Text.TIME_012
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -115,14 +116,8 @@ requirement TIME_012_nu
   kind T
   scope "every executor that runs matched transitions ([NU-020]), read on the atomic timed ν step"
   source verbatim "spec/03-timing.md"
-  quote "*When* a transition fires, it *shall* lose its clock."
-        "*When* a transition `t` fires and a transition that lost its clock in that firing is enabled after it, that transition *shall* be newly armed ([TIME-010])."
-        "A matched transition ([NU-020]) is armed only while it is enabled and some name is eligible ([NU-022]), in the intermediate marking as in any other marking."
-        "*When* a transition `t` fires, each armed matched transition other than `t` that is not enabled in the intermediate marking or has no eligible name there *shall* lose its clock, even when its correlated inputs still hold tokens."
-        "*When* a transition `t` fires and a matched transition that lost its clock in that firing has no eligible name after it, that transition *shall not* be newly armed, even when it is enabled after the firing."
-        "*When* a transition `t` fires, each armed matched transition other than `t` that is enabled with an eligible name both in the intermediate marking and after the firing *shall* keep its stamp, even when `t` took tokens of the name it would have joined on."
-        "Removing tokens disables a transition only through input arcs, read arcs, cardinality requirements and ν-join bindings, never through inhibitor arcs."
-        "The fired transition itself always starts a fresh clock when it is enabled again."
+  covers TIME_012.s10, TIME_012.s11, TIME_012.s12, TIME_012.s13, TIME_012.s14, TIME_012.s15,
+        TIME_012.s19, TIME_012.s21
   reading "For every timed ν net X:"
           "a firing of t from a state in which the net's matched transition u, named differently from t, is armed (read by names) and is not ν-enabled in the intermediate marking of t (taken from the state's marking with t's chosen name) leaves u armed with the reading of the firing clock after the firing if u is ν-enabled after it, and leaves u without a stamp otherwise;"
           "a firing of t from a state in which the net's matched transition u, named differently from t, is armed (read by names) and is ν-enabled in the intermediate marking of t and after the firing leaves u's stamp as it was;"

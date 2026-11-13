@@ -5,6 +5,7 @@ import Libpetri.Reference.Nu
 import Libpetri.Reference.NuMint
 import Libpetri.Novel.RouteA.Plan
 import Libpetri.Spec.Req.NU_051
+import Libpetri.Spec.Text.NU_010
 
 set_option linter.missingDocs true
 
@@ -59,7 +60,7 @@ requirement NU_010_unique
   kind B
   scope "the minter every executor installs on the action context"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* an action calls `freshName()`, the executor *shall* return a name that differs from every name it returned earlier in the same execution, whether the earlier call came in the same firing or in an earlier one."
+  covers NU_010.s1
   reading "Let Sy be a minting system (MintSys): a state, an initial state per scope, the mint relation of one freshName() call (state, calling transition, returned name, next state) and the step at a firing boundary."
           "For every scope s and every run of Sy from its initial state for s, a sequence of freshName() calls and firing boundaries in any interleaving, the names the calls return are pairwise distinct."
   assumes "The model is one minting system Sy, the minter of one executor. One execution is one run from the initial state for the executor's scope: a call returns a name and moves the state, a firing boundary moves the state by next. The reference refMintSys keeps the scope and ONE counter shared by every transition of the executor, starting at 0; a call by t returns t#scope:counter and advances the counter, and a firing boundary changes nothing. This is the fresh_name_counter of rust/libpetri-runtime/src/executor_core/executor.rs and its fetch_add in fresh_name_fn, the freshNameCounter of java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java (fireTransition) and PrecompiledNetExecutor.java (newFiringContext) with getAndIncrement, and the freshNameCounter of typescript/src/runtime/bitmap-net-executor.ts and precompiled-net-executor.ts (fireTransition). The state type is abstract, so a minter with a different state (NU-011's high-water mark) is a model too."
@@ -87,7 +88,7 @@ requirement NU_010_replay
   kind F
   scope "the minter every executor installs on the action context"
   source verbatim "spec/12-nu-nets.md"
-  quote "For a fixed scope and a fixed sequence of calling transitions, the executor *shall* return the same sequence of names to the `freshName()` calls, whichever firings the calls fall in."
+  covers NU_010.s2
   reading "For every scope s and every two runs of Sy from its initial state for s whose calls come from the same transitions in the same order (the firing boundaries may fall anywhere), the two runs return the same names."
   assumes "Ruling D56 (a): replay is a MUST keyed on the scope and the order of the freshName() calls, not on the order of the firings. One counter per executor is read when the action calls the minter, so two minting actions in flight at once (a Rust async action runs under tokio::spawn in fire_transition_async, rust/libpetri-runtime/src/executor_core/executor.rs) may call it in either order; with one minting action in flight at a time, or synchronous actions only (the is_sync branch of fire_transition_async, and fire_transition_sync), the call order is the firing order. Which order the calls come in is the executor's (RefExec), not the minter's, so the line needs no executor model. The sentence 'with one minting action in flight at a time the two orders agree, and actions that run concurrently may call the minter in either order' explains what the key means for the firings and adds no obligation."
           "The line starts every run from the initial state for the scope. A restored execution is NU-011's: every runtime resumes under a new scope (NU_011_lineage, with the host assumption NU_011_host), and the other mechanism NU-011 names, a restored high-water mark, is used by no runtime and is outside NU_011_format. Replay of a restored execution is the replay of a run under its own scope, which this line covers."
@@ -115,8 +116,7 @@ requirement NU_010_contract
   kind A
   scope "the action of every declared mint, as the ν verification routes assume it"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a declared mint that has no input arc on a coloured place fires, every name it writes into a coloured place *shall* be a name it minted with `freshName()` in that firing."
-        "*When* a declared mint that has no input arc on a coloured place fires, every name it writes into coloured places *shall* be one and the same name, whether in one place or in several."
+  covers NU_010.s5, NU_010.s6
   reading "For one firing of a declared mint that has no input arc on a coloured place, let minted be the names its freshName() calls returned in that firing and wr c the names it writes into coloured place c:"
           "every name written into a coloured place is in minted;"
           "any two names written into coloured places, the same place or two places, are equal."
@@ -148,12 +148,7 @@ requirement NU_010_classify
   kind F
   scope "the fragment classifier of every ν verifier"
   source verbatim "spec/12-nu-nets.md"
-  quote "The fragment classifier ([NU-051]) *shall* give the mint role only to a declared mint."
-        "*If* a transition without a match specification has no input arc on a coloured place, writes a coloured place and is not a declared mint, *then* the fragment classifier *shall* give it no role."
-        "*If* the timeout outcome of a transition writes a coloured place, *then* the fragment classifier *shall not* give it the mint role."
-        "The fragment classifier *shall not* give the mint role to a transition that has a match specification or an input arc on a coloured place."
-        "*If* a declared mint has no match specification, no input arc on a coloured place and no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, writes a coloured place in some outcome and on timeout writes no coloured place, *then* the fragment classifier *shall* give it the mint role, in both BASE and EXTENDED."
-        "*If* a transition without a match specification has no input arc on a coloured place and its timeout outcome writes a coloured place, *then* the fragment classifier *shall* give it no role."
+  covers NU_010.s7, NU_010.s8, NU_010.s9, NU_010.s11, NU_010.s12, NU_010.s10
   reading "For every coloured set col, fragment mode, list of timeout writes tw and transition T:"
           "C gives an undeclared T no mint role;"
           "if T has no match keys, none of its input arcs is on a coloured place, some branch outcome of T deposits into a coloured place and T is not declared, C gives T no role;"

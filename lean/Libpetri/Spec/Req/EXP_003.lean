@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_003
 
 set_option linter.missingDocs true
 
@@ -38,13 +39,7 @@ requirement EXP_003
   kind F
   scope "every exporter, on the nodes of the graph it draws for a configuration and a net"
   source verbatim "spec/09-export.md"
-  quote "Transitions are rendered as rectangles or bars (following Petri net convention)."
-        "Transition names are displayed as labels."
-        "The export *shall* draw a node for every transition of the net."
-        "The export *shall* draw no node that stands for a transition the net does not have."
-        "The export *shall* give a node the transition category exactly when the node stands for a transition."
-        "The export *shall* label the node of a transition with a text that starts with the transition's name as written in the net."
-        "*Where* the configuration hides the timing interval and the priority, the export *shall* label the node of a transition with the transition's name alone."
+  covers EXP_003.s1, EXP_003.s2, EXP_003.s3, EXP_003.s4, EXP_003.s5, EXP_003.s6, EXP_003.s7
   reading "For the exporter E, every configuration cfg and every net X:"
           "every transition t of X has a node in the graph E cfg X that stands for t (its reference is the transition named t.name);"
           "a node that stands for the transition named tn stands for a transition of X: some transition of X has the name tn;"

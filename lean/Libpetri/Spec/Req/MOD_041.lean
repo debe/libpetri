@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.MOD_040
+import Libpetri.Spec.Text.MOD_041
 
 set_option linter.missingDocs true
 
@@ -122,10 +123,7 @@ requirement MOD_041
   kind F
   scope "every debug protocol implementation (Java, TypeScript, Rust; Python has none)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* a debug session subscribed to a live net answers `Subscribed`, its subnet instance list *shall* hold exactly one descriptor for each distinct instance prefix that the name of some transition or listed place of the net carries, and no other descriptor."
-        "*When* a debug session subscribed to a live net answers `Subscribed`, each subnet instance descriptor *shall* list as its transitions exactly the transitions of the net whose instance prefix is the descriptor's prefix, and as its places exactly the listed places of the net whose instance prefix is the descriptor's prefix."
-        "*When* a debug session subscribed to a live net answers `Subscribed`, each subnet instance descriptor *shall* carry as its parent prefix the instance prefix of its own prefix, and no parent prefix when its own prefix has none."
-        "*When* a debug session subscribed to a live net answers `Subscribed`, the `instancePrefix` field of the `PlaceInfo` or `TransitionInfo` of every node *shall* be the instance prefix of the node's name, and *shall* be absent when the name has none."
+  covers MOD_041.s1, MOD_041.s2, MOD_041.s3, MOD_041.s4
   reading "For every debug view V and every net X (its transition names and its listed place names, the places that some arc or output specification of a transition names; instancePrefix n is the part of n before its last '/', none when n has no '/' or that part is empty):"
           "the prefixes of the descriptors V.descs X are pairwise distinct, and a string P is the prefix of some descriptor exactly when P is the instance prefix of some transition or listed place of X;"
           "for every descriptor d of V.descs X and every name n, n is among d's transitions exactly when n is a transition of X with instance prefix d.pfx, and n is among d's places exactly when n is a place of X with instance prefix d.pfx;"

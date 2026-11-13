@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Verifier.Pipeline
+import Libpetri.Spec.Text.NU_010
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -145,11 +146,7 @@ requirement NU_010_unknownMint
   kind F
   scope "every entry point that takes a mint declaration: verification, script encoding ([VER-013]) and open-net verification ([VER-022]), all implementations (MUST where the ν routes are offered)"
   source verbatim "spec/12-nu-nets.md"
-  quote "A declared mint that is not a transition of the net MUST be refused, by a failure or an `Unknown`, with the same reason naming it at every entry point (verification, script encoding ([VER-013]) and open-net verification ([VER-022])): `declared mint transition 'x' not in the net (NU-010)`, or `declared mint transitions 'a', 'b' not in the net (NU-010)` when several are not, each named once in code-point order."
-        "A refusal that does not depend on the declaration, such as a stop before the call starts ([VER-013]) or an unresolved property place ([VER-003]), may come first, and that refusal is then the answer."
-        "*If* a name given to the verifier as a mint transition is not a transition of the net, *then* verification, script encoding and open-net verification *shall* each refuse the request, by failing or by answering `Unknown`, and *shall not* answer `Proven` or `Violated` or return scripts."
-        "*If* a name given to the verifier as a mint transition is not a transition of the net, *then* the reason of that refusal *shall* be `declared mint transition 'x' not in the net (NU-010)`, or `declared mint transitions 'a', 'b' not in the net (NU-010)` when several are not, naming each such name once and in code-point order, unless the same request with no mint transition named gets the same refusal."
-        "*If* every name given to the verifier as a mint transition is a transition of the net, *then* verification, script encoding and open-net verification *shall not* refuse the request with the reason `declared mint transition 'x' not in the net (NU-010)` or `declared mint transitions 'a', 'b' not in the net (NU-010)`, whatever names it gives, unless the same request with no mint transition named gets the same refusal."
+  covers NU_010.s3, NU_010.s4, NU_010.s13, NU_010.s14, NU_010.s15
   reading "Let E be an entry point, from a call c (solver, stop, options, net, property, initial marking, and the names c.mints given as mint transitions) to an answer: a verdict, the entry point's ordinary output (scripts), or a failure with a message. E c refuses with m when it fails with message m or answers Unknown with reason m."
           "For every call c such that some name of c.mints is not a transition name of c.net: E c refuses with some reason;"
           "for every such c and reason m with which E c refuses: m is unknownMintReason of the transition names and c.mints, the text `declared mint transition 'x' not in the net (NU-010)` with each unknown name once, in code-point order, and `transitions` for several; or E answers the same call with no mint named exactly as it answers c;"

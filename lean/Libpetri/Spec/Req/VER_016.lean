@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.StateEquation
 import Libpetri.Novel.Certificate
 import Libpetri.Novel.ForwardDeposit
+import Libpetri.Spec.Text.VER_016
 
 set_option linter.missingDocs true
 
@@ -118,10 +119,7 @@ requirement VER_016
   kind B
   scope "the flat CHC encoding of every implementation, with the state-equation option enabled"
   source verbatim "spec/07-verification.md"
-  quote "*While* the state-equation option is enabled, the initial fact of the flat CHC encoding *shall* set every firing counter to 0."
-        "*While* the option is enabled, the rule of each transition *shall* fire that transition only where it is enabled, with the effect it has in the untimed abstraction of [VER-004], add one to its firing counter and copy every other counter, each environment-injection rule *shall* add one token to its place and copy every counter, and no rule but these and the initial fact *shall* derive a `Reachable` fact."
-        "*While* the option is enabled, each transition rule *shall* require of its successor `(M', n')`, for every place that is not injected, the equality `m'_p = M0_p + Σ_t C[p][t]·n'_t` where no consume-all or reset arc clears the place, and the upper bound `m'_p ≤ M0_p + Σ_t C[p][t]·n'_t` where one does."
-        "*While* the option is enabled, apart from the P-invariant conjuncts of [VER-005] and [VER-007] and the environment bounds of [VER-006], the rule of each transition *shall* accept its firing from every state `(M, n)` in which the transition is enabled and whose successor meets the rows above, and each environment-injection rule *shall* accept its injection from every state, so the rows remove no reachable state."
+  covers VER_016.s1, VER_016.s2, VER_016.s3, VER_016.s4
   reading "For every initial fact I and rule relation R:"
           "the initial fact for a0 is (a0, n) with every counter of n equal to 0;"
           "every rule step is a raw counter step (CntStep): the firing of an enabled row k with its deposit (fireAD: count tokens land in each place) that bumps counter k and copies the rest, or an injection of one token into an injected place that copies every counter;"

@@ -1,5 +1,6 @@
 import Libpetri.Reference.ExecLink
 import Libpetri.Spec.Req.VER_004
+import Libpetri.Spec.Text.VER_004
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -98,8 +99,7 @@ requirement VER_004_exec
   kind B
   scope "the executor's runs on a net the split accepts, read through the count projection L5 of RefExec (SHOULD; the shall sentence binds an implementation that offers verification)"
   source verbatim "spec/07-verification.md"
-  quote "*While* `assumeAtomicFiring` is not set and the split succeeds, *where* no firing fails (no action fails, and output validation and the relay check reject no output or timeout outcome), no action publishes an output before it completes and no token is injected, a marking the executor reaches from the initial marking, with each action in flight of a transition that is not split completed with one of its outcomes, *shall* be reachable in the split net from the initial marking, with one token on `inflight:<t>` for each action of a split transition `t` in flight."
-        "That is a sound over-approximation for all three."
+  covers VER_004.s16, VER_004.s1
   reading "For every executor relation E and split S, every executor configuration C, split configuration cfg, options o, verified net Y, split list sp, rows R, initial marking M0, run of E from the initial state of M0 and completion ds:"
           "if the transition names of C are distinct, no transition of C is a completion step or an environment step of cfg, every terminal place of C is a terminal place of cfg, every forward source of C is an input place of its transition, every row of R is an outcome of a transition of C's net at every marking (OutcomeRows), every transition has a row in R, o does not set assumeAtomicFiring, S returns the verified net Y and the split list sp, every commit, timeout deposit and fail of the run deposits a row of R (RowsCover: no publication, no injection), and ds completes each action in flight at the end of the run whose transition is not in sp with one row of it,"
           "then Y reaches (Reference.Reach), from the counts of M0, the counts at the end of the run with ds deposited and one more token on inflight:<t> for each action in flight whose transition t is in sp,"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_005
 
 set_option linter.missingDocs true
 
@@ -31,8 +32,7 @@ requirement IO_005
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "*While* any input place of a transition holds fewer tokens than the required count of its input arc, the transition *shall not* fire."
-        "*While* every input place of a transition that has no match specification ([NU-020]) holds at least the required count of its input arc, the input arcs *shall not* affect whether the transition can fire."
+  covers IO_005.s1, IO_005.s2
   reading "For every transition t:"
           "for every input arc s of t, t does not fire from a marking in which the input place of s holds fewer tokens than the required count of s;"
           "from a marking m in which every input place of t holds at least the required count of its input arc, t can fire from m exactly when t without its input arcs can fire from m."

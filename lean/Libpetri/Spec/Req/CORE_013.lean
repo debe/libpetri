@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
 import Libpetri.Spec.Req.EXEC_010
 import Libpetri.Spec.Req.EXEC_020
+import Libpetri.Spec.Text.CORE_013
 
 set_option linter.missingDocs true
 
@@ -41,10 +42,7 @@ requirement CORE_013
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "Tokens within a place are stored in FIFO (first-in, first-out) order."
-        "The oldest token is consumed first when a transition fires, except on a correlated input of a match specification ([NU-020])."
-        "*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, each place that is neither one of its input places nor one of its reset places ([CORE-034]) *shall* end the firing holding its whole queue from before the firing, in queue order, followed by the tokens the firing deposited there, in the order the action produced them ([EXEC-020])."
-        "*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, its action *shall* receive from each input place that is not a correlated input of its match specification ([NU-020]) the first tokens of the place's queue before the firing, in queue order; unless the place is also one of its reset places, the place *shall* end the firing holding the rest of that queue, in queue order, followed by the tokens the firing deposited there, in the order the action produced them ([EXEC-010], [EXEC-020])."
+  covers CORE_013.s1, CORE_013.s2, CORE_013.s3, CORE_013.s4
   reading "For every queue firing relation Q:"
           "for every firing of a transition t and every place p that is neither an input place nor a reset place of t: the queue p holds after the firing is the queue it held before the firing, followed by the tokens the action emitted to p, in emission order;"
           "for every firing of a transition t and every input place p of t: there is a number k such that the tokens delivered to the action from p are the first k tokens of p's queue before the firing, in queue order, and, if p is not a reset place of t, the queue p holds after the firing is the queue it held before without those k tokens, followed by the tokens the action emitted to p, in emission order."

@@ -1,4 +1,5 @@
 import Libpetri.Spec.Req.EXEC_002
+import Libpetri.Spec.Text.CONC_023
 
 set_option linter.missingDocs true
 
@@ -37,13 +38,7 @@ requirement CONC_023
   kind F
   scope "the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path the declaration order (ruling D14 (a))"
   source verbatim "spec/05-concurrency.md"
-  quote "*Where* the net does not take the all-immediate fast path, the ready order *shall* be the ready transitions grouped by priority level, at most one group per priority level, with the groups in descending order of priority."
-        "*Where* the net does not take the all-immediate fast path, the ready order *shall* offer the ready transitions of one priority level in ascending order of stamp."
-        "The ready order *shall* hold every ready transition exactly once and no other transition, on the all-immediate fast path as well."
-        "The ready order *shall* offer ready transitions of one priority level with equal stamps in ascending declaration order, also when they were armed in different cycles and on the all-immediate fast path."
-        "Within the same priority, FIFO ordering by enablement time is preserved."
-        "Feeding a level's queue in declaration order is NOT sufficient: transitions enabled in different cycles must drain in enablement order even when it disagrees with declaration order, and equal enablement timestamps break by ascending declaration order — the identical order [EXEC-002] AC3/AC4 requires of every backend."
-        "The all-immediate single-priority fast path is exempt: it bypasses the ready queues and fires in declaration order, which [EXEC-002] AC4 requires of every backend alike."
+  covers CONC_023.s1, CONC_023.s2, CONC_023.s3, CONC_023.s4, CONC_023.s5, CONC_023.s6, CONC_023.s7
   reading "For every input of a pass, fast path included:"
           "the order holds every ready transition exactly once and no other transition;"
           "two transitions of equal priority and equal stamp come in ascending declaration order;"

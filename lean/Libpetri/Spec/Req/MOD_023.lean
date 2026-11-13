@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeBuild
+import Libpetri.Spec.Text.MOD_023
 
 set_option linter.missingDocs true
 
@@ -97,9 +98,7 @@ requirement MOD_023
   kind B
   scope "build() of every enclosing builder, whatever compose(...), fuse(...) and other builder calls were made on it (Java, TypeScript, Rust, Python)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* `build()` succeeds, every transition of the built net *shall* pass the checks of the transition builder ([CORE-030], [IO-002], [IO-004], [EXEC-012], [IO-011] to [IO-014]), whichever `compose(...)`, `fuse(...)` or other builder calls produced it."
-        "*When* `build()` succeeds, a new builder on which the places of the built net are declared, its transitions are added by hand in the same order with the same name, arcs, output specification, timing, priority and action and no correspondence ([MOD-031]), and its terminal places ([EXEC-042]) are declared *shall* build a net with the same transitions in the same order, the same places, each listed as often, in any order, and the same set of terminal places."
-        "*When* `build()` succeeds, no `compose(...)` call binds a channel ([MOD-021]) and no composed instance has two transitions of one name, the built net *shall* hold one transition for each transition added by hand and for each transition of a composed instance or of a directly composed subnet, in the order of the calls and, within one call, in the order of the subnet, each with the name, timing, priority and action it was added with."
+  covers MOD_023.s1, MOD_023.s2, MOD_023.s3
   reading "For every naming model Nm, every transition-builder check Build and every build-script function S (a script of builder calls gives the composed net build() returns, or a rejection):"
           "line 1: if S ops builds the net c, every transition definition d of c passes Build (Build d.toTrans = none);"
           "line 2: if S ops builds the net c, then the hand-written script of c (declare c's places, add c's transitions in order with no correspondence, declare c's terminal places) builds some net c' whose transitions are c's, as a list (so in the same order, each with the same name, arcs, output specification, timing, priority and action), whose places are c's in some order (List.Perm, so each as often), and whose terminal places are c's as a set;"

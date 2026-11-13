@@ -12657,7 +12657,7 @@
    "fun E ↦\n  ∀ (cfg : ExportCfg) (X : ExportNet),\n    ((∀ t ∈ X.trans, ∀ s ∈ t.core.inputs, ∃ e ∈ (E cfg X).edges, exp004InputEdge t s e) ∧\n        ∀ e ∈ (E cfg X).edges,\n          e.arc = ArcType.input →\n            ∃ t ∈ X.trans, ∃ s ∈ t.core.inputs, exp004InputEdge t s e) ∧\n      ((∀ t ∈ X.trans,\n            ∀ p ∈ t.outLeaves,\n              p ∉ t.core.resets →\n                ∃ e ∈ (E cfg X).edges, exp004OutputEdge t e ∧ e.dst = NodeRef.place p) ∧\n          (∀ t ∈ X.trans,\n              ∀ fw ∈ exp004TransForwards t,\n                fw.2 ∉ t.core.resets → ∃ e ∈ (E cfg X).edges, exp004ForwardEdge t fw e) ∧\n            ∀ e ∈ (E cfg X).edges,\n              e.arc = ArcType.output → ∃ t ∈ X.trans, exp004OutputEdge t e) ∧\n        ((∀ t ∈ X.trans,\n              ∀ p ∈ t.core.inhibitors, ∃ e ∈ (E cfg X).edges, exp004InhibitorEdge t p e) ∧\n            ∀ e ∈ (E cfg X).edges,\n              e.arc = ArcType.inhibitor →\n                ∃ t ∈ X.trans, ∃ p ∈ t.core.inhibitors, exp004InhibitorEdge t p e) ∧\n          ((∀ t ∈ X.trans,\n                ∀ p ∈ t.core.reads, ∃ e ∈ (E cfg X).edges, exp004ReadEdge t p e) ∧\n              ∀ e ∈ (E cfg X).edges,\n                e.arc = ArcType.read →\n                  ∃ t ∈ X.trans, ∃ p ∈ t.core.reads, exp004ReadEdge t p e) ∧\n            (∀ t ∈ X.trans,\n                ∀ p ∈ t.core.resets,\n                  p ∉ t.outLeaves → ∃ e ∈ (E cfg X).edges, exp004ResetEdge t p e) ∧\n              ∀ e ∈ (E cfg X).edges,\n                e.arc = ArcType.reset →\n                  ∃ t ∈ X.trans,\n                    ∃ p ∈ t.core.resets, p ∉ t.outLeaves ∧ exp004ResetEdge t p e",
    "sourceRef": "spec/09-export.md",
    "source": "verbatim",
-   "signoff": "2026-11-13 7d63f79419c27b91 ai",
+   "signoff": "2026-11-13 f2d084ab1cbd747f ai",
    "scope":
    "every exporter, the input, output, inhibitor, read and reset edges",
    "reading":
@@ -12669,11 +12669,11 @@
     "(reset) every reset arc of t on a place that no leaf of t's output spec ends in has an edge drawn for it (exp004ResetEdge: arc type reset, from the node of t to the place, row reset, not dashed, label reset), and every edge of arc type reset is drawn so for some reset arc of some transition t on a place that no leaf of t's output spec ends in."],
    "quotes":
    ["Each arc type has a visually distinct rendering.",
-    "Input arc: solid arrow from place to transition, row `input` (a correlated input of [EXP-018] takes row `match-input`)",
-    "Output arc: solid arrow from transition, or from one of its junction nodes ([EXP-012]), to place, row `output`; the edge of a `ForwardInput` leaf is dashed and labelled with its source place ([EXP-012])",
-    "Inhibitor arc: arrow with circle arrowhead (standard notation) from place to transition, without a label, row `inhibitor`",
-    "Read arc: dashed arrow from place to transition, labelled `read`, row `read`",
-    "Reset arc: bold arrow from transition to place, labelled `reset`, row `reset`; a reset arc into a place that a leaf of the output spec also ends in is drawn as the combined edge of [EXP-013]",
+    "**Input arc**: solid arrow from place to transition, row `input` (a correlated input of [EXP-018] takes row `match-input`)",
+    "**Output arc**: solid arrow from transition, or from one of its junction nodes ([EXP-012]), to place, row `output`; the edge of a `ForwardInput` leaf is dashed and labelled with its source place ([EXP-012])",
+    "**Inhibitor arc**: arrow with circle arrowhead (standard notation) from place to transition, without a label, row `inhibitor`",
+    "**Read arc**: dashed arrow from place to transition, labelled `read`, row `read`",
+    "**Reset arc**: bold arrow from transition to place, labelled `reset`, row `reset`; a reset arc into a place that a leaf of the output spec also ends in is drawn as the combined edge of [EXP-013]",
     "The reset edge points from the transition to the place it empties. This is a drawing convention: the reset arc itself goes from the place to the transition ([CORE-034]).",
     "Visually distinct means that any two edges of different types among these five differ in drawn direction, colour, line style or arrowhead.",
     "The mapper *shall* draw each input arc as a solid edge of arc type `input` from its place to its transition, in the `match-input` row where [EXP-018] correlates its place and in the `input` row otherwise.",
@@ -12687,7 +12687,7 @@
    "module": "Libpetri.Spec.Req.EXP_004",
    "kind": "F",
    "id": "EXP-004",
-   "hash": "7d63f79419c27b91",
+   "hash": "f2d084ab1cbd747f",
    "evidence":
    [{"theorem": "Libpetri.Spec.EXP_004_reference",
      "role": "holds",
@@ -14041,7 +14041,7 @@
    "fun E ↦\n  ∀ (cfg : ExportCfg) (X : ExportNet),\n    (∀ t ∈ X.trans,\n        ∀ s ∈ t.core.inputs,\n          ∃ e ∈ (E cfg X).edges,\n            e.arc = ArcType.input ∧\n              e.src = NodeRef.place s.place ∧ e.dst = NodeRef.trans t.name) ∧\n      ((∀ t ∈ X.trans,\n            ∀ s ∈ t.core.inputs,\n              s.place ∈ t.corr →\n                ∃ e ∈ (E cfg X).edges,\n                  e.arc = ArcType.input ∧\n                    e.src = NodeRef.place s.place ∧\n                      e.dst = NodeRef.trans t.name ∧\n                        e.row = Export.EdgeRow.matchInput ∧\n                          e.label = some (corrLabel (refCardLabel s.card))) ∧\n          (X.Distinct →\n            ∀ t ∈ X.trans,\n              ∀ s ∈ t.core.inputs,\n                s.place ∈ t.corr →\n                  ∀ e ∈ (E cfg X).edges,\n                    e.arc = ArcType.input →\n                      e.src = NodeRef.place s.place →\n                        e.dst = NodeRef.trans t.name →\n                          e.row = Export.EdgeRow.matchInput ∧\n                            e.label = some (corrLabel (refCardLabel s.card)))) ∧\n        ((∀ t ∈ X.trans,\n              ∀ s ∈ t.core.inputs,\n                s.place ∉ t.corr →\n                  ∃ e ∈ (E cfg X).edges,\n                    e.arc = ArcType.input ∧\n                      e.src = NodeRef.place s.place ∧\n                        e.dst = NodeRef.trans t.name ∧\n                          e.row = Export.EdgeRow.input ∧ e.label = refCardLabel s.card) ∧\n            (X.Distinct →\n              ∀ t ∈ X.trans,\n                ∀ s ∈ t.core.inputs,\n                  s.place ∉ t.corr →\n                    ∀ e ∈ (E cfg X).edges,\n                      e.arc = ArcType.input →\n                        e.src = NodeRef.place s.place →\n                          e.dst = NodeRef.trans t.name →\n                            e.row = Export.EdgeRow.input ∧\n                              e.label = refCardLabel s.card)) ∧\n          ∀ e ∈ (E cfg X).edges,\n            e.arc ≠ ArcType.ghost →\n              e.row = Export.EdgeRow.matchInput →\n                e.arc = ArcType.input ∧\n                  ∃ t ∈ X.trans,\n                    ∃ s ∈ t.core.inputs,\n                      s.place ∈ t.corr ∧\n                        e.src = NodeRef.place s.place ∧ e.dst = NodeRef.trans t.name",
    "sourceRef": "spec/09-export.md",
    "source": "verbatim",
-   "signoff": "2026-11-13 d54927ab0c3ea7a8 ai",
+   "signoff": "2026-11-13 8d8e8f61b13cc8dc ai",
    "scope":
    "every exporter, on the input edges of the graph it draws for a configuration and a net",
    "reading":
@@ -14052,7 +14052,7 @@
     "every edge of the graph that is not a ghost edge and has the match-input style row is an edge of arc type input from the place of an input arc s of some transition t of X to the node of t, and t correlates the place of s."],
    "quotes":
    ["When a transition declares a ν-net join correlation ([NU-020]), each **input edge** to a correlated place is decorated to mark it as a name-matched input:",
-    "Label prefixed with the bound-name variable `⟨n⟩` (U+27E8 `n` U+27E9).",
+    "**Label** prefixed with the bound-name variable `⟨n⟩` (U+27E8 `n` U+27E9).",
     "When the input also carries a cardinality label ([EXP-006]), the two are joined with a single space: `⟨n⟩ ×2`, `⟨n⟩ *`, `⟨n⟩ ≥3`.",
     "A correlated `One` input shows `⟨n⟩` alone.",
     "Non-correlated inputs of the same transition are unaffected.",
@@ -14063,7 +14063,7 @@
    "module": "Libpetri.Spec.Req.EXP_018",
    "kind": "F",
    "id": "EXP-018",
-   "hash": "d54927ab0c3ea7a8",
+   "hash": "8d8e8f61b13cc8dc",
    "evidence":
    [{"theorem": "Libpetri.Spec.EXP_018_reference",
      "role": "holds",

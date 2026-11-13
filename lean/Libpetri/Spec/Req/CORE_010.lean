@@ -5,6 +5,7 @@ import Libpetri.Spec.Req.EXEC_010
 import Libpetri.Spec.Req.EXEC_012
 import Libpetri.Spec.Req.EXEC_013
 import Libpetri.Spec.Req.EXEC_020
+import Libpetri.Spec.Text.CORE_010
 
 set_option linter.missingDocs true
 
@@ -46,11 +47,7 @@ requirement CORE_010
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "A token is an immutable value object consisting of a typed payload value and a creation timestamp."
-        "Once created, neither the value nor the timestamp can be modified."
-        "*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, every token a place holds after the firing *shall* be a token the place held before the firing, with the same value and creation timestamp, or a token the action emitted to that place, and the firing *shall* not duplicate any of these tokens."
-        "*When* a transition fires and nothing else changes the marking between the firing's consumption and its deposit, every token that a place without a reset arc of the transition held before the firing *shall* still be in that place after the firing, with the same value and creation timestamp, unless the action received it from that place as a consumed input."
-        "*When* a transition fires, every token its action receives from one of its input places or read places *shall* be a token that place held before the firing, with the same value and creation timestamp, and the action *shall* not receive a consumed token more often than its input place held it."
+  covers CORE_010.s1, CORE_010.s2, CORE_010.s3, CORE_010.s4, CORE_010.s5
   reading "For every transition t with no input arc and read arc on one place (ruling D15), every firing of t from M that delivers δ, emits e and leaves M':"
           "every place p ends holding a sub-multiset of its tokens in M followed by the tokens e sends to p;"
           "every place p that is neither an input place nor a reset place of t still holds every token it held in M, with multiplicity;"

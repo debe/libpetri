@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Spec.Req.EXEC_022
+import Libpetri.Spec.Text.EXEC_031
 
 set_option linter.missingDocs true
 
@@ -73,11 +74,7 @@ requirement EXEC_031
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "The engine does not provide transaction rollback."
-        "Once tokens are consumed by a firing transition, they are not restored if the action fails."
-        "A firing fails when its action throws or returns an error ([EXEC-030]), when its produced tokens fail output validation ([EXEC-021]), or when its produced tokens or its timeout outcome fail the join-relay check ([NU-054])."
-        "*If* a firing fails, *then* the executor *shall not* restore the tokens the firing consumed."
-        "*If* a firing fails, *then* the executor *shall not* later deposit a completion or a timeout outcome of that firing."
+  covers EXEC_031.s1, EXEC_031.s2, EXEC_031.s3, EXEC_031.s4, EXEC_031.s5
   reading "For every executor R, every configuration C and every firing identity i:"
           "a fail step of i leaves the marking and the publication queue unchanged;"
           "on every run of R that starts in a state in which every firing in flight has an identity the supply has already handed out (so an identity names one firing), no commit step of i and no tdeposit step of i comes after an error return of i's action (ret i false) taken while firing i is open (no outcome recorded) or after a fail step of i;"

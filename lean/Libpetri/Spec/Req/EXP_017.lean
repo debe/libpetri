@@ -3,6 +3,7 @@ import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
 import Libpetri.Spec.Req.EXP_016
+import Libpetri.Spec.Text.EXP_017
 
 set_option linter.missingDocs true
 
@@ -85,27 +86,9 @@ requirement EXP_017
   kind F
   scope "every exporter, the graph attribute compound and the ghost edges between clusters"
   source verbatim "spec/09-export.md"
-  quote "DOT export SHOULD set `compound=true` at the digraph level unconditionally so Graphviz honours `lhead` and `ltail` attributes on edges that cross cluster boundaries."
-        "In this requirement the cluster key of a node is its key under [EXP-016], so a node with a key lies in the deepest cluster of that key, and an orphan is a node with no key, which is drawn at the top level."
-        "An edge is an edge of the exported graph other than a ghost edge, of any arc type, in the direction it is drawn, and either end of it may be a junction node ([EXP-012])."
-        "A bridge for an ordered pair of distinct keys (X, Y) is an orphan `o` together with an edge `a → o` from a node `a` with key X and an edge `o → b` to a node `b` with key Y, so one orphan with several such pairs of edges gives several bridges."
-        "A cluster and a cluster nested in it, such as `outer` and `outer/inner`, have two distinct keys, so an orphan between them bridges them."
-        "For every ordered pair of distinct cluster keys (X, Y) that at least one bridge connects, the exporter MUST emit exactly one invisible ghost edge with:"
-        "`ltail = \"cluster_\" + sanitize(X)` (matches the cluster id defined by [EXP-016])"
-        "`lhead = \"cluster_\" + sanitize(Y)`"
-        "The ghost edge's source and target node ids MUST be the `a` and the `b` of the first bridge for (X, Y) in this scan order: the nodes in the order they are drawn, for each orphan the edges into it in the order they are drawn, and for each of those the edges out of it in the order they are drawn."
-        "Because every drawn edge counts, a reset edge into an orphan place and a read edge out of it bridge two clusters although no token moves between them."
-        "An orphan transition whose output spec has a junction bridges nothing through that junction, since the junction is itself an orphan."
-        "Multiple orphans bridging the same ordered cluster pair `(X, Y)` collapse to one ghost edge (dedup by ordered pair)."
-        "The reverse direction `(Y, X)` is a separate ghost edge when its own 1-hop path exists."
-        "Orphan paths that fall entirely inside a single cluster (`X == Y`) or that only touch one clustered neighbour MUST NOT produce a ghost edge."
-        "This requirement does NOT change [EXP-016] cluster membership, the visible edge set, or styling rules."
-        "Apart from the `compound` attribute, these sentences cover the nets that the sentences of [EXP-016] cover; on other nets the ghost edges, and whether clustering changes the other edges drawn, are implementation-defined."
-        "The exporter *shall* set the graph attribute `compound` to true in every export."
-        "*Where* a bridge connects an ordered pair of distinct cluster keys (X, Y), an exporter that clusters *shall* draw a ghost edge from the `a` to the `b` of the first bridge for (X, Y), with `ltail` the cluster ID of X and `lhead` the cluster ID of Y."
-        "Each ghost edge that an exporter that clusters draws *shall* run from the `a` to the `b` of the first bridge for some ordered pair of distinct cluster keys (X, Y), with `ltail` the cluster ID of X and `lhead` the cluster ID of Y."
-        "An exporter that clusters *shall* draw at most one ghost edge for each ordered pair of cluster keys."
-        "The exporter *shall* draw the same edges other than ghost edges as it draws for the same net with no clustering."
+  covers EXP_017.s1, EXP_017.s2, EXP_017.s3, EXP_017.s4, EXP_017.s5, EXP_017.s6, EXP_017.s7,
+        EXP_017.s8, EXP_017.s9, EXP_017.s10, EXP_017.s11, EXP_017.s12, EXP_017.s13, EXP_017.s14,
+        EXP_017.s15, EXP_017.s16, EXP_017.s17, EXP_017.s18, EXP_017.s19, EXP_017.s20, EXP_017.s21
   reading "For every configuration cfg and net X, in the graph E cfg X, with the bridges ws read off that graph (exp017Bridges: the bridge witnesses over its nodes in their order and its non-ghost edges in their order, keys by EXP-016's nodeKey under cfg's cluster source and X's membership map):"
           "the graph attribute compound is true;"
           "and, when X meets EXP-016's name assumption under cfg's cluster source (ExportNet.ClusterNames), the following four lines hold:"

@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Reference.ComposeBuild
 import Libpetri.Spec.Req.MOD_010
+import Libpetri.Spec.Text.MOD_012
 
 set_option linter.missingDocs true
 
@@ -762,17 +763,8 @@ requirement MOD_012
   kind B
   scope "every net built by composition"
   source verbatim "spec/11-modular-composition.md"
-  quote "A place of an instance is **private** to it when no port binding names it, as the caller place or as the port place the binding replaces ([MOD-020]), no fusion set lists it ([MOD-060]), no transition of the instance that a channel binding merges names it ([MOD-021]), and no transition outside the instance names it: no hand-added transition, no caller-side definition of a channel binding, no transition of another instance and no directly composed subnet ([MOD-025])."
-        "An auto-composition ([MOD-024]) of an instance under prefix `q` counts as binding a place `x` when `x` is the unrenamed place of one of that instance's ports or when `q/x` is a place of that instance, whether or not the call binds it."
-        "Port bindings, channels and fusion sets are how instances share state on purpose, so isolation covers private places only."
-        "After composition into a flat net, private places of two distinct instances MUST occupy distinct slots in the compiled net's place index, hold disjoint token bags, and evolve independently under the executor."
-        "This isolation is a structural consequence of name-prefixing per [MOD-010] (distinct prefixed names → distinct place identities → distinct slots)."
-        "No additional runtime mechanism is required."
-        "In the sentences below, `a` and `b` are single-segment prefixes: non-empty and without `/` ([MOD-010])."
-        "For two instances nested in one outer instance ([MOD-013]), the sentences apply to the build of the outer subnet's body, where their prefixes are single segments."
-        "*When* a net is built by composition, each of its transitions that names a place private to the instance under prefix `b` *shall* have a name of the form `b/x`."
-        "*When* a transition whose name has the form `a/x` fires in a net built by composition, every place private to the instance under another prefix `b` *shall* keep its token count."
-        "*When* a `compose(instance, bindings)` call ([MOD-020]) adds a transition of the instance under prefix `b` that names a place private to that instance, the built net *shall* hold a transition of the same name that names that place."
+  covers MOD_012.s1, MOD_012.s2, MOD_012.s3, MOD_012.s4, MOD_012.s5, MOD_012.s6, MOD_012.s8,
+        MOD_012.s9, MOD_012.s10, MOD_012.s11, MOD_012.s12
   reading "For every naming model Nm, build-script function BS (a script of calls on an enclosing builder gives the composed net build() returns, or a rejection) and firing relation F:"
           "if BS builds the net c from the script ops and the place p is private to the instance under prefix pb in ops (PrivateTo Nm pb ops p: every call of ops leaves p to that instance), then every transition of c that names p (an input, inhibitor, read, reset or output place) has a name pb/x;"
           "if BS builds c from ops, pa and pb are valid and different prefixes, p is private to the instance under pb in ops and t is a transition of c named pa/x, then every firing of t under F leaves the token count of p as it was;"
@@ -829,9 +821,7 @@ requirement MOD_012_clock
   kind T
   scope "every net built by composition"
   source verbatim "spec/11-modular-composition.md"
-  quote "Private place token state, the enablement state of a transition whose arc places are all private, and the timing clock of such a transition (per [TIME-010], [TIME-011]) MUST all be per-instance."
-        "*When* a transition whose name has the form `a/x` fires in a net built by composition, each transition named `b/y`, for another prefix `b`, whose arc places are all private to the instance under `b` *shall* keep its enablement and its armed state, and its stamp if it is armed."
-        "*When* a transition whose name has the form `a/x` is reaped, or the firing clock advances in a net that holds such a transition, each transition named `b/y`, for another prefix `b`, *shall* keep its armed state and its stamp."
+  covers MOD_012.s7, MOD_012.s13, MOD_012.s14
   reading "For every naming model Nm, build-script function BS and timed step relation R, when BS builds the net c from the script ops, pa and pb are valid and different prefixes, t is a transition of c named pa/x and the timed net is c with deadline tolerance tol:"
           "for every transition u of the timed net that is the net's transition of its name (InNet), is named pb/y and has all its arc places private to the instance under pb in ops, every firing of t leaves u enabled exactly when it was, armed exactly when it was and, when it was armed, with its stamp;"
           "for every transition u named pb/y, every reap of t and every delay leaves u armed exactly when it was and with the stamp it held."

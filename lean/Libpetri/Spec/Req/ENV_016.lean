@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_016
 
 set_option linter.missingDocs true
 
@@ -77,14 +78,8 @@ requirement ENV_016
   kind B
   scope "executors that provide run-with-timeout with a timeout policy (Java, TypeScript)"
   source verbatim "spec/06-environment-places.md"
-  quote "Independently, run-with-timeout (`run(timeout)`, whose timeout is the caller's run budget named in [EXEC-041]; its expiry fails the caller's wait and does not by itself end the run) MAY expose a policy for what happens to the loop when the caller's timeout expires: *abandon* (leave the loop running; the historical default, rarely desirable) or *close* (stop it per [ENV-013])."
-        "The expiry of the caller's timeout MUST NOT complete the loop's own result: an abandoned loop can still report its real final marking."
-        "*Where* an implementation exposes this policy, *when* the caller's timeout expires while the loop is running, the implementation *shall* act on the expiry under the policy the caller chose."
-        "*When* the caller's timeout expires under *abandon*, the implementation *shall* leave the executor as it was, including its marking, its lifecycle mode, its queues, its firings in flight and the position of its loop, and a running loop *shall* go on running."
-        "*When* the caller's timeout expires under *close* while the executor is open or draining, the implementation *shall* close the executor as a call of `close()` does ([ENV-013]), even while its loop is running."
-        "*When* the caller's timeout expires under *close* after the executor is already closed or stopped, the implementation *shall* leave the executor as it was."
-        "*When* the caller's timeout expires while the loop is running, the implementation *shall not* end the run and *shall not* change the marking."
-        "Under a *close* policy the executor is closed on timeout and the loop then stops as [ENV-013] says, once its in-flight actions complete; under *abandon* it keeps running."
+  covers ENV_016.s11, ENV_016.s12, ENV_016.s13, ENV_016.s14, ENV_016.s15, ENV_016.s16, ENV_016.s17,
+        ENV_016.s18
   reading "For every executor R, every expiry handling X of its run-with-timeout and every configuration C:"
           "an expiry under abandon from state s ends in s itself;"
           "an expiry under close from a state s whose mode is open or draining ends in a state that a close step of R reaches from s, and from a state s whose mode is closed or stopped it ends in s itself;"

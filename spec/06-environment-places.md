@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ch06.lean and the requirement texts it lists, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # 06 — Environment Places
 
 This document specifies external event injection via environment places, implicit long-running behavior, and executor lifecycle (drain/close).

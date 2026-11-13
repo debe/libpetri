@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryContext
+import Libpetri.Spec.Text.CORE_062
 
 set_option linter.missingDocs true
 
@@ -47,11 +48,7 @@ requirement CORE_062
   kind F
   scope "the transition context of every implementation, except output calls made after the firing has ended with the timeout outcome"
   source verbatim "spec/01-core-model.md"
-  quote "*When* an action calls `output(place, value)` on an output place of its transition, the call *shall* declare one token carrying `value` on that place, after every token the action declared before."
-        "*When* an action calls the bulk form with a sequence of values on an output place of its transition, the call *shall* declare one token per value on that place, in the order of the sequence, after every token the action declared before."
-        "*When* an action calls the bulk form with no values on an output place of its transition, the call *shall* declare no token and return successfully."
-        "*If* an action calls `output(place, value)` or the bulk form on a place that does not resolve to an output place of its transition ([MOD-031]), *then* the call *shall* report an error and declare no token, also when it passes no values ([CORE-063])."
-        "These four sentences do not govern an output call made after the firing has ended with the timeout outcome ([IO-013]); such a call declares no token that the firing deposits."
+  covers CORE_062.s1, CORE_062.s2, CORE_062.s3, CORE_062.s4, CORE_062.s5
   reading "For every value projection value, every context C, every transition t, every buffer e (the places and values the action declared before the call, in order), every place p and every list of values vs:"
           "if p is an output place of t, the output call on t, e, p and vs succeeds and returns e followed by one entry (p, v) for each v in vs, in the order of vs;"
           "if p is not an output place of t, the output call on t, e, p and vs reports an error, whatever vs is, the empty list included."

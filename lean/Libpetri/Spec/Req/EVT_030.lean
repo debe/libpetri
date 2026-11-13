@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Spec.GlossaryEvents
 import Libpetri.Spec.Req.EVT_021
+import Libpetri.Spec.Text.EVT_030
 
 set_option linter.missingDocs true
 
@@ -135,13 +136,7 @@ requirement EVT_030
   kind F
   scope "the event query helpers where an implementation provides them (Java: eventsOfType, transitionEvents, placeEvents, filter with offset and limit, failures, counters and size; TypeScript: queryEvents, eventsOfType, transitionEvents, placeEvents, failures, counters, countEvents and size; Rust: events_of_type, transition_events, place_events, query, failures, size, count_of_types and counters; every helper in the Python binding)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* an implementation provides a query over the events of an event store, the query without offset and limit *shall* return exactly the events that `events()` returns and that match every filter the query gives, in the order `events()` returns them, for every query whose transition filter does not name the empty name."
-        "A filter by event type *shall* match the events of the given types, a filter by transition name *shall* match the events that carry one of the given transition names, and a filter by place name *shall* match the events that carry one of the given place names."
-        "An event that carries no transition name *shall* match no filter by transition name, and its presence in the store *shall not* change which other events such a filter returns."
-        "*Where* an implementation provides offset and limit on a query, the query *shall* skip the first `offset` matching events and return the first `limit` of the matching events that follow (all of them when no limit is given), so that the page is taken over the filtered result and not over the store."
-        "*Where* an implementation provides `failures()`, it *shall* return exactly the TransitionFailed, TransitionTimedOut and ActionTimedOut events that `events()` returns, in the order `events()` returns them."
-        "*Where* an implementation provides `counters()`, it *shall* name each event type that occurs among the events `events()` returns exactly once, with the number of those events of that type, and *shall* name no other event type."
-        "*Where* an implementation provides a count of events, the count *shall* be the number of events that `events()` returns whose type is one of the given types, or the number of all of them when no type is given."
+  covers EVT_030.s1, EVT_030.s2, EVT_030.s3, EVT_030.s4, EVT_030.s5, EVT_030.s6, EVT_030.s7
   reading "For every event type E, every shape function sh and the helpers H, over every list es of events (the list events() returns):"
           "a query q without paging whose transition filter does not name the empty name returns the events of es that match every filter of q (type among its types, a transition name among its names, a place name among its names), in the order of es;"
           "a query q returns the page of its unpaged answer: it skips the first offset events and keeps the first limit of the rest;"

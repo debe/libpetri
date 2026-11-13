@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.NU_055
 import Libpetri.Reference.NuLink
 import Libpetri.Reference.NuLinkA
+import Libpetri.Spec.Text.NU_050
 
 set_option linter.missingDocs true
 
@@ -57,10 +58,7 @@ requirement NU_050_prefix
   kind F
   scope "every verifier that offers the Route B name-partition graph (MAY); the verdict it reads off a built graph, for every property"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* the build of the Route B graph is stopped, because it runs out of total budget or is cancelled ([VER-013]), *then* Route B *shall* answer `Unknown`, whatever classes the build stored."
-        "*If* the build is not stopped and a stored class violates a safety property, or an expanded class at which the net rests violates a quiescence property, *then* Route B *shall* answer `Violated`, also when the graph does not close."
-        "*If* Route B answers `Violated`, *then* the class its counterexample ends at *shall* violate the property: a stored class for a safety property, an expanded class at which the net rests for a quiescence property."
-        "*If* the build is not stopped and no class violates the property, *then* Route B *shall* answer `Proven` when the graph closes and `Unknown` when it does not."
+  covers NU_050.s2, NU_050.s3, NU_050.s4, NU_050.s5
   reading "For every explorer E over classes, every build outcome o (the stored classes in discovery order, the number expanded, whether the build closed and whether it stopped) and every property p, where a class violates p as Decide.violatesAt reads it (for a safety property a stored class at which the predicate holds; for a quiescence property an expanded class at which the predicate holds and every successor is a firing of a reapable transition):"
           "if the build stopped, V answers Unknown;"
           "if the build did not stop and some class violates p, V answers Violated (at some class);"
@@ -399,11 +397,7 @@ requirement NU_050_soundB
   kind B
   scope "every verifier that offers the Route B name-partition graph (MAY), judged against the reference ν executor, untimed and environment-free"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* the coloured places start empty, every transition is in the fragment for its role, every key and relay projection reads the name its writer put there, and every declared mint and coloured consumer keeps its contract ([NU-010], [NU-051]), *then* Route B *shall* answer `Proven` for a safety property only if no marking the untimed executor reaches violates it."
-        "*If* in addition every correlated input takes at least one token, *then* Route B *shall* answer `Proven` for a quiescence property only if no marking the untimed executor reaches and rests at violates it."
-        "Route B reads every coloured token through one name."
-        "It assumes that each key and relay projection reading a coloured place returns the name its writer put there: the name a mint stamped, or the name a relay or consumer carried over."
-        "Both routes read a coloured write as a fresh name only for a declared mint ([NU-010]), and as the consumed name only for a coloured consumer ([NU-051])."
+  covers NU_050.s17, NU_050.s18, NU_050.s14, NU_050.s15, NU_050.s16
   reading "For every call q (a net X of reference ν transitions, its coloured set co, its roles, the build limits and the initial marking M0), every property over token counts and every projection nameOf, where every coloured place of co is empty in M0, co lists each place once, every translated transition is in Route B's fragment for its role (InFragment) and every transition has the shape B1 needs (B1Shape: distinct input places, correlated inputs taking a fixed count, correlated inputs coloured), and where at every marking a contract-keeping run reaches, every key and relay projection of every transition gives each token of its place the name nameOf gives it (NuProj):"
           "if D answers Proven for the safety property bad, then bad is false at the counts of every marking a contract-keeping reference run from M0 reaches;"
           "if, in addition, every correlated input takes at least one token (PosKeys), and D answers Proven for the quiescence property bad, then bad is false at the counts of every marking a contract-keeping reference run from M0 reaches and at which every ν-enabled transition is reapable (NuRests)."
@@ -716,9 +710,7 @@ requirement NU_050_soundA
   kind B
   scope "every verifier that offers the Route A coloured encoding (MAY), judged against the reference ν executor, untimed and environment-free"
   source verbatim "spec/12-nu-nets.md"
-  quote "It stays in linear arithmetic, and its `Proven` is sound while the declared mints and the coloured consumers keep their contracts ([NU-010], [NU-051])."
-        "*If* Route A builds its plan with the colour-slot bound of [NU-053], every key and relay projection reads the name its writer put there, and every declared mint and coloured consumer keeps its contract, *then* a `Proven` of the coloured encoding of a safety property *shall* hold of every marking the untimed executor reaches."
-        "*If* in addition no transition of the net is reapable, *then* a `Proven` of the coloured encoding of a quiescence property *shall* hold of every marking the untimed executor reaches and rests at."
+  covers NU_050.s1, NU_050.s19, NU_050.s20
   reading "For every plan builder P, and for every place count n, coloured places C, mode ext, simplex answer ans, flat source rows src (as build_plan receives them), invariants invs, projection nameOf, net X of reference ν transitions and initial marking M0, where P answers the plan (k, rows) for the counts of M0, C lists each place once and below n, every consume-all input arc of src is unguarded, every invariant is zero on the nonlinear places of src and conserved by every source row, every firing of a transition of X from a marking a contract-keeping run reaches has a source row (SrcCovers: a row of src that is the row of the firing's transition and deposit, whose class under build_plan's rule fits the match), and at every such marking every key and relay projection gives each token of its place the name nameOf gives it (ProjCoherent); a contract-keeping run (NuLinkA.RefNuRunA) is a sequence of reference firings each of whose actions keeps the contract of the class build_plan's rule gives its source rows (srcClass), so the run and the premises read src and not the plan P returns:"
           "if no state the shipped coloured encoding of the plan reaches has its all-colour counts in Bad (a Proven of the encoding), then no marking a contract-keeping reference run from M0 reaches has its counts in Bad;"
           "if, in addition, the input places of every source row are distinct, every source row comes from a transition of X whose match its class fits (SrcFrom), no transition of X is reapable, and no state the shipped coloured encoding reaches is quiescent (DeadE) with its all-colour counts in Q, then no marking a contract-keeping reference run reaches and rests at (NuRests) has its counts in Q."

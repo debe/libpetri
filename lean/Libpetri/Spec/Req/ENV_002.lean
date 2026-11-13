@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_002
 
 set_option linter.missingDocs true
 
@@ -41,16 +42,8 @@ requirement ENV_002
   kind B
   scope "executors whose inject takes an environment-place handle (Java, TypeScript)"
   source verbatim "spec/06-environment-places.md"
-  quote "Environment places must be registered with the executor before execution begins."
-        "The executor maintains a set of registered environment places."
-        "Where inject takes an environment-place handle (Java, TypeScript), only registered environment places accept injections."
-        "Where inject takes an environment-place handle (Java, TypeScript), attempting to inject into a non-environment place returns an error."
-        "The set of registered environment places is fixed when the executor is built; no step of a run adds or removes one."
-        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *if* a caller injects into a place that is not a registered environment place, *then* the executor *shall* answer with an error, and *shall not* answer with a refusal even when it is draining, closed, stopped or finished."
-        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *if* a caller injects into a place that is not a registered environment place, *then* the executor *shall* leave its state unchanged: it *shall not* queue the token and *shall not* change the marking."
-        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), the executor *shall* answer an injection into a place that is not a registered environment place with an error in every state of the run, before and after the run finishes."
-        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), the executor *shall not* answer an injection into a registered environment place with an error, in any state of the run."
-        "*Where* an executor's inject takes an environment-place handle (Java, TypeScript), *while* the run has not finished, the executor is not draining, closed or stopped and no terminal place is marked ([EXEC-042]), the executor *shall* accept an injection into a registered environment place."
+  covers ENV_002.s1, ENV_002.s2, ENV_002.s3, ENV_002.s4, ENV_002.s6, ENV_002.s7, ENV_002.s8,
+        ENV_002.s9, ENV_002.s10, ENV_002.s11
   reading "For every executor R, every configuration C, every place p and every token x:"
           "if p is not one of C's environment places, a request step that asks to inject x into p answers with an error;"
           "if p is not one of C's environment places, a request step that asks to inject x into p leaves the executor state as it was;"
@@ -95,9 +88,7 @@ requirement ENV_002_host
   kind A
   scope "executors whose inject takes a place name (Rust, Python), and their hosts"
   source verbatim "spec/06-environment-places.md"
-  quote "Where inject takes a place name (Rust, Python), the host injects only into registered environment places."
-        "An executor whose inject takes a place name (Rust, Python) deposits an injected token into the place the name resolves to, whether or not that place is registered; for it, registration decides only whether the run waits at quiescence ([ENV-010]) and which arcs the dead-arc report lists ([CORE-037])."
-        "*Where* an executor's inject takes a place name (Rust, Python), the host *shall* inject only into registered environment places."
+  covers ENV_002.s5, ENV_002.s12, ENV_002.s13
   reading "For a configuration C and a run tr (a list of steps, each a source state, a label and a target state):"
           "every request step of tr asks to inject into one of C's environment places."
   assumes "Ruling D89 (a). The block is an assumption on the host (kind A), not a behaviour of the executor: a Rust or Python executor answers a request into any place, deposits into the place the name resolves to (an unknown one is retained, CORE-072), and registration feeds only the long-running decision (ENV-010) and the dead-arc report (CORE-037, rust/libpetri-runtime/src/executor.rs). The statement reads only the labels of a run, so it is a predicate on what the host asks, whatever executor answers."

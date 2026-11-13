@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_007
 
 set_option linter.missingDocs true
 
@@ -42,12 +43,7 @@ requirement EXP_007_label
   kind F
   scope "every exporter, the label of a transition node"
   source verbatim "spec/09-export.md"
-  quote "**Show/hide timing**: toggle timing interval display on transitions"
-        "**Show/hide priority**: toggle priority display on transitions"
-        "*Where* the configuration hides timing and priority, the export *shall* label a transition node with the transition's name alone."
-        "*Where* the configuration shows timing and hides priority, the export *shall* label a transition node with the transition's name, a space and `[e, l]ms`, where e is `earliest()` and l is `latest()` of the transition's timing, in milliseconds and in decimal, and l is written `∞` when `hasDeadline()` is false ([TIME-001])."
-        "*Where* the configuration shows priority and the transition's priority n is not 0, the export *shall* label the transition's node with the label it would have if the configuration hid priority, followed by a space and `prio=n`, with n in decimal."
-        "*Where* a transition's priority is 0, the export *shall* label its node with the label it would have if the configuration hid priority."
+  covers EXP_007.s3, EXP_007.s4, EXP_007.s5, EXP_007.s6, EXP_007.s7, EXP_007.s8
   reading "For the transition labeller TL of an export, every configuration cfg, transition name, timing τ and priority n:"
           "with timing and priority hidden, the label is the name;"
           "with timing shown and priority hidden, the label is the name, then ' [e, l]ms' with e = earliest τ, and l = latest τ when τ has a deadline, else ∞;"
@@ -227,12 +223,7 @@ requirement EXP_007_config
   kind F
   scope "every exporter"
   source verbatim "spec/09-export.md"
-  quote "The export supports configuration options:"
-        "**Layout direction**: top-to-bottom, left-to-right, etc."
-        "The export *shall* lay out the drawing in the layout direction the configuration names."
-        "The export *shall* draw the same graph, apart from its layout direction and the label drawn inside each transition node, under two configurations that differ only in the layout direction and the show options."
-        "*Where* a configuration carries a show-types option, the export *shall* draw the same graph whichever value the option has."
-        "The default configuration names the top-to-bottom layout direction and shows timing and priority."
+  covers EXP_007.s1, EXP_007.s2, EXP_007.s9, EXP_007.s10, EXP_007.s11, EXP_007.s12
   reading "For the exporter E, every configuration cfg and every net X:"
           "the drawing E cfg X has the layout direction of cfg;"
           "for every value b, E draws X under cfg with show-types set to b exactly as under cfg;"

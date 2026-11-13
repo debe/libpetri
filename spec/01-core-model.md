@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ch01.lean and the requirement texts it lists, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # 01 — Core Model
 
 This document specifies the foundational model of the CTPN engine: places, tokens, transitions, arcs, net construction, actions, and context.

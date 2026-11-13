@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.CONC_022
 
 set_option linter.missingDocs true
 
@@ -46,11 +47,7 @@ requirement CONC_022
   kind F
   scope "the precompiled executor's token storage"
   source verbatim "spec/05-concurrency.md"
-  quote "The precompiled executor's token storage *shall* hold a dedicated queue for each place of the net it is built for."
-        "*When* a token is added to a place the token storage holds a queue for, the token storage *shall* append it at the tail of the place's queue whatever the capacity of the place's storage, *shall* keep holding a queue for every place it held, and *shall* leave the queue of every other place unchanged."
-        "*When* the first token of a marked place the token storage holds a queue for is removed, the token storage *shall* return the head of the place's queue, keep the rest of that queue in queue order, keep holding a queue for every place it held, and leave the queue of every other place unchanged."
-        "*When* the first token of a place the token storage holds a queue for is read without removing it, the token storage *shall* return the head of the place's queue, or nothing when the place is not marked."
-        "The token storage *shall* report as the token count of a place it holds a queue for the length of the place's queue."
+  covers CONC_022.s1, CONC_022.s2, CONC_022.s3, CONC_022.s4, CONC_022.s5
   reading "For a token store S by place id:"
           "for every number n, some state of S holds a queue for each of the place ids below n;"
           "and for every state s of S and place p for which s is a well-formed store holding a queue for p (S.ok s p):"

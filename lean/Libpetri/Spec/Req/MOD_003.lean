@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Spec.Req.MOD_006
+import Libpetri.Spec.Text.MOD_003
 
 set_option linter.missingDocs true
 
@@ -41,9 +42,7 @@ requirement MOD_003
   kind B
   scope "every subnet builder"
   source verbatim "spec/11-modular-composition.md"
-  quote "*If* two ports of one interface have the same name, *then* building the subnet definition *shall* fail."
-        "*If* the net builder builds the body and a port exposes a place that is not a place of the built body, *then* building the subnet definition *shall* fail."
-        "*When* building a subnet definition succeeds, building it with one more port, whose name no port of the interface has and which exposes the place of one of its ports, *shall* also succeed, whatever the directions of the two ports."
+  covers MOD_003.s1, MOD_003.s2, MOD_003.s3
   reading "For every net builder NB of subnet bodies and every subnet builder SB:"
           "if two ports of S have the same name, SB fails on S;"
           "if NB builds the body of S as the net b and some port of S exposes a place that is not a place of b, SB fails on S;"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Spec.Req.TIME_cycle
+import Libpetri.Spec.Text.EVT_004
 
 set_option linter.missingDocs true
 
@@ -59,10 +60,7 @@ requirement EVT_004
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "Enabled in this requirement means armed: a transition that is armed again after its own firing, after the enablement recheck of a firing pass disarmed it, or after a reap and a later write of one of its arc places is announced again, even when the marking kept it enabled."
-        "A transition whose clock restarts while it stays armed is announced with `TransitionClockRestarted` instead ([EVT-005])."
-        "*When* a transition is armed after an enablement update and was not armed before it, the executor *shall* emit, at that update, exactly one TransitionEnabled event naming the transition."
-        "The executor *shall* emit a TransitionEnabled event naming a transition only at an enablement update before which the transition was not armed and after which it is armed."
+  covers EVT_004.s1, EVT_004.s2, EVT_004.s3, EVT_004.s4
   reading "For every executor with events E and every configuration C:"
           "when the transition names of C's net are pairwise distinct, for every history H, an enablement update from state s to state s' that appends the events evs contains, for every name n, exactly one TransitionEnabled event naming n if n is a transition of the net that is not armed in s and armed in s', and none otherwise;"
           "the events a run emits before its first step contain no TransitionEnabled event, whatever the initial marking, and for every history H a step whose label is not the enablement update appends no TransitionEnabled event."

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNuVer
 import Libpetri.Novel.RouteB.Exec
 import Libpetri.Novel.RouteA.Plan
+import Libpetri.Spec.Text.NU_051
 
 set_option linter.missingDocs true
 
@@ -57,13 +58,7 @@ requirement NU_051
   kind F
   scope "the fragment classifier of every ν verifier"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* the fragment mode is BASE, the fragment classifier *shall* give no role to a transition without a match spec that consumes a coloured place."
-        "*While* the fragment mode is EXTENDED, the fragment classifier *shall* give a transition without a match spec that consumes a coloured place no role other than the coloured-consumer role of its one coloured input, and that role only when it consumes exactly one coloured input, at count one, and puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes."
-        "*If* a transition without a match spec consumes a coloured place and its timeout writes a coloured place other than by forwarding that consumed input, *then* the fragment classifier *shall* give it no role."
-        "*While* the fragment mode is EXTENDED, *if* a transition without a match spec consumes exactly one coloured input, at count one, has no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, and on timeout writes a coloured place only by forwarding that input, *then* the fragment classifier *shall* give it the coloured-consumer role of that input's place, whether or not it is declared a mint."
-        "*If* a coloured place carries a reset, read or inhibitor arc of a transition, *then* the fragment classifier *shall* give that transition no role, in both BASE and EXTENDED."
-        "*If* a matched transition consumes a coloured place through an input that is not one of its match keys, *then* the fragment classifier *shall* give it no role, in both BASE and EXTENDED."
-        "The fragment classifier *shall* give the coloured-consumer role to no other transition: to none while the fragment mode is BASE, to no matched transition and to no transition that consumes no coloured place."
+  covers NU_051.s1, NU_051.s4, NU_051.s6, NU_051.s2, NU_051.s11, NU_051.s12, NU_051.s5
   reading "For every coloured set col, mint declaration, list of timeout writes tw and transition T:"
           "under BASE, a transition with no match spec and a coloured input gets no role;"
           "under EXTENDED, if a transition with no match spec and a coloured input gets a role, its branches deposit one token into each coloured place they write and drain none into one, its coloured inputs are a single input s, at count One or Exactly(1), the role is the coloured-consumer role of s's place, and every timeout write into a coloured place forwards s's place;"
@@ -985,7 +980,7 @@ requirement NU_051_relay
   kind F
   scope "the name layer of Route B"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a coloured consumer fires on a branch with a name its coloured input holds, the name layer *shall* remove one token of that name from the input, add one token of that name to each coloured output of the branch and change no other count, so a branch with no coloured output drains the name."
+  covers NU_051.s3
   reading "For every list co of distinct coloured places, consumed input inp, list outs of distinct coloured outputs of the fired branch, consumed name s resident in inp and name marking M, and for every name u and coloured place i: the step's count of u at i, plus one if u is s and i is inp, equals M's count of u at i, plus one if u is s and i is in outs."
   assumes "The step is the name layer of Route B (`Novel.RouteB.NM`: the tokens of each name in each coloured place); which transition gets the coloured-consumer role is the block NU_051. The step is applied to a name resident in the consumed input (Route B's `will_fire` for a consumer), hence the premise that s has a token in inp, which the sentence states as 'with a name its coloured input holds'. Which resident name a consumer takes (any, on Route B; the oldest, FIFO, in the executor) is not this line's: it is the action contract and [NU-050]'s soundness; the outputs are the coloured places of the fired branch, without repetition (`colOut`), hence the premises on co and outs."
           "The line is the quoted sentence, which restates 'A coloured consumer relays the consumed name-symbol into each coloured output of the fired branch (threading the same name), or drains it (dead-letters the name) on a branch that produces no coloured output'. A relay back into the consumed input leaves its count as it was, which the equation allows. That the name the action writes is the consumed one is the action contract (kind A, see NU_051): this line says what the name layer does, the contract is why that matches the executor ([NU-050], W9)."

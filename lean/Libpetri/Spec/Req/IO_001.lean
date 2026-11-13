@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_001
 
 set_option linter.missingDocs true
 
@@ -33,11 +34,7 @@ requirement IO_001
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`One(place)` is an input arc whose required count and consumption count are both 1."
-        "*While* the input place of a `One` input arc is unmarked, the transition *shall not* fire."
-        "*While* the input place of a `One` input arc is marked and is not a correlated input of the transition's match specification ([NU-020]), the arc *shall not* affect whether the transition can fire."
-        "*When* a transition with a `One` input arc fires, it *shall* consume exactly 1 token from the input place."
-        "*When* a transition with a `One` input arc fires, and the input place is neither a reset place nor an output place of the transition, the input place *shall* end the firing holding exactly 1 fewer token than it held before the firing."
+  covers IO_001.s1, IO_001.s2, IO_001.s3, IO_001.s4, IO_001.s5
   reading "For every transition t and place p such that the input arc of t on p is One:"
           "t does not fire from a marking in which p is unmarked;"
           "from a marking in which p is marked, t can fire exactly when t without its input arc on p can fire;"

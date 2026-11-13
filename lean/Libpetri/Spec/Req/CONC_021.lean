@@ -4,6 +4,7 @@ import Libpetri.Spec.Req.CONC_022
 import Libpetri.Spec.Req.CORE_070
 import Libpetri.Refinement
 import Libpetri.RetrodictExec
+import Libpetri.Spec.Text.CONC_021
 
 set_option linter.missingDocs true
 
@@ -73,9 +74,7 @@ requirement CONC_021
   kind F
   scope "the precompiled executor, transitions without a match specification"
   source verbatim "spec/05-concurrency.md"
-  quote "*When* the precompiled executor fires a transition that has no match specification ([NU-020]), its consume operations *shall* hand the action from each input place the oldest tokens the place holds, as many as the consumption count of the input arc ([IO-007]) for the number of tokens the firing may drain ([EXEC-003] AC5), in queue order, and nothing from any other place."
-        "*When* the precompiled executor fires a transition that has no match specification ([NU-020]), its consume operations *shall* hand the action for each read arc the head of the read place's queue as it is after the input operations and before the reset operations."
-        "*When* the precompiled executor fires a transition that has no match specification ([NU-020]), its consume operations *shall* remove from each reset place every token the firing may drain ([EXEC-003] AC5), leave each other input place its queue without the tokens handed to the action, leave the queue of every other place unchanged, and hold a queue for every place the token storage held and for no other place."
+  covers CONC_021.s1, CONC_021.s2, CONC_021.s3
   reading "For a token store S by place id and a consume program X over it, for every store state s and compiled transition t such that S holds a queue for every place t has an arc on, t has no two input arcs on one place, and t is enabled on the queues of s by the reference enablement:"
           "the inputs X hands the action are the reference's: from each input place the first tokens of its queue, in queue order, as many as the consumption count of the arc on the queue's length (One 1, Exactly n, All and AtLeast every token), and nothing from any other place;"
           "the read tokens X hands the action are the reference's: for each read arc, in arc order, the head of the read place's queue after the input consumption;"

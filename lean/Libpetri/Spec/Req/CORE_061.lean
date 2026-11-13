@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryContext
 import Libpetri.Spec.Req.EXEC_010
 import Libpetri.Spec.Req.EXEC_012
+import Libpetri.Spec.Text.CORE_061
 
 set_option linter.missingDocs true
 
@@ -48,9 +49,7 @@ requirement CORE_061
   kind F
   scope "the transition context of every implementation"
   source verbatim "spec/01-core-model.md"
-  quote "*When* an action calls `read(place)` on a read place of its transition, the call *shall* return the value of the token the read arc read from that place, the oldest token the place holds ([EXEC-012])."
-        "The call consumes nothing: by [EXEC-012] the firing leaves the read token in the place, unless the transition also has a reset arc there, which drains the place ([EXEC-013])."
-        "*If* an action calls `read(place)` on a place that does not resolve to a read place of its transition ([MOD-031]), *then* the call *shall* report an error, also when the place is an input place of the transition."
+  covers CORE_061.s1, CORE_061.s2, CORE_061.s3
   reading "For every value projection value and every context C, every transition t, every delivery δ (the tokens the firing consumed from each input place and the tokens its read arcs read) and every place p:"
           "if p is a read place of t, δ consumed no token from p and the first token δ read at p is x, read on t, δ and p returns the value of x;"
           "if p is not a read place of t and δ read no token at p, read on t, δ and p reports an error, whether or not p is an input place of t."

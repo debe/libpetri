@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_002
 
 set_option linter.missingDocs true
 
@@ -47,11 +48,7 @@ requirement EXP_002
   kind F
   scope "every exporter's mapper, on the nodes of the exported graph (before a documentation generator restyles interface ports)"
   source verbatim "spec/09-export.md"
-  quote "Places are rendered as distinct shapes from transitions:"
-        "Places: circles, ellipses, or stadium-shaped nodes (following Petri net convention)"
-        "Place names are displayed as labels"
-        "The mapper *shall* give every place node a place category, which is the place, start, end, environment or terminal row of the style table, and *shall* give no transition node and no junction node a place category (a transition node gets the transition category, see [EXP-003])."
-        "The mapper *shall* draw every place node for a place of the net (one that the net declares or on which some transition has an arc), show the name of that place, as written and not sanitized, as the external label (`xlabel`) of the node, and give the node an empty label, so that nothing is drawn inside it."
+  covers EXP_002.s1, EXP_002.s2, EXP_002.s3, EXP_002.s4, EXP_002.s5
   reading "For the exporter E, every configuration cfg, every net X and every node n of the graph E draws for them:"
           "n has a place category (one of NodeCat.placeRows) exactly when n stands for a place;"
           "and when n stands for place p, p is a place of X (declared in X, or on an arc of a transition of X), the external label of n is p itself and its label is empty."

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_014
 
 set_option linter.missingDocs true
 
@@ -75,22 +76,9 @@ requirement EXP_014
   kind F
   scope "every exporter, the DOT IDs, the junction nodes and the junction numbering of the exported graph"
   source verbatim "spec/09-export.md"
-  quote "Synthetic junction nodes MUST use IDs of the form `j_<transitionSanitized>__<kind>_<idx>`, where:"
-        "`transitionSanitized` is the transition's name with non-`[A-Za-z0-9_]` characters replaced by `_` (the same `sanitize` function used for place and transition IDs)."
-        "`<kind>` is `xor` or `and`."
-        "`<idx>` is a non-negative integer. Junctions in a single transition's `Out` tree are numbered in depth-first pre-order, with the counter starting at `0` and incrementing once per emitted junction. Single-child XOR/AND groups collapse (per EXP-012) and consume no counter slot. Example: `t_Nested` with output `AND(XOR(a,b), XOR(c,d))` produces three junctions in the order `j_Nested__and_0`, `j_Nested__xor_1`, `j_Nested__xor_2`."
-        "Junction IDs do not collide with place IDs (`p_…`) or transition IDs (`t_…`)."
-        "*Where* a node's name (the place's, the transition's, or for a junction its transition's) holds only ASCII characters, the mapper *shall* give the node the ID `p_<s>`, `t_<s>` or `j_<s>__<kind>_<idx>` according to what it stands for, with `<s>` that name with each character outside `[A-Za-z0-9_]` replaced by `_`, `<kind>` the kind of the junction and `<idx>` its index written in decimal without leading zeros."
-        "The ID of a node whose name holds a character outside ASCII is implementation-defined, within the rule of the next sentence."
-        "The mapper *shall* give no junction node the ID of a place node or a transition node, whatever the names."
-        "*Where* the transition names of a net are pairwise distinct, the mapper *shall* draw for each transition one junction node for each group with two or more children in its output spec, of the kind of that group, and no other junction node for the transition."
-        "*Where* the transition names of a net are pairwise distinct, the mapper *shall* give the junction node of a group with two or more children the index of that group in the depth-first pre-order of such groups in the transition's output spec, counting from 0, with one counter for both kinds."
-        "*Where* the transition names of a net are pairwise distinct, the mapper *shall* draw as the output edges of a transition, compared by their ends, exactly the edges [EXP-012] draws for its output spec, each as often as [EXP-012] draws it, with each junction numbered by the index of its group."
-        "The mapper *shall* draw no edge that starts or ends at a junction node it does not draw."
-        "The mapper *shall* draw no junction node for a transition the net does not have."
-        "The mapper *shall* give a junction node of kind `xor` the `xor-junction` category of the node table and a junction node of kind `and` the `and-junction` category."
-        "*Where* the transition names of a net are pairwise distinct, its place and transition names hold only ASCII characters, and no two different place names, nor two different transition names, become equal when each character outside `[A-Za-z0-9_]` is replaced by `_`, the mapper *shall* give no two nodes of the graph the same ID."
-        "AC1 covers the junctions of transitions whose name is not empty and holds only ASCII characters."
+  covers EXP_014.s1, EXP_014.s2, EXP_014.s3, EXP_014.s4, EXP_014.s5, EXP_014.s6, EXP_014.s7,
+        EXP_014.s8, EXP_014.s9, EXP_014.s10, EXP_014.s11, EXP_014.s12, EXP_014.s13, EXP_014.s14,
+        EXP_014.s15, EXP_014.s16
   reading "For every configuration cfg and net X, the graph E cfg X satisfies:"
           "every node whose name (the place's, the transition's, or for a junction its transition's) is ASCII has the ID nodeId of what it stands for: p_<sanitize p>, t_<sanitize t> or j_<sanitize t>__<kind>_<idx>, the index in decimal without leading zeros;"
           "on a net with pairwise distinct transition names, the junction nodes of each transition t, as (kind, index), are the kinds of the groups of t's output spec with two or more children in depth-first pre-order, numbered 0, 1, 2 in that order, one node per group and no other, in any order of drawing (List.Perm);"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Verifier.Result
 import Libpetri.Spec.Req.VER_014
 import Libpetri.Spec.Req.CORE_022
 import Mathlib.Data.List.Sort
+import Libpetri.Spec.Text.VER_022
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -377,10 +378,7 @@ requirement VER_022_meets
   kind F
   scope "the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification)"
   source verbatim "spec/07-verification.md"
-  quote "A quiescent marking **meets** the contract when every clause holds, lower bounds only while no terminal marker is marked, and every token lies on a clause place, a rest place, an environment place, a terminal marker, or an excused place of a marked terminal."
-        "The second condition is the rest set of [VER-014] with the clause, rest and environment places as sinks and each terminal as a conditional sink, and implementations MUST decide it through that same predicate."
-        "*Count clauses*, each named: at every quiescent marking the tokens across the clause's places, each place counted once, number between `min` and `max`, or at least `min` for a clause with no `max`."
-        "The verifier *shall* judge a quiescent marking to meet the contract exactly when, counting each place of a clause once, the tokens across each clause's places number at most the clause's `max` if it has one, at least its `min` unless some terminal marker is marked, and no marked place is stranded under the rest set of [VER-014] whose sinks are the clause, rest and environment places and whose conditional sinks are the terminals."
+  covers VER_022.s3, VER_022.s4, VER_022.s1, VER_022.s5
   reading "For every reading M of meeting the contract and every rest-set reading S of VER-014, all contracts C, environment places envs and markings m:"
           "M holds of C, envs and m exactly when every clause's count (each place counted once) is at most its upper bound, every clause's count is at least its lower bound unless some terminal marker is marked, and no marked place is stranded under S with the clause, rest and environment places as sinks and each terminal as a conditional sink."
   assumes "A marking is a count marking by place name; the clause count is the sum over the clause's places, each counted once (`tokens_across`), and an absent upper bound is none. Line 1 holds the rest set as the parameter S, the variable VER-014's statement fixes, so 'implementations MUST decide it through that same predicate' is the line itself: the two blocks hold together of one S (VER_022_joint), and with VER-014's first line the stranding half is the plain list of the quoted definition (VER_022_meets_plain: every token lies on a clause, rest or environment place, a terminal marker, or an excused place of a marked terminal). 'Every other place is internal to the subnet and must be empty' is that list read the other way."
@@ -430,15 +428,8 @@ requirement VER_022_closure
   kind F
   scope "the open-net verifier before either route, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification)"
   source verbatim "spec/07-verification.md"
-  quote "Arrival group `i` contributes a source place holding `min` tokens and a source place holding `max − min`, each left out with its transitions when its count is 0, one transition per source and target place moving a token from that source onto the place, and a transition with no output that declines a token of the second source."
-        "A run is therefore quiescent only once every required arrival has happened and every optional one has been delivered or declined."
-        "The contract's environment transitions join the closed net unchanged."
-        "Contract places no arc touches join as places of their own and are listed in the report, so a clause over a place nothing writes counts zero there: a finding, never a refusal."
-        "*If* a name the closure adds, or the name of an environment transition, is already a place or transition name of the subnet, *then* the verifier *shall* refuse the closure, and it *shall* not refuse a closure whose added and environment-transition names are distinct from each other, from the subnet's names and from the environment places."
-        "The verifier *shall* build the closed net from the subnet's transitions, then the environment transitions unchanged, then, for each arrival group `i` in order, numbered from 0, one immediate transition `env:arrive[i]:<place>` per target place, in the group's order, taking one token from the source `env:arrivals[i]` when `min > 0`, and one immediate transition `env:arrive?[i]:<place>` per target place, in the group's order, taking one token from the source `env:optional[i]`, followed by an immediate `env:decline[i]` discarding one, when `max > min`; the transitions the closure adds have no other arc."
-        "The verifier *shall* start the closed net from the contract's initial marking with `min` tokens on `env:arrivals[i]` and `max − min` tokens on `env:optional[i]` for each source it builds."
-        "The verifier *shall* treat as an environment place exactly a place that an environment transition touches and the subnet does not, and *shall* make every place of the subnet and every place the contract names a place of the closed net."
-        "The verifier *shall* mark as environment steps exactly the environment transitions and the transitions the closure adds."
+  covers VER_022.s6, VER_022.s7, VER_022.s8, VER_022.s9, VER_022.s10, VER_022.s11, VER_022.s12,
+        VER_022.s13, VER_022.s14
   reading "For every closure function Cl, every subnet net and every contract C:"
           "if the name of an environment transition or a name the closure adds (env:arrivals[i], env:arrive[i]:p, env:optional[i], env:arrive?[i]:p, env:decline[i], for the sources it builds) is a place or transition name of the subnet, Cl refuses;"
           "if those names are pairwise distinct, and none is a name of the subnet or an environment place, Cl does not refuse;"
@@ -978,19 +969,8 @@ requirement VER_022
   kind B
   scope "the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification)"
   source verbatim "spec/07-verification.md"
-  quote "The graph route MUST NOT run on a closed net that declares **match (ν-join) transitions**, the exclusion of [VER-017] condition 1."
-        "Both routes read quiescence as [VER-002] does: a class or marking whose enabled transitions are all reapable ([TIME-013]) rests too."
-        "A cycle of reapable transitions ([TIME-013]) counts too, since a run need not reap them."
-        "`Proven`: every reachable quiescent marking of the closed net meets the contract and, where termination is required, no run fires forever."
-        "On the SMT route it is the deciding query's counterexample, which need not be shortest; one that does not replay as an ordered firing sequence ([VER-003]) is marked unconfirmed and names no stranded place."
-        "*If* the verifier refuses the closure, *then* it *shall* refuse the verification."
-        "*When* the verifier accepts the closure, it *shall* return a result, and that result *shall* be `Proven` when the closed net declares no match transition, its graph closes within a class budget above 0, every reachable quiescent marking meets the contract and, where termination is required, no run fires forever."
-        "The verifier *shall* return `Proven` only when every quiescent marking reachable in the closed net from its initial marking meets the contract, reading quiescence as [VER-002] does, or, when `assumeNoReaping` is set, as a marking with no enabled transition, and, where termination is required, no run of the closed net fires forever."
-        "*When* the verdict is `Violated`, the verifier *shall* list at least one broken part, and for each part with a confirmed witness *shall* report a firing sequence of the closed net from its initial marking, environment steps included, that leads to a quiescent marking at which the named clause fails, or to a quiescent marking at which each named place, at least one, holds a stranded token, or, for `termination`, whose part before the reported cycle start leads to a marking and whose part after it, not empty, leads from that marking back to it."
-        "The verifier *shall* mark a witness unconfirmed only when the SMT route decided, and *shall* name in each clause part, confirmed or not, a clause of the contract."
-        "The verifier *shall* report a `termination` part only when the contract requires termination, and *shall* name no stranded place in a witness that is not confirmed."
-        "*When* the verdict is `Unknown`, the verifier *shall* give a reason that is not empty."
-        "*If* the closed net declares a match transition, *then* the verifier *shall* return `Proven` or `Violated` only from the SMT route."
+  covers VER_022.s15, VER_022.s16, VER_022.s2, VER_022.s17, VER_022.s18, VER_022.s19, VER_022.s20,
+        VER_022.s21, VER_022.s22, VER_022.s23, VER_022.s24, VER_022.s25, VER_022.s26
   reading "For every firing relation F, closure Cl, meets reading M, rest-set reading S and verifier V, all options o, open subnets N and contracts C:"
           "if Cl refuses N's net under C, V refuses the verification;"
           "and whenever V returns a result r and Cl returns the closed net X:"

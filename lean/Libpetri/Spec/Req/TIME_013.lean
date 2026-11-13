@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Text.TIME_013
 
 set_option linter.missingDocs true
 
@@ -42,16 +43,8 @@ requirement TIME_013
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "When a reapable transition is expired, that is, armed with an elapsed time strictly greater than its latest bound plus the deadline tolerance, the executor reaps it: it disarms the transition without firing it and emits a `TransitionTimedOut` event."
-        "Implementations MUST apply a deadline tolerance — a grace band beyond `latest` (default 5ms) that absorbs timer-resolution and scheduling jitter — and SHOULD expose it as a configurable per-executor option (e.g. `deadlineTolerance` / `deadline_tolerance_ms`); a value of `0` gives strict enforcement."
-        "Only `Deadline` and `Window` transitions are reaped here."
-        "*If* a reapable transition's elapsed time is greater than its latest bound plus the deadline tolerance, *then* the transition *shall not* fire."
-        "The executor *shall not* reap a transition that is not reapable."
-        "*While* a transition is reaped, the transition *shall not* fire."
-        "*If* a reapable transition is armed and its elapsed time is greater than its latest bound plus the deadline tolerance, *then* the executor *shall* reap it in the deadline step of that cycle ([EXEC-001] step 4) and emit `TransitionTimedOut` ([EVT-009])."
-        "*When* a firing or an injected token writes one of a reaped transition's arc places (an input, read, inhibitor or reset place) and the transition is enabled afterwards, the transition *shall* be newly armed with a fresh clock ([TIME-010])."
-        "A firing writes a place when it consumes from it, deposits into it or drains it through a reset arc; draining a reset place that is already empty counts as a write."
-        "A reaped transition keeps its input tokens and is not armed again until one of its arc places is written, so an executor that fell behind can come to rest at a marking that still enables it."
+  covers TIME_013.s1, TIME_013.s2, TIME_013.s3, TIME_013.s5, TIME_013.s6, TIME_013.s8, TIME_013.s4,
+        TIME_013.s9, TIME_013.s11, TIME_013.s12
   reading "For every timed net X:"
           "a reap of u is of a transition of the net, is taken only from a state in which u is expired, and leaves u reaped, the marking, the reading of the firing clock and the stamp of every other name as they were;"
           "no transition fires from a state in which it is reapable and its elapsed time is greater than its latest bound plus the tolerance;"

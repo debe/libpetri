@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_037
 
 set_option linter.missingDocs true
 
@@ -128,9 +129,7 @@ requirement CORE_037
   kind F
   scope "the dead-arc report of every executor backend and of the SMT verifier; the events and report lines are the second block of this ID"
   source verbatim "spec/01-core-model.md"
-  quote "The dead-arc report *shall* contain a read, inhibitor or reset arc of a transition of the net exactly when no transition has an input arc on the arc's place, no transition's output spec names that place anywhere in its tree (every `And` and `Xor` branch, the `Timeout` child and the `ForwardInput` target included), the place is not an environment place and the initial marking holds no token on it, and *shall* contain nothing else."
-        "The dead-arc report *shall* list each dead arc once, as its own entry (two dead arcs on one place are two entries), in the order the net holds its transitions (the order they were added to the builder) and, within a transition, its read arcs, then its inhibitor arcs, then its reset arcs, each kind in the order the transition declares those arcs."
-        "The warning text of a read, inhibitor or reset arc of a transition *shall* be `<kind> arc of '<transition>' on '<place>': no transition produces into or consumes from it and it starts empty; <effect>.` with `<kind>` the arc's kind (`read`, `inhibitor` or `reset`), `<transition>` the name of the transition that declares the arc, `<place>` the name of its place, and `<effect>` `the transition can never be enabled` for a read arc, `the arc never blocks` for an inhibitor arc and `the arc has no effect` for a reset arc."
+  covers CORE_037.s1, CORE_037.s2, CORE_037.s3
   reading "For every dead-arc report Rep and warning text Msg on nets whose places are their names:"
           "for every net X, environment places env and initial marking m0, an entry is in Rep X env m0 exactly when some transition t of X carries the entry's transition name and has an arc of the entry's kind on the entry's place, and that place is dead: no transition of X has an input arc on it or names it anywhere in its output spec (outPlaces: both children of an And, both branches of an Xor, the Timeout child, the target of a ForwardInput), env does not hold it and m0 puts no token on it;"
           "Rep X env m0 is the list of every read, inhibitor and reset arc of X in report order (deadArcCandidates: the transitions in the order X holds them, within a transition its read, then inhibitor, then reset arcs, each kind in the transition's own order), keeping exactly the entries Rep X env m0 holds, each as often as X lists it;"

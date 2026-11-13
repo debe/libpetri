@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_031
 
 set_option linter.missingDocs true
 
@@ -24,8 +25,7 @@ requirement CORE_031
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*While* an inhibitor place of a transition is marked, the transition *shall not* fire."
-        "*While* an inhibitor place of a transition is unmarked, the inhibitor arc *shall not* affect whether the transition can fire."
+  covers CORE_031.s1, CORE_031.s2
   reading "For every transition t and every inhibitor place p of t:"
           "t does not fire from a marking in which p is marked;"
           "from a marking m in which p is unmarked, t fires to m' exactly when t without its inhibitor arcs on p fires from m to m'."

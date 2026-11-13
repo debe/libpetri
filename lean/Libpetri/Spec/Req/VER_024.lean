@@ -2,6 +2,7 @@ import Libpetri.Novel.Stubborn
 import Libpetri.Spec.Req.VER_006
 import Libpetri.Spec.Verifier.Graph
 import Mathlib.Data.Prod.Lex
+import Libpetri.Spec.Text.VER_024
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -705,9 +706,7 @@ requirement VER_024
   kind B
   scope "the enumeration route of VER-017 on a quiescence property, all implementations (SHOULD; the shall sentences bind an implementation that offers the reduction)"
   source verbatim "spec/07-verification.md"
-  quote "*When* the route expands a class, it *shall* expand only enabled transitions, each with all of its outcomes."
-        "*While* the reduction applies, every dead marking reachable from the initial marking *shall* be reachable by a run that fires, at each class, one of the transitions the route expands there."
-        "*While* the reduction applies, a class *shall* have no reduced successor exactly when no transition is enabled at its marking."
+  covers VER_024.s7, VER_024.s8, VER_024.s9
   reading "For every net and marking, every transition the selection Sel picks is a transition of the net enabled at the marking."
           "For every net whose transitions each have at least one outcome, and all markings a0 and d: if d is reachable from a0 in the net (ReachAD over every outcome of every transition) and no transition is enabled at d, then d is reachable from a0 by reduced steps (StepSel: fire an enabled transition Sel picks at the current marking, with any of its outcomes)."
           "For every net whose transitions each have at least one outcome, and every marking a: a has no reduced successor iff no transition is enabled at a."
@@ -1109,9 +1108,7 @@ requirement VER_024_select
   kind F
   scope "the stubborn set the enumeration route expands at each class, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*While* the reduction applies, *when* the route expands a class whose marking `M` enables a transition, it *shall* expand exactly the enabled transitions of `S(s)` for the enabled seed `s` whose closure has the fewest enabled transitions, the code-point-smallest seed name breaking ties."
-        "*When* a transition `t` of `S(s)` is disabled at `M`, the closure *shall* read its first unsatisfied condition over its input and read places in code-point order of place name, then over its inhibitor places in code-point order."
-        "*While* the reduction applies, the route *shall* expand the transitions it selects at a class in ascending code-point order of transition name."
+  covers VER_024.s4, VER_024.s5, VER_024.s6
   reading "For every net whose transition names are distinct and every marking: every transition Sel picks is enabled."
           "If some transition is enabled, there is an enabled seed s0 such that: Sel picks exactly the enabled transitions i in S(s0) (InClosure: i is in every set that contains s0 and is closed under S-D1 and S-D2, with S-D2 reading the first unsatisfied condition in the pinned order, firstUnsat over conds);"
           "no enabled seed has fewer enabled transitions in its closure than s0 (enabledCount);"
@@ -1475,10 +1472,7 @@ requirement VER_024_route
   kind F
   scope "the enumeration route of VER-017 and its state-space cache, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*While* the enumeration route of [VER-017] runs on a quiescence property (`deadlockFree`, `terminatesAtSink`, `joinedOrDeadLettered` or `quiescentCount`), on a net without a drained forward ([IO-014]), with the reduction enabled, the route *shall* build the reduced graph."
-        "*If* the property is not a quiescence property, the net has a drained forward or the reduction is disabled, *then* the route *shall* build the full graph of [VER-017]."
-        "Every implementation *shall* turn the reduction on by default."
-        "The cache of [VER-017] *shall* key a reduced graph apart from the full graph of the same net and initial marking, so that a safety query, and a quiescence query with the reduction off, never read a reduced entry."
+  covers VER_024.s1, VER_024.s2, VER_024.s3, VER_024.s10
   reading "For every property, option value and drained-forward flag: U builds the reduced graph iff the property is a quiescence property (DeadlockFree, TerminatesAtSink or QuiescentCount), the option is on and the net has no drained forward."
           "For every net, in-flight split, initial marking, property, option value and drained-forward flag, the reduced field of the cache key is the bit U gives."
   assumes "Condition 1 (the enumeration route runs: no ν-join, no environment place, untimed, a positive class budget) is VER-017's applicability; the decision U is read only when the route runs."

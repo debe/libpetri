@@ -1,3 +1,4 @@
+<!-- Generated from lean/Libpetri/Spec/Text/Chapter/Ch07.lean and the requirement texts it lists, by lean/spec-tools/Render.lean. Do not edit: edit the Lean source, then run `lake env lean spec-tools/Render.lean` from lean/. -->
 # 07 — Verification
 
 This document specifies formal verification capabilities: SMT/IC3 safety proofs, state class graph analysis, and structural analysis.

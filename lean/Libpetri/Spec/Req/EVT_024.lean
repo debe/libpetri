@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Reference.Subscriptions
+import Libpetri.Spec.Text.EVT_024
 
 set_option linter.missingDocs true
 
@@ -49,7 +50,7 @@ requirement EVT_024
   kind F
   scope "the debug event store (Java DebugEventStore, TypeScript DebugEventStore, Rust libpetri-debug DebugEventStore)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* events have been appended to a debug event store one after the other, a call of `events()` *shall* return the newest of them, as many as the store's capacity allows, in the order they were appended."
+  covers EVT_024.s1
   reading "For every capacity c and every store S over any event type E:"
           "after a history of appends only, appending the events es one after the other, a call of events() returns the last c events of es (all of es when es has at most c events), in the order they were appended."
   assumes "The model is the observation of one store, S : StoreObs E (glossary: Event store), and its capacity c, a parameter of the line: the line holds at every capacity, and EVT_024_reference shows the reference bounded store meets it at every capacity. The event type E is a parameter: the line says nothing about what an event holds. The line reads a call of events() at the call (h' = []): whether the returned list is a copy or a live view is not specified (ruling D29 (a), EVT-020); Java returns List.copyOf, Rust a clone, and TypeScript its own array, which a later append changes."
@@ -573,11 +574,7 @@ requirement EVT_024_B
   kind B
   scope "the debug event store's live subscriptions (Java DebugEventStore.subscribe, TypeScript DebugEventStore.subscribe, Rust libpetri-debug DebugEventStore::subscribe)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* an event is appended to an open debug event store, the append *shall* complete without waiting for any subscriber to receive the event."
-        "Each subscriber of a debug event store *shall* receive only events appended to the store, each at most once and, for appends that do not overlap in time, in the order they were appended."
-        "A subscriber may receive an event after the append that added it has returned."
-        "*While* a debug event store is open, a caller *shall* be able to add a further subscriber, whatever subscribers the store already has."
-        "*While* a debug event store is open, each subscriber that has not cancelled its subscription *shall* still be able to receive every event appended since it subscribed, whatever the other subscribers have received."
+  covers EVT_024.s2, EVT_024.s3, EVT_024.s4, EVT_024.s5, EVT_024.s6
   reading "For every store S with live subscriptions over any event type E, observed as the label sequences it allows:"
           "S allows the empty run (a new store);"
           "in every run in which the store was not dropped, an append of any event can come next;"

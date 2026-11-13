@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.Subscriptions
+import Libpetri.Spec.Text.EVT_031
 
 set_option linter.missingDocs true
 
@@ -103,14 +104,8 @@ requirement EVT_031
   kind B
   scope "the live subscriptions of an event store, where an implementation provides them: the Python binding's InMemoryEventStore (subscribe and subscribe_stream, run on Rust in rust/libpetri-py); Java, TypeScript and the Rust crate's own InMemoryEventStore have none (spec/runtime-defects.md, UB-04)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* an event store provides live subscriptions, the events a subscription has received at any point, taken over all its batches in the order it received them, *shall* be events that match its filters and were appended to the store after the subscription was created and before that point, in append order, each at most once."
-        "Each batch a subscription receives *shall* hold at least one event and at most `batch_size` events, so that with `batch_size = 1` it receives one event per batch."
-        "Each subscription *shall* have a finite channel capacity."
-        "*When* a receive has taken the first event of its batch, it *shall* add further events until the batch holds `batch_size` events, `batch_timeout_ms` have elapsed since it took that first event, or no further event can arrive, and *shall* then return the batch; with `batch_timeout_ms = 0` it *shall* add only the events already in the channel."
-        "*When* an append of an event that matches the filters of a subscription finds its channel full, the store *shall* end that subscription: the subscription *shall* receive no event appended from then on, and, if none of its receives is pending at that append, its receives *shall* take the events its channel holds and then report the end of the stream, unless the subscription is closed first."
-        "Until the store is dropped, an append *shall* be accepted at every point; in particular it *shall not* wait for room in the channel of a subscription."
-        "*When* a subscription is closed while none of its receives is pending, it *shall* receive no further event, and its next receive *shall* report the end of the stream."
-        "*When* the store is dropped, the receives of each of its subscriptions that has no receive pending *shall* take the events its channel holds and then report the end of the stream, unless the subscription is closed first."
+  covers EVT_031.s1, EVT_031.s2, EVT_031.s3, EVT_031.s4, EVT_031.s5, EVT_031.s6, EVT_031.s7,
+        EVT_031.s8
   reading "For every store with live subscriptions S over any event type E (S is the set of label sequences the store allows):"
           "1. at every point of every run of S, what each subscription i has received so far, its batches concatenated, is a sublist of the events appended after i subscribed and before that point that its filter matches;"
           "2. every batch i received in a run of S is non-empty, and i subscribed with a batch size of at least its length;"

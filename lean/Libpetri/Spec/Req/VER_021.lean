@@ -1,5 +1,6 @@
 import Libpetri.Spec.Verifier.Graph
 import Libpetri.Spec.Req.VER_001
+import Libpetri.Spec.Text.VER_021
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -187,11 +188,7 @@ requirement VER_021
   kind F
   scope "the XOR branch analysis over a built graph, Java, TypeScript and Rust (SHOULD; the shall sentences bind an implementation that offers it)"
   source verbatim "spec/07-verification.md"
-  quote "The XOR branch analysis *shall* report every transition of the net with two or more outcomes, and no other, once each with its number of outcomes."
-        "*While* the graph it reads does not split a transition in flight, the XOR branch analysis *shall* report an index of that transition as taken exactly when an edge of the graph fires the transition with that index."
-        "*While* the graph it reads splits a transition in flight ([VER-004]), that is, while an edge fires its completion `complete:<t>` or a class marks its place `inflight:<t>`, the XOR branch analysis *shall* report an index of that transition as taken exactly when an edge of the graph fires `complete:<t>` with that index."
-        "The XOR branch analysis *shall* report as untaken exactly the outcomes of a reported transition, numbered from 0 below its number of outcomes, that it does not report as taken."
-        "*When* the graph is closed, the XOR branch analysis *shall* report an outcome of a reported transition as untaken exactly when no run of the net from its initial marking fires the transition with that outcome, or fires `complete:<t>` with it when the graph splits the transition."
+  covers VER_021.s1, VER_021.s2, VER_021.s3, VER_021.s4, VER_021.s5
   reading "For every expansion Xp, analysis A and net, with outCount Xp t the number of virtual transitions Xp gives t, and a name drained when some transition of the net with that name is a drained forward:"
           "for every graph G, the (name, count) pairs of the entries of A on G whose name is not drained are, up to order, the (name, outCount Xp t) pairs of the transitions t of the net whose name is not drained and with outCount Xp t at least 2;"
           "for every graph G and entry e of A on G, an index i is in e's taken list exactly when some edge of G fires the label of e's transition with index i, the label being complete:<t> when G splits the transition (an edge fires complete:<t>, or a class marks inflight:<t>) and its own name otherwise;"

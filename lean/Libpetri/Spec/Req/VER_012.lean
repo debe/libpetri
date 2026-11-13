@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.NU_050
 import Libpetri.Spec.Verifier.Graph
+import Libpetri.Spec.Text.VER_012
 
 set_option linter.missingDocs true
 
@@ -93,15 +94,8 @@ requirement VER_012
   kind F
   scope "every verifier that offers the Route B name-partition graph (MAY); one step of the graph, the untimed base"
   source verbatim "spec/07-verification.md"
-  quote "*When* the Route B graph fires a ν-join on a name-symbol, every correlated input *shall* hold at least the required count of that symbol, and the firing *shall* remove the required count of that symbol from each correlated input and add one token of it to each relay target of the fired branch ([NU-054])."
-        "*If* every correlated input of a ν-join holds at least the required count of a name-symbol, *then* the name successors of a firing of that join *shall* include one with the canonical key of the join fired on that symbol."
-        "*When* the Route B graph fires a coloured consumer ([NU-051]), it *shall* fire it on a name-symbol its coloured input holds, removing one token of that symbol from the input and adding one token of it to each coloured output of the fired branch."
-        "*If* the coloured input of a coloured consumer holds a name-symbol, *then* the name successors of a firing of that consumer *shall* include one with the canonical key of the consumer fired on that symbol."
-        "*When* the Route B graph fires a minting transition, its one name successor *shall* add one token of a name-symbol that no coloured place of the class holds to each coloured output of the fired branch."
-        "*When* the Route B graph fires a transition that neither mints, joins nor consumes a name-symbol, its one name successor *shall* be the name layer of the class unchanged."
-        "Two name layers *shall* have the same canonical key exactly when one is the other with its name-symbols renamed by a permutation."
-        "The Route B graph *shall* identify two classes exactly when they have the same base class and their name layers have the same canonical key."
-        "*When* the Route B graph fires a transition, the successor *shall* hold on each place the transition does not reset the tokens the place held, less the tokens the transition's input on that place consumes by [IO-007] (all of them for an `All` or `AtLeast` input), plus the tokens the fired branch deposits there."
+  covers VER_012.s1, VER_012.s2, VER_012.s3, VER_012.s4, VER_012.s5, VER_012.s6, VER_012.s7,
+        VER_012.s8, VER_012.s9
   reading "Let G be the graph step: succs (the name successors of one firing), key (the canonical key of a name layer), ckey (the key of a class) and fire (the base step on the count marking)."
           "For every coloured set co, correlated inputs cin with their required counts, relay targets rel, name layer M, branch places d, support bound B and mint counter c: every name successor of a join (role join cin rel) is joinStep on some symbol s that joinEnab accepts (a token of s in the first correlated input and the required count of s in every one): the required count of s removed from each correlated input, one token of s added to each relay target of the branch (relOut d rel)."
           "For the same data, with M supported below B: for every symbol s that joinEnab accepts, some name successor of the join has the key of joinStep on s."
@@ -938,11 +932,7 @@ requirement VER_012_build
   kind F
   scope "every verifier that offers the Route B name-partition graph (MAY); the build loop of the graph"
   source verbatim "spec/07-verification.md"
-  quote "Every class the Route B build stores *shall* be reachable in the graph from the initial class, whether the build closed, was truncated, was stopped or stopped early."
-        "*If* the Route B build closes, *then* it *shall* have expanded every class it stored."
-        "*While* the graph's successor step gives any two classes with the same key the same transition labels and successor keys, up to order, *if* the Route B build closes, *then* it *shall* have stored a class with the key of every class the graph reaches from the initial class."
-        "*If* the Route B build stops early at a violating class of a reachability-safety property, *then* its verdict for that property *shall* be the verdict of the same build without the early stop, unless that build is stopped by the total budget or a cancellation."
-        "*If* the Route B build stops early, *then* it *shall not* report the graph as closed."
+  covers VER_012.s10, VER_012.s11, VER_012.s12, VER_012.s13, VER_012.s14
   reading "Let B be the build loop. For every explorer E (classes S, keys K, labels L), class bound, total-budget oracle cut, predicate bad, fuel and initial class x0, with or without the early stop:"
           "every class B stores is reachable in E from x0 (Explorer.Reach: a path of successors, each under a counter fresh for its source);"
           "if B closed, B expanded every stored class (exp = the number of classes);"

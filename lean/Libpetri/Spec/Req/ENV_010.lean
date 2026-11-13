@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_010
 
 set_option linter.missingDocs true
 
@@ -42,14 +43,8 @@ requirement ENV_010
   kind B
   scope "executors with environment places"
   source verbatim "spec/06-environment-places.md"
-  quote "When environment places are registered with the executor, the executor does NOT terminate at quiescence (no transition armed, no firing in flight, and no completion, publication or external event queued, as in [EXEC-040]) while it has not been drained ([ENV-011]), closed ([ENV-013]) or stopped by an immediate termination ([ENV-015]) and no terminal place is marked ([EXEC-042])."
-        "Instead, it waits for external events that may enable new transitions."
-        "This behavior is derived from the presence of environment places: no explicit flag is needed."
-        "*While* environment places are registered, the executor is open (it has not been drained, closed or stopped by an immediate termination) and no terminal place is marked ([EXEC-042]), the executor *shall not* terminate as quiescent ([EXEC-041])."
-        "*While* environment places are registered, the executor is open and running and no terminal place is marked, *when* a caller asks to inject a token into a registered environment place, the executor *shall* answer the request and *shall* accept the injection."
-        "*While* environment places are registered, the executor is open and no terminal place is marked, *when* the loop reaches its termination test ([EXEC-040]), the executor *shall* go on to its firing pass ([EXEC-001])."
-        "*While* environment places are registered, the executor is open and no terminal place is marked, *when* an accepted injection is queued, the executor *shall* leave its wait ([ENV-005]) and *shall* inject the oldest queued injection in its event step ([ENV-003])."
-        "The executor *shall not* need a long-running flag or any setting other than the registered environment places to wait at quiescence."
+  covers ENV_010.s1, ENV_010.s2, ENV_010.s3, ENV_010.s4, ENV_010.s5, ENV_010.s6, ENV_010.s7,
+        ENV_010.s8
   reading "For every executor R and every configuration C that registers at least one environment place:"
           "(1) while no terminal place is marked and the executor's mode is open (not draining, closed or stopped), R takes no finish quiescent step;"
           "(2) on every request step of R that asks to inject into a registered environment place while no terminal place is marked, the mode is open and the run has not finished, the reply is accepted."

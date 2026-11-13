@@ -1,5 +1,6 @@
 import Libpetri.Spec.Req.EXEC_022
 import Libpetri.Spec.Req.NU_054
+import Libpetri.Spec.Text.NU_054
 
 set_option linter.missingDocs true
 
@@ -126,9 +127,7 @@ requirement NU_054_fail
   kind B
   scope "every executor with output validation on; the settle, flush and failure of a firing of a transition with a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* output validation is on, *if* the output the action of a transition with a match specification returns, or the timeout outcome of its firing, puts into one of the transition's relay targets a token that has no name, or a name other than the chosen name, under that relay target's key projection, *then* the executor *shall* fail the firing with a TransitionFailed event ([EVT-008]) and *shall* deposit none of the tokens of that output or outcome."
-        "*When* the executor fails a firing of a transition with a match specification, it *shall not* deposit any token of the firing's output or timeout outcome, *shall not* restore the tokens the firing consumed, and *shall not* withdraw a batch the action flushed before the firing failed ([IO-015]), whether the executor has already deposited that batch or still holds it queued ([EXEC-021], [CONC-003])."
-        "*While* output validation is on, *if* a batch that the action of a transition with a match specification publishes before it completes ([IO-015]) puts into one of the transition's relay targets a token that has no name, or a name other than the chosen name, under that relay target's key projection, *then* the executor *shall not* deposit that batch, *shall* fail the firing, and *shall* deposit neither the output the action returns nor the timeout outcome of the firing."
+  covers NU_054.s6, NU_054.s7, NU_054.s8
   reading "For every executor E, every assignment mt of a match to each transition, every reading cn of the chosen name of a firing from what it delivered, every configuration C whose join-relay check is the NU-054 verdict relayVerdict mt cn (output validation on), and every firing identity i:"
           "a commit step of i deposits exactly the output e the action of i returned, each token at the tail of its place, and only when every token e puts on a relay target has a name under that target's key projection and that name is the chosen name of i (RelayPass);"
           "a tdeposit step of i deposits exactly the timeout outcome e firing i recorded, and only when e passes the same check;"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNuVer
 import Libpetri.Spec.Verifier.Result
+import Libpetri.Spec.Text.NU_051
 
 set_option linter.missingDocs true
 
@@ -55,8 +56,7 @@ requirement NU_051_colours
   kind F
   scope "the coloured set every ν verifier computes for a call"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* the fragment mode is EXTENDED, the fragment classifier *shall* give roles against the coloured set it uses with no carrier declared, with every declared carrier place added and no other place."
-        "*While* the fragment mode is BASE, the fragment classifier *shall* give roles against the same coloured set whatever carrier places are declared."
+  covers NU_051.s7, NU_051.s10
   reading "For every list of declared carriers cs, net and place p:"
           "under EXTENDED, p is coloured with cs declared exactly when p is coloured with no carrier declared or p is in cs;"
           "under BASE, the coloured set with cs declared is the coloured set with no carrier declared."
@@ -336,8 +336,7 @@ requirement NU_051_carrier
   kind F
   scope "every ν verifier entry point that takes carrier declarations"
   source verbatim "spec/12-nu-nets.md"
-  quote "A refusal that does not depend on the carrier declaration, such as a stop before the call starts ([VER-013]), an unresolved property place ([VER-003]) or a declared mint that is not a transition of the net ([NU-010]), may come first, and that refusal is then the answer."
-        "*If* a declared carrier place is not a place of the net, *then* the verifier *shall* either reject the declaration, naming such a place, or answer `Unknown` with a reason that names at least one such place and no other place, in both BASE and EXTENDED and whatever the query, unless the same request with no carrier place declared gets the same refusal."
+  covers NU_051.s8, NU_051.s9
   reading "For every query type Q, routes D, ν configuration cfg, net and query q: if some declared carrier of cfg is not a place of the net, the verifier built on D either rejects the declaration naming a declared carrier that is not a place of the net, or answers Unknown with a reason that names at least one place, every place it names being a declared carrier that is not a place of the net; or its answer is a refusal (a rejection or an Unknown, CarrierRefusal) and the same call with no carrier declared gets that same answer (CarrierEscape)."
   assumes "Ruling D95 (a) decides the mode question of clash nu-c#2: an absent carrier fails in every mode, not only when a query reaches Route B. AC4 had no mode and the body said carriers are ignored under BASE; the markdown now says 'in either fragment mode and whatever the query', and the BASE sentence speaks of the fragment classifier only (NU_051_colours, line 2). D95 (a) reads 'at configuration, in every mode'; only its 'in every mode' half is a line. The line also accepts `Unknown` from verify, which the markdown has always allowed ('reject at the builder, or surface `Unknown`'), so the 'at configuration' half is deliberately not enforced: where the refusal is made is configuration (kind N, below), and Rust's verify-time `Unknown` meets it."
           "Java (SmtVerifier.carrierPlaces) and TypeScript (SmtVerifier.carrierPlaces) reject the declaration where it is made, in both modes, naming the place (NU_051_carrier_builder). Rust and Python answer `Unknown` in both modes and for every query: SmtVerifier::verify judges the declaration on the caller's net before with_arrivals (unknown_declaration_reason in rust/libpetri-verification/src/smt_verifier.rs) and verify_net answers that refusal before any route, and verify_open_net refuses a configure_smt hook's absent carrier before either route (open_net/verify_open_net.rs); the reason names every absent carrier once, in code-point order (unknown_carrier_reason in name_fragment.rs; NU_051_carrier_allAbsent). Route B keeps its own check for direct callers (nu_scg_verifier.rs verify_name_scg). A wrong shape that checks only under EXTENDED and only inside Route B ignores an absent carrier under BASE, under EXTENDED on a call that does not reach Route B, and under EXTENDED on a bounded quiescence query that Route B defers to Route A, whose build_plan skips a carrier it cannot resolve; that is the behaviour RD-27 recorded, and NU_051_carrier_forbids_routeBOnly (BASE) and NU_051_carrier_forbids_routeADeferral (EXTENDED) forbid it."

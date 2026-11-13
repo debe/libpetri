@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_005
 
 set_option linter.missingDocs true
 
@@ -43,18 +44,8 @@ requirement ENV_005
   kind T
   scope "all executors"
   source verbatim "spec/06-environment-places.md"
-  quote "Injecting a token wakes the orchestrator from idle immediately."
-        "The orchestrator does not need to wait for a timer or poll."
-        "An injection is queued from the moment inject() accepts it ([ENV-003]) until it leaves the queue: the executor puts its token into the marking, or, once the executor is closed or stopped or the run has ended, discards it ([ENV-013], [ENV-015], [EXEC-042])."
-        "An injection that inject() accepts after the external-events step of a cycle has last read the queue counts as accepted after that step ends, and is left to the next cycle."
-        "*While* an accepted injection is queued, the executor *shall not* block in its wait ([EXEC-001] step 6, [CONC-010]), neither at the end of a cycle nor again after it has answered something during the wait, such as a marking snapshot."
-        "*When* inject() accepts a token, the executor *shall* end any block of its wait at once, without waiting for a timer."
-        "*While* an accepted injection is queued and the executor is in its wait with no terminal place marked, the executor *shall* be able to leave the wait at once, by waking up or by taking a queued injection from the queue, without waiting for a timer."
-        "*While* an accepted injection is queued, the executor *shall not* end the external-events step of a cycle and *shall not* start the enablement update of a cycle ([EXEC-001] steps 2 and 3)."
-        "Read with the definition of queued above, this means that a token accepted while the executor waits has left the queue before the enablement update of the cycle the wake-up starts, and is in the marking by then unless the run has closed, stopped or ended first; the earlier sentences mean that no timer or polling is needed to find it."
-        "The requirement on the external-events step covers every injection queued during that step, not only those queued when it begins ([EXEC-001] step 2), so the step has no limit on how many injections it takes."
-        "The words immediately, promptly and at once mean that nothing in the executor waits between the acceptance and the injection; the latency itself is tested, not proven."
-        "Under a host clock an implementation may leave the wait to the host ([TIME-015]); the wait these sentences speak of is then the host's, and [TIME-015] requires its readiness predicate to observe the queued injection."
+  covers ENV_005.s1, ENV_005.s2, ENV_005.s3, ENV_005.s4, ENV_005.s5, ENV_005.s6, ENV_005.s7,
+        ENV_005.s8, ENV_005.s9, ENV_005.s10, ENV_005.s11, ENV_005.s12
   reading "For every executor R and every configuration C:"
           "(1) no park step starts in a state whose event queue is not empty;"
           "(2) no step of any label goes from a state that is not parked to a parked one when the event queue of its start state is not empty;"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryQueue
 import Libpetri.Refinement
+import Libpetri.Spec.Text.CONC_025
 
 set_option linter.missingDocs true
 
@@ -76,8 +77,7 @@ requirement CONC_025
   kind B
   scope "precompiled executor"
   source verbatim "spec/05-concurrency.md"
-  quote "The materialized Marking accurately reflects the current ring buffer state."
-        "*When* the executor materializes a Marking, it *shall* give each place the token storage holds a queue for exactly the tokens of that queue at that moment, in queue order."
+  covers CONC_025.s2, CONC_025.s1
   reading "For every executor X over the token store S:"
           "at every state that zero or more steps reach from a state a run starts from, the start state included, the materialised marking gives each place S holds a queue for exactly the queue S holds for it, oldest first."
   assumes "The executor is a Materialiser over the store interface MarkingOps of CONC-022 (glossary: Queue order): a state type, the states a run starts from (init: the executor is built and its store loaded from the initial marking, before any cycle), a step relation, the token store inside a state and the marking materialised at a state. A ring buffer is read as the store's queue for a place, S.view, and 'a place that has a ring buffer' (AC3), which the EARS sentence words as 'each place the token storage holds a queue for' in CONC-022's vocabulary, as S.ok. The witness store is refRingStore, the ring pool Libpetri.Pool. The TypeScript precompiled executor keeps a plain array per place instead of a ring (clash conc-b#5, the tokenQueues field of PrecompiledNetExecutor in typescript/src/runtime/precompiled-net-executor.ts); the statement is over the store interface, so it reads an array store alike. The words 'ring buffer' stay only in the AC3 quote until ruling D20, which would move them to an implementation note."

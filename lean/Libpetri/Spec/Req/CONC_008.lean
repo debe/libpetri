@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryEnable
 import Libpetri.Spec.Req.CONC_004
 import Libpetri.Spec.GlossaryNu
+import Libpetri.Spec.Text.CONC_008
 
 set_option linter.missingDocs true
 
@@ -54,10 +55,7 @@ requirement CONC_008
   kind F
   scope "all executors, transitions that build and have no match specification"
   source verbatim "spec/05-concurrency.md"
-  quote "*When* a transition that builds has no match specification and has an `Exactly(n)`, `All` or `AtLeast(m)` input, and its presence check passes on the presence bitmap of the marking, its cardinality check *shall* pass exactly when every input place holds at least its required count."
-        "*When* a transition that builds has no match specification and has an `Exactly(n)`, `All` or `AtLeast(m)` input, its enablement check *shall* pass exactly when the presence check passes on the presence bitmap of the marking and the cardinality check passes."
-        "*When* a transition that builds has no match specification and no `Exactly(n)`, `All` or `AtLeast(m)` input, its enablement check *shall* pass exactly when the presence check passes on the presence bitmap of the marking."
-        "*When* a transition that builds has no match specification, its enablement check *shall* pass exactly when the transition is enabled ([CORE-022])."
+  covers CONC_008.s1, CONC_008.s2, CONC_008.s3, CONC_008.s4
   reading "For every transition t that builds (Builds t: distinct input places, every input arc requiring at least one token, no place with both an input arc and a read arc, a well-formed output spec; no transition has a match specification here) and every count marking m:"
           "if t has an input that is not `One` and the presence check of t passes on the presence bitmap of m, the cardinality check of t passes on m exactly when every input place of t holds at least its required count;"
           "if t has an input that is not `One`, the enablement check of t on m passes exactly when the presence check of t passes on the presence bitmap of m and the cardinality check of t passes on m;"
@@ -683,10 +681,7 @@ requirement CONC_008_nu
   kind F
   scope "all executors, transitions that build, with and without a match specification"
   source verbatim "spec/05-concurrency.md"
-  quote "*When* a transition that builds has a match specification and phases 1 and 2 pass on the token counts of the marking, its ν-match check *shall* pass exactly when the match specification keys at least one place and there is a name of which every correlated input holds at least its required count of tokens of that name ([NU-020])."
-        "*When* a transition that builds has a match specification, its enablement check *shall* pass exactly when phases 1 and 2 pass on the token counts of the marking and its ν-match check passes."
-        "*When* a transition that builds has no match specification, its enablement check *shall* pass exactly when phases 1 and 2 pass on the token counts of the marking."
-        "*When* a transition that builds has a match specification, its enablement check *shall* pass exactly when the transition without its match specification is enabled on the token counts of the marking ([CORE-022]), the match specification keys at least one place and there is a name of which every correlated input holds at least its required count of tokens of that name."
+  covers CONC_008.s5, CONC_008.s6, CONC_008.s7, CONC_008.s8
   reading "For every transition t that builds with or without its match (NuBuilds t) and every queue marking M of stamped tokens:"
           "if t has match specification ms and the count-level check of t without its match passes on the token counts of M, the ν-match check of t on M passes exactly when some name n is eligible on the selection input read off M (the match has a key, and every correlated input holds at least one token of n and at least its required count of them);"
           "if t has match specification ms, the whole check of t on M is the count-level check of t without its match on the token counts of M, and then the ν-match check of t on M;"

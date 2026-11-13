@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.EXEC_010
 
 set_option linter.missingDocs true
 
@@ -35,13 +36,7 @@ requirement EXEC_010
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "When a transition fires, it consumes tokens from the oldest-first (FIFO) end of each input place's queue."
-        "The number of tokens consumed is determined by the input cardinality's `consumptionCount(available)`."
-        "*When* a transition fires, it *shall* consume from each of its input places that is not a correlated input of its match specification ([NU-020]) the oldest tokens the place holds, as many as the consumption count of the input arc."
-        "*When* a transition fires, its action *shall* receive the tokens consumed from each input place that is not a correlated input of its match specification in queue order, the oldest first."
-        "*When* a transition fires, its action *shall* receive consumed tokens only from the input places of the transition."
-        "A correlated input of a ν-net match specification is the one exception to oldest-first consumption: it takes the matched tokens of the chosen name, oldest first among the tokens of that name, so it can pass over an older token of another name ([NU-020])."
-        "Its non-correlated inputs consume as above."
+  covers EXEC_010.s1, EXEC_010.s2, EXEC_010.s3, EXEC_010.s4, EXEC_010.s5, EXEC_010.s6, EXEC_010.s7
   reading "For every queue firing relation Q:"
           "for every firing of a transition t and every input place p of t that is not a reset place of t: the queue p holds after the firing begins with the tokens of p's queue before the firing after its oldest Consumes tokens, in their queue order, and it holds exactly those tokens and the tokens the action emits to p, in some order;"
           "for every firing of a transition t and every input place p of t: the tokens delivered to the action from p are the oldest Consumes tokens of p's queue before the firing, in queue order;"

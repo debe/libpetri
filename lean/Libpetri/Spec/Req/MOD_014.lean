@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Req.MOD_006
+import Libpetri.Spec.Text.MOD_014
 
 set_option linter.missingDocs true
 
@@ -73,13 +74,7 @@ requirement MOD_014
   kind B
   scope "every retrofit utility fromNet"
   source verbatim "spec/11-modular-composition.md"
-  quote "*If* a port of the interface exposes a place that is not a place of the net, *then* `fromNet` *shall* fail."
-        "*If* a channel of the interface exposes a transition whose name is not the name of a transition of the net, *then* `fromNet` *shall* fail."
-        "*If* two ports of the interface have the same name, *then* `fromNet` *shall* fail."
-        "*If* two channels of the interface have the same name, *then* `fromNet` *shall* fail."
-        "*When* every port of the interface exposes a place of the net, every channel exposes a transition of the net, and no two ports and no two channels have the same name, `fromNet` *shall* succeed."
-        "*When* `fromNet` succeeds, the subnet definition *shall* have the net's name, the net's places, transitions and terminal places as its body, with the transitions in the net's order, and the given ports and channels as its interface."
-        "*When* `fromNet` fails, the error message *shall* contain the name of a port or channel that meets one of the four rejection cases above."
+  covers MOD_014.s1, MOD_014.s2, MOD_014.s3, MOD_014.s4, MOD_014.s5, MOD_014.s6, MOD_014.s7
   reading "For every retrofit utility F:"
           "if some port of ps exposes a place that is not a place of the net X, F fails on X, ps and cs;"
           "if some channel of cs names a transition that is not the name of a transition of X, F fails on X, ps and cs;"

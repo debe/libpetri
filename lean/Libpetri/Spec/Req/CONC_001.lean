@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.CONC_001
 
 set_option linter.missingDocs true
 
@@ -125,12 +126,7 @@ requirement CONC_001
   kind B
   scope "all executors"
   source verbatim "spec/05-concurrency.md"
-  quote "All marking state (token queues, enablement flags, enabled-at timestamps) is owned and mutated exclusively by a single logical orchestrator thread."
-        "A step that the orchestrator does not take (an action writing, flushing a batch ([IO-015]) or returning, the budget of an action expiring, a caller requesting an injection or draining, closing or terminating the executor, or the firing clock advancing) *shall not* change the clock status of a transition (its enablement flag, its enabled-at timestamp, its restart flag or its reaped mark) or the orchestrator's current cycle (its phase, its clock reading, the transitions its firing pass has still to try, whether the pass has started one, and the tokens the pass has deposited)."
-        "A step that neither starts a firing nor deposits the outcome of a firing, a flushed batch or an injected event *shall not* change the token queues."
-        "The orchestrator *shall not* deposit the produced tokens of a firing before the firing's action has returned, deposit its timeout outcome before its budget has expired, or settle it without a deposit before either has happened."
-        "The orchestrator *shall not* deposit a flushed batch of a firing before the firing's action has flushed a batch."
-        "The orchestrator *shall not* inject an event before a caller's request to inject it has been accepted."
+  covers CONC_001.s1, CONC_001.s2, CONC_001.s3, CONC_001.s4, CONC_001.s5, CONC_001.s6
   reading "For every executor R and every configuration C:"
           "an outside step (an action writing, flushing, returning or expiring, a caller requesting an injection, draining, closing or terminating the executor, the clock advancing) leaves the clock status of every transition name, the loop phase, the cycle's clock reading, the rest of the pass's ready order, the pass's same-pass tail and the pass's started flag as they were;"
           "a step that is neither a start nor a deposit (a commit, a timeout deposit, a publication, an injection) leaves the marking as it was;"

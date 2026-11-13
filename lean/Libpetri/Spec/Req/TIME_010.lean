@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.Text.TIME_010
 
 set_option linter.missingDocs true
 
@@ -29,11 +30,7 @@ requirement TIME_010
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "A transition is newly armed when it is enabled in the initial marking, afterwards when it is enabled after a firing or an injected token writes one of its arc places while it is not armed, and when its clock restarts in a firing ([TIME-012])."
-        "The clock starts at the moment the transition was most recently newly armed, and the elapsed time for timing decisions is measured from that moment on the firing clock ([TIME-015])."
-        "*While* a transition is armed, its elapsed time *shall* be the current reading of the firing clock minus its stamp."
-        "*While* a transition is armed and its elapsed time is less than its earliest bound, the transition *shall not* fire."
-        "*While* a transition is not armed, the transition *shall not* fire."
+  covers TIME_010.s1, TIME_010.s2, TIME_010.s9, TIME_010.s10, TIME_010.s11
   reading "For every timed net X:"
           "a transition of the net that is not armed before a step and is armed after it was armed by a firing that writes one of its arc places, and holds the reading of the firing clock after the step;"
           "a transition that is armed before and after a step holds the stamp it held before, or the step is a firing and the transition holds the reading of the firing clock after it;"

@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Reference.NuMint
+import Libpetri.Spec.Text.NU_011
 
 set_option linter.missingDocs true
 
@@ -49,9 +50,7 @@ requirement NU_011_format
   kind F
   scope "every executor that mints under the scope mechanism (Rust, Java, TypeScript; Python through Rust)"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* a host-supplied scope is empty or contains `:` or `#`, *then* the executor *shall* reject it when it is configured."
-        "The executor *shall* accept a host-supplied scope that is not empty and contains neither `:` nor `#`, a whitespace-only scope included."
-        "*Where* an executor uses the scope mechanism, the `i`-th `freshName()` call it answers, counting from zero across all its firings and transitions, *shall* return `<t>#<s>:<i>` with `i` written in decimal, where `t` is the name of the calling transition and `s` is the executor's scope, verbatim as the host pinned it or as it was drawn by default."
+  covers NU_011.s1, NU_011.s2, NU_011.s3
   reading "Let V be the scope check (V s = true: the executor accepts the scope s when it is configured) and Sy the minter (MintRun Sy (Sy.init s) evs xs: an executor whose scope is s answers the events evs, freshName() calls and firing boundaries, with the names xs, one per call)."
           "For every scope s that is empty or holds ':' or '#', V rejects s."
           "For every scope s that is not empty and holds neither ':' nor '#', V accepts s."
@@ -92,7 +91,7 @@ requirement NU_011_lineage
   kind B
   scope "every executor that mints under the scope mechanism; two executions of one restore lineage"
   source verbatim "spec/12-nu-nets.md"
-  quote "*Where* executors use the scope mechanism, no name minted by an execution under one accepted scope *shall* equal a name minted by an execution under a different accepted scope."
+  covers NU_011.s4
   reading "For every two different scopes s and s' that V accepts, every run of Sy from the initial state for s and every run of Sy from the initial state for s': no name returned by the first is returned by the second."
   assumes "The model is the pair (Sy, V), as for NU_011_format. The block follows from NU_011_format by the parse rule (nu011_lineage_of_format); it is stated on its own because it is the body's MUST and what resume safety rests on, and because a minter that ignores the host's scope and uses one scope per process breaks it (NU_011_lineage_forbids_perProcess): 'The restore lineage crosses processes', and the scope is the only state one segment hands to the next."
           "Ruling D56 (a): 'Names minted by an execution seeded from a restored marking MUST NOT collide with names minted by any other execution in the same restore lineage, other than a replay of the same segment (AC3), whether or not those names are still present in that marking' holds under the scope mechanism when the executions run under different scopes; the replay exception is NU_011_host's, whose formula lets two entries share a scope only when they run the same segment with the same calls (nu011_host_replay). Two runs under one pinned scope mint the same names (AC3), so the condition is the host's for pinned scopes (NU_011_host) and the random draw's for default ones (NU_011_default, with the kind Q claim that two draws differ). Within one execution, minted names are pairwise distinct by NU-010 (refRun_nodup); with this block and distinct scopes every name minted in a lineage is minted once (nu011_lineage_nodup). A name the host put into a token itself (a copied correlation id) is a host value, not a minted name, and is not covered (the mint contract of NU-010)."
@@ -143,7 +142,7 @@ requirement NU_011_default
   kind B
   scope "every executor that is given no scope (Rust, Java, TypeScript; Python through Rust)"
   source verbatim "spec/12-nu-nets.md"
-  quote "*Where* an executor is given no scope, the executor *shall* draw its scope from the platform's random source as 32 lowercase hexadecimal characters, which neither its construction order nor its run identifier determines."
+  covers NU_011.s5
   reading "Let D be the default draw (D k s: the k-th executor constructed in its process, given no scope, may run under the scope s)."
           "For every k and every s with D k s, s is 32 characters long and each of its characters is one of 0123456789abcdef."
   assumes "The model is the relation D : Nat → String → Prop, the scopes the k-th executor of a process can draw. The witness is refDefaultDraw, every 32-character lowercase hexadecimal string: Rust writes two 64-bit SipHash outputs of a RandomState keyed from the operating system's random source as {:016x}{:016x} (default_execution_scope in rust/libpetri-runtime/src/executor_core/scope.rs). Java (java/src/main/java/org/libpetri/core/internal/ExecutionScopes.java, UUID.randomUUID() with the dashes stripped) and TypeScript (crypto.randomUUID(), dashes stripped) draw a version-4 UUID, a smaller relation that fixes the version and variant digits; it meets both lines (nu011_uuidDraw_default)."
@@ -169,7 +168,7 @@ requirement NU_011_host
   kind A
   scope "hosts that pin scopes for the executions of a restore lineage"
   source verbatim "spec/12-nu-nets.md"
-  quote "A host *shall not* pin one scope for two executions of one restore lineage, except for a replay: an execution that re-runs an earlier segment, after it and not alongside it, from the marking that segment started from and with the same `freshName()` calls."
+  covers NU_011.s6
   reading "Let es list the executions of one restore lineage whose scope the host pinned, each as (s, k, ts): its scope s, the segment k it runs, and the calling transitions ts of its freshName() calls in order. A segment is one stretch of the lineage's history: two executions that run alongside each other run two segments, even from one marking, and a replay runs the segment it re-runs."
           "For every two entries of es with the same scope, the segment and the calls are the same."
   assumes "Ruling D56 (a). The block is an assumption on the host (kind A), not a behaviour of the executor: a pinned scope is used verbatim (NU_011_format), so a resumed execution pinned to the scope of the segment before it mints that segment's names again (nu011_host_needed). The Rust runtime documents the same promise ('a pinned one is the host's promise: two executions in one restore lineage MUST NOT share a scope', the doc of Executor::set_execution_scope in rust/libpetri-runtime/src/executor_core/executor.rs). The block speaks of pinned scopes only: default scopes are NU_011_default's, and that two defaults, or a default and a pinned scope, differ is the kind Q claim there."

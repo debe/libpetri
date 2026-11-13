@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Reference.EventsLink
 import Libpetri.Spec.Req.EXEC_041
+import Libpetri.Spec.Text.EVT_003
 
 set_option linter.missingDocs true
 
@@ -55,10 +56,7 @@ requirement EVT_003
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* the executor finishes a run ([EXEC-041]), it *shall* emit exactly one ExecutionCompleted event, whatever the termination reason."
-        "The executor *shall* emit ExecutionCompleted events only when it finishes a run."
-        "*If* the executor has emitted the ExecutionCompleted event of a run, *then* it *shall not* emit another event of that run other than a log message ([EVT-013]) or an ActionTimedOut event ([EVT-010])."
-        "*When* the executor finishes a run with the termination reason `quiescent` ([EXEC-040]), it *shall* have no firing in flight, so every firing of the run has ended before its ExecutionCompleted event."
+  covers EVT_003.s1, EVT_003.s2, EVT_003.s3, EVT_003.s4
   reading "For every executor with events E and every configuration C:"
           "the events a run emits before its first step contain no ExecutionCompleted event, whatever the initial marking, and for every history H a step labelled l from state s to state s' that appends the events evs appends exactly one ExecutionCompleted event if it leaves the loop (s is in a phase of the loop and s' in a finished phase), whatever its label and termination reason, and none otherwise;"
           "for every initial marking M0, every initial reading r0 and every event trace tr of a run of E from M0 at r0 (the events the run emits before its first step, then the events of each step), no event of tr after an ExecutionCompleted event is an orchestrator event, that is an event other than a log message or an ActionTimedOut event;"
@@ -1109,7 +1107,7 @@ requirement EVT_003_duration
   kind F
   scope "Java and TypeScript executors (the ExecutionCompleted event of Rust and Python carries no duration)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the ExecutionCompleted event carries a total duration (Java and TypeScript), the total duration *shall* be at least the time the run took on the executor's firing clock ([TIME-015]), from the reading at its ExecutionStarted event to the reading at its ExecutionCompleted event."
+  covers EVT_003.s5
   reading "For every duration assignment dur, where dur b r e is the total duration the ExecutionCompleted event of a run carries when the executor's firing clock read b when the executor was built, r when the run emitted its ExecutionStarted event and e when it emits its ExecutionCompleted event: for all readings with b ≤ r ≤ e, the duration is at least e - r."
   assumes "This is the second block of EVT-003 and the Java and TypeScript companion of ruling D38 (a), which states durations as bounds: the event model of the first block (NetEvent in Spec/GlossaryEvents.lean) carries no duration and the executor state no start reading, so this block states the duration over what a host observes, three readings of the executor's firing clock and the duration on the event, and needs no new field. The firing clock is the executor's injected clock of TIME-015 (the system's monotonic clock by default), so its readings never decrease: b ≤ r ≤ e. The epoch clock that stamps events (CORE-011) is not read."
           "Java and TypeScript measure the duration from the construction of the executor, not from the start of the run: Java as clockNanos() - startNanos with startNanos taken in the constructor (the constructor and elapsedDuration in java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java and PrecompiledNetExecutor.java), TypeScript as nowMs() - startMs with startMs taken in the constructor (the constructor and executeLoop in typescript/src/runtime/bitmap-net-executor.ts and precompiled-net-executor.ts). The witness refDurOf is that difference, e - b. It meets the line because b ≤ r. For the first run of a fresh executor it is the run's own time plus the time between construction and run(); for a later run of the same executor it also counts the earlier runs and the time between them. The line is a bound, so both are allowed (EVT_003_duration_nonvacuous)."

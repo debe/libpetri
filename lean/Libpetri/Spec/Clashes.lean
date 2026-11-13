@@ -1,4 +1,6 @@
 import Libpetri.Spec.Consistency
+import Libpetri.Spec.Text.IO_015
+import Libpetri.Spec.Text.CONC_026
 
 set_option linter.missingDocs true
 
@@ -81,13 +83,7 @@ requirement CONC_026
   kind N
   scope "an executor that offers the option, with the option enabled"
   source verbatim "spec/05-concurrency.md"
-  quote "*While* the option is enabled, the executor *shall* deposit the tokens an action wrote without validating them against the transition's output spec."
-        "The skip covers the whole spec, its `Place` and `ForwardInput` leaves included: a transition whose output spec is a single leaf is not checked for a write to that place either."
-        "While the option is enabled they do not apply: a firing that ends with its action deposits the action's write whether or not it equals an output branch."
-        "The option skips nothing else."
-        "A write to a place the transition does not declare as an output still fails ([CORE-063])."
-        "The build-time checks of [IO-011], [IO-012], [IO-013] and [IO-014] run when the transition is built, before any executor exists, and no executor option reaches them."
-        "When enabled, output tokens are deposited without validation."
+  covers CONC_026.s1, CONC_026.s2, CONC_026.s3, CONC_026.s4, CONC_026.s5, CONC_026.s6, CONC_026.s7
   reading "For every transition t that builds, whatever its output spec (an And, an Xor, or a single Place or ForwardInput leaf), every marking m at which t is enabled and every deposit d that writes only output places of t:"
           "some firing of t from m deposits d."
           "Every firing of every transition deposits only in output places of the transition."
@@ -278,8 +274,7 @@ requirement IO_015_firing
   kind B
   scope "executors with output validation enabled (the default, CONC-026)"
   source verbatim "spec/02-input-output-specs.md"
-  quote "*If* exactly one assignment claims a set *equal* to the produced set, *then* validation *shall* succeed."
-        "The comparison is over **sets of places**: a spec names places, not counts, so an action that deposits several tokens into one claimed place conforms."
+  covers IO_015.s4, IO_015.s8
   reading "For every transition t that builds, with output spec o, every marking m at which t is enabled and every deposit d such that exactly one assignment of o claims exactly the produced set of d:"
           "some firing of t from m deposits d."
   assumes "The firing-level reading of the IO-015 sentences quoted: the block IO_015 fixes the validator's verdict; this one ties the verdict to firings. An action may write any tokens (glossary: Deposit), a completion that passes validation deposits what the action wrote, and one that fails is not a firing (glossary: Fire). So every write that validation accepts is the deposit of some firing. 'Conforms' is read as 'passes validation and is deposited', as IO-016 AC4 says of such a write ('the tokens are deposited regardless')."

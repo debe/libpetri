@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.EXP_016
 import Libpetri.Spec.Req.MOD_040
+import Libpetri.Spec.Text.MOD_040
 
 set_option linter.missingDocs true
 
@@ -39,13 +40,7 @@ requirement MOD_040_b
   kind F
   scope "every exporter that draws cluster subgraphs, the clusters of the exported graph of a composed net"
   source verbatim "spec/11-modular-composition.md"
-  quote "DOT export per [EXP-001] of a composed net SHOULD emit a `subgraph cluster_<sanitizedKey>` block grouping the nodes of each subnet."
-        "The sanitization function applied to the key MUST match the existing DOT ID sanitization per [EXP-014] (non-`[A-Za-z0-9_]` characters, including `/`, replaced by `_`)."
-        "This requirement does NOT change the styling, junction, or arc-rendering rules of EXP-002..EXP-015; it only adds grouping structure."
-        "For the export half of this requirement (the sentences on DOT export: the opening sentence and its two bullets, the preference and cluster-source sentences, the sanitization and label sentences and the sentence on EXP-002..EXP-015), the SHOULD priority is whether an exporter draws cluster subgraphs at all; an exporter that draws them reads every MAY, SHOULD and MUST sentence of the export half as *shall*, lets the caller select the metadata-only, prefix-only and no-clustering sources, uses the default source when the caller selects none, takes the cluster key of a node and the covered nets as [EXP-016] defines them, and follows the next three sentences, which restate shall sentences of [EXP-016]."
-        "The exporter *shall* make each node that has a cluster key a direct member of the cluster of that key and of no other cluster, make a node without a cluster key a member of no cluster, and list as a member of a cluster only a node it draws."
-        "The exporter *shall* draw exactly one cluster for each cluster key of a drawn node and for each `/`-prefix of such a key and no other cluster, nest each cluster directly in the cluster whose key is the part of its own key before the last `/` and draw a cluster whose key has no `/` at the top level, and give the cluster of key K the ID `cluster_` followed by K sanitized per [EXP-014] and the label K."
-        "The exporter *shall* draw, in any order, the same nodes, and the same edges other than the ghost edges of [EXP-017], as it draws for the same net and configuration under no clustering."
+  covers MOD_040.s1, MOD_040.s9, MOD_040.s10, MOD_040.s11, MOD_040.s12, MOD_040.s13, MOD_040.s14
   reading "For every configuration cfg and net X that meets EXP-016's name assumption (ExportNet.ClusterNames: ASCII place and transition names, no two place names and no two transition names equal after sanitize, every cluster key of a place or transition name of X under cfg.cluster ASCII and non-empty with no empty /-segment), with key the glossary's nodeKey cfg.cluster X.member (membership entry, else instancePrefix, per cluster source; a junction takes its transition's key), the graph E cfg X satisfies:"
           "every drawn node is a direct member of a cluster exactly when the cluster's key is the node's key;"
           "every member of a cluster is the reference of a drawn node;"

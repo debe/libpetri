@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Spec.Req.CORE_037
+import Libpetri.Spec.Text.EVT_013
 
 set_option linter.missingDocs true
 
@@ -88,13 +89,7 @@ requirement EVT_013
   kind B
   scope "all executors (event store enabled); the action log of line 1 is offered by Java and TypeScript"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the implementation captures the log statements of actions (Java and TypeScript), the executor *shall* report each log statement it captures from the action of a firing as one LogMessage event that carries the firing's transition name, the statement's level and its message."
-        "*When* the executor emits an engine diagnostic before the first step of a run, the diagnostic *shall* carry an empty or absent transition name, unless it reports a dead arc ([CORE-037]), in which case it *shall* carry the name of the transition that declares the arc."
-        "*When* the executor emits an engine diagnostic as it injects a token into an environment place, the diagnostic *shall* carry an empty or absent transition name."
-        "*When* the executor emits an engine diagnostic as it deposits the outcome of a firing or a batch that the firing published ([IO-015]), the diagnostic *shall* carry the name of that firing's transition."
-        "*When* the caller drains, closes or stops the executor ([ENV-011], [ENV-013], [ENV-015]), the executor *shall not* emit an engine diagnostic for the request or for the queued external events it discards because of it."
-        "*When* a run ends because it is quiescent, a terminal place is marked, or the caller closed or stopped it ([EXEC-041]), the executor *shall not* emit an engine diagnostic for that end."
-        "*When* the executor refuses an injection request because it is draining, closed or stopped, or because the run has finished ([ENV-006]), it *shall not* emit an engine diagnostic for the refusal."
+  covers EVT_013.s1, EVT_013.s2, EVT_013.s3, EVT_013.s4, EVT_013.s5, EVT_013.s7, EVT_013.s6
   reading "For every executor with events E, every action log A and every configuration C:"
           "if, in state s, the action of firing i, a firing of transition t, logs the message msg at level lvl and the executor appends the events evs, and firing i, when it is in flight in s, is a firing of t, then evs is the single LogMessage that names t and carries the level lvl and the message msg;"
           "every LogMessage the boot of a run emits names no transition (no name or the empty name) or names the transition of an arc that the dead-arc report of CORE-037 lists for the net, its environment places and the initial marking; for every history H, every LogMessage an injection step appends names no transition; and for every history H, every LogMessage that a step settling or depositing for firing i appends (a commit, a timeout deposit or a publication of firing i) names the transition of firing i, whenever firing i is in flight in the step's source state;"

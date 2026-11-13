@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Text.TIME_011
 
 set_option linter.missingDocs true
 
@@ -31,10 +32,7 @@ requirement TIME_011
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "If a transition stops being armed and is later armed again, the clock restarts from zero."
-        "The previous elapsed time is discarded."
-        "*When* an armed transition stops being enabled, the executor *shall* discard its stamp."
-        "*When* a transition that lost its clock is armed again, its elapsed time *shall* be measured from the moment it was armed again, not from any earlier stamp."
+  covers TIME_011.s1, TIME_011.s2, TIME_011.s3, TIME_011.s4
   reading "For every timed net X:"
           "a transition of the net that is armed before a step and is not enabled at the marking after it holds no stamp after the step;"
           "a transition of the net that is not armed before a step and is armed after it holds the reading of the firing clock after the step."

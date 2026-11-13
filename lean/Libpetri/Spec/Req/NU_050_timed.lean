@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Reference.Nu
 import Libpetri.Spec.Req.TIME_012_nu
 import Libpetri.Novel.TimedScg.Retrodict
+import Libpetri.Spec.Text.NU_050
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -174,14 +175,7 @@ requirement NU_050_timed
   kind T
   scope "every verifier that offers the Route B name-partition graph (MAY) on a timed net; the timed semantics its classes stand for"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* a transition is not enabled with an eligible name ([NU-020], [NU-022]), Route B *shall* hold no clock for it, even when its inputs hold the tokens its arcs require but no name is present in every correlated input."
-        "*When* a transition fires and another transition `j` holds a clock and is not enabled with an eligible name ([NU-020], [NU-022]) in the intermediate marking ([TIME-012]), Route B *shall* take `j`'s clock away, even when `j`'s inputs still hold tokens, and *shall* give `j` a fresh clock if the firing leaves `j` enabled with an eligible name."
-        "*When* a transition fires and another transition `j` holds a clock and is enabled with an eligible name ([NU-020], [NU-022]) before the firing, in the intermediate marking and after the firing, Route B *shall* keep `j`'s clock."
-        "*When* a firing leaves a transition `j` enabled with an eligible name ([NU-020], [NU-022]) and `j` held no clock before it, Route B *shall* start `j`'s clock at that firing."
-        "*When* a transition fires, Route B *shall* take its clock away and *shall* give it a fresh clock if the firing leaves it enabled with an eligible name ([NU-020], [NU-022])."
-        "*While* time passes, Route B *shall* keep the marking and the start of the clock of every transition enabled with an eligible name ([NU-020], [NU-022]), and *shall* advance the clock reading by the time that passed."
-        "Route B *shall* fire a transition only when it holds a clock that has run for at least the transition's earliest bound ([TIME-001]), and *shall* leave the clock reading unchanged at a firing."
-        "This holds with and without the latest-bound relaxation for a late executor ([TIME-013])."
+  covers NU_050.s7, NU_050.s8, NU_050.s9, NU_050.s10, NU_050.s11, NU_050.s12, NU_050.s13, NU_050.s6
   reading "For every timed ν net X (the relaxed net of TIME-013 included) and every transition u that is the net's transition of its name, matched or not:"
           "every step after which u is not ν-enabled leaves u without a stamp;"
           "a firing of t, named differently from u, from a state in which u holds a stamp and is not ν-enabled in the intermediate marking of t (with t's chosen name), after which u is ν-enabled, leaves u stamped with the clock reading after the firing;"

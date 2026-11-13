@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Novel.FiringBound.Witness
+import Libpetri.Spec.Text.VER_025
 
 set_option linter.missingDocs true
 
@@ -83,34 +84,10 @@ requirement VER_025
   kind B
   scope "the SMT verifier, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*If* the pipeline reaches the flat fixpoint query, the witness depth `D` is positive, and the net has no match transitions or the property is a reachability-safety property with a budget place declared, *then* the verifier *shall* run the phase directly before the fixpoint script is encoded."
-        "*While* the fixpoint query takes the name-coloured encoding ([NU-053]), the verifier *shall not* run the phase."
-        "*If* the net has match transitions and either the property is not a reachability-safety property or no budget place is declared, *then* the verifier *shall not* run the phase."
-        "*If* the witness depth is 0, *then* the verifier *shall not* run the phase, and its verdict, route, report and scripts *shall* be those of the pipeline without the phase."
-        "*When* the verifier does not run the phase, it *shall* send no query for it and print no report line for it."
-        "*While* environment places are registered under `Ignore`, the phase *shall* run where it runs on any other flat net, with no injection step."
-        "*While* the counterexample replay of [VER-003] is disabled, the phase *shall* run where it runs with the replay enabled, and a run it reports *shall* still be confirmed."
-        "*If* the property is a name-alignment property ([NU-055]), *then* the phase *shall* send no query and *shall* end inconclusive with the reason of [NU-055] that the property is decided only by the name-partition state-class graph."
-        "*When* the phase runs, the verifier *shall* send this script, and every implementation *shall* emit it byte for byte the same for the same net, initial marking, property and options."
-        "*If* `J` is 0, *then* the script *shall* be byte-identical to the bounded run of [VER-019] at the same depth."
-        "*When* the solver answers `sat`, the phase *shall* read the run from the model's selectors in step order up to the first idle step, taking a value in `[0, T)` as a transition step, a value in `[T, T + J)` as an injection step, and any other value, or a selector the model leaves undefined, as idle, and *shall* read no run from a model that defines no selector."
-        "*When* the phase replays a run, it *shall* fire each transition step under the exact abstract semantics with the environment post-caps, take each injection step only while its guard holds, and accept the run only when every step is enabled and the last marking violates the property."
-        "*When* a run replays, the phase *shall* trim it: it *shall* first cut the run to its violating prefix, then try the steps from the last to the first, replace the run by the violating prefix of the run without that step whenever one exists, and repeat such passes until one changes nothing."
-        "*When* the phase reports a run, it *shall* report the trimmed run, replayed, with each transition step labelled by its transition's name and each injection step by `inject(<place>)`."
-        "*When* the phase starts, it *shall* start a wall-clock budget of `max(1, floor(timeout_ms / 8))` milliseconds before it encodes the script, and the query *shall* receive what is left of it."
-        "*When* the phase runs, the report *shall* carry the line `  Bounded witness phase (VER-025):` followed by exactly one of the status lines below."
-        "*When* a run replays, the phase *shall* return `Violated` with the trimmed run as the counterexample, `counterexampleConfirmed` `true` and the route of the SMT pipeline ([VER-003]), and the result *shall* continue as the witness result of [VER-018] and [VER-019] does."
-        "*When* the phase returns `Violated` on a net with match transitions, the result *shall* pass the ν guard of [NU-050] as a name-blind verdict and carry the guard's note that the counterexample may be spurious."
-        "*When* the phase returns `Violated`, the counterexample-timing step of [VER-023] *shall* apply to the result as to every result of the pipeline."
-        "*If* the solver answers `unsat`, *then* the phase *shall* report that no run of at most `D` steps reaches a violation, and the pipeline *shall* continue to the fixpoint query."
-        "*If* the query fails in the transport, the solver answers `unknown`, the phase budget is spent or the run does not replay, *then* the phase *shall* report itself inconclusive with its reason, and the pipeline *shall* continue to the fixpoint query."
-        "The phase *shall not* report `Proven`, and *shall not* read an `unsat` answer as a proof."
-        "*If* the phase ends without a run, *then* the pipeline *shall* continue as it does without the phase, and the phase *shall* change no verdict except through the time it spends against the total budget of [VER-013]."
-        "The witness depth *shall* default to 8 in every implementation."
-        "*When* the caller sets the witness depth to a positive `n`, the phase *shall* ask one query at depth `n`."
-        "*If* the caller sets a negative witness depth, *then* setting it *shall* fail with the argument error `witnessDepth must be non-negative, got <n>`."
-        "*When* `LIBPETRI_SMT_DUMP` is set, the verifier *shall* keep the phase's script and reply under the phase name `witness` ([VER-013])."
-        "*When* the scripts are encoded without a solver ([VER-013] AC1), the result *shall* carry as its `witness` member the script `verify()` sends when it reaches the phase, present exactly when the encoding is flat, the witness depth is positive, and the net has no match transitions or the property is a reachability-safety property with a budget place declared, and absent otherwise."
+  covers VER_025.s1, VER_025.s2, VER_025.s3, VER_025.s4, VER_025.s5, VER_025.s6, VER_025.s7,
+        VER_025.s8, VER_025.s9, VER_025.s10, VER_025.s11, VER_025.s12, VER_025.s13, VER_025.s14,
+        VER_025.s15, VER_025.s16, VER_025.s17, VER_025.s18, VER_025.s19, VER_025.s20, VER_025.s21,
+        VER_025.s22, VER_025.s23, VER_025.s24, VER_025.s25, VER_025.s26, VER_025.s27, VER_025.s28
   reading "For every flat net (rows, n places), injection list, seed a0, depth d and violation (badI over integers, bad over markings) such that the rows are well formed (P1, P2), every injected place is a place of the net, no place is injected twice (P9), badI agrees with bad (P5) and a0 is within the post-caps: the script S at depth d has a model iff some run of at most d steps, firings and injections, replays under the exact step relation (replayEnv) to a marking that violates."
           "Under P1, P2, injected places in the net and P5: every model of S at depth d decodes, read at T + J (decode_bounded_run), to a run that replays to a violating marking."
           "The phase W does not run (none) iff the depth is 0 or the entry gate is closed."

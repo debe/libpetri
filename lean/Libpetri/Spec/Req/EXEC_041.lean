@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.EXEC_041
 
 set_option linter.missingDocs true
 
@@ -58,20 +59,9 @@ requirement EXEC_041
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "When execution completes, the executor returns the final marking (token distribution across all places)."
-        "**Termination cause MUST be observable.**"
-        "An executor that can stop for any reason other than quiescence ([EXEC-040]) — a close ([ENV-013]), a caller's run budget, a host cancellation — MUST make that reason distinguishable to the caller, by the return value, by a distinct event, or by a raised error."
-        "Emitting the same completion signal for a quiesced run and a truncated one is non-conforming: a partial marking presented as final cannot be told apart from a net that had nothing left to do, so every consumer that treats completion as proof the run finished — a durable checkpoint, a workflow step, an assertion on the final marking — silently accepts the truncation."
-        "*When* the executor finishes a run, it *shall* make the marking the run ended with, unchanged by the finish, and the termination reason of the finish available to the caller."
-        "The executor *shall* end a run only by finishing it, never as a side effect of another step such as a close."
-        "*While* a run is finished, the executor *shall not* take another step of its loop (answering a snapshot request ([ENV-014]) reads the state and is not a step of the loop), and *shall not* change the returned marking or the termination reason."
-        "The executor *shall* report the termination reason `quiescent` only when nothing is armed, in flight or queued ([EXEC-040]), and `terminal` only when a terminal place is marked ([EXEC-042])."
-        "The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination, another caller-requested stop, or a fault of the host runtime that ends the run with a raised error ([EXEC-030])."
-        "At a rest the run reached after a close or an immediate termination, `quiescent` and `closed` both conform, and after an immediate termination `stopped` conforms too."
-        "A run budget that expires ends the caller's wait, not the loop: the executor reports a truncating reason to the caller (`stopped`, or a raised error), and a loop that the timeout policy leaves running has not finished, so its later steps and its finish are not steps after a finish."
-        "Where an implementation exposes the reason as a value, the values are: `quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget, another caller-requested stop, or a host fault that ends the run with a raised error) and `interrupted` (a cancellation observed in the wait, where the runtime has one)."
-        "`quiescent` and `terminal` are the two **completed** reasons: the returned marking is the one the net was designed to end in."
-        "The others are truncations."
+  covers EXEC_041.s1, EXEC_041.s2, EXEC_041.s3, EXEC_041.s4, EXEC_041.s5, EXEC_041.s6, EXEC_041.s7,
+        EXEC_041.s8, EXEC_041.s9, EXEC_041.s10, EXEC_041.s11, EXEC_041.s12, EXEC_041.s13,
+        EXEC_041.s14
   reading "For every executor R and every configuration C:"
           "for every cause c, a finish step with cause c leaves the marking as it is and enters the finished phase with cause c, from which the caller reads the returned marking and the termination reason;"
           "while the run is finished (its phase is a finished phase), no step of the loop happens: no executor step other than the answer to a snapshot request (the outside steps stay possible: time passing, an action writing, flushing, returning or timing out, a caller requesting, draining, closing or terminating);"

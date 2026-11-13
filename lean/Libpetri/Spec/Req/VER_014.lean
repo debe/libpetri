@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Novel.Seam.Bad
 import Libpetri.Reference.Semantics
+import Libpetri.Spec.Text.VER_014
 
 set_option linter.missingDocs true
 
@@ -79,12 +80,7 @@ requirement VER_014
   kind F
   scope "every route that decides DeadlockFree or TerminatesAtSink, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "A token in place `p` of a quiescent marking `M` is **stranded** iff `p` is not a declared sink, `p` is not a marker, and no conditional set naming `p` has its marker marked in `M`."
-        "Repeated declarations for one marker accumulate; declarations for different markers are independent, so a place excused by two markers is stranded only when both are unmarked."
-        "`TerminatesAtSink` is unaffected and reads the unconditional sinks only."
-        "The verifier *shall* read a token in place `p` of a marking `M` as stranded exactly when `p` is not a declared sink, `p` is not the marker of any conditional declaration, and every conditional declaration that names `p` has its marker unmarked in `M`."
-        "*When* the verifier decides `DeadlockFree`, it *shall* report a quiescent marking as a violation exactly when some marked place of it is stranded."
-        "*When* the verifier decides `TerminatesAtSink`, it *shall* report a quiescent marking as a violation exactly when it would without any conditional declaration."
+  covers VER_014.s1, VER_014.s2, VER_014.s3, VER_014.s4, VER_014.s5, VER_014.s6
   reading "For every rest-set reading S and violation reading V, and all sinks, conditional declarations cond, markings m and places p:"
           "S strands p in m exactly when p is not in sinks, p is the marker of no declaration of cond, and every declaration of cond whose places contain p has its marker unmarked in m;"
           "for every quiescence reading Q, m violates DeadlockFree under V exactly when Q holds of m and some place marked in m is stranded under S;"

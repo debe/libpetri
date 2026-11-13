@@ -1,5 +1,6 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
+import Libpetri.Spec.Text.EVT_022
 
 set_option linter.missingDocs true
 
@@ -30,9 +31,7 @@ requirement EVT_022
   kind F
   scope "the noop event store (Java EventStore.noop(), TypeScript noopEventStore(), Rust NoopEventStore)"
   source verbatim "spec/08-events-observability.md"
-  quote "The noop event store *shall* return no event from `events()`, whatever was appended to it, and the list it returns *shall* stay empty whatever is appended to it later."
-        "*When* an event is appended to the noop event store, the store *shall* discard it."
-        "The noop event store *shall* report itself as not enabled (`isEnabled()` returns false; in Rust, the store type's `ENABLED` constant is false)."
+  covers EVT_022.s1, EVT_022.s2, EVT_022.s3
   reading "For every store S over any event type E:"
           "after every history h of appends and clears, a call of events() returns the empty list, and the list it returned still shows nothing after any further operations h';"
           "S reports itself as not enabled."

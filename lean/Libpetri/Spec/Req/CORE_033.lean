@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_033
 
 set_option linter.missingDocs true
 
@@ -32,8 +33,7 @@ requirement CORE_033
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*While* a place is marked, a read arc to that place *shall not* stop its transition from firing, so all transitions with read arcs to the place can be enabled simultaneously."
-        "*When* a transition with a read arc to a marked place fires, and the transition has no input arc and no reset arc to that place, the read arc of any transition to that place *shall not* stop that transition from firing afterwards (no conflict), since read arcs do not consume tokens."
+  covers CORE_033.s1, CORE_033.s2
   reading "For every transition t and every read place p of t, at every marking m in which p is marked:"
           "if t without its read arcs on p can fire from m, then t can fire from m;"
           "for every two transitions t₁, t₂ with read arcs on p, where t₁ has no input arc and no reset arc on p:"

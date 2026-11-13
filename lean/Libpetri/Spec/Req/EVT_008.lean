@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Spec.Req.EXEC_021
+import Libpetri.Spec.Text.EVT_008
 
 set_option linter.missingDocs true
 
@@ -53,8 +54,7 @@ requirement EVT_008
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*If* a firing fails, because its action throws an exception or returns an error or because output validation or the join-relay check of [NU-054] rejects its outcome ([EXEC-021], [EXEC-030]), *then* the executor *shall* emit exactly one TransitionFailed event naming the firing's transition, and *shall not* emit a TransitionCompleted event or a TokenAdded event when it settles that firing."
-        "The executor *shall* emit TransitionFailed events only when a firing fails."
+  covers EVT_008.s1, EVT_008.s2
   reading "For every executor with events E and every configuration C:"
           "for every history H of the events emitted before the step, a fail step of a firing identity i, from state s to state s', that appends the events evs, appends exactly one event of kind TransitionFailed; if f is the firing with identity i in flight in s, evs contains the TransitionFailed event naming f's transition; and no event of evs is a TransitionCompleted or a TokenAdded;"
           "the events a run emits before its first step contain no TransitionFailed event, whatever the initial marking, and for every history H a step whose label is not a fail step appends no TransitionFailed event."

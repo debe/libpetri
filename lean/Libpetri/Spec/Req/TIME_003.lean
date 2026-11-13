@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.Text.TIME_003
 
 set_option linter.missingDocs true
 
@@ -43,8 +44,7 @@ requirement TIME_003
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "*While* a transition with `Deadline(by)` timing is armed, its timing *shall not* stop it from being ready until it is expired."
-        "*If* a transition with `Deadline(by)` timing is armed and its elapsed time exceeds `by` plus the deadline tolerance, *then* the executor *shall* reap it ([TIME-013])."
+  covers TIME_003.s1, TIME_003.s2
   reading "For every timed net X and every transition u the net holds under its name, with timing Deadline(by):"
           "while u is armed and its elapsed time is not greater than by plus the tolerance, the step relation has every firing of u that the reference semantics has, with the same successor marking;"
           "no firing of u starts from a state in which u is armed and its elapsed time is greater than by plus the tolerance;"

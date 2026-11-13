@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
+import Libpetri.Spec.Text.EVT_011
 
 set_option linter.missingDocs true
 
@@ -60,10 +61,7 @@ requirement EVT_011
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "Emitted when the executor adds a token to a place: from an action's output, a timeout outcome, a mid-action publication (where the implementation offers one, [IO-015]) or an external injection."
-        "The tokens of the initial marking are not added by the executor and get no TokenAdded event; where the executor emits a MarkingSnapshot at the start of a run, that snapshot reports them ([EVT-014])."
-        "*When* the executor deposits tokens into a place, by settling a completion or a timeout outcome, by depositing a mid-action publication (where the implementation offers one, [IO-015]) or by injecting an environment token, it *shall* emit one TokenAdded event naming that place for each token it deposits there."
-        "The executor *shall* emit TokenAdded events only when it deposits tokens, and *shall not* emit a TokenAdded event for a token of the initial marking."
+  covers EVT_011.s1, EVT_011.s2, EVT_011.s3, EVT_011.s4
   reading "For every executor with events E and every configuration C:"
           "for every history H of the events emitted before the step, a step whose label is not a start, from state s to state s', that appends the events evs leaves, for every place p, p's queue in s' equal to p's queue in s followed by as many tokens as evs has TokenAdded events naming p;"
           "the events a run emits before its first step contain no TokenAdded event, whatever the initial marking, and for every history H a start step appends no TokenAdded event and leaves every place's queue a sublist of what it was."
@@ -111,7 +109,7 @@ requirement EVT_011_payload
   kind B
   scope "Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the TokenAdded event carries the token (Java and TypeScript; Rust and Python when the event store captures tokens), the TokenAdded events of a deposit *shall* carry, for each place, the tokens deposited there in the order they are appended, so that the place's queue before the deposit followed by these tokens is its queue after the deposit."
+  covers EVT_011.s5
   reading "For every executor with events E, every configuration C and every history H: a step whose label is not a start, from state s to state s', that appends the events evs leaves, for every place p, p's queue in s followed by the tokens of the TokenAdded events in evs naming p, in event order, equal to p's queue in s'."
   assumes "This is the second block of EVT-011 (rulings D33 (a) and D38 (a)): the token payload, for the executors whose TokenAdded event carries the token. The first block, EVT_011, states the count and the emission points for every executor; this block adds which tokens and in which order. Java and TypeScript events always carry the token (processSyncOutput, processCompletedTransitions and processExternalEvents in BitmapNetExecutor.java; processCompletedTransitions and processExternalEvents in bitmap-net-executor.ts). Rust and Python carry it only when the event store captures tokens (event_payload.rs token_added_event); otherwise only the first block applies."
           "The model is an executor with events E : EvExec N T, as in the first block; the witness is refEvExec polJT, and EVT_011_payload_rust shows the line for the Rust and Python emission polRust, the variant whose store captures tokens (in the model every TokenAdded event carries its token). The line is the quoted sentence: per place, the queue before the step followed by the tokens of the TokenAdded events naming it, in emission order, is the queue after the step, so the reported tokens are exactly the appended ones, in the order they were appended at the tail (EXEC-020). AC3 (the tokens reported for a place in one deposit are the deposited ones, in the order appended) is this line. The count line of the first block follows from it (evt011_of_payload). An executor that reports the right number of tokens per place but newest first meets the first block and breaks this line (EVT_011_payload_mutant_reversed)."

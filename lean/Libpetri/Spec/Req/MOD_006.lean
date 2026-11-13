@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Spec.Req.CORE_040
 import Libpetri.Spec.Req.EXEC_042
+import Libpetri.Spec.Text.MOD_006
 
 set_option linter.missingDocs true
 
@@ -77,13 +78,7 @@ requirement MOD_006
   kind B
   scope "every subnet builder"
   source verbatim "spec/11-modular-composition.md"
-  quote "*If* a port of the interface exposes a place that is not a place of the built body, *then* building the subnet definition *shall* fail."
-        "*If* a channel of the interface exposes a transition whose name is not the name of a transition of the built body, *then* building the subnet definition *shall* fail."
-        "*If* two ports of the interface have the same name, *then* building the subnet definition *shall* fail."
-        "*If* two channels of the interface have the same name, *then* building the subnet definition *shall* fail."
-        "*If* the net builder rejects the body, *then* building the subnet definition *shall* fail."
-        "*When* the net builder builds the body, every port exposes a place of the built body, every channel exposes a transition of the built body, and no two ports and no two channels have the same name, building the subnet definition *shall* succeed."
-        "*When* building the subnet definition fails, the error message *shall* contain the message with which the net builder rejected the body, or the name of a port or channel that meets one of the rejection cases 1 to 4."
+  covers MOD_006.s1, MOD_006.s2, MOD_006.s3, MOD_006.s4, MOD_006.s5, MOD_006.s6, MOD_006.s7
   reading "For every net builder NB of subnet bodies and every subnet builder SB:"
           "if NB builds the body of S as the net b and some port of S exposes a place that is not a place of b, SB fails on S;"
           "if NB builds the body of S as b and some channel of S names a transition that is not the name of a transition of b, SB fails on S;"

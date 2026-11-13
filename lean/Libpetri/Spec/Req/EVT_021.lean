@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryStore
 import Libpetri.Spec.Req.EVT_022
 import Libpetri.Spec.Req.EVT_020
+import Libpetri.Spec.Text.EVT_021
 
 set_option linter.missingDocs true
 
@@ -45,11 +46,7 @@ requirement EVT_021
   kind F
   scope "the in-memory event store (Java EventStore.inMemory(), TypeScript InMemoryEventStore, Rust InMemoryEventStore, Python InMemoryEventStore)"
   source verbatim "spec/08-events-observability.md"
-  quote "A new in-memory event store *shall* return no event from `events()`."
-        "*When* an event is appended to the in-memory event store, a call of `events()` made right after the append *shall* return the events that a call made right before the append returns, with that event added at the end."
-        "*Where* the in-memory event store provides `clear()`, a call of `events()` made right after `clear()` *shall* return no event."
-        "The in-memory event store *shall* report itself as enabled, so that an executor appends every event it emits to it (see [EVT-020]): `isEnabled()` returns true in Java and TypeScript, the store type's `ENABLED` constant is true in Rust, and the Python binding's store is written through a Rust store whose `ENABLED` constant is true."
-        "A call of `events()` changes nothing that a later call of `events()` returns, so the sentences above speak of what a call returns after the appends and clears made so far."
+  covers EVT_021.s1, EVT_021.s2, EVT_021.s3, EVT_021.s4, EVT_021.s5
   reading "For every store S over any event type E:"
           "after the empty history, a call of events() returns the empty list;"
           "for every history h and event e, a call of events() after h followed by append e returns what a call after h returns, with e added at the end;"

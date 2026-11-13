@@ -2,6 +2,10 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Spec.Req.EXEC_010
+import Libpetri.Spec.Text.EXEC_002
+import Libpetri.Spec.Text.EXEC_010
+import Libpetri.Spec.Text.EXEC_013
+import Libpetri.Spec.Text.EXEC_020
 
 set_option linter.missingDocs true
 
@@ -80,9 +84,7 @@ requirement EXEC_002_cycle
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "*When* a firing pass starts transitions, the executor *shall* start only transitions of the ready order of that pass, in the order in which that order offers them."
-        "*When* an enablement update newly arms several transitions, a restarted transition included ([TIME-012]), it *shall* give all of them one and the same stamp."
-        "Equal priority **and** equal stamp (transitions newly armed by the enablement update of the same orchestrator cycle share one stamp, [TIME-010]): the tie breaks by ascending declaration order, so the order is fully deterministic."
+  covers EXEC_002.s9, EXEC_002.s10, EXEC_002.s13
   reading "For every executor R and every configuration C:"
           "in every run of R that opens with a begin step from state s, read up to the end of that pass (the next endPass or begin step), the names of its start steps, in order, are a sublist of the names of the ready order of EXEC-002 at the cycle reading of s (readyOrder C s): the pass starts only transitions of that order, each at most once, in that order;"
           "every update step gives every name it newly arms one and the same stamp: two names that hold, after the step, a stamp they did not hold before it hold the same stamp, a name the step re-stamps with a new value (a restart) included."
@@ -121,9 +123,7 @@ requirement EXEC_010_cycle
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "When a transition fires, it consumes tokens from the oldest-first (FIFO) end of each input place's queue."
-        "*When* a transition starts in a firing pass, it *shall* remove from each of its input places that is neither a reset place nor a correlated input of its match specification the oldest tokens the place holds, as many as the consumption count of the input arc counted on the pass-visible marking ([EXEC-003])."
-        "*When* a transition starts in a firing pass, its action *shall* receive from each of its input places that is not a correlated input of its match specification the oldest tokens the place holds, as many as that consumption count, in queue order."
+  covers EXEC_010.s1, EXEC_010.s8, EXEC_010.s9
   reading "For every executor R, every configuration C and every start step of a name n in R, from state s to state s', if the head of the pass's order in s is a transition t named n (the transition the step starts), then:"
           "every input place p of t that is not a reset place of t holds in s' the queue it held in s without its oldest k tokens, where k is the consumption count of t's input arc on p at the pass-visible counts of s (Consumes t (Counts (vis s)) p);"
           "every firing in flight in s' that was not in flight in s is handed, from every input place p of t, the oldest k tokens of p's queue in s, in queue order, for the same k."
@@ -173,10 +173,7 @@ requirement EXEC_013_cycle
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "This happens during the firing step, before the action executes."
-        "*When* a transition fires, it *shall* drain each of its reset places ([CORE-034]) before its action starts."
-        "A token a synchronous action deposited earlier in the same firing pass survives the drain ([EXEC-003] AC5)."
-        "*When* a transition starts in a firing pass, it *shall* drain each of its reset places in that same step, so the place keeps exactly the tokens a synchronous action deposited there earlier in the pass."
+  covers EXEC_013.s2, EXEC_013.s3, EXEC_013.s7, EXEC_013.s8
   reading "For every executor R, every configuration C and every start step of a name n in R, from state s to state s': if the head of the pass's order in s is a transition t named n (the transition the step starts), then every reset place p of t holds in s' exactly the tokens deposited inside the current pass (the hidden tail hid s p of the pass-visible marking)."
   assumes "This is the second block of EXEC-013 (ruling D33 (a), design NR-1). The first block, EXEC_013 (EXEC_013.lean), states the order of the parts of one atomic queue firing and is unchanged; it deferred 'The body sentence: A token a synchronous action deposited earlier in the same firing pass survives the drain ([EXEC-003] AC5)' and the deposits of an action's publications to the executor model. This block is that executor line."
           "The model is an executor R : XRel N T (glossary GlossaryExec.lean); the witness is the reference executor RefExec (Reference/Exec.lean). 'Fires' is read as 'starts in a firing pass'. The firing step of the first quoted sentence is the start step: the drain happens in it, and the action's steps (write, flush, ret) can only follow it, because the firing is in flight only from its start. So the drain is 'before its action starts' (the first shall sentence) and the action's output, deposited later at the tails (EXEC-020, EXEC-021, CONC-003), is never drained by its own firing. A start that leaves the reset places as they are, deferring the drain past the action's start, breaks the line (EXEC_013_cycle_forbids_drainLate)."
@@ -210,14 +207,8 @@ requirement EXEC_020_cycle
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "It never admits the completion of a firing that ended with its timeout outcome ([EXEC-022], [IO-013]), that a stop on a terminal place abandoned ([EXEC-042]) or that an immediate termination abandoned ([ENV-015])."
-        "*If* the completion of an action is not admitted, or output validation rejects the produced tokens, *then* the executor *shall not* deposit any token the action produced at completion."
-        "A publication still queued when a terminal place stops the run ([EXEC-042]) is discarded."
-        "*When* the executor deposits the tokens an action produced at completion, it *shall* do so only in the step that admits that completion, while the run is under way and no terminal place is marked, and *shall* add them at the tails of their places' queues in the order the action produced them."
-        "The executor *shall* change the marking only when it starts a transition, deposits the tokens of an admitted completion, deposits a timeout outcome ([EXEC-022]), deposits a mid-action publication ([IO-015]) or injects an external event ([ENV-003])."
-        "*When* a run has finished ([EXEC-041]), the executor *shall not* change the marking, so a completion, a timeout outcome or a publication that is still in flight or queued deposits nothing."
-        "*When* the executor deposits the timeout outcome of a firing ([EXEC-022], [IO-013]), it *shall* do so only in a step in which a completion of that firing would be admitted, while the run is under way and no terminal place is marked, and *shall* add exactly the tokens of that outcome at the tails of their places' queues, in the order of the outcome."
-        "*When* the executor admits the completion of an action and output validation does not reject the produced tokens ([EXEC-021], [CONC-026]), the executor *shall* add each produced token at the tail of its place's queue, in the order the action produced the tokens."
+  covers EXEC_020.s2, EXEC_020.s4, EXEC_020.s5, EXEC_020.s6, EXEC_020.s7, EXEC_020.s8, EXEC_020.s9,
+        EXEC_020.s3
   reading "For every executor R and every configuration C:"
           "a commit step of a firing identity i, from state s to state s', settles an admitted completion of i (glossary: Admitted completion: the run is under way, no terminal place is marked, the outcome of i is queued, it returned normally with emission e, and the phase allows it) whose emission output validation accepts, and leaves in s' the marking of s with e appended at the tails, in emission order;"
           "a step whose label is not a start, a commit, a tdeposit, a publish or an inject leaves the marking unchanged;"

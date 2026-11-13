@@ -1,5 +1,6 @@
 import Libpetri.Spec.Req.VER_014
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.Text.VER_002
 
 set_option linter.missingDocs true
 
@@ -98,25 +99,9 @@ requirement VER_002
   kind F
   scope "every route that decides DeadlockFree, TerminatesAtSink, MutualExclusion, PlaceBound, Unreachable or QuiescentCount, all implementations (SHOULD; the shall sentences bind an implementation that offers the property)"
   source verbatim "spec/07-verification.md"
-  quote "A marking is **quiescent** when every transition whose enablement check passes on it is reapable."
-        "\"All transitions disabled\" in the error conditions below means \"every transition that is not reapable is disabled\"."
-        "Without a conditional sink declaration ([VER-014]), the error condition is: (all transitions disabled) ∧ (some marked place is not a declared sink)."
-        "The error condition is: (all transitions disabled) ∧ (no sink place has a token)."
-        "Over a list of places the property is **pairwise**: violated iff some two entries of the list, at different positions, hold a token at once, which is the conjunction of `MutualExclusion(pi, pj)` over every pair."
-        "A place listed twice pairs with itself, so `MutualExclusion(p, p)` is violated by any token in `p`; a list of fewer than two entries is never violated."
-        "**PlaceBound(place, k)**: place never has more than k tokens"
-        "**Unreachable(places)**: the given set of places is never all simultaneously non-empty."
-        "The set is assumed non-empty: the property is not specified over an empty one."
-        "The error condition is: (all transitions disabled) ∧ ((Σ < min ∧ every `waivedBy` place empty) ∨ Σ > max)."
-        "A place listed twice in `places` is counted once."
-        "The marking properties (`PlaceBound`, `Unreachable`, `MutualExclusion`) do not read quiescence, and their scripts do not depend on the option."
-        "The verifier *shall* read a marking as quiescent exactly when every transition whose enablement check ([NU-020]) passes on it is reapable, and, under `assumeNoReaping`, exactly when no transition's enablement check passes on it."
-        "*When* the verifier decides `DeadlockFree`, it *shall* report a marking as a violation exactly when the marking is quiescent and some marked place of it is stranded in the sense of [VER-014]."
-        "*When* the verifier decides `TerminatesAtSink`, it *shall* report a marking as a violation exactly when the marking is quiescent and no declared sink holds a token."
-        "*When* the verifier decides `MutualExclusion` over a list of places, it *shall* report a marking as a violation exactly when two entries of the list, at different positions, hold a token."
-        "*When* the verifier decides `PlaceBound(place, k)`, it *shall* report a marking as a violation exactly when the place holds more than `k` tokens."
-        "*When* the verifier decides `Unreachable` over a non-empty list of places, it *shall* report a marking as a violation exactly when every listed place holds a token."
-        "*When* the verifier decides `QuiescentCount(places, min, max, waivedBy)`, it *shall* report a marking as a violation exactly when the marking is quiescent and either the tokens across `places`, each place counted once, number fewer than `min` while every `waivedBy` place is empty, or they number more than a bounded `max`."
+  covers VER_002.s1, VER_002.s2, VER_002.s4, VER_002.s5, VER_002.s6, VER_002.s7, VER_002.s8,
+        VER_002.s9, VER_002.s10, VER_002.s11, VER_002.s12, VER_002.s3, VER_002.s14, VER_002.s15,
+        VER_002.s16, VER_002.s17, VER_002.s18, VER_002.s19, VER_002.s20
   reading "For every rest-set reading S (the variable VER-014's statement fixes) and violation reading V, option value noReap (assumeNoReaping), timed net X and marking m, with quiescent meaning VerQuiescent noReap X m (every transition m enables is reapable, and under assumeNoReaping none is enabled):"
           "m violates DeadlockFree(sinks, cond), for every list cond of conditional declarations, exactly when m is quiescent and some place marked in m is stranded under S for sinks and cond;"
           "m violates TerminatesAtSink(sinks) exactly when m is quiescent and no place of sinks is marked in m;"
@@ -862,9 +847,7 @@ requirement VER_002_count
   kind B
   scope "every implementation that offers QuiescentCount; the constructor"
   source verbatim "spec/07-verification.md"
-  quote "`min` MUST be a non-negative integer and a bounded `max` MUST be an integer at least `min`; a call of the `QuiescentCount` constructor function (named under Implementation notes) breaking either MUST be rejected where it is made, as the language reports a caller's error, rather than yield a verdict. A value built without that function, such as a Rust enum literal or a TypeScript object literal, is not checked."
-        "*If* the `QuiescentCount` constructor function is called with a `min` that is negative or not a whole number, or with a `max` that is not a whole number or is below `min`, *then* the call *shall* be rejected where it is made."
-        "*When* the `QuiescentCount` constructor function is called with a whole non-negative `min` and a `max` that is unbounded or a whole number at least `min`, the call *shall* yield the property with those bounds."
+  covers VER_002.s13, VER_002.s21, VER_002.s22
   reading "For every constructor B: whenever min is negative, or min is not a whole number, or max is bounded by a number that is not whole or is below min, B rejects the construction (answers none), whatever the places and the waivers;"
           "whenever min is a natural number and max is unbounded or a natural number at least min, B yields QuiescentCount with exactly the given places, bounds and waivers."
   assumes "The bounds are rationals as the caller passes them, so that a negative and a fractional min are both expressible; Java (OptionalInt) and Rust (usize, Option<usize>) take integer types, which rule a fractional bound out before the constructor runs, and Rust's usize rules out a negative min. A rejection is none: how the language reports it (an exception, a panic, a ValueError) is the API (kind N), and no verdict is produced because no property exists."

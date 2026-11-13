@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryNuVer
 import Libpetri.Reference.NuLink
+import Libpetri.Spec.Text.NU_055
 
 set_option linter.missingDocs true
 
@@ -62,13 +63,7 @@ requirement NU_055
   kind F
   scope "every verifier that offers NameAligned or QuiescentNameAligned (MAY); the predicate on a class of the Route B graph"
   source verbatim "spec/12-nu-nets.md"
-  quote "For places `p` and `q` of `S`, the same place included, and the name-symbols `s` and `t`: `s` resident in `p` and `t` resident in `q` imply `s = t`."
-        "An empty place imposes nothing, but a place holding two names violates it whatever the others hold, so the singleton `NameAligned(p)` says that `p` never holds two names."
-        "*Where* name alignment is offered, `NameAligned(S)` for a non-empty `S` *shall* hold on a class of the graph exactly when, for places `p` and `q` of `S`, the same place included, every name-symbol resident in `p` equals every name-symbol resident in `q`."
-        "The predicate compares names only for equality, so it is invariant under any permutation of the name-symbols."
-        "It is therefore a function of the canonical key of a class ([VER-012] AC2), and deciding it on the name-permutation quotient decides it on the graph."
-        "Its places compare by name, and a place listed twice counts once, at its first occurrence, so `NameAligned(box, list, box)` is `NameAligned(box, list)`."
-        "The order of `S` changes no verdict; it fixes the description and which place a reason names."
+  covers NU_055.s2, NU_055.s3, NU_055.s5, NU_055.s6, NU_055.s7, NU_055.s9, NU_055.s10
   reading "For every coloured set co, base type β, non-empty list ps and class S of the graph, the check A answers true exactly when any name-symbol s resident in a place p of ps and any name-symbol t resident in a place q of ps, p = q allowed, are equal."
   assumes "The model is a class of the Route B graph (NState co β, Graph.lean): a base b, a name layer m giving each name-symbol and each coloured place (a position of co) a count, and a bound above every live symbol. A name-symbol s is resident in p when its count there is not 0 (Name.lean resident). The NameAligned bullet speaks of a marking; its EARS restatement and the line speak of a class of the graph, which is where Route B evaluates the predicate. A marking's names are read on its coloured places through the one projection nameOf: its class is its name view (view co nameOf m), and on that view the line is the statement that all tokens in the places of S carry one name (alignedAll_view_iff, cited). Places are PlaceId, so 'its places compare by name' is equality of ids, and the check takes S as a list."
           "The line is the definition of the NameAligned bullet (its second and third sentences, restated by the EARS sentence): self pairs included, so a place holding two names fails whatever the others hold, and an empty place has no resident symbol and imposes nothing. The QuiescentNameAligned bullet reads 'the same predicate'; where it is read is NU_055_sound's subject. The first sentence of the NameAligned bullet ('in every reachable marking') is NU_055_sound's."
@@ -366,11 +361,7 @@ requirement NU_055_sound
   kind B
   scope "every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the reference ν executor, untimed and environment-free, with atomic firings"
   source verbatim "spec/12-nu-nets.md"
-  quote "**NameAligned(S)**, for a non-empty list `S` of places: in every reachable marking, the places of `S` together hold at most one distinct name."
-        "**QuiescentNameAligned(S)**: the same predicate, read only in the reachable quiescent markings."
-        "Lean `Novel/RouteB/Aligned.lean` (`routeB_untimed_nameAligned_sound`, `routeB_untimed_quiescentNameAligned_sound`) proves: for the **untimed, environment-free executor with atomic firings**, a `Proven` of either property holds in every marking that executor reaches (for the quiescent form, every marking at which it rests): the tokens in the places of `S` all carry the same name."
-        "*If* the premises above hold, *then* Route B *shall* answer `Proven` for `NameAligned(S)` only if the tokens in the places of `S` all carry the same name in every marking the untimed, environment-free executor with atomic firings reaches."
-        "*If* the premises above hold, *then* Route B *shall* answer `Proven` for `QuiescentNameAligned(S)` only if the tokens in the places of `S` all carry the same name in every marking that the untimed, environment-free executor with atomic firings reaches and rests at, resting being read with the reapable set of the call ([VER-002])."
+  covers NU_055.s1, NU_055.s4, NU_055.s41, NU_055.s42, NU_055.s43
   reading "For every call q (a net X of reference ν transitions, its coloured set co, its roles, the build limits, the places S and the initial marking M0) and every projection nameOf, where co lists each place once, every translated transition is in Route B's fragment for its role (InFragment), every transition has the shape B1 needs (B1Shape: distinct input places, correlated inputs taking a fixed count, correlated inputs coloured), every place of S is coloured, every coloured place is empty in M0, and at every marking a contract-keeping run reaches every key and relay projection of every transition gives each token of its place the name nameOf gives it (NuProj):"
           "if D answers Proven for NameAligned(S) on the Route B call of q, then in every marking M a contract-keeping reference run from M0 reaches, any two tokens in places of S, the same place allowed, carry the same name;"
           "if, in addition, every join key consumes at least one token (PosKeys), and Dq answers Proven for QuiescentNameAligned(S) on the Route B call of q with the reapable set of q (the names of its reapable transitions), then the same holds in every marking M a contract-keeping reference run from M0 reaches and at which every ν-enabled transition is reapable (NuRests)."
@@ -740,13 +731,7 @@ requirement NU_055_truncation
   kind F
   scope "every verifier that offers NameAligned or QuiescentNameAligned (MAY); the verdict Route B reads off a built graph"
   source verbatim "spec/12-nu-nets.md"
-  quote "It is therefore a function of the canonical key of a class ([VER-012] AC2), and deciding it on the name-permutation quotient decides it on the graph."
-        "*When* the graph closes, Route B *shall* answer `Proven` for `NameAligned(S)` exactly when every class of the graph is name-aligned on `S`, and for `QuiescentNameAligned(S)` exactly when every class of the graph at which the net rests is."
-        "A graph that does not close within the class bound never yields `Proven` (Lean `Decide.truncated_never_proven`)."
-        "*If* the graph does not close, because the build reaches the class bound, runs out of total budget or is cancelled ([VER-013]), *then* Route B *shall not* answer `Proven` for either property."
-        "*If* the graph does not close and the prefix rule finds no violation, *then* Route B *shall* answer `Unknown`."
-        "*If* Route B answers `Violated` for either property, *then* the class its counterexample ends at *shall* violate the property."
-        "The prefix rule of [VER-012] AC3 applies: a `NameAligned` violated by a stored class, or a `QuiescentNameAligned` violated by an expanded class at which the net rests (every firing out of it is of a reapable transition; with nothing reapable, an expanded class with no successor, Lean `Decide.quiescentAt`), is `Violated` with the shortest witness in the explored graph and a report line naming the truncation; otherwise the verdict is `Unknown`."
+  covers NU_055.s7, NU_055.s8, NU_055.s36, NU_055.s38, NU_055.s39, NU_055.s40, NU_055.s37
   reading "For every explorer E over classes, every build outcome o, every non-empty list ps and every property p that is NameAligned(ps) or QuiescentNameAligned(ps) over some reapable set, where a class violates p as Decide.violatesAt reads it (for NameAligned a stored class that is not aligned, for QuiescentNameAligned an expanded class at which the net rests and that is not aligned):"
           "if V answers Proven, the graph closed (o.complete);"
           "if the graph did not close and no class violates p, V answers Unknown;"

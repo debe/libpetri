@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.Text.TIME_002
 
 set_option linter.missingDocs true
 
@@ -31,8 +32,7 @@ requirement TIME_002
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "*While* a transition with `Immediate` timing is armed, its timing *shall not* stop it from being ready ([TIME-010])."
-        "The executor *shall not* reap a transition with `Immediate` timing ([TIME-013])."
+  covers TIME_002.s1, TIME_002.s2
   reading "For every timed net X and every transition u the net holds under its name, with timing Immediate:"
           "while u is armed, the step relation has every firing of u that the reference semantics has, with the same successor marking;"
           "no step disarms u while it stays enabled (StaysArmed): when the net's names are distinct, every step other than a reap of u, a firing of u itself included, leaves u armed if u was armed before it and is enabled after it;"

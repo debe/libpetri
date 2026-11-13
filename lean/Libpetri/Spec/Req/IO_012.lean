@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_012
 
 set_option linter.missingDocs true
 
@@ -70,25 +71,9 @@ requirement IO_012
   kind B
   scope "build check: every transition, on every construction path; firing lines: executors with output validation enabled (the default, CONC-026)"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`Xor(children)` is an output spec node with two or more children; it represents a decision point where the action chooses one child."
-        "*When* a transition whose output spec is `Xor(children)` fires and the firing ends with its action, its produced set *shall* equal, on the places the output spec names, one output branch of the output spec."
-        "*When* a transition whose output spec is `Xor(children)` fires and the firing ends with its action, its produced set *shall not* equal, on the places the output spec names, two output branches that take different children at some `Xor` node."
-        "This requirement applies to an executor with output validation enabled, which is the default ([CONC-026])."
-        "A firing ends with its action when it does not end with the timeout outcome ([IO-013])."
-        "Deposits are compared per place ([CORE-036]): a firing whose deposit puts in every place as many tokens as some timeout-outcome deposit of the transition from the same marking may have ended with the timeout outcome, and the two lines above do not constrain it."
-        "An *assignment* of an output spec chooses one child at each `Xor` node it reaches ([IO-015])."
-        "`Xor` nodes are told apart by their position in the spec, never by what they contain, so `Xor(P, P)` has two assignments."
-        "Two assignments are *distinct* when they choose different children at some `Xor` node that both reach."
-        "*If* two distinct assignments of a transition's output spec claim the same set of places, at any depth of the spec, *then* building the transition *shall* fail with"
-        "Enumerate the output branches of the spec per [IO-016], numbered from 0 in enumeration order (the numbering of the virtual transitions `<t>_b<i>` of [VER-001])."
-        "The enumeration lists exactly one branch per assignment, so two branches at different indices come from distinct assignments."
-        "Read each branch as the set of places it names, a `ForwardInput(from, to)` naming `to`."
-        "Visit the branches in index order."
-        "The first branch `j` whose set equals the set of an earlier branch fails the check, and `i` is the smallest index of such an earlier branch."
-        "If no branch fails, the check passes."
-        "`<places>` lists the places of branch `i` by name, separated by `, `, in the order the spec as written names them (leaves left to right)."
-        "An implementation MAY decide the check without enumerating every branch, provided it reports the same `i`, `j` and `<places>`."
-        "A transition that builds therefore has pairwise distinct output branches, so at most one output branch equals any produced set, and the second line above holds of every firing of such a transition."
+  covers IO_012.s1, IO_012.s2, IO_012.s3, IO_012.s4, IO_012.s5, IO_012.s6, IO_012.s7, IO_012.s8,
+        IO_012.s9, IO_012.s10, IO_012.s11, IO_012.s12, IO_012.s13, IO_012.s14, IO_012.s15,
+        IO_012.s16, IO_012.s17, IO_012.s18, IO_012.s19
   reading "Build check. For every output spec o (the output spec of the transition being built), with bs its output branches (Out.branches, one entry per assignment, numbered from 0):"
           "the check C passes (C o = none) exactly when no two entries of bs at indices i < j claim the same set of places (IO_012_unambiguous; IO_012_clash compares the entries as sets, SameSet);"
           "the check fails reporting (i, j, ps) (C o = some (i, j, ps)) exactly when the entries i < j clash, no entry before j clashes with an earlier one, no entry before i clashes with entry j, and ps is entry i as a list (IO_012_reported)."

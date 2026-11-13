@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.Req.TIME_010
+import Libpetri.Spec.Text.TIME_004
 
 set_option linter.missingDocs true
 
@@ -36,9 +37,7 @@ requirement TIME_004
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "*While* a transition with `Delayed(after)` timing is armed and its elapsed time is less than `after`, the transition *shall not* fire."
-        "*While* a transition with `Delayed(after)` timing is armed and its elapsed time is at least `after`, its timing *shall not* stop it from being ready."
-        "The executor *shall not* reap a transition with `Delayed` timing ([TIME-013])."
+  covers TIME_004.s1, TIME_004.s2, TIME_004.s3
   reading "For every timed net X, every transition u and every bound a such that u's timing is Delayed(a):"
           "no firing of u starts from a state in which u is armed and its elapsed time is below a (this restates [TIME-010] line 4 for this timing);"
           "from every state in which u, the net's transition of its name, is armed and its elapsed time is at least a, every reference firing of u is a step, to the marking that firing gives;"

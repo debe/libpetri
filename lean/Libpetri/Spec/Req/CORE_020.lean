@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
+import Libpetri.Spec.Text.CORE_020
 
 set_option linter.missingDocs true
 
@@ -35,10 +36,7 @@ requirement CORE_020
   kind F
   scope "all transition builders"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition is built, the built transition *shall* carry the name and the output specification it was given, if any, and each of its input, inhibitor, read and reset arc lists exactly as given, in the order given and with its repetitions."
-        "*When* a transition is built with a timing, a priority or an action, the built transition *shall* carry that timing, priority or action."
-        "*When* a transition is built without a priority, the built transition *shall* have priority 0."
-        "Building a transition that has no match specification ([NU-020]) *shall* succeed exactly when its arcs and output specification pass the build-time checks and the timing it is given, if any, is valid ([TIME-001])."
+  covers CORE_020.s1, CORE_020.s2, CORE_020.s3, CORE_020.s4
   reading "For every transition builder B, every call number k and every input i:"
           "if call k on i returns an instance x, the definition of x has i's name and its input, inhibitor, read and reset arc lists exactly as i has them (as lists: order and repetitions kept), and i's output specification (or none, as i);"
           "if call k on i returns x, a timing, a priority or an action given in i is the one the definition of x carries;"

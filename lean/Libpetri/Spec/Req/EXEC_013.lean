@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.EXEC_013
 
 set_option linter.missingDocs true
 
@@ -34,12 +35,7 @@ requirement EXEC_013
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "When a transition fires, all tokens are removed from each reset place."
-        "This happens during the firing step, before the action executes."
-        "*When* a transition fires, it *shall* drain each of its reset places ([CORE-034]) before its action starts."
-        "*When* a transition fires, it *shall* consume from its input places first, then peek its read places, then drain its reset places."
-        "*When* a transition with a read arc and a reset arc on the same place fires, its action *shall* receive as the read token the oldest token the place held before the drain."
-        "*If* a reset place of a firing transition is unmarked, *then* the drain *shall* remove nothing and the firing *shall* proceed."
+  covers EXEC_013.s1, EXEC_013.s2, EXEC_013.s3, EXEC_013.s4, EXEC_013.s5, EXEC_013.s6
   reading "For every transition t with no input arc and read arc on one place (ruling D15):"
           "every firing of t that emits e leaves each reset place of t holding exactly the tokens e sends there, in emission order;"
           "every firing of t from M that delivers δ hands the action, from each input place of t that is also a reset place, as many tokens as the input arc consumes, taken from the place's queue in M and kept in queue order;"

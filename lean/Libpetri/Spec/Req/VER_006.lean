@@ -2,6 +2,7 @@ import Libpetri.Spec.Req.VER_003
 import Libpetri.Novel.EnvSemantics
 import Libpetri.Reference.Link
 import Libpetri.Novel.RouteB.Retrodict
+import Libpetri.Spec.Text.VER_006
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -62,12 +63,7 @@ requirement VER_006
   kind B
   scope "the SMT verifier and every route it dispatches to, AlwaysAvailable and Bounded(k), all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis)"
   source verbatim "spec/07-verification.md"
-  quote "In `AlwaysAvailable` and `Bounded(k)` the verifier MUST **model external injection**: a transition gated on an environment place becomes reachable (the SMT encoding emits an injection rule that produces tokens into each environment place; under `Bounded(k)` injection is capped)."
-        "Equivalently, the environment place is treated as an inexhaustible (or k-capped) external source rather than a column that starts empty and can only be consumed."
-        "Conservation laws (P-invariants) derived from the closed net MUST NOT be applied to injected environment places, since injection breaks closed-net conservation."
-        "*While* the mode is `AlwaysAvailable`, the verifier *shall* treat as reachable every marking the executor reaches while the environment injects tokens into the environment places."
-        "*While* the mode is `Bounded(k)` and the two premises of AC3 hold, the verifier *shall* treat as reachable every marking the executor reaches while the environment keeps at most `k` tokens resident in each environment place."
-        "*While* the mode is `Bounded(k)`, the verifier *shall* not treat as reachable a marking that holds more than `k` tokens on an environment place, from an initial marking that holds at most `k` on each one."
+  covers VER_006.s1, VER_006.s2, VER_006.s3, VER_006.s4, VER_006.s5, VER_006.s6
   reading "For every reachable-set function R of the open system, all flat nets given as rows, environment places envs, caps k and markings:"
           "under AlwaysAvailable, when no consume-all arc carries a guard, every marking the executor reaches with injection (ReachCE, the counts of its coloured marking) is in R from the initial counts;"
           "under Bounded(k), when no consume-all arc carries a guard and the premise check passes (boundedPremiseOK: at most k on each environment place initially, no row deposits into one), the same holds;"
@@ -391,7 +387,7 @@ requirement VER_006_premise
   kind F
   scope "the SMT verifier under Bounded(k), before any route, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*While* the mode is `Bounded(k)`, the premise check *shall* pass exactly when the initial marking holds at most `k` tokens on each registered environment place and no transition deposits into one."
+  covers VER_006.s7
   reading "For every premise check P, cap k, environment places envs, flat rows and initial marking m0: P passes exactly when m0 holds at most k tokens on each place of envs (EnvCappedC) and no row deposits a token into a place of envs (NoEnvDeposit)."
   assumes "The flat rows stand for the verified net's transitions: a transition deposits into a place exactly when one of its rows does, since the flattener writes one row per branch of the output spec, and the runtimes read the output places of the spec (Rust t.output_places() in bounded_premise_violation, environment.rs), which are the places of its branches. The check is sufficient, not exact: a deposit that could never push the place above k is refused too. Untimed, counts only."
           "What the verifier does when the check fails (Unknown, naming the place and the broken premise, and no route runs) is line 2 of VER_006_verdict, whose check envPremiseOK reads the places each output spec names; on every net at flat place ids it is the check of every P meeting this block, applied to the net's flat rows (envPremiseOK_eq_premise). The order of the check (environment places in code-point order, the initial marking first, the first depositing transition in code-point order, a completion step complete:<t> of VER-004 named t) is the reason text, kind Q. Why the premises are needed is Novel/EnvSemantics: without them the encoding's post-cap blocks firings the executor makes (bounded_initial_overflow_wrong_proven, bounded_producer_overflow_wrong_proven) and the state-class graphs miss firings (supplied_bounded_deposit_wrong_proven, supplied_bounded_initial_wrong_proven, quiescence_bounded_initial_spurious); behind the check the reachable set, the supplied successor and the quiescence clause cover the executor (bounded_checked_sound, bounded_checked_supplied_sound, bounded_checked_quiescence_sound). AC3 is this block, line 2 of VER_006_verdict and line 3 of VER_006."
@@ -495,9 +491,7 @@ requirement VER_006_quiescent
   kind F
   scope "the quiescence clause of DeadlockFree, TerminatesAtSink, QuiescentCount and JoinedOrDeadLettered on every route, AlwaysAvailable and Bounded(k), all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*While* the mode is `AlwaysAvailable` or `Bounded(k)`, an input or read arc on an environment place *shall* not count as a reason a transition is disabled, unless the mode is `Bounded(k)` and the arc demands more than `k` tokens, in which case the transition *shall* count as permanently disabled."
-        "*While* the mode is `AlwaysAvailable` or `Bounded(k)`, the verifier *shall* treat a marking as quiescent exactly when every transition that is not reapable is permanently disabled or has a disabling reason that holds at the marking."
-        "A marking quiescent in this sense that is reachable with injection, from an initial marking that holds at most `k` tokens on each environment place under `Bounded(k)`, enables no transition, and no sequence of injections makes it enable one."
+  covers VER_006.s9, VER_006.s10, VER_006.s11
   reading "For every quiescence test Q, place count np, flat rows, environment places envs, mode and marking a: Q calls a quiescent exactly when every row is permanently disabled (permDisabled: an input on an environment place demanding more than the cap, or a read on one under Bounded(0)) or has a disabling reason that holds at a (disableReasonsE: an input on a place that is not an environment place below its demand, any inhibitor arc whose place is marked, a read on a place that is not an environment place and is empty)."
   assumes "The model is the flat open system of Novel/EnvSemantics, untimed: every row is read as not reapable, which is every row of an untimed net and of a net under assumeNoReaping. The shipped encode_quiescent skips a reapable row (smt_encoder.rs), so 'every transition that is not reapable' is the rows here; the reap-aware reading without injection is VER-002's and ReapAware.lean's. The combination of the skip with injection is not proved: the reapable half of the two quiescence sentences has no evidence here, an open item. An inhibitor arc is a reason whatever its place, since it reads the current count. A place with two input arcs on one transition is outside the model (FlatOK, InputsDistinctPlaces)."
           "The third quoted sentence is the meaning of the reasons form, derived for every Q meeting the block, and it speaks only of reachable markings from a capped initial marking (which the Bounded(k) premises give): pointwise it is false, since under Bounded(1) a transition whose only input is exactly(2, E) on the environment place E is permanently disabled, so {E: 2} counts as quiescent although that transition is enabled there. VER_006_quiescent_stuck (a reachable capped marking Q calls quiescent is dead and stays dead under every injection, relaxed_violation_real), and VER_006_quiescent_exact for the other direction over reachable markings (a reachable marking stuck under every injection future has a reachable saturation Q calls quiescent, so a quiescence property loses no violation; relaxed_quiescence_exact, under a demand bound and for an injection-stable side condition). The two forms agree on reachable markings, not pointwise, which is why the block quotes the reasons form (ruling D49 (a), VB1)."
@@ -647,7 +641,7 @@ requirement VER_006_arrivals
   kind F
   scope "the SMT verifier under Arrivals(min, max), before any route, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*While* the mode is `Arrivals(min, max)`, the verifier *shall* verify the net closed with a mandatory source holding `min` tokens and an optional source holding `max − min` tokens for each environment place, so that a marking of the net is reachable in the closed net exactly when the environment reaches it with at most `max` arrivals on each environment place, and is a dead marking of the closed net exactly when it is reached with at least `min` arrivals on each environment place and enables no transition of the net."
+  covers VER_006.s14
   reading "For every Arrivals rewrite C, all flat nets given as rows, environment places envs (distinct, below the fresh place id base), min ≤ max, and markings a0, a of the net (zero from base on), with every arc, reset and deposit of the rows below base:"
           "some marking reachable in the closed net (C's rows from C's seed) agrees with a below base exactly when the open system, in which a row fires or one token arrives on an environment place that has seen fewer than max, reaches a from a0 with some arrival counts;"
           "some dead marking reachable in the closed net agrees with a below base exactly when the open system reaches a with at least min arrivals on every environment place and no row of the net is enabled at a."
@@ -998,11 +992,7 @@ requirement VER_006_verdict
   kind B
   scope "the SMT verifier and every route it dispatches to, all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis)"
   source verbatim "spec/07-verification.md"
-  quote "*If* environment places are registered and the mode is `Ignore`, *then* the verifier *shall* not return `Proven`, on any route."
-        "*If* the mode is `Bounded(k)` and the premise check fails, *then* the verifier *shall* return `Unknown` naming the environment place and the broken premise, and *shall* run no route."
-        "*When* the mode is `Ignore` and the verdict is `Violated` with `counterexampleConfirmed` `true`, the trace *shall* be a firing sequence of the verified net without injection to a marking that violates the property."
-        "The verifier *shall* report the vacuity note only for a quiescence property, and only when some transition of the verified net that is not reapable is neither permanently disabled nor has a disabling reason left under the mode, an input or read arc on an environment place being a reason under `Ignore` and `Arrivals`, which model no injection, and an inhibitor arc that the terminal rewrite of [EXEC-042] adds being a reason in every mode."
-        "*While* the mode is `AlwaysAvailable` or `Bounded(k)` and environment places are registered, *when* the property is a quiescence property and some transition of the verified net that is not reapable is neither permanently disabled nor has a disabling reason left (an inhibitor arc that the terminal rewrite of [EXEC-042] adds is a reason), the verifier *shall* report the vacuity note with a `Proven` or `Violated` verdict."
+  covers VER_006.s15, VER_006.s8, VER_006.s16, VER_006.s12, VER_006.s13
   reading "For every firing relation F, violation reading V, verified-net function abs of the net without injection, and environment-aware decider D, and all registered environment places envs, options o, timed nets X, properties φ and initial markings m0:"
           "if envs is not empty, D under Ignore does not return Proven;"
           "if the Bounded(k) premise check fails (envPremiseOK: some environment place holds more than k initially, or some transition's output spec names one), D under Bounded(k) returns Unknown with the route Unavailable;"

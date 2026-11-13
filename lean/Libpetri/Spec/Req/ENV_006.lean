@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
+import Libpetri.Spec.Text.ENV_006
 
 set_option linter.missingDocs true
 
@@ -69,11 +70,7 @@ requirement ENV_006
   kind B
   scope "all executors with environment places"
   source verbatim "spec/06-environment-places.md"
-  quote "If the executor has been closed, is draining, or execution has completed, inject() returns an error or false rather than silently dropping the token."
-        "*If* `inject()` is called while the executor is draining, closed or stopped ([ENV-011], [ENV-013], [ENV-015]), or after the run has finished, *then* it *shall* return an error or `false`."
-        "*If* `inject()` is called while the executor is draining, closed or stopped, or after the run has finished, *then* the executor *shall* change nothing: the token *shall not* reach the marking, and no event *shall* be queued for injection."
-        "Each accepted injection *shall* stay an event of its own until it is injected, discarded or dropped: the executor *shall not* merge two accepted injections into one."
-        "*Where* `inject()` returns an admission signal ([ENV-004]), *when* a run that accepted an injection finishes, the executor *shall* have completed the signal of that injection, with the value [ENV-004] gives: by injecting the token, by discarding the event on a close ([ENV-013]), by dropping it on an immediate termination ([ENV-015]), or by dropping it at the finish of the run while it is still queued."
+  covers ENV_006.s1, ENV_006.s2, ENV_006.s3, ENV_006.s4, ENV_006.s5
   reading "For every executor R and every configuration C:"
           "while the executor is draining, closed or stopped, or its run has finished, it accepts no injection request;"
           "an injection request made in such a state leaves the executor state unchanged, whatever it answers;"

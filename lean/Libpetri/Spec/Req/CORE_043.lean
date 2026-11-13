@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
 import Libpetri.Spec.Req.IO_015
+import Libpetri.Spec.Text.CORE_043
 
 set_option linter.missingDocs true
 
@@ -38,10 +39,7 @@ requirement CORE_043
   kind F
   scope "every compile step and every verification entry point (state-class graph and SMT), under every property and option setting the entry point accepts"
   source verbatim "spec/01-core-model.md"
-  quote "*If* a net holds a transition that declares an output spec, a `Timeout`-only spec included, and carries the built-in passthrough action ([CORE-051]), whether bound explicitly, carried because a `bindActions` mapping omitted it ([CORE-042]), or left in place as the builder default, *then* compiling the net *shall* fail with an error that names the first such transition in declaration order."
-        "*If* no transition of a net both declares an output spec and carries the built-in passthrough action, *then* compiling the net *shall not* fail under this requirement."
-        "*If* a transition declares no output spec, or carries an action other than the built-in passthrough, a `fork()` action ([CORE-052]) or a hand-written action that produces nothing included, *then* compiling the net *shall not* fail under this requirement naming that transition."
-        "*When* a net is submitted to a verification entry point (state-class graph or SMT), under any property and option the entry point accepts, the entry point *shall* fail under this requirement exactly when compiling the submitted net does, with an error that names the same transition."
+  covers CORE_043.s1, CORE_043.s2, CORE_043.s3, CORE_043.s4
   reading "For every compile check C and every verification entry check V, each a function from a built net to none (the check passes) or some name (the check fails naming that transition):"
           "if the transitions of net b, in declaration order, are l1, then d, then l2, d declares an output specification and carries the built-in passthrough, and no transition of l1 does both, then C b fails naming d;"
           "if no transition of net b both declares an output specification and carries the built-in passthrough, then C b passes;"

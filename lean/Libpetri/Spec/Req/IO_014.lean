@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_014
 
 set_option linter.missingDocs true
 
@@ -77,14 +78,7 @@ requirement IO_014
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "`ForwardInput(from, to)` is a node of an output spec that, on the timeout outcome, deposits in `to` the tokens a firing consumed from its input place `from`."
-        "*If* a `ForwardInput` node of an output spec is not inside the child of a `Timeout` node, *then* building the transition *shall* fail with"
-        "naming the first such node in the order the spec is written (pre-order, children left to right)."
-        "The check runs when the transition is built, on every construction path, as the check of [IO-011] does."
-        "*When* a firing ends with the timeout outcome, every `ForwardInput(from, to)` in the `Timeout` child *shall* deposit in `to` one token for each token the firing consumed from `from`, carrying the token's value, in consumption order."
-        "The count *shall* be the consumption count of the input arc on `from` ([IO-007]): 1 for `One`, `n` for `Exactly(n)`, and the whole drained batch for `All` and `AtLeast(m)`."
-        "*If* a firing consumed more than one token from `from`, *then* the forward *shall not* deposit fewer tokens in `to` than the firing consumed; in particular it *shall not* forward only the first consumed token."
-        "*If* a firing consumed no token from `from`, which a declared input cannot do but a mis-declared spec can, *then* the forward *shall* deposit no token in `to`."
+  covers IO_014.s1, IO_014.s2, IO_014.s3, IO_014.s4, IO_014.s5, IO_014.s6, IO_014.s7, IO_014.s8
   reading "Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and T the firings that end with the timeout outcome."
           "For every transition t whose output spec o has a ForwardInput(from, to) outside the child of a Timeout node, the first in pre-order, building t fails;"
           "and if t's input places are distinct, no output branch of o names a place twice, o has at most one Timeout node and no Xor node inside its Timeout child, building t fails with the IO-014 message naming t, from and to."

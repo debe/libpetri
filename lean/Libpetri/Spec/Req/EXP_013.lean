@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_013
 
 set_option linter.missingDocs true
 
@@ -69,21 +70,9 @@ requirement EXP_013
   kind F
   scope "every exporter, the edges of one transition into one place"
   source verbatim "spec/09-export.md"
-  quote "When a transition has both an output arc and a reset arc to the same place P, the mapper MUST draw every output edge to P as a combined edge, styled as the reset-output category (color `#fd7e14`, style `bold`, penwidth `2.0`, arrowhead `normal`) and labelled `\"reset+out\"`."
-        "The standalone output edge to P MUST be suppressed in this case."
-        "The standalone reset edge to P MUST be suppressed in this case."
-        "When the output spec names P in more than one leaf (for example `Xor(P, And(P, Q))`), each such leaf gives one combined edge."
-        "If a transition resets place P but does not output to P, the standalone reset edge with label `\"reset\"` MUST still be emitted (existing behavior preserved)."
-        "If a transition outputs to P but does not reset P, the standalone output edge MUST be emitted (existing behavior preserved)."
-        "The combination applies regardless of whether the output edge originates at the transition directly or at an XOR/AND junction underneath the transition (per EXP-012)."
-        "When the output is a leaf under a junction, the *junction → P* edge is the one that becomes reset-styled with the `\"reset+out\"` label."
-        "The combined edge carries the label `\"reset+out\"` alone and is never dashed: it replaces the branch label, the timeout label and the `ForwardInput` label and dash the leaf edge would carry under [EXP-012]."
-        "*Where* the transitions of a net have pairwise distinct names and a transition of the net resets place P, each edge the mapper draws for a `Place` leaf for P or a `ForwardInput` leaf into P of its output spec *shall* be an undashed edge of arc type reset-output, in the reset-output style and labelled `reset+out`, whether it starts at the transition or at a junction node."
-        "*Where* the transitions of a net have pairwise distinct names, a transition of the net resets place P and its output spec has a `Place` leaf for P or a `ForwardInput` leaf into P, the mapper *shall* draw no reset edge from that transition to P."
-        "*Where* the transitions of a net have pairwise distinct names, a transition of the net resets place P and its output spec has no `Place` leaf for P and no `ForwardInput` leaf into P, the mapper *shall* draw one undashed reset edge from the transition to P for each reset arc of the transition on P, in the reset style and labelled `reset`."
-        "*Where* the transitions of a net have pairwise distinct names and a transition of the net does not reset place P, each edge the mapper draws for a `Place` leaf for P or a `ForwardInput` leaf into P of its output spec *shall* be of arc type output, in the output style."
-        "*Where* the transitions of a net have pairwise distinct names, for each transition and place P the mapper *shall* draw exactly as many edges of arc type output or reset-output from the transition and its junction nodes into P as the transition's output spec has `Place` leaves for P and `ForwardInput` leaves into P."
-        "The mapper *shall* draw every edge of arc type reset-output from a transition or one of its junction nodes into a place that transition resets."
+  covers EXP_013.s1, EXP_013.s2, EXP_013.s3, EXP_013.s4, EXP_013.s5, EXP_013.s6, EXP_013.s7,
+        EXP_013.s8, EXP_013.s9, EXP_013.s10, EXP_013.s11, EXP_013.s12, EXP_013.s13, EXP_013.s14,
+        EXP_013.s15
   reading "For every configuration cfg and net X, in the graph E cfg X, when the transitions of X have distinct names, for every transition t of X and every place name P:"
           "if t resets P, every output-side edge of t into P (exp013OutInto: arc type output or resetOutput, from the node of t or one of its junctions, into the node of P) has arc type resetOutput, style row resetOutput, is not dashed and is labelled reset+out;"
           "if t resets P and a leaf of t's output spec ends in P, there is no reset edge of t into P (exp013ResetInto);"

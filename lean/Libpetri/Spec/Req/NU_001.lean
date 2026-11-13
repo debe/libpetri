@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Req.NU_021
+import Libpetri.Spec.Text.NU_001
 
 set_option linter.missingDocs true
 
@@ -74,9 +75,7 @@ requirement NU_001
   kind F
   scope "the names, the name equality and the name order of each implementation"
   source verbatim "spec/12-nu-nets.md"
-  quote "The name constructor *shall* return equal names for equal underlying values and different names for different underlying values."
-        "Each implementation *shall* order names by one fixed strict total order, the name order: if one name precedes another, the other does not precede it; if a first name precedes a second and the second precedes a third, the first precedes the third; and of two different names, one precedes the other."
-        "Of two names whose underlying values hold only Basic Multilingual Plane characters, one *shall* precede the other exactly when its value precedes the other's in the lexicographic order of code points."
+  covers NU_001.s3, NU_001.s4, NU_001.s5
   reading "For all values a and b, the implementation's name equality holds between the name constructed from a and the name constructed from b exactly when a = b."
           "For all values a and b, if the name of a precedes the name of b, then the name of b does not precede the name of a (so no name precedes itself)."
           "For all values a, b and c, if the name of a precedes the name of b and the name of b precedes the name of c, then the name of a precedes the name of c."
@@ -560,8 +559,7 @@ requirement NU_001_rename
   kind B
   scope "every executor; one firing of a transition with a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "Whether a matched transition is enabled, and which tokens its firing consumes, *shall* depend on the names its keys project only through name **equality** and, for the tie-break of [NU-020], the name order."
-        "*When* a matched transition fires with a chosen name, and a one-to-one renaming of names makes the renamed chosen name the chosen name ([NU-020], [NU-022]) of the same transition with every name its keys and relay targets project renamed, at the same marking, that renamed transition *shall* fire from that marking with the renamed chosen name, for the same emission, delivering the same tokens and leaving the same marking."
+  covers NU_001.s1, NU_001.s2
   reading "For every transition t with match specification ms, every injective renaming σ of names, and every firing of t in R from M with chosen name n, delivery δ and emission e, leaving M': if σ n is the chosen name of nuRenameNames σ t at M (t with every name its keys and relay targets give renamed by σ; Selected over the selection input of t at M with every name renamed by σ, which is the renamed transition's own selection input), then R has a firing of nuRenameNames σ t from M with chosen name σ n, delivery δ and emission e, leaving M'."
   assumes "The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel), as for NU_020_enable and NU_021: R t M c δ e M' says that t fires from M with chosen name c, delivers δ, the action emits e, and the firing leaves M'. A renaming of names is a function σ from names to names applied to what every key and relay target projects (nuRenameNames); the places, arcs, output spec, token values, markings and emissions are untouched, so 'the same transition with every name its keys and relay targets project renamed' is nuRenameNames σ t and token payloads are not renamed. It is injective because a renaming that merges two names changes name equality, which the sentence lets a firing read: a matcher whose name index folds names that differ, such as a case-folding NameId, is rejected (NU_001_rename_forbids_folded). 'Is enabled' and 'which tokens its firing consumes' are read as: the firing exists, with the same delivery and the same result."
           "The name order enters only through the premise: σ n must be the chosen name of the renamed transition at M (Selected over the renamed selection input, which is the renamed transition's own selection input at M, nu001_matchIn_rename). The premise speaks of the renamed side only; that n is the chosen name of t at M is not assumed, and for a relation that meets NU_020_enable it holds anyway. A renaming that keeps the name order keeps the pick of every firing NU_020_enable allows, so with NU_020_enable the line gives 'a firing commutes with every strictly monotone renaming' (nu001_rename_strictMono). A renaming that does not keep the name order is what rules out reading the order anywhere but the tie-break: a matcher that fires only when the chosen name is the least name held in its correlated inputs meets every firing line of NU-020 and is rejected here (NU_001_rename_mutant_leastHeld), and so is a matcher that treats the name 0 as no name, a test on the content of a name (NU_001_rename_forbids_zeroAsNone, the case NU-021's assumes defers to this line)."

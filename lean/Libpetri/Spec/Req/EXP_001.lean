@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
 import Libpetri.Reference.ExportCluster
+import Libpetri.Spec.Text.EXP_001
 
 set_option linter.missingDocs true
 
@@ -57,14 +58,8 @@ requirement EXP_001
   kind F
   scope "every exporter, the nodes and the arc edges of one exported net"
   source verbatim "spec/09-export.md"
-  quote "The engine MUST support exporting the net structure to at least one standard graph format suitable for visualization."
-        "The export *shall* draw exactly one node for each place on which some transition has an input, output, inhibitor, read or reset arc."
-        "*Where* the transitions of a net have pairwise distinct names, the export *shall* draw exactly one node for each transition."
-        "The export *shall* draw a place node only for a place that the net declares or on which some transition has an arc, and a transition node only for a transition of the net."
-        "The export *shall* draw, for each input arc, inhibitor arc and read arc, an edge of the arc's type from the node of its place to the node of its transition."
-        "*Where* the transitions of a net have pairwise distinct names, the export *shall* draw as many input, inhibitor and read edges from the node of a place to the node of a transition as the transition has arcs of that type on that place."
-        "The export *shall* draw into each place that a transition's output spec names an edge from that transition or from one of its junctions, of type output or, where the transition also has a reset arc on that place, of the combined reset+output type of [EXP-013]."
-        "The export *shall* draw into each place on which a transition has a reset arc an edge from that transition or from one of its junctions, of type reset or, where the transition's output spec also names that place, of the combined reset+output type of [EXP-013]."
+  covers EXP_001.s1, EXP_001.s2, EXP_001.s3, EXP_001.s4, EXP_001.s5, EXP_001.s6, EXP_001.s7,
+        EXP_001.s8
   reading "For the exporter E, every configuration cfg and every net X:"
           "(1) every place p on which some transition t of X has an input arc, an output arc, an inhibitor arc, a read arc or a reset arc (the glossary predicates over the firing view t.toTrans) is the place of exactly one node of E cfg X;"
           "(2) if the transitions of X have pairwise distinct names, every transition t of X is the transition of exactly one node of E cfg X (keyed by its name);"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Verifier.Graph
 import Libpetri.Spec.Verifier.Result
 import Libpetri.Spec.Verifier.Pipeline
+import Libpetri.Spec.Text.VER_017
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -142,18 +143,8 @@ requirement VER_017
   kind B
   scope "the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the route)"
   source verbatim "spec/07-verification.md"
-  quote "The enumeration route *shall* apply exactly when the net it receives, after the rewrites of [VER-006], [VER-004] and [EXEC-042], declares no match transition, has no environment place registered and has only `immediate` transitions, and the class budget is positive."
-        "The build *shall* be stopped only when the total budget runs out or the caller cancels ([VER-013])."
-        "*While* the build is neither stopped by the total budget nor cancelled ([VER-013]), the state-class graph *shall* be closed exactly when it has fewer classes than the class budget."
-        "The state-class graph *shall* hold the initial class as its first class, and only classes reachable from it."
-        "*When* the graph is closed, the route *shall* return `Proven` exactly when no marking reachable from the initial marking violates the property, and `Violated` otherwise."
-        "*While* the build is neither stopped by the total budget nor cancelled ([VER-013]), the route *shall* return `Violated` when a counted class violates the property, where a counted class is any stored class for a safety property and a class the builder expanded for a quiescence property."
-        "*When* the route returns `Violated`, it *shall* report a counted class that violates the property, and a firing sequence from the initial marking to the marking of that class that is a path, in the graph the route built, from the initial class to that class."
-        "*When* the route returns `Violated`, the firing sequence it reports *shall* be no longer than any path, in the graph the route built, from the initial class to a counted class that violates the property."
-        "The route *shall not* return `Proven` from a graph that is not closed, and *shall* read nothing off a graph whose build was stopped by the total budget or cancelled."
-        "*When* the route returns `Proven` or `Violated`, the verifier *shall* return that verdict and *shall not* run the SMT pipeline."
-        "*If* the route does not run, or the graph is truncated and no counted class violates the property, *then* the verifier *shall* continue with the rest of the pipeline exactly as it does without the route, except that the time the route took counts against a total budget ([VER-013])."
-        "*If* the build is stopped by the total budget or cancelled, *then* the verifier *shall* return the `Unknown` of [VER-013]."
+  covers VER_017.s1, VER_017.s2, VER_017.s3, VER_017.s4, VER_017.s5, VER_017.s6, VER_017.s7,
+        VER_017.s8, VER_017.s9, VER_017.s10, VER_017.s11, VER_017.s12
   reading "The guard A runs the route on a net with timing X, match flag hasMatch and registered environment places env at budget n exactly when hasMatch is false, env is empty, every transition of X is immediate (Untimed X) and n is positive."
           "For every successor function succ, budget n, stop oracle cut, fuel and initial state x0, with E the identity explorer of succ and o the build of G at E with no early stop: if cut never fires and the fuel is above n, o was not stopped;"
           "if o was not stopped, o is closed exactly when it holds fewer than n classes;"
@@ -1317,12 +1308,7 @@ requirement VER_017_cache
   kind B
   scope "the SMT verifier with a state-space cache, all implementations (SHOULD; the shall sentences bind an implementation that offers the cache)"
   source verbatim "spec/07-verification.md"
-  quote "*When* a state-space cache is passed, the verifier *shall* key each entry by the caller's net, the transitions the in-flight split of [VER-004] rewrote, the initial marking and whether the graph is reduced ([VER-024]), and a query *shall* read and write only the entry of its own key."
-        "*When* an entry holds a closed graph of `C` classes, a query at a budget greater than `C` *shall* reuse it, and a query at a budget of `C` or less *shall* read it as an explored prefix, in both cases without building."
-        "*When* an entry holds a truncation remembered at budget `B`, a query at a budget of `B` or less *shall* read its explored prefix without building."
-        "*When* an entry is empty, or holds a truncation remembered at a budget smaller than the query's, the query *shall* build at its own budget, and the entry *shall* then hold a closed graph as closed, a truncated graph with the query's budget, and, after a build stopped by the total budget or cancelled, what it held before."
-        "*If* a build fails, *then* the entry *shall* stay as the build found it, and the failure *shall* reach the query that ran the build."
-        "A query *shall* read a graph it built or reused as the route reads it without the cache, and a graph it read as an explored prefix as a graph that is not closed."
+  covers VER_017.s13, VER_017.s14, VER_017.s15, VER_017.s16, VER_017.s17, VER_017.s18
   reading "For every lookup Lk, keyed query Q and reading R: a closed entry o at budget b answers reused o when o holds fewer than b classes and declined o otherwise, and stays as it was, whatever the build would return;"
           "a truncation remembered at B answers declined, and stays, at every budget b of B or less;"
           "when the query builds (the entry is empty, or a truncation at B below b) and the build returns o, the answer is built o and the entry becomes closed o if o closed, stays as it was if o was stopped, and becomes the truncation of o at b otherwise;"

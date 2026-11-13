@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.CORE_072
 
 set_option linter.missingDocs true
 
@@ -39,11 +40,7 @@ requirement CORE_072
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "An executor can be initialized with an initial marking that pre-populates places with tokens before execution begins."
-        "*When* an executor is initialized with an initial marking, its marking *shall* hold, before execution begins, exactly the tokens the initial marking puts on each place, whether or not the net declares that place."
-        "*When* execution begins, a transition of the net *shall* be armed exactly when its enablement check passes on the initial marking, with the firing clock's reading at that moment as its stamp, so that its elapsed time starts at 0 ([TIME-010])."
-        "*While* a place is an unknown place, the executor *shall* retain its tokens in the marking, in their order and ahead of any token that reaches the place later, and *shall not* drop any of them."
-        "*While* a place is an unknown place, the executor *shall not* change its tokens when the firing clock advances or when it reaps a transition ([TIME-013])."
+  covers CORE_072.s1, CORE_072.s2, CORE_072.s3, CORE_072.s4, CORE_072.s5
   reading "For every initialiser I, timed step relation R and queue firing relation Q:"
           "for every timed net X, initial marking m0 and start reading now0, the state I X m0 now0 holds exactly m0, on every place, whether or not the net declares it;"
           "in the state I X m0 now0, every transition of the net that m0 enables holds the state's own clock reading as its stamp (with line 1: a transition of the net is armed there exactly when m0 enables it, and its elapsed time is 0);"

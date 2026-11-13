@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryExport
 import Libpetri.Reference.Export
+import Libpetri.Spec.Text.EXP_012
 
 set_option linter.missingDocs true
 
@@ -40,16 +41,8 @@ requirement EXP_012
   kind F
   scope "every exporter, the output side of one transition"
   source verbatim "spec/09-export.md"
-  quote "For every `Out.Xor` or `Out.And` group with **two or more children**, the mapper MUST insert a synthetic *junction node* between the transition and the children."
-        "A group with fewer than two children MUST NOT produce a junction (it is a pass-through)."
-        "The mapper *shall* draw one junction node for each `And` or `Xor` group of an output spec that has two or more children, of the group's kind, and no other junction node."
-        "*Where* an `And` or `Xor` group has fewer than two children, the mapper *shall* draw its child, if it has one, from the group's parent and with the label the edge into the group would carry."
-        "The mapper *shall* draw exactly one solid output edge into each junction node, into the place of each `Place` leaf and into the target place of each `ForwardInput` leaf, from the nearest junction node above it, or from the transition when there is none, and no other edge for the output spec."
-        "The edge into a child of an `Xor` junction *shall* carry the child's branch label: the place name of a `Place` child, `⏱<n>ms` for a `Timeout` child of n ms, and no label for an `And` or `Xor` child."
-        "The edge into a child of an `And` junction, and the edge from the transition into the output spec, *shall* carry no label of their own."
-        "*Where* a `Timeout` node of n ms is in an output spec, the edge drawn into its child *shall* carry `⏱<n>ms` in place of the label the edge into the `Timeout` would carry."
-        "*Where* a leaf is a `ForwardInput` from place F to place P, the mapper *shall* draw its edge as the edge of a `Place` leaf for P at the same position, dashed instead of solid, and with `⟵F` after its label and a space, or as its only label when it has none."
-        "*Where* [EXP-013] combines a leaf edge into a reset place, that edge *shall* take the arc type, label and style [EXP-013] gives it in place of the ones above."
+  covers EXP_012.s1, EXP_012.s2, EXP_012.s3, EXP_012.s4, EXP_012.s5, EXP_012.s6, EXP_012.s7,
+        EXP_012.s8, EXP_012.s9, EXP_012.s10
   reading "For every transition name t, reset places R and output tree o (any tree, short and empty groups included), there is a one-to-one renumbering ρ of the junction indices the emitter E uses, such that:"
           "the junctions E draws, renumbered, are the groups of o with two or more children, one junction each, of the group's kind (OutTree.junctions), in any order;"
           "the edges E draws, renumbered, are the edges of the drawing rule (Drawing t o), one each, in any order: both ends of every edge, and for every edge that does not end in a reset place also its arc type output, style row output, dash and label as the rule gives them."

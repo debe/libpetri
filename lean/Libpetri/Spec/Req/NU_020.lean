@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Nu
 import Libpetri.Spec.Req.NU_022
+import Libpetri.Spec.Text.NU_020
 
 set_option linter.missingDocs true
 
@@ -49,13 +50,7 @@ requirement NU_020_build
   kind F
   scope "every match builder and every transition builder, on every construction path"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* a match builder is given fewer than two keys, *then* building the match *shall* fail."
-        "*If* a match specification keys one place twice, *then* building the match *shall* fail."
-        "Building a match from two or more keys on distinct places *shall* succeed."
-        "*If* a transition fails to build without its match specification, *then* building it with the match specification *shall* fail."
-        "*If* the match specification of a transition keys one place twice, *then* building the transition *shall* fail."
-        "*If* the match specification of a transition keys a place that is not an input place of the transition, *then* building the transition *shall* fail."
-        "Building a transition with a match specification *shall* succeed when the transition builds without the match, the match keys distinct input places of the transition, and the match declares each relay target once and as an output place of the transition ([NU-054])."
+  covers NU_020.s1, NU_020.s2, NU_020.s3, NU_020.s4, NU_020.s5, NU_020.s6, NU_020.s7
   reading "Let MB be the match builder (MB keys = none: the match builds) and NB the transition builder (NB t = none: t builds)."
           "For every list of keys with fewer than two entries, MB fails."
           "For every list of keys that names one place twice, MB fails."
@@ -106,9 +101,7 @@ requirement NU_020_enable
   kind B
   scope "every executor; one firing of a transition with a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a transition with a match specification fires, it *shall* be enabled on its token counts ([CORE-022])."
-        "*When* a transition with a match specification fires, every correlated input *shall* hold at least one token of the chosen name and at least its required count of tokens of that name."
-        "*When* a transition with a match specification fires, no other name of which every correlated input holds at least its required count of tokens *shall* have an earlier earliest `createdAt` among its tokens in the correlated inputs than the chosen name, or the same and precede it in the name order."
+  covers NU_020.s8, NU_020.s9, NU_020.s10
   reading "For every transition t with match specification ms, every firing of t in R from M is enabled on the token counts of M (glossary: Enabled)."
           "For every transition t with match specification ms, every firing of t in R from M has a chosen name n, and n is eligible on the selection input read off M (the match has a key; every correlated input holds at least one token of n and at least its required count of them)."
           "For every transition t with match specification ms, every firing of t in R from M with chosen name n has, for every eligible name m, (earliest stamp of n, n) at most (earliest stamp of m, m) in the lexicographic order, the earliest stamp of a name being the least createdAt over every token of the name in every correlated input."
@@ -159,8 +152,7 @@ requirement NU_020_take
   kind B
   scope "every executor; one firing of a transition with a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a transition with a match specification fires, its action *shall* receive from each correlated input the first tokens of the chosen name in queue order, as many as the consumption count of the input arc with `available` the number of tokens of the chosen name in the place ([IO-007])."
-        "*When* a transition with a match specification fires, each correlated input that is not one of its reset places *shall* end the firing holding the tokens it did not deliver, in their order, followed by the tokens the firing deposited there."
+  covers NU_020.s11, NU_020.s12
   reading "For every transition t with match specification ms and every firing of t in R from M with chosen name n: on every correlated input p with key f, the delivered tokens are the first k tokens of M p whose key gives n, in queue order, k being the correlated take (the consumption count of the arc on p over the number of tokens of n in M p)."
           "For every transition t with match specification ms and every firing of t in R from M to M' with chosen name n: every correlated input p with key f that is not a reset place holds in M' its queue in M without its first k tokens of name n, every other token in its order, followed by the tokens the firing emitted to p, in emission order."
   assumes "The model is a ν firing relation R, as for NU_020_enable. A correlated input is a place the match keys (keyAt); a transition that builds keys it once and it is an input place (NU_020_build). On a correlated input the count-level rules of IO-001 to IO-005, IO-007 and CORE-013 apply to the tokens of the chosen name only (ruling D30 (a), glossary: Consume, Correlated take): a correlated One takes one token of the name, Exactly(k) k of them, All and AtLeast every token of the name (AC3), and tokens of other names stay in the place in their order. 'FIFO within a name' is 'the first tokens of the chosen name in queue order'."
@@ -207,10 +199,7 @@ requirement NU_020_frame
   kind B
   scope "every executor; one firing of a transition with a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "*When* a transition with a match specification fires, its deposit *shall* be one its output spec offers for the tokens the firing takes ([IO-013], [IO-015])."
-        "*When* a transition with a match specification fires, its read arcs *shall* deliver the head of each read place after the inputs are taken ([EXEC-012])."
-        "*When* a transition with a match specification fires, each of its reset places *shall* end the firing holding only the tokens the firing deposited there ([CORE-034])."
-        "*When* a transition with a match specification fires, each place that is not a correlated input *shall* deliver to its action, and keep, the tokens it would without the match specification: the tokens at the head of its queue, as many as the consumption count of its input arc and none without one, and, unless it is a reset place, the rest of its queue in order followed by the tokens the firing deposited there ([EXEC-010], [EXEC-020])."
+  covers NU_020.s13, NU_020.s14, NU_020.s15, NU_020.s16
   reading "For every transition t with match specification ms and every firing of t in R from M with chosen name n that emits e: either the places e writes are exactly the places of some output branch of t, one or more tokens each, or e puts in every place as many tokens as some timeout outcome of t when each input place gives up its correlated take for n."
           "For every such firing: the read tokens are, per read arc, the head of its place in the marking after the inputs are taken."
           "For every such firing to M': every reset place of t holds in M' exactly the tokens the firing emitted to it."

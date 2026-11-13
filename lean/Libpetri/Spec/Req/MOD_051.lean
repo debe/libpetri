@@ -3,6 +3,7 @@ import Libpetri.Spec.Req.VER_006
 import Libpetri.Spec.Req.CORE_042
 import Libpetri.Reference.ComposeBuild
 import Libpetri.Reference.ComposeDef
+import Libpetri.Spec.Text.MOD_051
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -175,12 +176,7 @@ requirement MOD_051
   kind B
   scope "verify on a subnet definition in Java, TypeScript and Rust, and verify_subnet in Python (on the Rust one); SHOULD, so the shall sentences bind an implementation that offers it"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* `verify` returns a result, the synthetic net it verified *shall* be the net that a new enclosing builder builds from one call that composes the subnet's instance under the prefix `sut`, binds each port to its harness place (`harness_in_<port>` for an input port, `harness_out_<port>` for an output port, `harness_io_<port>` for an in-out port), binds no channel and declares nothing else."
-        "*If* instantiating the subnet under the prefix `sut` fails or building the synthetic net fails, *then* `verify` *shall* fail."
-        "*If* the harness supplies no token source for an input or in-out port of the subnet, *then* `verify` *shall* fail and *shall* return no verification result."
-        "*If* the harness supplies a token source for every input and in-out port and the [CORE-043] check fails on the synthetic net, *then* `verify` *shall* fail with an error that names the transition the check names, also when the harness lists no property."
-        "*When* `verify` returns a result, the result *shall* hold an entry for each property of the harness and no entry for another property, and each entry for a property *shall* be the result of the standard verifier ([VER-003], [VER-006]) on the synthetic net, set up with that property, the harness places of the input and in-out ports as environment places, the selected environment mode, the verifier's default options and the empty initial marking, and then passed, together with the synthetic net, through the configure hook, whose changes override that setup."
-        "*When* `verify` is called without options, it *shall* verify under the environment mode `AlwaysAvailable` with no configure hook."
+  covers MOD_051.s1, MOD_051.s2, MOD_051.s3, MOD_051.s4, MOD_051.s5, MOD_051.s6
   reading "For every instantiation function Inst, build-script function BS, CORE-043 compile check C, environment-aware decider D and verification operation SV, over every definition S, harness h and options:"
           "if some input or in-out port of S has no token source in h, SV fails;"
           "if SV returns a report r, then Inst instantiates S under the prefix sut as some instance I, and BS builds r's synthetic net from the one call that composes I with every port bound to its harness place and no channel bound (so SV fails when Inst or BS fails);"
@@ -797,8 +793,7 @@ requirement MOD_051_bind
   kind F
   scope "bindActions (both forms) on a subnet definition in Java, TypeScript and Rust; Python's bind_actions on a definition rides on the Rust one"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* actions are bound on a subnet definition, in either form, the new definition *shall* have the name, the ports and the channels of the original definition and the place correspondence ([MOD-031]) of each of its transitions, in the same order."
-        "*When* actions are bound on a subnet definition with a resolver or a mapping, the body of the new definition *shall* be the net that binding the same resolver or mapping on the original body gives at net level ([CORE-042]), so the resolver or the mapping is keyed by the definition's own, unprefixed transition names."
+  covers MOD_051.s7, MOD_051.s8
   reading "For every net-level resolver binding Bind and map binding BindMap of CORE-042, and every definition-level resolver binding DBind and map binding DBindMap:"
           "for every definition S and resolver or map r, both DBind S r and DBindMap S r have S's name, ports and channels, and the place correspondences of S's definitions, position by position;"
           "for every S and resolver r, the body of DBind S r is Bind applied to the body of S with r;"

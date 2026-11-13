@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryNuVer
 import Libpetri.Reference.Nu
 import Libpetri.Spec.Req.NU_020
 import Libpetri.Spec.Req.NU_051
+import Libpetri.Spec.Text.NU_054
 
 set_option linter.missingDocs true
 
@@ -52,9 +53,7 @@ requirement NU_054_build
   kind F
   scope "every transition builder, on every construction path"
   source verbatim "spec/12-nu-nets.md"
-  quote "*If* the match specification of a transition declares one place as a relay target twice, *then* building the transition *shall* fail."
-        "*If* the match specification of a transition declares as a relay target a place that its output spec does not name, *then* building the transition *shall* fail."
-        "*When* the match specification of a transition declares one of its own match keys as a relay target and the transition passes every other build-time check, building the transition *shall* succeed."
+  covers NU_054.s1, NU_054.s2, NU_054.s3
   reading "Let NB be the transition builder (NB t = none: t builds)."
           "For every ν transition t whose match specification lists one place twice among its relay targets, NB fails on t."
           "For every ν transition t whose match specification has a relay target p that the output spec of t does not name (no output arc on p, glossary: Output arc), NB fails on t."
@@ -110,8 +109,7 @@ requirement NU_054_check
   kind B
   scope "every executor, with output validation on; one firing of a transition with a match specification"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* output validation is on, *when* a transition with a match specification fires, no token the firing deposits into one of its relay targets *shall* have a name other than the chosen name under that relay target's key projection, whichever output branch or timeout outcome deposited it."
-        "*While* output validation is on, *when* a transition with a match specification fires, every token the firing deposits into one of its relay targets *shall* have a name under that relay target's key projection, whichever output branch or timeout outcome deposited it."
+  covers NU_054.s4, NU_054.s5
   reading "For every transition t that builds (NuBuilds) with match specification ms and every firing of t in R (an executor with output validation on) with chosen name n that emits e: for every relay target (p, f) of ms and every token x that e puts on p, if f gives x a name m, then m = n."
           "For every such firing: for every relay target (p, f) of ms and every token x that e puts on p, f gives x a name."
   assumes "The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel), as for NU_020_enable: R t M c δ e M' says that t fires from M with chosen name c, delivers δ, its action emits e (every token it deposits, whatever wrote it) and the firing leaves M'. The lines speak of firings that complete: a completion whose emission breaks the check is not a firing of R. The lines quantify over firings with a chosen name some n; that every matched firing has one is NU_020_enable's first line (a firing of a transition with a match specification has a chosen name, and it is eligible), so a model that fired a matched transition with no chosen name is forbidden there and cannot satisfy these lines vacuously. The two lines together are the relay check RelayOk of the reference (RefNuFire), split so that each half has its own forbidden model. The reference runs it on every outcome the output spec offers, an action branch or the timeout outcome (ruling D24 (a): the timeout outcome is not validated against the output spec, but the relay check runs on it, Executor::handle_completion in rust/libpetri-runtime/src/executor_core/executor.rs, processCompletedTransitions in java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java and in typescript/src/runtime/bitmap-net-executor.ts), so the timeout outcome of an output spec such as And(A, Timeout(d, B)) fires in every runtime. An executor that validated the timeout outcome against the whole output spec, the Java and TypeScript behaviour RD-01 recorded, would never fire it."
@@ -163,13 +161,7 @@ requirement NU_054_verifier
   kind F
   scope "the fragment classifier of every ν verifier"
   source verbatim "spec/12-nu-nets.md"
-  quote "*While* the fragment mode is BASE, the fragment classifier *shall* give no role to a matched transition that writes a coloured place in any of its outcomes, whatever relay targets it declares."
-        "*While* the fragment mode is EXTENDED, the fragment classifier *shall* give no role to a matched transition that writes, in any of its outcomes, a coloured place it does not declare as a relay target."
-        "*If* the timeout outcome of a matched transition writes a coloured place by anything other than a forward of one of its match keys, *then* the fragment classifier *shall* give it no role, in both BASE and EXTENDED."
-        "*While* the fragment mode is EXTENDED, *if* a matched transition has no reset, read or inhibitor arc on a coloured place, puts on each branch exactly one token, and never a drained batch, into each coloured place the branch writes, writes coloured places only among its relay targets, consumes coloured places only through its match keys, consumes each match key at a fixed count (`One` or `Exactly`), and on timeout writes a coloured place only by forwarding one of its match keys, *then* the fragment classifier *shall* give it the join role with the relay targets it declares."
-        "*While* the fragment mode is EXTENDED, *when* the fragment classifier gives a matched transition the join role, the role *shall* carry as relay targets exactly the relay targets the transition declares."
-        "*While* the fragment mode is BASE, *when* the fragment classifier gives a matched transition the join role, the role *shall* carry no relay targets."
-        "*While* the fragment mode is BASE, the fragment classifier *shall* give a matched transition the role it gives the same transition without relay targets."
+  covers NU_054.s9, NU_054.s10, NU_054.s11, NU_054.s12, NU_054.s13, NU_054.s14, NU_054.s15
   reading "For every coloured set col, mint declaration, list of timeout writes tw and transition T with match keys ks: under BASE, if some outcome (row) of T writes a coloured place, T gets no role."
           "Under EXTENDED, if some outcome of T writes a coloured place that is not one of T's relay targets, T gets no role."
           "In either mode, if some timeout write into a coloured place is not a forward of one of the places ks, T gets no role."

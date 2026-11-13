@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.EXEC_020
 
 set_option linter.missingDocs true
 
@@ -44,8 +45,7 @@ requirement EXEC_020
   kind B
   scope "all executors"
   source verbatim "spec/04-execution-model.md"
-  quote "Each token is added to the end of the target place's FIFO queue, in the order the action produced it."
-        "*When* the executor admits the completion of an action and output validation does not reject the produced tokens ([EXEC-021], [CONC-026]), the executor *shall* add each produced token at the tail of its place's queue, in the order the action produced the tokens."
+  covers EXEC_020.s1, EXEC_020.s3
   reading "For every queue firing of Q, of a transition t from the queue marking M, delivering δ, emitting e and leaving M', there is a queue marking base (the queues the firing leaves before its deposit) such that:"
           "every place p holds after the firing the queue base holds at p, followed by the tokens e emits to p, in emission order (AppendedAtTail base M' e p);"
           "on every place p that is neither an input place nor a reset place of t, base holds the queue M held at p;"

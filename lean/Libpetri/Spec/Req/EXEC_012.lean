@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.EXEC_012
 
 set_option linter.missingDocs true
 
@@ -147,16 +148,8 @@ requirement EXEC_012
   kind B
   scope "all executors and transition builders"
   source verbatim "spec/04-execution-model.md"
-  quote "When a transition fires, read arc values are provided to the action without consuming the tokens."
-        "The oldest token in the read place is peeked."
-        "*When* a transition fires, its action *shall* receive, for each of its read places, the oldest token the place holds."
-        "*When* a transition fires, its action *shall* receive read tokens only from the read places of the transition."
-        "*When* a transition fires, each of its read places that is not one of its reset places *shall* end the firing holding the tokens it held before the firing, in the same queue order, followed by the tokens the firing deposits there."
-        "*If* a transition declares an input arc and a read arc on the same place, *then* building the transition *shall* fail with"
-        "The message is the same, byte for byte, in every implementation."
-        "\"The same place\" is the implementation's own `Place` equality, as for [CORE-030] ([CORE-002]; name-and-type in Java, name-only in TypeScript and Rust)."
-        "It runs after every input-arc check ([CORE-030], [IO-002], [IO-004]) and before the timing check ([TIME-001]) and the output-spec checks ([IO-011]–[IO-014])."
-        "It walks the read arcs in declaration order and names the place of the first read arc whose place is an input place of the transition."
+  covers EXEC_012.s1, EXEC_012.s2, EXEC_012.s3, EXEC_012.s4, EXEC_012.s5, EXEC_012.s6, EXEC_012.s7,
+        EXEC_012.s8, EXEC_012.s9, EXEC_012.s10
   reading "Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and Q the queue firings."
           "For every transition t with no input arc and read arc on one place, every read place p of t, every delivery δ and every emission e, every firing of t from the queue marking M that delivers δ and emits e delivers at p the head of p's queue in M: the first token delivered at p is the head of M at p, every token delivered at p is that head, and when t has one read arc on p at most one token is delivered there;"
           "for every such t, every read place p of t that is not a reset place of t, every δ and every e, every firing of t from M to M' that delivers δ and emits e leaves at p the queue M held at p, identity and order, followed by the tokens e emits to p in emission order (AppendedAtTail);"

@@ -4,6 +4,7 @@ import Libpetri.Reference.Events
 import Libpetri.Spec.Req.EXEC_022
 import Libpetri.Spec.Req.EVT_008
 import Libpetri.Spec.Req.EVT_009
+import Libpetri.Spec.Text.EVT_010
 
 set_option linter.missingDocs true
 
@@ -103,9 +104,7 @@ requirement EVT_010
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "The executor *shall* emit an ActionTimedOut event only when the budget of a firing runs out or when it settles a firing that ended with its timeout outcome, and the event *shall* name that firing's transition."
-        "*When* the executor emits the ActionTimedOut event of a firing as it deposits the firing's timeout outcome, it *shall* emit that event before the TokenAdded events of the outcome."
-        "The executor *shall* emit at most one ActionTimedOut event for each firing, and, for a firing that ended with its timeout outcome, *shall* emit one no later than when it settles that outcome, whether it deposits the outcome or fails the firing because the join-relay check of [NU-054] rejects it."
+  covers EVT_010.s1, EVT_010.s2, EVT_010.s3
   reading "For every executor with events E and every configuration C:"
           "the events a run emits before its first step contain no ActionTimedOut event, whatever the initial marking; and for every history H, every ActionTimedOut event that a step labelled l from state s appends names the transition of a firing f in flight in s whose identity i is the one the label carries (an expiry expire i e, a timeout deposit tdeposit i or a fail step fail i), and the step is the expiry of that firing's budget or f holds a timeout outcome;"
           "for every history H, the events a timeout deposit tdeposit i appends have no ActionTimedOut event after a TokenAdded event;"
@@ -1115,7 +1114,7 @@ requirement EVT_010_payload
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "Each ActionTimedOut event *shall* carry the duration of the `Timeout` node of the firing's output spec."
+  covers EVT_010.s4
   reading "For every executor with events D whose ActionTimedOut events carry a duration, every assignment bud of durations to the Timeout nodes of the transitions, every configuration C and every history H:"
           "every ActionTimedOut event e that a step labelled l from state s appends carries as its duration bud of the transition of a firing f in flight in s whose identity is the one the label carries."
   assumes "This is the second block of EVT-010: the duration field. The first block, EVT_010, says when the event is emitted and which transition it names; this block adds what its duration holds. The model's events and output specs carry no durations: NetEvent.actionTimedOut carries the transition name only (Spec/GlossaryEvents.lean) and Out.timeout has no after duration (Reference/Semantics.lean). The block therefore takes the durations as data, bud : Trans N -> Nat, the after duration in milliseconds of the Timeout node of each transition's output spec, and models the field as dur, the duration an executor writes into each event a step appends (Evt010DurExec, an executor with events and its duration field). The witness is the reference executor with events refEvExec under both emission variants, with the duration field evt010_refDur: bud of the transition of the firing the step's label names. The field is this block's own until the shared model carries the duration on the Timeout node and on the event; the event blocks' other fields do not read it."

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.IO_003
 
 set_option linter.missingDocs true
 
@@ -37,10 +38,7 @@ requirement IO_003
   kind B
   scope "all executors"
   source verbatim "spec/02-input-output-specs.md"
-  quote "*While* the place of an `All` input arc of a transition is unmarked, the transition *shall not* fire."
-        "*While* the place of an `All` input arc of a transition is marked and is not a correlated input of the transition's match specification ([NU-020]), the `All` input arc *shall not* affect whether the transition can fire."
-        "*When* a transition fires, it *shall* consume every token from the place of each of its `All` input arcs that is not a correlated input of its match specification ([NU-020])."
-        "*When* a transition fires, the place of each of its `All` input arcs that is neither an output place of the transition nor a correlated input of its match specification *shall* end the firing empty."
+  covers IO_003.s1, IO_003.s2, IO_003.s3, IO_003.s4
   reading "For every transition t and every place p on which t has an `All` input arc:"
           "t does not fire from a marking in which p is unmarked;"
           "from a marking in which p is marked, t can fire exactly when t without its `All` input arcs on p can fire;"

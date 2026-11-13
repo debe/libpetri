@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
+import Libpetri.Spec.Text.CORE_035
 
 set_option linter.missingDocs true
 
@@ -24,9 +25,7 @@ requirement CORE_035
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition fires, it *shall* deposit tokens only in its output places, according to its output spec (see [IO-010]–[IO-015])."
-        "*When* a transition fires, the marking the firing leaves *shall* hold every token the firing deposited."
-        "*When* a transition fires, every place that is neither an input place nor a reset place of the transition *shall* change by exactly the tokens the firing deposited there."
+  covers CORE_035.s1, CORE_035.s2, CORE_035.s3
   reading "For every transition t and every deposit d:"
           "every firing of t that deposits d puts tokens only in places that t's output spec names;"
           "every firing of t that deposits d leaves a marking in which every place holds at least as many tokens as d put there;"

@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
+import Libpetri.Spec.Text.CORE_041
 
 set_option linter.missingDocs true
 
@@ -78,10 +79,7 @@ requirement CORE_041
   kind B
   scope "all net builders used without composition or fusion sets"
   source verbatim "spec/01-core-model.md"
-  quote "After construction, a Petri net definition is immutable."
-        "The set of places, transitions, and their connections cannot be modified."
-        "*When* the build call of a net builder used as [CORE-040] describes is made, the call *shall* give the net that [CORE-040] describes, or report the rejection that [EXEC-042] describes, for all the places, transitions and terminal places added to that builder before the call, including those added before an earlier build call."
-        "*When* a net builder used as [CORE-040] describes has built a net and is used again, to add places, transitions or terminal places or to build again, the net it built *shall* keep the places, transitions and terminal places it had when it was built."
+  covers CORE_041.s1, CORE_041.s2, CORE_041.s3, CORE_041.s4
   reading "For every transition builder B, every net builder NB over B's instances and every builder state machine BA:"
           "for every history of uses of a new builder (calls and builds, in the order made), the handle the next build returns shows, right after that build, NB's result (a built net or a rejection) on every call of the history, in the order made (NetIn.ofOps of the calls; a build adds nothing and resets nothing);"
           "for every history of uses of a new builder and every later history of uses, the handle the build after the first history returns shows after the later history what it showed right after that build."

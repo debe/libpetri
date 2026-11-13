@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
+import Libpetri.Spec.Text.EVT_002
 
 set_option linter.missingDocs true
 
@@ -49,8 +50,7 @@ requirement EVT_002
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*When* a run starts, the executor *shall* emit an ExecutionStarted event before its first cycle ([EXEC-001]) and before any event of the run other than a log message ([EVT-013])."
-        "The executor *shall* emit at most one ExecutionStarted event per run."
+  covers EVT_002.s1, EVT_002.s2
   reading "For every executor with events E, every configuration C, every initial marking M0, every initial reading r0 and every event trace tr of a run of E from M0 at r0 (the events the run emits before its first step, then the events of each step):"
           "tr contains an ExecutionStarted event;"
           "tr contains at most one ExecutionStarted event;"
@@ -534,7 +534,7 @@ requirement EVT_002_executionId
   kind F
   scope "Java, TypeScript and Rust executors"
   source verbatim "spec/08-events-observability.md"
-  quote "Two executors constructed in one process from the same copy of the library *shall* carry different execution IDs, whatever the clock reads when each is constructed ([TIME-015] AC14)."
+  covers EVT_002.s3
   reading "For every execution ID assignment ids, where ids k r is the execution ID of the executor constructed k-th in its process from one copy of the library while the clock reads r: two executors constructed at different places k and k' in the construction order carry different IDs, for all clock readings r and r'."
   assumes "This is the second block of EVT-002 (ruling D98 (a)): the ID identifies the executor, and its distinctness is the MUST half of TIME-015 AC14, which no other block states (TIME-015 points AC14 at this block). The model is the assignment ids : Nat → Nat → String: the ID depends on the executor's place k in the process's construction order and, in a wrong implementation, on the clock reading r at construction. All runtimes draw the ID at construction from one counter per copy of the library shared by both executors (EXECUTION_ID_SEQ and nextExecutionId in java/src/main/java/org/libpetri/runtime/ExecutorSupport.java, used by the executionId field of BitmapNetExecutor.java and PrecompiledNetExecutor.java; executionIdCounter and nextExecutionId in typescript/src/runtime/executor-support.ts, used by the runId field of bitmap-net-executor.ts and precompiled-net-executor.ts; EXECUTION_ID_SEQ in rust/libpetri-runtime/src/executor_core/executor.rs, drawn in Executor::from_parts), so k counts the executors of both kinds. The witness refExecutionId is that counter in lower-case hex. An implementation that takes the ID from the clock reading, as TypeScript did before AC14 (the doc comment of nextExecutionId, executor-support.ts), separates executors constructed at different readings and breaks the line under an injected clock that reads the same twice (EVT_002_executionId_mutant_clock)."
           "Out of scope: a counter that wraps (2 to the 64 constructions in Java and Rust; TypeScript numbers stay exact up to 2 to the 53), executors in different processes (a per-process counter restarts at 0, which AC14 does not ask to avoid), executors constructed from different copies of the library in one process, each with its own counter that starts at 0 (a TypeScript module instance per worker thread or realm, each with its own executionIdCounter in executor-support.ts; a Java class loaded by two class loaders, each with its own ExecutorSupport.EXECUTION_ID_SEQ; two instances of the Rust crate), and reproducibility, the SHOULD half of AC14 (refExecutionId does not read the clock, so a replay with the same construction order gets the same IDs, EVT_002_executionId_nonvacuous). Whether the ID is on the events is the third block, EVT_002_lifecycleId: Java and TypeScript put it on ExecutionStarted and ExecutionCompleted, Rust and Python do not."
@@ -615,7 +615,7 @@ requirement EVT_002_lifecycleId
   kind F
   scope "Java and TypeScript executors (the lifecycle events of Rust and Python carry no execution ID)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the lifecycle events carry the execution ID (Java and TypeScript), the ExecutionStarted and ExecutionCompleted events of every run *shall* carry the ID of the executor that runs it."
+  covers EVT_002.s4
   reading "For every observation L of the execution IDs, where L.exec k r is the ID of the executor constructed k-th in its process while the clock reads r, and L.onStarted k r j and L.onCompleted k r j are the IDs on the ExecutionStarted and ExecutionCompleted events of its j-th run: for all k, r and j,"
           "the ExecutionStarted event of the run carries the executor's ID, L.onStarted k r j = L.exec k r;"
           "the ExecutionCompleted event of the run carries the executor's ID, L.onCompleted k r j = L.exec k r."

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryBuild
 import Libpetri.Spec.Req.CORE_020
+import Libpetri.Spec.Text.CORE_021
 
 set_option linter.missingDocs true
 
@@ -47,8 +48,7 @@ requirement CORE_021
   kind F
   scope "all transition builders"
   source verbatim "spec/01-core-model.md"
-  quote "*When* two transitions are built by separate build calls, the two built transitions *shall not* be equal, even if they share the same name or were given the same definition."
-        "Every built transition *shall* be equal to itself."
+  covers CORE_021.s1, CORE_021.s2
   reading "For every transition builder B:"
           "if call k on input i returns x and call k' on input i' returns y, with k and k' two different calls, then x and y are not the same transition (B.same), whatever i and i' are; in particular when they have the same name, and when i and i' are the same input;"
           "if call k on input i returns x, then x is the same transition as x."

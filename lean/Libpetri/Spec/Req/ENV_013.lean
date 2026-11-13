@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Exec
 import Libpetri.Spec.Req.EXEC_040
+import Libpetri.Spec.Text.ENV_013
 
 set_option linter.missingDocs true
 
@@ -48,22 +49,9 @@ requirement ENV_013
   kind B
   scope "all executors"
   source verbatim "spec/06-environment-places.md"
-  quote "The executor provides a `close()` method for immediate shutdown."
-        "In Java and TypeScript the executor takes the close when `close()` sets its closed flag, except that a call that lands while the loop is injecting queued events in the external-events step ([EXEC-001] step 2) is taken when that injection ends: the events it injects come before the close, and the events still queued after it are discarded."
-        "Calling `close()` after `drain()` escalates from graceful to immediate shutdown."
-        "A close does not stop the firing pass."
-        "While an action is in flight, a closed executor keeps running its cycles and may start ready transitions, whose actions are then in flight too; it terminates at the first termination test ([EXEC-040]) that finds no action in flight."
-        "A close alone therefore does not bound a run whose firings overlap; an immediate termination ([ENV-015]) does."
-        "A run budget ([ENV-016]) bounds only the caller's wait."
-        "*When* the executor takes a close, it *shall* enter the closed mode and *shall* leave every part of its state other than its mode and whether its loop waits ([CONC-010]) as it was: the marking, the clock of every transition, the clock reading of the cycle, the actions in flight, the queued outcomes, publications and external events, the supply of identities, the phase of its loop and the rest of a firing pass."
-        "*While* the executor is closed, it *shall* reject every `inject()` call, and a rejected call *shall* change nothing."
-        "The executor *shall* enter the closed mode only when it takes a close, and *shall* leave it only for an immediate termination ([ENV-015])."
-        "*While* the executor is closed, it *shall not* inject a queued external event."
-        "*When* a closed executor ends its run, it *shall* leave no external event queued."
-        "*While* the executor is closed and no terminal place is marked, it *shall* end its run only when no action is in flight, or on a cancellation it observes in its wait ([EXEC-041])."
-        "*While* the executor is closed, no terminal place is marked and no action is in flight, it *shall* take no step at a termination test ([EXEC-040]) other than ending its run."
-        "*While* the executor is closed, it *shall* remove an action from the actions in flight only by settling its outcome."
-        "*While* the executor is closed, it *shall* end step 1b of a cycle ([EXEC-001]) only when no publication is queued."
+  covers ENV_013.s1, ENV_013.s2, ENV_013.s3, ENV_013.s4, ENV_013.s5, ENV_013.s6, ENV_013.s7,
+        ENV_013.s8, ENV_013.s9, ENV_013.s10, ENV_013.s11, ENV_013.s12, ENV_013.s13, ENV_013.s14,
+        ENV_013.s15, ENV_013.s16
   reading "For every executor R and every configuration C:"
           "a close step sets the mode to closed and changes no field of the state but the mode and the parked flag: the marking, the clock readings now and cyc, the clock statuses, the firings in flight, the completion, publication and event queues, the identity supply, the loop phase and the pass's remaining order, hidden tail and started flag stay as they are;"
           "a request step from a closed state is not accepted and leaves the state as it is;"

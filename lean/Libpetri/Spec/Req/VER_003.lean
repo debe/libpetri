@@ -1,6 +1,7 @@
 import Libpetri.Spec.Verifier.Result
 import Libpetri.Spec.Req.VER_001
 import Libpetri.Spec.Req.CORE_022
+import Libpetri.Spec.Text.VER_003
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -53,17 +54,8 @@ requirement VER_003
   kind B
   scope "every verifier entry point and every route, all implementations (SHOULD; the shall sentences bind an implementation that offers verification)"
   source verbatim "spec/07-verification.md"
-  quote "The verifier *shall* return `Proven` with a proof method that is not empty, `Violated`, or `Unknown` with a reason that is not empty."
-        "The places a property of [VER-002] names are the places of `MutualExclusion`, `PlaceBound` and `Unreachable`, and the places and the `waivedBy` places of `QuiescentCount`; the sinks of `DeadlockFree` and `TerminatesAtSink` and the places of a conditional sink declaration ([VER-014]) are not among them, since a sink or marker the net does not hold is never marked and excuses nothing."
-        "*If* a property names a place that the net does not declare, the initial marking does not mark and no rewrite of the verified net adds (the in-flight places of [VER-004], the arrival sources of [VER-006]), *then* the verifier *shall* return `Unknown`, whatever any route would answer."
-        "*If* the verified net cannot be built (the in-flight split of [VER-004] refuses the net, or the premise check of `Bounded(k)` of [VER-006] fails), *then* the verifier *shall* return `Unknown`."
-        "*When* the verdict is `Violated` and `counterexampleConfirmed` is `true`, the verifier *shall* report a trace that is a firing sequence of the verified net from the initial marking to a marking that violates the property."
-        "*When* the initial marking violates the property and the verdict is `Violated`, the verifier *shall* report the empty firing sequence, with `counterexampleConfirmed` not `false`, and `true` unless Route B or the name-coloured encoding of [NU-053] decided it."
-        "The verifier *shall* return `Proven` only when no marking reachable from the initial marking in the untimed abstraction of the verified net ([VER-004]) violates the property."
-        "*When* the verifier reports a P-invariant, on any route, its weighted token sum *shall* equal its constant on every marking reachable from the initial marking in the untimed abstraction of the verified net."
-        "The verifier *shall* report a `counterexampleTiming` exactly when the verdict is `Violated`, and `UNTIMED_NET` exactly when every transition of the net is `immediate`."
-        "*When* the verdict is `Violated` and some transition of the net is not `immediate`, the verifier *shall* report `TIMED_EXACT` if Route B decided it, and `UNTIMED_ABSTRACTION` if another route decided it while the timed check of [VER-023] is off."
-        "*When* the verdict is `Proven` or `Violated`, the verifier *shall* name the route that decided it, which is not `Unavailable`."
+  covers VER_003.s1, VER_003.s2, VER_003.s3, VER_003.s4, VER_003.s5, VER_003.s6, VER_003.s7,
+        VER_003.s8, VER_003.s9, VER_003.s10, VER_003.s11
   reading "For every firing relation F, violation reading V, verified-net function abs and decider D, and all options o, timed nets X, properties φ and initial markings m0, with r the result D o X φ m0:"
           "if r is Unknown, its reason is not the empty string;"
           "if r is Proven, its method is not the empty string;"

@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.Glossary
 import Libpetri.Spec.Req.IO_016
+import Libpetri.Spec.Text.IO_017
 
 set_option linter.missingDocs true
 
@@ -46,11 +47,7 @@ requirement IO_017
   kind F
   scope "all output specs"
   source verbatim "spec/02-input-output-specs.md"
-  quote "The `allPlaces` set of a `Place` node *shall* be the set holding only that place."
-        "The `allPlaces` set of a `ForwardInput(from, to)` node *shall* be the set holding only `to`."
-        "The `allPlaces` set of an `And` node *shall* be the union of its children's `allPlaces` sets."
-        "The `allPlaces` set of an `Xor` node *shall* be the union of its children's `allPlaces` sets."
-        "The `allPlaces` set of a `Timeout` node *shall* be its child's `allPlaces` set."
+  covers IO_017.s1, IO_017.s2, IO_017.s3, IO_017.s4, IO_017.s5
   reading "Place(p) gives exactly the set {p};"
           "ForwardInput(from, to) gives exactly the set {to};"
           "And(l, r) gives exactly the union of the sets of l and r;"

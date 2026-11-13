@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryQueue
+import Libpetri.Spec.Text.CORE_070
 
 set_option linter.missingDocs true
 
@@ -42,14 +43,8 @@ requirement CORE_070
   kind F
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "A marking represents the current distribution of tokens across all places."
-        "Internally, each place maps to a FIFO queue of tokens."
-        "A marking *shall* hold a queue of tokens for each place of its net, oldest token first, and the token count of a place *shall* be the length of its queue."
-        "An empty marking *shall* hold no token in any place."
-        "*When* a token is added to a place, the marking *shall* append it at the tail of that place's queue and leave the queue of every other place unchanged."
-        "*When* the first token of a marked place is removed, the marking *shall* return the head of that place's queue and keep the rest of that queue in order, leaving the queue of every other place unchanged."
-        "*If* the first token of a place that is not marked is removed, *then* the marking *shall* return no token and change no queue."
-        "*When* a token is added to or removed from a marking, the resulting marking *shall* still hold a queue for each place of its net."
+  covers CORE_070.s1, CORE_070.s2, CORE_070.s3, CORE_070.s4, CORE_070.s5, CORE_070.s6, CORE_070.s7,
+        CORE_070.s8
   reading "Let Ops be a store of markings: view s p is the queue place p holds in state s, oldest token first; ok s p says that s holds a queue for p; empty, add, removeFirst and count are the operations."
           "For every list of places P there is a state that holds every place of P, and in which every place holds the empty queue and has token count 0."
           "In the designated empty marking every place holds the empty queue and has token count 0."

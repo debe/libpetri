@@ -3,6 +3,7 @@ import Libpetri.Spec.Ears
 import Libpetri.Novel.FiringBound.Phase
 import Libpetri.Novel.FiringBound.Witness
 import Libpetri.Spec.Verifier.Pipeline
+import Libpetri.Spec.Text.VER_019
 
 set_option linter.missingDocs true
 
@@ -194,18 +195,8 @@ requirement VER_019
   kind B
   scope "the SMT verifier, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "*When* the ranking query answers with a weighting `r`, the phase *shall* re-check in exact integer arithmetic that every weight is at least 0 and that `r·C_t ≤ −1` for every flat transition `t` that can fire, and *shall* take the bound `K = r·M0` only when the re-check passes."
-        "*If* the re-check fails or `K` is larger than `2^53 − 1`, *then* the phase *shall* end inconclusive without a bounded model check, and the pipeline *shall* continue."
-        "*When* the phase has the bound `K`, it *shall* ask the bounded model check first at depth `min(K, 8, L)`, where `L` is the depth limit, and after an `unsat` answer at a depth `d` below both `K` and `L` it *shall* ask next at depth `min(2d, K, L)`."
-        "The depth limit `L` *shall* be 512 in every implementation."
-        "*If* the bounded model check answers `unsat` at a depth of at least `K`, *then* the phase *shall* return `Proven` with method `bounded-model-check` and the bound `K`."
-        "*If* the bounded model check answers `unsat` at the depth limit while `K` is larger, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue."
-        "*When* the bounded model check answers `sat` at a depth, the phase *shall* read the run from the model's selectors as the bounded witness phase ([VER-025]) reads it with no injection step, replay it under the exact abstract semantics, and return `Violated` with that run, untrimmed and confirmed, when every step is enabled and the last marking violates the property."
-        "*If* the depth is positive and the model defines none of the step selectors, or the run does not replay to a violating marking, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue."
-        "*If* the ranking query answers `unsat`, *then* the phase *shall* report that the net has no firing bound, whatever the second query answers, and the pipeline *shall* continue to the fixpoint query."
-        "*If* the ranking query or a bounded model check fails in the transport or answers `unknown`, or the phase budget is spent before its answer, *then* the phase *shall* end inconclusive, and the pipeline *shall* continue."
-        "*If* environment places are declared for injection, *then* the phase *shall* send no query and *shall* end inconclusive, also when no arc touches such a place."
-        "Every implementation *shall* turn this phase on by default, as it turns on the phase of [VER-018]."
+  covers VER_019.s1, VER_019.s2, VER_019.s3, VER_019.s4, VER_019.s5, VER_019.s6, VER_019.s7,
+        VER_019.s8, VER_019.s9, VER_019.s10, VER_019.s11, VER_019.s12
   reading "The re-check C accepts a weighting r on a flat net (rows, n places) from a0, with the bound K, exactly when r is a ranking (every weight below n is at least 0, and every row that can fire has a column sum r·C_t of at most −1: IsRanking) and K = r·a0."
           "The depth loop D for the bound k and the limit L is the scan of the schedule: the depths min(k, 8, L), then min(2d, k, L) while d is below k and L; at each depth in turn, no answer ends it (stop), sat reports that depth, unsat at a depth of at least k is proven, unsat below k goes on, and running out of depths is stop."
           "With the injection flag set, the phase P ends inconclusive (injection), whatever the solver would answer."
@@ -1055,11 +1046,7 @@ requirement VER_019_order
   kind B
   scope "the SMT verifier's pipeline, all implementations"
   source verbatim "spec/07-verification.md"
-  quote "The pipeline *shall* place the firing-bound phase at one point, after the state-equation phase of [VER-018] and before the bounded witness phase of [VER-025] and the fixpoint query."
-        "*While* the phase is enabled, the pipeline *shall* run it on exactly the queries that the state-equation phase of [VER-018] runs on when that phase is enabled, whether [VER-018] is enabled or not, unless an earlier step has decided the query or the run has stopped."
-        "*If* the phase is disabled, *then* the verifier *shall not* run it, and the verdicts and reports *shall* be those of the pipeline without the phase."
-        "*When* the phase ends inconclusive or reports that the net has no firing bound, the pipeline *shall* go on to its next step."
-        "*When* the phase returns `Proven` or `Violated`, the verifier *shall* return that result: `Proven` with the method `bounded-model-check` and neither a counterexample nor `counterexampleConfirmed`; `Violated` with the transitions of the replayed run, in firing order, as the counterexample and `counterexampleConfirmed` `true`."
+  covers VER_019.s14, VER_019.s15, VER_019.s13, VER_019.s16, VER_019.s17
   reading "In the pipeline's step names, the state-equation phase comes before the firing-bound phase: the list splits so that every state-equation step is in the first part and every firing-bound step in the second, and each part holds one of them."
           "In the same sense, the firing-bound phase comes before the fixpoint query (the IC3/PDR query)."
           "Where the step names include the bounded witness phase, the firing-bound phase comes before it in the same sense."

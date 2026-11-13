@@ -2,6 +2,7 @@ import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Reference.Events
 import Libpetri.Spec.Req.EVT_012
+import Libpetri.Spec.Text.EVT_006
 
 set_option linter.missingDocs true
 
@@ -54,9 +55,7 @@ requirement EVT_006
   kind B
   scope "all executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "Emitted when a transition begins firing (tokens consumed, action dispatched)."
-        "*When* a transition starts, the executor *shall* emit exactly one TransitionStarted event naming that transition as the last event of the start, and no event before it in that start other than TokenRemoved events ([EVT-012])."
-        "The executor *shall* emit TransitionStarted events only when a transition starts."
+  covers EVT_006.s1, EVT_006.s2, EVT_006.s3
   reading "For every executor with events E and every configuration C:"
           "for every history H of the events emitted before the step, a start step of a name n, from state s to state s', takes the head of the order of s, a transition named n, and appends events evs that are a list of TokenRemoved events followed by one TransitionStarted event naming n;"
           "the events a run emits before its first step contain no TransitionStarted event, whatever the initial marking, and for every history H a step whose label is not a start appends no TransitionStarted event."
@@ -109,8 +108,7 @@ requirement EVT_006_payload
   kind B
   scope "Java and TypeScript executors (event store enabled)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the TransitionStarted event carries the removed tokens (Java and TypeScript), it *shall* list the tokens of the TokenRemoved events of the same start, in the same order."
-        "*Where* the TransitionStarted event carries the removed tokens (Java and TypeScript), the list *shall* hold every token the firing rule removes from the marking visible to the pass ([EXEC-003], [EXEC-013]): the tokens the input arcs consume, then the tokens the reset arcs drain, each group in declaration order and each place's tokens oldest first."
+  covers EVT_006.s4, EVT_006.s5
   reading "For every executor with events E, every configuration C, every history H, and every start step of a name n from state s to state s' that appends the events evs:"
           "evs is the TokenRemoved events of a list pl of place and token pairs, in the order of pl, followed by one TransitionStarted event naming n that lists pl;"
           "the start takes the head t of the pass's order, a transition named n, and every TransitionStarted event in evs lists removedListDecl (vis s) t: for each input place of t in declaration order the tokens its input arc consumes from the pass-visible marking, oldest first, then for each reset place of t in declaration order the tokens its reset arc drains, oldest first."

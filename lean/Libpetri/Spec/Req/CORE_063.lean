@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryContext
 import Libpetri.Spec.Req.CORE_060
 import Libpetri.Spec.Req.CORE_061
 import Libpetri.Spec.Req.CORE_062
+import Libpetri.Spec.Text.CORE_063
 
 set_option linter.missingDocs true
 
@@ -57,12 +58,7 @@ requirement CORE_063
   kind F
   scope "the transition context of every implementation; the inputToken part of line 1 only where the context gives access to tokens: Java and TypeScript"
   source verbatim "spec/01-core-model.md"
-  quote "*If* an action calls an input accessor (`inputs(place)`, `input(place)` or, where it exists, `inputToken(place)`) on a place that does not resolve to an input place of its transition ([MOD-031]), *then* the call *shall* report an error."
-        "*If* an action calls `read(place)` on a place that does not resolve to a read place of its transition ([MOD-031]), *then* the call *shall* report an error, also when the place is an input place of the transition."
-        "*If* an action calls `output(place, ...)`, in its single or its bulk form, on a place that does not resolve to an output place of its transition ([MOD-031]), *then* the call *shall* report an error and declare no token, also when it passes no values."
-        "Every executor hands an action consumed tokens only from the input places of its transition ([EXEC-010]) and read tokens only from its read places ([EXEC-012])."
-        "The plural accessors some languages add, such as `reads(place)` and Java's `inputTokens(place)`, are not named by these rules; each implementation guards them with the check of the singular accessor of the same kind."
-        "These rules govern the calls an action makes through its transition context; a token that reaches the executor without passing through the context is the subject of [CORE-072] AC3."
+  covers CORE_063.s1, CORE_063.s2, CORE_063.s3, CORE_063.s4, CORE_063.s5, CORE_063.s6
   reading "For every value projection value and every context C, every transition t, every delivery δ (the tokens the firing consumed from each input place and the tokens its read arcs read), every output buffer e, every place p and every list of values vs:"
           "if p is not an input place of t and δ delivered no token from p, inputs, input and inputToken on t, δ and p each report an error;"
           "if p is not a read place of t and δ delivered no read token from p, read on t, δ and p reports an error;"

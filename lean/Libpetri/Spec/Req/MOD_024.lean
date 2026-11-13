@@ -4,6 +4,7 @@ import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeBind
 import Libpetri.Spec.Req.MOD_006
 import Libpetri.Spec.Req.MOD_031
+import Libpetri.Spec.Text.MOD_024
 
 set_option linter.missingDocs true
 
@@ -72,10 +73,7 @@ requirement MOD_024
   kind B
   scope "every enclosing-net builder that offers the single-argument compose(instance) (Java, TypeScript, Rust); lines 3 and 4 for those with the inference path (all three)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* `compose(instance)` is called on an instance whose subnet declares at least one port and no channel, the builder *shall* give the same result as `compose(instance, bindings)` with each declared port bound to the place on that port's declaration, the same rejection included."
-        "*If* the subnet of an instance passed to `compose(instance)` declares a channel, *then* `compose(instance)` *shall* fail with an error that names every channel the subnet declares."
-        "*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` succeeds on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, the builder *shall* keep its transitions and add the instance's transitions in order, each with every arc and output place on a renamed body place `p/x` moved to `x` when the builder held `x` at the call, by the implementation's `Place` equality, every other place kept, its name, timing, priority and action unchanged and its declared-to-actual place correspondence ([MOD-031]) moved the same way or, when every entry of it then maps a place to itself, dropped as a whole as [MOD-031] allows, *shall* add to its places exactly the places those transitions name, and *shall* leave its terminal places, retired ports, subnet membership and fusion sets as they were."
-        "*Where* the builder infers bindings for a subnet without ports, *when* `compose(instance)` is called on an instance whose subnet declares no port and no channel and whose transitions have pairwise distinct names, `compose(instance)` *shall* succeed exactly when every instance transition, with each renamed body place `p/x` moved to `x` when the builder holds `x`, passes the transition builder's checks."
+  covers MOD_024.s1, MOD_024.s2, MOD_024.s3, MOD_024.s4
   reading "For every naming model Nm, transition builder check Build, composition function C and auto-composition function Au (whose third argument is the names of the channels the instance's subnet declares):"
           "for every builder b and instance I with at least one port, Au b I [] equals C b I ports [], where ports binds each port's name to the place on its declaration (I.iface), in declaration order, and no channel is bound;"
           "for every builder b, instance I and non-empty list cs of declared channel names, Au b I cs fails with a message that contains every name in cs;"

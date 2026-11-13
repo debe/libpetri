@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryTime
 import Libpetri.RetrodictExec
+import Libpetri.Spec.Text.EXEC_002
 
 set_option linter.missingDocs true
 
@@ -190,17 +191,8 @@ requirement EXEC_002
   kind F
   scope "every executor backend, the all-immediate fast path included (ruling D14 (a))"
   source verbatim "spec/04-execution-model.md"
-  quote "When multiple transitions are ready to fire (armed, past their earliest bound and not expired; see the glossary), they are sorted by:"
-        "**Priority**, descending: a higher priority fires first."
-        "**Stamp**, ascending (FIFO): among equal priority, the transition armed first fires first ([TIME-010])."
-        "**Declaration order**, ascending: among equal priority and equal stamp, the transition declared first fires first."
-        "The ready order of a firing pass *shall* hold every ready transition exactly once and no other transition."
-        "*Where* the net does not take the all-immediate fast path, the ready order *shall* offer a ready transition of higher priority before a ready transition of lower priority."
-        "*Where* the net does not take the all-immediate fast path, the ready order *shall* offer, among ready transitions of equal priority, the one with the earlier stamp first."
-        "The ready order *shall* offer, among ready transitions of equal priority and equal stamp, the earlier-declared one first."
-        "The sort above describes the general path."
-        "Equal priority **and** equal stamp (transitions newly armed by the enablement update of the same orchestrator cycle share one stamp, [TIME-010]): the tie breaks by ascending declaration order, so the order is fully deterministic."
-        "When every transition is `Immediate` and all priorities are equal, backends fire straight from the enablement bitmap in ascending declaration order and do not read the enablement timestamp at all — including when two ready transitions carry different timestamps because one was held across cycles while in flight."
+  covers EXEC_002.s1, EXEC_002.s2, EXEC_002.s3, EXEC_002.s4, EXEC_002.s5, EXEC_002.s6, EXEC_002.s7,
+        EXEC_002.s8, EXEC_002.s12, EXEC_002.s13, EXEC_002.s11
   reading "For every input of a pass, fast path included:"
           "the order holds every ready transition exactly once and nothing else;"
           "two transitions of equal priority and equal stamp come in ascending declaration order;"

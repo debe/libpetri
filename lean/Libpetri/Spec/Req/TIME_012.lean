@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryTime
+import Libpetri.Spec.Text.TIME_012
 
 set_option linter.missingDocs true
 
@@ -31,13 +32,7 @@ requirement TIME_012
   kind T
   scope "all executors"
   source verbatim "spec/03-timing.md"
-  quote "The marking between the halves is the intermediate marking `M - Pre(t)` of Berthomieu and Diaz."
-        "This holds even when `t`'s own outputs refill the place, and it holds whether `t`'s action completes synchronously or asynchronously: a synchronous action MUST NOT hide the gap."
-        "The intermediate marking comes from the live marking `t` fires from: the tokens in the places when `t` fires, minus what `t` consumes."
-        "*When* a transition `t` fires, each armed transition other than `t` that is not enabled in the intermediate marking *shall* lose its clock."
-        "*When* a transition `t` fires, each armed transition other than `t` that is enabled in the intermediate marking and after the firing *shall* keep its stamp."
-        "*When* a transition fires, it *shall* lose its clock."
-        "*When* a transition `t` fires and a transition that lost its clock in that firing is enabled after it, that transition *shall* be newly armed ([TIME-010])."
+  covers TIME_012.s1, TIME_012.s2, TIME_012.s3, TIME_012.s8, TIME_012.s9, TIME_012.s10, TIME_012.s11
   reading "For every timed net X:"
           "a firing of t from a state in which the net's transition u, named differently from t, is armed and not enabled in the intermediate marking of t (taken from the state's marking) leaves u armed with the reading of the firing clock after the firing if u is enabled after it, and leaves u without a stamp otherwise;"
           "a firing of t from a state in which the net's transition u, named differently from t, is armed and enabled in the intermediate marking of t, and after which u is enabled, leaves u's stamp as it was;"

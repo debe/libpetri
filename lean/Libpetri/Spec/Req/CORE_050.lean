@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Ears
 import Libpetri.Spec.GlossaryAction
+import Libpetri.Spec.Text.CORE_050
 
 set_option linter.missingDocs true
 
@@ -36,9 +37,7 @@ requirement CORE_050
   kind B
   scope "all executors"
   source verbatim "spec/01-core-model.md"
-  quote "*When* a transition fires, its action *shall* receive a transition context holding the tokens the firing consumed from each input place and the tokens its read arcs read ([EXEC-010], [EXEC-012])."
-        "*When* a firing ends with the completion of its action, the firing *shall* deposit exactly the output tokens the action completed with, whether the action wrote them through the context or returned them."
-        "*If* the executor admits the completion of a firing's action ([EXEC-020]), the transition has no match specification ([NU-020]) and the output tokens fill one output branch ([IO-015]), *then* the firing *shall* end with that completion."
+  covers CORE_050.s1, CORE_050.s2, CORE_050.s3
   reading "Let Q be the queue firings (Q t M δ e M': t fires from the queue marking M, delivers δ to its action, emits e and leaves M') and AF the action firings (AF a t M δ e M': such a firing under the action a that ends with the completion of a, which emitted e)."
           "For every action a, transition t, delivery δ and emission e: every firing in AF a is a firing in Q with the same delivery, emission and markings, so the action receives exactly what the firing delivers."
           "For every action a, transition t, delivery δ and emission e: if AF a has a firing of t delivering δ and emitting e, then a completes with e on t and δ."

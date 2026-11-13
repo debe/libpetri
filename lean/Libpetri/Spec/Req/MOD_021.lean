@@ -1,6 +1,7 @@
 import Libpetri.Spec.Registry
 import Libpetri.Spec.GlossaryCompose
 import Libpetri.Reference.ComposeMerge
+import Libpetri.Spec.Text.MOD_021
 
 set_option linter.missingDocs true
 
@@ -73,10 +74,7 @@ requirement MOD_021_table
   kind F
   scope "the input-arc merge table of every implementation, used by channel composition and by fusion (MOD-061)"
   source verbatim "spec/11-modular-composition.md"
-  quote "*When* two input arcs on one place are merged and each of them is `one` or `exactly`, the merged arc *shall* be `exactly` of the sum of their counts, where `one` counts 1."
-        "*When* two `all` input arcs on one place are merged, the merged arc *shall* be `all`."
-        "*When* two `atLeast` input arcs on one place are merged, the merged arc *shall* be `atLeast` of the larger of their two minimums."
-        "*If* two input arcs on one place are merged and the pair is none of these three cases (each side `one` or `exactly`, both `all`, both `atLeast`), *then* the merge *shall* be rejected (rule (c))."
+  covers MOD_021.s8, MOD_021.s9, MOD_021.s10, MOD_021.s11
   reading "For every merge table mg (two input-arc cardinalities on one place give the merged cardinality, or none for a rejection):"
           "if each side draws a fixed count (one draws 1, exactly n draws n), mg merges them to exactly of the sum: one with one gives exactly 2, one with exactly n (either order) gives exactly (n + 1), exactly n with exactly m gives exactly (n + m);"
           "mg merges all with all to all;"
@@ -416,28 +414,10 @@ requirement MOD_021
   kind B
   scope "channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to"
   source verbatim "spec/11-modular-composition.md"
-  quote "The sentences cover a caller-side transition whose name is neither empty nor made of white space only, that was not added to the net builder before the compose call and that has no arc on a port bound in the same compose call; for other caller-side transitions the implementations differ, and this requirement does not yet state the outcome."
-        "*When* a channel merge succeeds, the merged transition *shall* have the caller-side transition's name and priority."
-        "**Priority**: the merged transition has the caller-side transition's priority; the instance-side priority is ignored."
-        "*When* a channel merge succeeds and neither side has two input arcs on one place, the merged transition *shall* have at most one input arc on each place: none where neither side has an input arc, an arc of the one side's cardinality where only one side has an input arc, and an arc of the cardinality the canonical input-arc merge table gives for the two where both sides have one."
-        "*When* a channel merge succeeds, the merged transition *shall* have, for each of the arc types inhibitor, read and reset, one arc of that type on every place on which either side has an arc of that type, and no other arc of that type."
-        "(a) **Same arc type without a cardinality** (`Read`, `Inhibitor`, `Reset`): a same-place pair collapses to a single arc."
-        "*When* a channel merge succeeds, the output specification of the merged transition *shall* be `And` of the caller-side specification and the instance-side specification, in that order, when both sides have one, the one side's specification when only one side has one, and none when neither side has one."
-        "For example, when each side produces into `Q`, the merged `And(Q, Q)` names `Q` twice in one branch, which the transition builder rejects ([IO-011]), so the channel merge is rejected."
-        "*When* a channel merge succeeds, the timing of the merged transition *shall* be the instance-side timing when the caller-side timing is `Immediate`, and the caller-side timing otherwise."
-        "*When* a channel merge succeeds, the action of the merged transition *shall* be the caller-side action followed by the instance-side action."
-        "*When* a channel merge succeeds, the merged transition *shall* pass the checks of the transition builder ([CORE-030], [IO-011], [IO-012], [EXEC-012])."
-        "Any other pair, two different timings neither of which is `Immediate`, MUST be rejected with an error naming the caller-side transition."
-        "That error MUST also name both timings, unless the two sides also break rule (d) below, in which case an implementation MAY report the rule (d) error instead."
-        "*If* neither side's timing is `Immediate` and the two timings differ, *then* the channel merge *shall* be rejected with a message that names the caller-side transition."
-        "*If* neither side's timing is `Immediate`, the two timings differ, and the two sides' sets of arc types agree on every place on which both sides have an input, inhibitor, read or reset arc, *then* the channel merge *shall* be rejected with a message that names the caller-side transition and both timings."
-        "(d) **Different arc types**: when both sides have arcs on one place and the two sides' sets of arc types on it (input, inhibitor, read, reset; an output is not counted) differ, for example an `Input` arc on `P` on one side and a `Reset` arc on `P` on the other, or `Read` + `Reset` on one side and `Read` alone on the other, the merge MUST be rejected at compose time. When the timings merge (clause 2), at most one side carries a ν-net match ([NU-060]) and the declared-place correspondences merge ([MOD-031]), the error MUST name the caller-side transition, such a place and each side's set of arc types on it, each set written as its arc-type names (`inhibitor`, `input`, `read`, `reset`) in alphabetical order, separated by a comma and a space, in square brackets, for example `[input]` or `[read, reset]`. Two sides declaring the *same* set of arc types on a place (e.g. `Read` + `Reset` on each side) are not a conflict: their same-type arcs pair up under rules (a)/(b)."
-        "*If* both sides have an input, inhibitor, read or reset arc on one place and the two sides' sets of arc types on that place differ, *then* the channel merge *shall* be rejected."
-        "*If* the timings merge, at most one side carries a ν-net match ([NU-060]), the declared-place correspondences merge ([MOD-031]), and on some place both sides have an input, inhibitor, read or reset arc and the two sides' sets of arc types on it differ, *then* the channel merge *shall* be rejected with a message that names the caller-side transition, one such place and the two sides' sets of arc types on it, each set written as in rule (d)."
-        "(c) **Same arc type with no defined merge**: an `Input` pairing absent from the table MUST be rejected at compose time with the diagnostic below."
-        "A rejection MUST name the seam, both cardinalities, and the place, in this shape:"
-        "*If* the timings merge, at most one side carries a ν-net match ([NU-060]), the declared-place correspondences merge ([MOD-031]), the two sides' sets of arc types agree on every place on which both sides have an input, inhibitor, read or reset arc, neither side has two input arcs on one place, and both sides have an input arc on a place for which the canonical input-arc merge table has no merge, *then* the channel merge *shall* be rejected with the rule (c) diagnostic for such a place and its two arcs, the caller-side arc first, with the seam `Channel composition '<name>'` where `<name>` is the caller-side transition's name."
-        "*When* the timings merge, at most one side carries a ν-net match ([NU-060]), the declared-place correspondences merge ([MOD-031]), the two sides' sets of arc types agree on every place on which both sides have an input, inhibitor, read or reset arc, neither side has two input arcs on one place, every place where both sides have an input arc has a merge in the canonical input-arc merge table, and the transition builder accepts every transition that these sentences allow as the merged transition, the channel merge *shall* succeed."
+  covers MOD_021.s13, MOD_021.s14, MOD_021.s3, MOD_021.s15, MOD_021.s16, MOD_021.s4, MOD_021.s17,
+        MOD_021.s5, MOD_021.s18, MOD_021.s19, MOD_021.s20, MOD_021.s1, MOD_021.s2, MOD_021.s21,
+        MOD_021.s22, MOD_021.s7, MOD_021.s23, MOD_021.s24, MOD_021.s6, MOD_021.s12, MOD_021.s25,
+        MOD_021.s26
   reading "For every transition-builder check Build, every sequential composition sq of two actions, every correspondence merge cm (MOD-031), every rendering tstr of a timing as a text (the implementation's own in its messages) and every channel merge Mg (the caller-side definition c and the instance-side channel definition i give the merged definition or a rejection message):"
           "line 1: if Mg c i succeeds with d, d has c's name and c's priority;"
           "line 2: if neither c nor i has two input arcs on one place and Mg c i succeeds with d, then d has at most one input arc on each place, and on each place p the cardinality mergeAt gives for c's and i's arcs on p: none where neither has one, the one side's where only one has one, mergeCard of the two (the table block's) where both have one;"

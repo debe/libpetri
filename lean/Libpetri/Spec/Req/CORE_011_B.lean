@@ -1,5 +1,6 @@
 import Libpetri.Spec.Req.CORE_011
 import Libpetri.Spec.Req.EXEC_022
+import Libpetri.Spec.Text.CORE_011
 
 set_option linter.missingDocs true
 set_option autoImplicit false
@@ -266,10 +267,7 @@ requirement CORE_011_B
   kind B
   scope "the tokens the executors of Java, TypeScript, Rust and Python create: action outputs written as values, raw-value injections, minted timeout outcomes"
   source verbatim "spec/01-core-model.md"
-  quote "*When* an action writes a value to an output place, the token the executor creates for it *shall* hold that value and carry the reading of its epoch clock at the write ([TIME-015])."
-        "*When* a host injects a raw value into an environment place, the token the executor creates for it *shall* hold that value and carry the reading of its epoch clock at the call ([TIME-015])."
-        "*When* the budget of a firing runs out, each token the executor mints for the timeout outcome *shall* carry the reading of its epoch clock at that moment, and each token a `ForwardInput` forwards *shall* be the consumed token itself, with its timestamp ([IO-014])."
-        "*When* an action outputs a token it built itself, or a host injects a token it built, the executor *shall* keep that token as it is, with its timestamp."
+  covers CORE_011.s4, CORE_011.s5, CORE_011.s6, CORE_011.s7
   reading "For every executor with an epoch clock E (EpochRel: executor states with the readings of the host's wall clock and of the executor's epoch clock), every configuration C, and every step of E from s to s', s.rd.epoch being the epoch clock's reading at the step:"
           "a value write of v to p by firing i creates no token but (p, the token holding v and carrying s.rd.epoch), and puts it only in the buffer of firing i (core011b_buffers: nothing else enters a buffer, the event queue, the marking or the publication queue, and no firing's outcome changes);"
           "a raw-value injection request of v into p creates no token but one queued as an event carrying (p, the token holding v and carrying s.rd.epoch) (core011b_queues: nothing else enters the event queue, a buffer, the marking or the publication queue, and no firing's outcome changes);"
