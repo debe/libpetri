@@ -13,15 +13,15 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12604["Libpetri.Spec.citesToTest"]
-    n12614["Libpetri.Spec.cites_perf020_chain"]
-    n12617["Libpetri.Spec.cites_state_of_check"]
-    n19951["Libpetri.Spec.perf020Cfg"]
-    n19952["Libpetri.Spec.perf020Hop"]
-    n19953["Libpetri.Spec.perf020M0"]
-    n19954["Libpetri.Spec.perf020Names"]
-    n19955["Libpetri.Spec.perf020Run"]
-    n19956["Libpetri.Spec.perf020T"]
+    n12736["Libpetri.Spec.citesToTest"]
+    n12746["Libpetri.Spec.cites_perf020_chain"]
+    n12749["Libpetri.Spec.cites_state_of_check"]
+    n20083["Libpetri.Spec.perf020Cfg"]
+    n20084["Libpetri.Spec.perf020Hop"]
+    n20085["Libpetri.Spec.perf020M0"]
+    n20086["Libpetri.Spec.perf020Names"]
+    n20087["Libpetri.Spec.perf020Run"]
+    n20088["Libpetri.Spec.perf020T"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -35,7 +35,7 @@ flowchart TD
   c133["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
   c140["📁 Libpetri/Spec/GlossaryExec.lean (154 declarations, collapsed)"]
   c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c235["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
   c80 --> c140
   c91 --> c94
@@ -45,31 +45,31 @@ flowchart TD
   c103 --> c109
   c133 --> c94
   c140 --> c91
-  c140 --> c234
+  c140 --> c235
   c147 --> c98
   c147 --> c133
-  c234 --> c103
-  c234 --> c147
-  n12604 --> c140
-  n12614 --> c80
-  n12614 --> n12617
-  n12614 --> n19951
-  n12614 --> n19953
-  n12614 --> n19955
-  n12617 --> c140
-  n19951 --> c140
-  n19951 --> n19956
-  n19952 --> n12604
-  n19952 --> n19954
-  n19953 --> c91
-  n19955 --> n19952
-  n19956 --> c94
-  n19956 --> n19954
+  c235 --> c103
+  c235 --> c147
+  n12736 --> c140
+  n12746 --> c80
+  n12746 --> n12749
+  n12746 --> n20083
+  n12746 --> n20085
+  n12746 --> n20087
+  n12749 --> c140
+  n20083 --> c140
+  n20083 --> n20088
+  n20084 --> n12736
+  n20084 --> n20086
+  n20085 --> c91
+  n20087 --> n20084
+  n20088 --> c94
+  n20088 --> n20086
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12614 root
-  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c133,c140,c147,c234 collapsed
+  class n12746 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c133,c140,c147,c235 collapsed
 ```
 
 Axioms used:

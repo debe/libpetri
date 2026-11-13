@@ -95,7 +95,7 @@ describe('exercised rules', () => {
 
 describe('cross-input checks', () => {
   const base: SiteInputs = {
-    spec: { files: [], blocks: [block('CORE-001'), block('CORE-009', 'removed')], units: new Map([['CORE-001', [{ sents: ['A place holds tokens.'], ac: null }]]]) },
+    spec: { files: [], blocks: [block('CORE-001'), block('CORE-009', 'removed')], checked: true },
     glossary: [{ term: 'Place', slug: 'place', group: 'G', text: 'x', refs: ['CORE-404'] }],
     lean: { blocks: [], citations: [{ id: 'CORE-009', theorem: 'T', module: 'M', fragment: 'f' }] },
     coverage: {},
@@ -112,30 +112,6 @@ describe('cross-input checks', () => {
       'coverage matrix: no row for CORE-001',
     ]);
     expect(() => buildSiteData(base)).toThrow(/the site inputs disagree:\n {2}glossary term/);
-  });
-
-  it('checks that every verbatim Lean quote is text of its block', () => {
-    const leanBlock = (quote: string) => ({
-      id: 'CORE-001',
-      title: 't',
-      decl: 'Libpetri.Spec.CORE_001',
-      module: 'm',
-      kind: 'B' as const,
-      sourceRef: 'spec/01-core-model.md',
-      source: 'verbatim',
-      scope: 's',
-      quotes: [quote],
-      reading: [],
-      assumes: [],
-      statement: 's',
-      signoff: { state: 'pending' as const },
-      hash: '0123456789abcdef',
-      evidence: [],
-    });
-    const ok: SiteInputs = { ...base, glossary: [], lean: { blocks: [leanBlock('A *place* holds tokens.')], citations: [] }, coverage: {}, situations: [] };
-    expect(inputProblems(ok)).toEqual(['coverage matrix: no row for CORE-001']);
-    const bad: SiteInputs = { ...ok, lean: { blocks: [leanBlock('A place holds')], citations: [] } };
-    expect(inputProblems(bad)).toContain('Lean block Libpetri.Spec.CORE_001: quote is not text of CORE-001: "A place holds"');
   });
 
   it('names defect evidence by its full theorem when exactly one matches', () => {

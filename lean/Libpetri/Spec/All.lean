@@ -504,6 +504,7 @@ import Libpetri.Spec.Text.NU_054
 import Libpetri.Spec.Text.NU_055
 import Libpetri.Spec.Text.Chapter.Ch12
 import Libpetri.Spec.Generate
+import Libpetri.Spec.Markdown
 import Libpetri.Spec.Ledger
 import Libpetri.Spec.Ledger.Divergences
 import Libpetri.Spec.Ledger.RD_01

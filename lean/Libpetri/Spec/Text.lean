@@ -194,31 +194,6 @@ def joinLines (s : String) : String := Id.run do
       out := out.push c
   return out
 
-/-- The spec IDs cited as `[ID]` in `s`, in order, each once. -/
-def bracketIds (s : String) : Array String := Id.run do
-  let mut out : Array String := #[]
-  for part in (s.splitOn "[").drop 1 do
-    let id := (part.splitOn "]").headD ""
-    if isSpecId id && !out.contains id && part.contains ']' then out := out.push id
-  return out
-
-/-- The requirements a body depends on: every `[ID]` of its `**Depends on:**` line and the lines
-that continue it up to the next blank line or the next `**Label:**` line, in order, each once.
-It is read from the body's markdown, so the dependency is written once, in the body; the index's
-Depends On column is computed from it. -/
-def dependsOn (plain : String) : Array String := Id.run do
-  let mut on := false
-  let mut out : Array String := #[]
-  for line in plain.splitOn "\n" do
-    if line.startsWith "**Depends on:**" then
-      on := true
-    else if line.trimAscii.toString.isEmpty || line.startsWith "**" then
-      on := false
-    if on then
-      for id in bracketIds line do
-        unless out.contains id do out := out.push id
-  return out
-
 /-- The kinds of generated block a chapter may hold (`table KIND`): the index's `files` (Spec Files
 table), `tombstones` (the removed requirements), `crossref` (the cross-reference index) and
 `priorities` (the priority distribution); the ledger's `unbuilt` and `defects` entries,

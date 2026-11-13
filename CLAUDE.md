@@ -245,8 +245,20 @@ index (`Ch00.lean`) computes every table and count from the texts; the glossary 
 declarations under `lean/Libpetri/Spec/Ledger/` (`runtime_defect`, `unbuilt_requirement`,
 `ledger_divergence`). Edit there, then run `lake env lean spec-tools/Render.lean` from `lean/`;
 CI renders and fails on any difference. A requirement block names the sentences it formalises
-with `covers ID.sN`, so editing a covered sentence changes that block's statement hash and
-resets its sign-off.
+with `covers ID.sN` (a verbatim block may not `quote`), so editing a covered sentence changes
+that block's statement hash and resets its sign-off.
+
+No tool outside Lean parses the generated markdown. `lean/Libpetri/Spec/Markdown.lean` reads it
+back once, and `spec-tools/Report.lean` writes the result as `lean/report/spec.json`
+(requirements with their paragraphs, acceptance criteria, depends-on and test derivation; the
+glossary; the ledger), which the spec site and `scripts/spec-coverage-matrix.py` read. The gates
+on the spec text: Render's whole-program checks (every text in one chapter, Depends-on IDs,
+ledger and glossary references) and its freshness diff; the report freshness diff, `spec.json`
+included; and `#audit_spec` in `spec-tools/Audit.lean`, whose `SPEC <rule>` findings cover what
+the blocks owe the text (every *shall* sentence and numbered acceptance criterion of an ID with
+a block is covered or assumed, covered spans are visible whole sentences, kinds agree, evidence
+exists, no citation names a removed ID). `scripts/test_spec_lean_gates.sh` plants one fault per
+gate and checks that its gate catches it.
 
 ## Release
 

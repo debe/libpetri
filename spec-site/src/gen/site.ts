@@ -25,7 +25,6 @@ import type {
   SpecBlock,
 } from '../model.js';
 import { SITUATION_GROUPS } from '../model.js';
-import { quotePresent } from './inputs/alignment.js';
 import type { SpecInput } from './inputs/spec.js';
 import type { LeanInput } from './inputs/lean.js';
 import type { SituationInput } from './inputs/situations.js';
@@ -214,9 +213,9 @@ export function contentHashOf(data: Omit<SiteData, 'contentHash'>): string {
 
 /**
  * The checks no single input can make, one line per problem (`checkSiteInputs` fails with all
- * of them). Every ID another input names must be a spec ID (`needActive`: an active one), the
- * coverage rows must be exactly the active IDs, and every verbatim Lean quote must be a whole
- * sentence run of its block (the rule of `scripts/spec-lean-alignment.py`).
+ * of them). Every ID another input names must be a spec ID (`needActive`: an active one), and
+ * the coverage rows must be exactly the active IDs. That every verbatim Lean quote is text of its
+ * requirement is checked in Lean (`covers`, and `#audit_spec`).
  */
 export function inputProblems(inputs: SiteInputs): string[] {
   const problems: string[] = [];
@@ -238,12 +237,6 @@ export function inputProblems(inputs: SiteInputs): string[] {
     if (b.status.state !== 'removed' && inputs.coverage[b.id] === undefined) problems.push(`coverage matrix: no row for ${b.id}`);
   }
   for (const id of Object.keys(inputs.coverage).sort(byString)) need(id, 'coverage matrix', true);
-  const units = inputs.spec.units ?? new Map<ReqId, never>();
-  for (const lb of inputs.lean.blocks) {
-    if (lb.source !== 'verbatim') continue;
-    const u = units.get(lb.id) ?? [];
-    for (const q of lb.quotes) if (!quotePresent(q, u)) problems.push(`Lean block ${lb.decl}: quote is not text of ${lb.id}: ${JSON.stringify(q.slice(0, 80))}`);
-  }
   return problems;
 }
 
@@ -275,11 +268,11 @@ export function checkSiteInputs(inputs: SiteInputs): void {
 }
 
 /**
- * Assembles the page data. Inputs read from disk (`readSpec` sets `spec.units`) are checked
- * with `checkSiteInputs` first; hand-built test fixtures, which leave `units` out, are not.
+ * Assembles the page data. Inputs read from disk (`readSpec` sets `spec.checked`) are checked
+ * with `checkSiteInputs` first; hand-built test fixtures, which leave `checked` out, are not.
  */
 export function buildSiteData(inputs: SiteInputs): SiteData {
-  if (inputs.spec.units !== undefined) checkSiteInputs(inputs);
+  if (inputs.spec.checked === true) checkSiteInputs(inputs);
   const specOrder = new Map(inputs.spec.blocks.filter((b) => b.status.state !== 'removed').map((b, i) => [b.id, i] as const));
   const situations = situationEntries(inputs.situations, inputs.diagrams, specOrder);
   const defects = resolveDefectEvidence(inputs.defects, inputs.lean);

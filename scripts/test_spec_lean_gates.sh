@@ -24,7 +24,9 @@ report=lean/spec-tools/Report.lean
 router=spec-site/src/app/router.ts        # browser code of the spec site
 spec10=spec/10-performance.md             # generated from Libpetri/Spec/Text/ by Render.lean
 perf030=lean/Libpetri/Spec/Req/PERF_030.lean   # a block that names its text with covers
-files=("$core" "$all" "$spec01" "$other" "$report" "$router" "$spec10" "$perf030")
+text031=lean/Libpetri/Spec/Text/CORE_031.lean  # the text CORE_031 (in Core.lean) covers
+text030=lean/Libpetri/Spec/Text/PERF_030.lean  # the text PERF_030 covers
+files=("$core" "$all" "$spec01" "$other" "$report" "$router" "$spec10" "$perf030" "$text031" "$text030")
 
 work="$(mktemp -d)"
 for f in "${files[@]}"; do mkdir -p "$work/$(dirname "$f")"; cp "$repo/$f" "$work/$f"; done
@@ -78,9 +80,7 @@ AUDIT_SPEC='lake build Libpetri.Spec.All && lake env lean spec-tools/Audit.lean'
 AUDIT_OTHER='lake build Libpetri.Novel.TimedScg && lake env lean spec-tools/Audit.lean'
 LEANCHECK='lake build Libpetri.Spec.Core && lake env leanchecker Libpetri.Spec.Core'
 MODULES='python3 ../scripts/lean-module-coverage-check.py'
-ALIGN='python3 ../scripts/spec-lean-alignment.py --report lean/report/requirements.json --spec spec'
-# Alignment over a report regenerated from the planted source (the plant is a Lean change).
-ALIGN_REGEN="lake build Libpetri.Spec.All && lake env lean spec-tools/Report.lean && $ALIGN"
+RENDER='lake build Libpetri.Spec.All && lake env lean spec-tools/Render.lean'
 # Freshness: regenerate and compare with the report as it was before the plant (CI compares
 # with the committed report through git diff).
 FRESH="lake build Libpetri.Spec.All && lake env lean spec-tools/Report.lean && diff -r '$work/report' report"
@@ -205,29 +205,35 @@ expect_caught "module not in Report.lean    -> module coverage" "$MODULES" \
   'sed -i "/^import Libpetri.Reference.Sha256$/d" spec-tools/Report.lean' \
   "MODULES missing Libpetri.Reference.Sha256 in lean/spec-tools/Report.lean"
 
-# ---- alignment with the markdown spec ----------------------------------------------------
+# ---- the spec audit: blocks against the spec text (#audit_spec) ---------------------------
 
-# 11. The markdown quote drifts from the Lean block.
-expect_caught "quote edited in spec/01      -> alignment" "$ALIGN" \
-  'sed -i "s/the transition \*shall not\* fire\./the transition *should not* fire./" ../spec/01-core-model.md' \
-  "ALIGN quote-missing Libpetri.Spec.CORE_031"
+# 11. A normative sentence added to a requirement text that no block covers or assumes.
+expect_caught "uncovered shall sentence     -> #audit_spec" "$AUDIT_SPEC" \
+  'sed -i "s/^The inhibitor arc does not consume tokens\.$/& The planted engine *shall* ring a bell./" Libpetri/Spec/Text/CORE_031.lean' \
+  "SPEC uncovered CORE-031: a 'shall' sentence" "The planted engine shall ring a bell."
 
-# 12. The quoted sentence survives only inside an HTML comment, which renders as nothing.
-expect_caught "quote only in an HTML comment -> alignment" "$ALIGN" \
-  'sed -i "s/^\*While\* an inhibitor place of a transition is unmarked, .*$/<!-- & -->/" ../spec/01-core-model.md' \
-  "ALIGN quote-missing Libpetri.Spec.CORE_031"
+# 12. A covered span that survives only inside an HTML comment, which renders as nothing. The
+#     span's text is unchanged, so the block and its sign-off still build.
+expect_caught "covered span in an HTML comment -> #audit_spec" "$AUDIT_SPEC" \
+  'sed -i "s/^⟦s2|\(.*\)⟧$/<!-- ⟦s2|\1⟧ -->/" Libpetri/Spec/Text/CORE_031.lean' \
+  "SPEC span-not-sentence Libpetri.Spec.CORE_031: the covered text is not a whole sentence"
 
-# 12b. The Kind line (ruling D21) names a kind that no block of the ID has.
-expect_caught "Kind line edited in spec/01   -> alignment" "$ALIGN" \
-  'sed -i "/^#### CORE-031:/,/^\*\*Kind:\*\*/ s/^\*\*Kind:\*\* B$/**Kind:** F/" ../spec/01-core-model.md' \
-  "ALIGN kind-mismatch CORE-031" "says Kind F, but no block of CORE-031 has kind F"
+# 12b. The kind of a requirement text (ruling D21) that no block of the ID has.
+expect_caught "kind edited in the text      -> #audit_spec" "$AUDIT_SPEC" \
+  'sed -i "s/^  kind B$/  kind F/" Libpetri/Spec/Text/CORE_031.lean' \
+  "SPEC kind-mismatch CORE-031" "the text says Kind F, but no block of CORE-031 has kind F"
 
 # 13. A citation of a removed (tombstoned) requirement.
-expect_caught "citation of tombstoned IO-006 -> alignment" "$ALIGN_REGEN" \
+expect_caught "citation of tombstoned IO-006 -> #audit_spec" "$AUDIT_SPEC" \
   "plant_core '/-- planted -/
 @[evidence cites \"IO-006\" \"guard\"]
 theorem planted_cites : 1 + 1 = 2 := rfl'" \
-  "ALIGN citation-inactive Libpetri.Spec.planted_cites" "IO-006, a removed (tombstoned) requirement"
+  "SPEC citation-inactive Libpetri.Spec.planted_cites" "cites IO-006, a removed requirement"
+
+# 13b. A verbatim block that copies its text with quote instead of naming its spans.
+expect_caught "quote in a verbatim block     -> requirement command" 'lake env lean Libpetri/Spec/Req/PERF_030.lean' \
+  'sed -i "s/^  covers PERF_030.s1, PERF_030.s2, PERF_030.s3$/  quote \"For a net with P places.\"/" Libpetri/Spec/Req/PERF_030.lean' \
+  "requirement Libpetri.Spec.PERF_030: a verbatim block names the spans of its requirement text with covers"
 
 # ---- report freshness --------------------------------------------------------------------
 
@@ -274,6 +280,11 @@ expect_caught "covers an unknown span label  -> requirement command" 'lake env l
 expect_caught "RD-99 cited in Lean           -> render ledger check" 'lake env lean spec-tools/Render.lean' \
   "plant_core '-- planted: the executor still breaks this (RD-99).'" \
   "lean/Libpetri/Spec/Core.lean cites RD-99, which is not a defect of the runtime ledger"
+
+# 15d2. A Depends on line naming a requirement that does not exist.
+expect_caught "Depends on a missing ID       -> render depends check" "$RENDER" \
+  'sed -i "s/^\*\*Test derivation:\*\* Compile a 100-place/**Depends on:** [CORE-999]\n\n&/" Libpetri/Spec/Text/PERF_030.lean' \
+  "PERF-030 (lean/Libpetri/Spec/Text/PERF_030.lean) depends on [CORE-999], which is not a requirement text"
 
 # 15e. A docstring refers to a glossary term that spec/glossary.md does not define.
 expect_caught "unknown glossary reference    -> render glossary check" 'lake env lean spec-tools/Render.lean' \

@@ -13,19 +13,19 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesTime.lean"]
-    n10440["Libpetri.Spec.TReach"]
-    n12724["Libpetri.Spec.clashT_X"]
-    n12725["Libpetri.Spec.clashT_at"]
-    n12728["Libpetri.Spec.clashT_inv"]
-    n12729["Libpetri.Spec.clashT_invR"]
-    n12730["Libpetri.Spec.clashT_invR_reach"]
-    n12732["Libpetri.Spec.clashT_inv_step"]
-    n12733["Libpetri.Spec.clashT_m0"]
-    n12734["Libpetri.Spec.clashT_mem"]
-    n12735["Libpetri.Spec.clashT_reaped"]
-    n12736["Libpetri.Spec.clashT_s0"]
-    n12737["Libpetri.Spec.clashT_u"]
-    n16499["Libpetri.Spec.exec040_rest_reaped_enabled"]
+    n10574["Libpetri.Spec.TReach"]
+    n12856["Libpetri.Spec.clashT_X"]
+    n12857["Libpetri.Spec.clashT_at"]
+    n12860["Libpetri.Spec.clashT_inv"]
+    n12861["Libpetri.Spec.clashT_invR"]
+    n12862["Libpetri.Spec.clashT_invR_reach"]
+    n12864["Libpetri.Spec.clashT_inv_step"]
+    n12865["Libpetri.Spec.clashT_m0"]
+    n12866["Libpetri.Spec.clashT_mem"]
+    n12867["Libpetri.Spec.clashT_reaped"]
+    n12868["Libpetri.Spec.clashT_s0"]
+    n12869["Libpetri.Spec.clashT_u"]
+    n16631["Libpetri.Spec.exec040_rest_reaped_enabled"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -43,31 +43,31 @@ flowchart TD
   c133 --> c94
   c147 --> c98
   c147 --> c133
-  n10440 --> c98
-  n12724 --> c98
-  n12724 --> n12737
-  n12725 --> n12736
-  n12728 --> c98
-  n12728 --> n12733
-  n12729 --> c98
-  n12729 --> n12733
-  n12730 --> n10440
-  n12730 --> n12729
-  n12730 --> n12732
-  n12732 --> n12728
-  n12732 --> n12734
-  n12734 --> n12724
-  n12735 --> n12725
-  n12736 --> n12724
-  n12736 --> n12733
-  n12737 --> c94
-  n16499 --> c147
-  n16499 --> n12730
-  n16499 --> n12735
+  n10574 --> c98
+  n12856 --> c98
+  n12856 --> n12869
+  n12857 --> n12868
+  n12860 --> c98
+  n12860 --> n12865
+  n12861 --> c98
+  n12861 --> n12865
+  n12862 --> n10574
+  n12862 --> n12861
+  n12862 --> n12864
+  n12864 --> n12860
+  n12864 --> n12866
+  n12866 --> n12856
+  n12867 --> n12857
+  n12868 --> n12856
+  n12868 --> n12865
+  n12869 --> c94
+  n16631 --> c147
+  n16631 --> n12862
+  n16631 --> n12867
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n16499 root
+  class n16631 root
   class c0,c28,c54,c66,c94,c98,c133,c147 collapsed
 ```
 

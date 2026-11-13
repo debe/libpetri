@@ -2,12 +2,11 @@
 """Generate spec/coverage-matrix.md — the spec proof/test coverage matrix.
 
 Inputs (all read-only):
-  (a) spec/00-index.md              — canonical active-requirement registry
-      (table rows in the "Alphabetical Cross-Reference Index" section;
-      struck-through ~~ID~~ tombstones are excluded). The index is generated
-      from the Lean requirement texts (lean/spec-tools/Render.lean), so its
-      counts are computed, not written by hand; this script checks that its
-      parse agrees with the index's own Total and per-file counts.
+  (a) lean/report/spec.json: the spec text as data, written by
+      lean/spec-tools/Report.lean from the Lean requirement texts: the
+      numbered chapters (file order) and every requirement with its ID,
+      kind and status. Active requirements are those not removed; a chapter
+      lists its requirements by number, as the index does.
   (b) lean/report/proof-coverage.json — theorem -> spec-ID annotations,
       generated from the @[evidence cites "ID" "fragment"] tags on the
       theorems by lean/spec-tools/Report.lean. The attribute already checks
@@ -20,10 +19,10 @@ Inputs (all read-only):
       from (b): a mention is not a proof).
   (e) lean/report/requirements.json — the requirement blocks (`#write_requirements_report`);
       only each block's `id` is read, to count the blocks per ID.
-  (f) the `**Kind:**` line of each `#### ID:` section of spec/NN-*.md
-      (ruling D21: the ID's primary kind, one of B F T Q A N). The alignment
-      gate (scripts/spec-lean-alignment.py, ALIGN kind-*) checks the line; this
-      script only shows it.
+  (f) the kind of each requirement, from (a) (ruling D21: the ID's primary
+      kind, one of B F T Q A N). The Lean spec audit (#audit_spec,
+      lean/spec-tools/Audit.lean, SPEC kind-*) checks it against the blocks;
+      this script only shows it.
   (d) per-language test greps:
       java/src/test/**/*.java, typescript/tests/**/*.ts,
       rust/**/tests/**/*.rs plus rust/**/src/**/*.rs containing
@@ -48,7 +47,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SPEC_INDEX = REPO / "spec" / "00-index.md"
+SPEC_JSON = REPO / "lean" / "report" / "spec.json"
 PROOF_COVERAGE = REPO / "lean" / "report" / "proof-coverage.json"
 REQUIREMENTS = REPO / "lean" / "report" / "requirements.json"
 OUTPUT = REPO / "spec" / "coverage-matrix.md"
@@ -57,9 +56,6 @@ LEAN_DIR = REPO / "lean"
 EXCLUDED_DIR_NAMES = {"target", "node_modules", ".lake", ".venv", "dist"}
 SPEC_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d{3})\b")
 RUST_CFG_TEST_RE = re.compile(r"#!?\[cfg\(test\)\]")
-SECTION_HEADING_RE = re.compile(r"^#### ([A-Z]+-\d+):")
-ANY_HEADING_RE = re.compile(r"^ {0,3}#{1,4}(?:\s|$)")
-KIND_LINE_RE = re.compile(r"^ {0,3}\*\*Kind:\*\*(.*)$")
 KINDS = "BFTQAN"
 
 CHECK_MARK = "✓"
@@ -77,98 +73,54 @@ def fail(msg: str) -> "NoReturn":  # noqa: F821 - py3.11 has NoReturn in typing 
 
 
 # --------------------------------------------------------------------------
-# (a) canonical active-ID list from spec/00-index.md
+# (a) chapters, requirements and kinds from lean/report/spec.json
 # --------------------------------------------------------------------------
 
-def parse_spec_index(text: str):
-    """Return (spec_files, active, tombstones).
+def load_spec():
+    """Return (spec_files, active, tombstones, kinds).
 
-    spec_files: list of (filename, prefix, declared_count) in file order.
-    active:     dict prefix -> list of (id, title, priority) in index order.
-    tombstones: set of struck-through IDs.
+    spec_files: list of (filename, prefix) in file order.
+    active:     dict prefix -> list of active IDs, by number.
+    tombstones: set of removed IDs.
+    kinds:      dict id -> kind.
     """
-    # -- Spec Files table: file <-> prefix mapping + declared per-file counts.
-    spec_files: list[tuple[str, str, int]] = []
-    declared_total: int | None = None
-    file_row = re.compile(
-        r"^\|\s*\[(\d{2}-[a-z0-9-]+\.md)\]\([^)]*\)\s*\|\s*([A-Z]+)\s*\|.*\|\s*(\d+)\s*\|\s*$"
-    )
-    total_row = re.compile(r"^\|\s*\*\*Total\*\*\s*\|.*\*\*(\d+)\*\*\s*\|\s*$")
-    for line in text.splitlines():
-        m = file_row.match(line)
-        if m:
-            spec_files.append((m.group(1), m.group(2), int(m.group(3))))
-            continue
-        m = total_row.match(line)
-        if m and declared_total is None:
-            declared_total = int(m.group(1))
-    if not spec_files:
-        fail(f"could not parse the Spec Files table in {SPEC_INDEX}")
-    if declared_total is None:
-        fail(f"could not parse the **Total** row of the Spec Files table in {SPEC_INDEX}")
-
-    # -- Alphabetical Cross-Reference Index: the authoritative per-ID rows.
-    section_start = text.find("## Alphabetical Cross-Reference Index")
-    if section_start < 0:
-        fail(f"'## Alphabetical Cross-Reference Index' heading not found in {SPEC_INDEX}")
-    rest = text[section_start:]
-    end = re.search(r"\n## (?!#)", rest[1:])
-    section = rest[: end.start() + 1] if end else rest
-
-    active: dict[str, list[tuple[str, str, str]]] = {}
+    try:
+        data = json.loads(SPEC_JSON.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        fail(f"{SPEC_JSON} not found (run `lake env lean spec-tools/Report.lean` from lean/)")
+    except json.JSONDecodeError as e:
+        fail(f"{SPEC_JSON} is not valid JSON: {e}")
+    chapters = data.get("chapters") if isinstance(data, dict) else None
+    reqs = data.get("requirements") if isinstance(data, dict) else None
+    if not isinstance(chapters, list) or not chapters:
+        fail(f'{SPEC_JSON}: top-level "chapters" must be a non-empty list')
+    if not isinstance(reqs, list) or not reqs:
+        fail(f'{SPEC_JSON}: top-level "requirements" must be a non-empty list')
+    spec_files: list[tuple[str, str]] = []
+    for c in chapters:
+        prefixes = c.get("prefixes") if isinstance(c, dict) else None
+        if not isinstance(prefixes, list) or len(prefixes) != 1:
+            fail(f"{SPEC_JSON}: chapter {c!r} must have exactly one prefix")
+        spec_files.append((c["file"], prefixes[0]))
+    active: dict[str, list[str]] = {p: [] for _, p in spec_files}
     tombstones: set[str] = set()
-    current_prefix: str | None = None
-    tomb_cell = re.compile(r"^~~\s*([A-Z]+-\d+)\s*~~")
-    id_cell = re.compile(r"^([A-Z]+-\d+)$")
-    for line in section.splitlines():
-        h = re.match(r"^### ([A-Z]+) — ", line)
-        if h:
-            current_prefix = h.group(1)
-            active.setdefault(current_prefix, [])
+    kinds: dict[str, str] = {}
+    for r in reqs:
+        rid = r.get("id") if isinstance(r, dict) else None
+        if not isinstance(rid, str) or not re.fullmatch(r"[A-Z]+-\d{3}", rid):
+            fail(f"{SPEC_JSON}: requirement without a spec ID: {r!r}")
+        prefix = rid.split("-")[0]
+        if prefix not in active:
+            fail(f"{SPEC_JSON}: {rid} has the prefix of no chapter")
+        if r.get("status") == "removed":
+            tombstones.add(rid)
             continue
-        if current_prefix is None or not line.startswith("|"):
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) < 3:
-            continue
-        first = cells[0]
-        if first in ("ID", "") or set(first) <= {"-", " "}:
-            continue  # header / separator rows
-        m = tomb_cell.match(first)
-        if m:
-            tombstones.add(m.group(1))
-            continue
-        m = id_cell.match(first)
-        if m:
-            rid = m.group(1)
-            if not rid.startswith(current_prefix + "-"):
-                fail(f"{rid} listed under the {current_prefix} section of {SPEC_INDEX}")
-            active[current_prefix].append((rid, cells[1], cells[2]))
-
-    # -- consistency checks: the parse must agree with the index's own counts.
-    total = sum(len(v) for v in active.values())
-    if total != declared_total:
-        per = ", ".join(f"{p}={len(v)}" for p, v in sorted(active.items()))
-        fail(
-            f"parsed {total} active requirements from the cross-reference index of "
-            f"{SPEC_INDEX}, but its Spec Files table declares a total of {declared_total} "
-            f"({per}; tombstones excluded: {sorted(tombstones)}). The index is generated: "
-            f"rerun lean/spec-tools/Render.lean."
-        )
-    for fname, prefix, declared in spec_files:
-        got = len(active.get(prefix, []))
-        if got != declared:
-            fail(
-                f"{SPEC_INDEX}: {fname} declares {declared} {prefix} requirements "
-                f"but the cross-reference index lists {got}"
-            )
-    if set(p for _, p, _ in spec_files) != set(active):
-        fail(
-            f"prefix mismatch between the Spec Files table "
-            f"({sorted(p for _, p, _ in spec_files)}) and the cross-reference "
-            f"index ({sorted(active)}) in {SPEC_INDEX}"
-        )
-    return spec_files, active, tombstones
+        active[prefix].append(rid)
+        if isinstance(r.get("kind"), str):
+            kinds[rid] = r["kind"]
+    for ids in active.values():
+        ids.sort(key=lambda rid: int(rid.split("-")[1]))
+    return spec_files, active, tombstones, kinds
 
 
 # --------------------------------------------------------------------------
@@ -236,7 +188,7 @@ def load_proof_coverage(active_ids: set[str], tombstones: set[str]):
                 fail(f'{swhere}: missing or empty "id"')
             if rid not in active_ids:
                 kind = "a removed/tombstoned" if rid in tombstones else "not an active"
-                fail(f"{swhere}: {rid} is {kind} spec ID per {SPEC_INDEX}")
+                fail(f"{swhere}: {rid} is {kind} spec ID per {SPEC_JSON}")
             if not isinstance(fragment, str):
                 fail(f'{swhere} ({rid}): "fragment" must be a string')
             proven.setdefault(rid, []).append((module, name, fragment.strip()))
@@ -245,7 +197,7 @@ def load_proof_coverage(active_ids: set[str], tombstones: set[str]):
 
 
 # --------------------------------------------------------------------------
-# (e) requirement blocks and (f) Kind lines
+# (e) requirement blocks
 # --------------------------------------------------------------------------
 
 def load_block_counts() -> dict[str, int]:
@@ -266,30 +218,6 @@ def load_block_counts() -> dict[str, int]:
             fail(f'{REQUIREMENTS} requirements[{i}]: missing or empty "id"')
         counts[rid] = counts.get(rid, 0) + 1
     return counts
-
-
-def load_kinds(spec_files) -> dict[str, str]:
-    """Return dict id -> the value of the first `**Kind:**` line of its section."""
-    kinds: dict[str, str] = {}
-    for fname, _prefix, _count in spec_files:
-        path = REPO / "spec" / fname
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as e:
-            fail(f"cannot read {path}: {e}")
-        current: str | None = None
-        for line in lines:
-            m = SECTION_HEADING_RE.match(line)
-            if m:
-                current = m.group(1)
-                continue
-            if ANY_HEADING_RE.match(line):
-                current = None
-                continue
-            m = KIND_LINE_RE.match(line)
-            if current is not None and m and current not in kinds:
-                kinds[current] = m.group(1).strip()
-    return kinds
 
 
 def lean_form(rid: str, blocks: dict[str, int], proven) -> str:
@@ -363,7 +291,7 @@ def md_escape(s: str) -> str:
 
 def render(spec_files, active, proven, lean_refs, tests, blocks, kinds) -> str:
     langs = ("java", "typescript", "rust", "python")
-    all_ids = [rid for _, prefix, _ in spec_files for rid, _, _ in active[prefix]]
+    all_ids = [rid for _, prefix in spec_files for rid in active[prefix]]
     n = len(all_ids)
     assert n == sum(len(v) for v in active.values()), f"internal error: rendering {n} rows"
 
@@ -434,12 +362,12 @@ def render(spec_files, active, proven, lean_refs, tests, blocks, kinds) -> str:
     )
     out.append("")
 
-    for fname, prefix, _ in spec_files:
+    for fname, prefix in spec_files:
         out.append(f"## {fname} — {prefix}")
         out.append("")
         out.append("| ID | Kind | Lean form | Lean proof (theorem + fragment) | Lean ref | java | typescript | rust | python |")
         out.append("|----|------|-----------|---------------------------------|----------|------|------------|------|--------|")
-        for rid, _title, _prio in active[prefix]:
+        for rid in active[prefix]:
             if rid in proven:
                 proof_cell = "<br>".join(
                     f"`{name}` — {md_escape(fragment)}"
@@ -475,10 +403,8 @@ def main() -> int:
                            "if stale (the default)")
     args = ap.parse_args()
 
-    spec_files, active, tombstones = parse_spec_index(
-        SPEC_INDEX.read_text(encoding="utf-8")
-    )
-    active_ids = {rid for rows in active.values() for rid, _, _ in rows}
+    spec_files, active, tombstones, kinds = load_spec()
+    active_ids = {rid for rows in active.values() for rid in rows}
 
     sources = lean_sources()
     proven = load_proof_coverage(active_ids, tombstones)
@@ -488,7 +414,6 @@ def main() -> int:
     }
     tests = collect_test_mentions(active_ids)
     blocks = load_block_counts()
-    kinds = load_kinds(spec_files)
 
     content = render(spec_files, active, proven, lean_refs, tests, blocks, kinds)
 

@@ -79,7 +79,8 @@ jobs:
         working-directory: debug-ui
 
   # The public spec site (libpetri.org/spec/): spec-site/ generates docs/spec/index.html from
-  # spec/, lean/report/ and spec/situations/, and refreshes the counts on docs/index.html.
+  # lean/report/ (spec.json: the spec as data), spec/coverage-matrix.md and spec/situations/,
+  # and refreshes the counts on docs/index.html.
   spec-site:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -927,10 +928,11 @@ jobs:
           python3 scripts/no-line-hints.py
       # lean/report/requirements.{md,json} and lean/report/proof-coverage.json
       # are generated from the requirement blocks and their @[evidence] tags
-      # (proof-coverage.json from the `cites` tags); regenerating them must be
-      # a no-op (same pattern as the proof graph below). It runs before the
-      # coverage matrix and the proof graph, which read proof-coverage.json,
-      # so they see the regenerated file. ls-files fails when a file is not
+      # (proof-coverage.json from the `cites` tags), lean/report/spec.json from
+      # the spec text and the runtime ledger; regenerating them must be a no-op
+      # (same pattern as the proof graph below). It runs before the coverage
+      # matrix and the proof graph, which read proof-coverage.json and
+      # spec.json, so they see the regenerated files. ls-files fails when a file is not
       # tracked at all (git diff is blind to untracked files); the porcelain
       # check, --ignored included, catches a generated file that was never
       # committed or that a .gitignore rule hides.
@@ -939,7 +941,7 @@ jobs:
         run: |
           lake env lean spec-tools/Report.lean
           git ls-files --error-unmatch report/requirements.md report/requirements.json \
-            report/proof-coverage.json
+            report/proof-coverage.json report/spec.json
           git diff --exit-code -- report/
           test -z "$(git status --porcelain --ignored -- report/)"
       # The chapters declared in Lean (`spec_chapter`, Libpetri/Spec/Text/) are the source of
@@ -952,8 +954,8 @@ jobs:
           lake env lean spec-tools/Render.lean
           git diff --exit-code -- ../spec/
           test -z "$(git status --porcelain -- ../spec/)"
-      # spec/coverage-matrix.md is generated; keep it in lockstep with the
-      # spec index, lean/report/proof-coverage.json, and the test suites.
+      # spec/coverage-matrix.md is generated; keep it in lockstep with
+      # lean/report/spec.json, lean/report/proof-coverage.json, and the test suites.
       - name: Spec coverage matrix is up to date
         working-directory: ${{ github.workspace }}
         run: python3 scripts/spec-coverage-matrix.py --check
@@ -978,12 +980,6 @@ jobs:
           styles="rust/libpetri-export/src/styles.rs java/src/main/java/org/libpetri/export/StyleConstants.java typescript/src/export/styles.ts lean/Libpetri/Export/Styles.lean"
           git diff --exit-code -- $styles
           test -z "$(git status --porcelain -- $styles)"
-      # The alignment checker's own tests run first, so a broken checker
-      # cannot pass the alignment step below by accident. unittest takes the
-      # file path relative to the repo root, hence the workspace directory.
-      - name: Spec/Lean alignment checker self-test
-        working-directory: ${{ github.workspace }}
-        run: python3 -m unittest scripts/test_spec_lean_alignment.py
       # The sorry/admit grep above stays; this widens it to the other ways a
       # proof can skip the kernel (sorryAx, native_decide, axiom,
       # implemented_by, skipKernelTC, addDeclCore, ...) over Libpetri/, lean/*.lean,
@@ -1004,29 +1000,28 @@ jobs:
         run: python3 scripts/lean-module-coverage-check.py
       # `#audit_axioms` walks every constant whose module root is Libpetri
       # (private ones included) and fails on an axiom declared under Libpetri
-      # or on any axiom outside propext / Quot.sound / Classical.choice. A
-      # logged error makes `lean` exit non-zero, so no output parsing is
+      # or on any axiom outside propext / Quot.sound / Classical.choice.
+      # `#audit_spec` checks the requirement blocks against the spec text as
+      # the generated chapters show it: every normative sentence of an ID with
+      # a block is covered or assumed, the kinds agree, every block has
+      # evidence, no citation names a removed requirement (SPEC <rule> lines).
+      # A logged error makes `lean` exit non-zero, so no output parsing is
       # needed. The hand-listed `#print axioms` step above stays until this
       # one has been green for a while.
-      - name: Every Libpetri constant depends only on standard axioms
+      - name: Standard axioms only; requirement blocks agree with the spec text
         shell: bash
         run: lake env lean spec-tools/Audit.lean
-      # Every requirement block's quote must appear verbatim (whitespace
-      # normalised) under its `#### ID:` heading in spec/*.md, and every
-      # behaviour block needs `holds` and `nonvacuous` evidence. Reads the
-      # report checked for freshness above, so it sees the committed state.
-      - name: Requirement blocks match the markdown spec
-        run: python3 ../scripts/spec-lean-alignment.py --report lean/report/requirements.json --spec spec
       # Runs the planted-fault cases (registry: blank reading, forbids without
       # ¬, holds assuming its requirement, nonvacuous : True, stale sign-off
       # hash, cites on another module's theorem, cites with an invisible
       # fragment; escape hatches: private axiom, native_decide, sorry outside
       # Spec, addDeclCore without the kernel check; module coverage of
-      # Spec/All.lean and of Report.lean; alignment: drifted quote, quote only
-      # in an HTML comment, tombstoned citation; stale report; hand-edited
+      # Spec/All.lean and of Report.lean; spec audit: uncovered shall sentence,
+      # covered span in an HTML comment, kind edited in a text, tombstoned
+      # citation; quote in a verbatim block; stale report; hand-edited
       # proof-coverage.json; hand-edited generated spec/10-performance.md;
-      # covers naming an unknown span label; line-number citations; a type
-      # error in the spec site). Each passes only if the gate meant to catch it
+      # covers naming an unknown span label; Depends on a missing ID;
+      # line-number citations; a type error in the spec site). Each passes only if the gate meant to catch it
       # fails with that gate's own message. Restores every planted file
       # (md5-checked).
       - name: Spec/Lean gates catch planted faults

@@ -13,7 +13,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12609["Libpetri.Spec.cites_dirty_set"]
+    n12741["Libpetri.Spec.cites_dirty_set"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -24,8 +24,8 @@ flowchart TD
   c131["📁 Libpetri/Spec/Ears.lean (2 declarations, collapsed)"]
   c133["📁 Libpetri/Spec/Glossary.lean (10 declarations, collapsed)"]
   c147["📁 Libpetri/Spec/GlossaryTime.lean (20 declarations, collapsed)"]
-  c154["📁 Libpetri/Spec/Req/CONC_005.lean (7 declarations, collapsed)"]
-  c333["📁 Libpetri/Spec/Req/TIME_010.lean (11 declarations, collapsed)"]
+  c155["📁 Libpetri/Spec/Req/CONC_005.lean (7 declarations, collapsed)"]
+  c334["📁 Libpetri/Spec/Req/TIME_010.lean (11 declarations, collapsed)"]
   c54 --> c0
   c94 --> c28
   c94 --> c54
@@ -35,14 +35,14 @@ flowchart TD
   c147 --> c98
   c147 --> c131
   c147 --> c133
-  c154 --> c333
-  c333 --> c147
-  n12609 --> c154
+  c155 --> c334
+  c334 --> c147
+  n12741 --> c155
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12609 root
-  class c0,c28,c54,c66,c94,c98,c131,c133,c147,c154,c333 collapsed
+  class n12741 root
+  class c0,c28,c54,c66,c94,c98,c131,c133,c147,c155,c334 collapsed
 ```
 
 Axioms used:

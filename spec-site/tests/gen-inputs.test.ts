@@ -1,7 +1,6 @@
 /** Fixture tests for the Lean report, coverage, defect ledger and situation readers. */
 import { describe, expect, it } from 'vitest';
 import { coverageRows, parseCoverageMatrix, parseProofCoverage } from '../src/gen/inputs/coverage.js';
-import { evidenceNames, parseDefects, parseDefectStatus, parseRuntimes } from '../src/gen/inputs/defects.js';
 import { parseLeanReport, parseSignoff } from '../src/gen/inputs/lean.js';
 import { checkReplay, parseReplay, parseSituation } from '../src/gen/inputs/situations.js';
 import type { Citation } from '../src/model.js';
@@ -133,122 +132,6 @@ describe('coverage', () => {
     expect(rows['CORE-001']?.leanRef).toBe(true);
     expect(() => coverageRows(matrix, proofMap, { ...refs, python: new Map([['CORE-002', ['python/tests/t.py']]]) })).toThrow(/python column says untested but 1 test files cite it; .*--update/);
     expect(() => coverageRows(matrix, new Map(), refs)).toThrow(/CORE-001: Lean proof column disagrees/);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// Defects
-// ---------------------------------------------------------------------------------------------
-
-const LEDGER = `# Runtime Defect Ledger
-
-| ID | Requirements | Runtimes | Status |
-|---|---|---|---|
-| RD-01 | EXEC-021, IO-013 | Java, TypeScript | open |
-| RD-02 | CORE-041 | all | fixed in 12.0.1 |
-| RD-03 | CORE-042 | Rust | fixed, unreleased |
-
-### RD-01. The timeout outcome is validated
-
-- **Requirements:** EXEC-021, IO-013 (ruling D24 (a)).
-- **Runtimes:** TypeScript, and Java.
-- **Defect:** both validate the outcome,
-  \`java/Foo.java:12\`.
-- **Lean evidence:** \`clash_conflict\` (Clashes.lean),
-  \`EXEC_021_forbids_x\` (EXEC_021.lean).
-- **Status:** open.
-
-### RD-02. Live sets
-
-- **Requirements:** CORE-041.
-- **Runtimes:** all.
-- **Defect:** \`build()\` passes its sets.
-- **Lean evidence:** none; the \`NamesDistinct\` assumption keeps it out.
-- **Status:** fixed in 12.0.1.
-
-### RD-03. Unreleased fix
-
-- **Requirements:** CORE-042.
-- **Runtimes:** Rust.
-- **Defect:** the order drifts.
-- **Lean evidence:** none.
-- **Fix:** the builder keeps the order; tested by
-  \`order_kept\`.
-- **Status:** fixed, unreleased.
-`;
-
-describe('defects', () => {
-  it('reads the entries in ledger order', () => {
-    expect(parseDefects(LEDGER)).toEqual([
-      {
-        id: 'RD-01',
-        title: 'The timeout outcome is validated',
-        requirements: ['EXEC-021', 'IO-013'],
-        runtimes: ['java', 'typescript'],
-        text: 'both validate the outcome, `java/Foo.java:12`.',
-        evidence: ['clash_conflict', 'EXEC_021_forbids_x'],
-        evidenceText: '`clash_conflict` (Clashes.lean), `EXEC_021_forbids_x` (EXEC_021.lean).',
-        fix: null,
-        status: { state: 'open' },
-      },
-      {
-        id: 'RD-02',
-        title: 'Live sets',
-        requirements: ['CORE-041'],
-        runtimes: ['java', 'typescript', 'rust', 'python'],
-        text: '`build()` passes its sets.',
-        evidence: [],
-        evidenceText: 'none; the `NamesDistinct` assumption keeps it out.',
-        fix: null,
-        status: { state: 'fixed', version: '12.0.1' },
-      },
-      {
-        id: 'RD-03',
-        title: 'Unreleased fix',
-        requirements: ['CORE-042'],
-        runtimes: ['rust'],
-        text: 'the order drifts.',
-        evidence: [],
-        evidenceText: 'none.',
-        fix: 'the builder keeps the order; tested by `order_kept`.',
-        status: { state: 'fixed', version: null },
-      },
-    ]);
-  });
-
-  it('ignores the unbuilt and divergence sections, before or after the entries', () => {
-    const other = `## Unbuilt requirements
-
-### UB-01. Immediate termination
-
-- **Requirements:** ENV-015.
-- **Runtimes:** Rust, TypeScript, Python.
-- **Missing:** \`terminateNow()\`.
-- **Status:** open.
-
-## Divergences
-
-| Aspect | Spec | Java | TypeScript | Rust |
-|---|---|---|---|---|
-| Bitmap word size | not specified | 64-bit | 32-bit | 64-bit |
-`;
-    const expected = parseDefects(LEDGER);
-    expect(parseDefects(`${LEDGER}\n${other}`)).toEqual(expected);
-    expect(parseDefects(LEDGER.replace('\n| ID |', `\n${other}\n## Defects\n\n| ID |`))).toEqual(expected);
-  });
-
-  it('maps runtime names and statuses, and fails on unknown ones or table drift', () => {
-    expect(parseRuntimes('Rust, Java, TypeScript, and Python through Rust.')).toEqual(['java', 'typescript', 'rust', 'python']);
-    expect(parseRuntimes('Go')).toBeNull();
-    expect(parseDefectStatus('open.')).toEqual({ state: 'open' });
-    expect(parseDefectStatus('fixed, unreleased.')).toEqual({ state: 'fixed', version: null });
-    expect(parseDefectStatus('fixed in 12.0.1.')).toEqual({ state: 'fixed', version: '12.0.1' });
-    expect(parseDefectStatus('closed')).toBeNull();
-    expect(evidenceNames('none yet (`X`)')).toEqual([]);
-    expect(() => parseDefects(LEDGER.replace('- **Runtimes:** all.', '- **Runtimes:** Kotlin.'))).toThrow(/runtime-defects.md:19: RD-02: unknown runtime/);
-    expect(() => parseDefects(LEDGER.replace('| RD-02 | CORE-041 |', '| RD-02 | CORE-042 |'))).toThrow(/the table names CORE-042, the entry CORE-041/);
-    expect(() => parseDefects(LEDGER.replace('- **Status:** fixed in 12.0.1.', '- **Status:** open.'))).toThrow(/the table says "fixed in 12.0.1"/);
-    expect(() => parseDefects(LEDGER.replace('- **Status:** fixed, unreleased.', '- **Status:** fixed in 1.0.0.'))).toThrow(/the table says "fixed, unreleased"/);
   });
 });
 

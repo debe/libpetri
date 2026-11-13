@@ -455,11 +455,14 @@ function toolFanout() {
 
 // ======================== Image 5: evidence stack ========================
 
+/** The active requirements of lean/report/spec.json (the spec as data, written by Lean). */
 function specTotal(): number {
-  const index = readFileSync(resolve(repoRoot, 'spec/00-index.md'), 'utf-8');
-  const m = /^\| \*\*Total\*\* \| \| \| \*\*(\d+)\*\* \|$/m.exec(index);
-  check(m, 'spec/00-index.md has a Total row');
-  return Number(m[1]);
+  const spec = JSON.parse(readFileSync(resolve(repoRoot, 'lean/report/spec.json'), 'utf-8')) as {
+    requirements: Array<{ status: string }>;
+  };
+  const total = spec.requirements.filter(r => r.status !== 'removed').length;
+  check(total > 0, 'lean/report/spec.json lists active requirements');
+  return total;
 }
 
 function evidenceDot(total: number): string {

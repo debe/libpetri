@@ -41,11 +41,12 @@ structure Entry where
   kind : String
   /-- What the requirement applies to, e.g. `all executors`. -/
   scope : String
-  /-- `verbatim` (quote is in `spec/*.md` under the ID's heading) or `proposed`. -/
+  /-- `verbatim` (the text is spans of the ID's requirement text, named with `covers`) or
+  `proposed` (new text, quoted, not yet in the spec text). -/
   source : String
   /-- Where a proposed text comes from, or the spec file of a verbatim one. -/
   sourceRef : String
-  /-- The natural-language text, one string per quoted sentence or bullet. -/
+  /-- The natural-language text, one string per covered span or quoted sentence. -/
   quotes : Array String
   /-- Plain-language reading of the formula, one string per formula line. -/
   reading : Array String
@@ -456,7 +457,7 @@ def Entry.docstring (e : Entry) : String :=
 requirement CORE_031
   id "CORE-031" title "…" kind B scope "all executors"
   source verbatim "spec/01-core-model.md"     -- or: source proposed "<where from>"
-  covers CORE_031.s1, CORE_031.s2             -- the spans of the ID's text, or:
+  covers CORE_031.s1, CORE_031.s2             -- the spans of the ID's text, or, proposed only:
   quote "…" "…"                               -- one string per quoted sentence
   reading "…" "…"                             -- one string per formula line
   assumes "…"                                 -- zero or more
@@ -465,8 +466,9 @@ requirement CORE_031
 ```
 
 `covers ID.label, …` names spans of the requirement's own text (`requirement_text`, whose
-module must be imported) instead of copying them; a block takes `covers` or `quote`, not both, and
-`covers` only with `source verbatim`. Each reference resolves to its span with its lines
+module must be imported) instead of copying them; a block takes `covers` or `quote`, not both. A
+`source verbatim` block takes `covers`, since its text is the spec text and a copy of it could
+drift; `quote` is for `source proposed`, wording the spec text does not hold yet. Each reference resolves to its span with its lines
 joined (`Text.joinLines`), and the resolved strings are the block's quotes: the docstring, the
 statement hash and the report see them exactly as they would see the same `quote` strings. An
 unknown text or label is a build error.
@@ -485,7 +487,11 @@ elab (name := requirementCmd) "requirement " n:ident
   let fail (msg : String) : CommandElabM Unit := throwErrorAt n m!"requirement {decl}: {msg}"
   let quotes ← match q, c with
     | some q, none => match q with
-      | `(quoteClause| quote $qs:str*) => pure (qs.map (·.getString))
+      | `(quoteClause| quote $qs:str*) => do
+        if source.getId.toString == "verbatim" then
+          fail "a verbatim block names the spans of its requirement text with covers ID.label, …; \
+            quote copies text, and is for source proposed only"
+        pure (qs.map (·.getString))
       | _ => throwUnsupportedSyntax
     | none, some c => match c with
       | `(coversClause| covers $cs:ident,*) => do

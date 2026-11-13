@@ -58,13 +58,13 @@ flowchart TD
   subgraph g5["Libpetri/Spec/GlossaryTime.lean"]
     n4949["Libpetri.Spec.Armed"]
     n5978["Libpetri.Spec.ClockReading"]
-    n7998["Libpetri.Spec.InNet"]
-    n8001["Libpetri.Spec.Init"]
-    n8002["Libpetri.Spec.InitArms"]
-    n17166["Libpetri.Spec.initArms_init"]
+    n8051["Libpetri.Spec.InNet"]
+    n8054["Libpetri.Spec.Init"]
+    n8055["Libpetri.Spec.InitArms"]
+    n17298["Libpetri.Spec.initArms_init"]
   end
   subgraph g6["Libpetri/Spec/Req/CORE_072.lean"]
-    n14219["Libpetri.Spec.core072_init_stamp"]
+    n14351["Libpetri.Spec.core072_init_stamp"]
   end
   n9 --> n8
   n10 --> n8
@@ -112,24 +112,24 @@ flowchart TD
   n7151 --> n2050
   n7151 --> n3455
   n7151 --> n6080
-  n7998 --> n1959
-  n7998 --> n3106
-  n7998 --> n3451
-  n7998 --> n3455
-  n8001 --> n3441
-  n8001 --> n3449
-  n8001 --> n6080
-  n8002 --> n4949
-  n8002 --> n5978
-  n8002 --> n7998
-  n8002 --> n8001
-  n14219 --> n17166
-  n17166 --> n3444
-  n17166 --> n8002
+  n8051 --> n1959
+  n8051 --> n3106
+  n8051 --> n3451
+  n8051 --> n3455
+  n8054 --> n3441
+  n8054 --> n3449
+  n8054 --> n6080
+  n8055 --> n4949
+  n8055 --> n5978
+  n8055 --> n8051
+  n8055 --> n8054
+  n14351 --> n17298
+  n17298 --> n3444
+  n17298 --> n8055
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n14219 root
+  class n14351 root
 ```
 
 ### `Libpetri.Spec.time001_fire_after_earliest`
@@ -139,14 +139,14 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/TIME_001.lean"]
-    n10504["Libpetri.Spec.Time001.decValid"]
-    n10534["Libpetri.Spec.TimingContract"]
-    n10537["Libpetri.Spec.TimingContract.earliest"]
-    n10541["Libpetri.Spec.TimingContract.mk"]
-    n20509["Libpetri.Spec.refTimingFactory"]
-    n20511["Libpetri.Spec.refTimingMsg"]
-    n20512["Libpetri.Spec.refTimingQ"]
-    n20906["Libpetri.Spec.time001_fire_after_earliest"]
+    n10636["Libpetri.Spec.Time001.decValid"]
+    n10666["Libpetri.Spec.TimingContract"]
+    n10669["Libpetri.Spec.TimingContract.earliest"]
+    n10673["Libpetri.Spec.TimingContract.mk"]
+    n20641["Libpetri.Spec.refTimingFactory"]
+    n20643["Libpetri.Spec.refTimingMsg"]
+    n20644["Libpetri.Spec.refTimingQ"]
+    n21038["Libpetri.Spec.time001_fire_after_earliest"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -164,23 +164,23 @@ flowchart TD
   c133 --> c94
   c147 --> c98
   c147 --> c133
-  n10504 --> c66
-  n10537 --> c66
-  n10537 --> n10534
-  n10541 --> c66
-  n10541 --> n10534
-  n20509 --> n10504
-  n20509 --> n20511
-  n20511 --> c66
-  n20512 --> n10541
-  n20512 --> n20509
-  n20906 --> c147
-  n20906 --> n10537
-  n20906 --> n20512
+  n10636 --> c66
+  n10669 --> c66
+  n10669 --> n10666
+  n10673 --> c66
+  n10673 --> n10666
+  n20641 --> n10636
+  n20641 --> n20643
+  n20643 --> c66
+  n20644 --> n10673
+  n20644 --> n20641
+  n21038 --> c147
+  n21038 --> n10669
+  n21038 --> n20644
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n20906 root
+  class n21038 root
   class c0,c28,c54,c66,c94,c98,c133,c147 collapsed
 ```
 
@@ -198,10 +198,10 @@ flowchart TD
     n4799["Libpetri.SchedKey.lt"]
     n4800["🔒 Libpetri.SchedKey.lt_asymm"]
     n4804["Libpetri.SchedKey.prio"]
-    n22574["🔒 Libpetri.collect_ready_general_refines"]
-    n22635["🔒 Libpetri.eq_of_perm_of_sorted"]
-    n22711["🔒 Libpetri.levelBlocks_sorted"]
-    n22736["🔒 Libpetri.pairwise_imp_mem"]
+    n22706["🔒 Libpetri.collect_ready_general_refines"]
+    n22767["🔒 Libpetri.eq_of_perm_of_sorted"]
+    n22843["🔒 Libpetri.levelBlocks_sorted"]
+    n22868["🔒 Libpetri.pairwise_imp_mem"]
   end
   n142 --> n4797
   n145 --> n142
@@ -212,17 +212,17 @@ flowchart TD
   n4799 --> n4804
   n4800 --> n4799
   n4804 --> n4797
-  n22574 --> n22635
-  n22574 --> n22711
-  n22635 --> n4800
-  n22711 --> n145
-  n22711 --> n4799
-  n22711 --> n22736
+  n22706 --> n22767
+  n22706 --> n22843
+  n22767 --> n4800
+  n22843 --> n145
+  n22843 --> n4799
+  n22843 --> n22868
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22574 root
-  class n4800,n22574,n22635,n22711,n22736 locked
+  class n22706 root
+  class n4800,n22706,n22767,n22843,n22868 locked
 ```
 
 Axioms used:

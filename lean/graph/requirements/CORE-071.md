@@ -17,7 +17,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12607["Libpetri.Spec.cites_core071_completion"]
+    n12739["Libpetri.Spec.cites_core071_completion"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -28,7 +28,7 @@ flowchart TD
   c133["📁 Libpetri/Spec/Glossary.lean (1 declarations, collapsed)"]
   c134["📁 Libpetri/Spec/GlossaryAction.lean (3 declarations, collapsed)"]
   c145["📁 Libpetri/Spec/GlossaryQueue.lean (3 declarations, collapsed)"]
-  c185["📁 Libpetri/Spec/Req/CORE_050.lean (2 declarations, collapsed)"]
+  c186["📁 Libpetri/Spec/Req/CORE_050.lean (2 declarations, collapsed)"]
   c54 --> c0
   c91 --> c94
   c94 --> c28
@@ -37,14 +37,14 @@ flowchart TD
   c134 --> c133
   c134 --> c145
   c145 --> c91
-  c185 --> c131
-  c185 --> c134
-  n12607 --> c185
+  c186 --> c131
+  c186 --> c134
+  n12739 --> c186
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12607 root
-  class c0,c28,c54,c91,c94,c131,c133,c134,c145,c185 collapsed
+  class n12739 root
+  class c0,c28,c54,c91,c94,c131,c133,c134,c145,c186 collapsed
 ```
 
 ### `Libpetri.Spec.cites_core071_ctx`
@@ -54,7 +54,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12608["Libpetri.Spec.cites_core071_ctx"]
+    n12740["Libpetri.Spec.cites_core071_ctx"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -74,11 +74,11 @@ flowchart TD
   c134 --> c145
   c137 --> c134
   c145 --> c91
-  n12608 --> c137
+  n12740 --> c137
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12608 root
+  class n12740 root
   class c0,c28,c54,c91,c94,c133,c134,c137,c145 collapsed
 ```
 
@@ -92,96 +92,96 @@ flowchart TD
     n3335["Libpetri.Reference.QMarking"]
   end
   subgraph g1["Libpetri/Spec/Ears.lean"]
-    n10125["Libpetri.Spec.StepShall"]
+    n10259["Libpetri.Spec.StepShall"]
   end
   subgraph g2["Libpetri/Spec/GlossaryExec.lean"]
     n5895["Libpetri.Spec.Cause"]
     n5902["Libpetri.Spec.Cfg"]
     n7580["Libpetri.Spec.Firing"]
-    n8768["Libpetri.Spec.Mode"]
-    n8774["Libpetri.Spec.Mode.open"]
-    n9795["Libpetri.Spec.Phase"]
-    n9796["Libpetri.Spec.Phase.await"]
-    n9797["Libpetri.Spec.Phase.completions"]
-    n9798["Libpetri.Spec.Phase.deadline"]
-    n9799["Libpetri.Spec.Phase.done"]
-    n9800["Libpetri.Spec.Phase.events"]
-    n9801["Libpetri.Spec.Phase.pass"]
-    n9802["Libpetri.Spec.Phase.publications"]
-    n9803["Libpetri.Spec.Phase.test"]
-    n9804["Libpetri.Spec.Phase.update"]
-    n12372["Libpetri.Spec.XLbl"]
-    n12397["Libpetri.Spec.XLbl.snapshot"]
-    n12421["Libpetri.Spec.XRel"]
-    n12422["Libpetri.Spec.XRun"]
-    n12424["Libpetri.Spec.XSt"]
-    n12425["Libpetri.Spec.XSt.M"]
-    n12429["Libpetri.Spec.XSt.eq"]
-    n12430["Libpetri.Spec.XSt.fl"]
-    n12432["Libpetri.Spec.XSt.mode"]
-    n12437["Libpetri.Spec.XSt.phase"]
-    n12438["Libpetri.Spec.XSt.pq"]
-    n12441["Libpetri.Spec.XStep"]
-    n17723["Libpetri.Spec.isExecPhase"]
+    n8902["Libpetri.Spec.Mode"]
+    n8908["Libpetri.Spec.Mode.open"]
+    n9929["Libpetri.Spec.Phase"]
+    n9930["Libpetri.Spec.Phase.await"]
+    n9931["Libpetri.Spec.Phase.completions"]
+    n9932["Libpetri.Spec.Phase.deadline"]
+    n9933["Libpetri.Spec.Phase.done"]
+    n9934["Libpetri.Spec.Phase.events"]
+    n9935["Libpetri.Spec.Phase.pass"]
+    n9936["Libpetri.Spec.Phase.publications"]
+    n9937["Libpetri.Spec.Phase.test"]
+    n9938["Libpetri.Spec.Phase.update"]
+    n12504["Libpetri.Spec.XLbl"]
+    n12529["Libpetri.Spec.XLbl.snapshot"]
+    n12553["Libpetri.Spec.XRel"]
+    n12554["Libpetri.Spec.XRun"]
+    n12556["Libpetri.Spec.XSt"]
+    n12557["Libpetri.Spec.XSt.M"]
+    n12561["Libpetri.Spec.XSt.eq"]
+    n12562["Libpetri.Spec.XSt.fl"]
+    n12564["Libpetri.Spec.XSt.mode"]
+    n12569["Libpetri.Spec.XSt.phase"]
+    n12570["Libpetri.Spec.XSt.pq"]
+    n12573["Libpetri.Spec.XStep"]
+    n17855["Libpetri.Spec.isExecPhase"]
   end
   subgraph g3["Libpetri/Spec/Req/ENV_014.lean"]
     n6240["Libpetri.Spec.ENV_014"]
-    n14904["Libpetri.Spec.env014_snapshot_frame"]
+    n15036["Libpetri.Spec.env014_snapshot_frame"]
   end
-  n6240 --> n8774
-  n6240 --> n10125
-  n6240 --> n12397
-  n6240 --> n12422
-  n6240 --> n12429
-  n6240 --> n12430
-  n6240 --> n12432
-  n6240 --> n12437
-  n6240 --> n12438
-  n6240 --> n17723
-  n8774 --> n8768
-  n9796 --> n9795
-  n9797 --> n9795
-  n9798 --> n9795
-  n9799 --> n5895
-  n9799 --> n9795
-  n9800 --> n9795
-  n9801 --> n9795
-  n9802 --> n9795
-  n9803 --> n9795
-  n9804 --> n9795
-  n12397 --> n12372
-  n12421 --> n5902
-  n12421 --> n12372
-  n12421 --> n12424
-  n12422 --> n12421
-  n12422 --> n12441
-  n12425 --> n3335
-  n12425 --> n12424
-  n12429 --> n12424
-  n12430 --> n7580
-  n12430 --> n12424
-  n12432 --> n8768
-  n12432 --> n12424
-  n12437 --> n9795
-  n12437 --> n12424
-  n12438 --> n12424
-  n12441 --> n12372
-  n12441 --> n12424
-  n14904 --> n6240
-  n14904 --> n12425
-  n17723 --> n9796
-  n17723 --> n9797
-  n17723 --> n9798
-  n17723 --> n9799
-  n17723 --> n9800
-  n17723 --> n9801
-  n17723 --> n9802
-  n17723 --> n9803
-  n17723 --> n9804
+  n6240 --> n8908
+  n6240 --> n10259
+  n6240 --> n12529
+  n6240 --> n12554
+  n6240 --> n12561
+  n6240 --> n12562
+  n6240 --> n12564
+  n6240 --> n12569
+  n6240 --> n12570
+  n6240 --> n17855
+  n8908 --> n8902
+  n9930 --> n9929
+  n9931 --> n9929
+  n9932 --> n9929
+  n9933 --> n5895
+  n9933 --> n9929
+  n9934 --> n9929
+  n9935 --> n9929
+  n9936 --> n9929
+  n9937 --> n9929
+  n9938 --> n9929
+  n12529 --> n12504
+  n12553 --> n5902
+  n12553 --> n12504
+  n12553 --> n12556
+  n12554 --> n12553
+  n12554 --> n12573
+  n12557 --> n3335
+  n12557 --> n12556
+  n12561 --> n12556
+  n12562 --> n7580
+  n12562 --> n12556
+  n12564 --> n8902
+  n12564 --> n12556
+  n12569 --> n9929
+  n12569 --> n12556
+  n12570 --> n12556
+  n12573 --> n12504
+  n12573 --> n12556
+  n15036 --> n6240
+  n15036 --> n12557
+  n17855 --> n9930
+  n17855 --> n9931
+  n17855 --> n9932
+  n17855 --> n9933
+  n17855 --> n9934
+  n17855 --> n9935
+  n17855 --> n9936
+  n17855 --> n9937
+  n17855 --> n9938
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n14904 root
+  class n15036 root
 ```
 
 Axioms used:

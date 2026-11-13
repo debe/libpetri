@@ -14,9 +14,9 @@ Theorems carrying this ID:
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
     n5955["Libpetri.Spec.ClashExec.some_of_map"]
-    n10531["Libpetri.Spec.TimeoutValidated"]
-    n12662["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
-    n21362["Libpetri.Spec.timeoutRejected"]
+    n10663["Libpetri.Spec.TimeoutValidated"]
+    n12794["Libpetri.Spec.clashExec_timeoutValidated_conflict"]
+    n21494["Libpetri.Spec.timeoutRejected"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -31,9 +31,9 @@ flowchart TD
   c133["📁 Libpetri/Spec/Glossary.lean (9 declarations, collapsed)"]
   c140["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
   c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
-  c240["📁 Libpetri/Spec/Req/EXEC_021.lean (11 declarations, collapsed)"]
-  c273["📁 Libpetri/Spec/Req/IO_015.lean (24 declarations, collapsed)"]
+  c235["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c241["📁 Libpetri/Spec/Req/EXEC_021.lean (11 declarations, collapsed)"]
+  c274["📁 Libpetri/Spec/Req/IO_015.lean (24 declarations, collapsed)"]
   c54 --> c0
   c80 --> c140
   c91 --> c94
@@ -43,26 +43,26 @@ flowchart TD
   c103 --> c109
   c133 --> c94
   c140 --> c91
-  c140 --> c234
-  c140 --> c273
+  c140 --> c235
+  c140 --> c274
   c147 --> c98
   c147 --> c133
-  c234 --> c103
-  c234 --> c147
-  c240 --> c80
-  c240 --> c131
-  c273 --> c133
+  c235 --> c103
+  c235 --> c147
+  c241 --> c80
+  c241 --> c131
+  c274 --> c133
   n5955 --> c140
-  n10531 --> n21362
-  n12662 --> c240
-  n12662 --> n5955
-  n12662 --> n10531
-  n21362 --> c140
+  n10663 --> n21494
+  n12794 --> c241
+  n12794 --> n5955
+  n12794 --> n10663
+  n21494 --> c140
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12662 root
-  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c133,c140,c147,c234,c240,c273 collapsed
+  class n12794 root
+  class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c133,c140,c147,c235,c241,c274 collapsed
 ```
 
 Axioms used:

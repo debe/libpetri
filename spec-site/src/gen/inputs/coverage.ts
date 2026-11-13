@@ -15,11 +15,10 @@ import { arr, str } from '../../decode.js';
 import type { Citation, CoverageRow, LeanProof, ReqId, Runtime, TestCoverage } from '../../model.js';
 import { RUNTIMES } from '../../model.js';
 import { repoPath } from '../paths.js';
-import { splitLines } from './alignment.js';
 import { decodeFile, objWith, parseJson } from './json-input.js';
 import { readLean } from './lean.js';
 import { readSource } from './source.js';
-import { byString, inputError, REQ_ID_RE } from './text.js';
+import { byString, inputError, REQ_ID_RE, splitLines } from './text.js';
 
 export const COVERAGE_MATRIX_FILE = 'spec/coverage-matrix.md';
 export const PROOF_COVERAGE_FILE = 'lean/report/proof-coverage.json';

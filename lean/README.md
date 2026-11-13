@@ -459,7 +459,7 @@ Libpetri module directly, so no tag is missed;
 its imports. The file is generated: never edit it; CI regenerates it with
 `report/requirements.{md,json}` and fails on a difference.
 `scripts/spec-coverage-matrix.py` reads it, checks that every ID is active in
-`spec/00-index.md` and regenerates `spec/coverage-matrix.md` under `--update`;
+`report/spec.json` and regenerates `spec/coverage-matrix.md` under `--update`;
 without it the script verifies instead, which is what CI runs.
 
 After adding or editing a `cites` tag, run the steps in this order, since each
@@ -502,11 +502,13 @@ Its first line, an HTML comment, names the source.
   evidence, written `⟪name⟫`, is a declaration (the entry module imports the modules that declare
   them), that the runtimes are known and that the status is `open`, `fixed, unreleased` or
   `fixed in <version>`.
-- A requirement block names spans of its text with `covers PERF_030.s1, PERF_030.s2` instead of
-  copying them with `quote "…"`. Each reference resolves at build time to the span with its line
-  breaks joined into spaces; an unknown text or label is a build error. The resolved strings are
-  the block's quotes, so the statement hash, and with it the sign-off, covers the text the block
-  names: editing a covered span changes the hash.
+- A requirement block names spans of its text with `covers PERF_030.s1, PERF_030.s2`. Each
+  reference resolves at build time to the span with its line breaks joined into spaces; an
+  unknown text or label is a build error. The resolved strings are the block's quotes, so the
+  statement hash, and with it the sign-off, covers the text the block names: editing a covered
+  span changes the hash. A `source verbatim` block cannot copy its text with `quote "…"` (a
+  build error); `quote` is for `source proposed`, wording the spec text does not hold yet, and
+  only for an ID listed in `proposedIds` (`Libpetri/Spec/Generate.lean`, empty today).
 
 After editing a text, a chapter, a term or a ledger entry, run `lake build` and then
 `lake env lean spec-tools/Render.lean` from `lean/`, which rewrites every `spec/*.md` declared in
@@ -514,9 +516,32 @@ Lean; then regenerate the report as above. Before it writes, Render checks the w
 every requirement text is listed by exactly one chapter, every `**Depends on:**` ID is a
 requirement text, every `RD-NN` and `UB-NN` a Lean source under `Libpetri/` names is a ledger
 entry, and every `Glossary: *…* (spec/glossary.md)` reference names a term. CI renders and fails
-when a generated file differs from the committed one. `scripts/spec-md-to-lean.py spec/NN-name.md`
-moved the chapters from markdown into Lean (it writes the text modules, wraps the quotes of the
-chapter's blocks as spans and rewrites those blocks to `covers`); it is a one-shot migration tool.
+when a generated file differs from the committed one.
+
+Nothing outside Lean parses the generated markdown. `Libpetri/Spec/Markdown.lean` is the one
+reader of it: it cuts a rendered chapter into requirement sections (a `#### ID:` heading to the
+next heading of level 1 to 4), a section into chunks and fields (paragraphs, acceptance criteria,
+notes, `**Depends on:**`, test derivation) and into units and sentences. Two commands of
+`Libpetri/Spec/Generate.lean` use it:
+
+- `#write_spec_json`, run by `spec-tools/Report.lean`, writes `report/spec.json`: the numbered
+  chapters with their `##` sections, every requirement (ID, title, priority, kind, status, file,
+  line, section, body, labelled spans, and the fields read back, mentions included), the glossary
+  terms and the ledger entries. The spec site (`spec-site/`) and
+  `scripts/spec-coverage-matrix.py` read it; the index's Depends On column uses the same reading.
+  CI's report freshness step covers it.
+- `#audit_spec`, run by `spec-tools/Audit.lean` after `#audit_axioms`, checks the requirement
+  blocks against the text as the chapters show it, one `SPEC <rule>` line per finding:
+  `uncovered` (a sentence with *shall*, or a numbered acceptance criterion `ACn`, of an ID with a
+  verbatim block that no block covers and no `assumes` line of the ID states, or names as `ACn`),
+  `span-not-sentence` (a covered span that is not a whole sentence, sentence run or bullet of the
+  rendered section, say one inside an HTML comment), `kind-mismatch` and `kind-missing` (the
+  text's kind is no block's kind, or a kind B, F or T without a block), `citation-inactive` (an
+  `@[evidence cites]` of a removed or unknown ID), `id-inactive`, `evidence-missing` (no evidence,
+  kind B without `holds` and `nonvacuous`, no `forbids` or `mutant`), `source-file`,
+  `no-heading`, `duplicate-heading`, `proposed-not-allowed`, `unknown-id` and `no-blocks`.
+  A sentence is cut at `.`, `!` or `?` before a space and an upper-case letter, digit, quote or
+  bracket, after emphasis markers are dropped and whitespace is collapsed.
 
 Nothing in `theory/` is edited by this development; the papers are read-only
 reference for the theorem statements.

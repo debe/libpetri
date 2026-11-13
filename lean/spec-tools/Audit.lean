@@ -210,6 +210,7 @@ import Libpetri.Spec.Ledger.RD_49
 import Libpetri.Spec.Ledger.RD_50
 import Libpetri.Spec.Ledger.RD_51
 import Libpetri.Spec.Ledger.Unbuilt
+import Libpetri.Spec.Markdown
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.CONC_001
 import Libpetri.Spec.Req.CONC_002
@@ -682,15 +683,22 @@ import Libpetri.StateEquation
 import Libpetri.Strengthening
 import Libpetri.Strengthening.Hypotheses
 import Libpetri.TimedCycle
-/-! Axiom audit over every constant declared under `Libpetri` (private ones included). Run from
-`lean/`: `lake env lean spec-tools/Audit.lean`. It fails on any axiom declared under `Libpetri` and
-on any dependency on an axiom outside `propext`, `Quot.sound`, `Classical.choice`; on success it
-prints a line starting `axioms ok`.
+/-! Two audits over the whole development. Run from `lean/`: `lake env lean spec-tools/Audit.lean`.
 
-The audit only sees the modules imported here, so every module of `lean/Libpetri.lean` and
+* `#audit_axioms` walks every constant declared under `Libpetri` (private ones included). It fails
+  on any axiom declared under `Libpetri` and on any dependency on an axiom outside `propext`,
+  `Quot.sound`, `Classical.choice`; on success it prints a line starting `axioms ok`.
+* `#audit_spec` (`Libpetri/Spec/Generate.lean`) checks the requirement blocks, their evidence and
+  the `@[evidence cites]` citations against the spec text as the generated chapters show it:
+  every normative sentence of a requirement with a block is covered or assumed, the kinds agree,
+  no citation names a removed requirement, and more. Each finding starts `SPEC <rule>`; on
+  success it prints a line starting `spec ok`.
+
+The audits only see the modules imported here, so every module of `lean/Libpetri.lean` and
 `lean/Libpetri/` is imported directly, the reference executable's `Main`, `Load` and `Sha256`
 included (no module reaches them transitively). `scripts/lean-module-coverage-check.py` fails CI
 when a module is missing from this list; regenerate it from `lean/` with
 `find Libpetri -name '*.lean' | sed 's/\.lean$//; s#/#.#g' | LC_ALL=C sort | sed 's/^/import /'`
 (plus `import Libpetri` first). -/
 #audit_axioms
+#audit_spec

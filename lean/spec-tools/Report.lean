@@ -210,6 +210,7 @@ import Libpetri.Spec.Ledger.RD_49
 import Libpetri.Spec.Ledger.RD_50
 import Libpetri.Spec.Ledger.RD_51
 import Libpetri.Spec.Ledger.Unbuilt
+import Libpetri.Spec.Markdown
 import Libpetri.Spec.Registry
 import Libpetri.Spec.Req.CONC_001
 import Libpetri.Spec.Req.CONC_002
@@ -682,7 +683,8 @@ import Libpetri.StateEquation
 import Libpetri.Strengthening
 import Libpetri.Strengthening.Hypotheses
 import Libpetri.TimedCycle
-/-! Regenerates `lean/report/requirements.{md,json}` and `lean/report/proof-coverage.json`. Run
+/-! Regenerates `lean/report/requirements.{md,json}`, `lean/report/proof-coverage.json` and
+`lean/report/spec.json` (the spec text as data: `#write_spec_json`, `Libpetri/Spec/Generate.lean`). Run
 from `lean/`: `lake env lean spec-tools/Report.lean`. CI runs it and fails when a committed
 report differs. The report only sees the `@[evidence]` tags of the modules imported here, so
 every module of `lean/Libpetri.lean` and `lean/Libpetri/` is imported directly, the same list as
@@ -759,3 +761,4 @@ end SpecTools
 open Libpetri Libpetri.Reference Libpetri.Spec
 #write_requirements_report "report"
 #write_proof_coverage "report/proof-coverage.json"
+#write_spec_json "report/spec.json"

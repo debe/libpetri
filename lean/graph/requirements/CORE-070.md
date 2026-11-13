@@ -21,46 +21,46 @@ flowchart TD
   end
   subgraph g1["Libpetri/Spec/Glossary.lean"]
     n6080["Libpetri.Spec.CountMarking"]
-    n8622["Libpetri.Spec.Marked"]
+    n8756["Libpetri.Spec.Marked"]
   end
   subgraph g2["Libpetri/Spec/GlossaryQueue.lean"]
     n7139["Libpetri.Spec.EmittedTo"]
-    n8623["Libpetri.Spec.MarkingOps"]
-    n8624["Libpetri.Spec.MarkingOps.add"]
-    n8625["Libpetri.Spec.MarkingOps.count"]
-    n8626["Libpetri.Spec.MarkingOps.empty"]
-    n8628["Libpetri.Spec.MarkingOps.ok"]
-    n8630["Libpetri.Spec.MarkingOps.removeFirst"]
-    n8631["Libpetri.Spec.MarkingOps.view"]
-    n8632["Libpetri.Spec.MarkingOps.σ"]
-    n9851["Libpetri.Spec.QueueMarking"]
+    n8757["Libpetri.Spec.MarkingOps"]
+    n8758["Libpetri.Spec.MarkingOps.add"]
+    n8759["Libpetri.Spec.MarkingOps.count"]
+    n8760["Libpetri.Spec.MarkingOps.empty"]
+    n8762["Libpetri.Spec.MarkingOps.ok"]
+    n8764["Libpetri.Spec.MarkingOps.removeFirst"]
+    n8765["Libpetri.Spec.MarkingOps.view"]
+    n8766["Libpetri.Spec.MarkingOps.σ"]
+    n9985["Libpetri.Spec.QueueMarking"]
   end
   subgraph g3["Libpetri/Spec/Req/CORE_070.lean"]
     n5783["Libpetri.Spec.CORE_070"]
     n5784["Libpetri.Spec.CORE_070_adds"]
     n5785["Libpetri.Spec.CORE_070_derivation"]
   end
-  n5783 --> n8622
-  n5783 --> n8624
-  n5783 --> n8625
-  n5783 --> n8626
-  n5783 --> n8628
-  n5783 --> n8630
-  n5783 --> n8631
+  n5783 --> n8756
+  n5783 --> n8758
+  n5783 --> n8759
+  n5783 --> n8760
+  n5783 --> n8762
+  n5783 --> n8764
+  n5783 --> n8765
   n5784 --> n5783
   n5784 --> n7139
   n5785 --> n5784
   n7139 --> n4206
-  n8622 --> n6080
-  n8624 --> n8632
-  n8625 --> n8632
-  n8626 --> n8632
-  n8628 --> n8632
-  n8630 --> n8632
-  n8631 --> n8632
-  n8631 --> n9851
-  n8632 --> n8623
-  n9851 --> n3335
+  n8756 --> n6080
+  n8758 --> n8766
+  n8759 --> n8766
+  n8760 --> n8766
+  n8762 --> n8766
+  n8764 --> n8766
+  n8765 --> n8766
+  n8765 --> n9985
+  n8766 --> n8757
+  n9985 --> n3335
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
@@ -76,11 +76,11 @@ flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_070.lean"]
     n5783["Libpetri.Spec.CORE_070"]
     n5811["Libpetri.Spec.CORE_070_ringStore"]
-    n14182["Libpetri.Spec.core070_le_max"]
-    n14187["Libpetri.Spec.core070_onePerPlace"]
-    n14188["Libpetri.Spec.core070_onePerPlace_wf"]
-    n14191["Libpetri.Spec.core070_proj_of_cnt_zero"]
-    n14193["Libpetri.Spec.core070_ringMarking"]
+    n14314["Libpetri.Spec.core070_le_max"]
+    n14319["Libpetri.Spec.core070_onePerPlace"]
+    n14320["Libpetri.Spec.core070_onePerPlace_wf"]
+    n14323["Libpetri.Spec.core070_proj_of_cnt_zero"]
+    n14325["Libpetri.Spec.core070_ringMarking"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
   c91["📁 Libpetri/Reference/Queue.lean (1 declarations, collapsed)"]
@@ -97,15 +97,15 @@ flowchart TD
   n5783 --> c133
   n5783 --> c145
   n5811 --> n5783
-  n5811 --> n14182
-  n5811 --> n14188
-  n5811 --> n14191
-  n5811 --> n14193
-  n14182 --> c0
-  n14187 --> c105
-  n14188 --> n14187
-  n14191 --> c105
-  n14193 --> c145
+  n5811 --> n14314
+  n5811 --> n14320
+  n5811 --> n14323
+  n5811 --> n14325
+  n14314 --> c0
+  n14319 --> c105
+  n14320 --> n14319
+  n14323 --> c105
+  n14325 --> c145
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4

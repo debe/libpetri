@@ -27,7 +27,7 @@ flowchart TD
     n3457["Libpetri.Reference.Trans.out"]
   end
   subgraph g2["Libpetri/Spec/Ears.lean"]
-    n10125["Libpetri.Spec.StepShall"]
+    n10259["Libpetri.Spec.StepShall"]
   end
   subgraph g3["Libpetri/Spec/GlossaryExec.lean"]
     n5902["Libpetri.Spec.Cfg"]
@@ -37,17 +37,17 @@ flowchart TD
     n7583["Libpetri.Spec.Firing.id"]
     n7585["Libpetri.Spec.Firing.out"]
     n7590["Libpetri.Spec.Firing.t"]
-    n9753["Libpetri.Spec.Outcome"]
-    n9957["Libpetri.Spec.Reply"]
-    n12372["Libpetri.Spec.XLbl"]
-    n12384["Libpetri.Spec.XLbl.expire"]
-    n12395["Libpetri.Spec.XLbl.request"]
-    n12403["Libpetri.Spec.XLbl.write"]
-    n12424["Libpetri.Spec.XSt"]
-    n12425["Libpetri.Spec.XSt.M"]
-    n12429["Libpetri.Spec.XSt.eq"]
-    n12430["Libpetri.Spec.XSt.fl"]
-    n12438["Libpetri.Spec.XSt.pq"]
+    n9887["Libpetri.Spec.Outcome"]
+    n10091["Libpetri.Spec.Reply"]
+    n12504["Libpetri.Spec.XLbl"]
+    n12516["Libpetri.Spec.XLbl.expire"]
+    n12527["Libpetri.Spec.XLbl.request"]
+    n12535["Libpetri.Spec.XLbl.write"]
+    n12556["Libpetri.Spec.XSt"]
+    n12557["Libpetri.Spec.XSt.M"]
+    n12561["Libpetri.Spec.XSt.eq"]
+    n12562["Libpetri.Spec.XSt.fl"]
+    n12570["Libpetri.Spec.XSt.pq"]
   end
   subgraph g4["Libpetri/Spec/Req/CORE_011.lean"]
     n5979["Libpetri.Spec.ClockReadings"]
@@ -67,17 +67,17 @@ flowchart TD
     n7273["Libpetri.Spec.EpochSt"]
     n7275["Libpetri.Spec.EpochSt.rd"]
     n7276["Libpetri.Spec.EpochSt.x"]
-    n13412["Libpetri.Spec.core011b_QStamped"]
-    n13415["Libpetri.Spec.core011b_Stamped"]
-    n13416["Libpetri.Spec.core011b_buffers"]
-    n13418["Libpetri.Spec.core011b_bufsAdd"]
-    n13419["Libpetri.Spec.core011b_bufsKept"]
-    n13423["Libpetri.Spec.core011b_eqAdd"]
-    n13424["Libpetri.Spec.core011b_eqKept"]
-    n13439["Libpetri.Spec.core011b_keepsRest"]
-    n13453["Libpetri.Spec.core011b_output_stamp"]
-    n13458["Libpetri.Spec.core011b_queues"]
-    n13460["Libpetri.Spec.core011b_rdAfter"]
+    n13544["Libpetri.Spec.core011b_QStamped"]
+    n13547["Libpetri.Spec.core011b_Stamped"]
+    n13548["Libpetri.Spec.core011b_buffers"]
+    n13550["Libpetri.Spec.core011b_bufsAdd"]
+    n13551["Libpetri.Spec.core011b_bufsKept"]
+    n13555["Libpetri.Spec.core011b_eqAdd"]
+    n13556["Libpetri.Spec.core011b_eqKept"]
+    n13571["Libpetri.Spec.core011b_keepsRest"]
+    n13585["Libpetri.Spec.core011b_output_stamp"]
+    n13590["Libpetri.Spec.core011b_queues"]
+    n13592["Libpetri.Spec.core011b_rdAfter"]
   end
   n3289 --> n3288
   n3292 --> n3289
@@ -100,20 +100,20 @@ flowchart TD
   n5325 --> n7575
   n5325 --> n7582
   n5325 --> n7590
-  n5325 --> n10125
-  n5325 --> n12384
-  n5325 --> n12395
-  n5325 --> n12403
-  n5325 --> n13412
-  n5325 --> n13416
-  n5325 --> n13458
-  n5325 --> n13460
+  n5325 --> n10259
+  n5325 --> n12516
+  n5325 --> n12527
+  n5325 --> n12535
+  n5325 --> n13544
+  n5325 --> n13548
+  n5325 --> n13590
+  n5325 --> n13592
   n5980 --> n5979
   n7261 --> n7260
-  n7261 --> n9957
+  n7261 --> n10091
   n7262 --> n7260
   n7262 --> n7574
-  n7262 --> n12372
+  n7262 --> n12504
   n7263 --> n5979
   n7263 --> n7260
   n7264 --> n7260
@@ -125,7 +125,7 @@ flowchart TD
   n7275 --> n7273
   n7276 --> n7273
   n7276 --> n7574
-  n7276 --> n12424
+  n7276 --> n12556
   n7575 --> n7574
   n7576 --> n7574
   n7581 --> n7580
@@ -133,54 +133,54 @@ flowchart TD
   n7582 --> n7580
   n7583 --> n7580
   n7585 --> n7580
-  n7585 --> n9753
+  n7585 --> n9887
   n7590 --> n3454
   n7590 --> n7580
-  n12384 --> n12372
-  n12395 --> n9957
-  n12395 --> n12372
-  n12403 --> n12372
-  n12425 --> n3335
-  n12425 --> n12424
-  n12429 --> n12424
-  n12430 --> n7580
-  n12430 --> n12424
-  n12438 --> n12424
-  n13412 --> n3293
-  n13412 --> n3457
-  n13412 --> n4206
-  n13412 --> n13415
-  n13415 --> n3292
-  n13415 --> n3331
-  n13415 --> n7576
-  n13416 --> n13418
-  n13416 --> n13424
-  n13416 --> n13439
-  n13418 --> n7581
-  n13418 --> n7583
-  n13418 --> n12430
-  n13419 --> n7581
-  n13419 --> n7583
-  n13419 --> n12430
-  n13423 --> n12429
-  n13424 --> n12429
-  n13439 --> n7583
-  n13439 --> n7585
-  n13439 --> n12425
-  n13439 --> n12430
-  n13439 --> n12438
-  n13453 --> n5325
-  n13458 --> n13419
-  n13458 --> n13423
-  n13458 --> n13439
-  n13460 --> n7261
-  n13460 --> n7262
-  n13460 --> n7263
-  n13460 --> n7264
+  n12516 --> n12504
+  n12527 --> n10091
+  n12527 --> n12504
+  n12535 --> n12504
+  n12557 --> n3335
+  n12557 --> n12556
+  n12561 --> n12556
+  n12562 --> n7580
+  n12562 --> n12556
+  n12570 --> n12556
+  n13544 --> n3293
+  n13544 --> n3457
+  n13544 --> n4206
+  n13544 --> n13547
+  n13547 --> n3292
+  n13547 --> n3331
+  n13547 --> n7576
+  n13548 --> n13550
+  n13548 --> n13556
+  n13548 --> n13571
+  n13550 --> n7581
+  n13550 --> n7583
+  n13550 --> n12562
+  n13551 --> n7581
+  n13551 --> n7583
+  n13551 --> n12562
+  n13555 --> n12561
+  n13556 --> n12561
+  n13571 --> n7583
+  n13571 --> n7585
+  n13571 --> n12557
+  n13571 --> n12562
+  n13571 --> n12570
+  n13585 --> n5325
+  n13590 --> n13551
+  n13590 --> n13555
+  n13590 --> n13571
+  n13592 --> n7261
+  n13592 --> n7262
+  n13592 --> n7263
+  n13592 --> n7264
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13453 root
+  class n13585 root
 ```
 
 Axioms used:

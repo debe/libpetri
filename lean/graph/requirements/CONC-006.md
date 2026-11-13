@@ -13,7 +13,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12605["Libpetri.Spec.cites_completion_handoff"]
+    n12737["Libpetri.Spec.cites_completion_handoff"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -30,9 +30,9 @@ flowchart TD
   c140["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
   c145["📁 Libpetri/Spec/GlossaryQueue.lean (5 declarations, collapsed)"]
   c147["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
-  c150["📁 Libpetri/Spec/Req/CONC_001.lean (27 declarations, collapsed)"]
-  c234["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
-  c239["📁 Libpetri/Spec/Req/EXEC_020.lean (4 declarations, collapsed)"]
+  c151["📁 Libpetri/Spec/Req/CONC_001.lean (27 declarations, collapsed)"]
+  c235["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
+  c240["📁 Libpetri/Spec/Req/EXEC_020.lean (4 declarations, collapsed)"]
   c54 --> c0
   c80 --> c140
   c91 --> c94
@@ -43,23 +43,23 @@ flowchart TD
   c103 --> c109
   c133 --> c94
   c140 --> c91
-  c140 --> c234
+  c140 --> c235
   c145 --> c91
   c147 --> c98
   c147 --> c133
-  c150 --> c80
-  c150 --> c131
-  c234 --> c103
-  c234 --> c147
-  c239 --> c133
-  c239 --> c145
-  n12605 --> c150
-  n12605 --> c239
+  c151 --> c80
+  c151 --> c131
+  c235 --> c103
+  c235 --> c147
+  c240 --> c133
+  c240 --> c145
+  n12737 --> c151
+  n12737 --> c240
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12605 root
-  class c0,c28,c54,c66,c80,c91,c94,c98,c103,c109,c131,c133,c140,c145,c147,c150,c234,c239 collapsed
+  class n12737 root
+  class c0,c28,c54,c66,c80,c91,c94,c98,c103,c109,c131,c133,c140,c145,c147,c151,c235,c240 collapsed
 ```
 
 Axioms used:

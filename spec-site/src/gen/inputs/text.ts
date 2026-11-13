@@ -11,9 +11,12 @@ export function inputError(file: string, line: number | null, message: string): 
 /** A requirement ID such as `CORE-031`. */
 export const REQ_ID_RE = /^[A-Z]+-\d+$/;
 
-/** IDs written as `[CORE-031]` in Markdown, in order of first mention, without repeats. */
-export function bracketIds(text: string): string[] {
-  return unique([...text.matchAll(/\[([A-Z]+-\d+)\]/g)].map((m) => m[1] ?? ''));
+/** Python's `str.splitlines()`: every line boundary Python knows, no trailing empty line. */
+export function splitLines(text: string): string[] {
+  if (text === '') return [];
+  const lines = text.split(/\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/);
+  if (/(?:\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029])$/.test(text)) lines.pop();
+  return lines;
 }
 
 /** Keeps the first occurrence of each value, in order. */

@@ -14,7 +14,7 @@ export const DEFAULT_OUT_FILE: string = join(REPO_ROOT, 'docs', 'spec', 'index.h
 /** The landing page the build generates (whole, with the live counts). */
 export const DEFAULT_LANDING_FILE: string = join(REPO_ROOT, 'docs', 'index.html');
 
-/** Resolves a repo-relative path such as `spec/glossary.md`. */
+/** Resolves a repo-relative path such as `lean/report/spec.json`. */
 export function repoPath(root: string, relative: string): string {
   return join(root, relative);
 }
