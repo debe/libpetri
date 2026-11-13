@@ -7,7 +7,7 @@ import Libpetri.Novel.TimedScg.Succ
 `TTrans.lft : Bound`). This file says which intervals the Rust graph actually produces, from
 `libpetri-core/src/timing.rs`:
 
-* `Timing` is the Rust enum, with `earliest` / `latest` / `has_deadline` as in `timing.rs:108-138`.
+* `Timing` is the Rust enum, with `earliest` / `latest` / `has_deadline` as in `timing.rs`.
   `latest()` returns the **finite** `MAX_DURATION_MS` (100 years of 365 days) for `Immediate` and
   `Delayed`; it never returns `f64::INFINITY`. `timing_earliest` / `timing_latest`
   (`state_class_graph.rs`) divide by `1000`, so the faithful interval of a transition is
@@ -60,10 +60,10 @@ namespace Libpetri.Novel.TimedScg
 open Libpetri Libpetri.Novel.ForwardDeposit
 open Libpetri.Novel.Dbm (Bound)
 
-/-- `MAX_DURATION_MS` (`timing.rs:2`): 100 years of 365 days, in milliseconds. -/
+/-- `MAX_DURATION_MS` (`timing.rs`): 100 years of 365 days, in milliseconds. -/
 def maxDurationMs : Nat := 365 * 100 * 24 * 60 * 60 * 1000
 
-/-- The Rust `Timing` enum (`timing.rs:12-23`), durations in milliseconds. -/
+/-- The Rust `Timing` enum (`timing.rs`), durations in milliseconds. -/
 inductive Timing where
   | immediate
   | deadline (byMs : Nat)
@@ -74,7 +74,7 @@ inductive Timing where
 
 namespace Timing
 
-/-- `Timing::earliest` (`timing.rs:110-118`). -/
+/-- `Timing::earliest` (`timing.rs`). -/
 def earliest : Timing → Nat
   | immediate => 0
   | deadline _ => 0
@@ -82,7 +82,7 @@ def earliest : Timing → Nat
   | window e _ => e
   | exact a => a
 
-/-- `Timing::latest` (`timing.rs:121-129`): finite for every variant. -/
+/-- `Timing::latest` (`timing.rs`): finite for every variant. -/
 def latest : Timing → Nat
   | immediate => maxDurationMs
   | deadline b => b
@@ -90,7 +90,7 @@ def latest : Timing → Nat
   | window _ l => l
   | exact a => a
 
-/-- `Timing::has_deadline` (`timing.rs:132-137`). -/
+/-- `Timing::has_deadline` (`timing.rs`). -/
 def hasDeadline : Timing → Bool
   | deadline _ => true
   | window _ _ => true

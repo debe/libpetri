@@ -4,10 +4,10 @@
 What `enforce_deadlines` does when it reaps a hard deadline (TIME-013). On
 `elapsed > latest_ms + deadline_tolerance_ms` both backends clear the enabled
 bit and reset `enabled_at_ms` to `NEG_INFINITY`, and neither touches the dirty
-set: `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs:646`, reap block
-`:659-664`) and `PrecompiledBackend::enforce_deadlines`
-(`rust/libpetri-runtime/src/precompiled_backend.rs:1017`, reap block
-`:1049-1054`). `enforceBB` is that one body.
+set: `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs`, its reap block)
+and `PrecompiledBackend::enforce_deadlines`
+(`rust/libpetri-runtime/src/precompiled_backend.rs`, its reap block).
+`enforceBB` is that one body.
 
 **The ruling (2026-09-30).** A reaped transition stays disabled until a token
 on one of its input places changes. The token change marks it dirty
@@ -23,12 +23,12 @@ re-enabled the reaped transition on a fresh clock (`pb_update_reenables`), so
 once its window reopened it fired, while the bitmap backend never re-examined
 it in a quiet net (no other firing, no injection, no reset). The mark was the
 only asymmetric dirty site: `post_fire` marks dirty in both backends
-(`precompiled_backend.rs:1336-1343`, `bitmap_backend.rs:883-890`) and
-`disable` in neither (`precompiled_backend.rs:1345-1351`,
-`bitmap_backend.rs:892-898`, the EXEC-003 loser path of `Enablement.lean`'s
+(`precompiled_backend.rs`, `bitmap_backend.rs`) and
+`disable` in neither (`precompiled_backend.rs`,
+`bitmap_backend.rs`, the EXEC-003 loser path of `Enablement.lean`'s
 `disable_frame`). The executor consumes the reaped list only to emit
-`TransitionTimedOut` (EVT-009; `executor_core/executor.rs:403` sync, `:1075`
-async), with no token change and no re-dirty route. The Rust tests
+`TransitionTimedOut` (EVT-009; `run_sync` and `run_async` in
+`executor_core/executor.rs`), with no token change and no re-dirty route. The Rust tests
 `time013_reap_is_not_rearmed_on_either_backend`,
 `time013_reap_witness_backends_agree` and
 `time013_reaped_transition_rearms_when_an_input_changes` (the runtime's
@@ -39,7 +39,7 @@ The model is the per-transition control cell at cycle granularity — token
 presence abstracted to one `Bool` (enough for `can_enable`, which the quiet
 net keeps constant), `Nat` clocks per `Sched.lean`'s convention with `none`
 for `NEG_INFINITY`. A cycle is the executor loop's phase order (`run_sync`,
-`executor_core/executor.rs:364`; async loop Phase 3/4/5): update enablement,
+`executor_core/executor.rs`; `run_async` Phase 3/4/5): update enablement,
 enforce deadlines, then the ready/fire decision — the observable. Firing
 *effects* are outside the fragment: the divergence is observable at the fire
 decision itself, before any consumption happens. `exact()` timing is excluded
@@ -71,7 +71,7 @@ namespace Libpetri
 
 /-- One transition's timed control state, at the granularity the deadline
 path reads and writes: `tokens` abstracts the marking to "would
-`can_enable` pass" (`precompiled_backend.rs:710` / `bitmap_backend.rs:329` —
+`can_enable` pass" (`precompiled_backend.rs` / `bitmap_backend.rs` —
 constant in a quiet net), `enabled` is the enabled bit, `clock` is
 `enabled_at_ms` (`none` = `NEG_INFINITY`), `dirty` is the transition's bit in
 `dirty_bitmap` / `dirty_set`. -/
@@ -90,8 +90,8 @@ structure Timing where
   earliest : Nat
   latest   : Nat
 
-/-- `elapsed > latest`: the reap test of both backends
-(`precompiled_backend.rs:1042-1049`, `bitmap_backend.rs:657-659`), with `Nat`
+/-- `elapsed > latest`: the reap test of both backends' `enforce_deadlines`
+(`precompiled_backend.rs`, `bitmap_backend.rs`), with `Nat`
 truncated subtraction as in `Sched.lean`'s `isReady`. `none` is
 `NEG_INFINITY`, whose elapsed time exceeds everything — unreachable for an
 enabled transition (every disable path writes both fields together), modeled
@@ -101,8 +101,8 @@ def deadlineExpired (latest now : Nat) : Option Nat → Bool
   | none   => true
 
 /-- `earliest_ms <= elapsed`: the TIME-010 window gate of
-`collect_ready_general` (`precompiled_backend.rs:1104-1105`,
-`bitmap_backend.rs:689-691`). Same `none` convention. -/
+`collect_ready_general` (`precompiled_backend.rs`,
+`bitmap_backend.rs`). Same `none` convention. -/
 def windowOpen (earliest now : Nat) : Option Nat → Bool
   | some c => decide (earliest ≤ now - c)
   | none   => true
@@ -111,16 +111,16 @@ def windowOpen (earliest now : Nat) : Option Nat → Bool
 
 /-- The dirty-gated enablement update — one body for **both** backends,
 because their branch logic is line-for-line identical
-(`precompiled_backend.rs:948` `update_enablement`, dirty-word scan then
-`:965-1000`; `bitmap_backend.rs:590`, dirty snapshot then `:612-632`): a
+(`update_enablement` in `precompiled_backend.rs`, dirty-word scan, and in
+`bitmap_backend.rs`, dirty snapshot): a
 clean cell is skipped outright; a dirty one has its bit cleared and is
 re-evaluated — newly enabled gets the fresh clock (`enabled_at_ms = now_ms`,
-TIME-011 restart-from-zero, `:986` / `:618`), newly disabled gets
-`NEG_INFINITY` (`:991` / `:623`). The third branch (`clock_restarted`,
+TIME-011 restart-from-zero), newly disabled gets
+`NEG_INFINITY`. The third branch (`clock_restarted`,
 TIME-012) needs the transition's pending-restart bit
-(`precompiled_backend.rs:993-999`, `bitmap_backend.rs:625-631`), which
+(`update_enablement` in `precompiled_backend.rs` and `bitmap_backend.rs`), which
 only a firing sets: `update_bitmap_after_consumption` calls
-`flag_clock_restarts` (`precompiled_backend.rs:822`, `bitmap_backend.rs:425`)
+`flag_clock_restarts` (`precompiled_backend.rs`, `bitmap_backend.rs`)
 for each consumed place left below its `restart_threshold`, which flags each
 other enabled transition failing `can_enable` on the live marking. A quiet
 net fires nothing, so the bit is never set and the branch is elided. -/
@@ -139,17 +139,17 @@ transitions never reach it (`is_exact` continue, TIME-006). -/
 def reaps (latest now : Nat) (s : Cell) : Bool :=
   s.enabled && deadlineExpired latest now s.clock
 
-/-- `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs:646`, reap block
-`:659-664`) and, since the TIME-013 ruling, `PrecompiledBackend::enforce_deadlines`
-(`precompiled_backend.rs:1017`, reap block `:1049-1054`): clear the enabled
+/-- `BitmapBackend::enforce_deadlines` (`bitmap_backend.rs`, its reap block)
+and, since the TIME-013 ruling, `PrecompiledBackend::enforce_deadlines`
+(`precompiled_backend.rs`, its reap block): clear the enabled
 flag, `enabled_at_ms = NEG_INFINITY`, and **nothing else**; the dirty set is
 untouched. -/
 def enforceBB (latest now : Nat) (s : Cell) : Cell :=
   if reaps latest now s then { s with enabled := false, clock := none } else s
 
 /-- `PrecompiledBackend::enforce_deadlines` **before the TIME-013 ruling**: the
-same clear, plus `mark_transition_dirty(tid)` (the bit-set of
-`precompiled_backend.rs:566-570`). The shipped path no longer calls it and is
+same clear, plus `mark_transition_dirty(tid)` (its bit-set in
+`precompiled_backend.rs`). The shipped path no longer calls it and is
 `enforceBB`. Kept as the retrodiction the ruling was made against. -/
 def enforcePB (latest now : Nat) (s : Cell) : Cell :=
   if reaps latest now s then
@@ -158,7 +158,7 @@ def enforcePB (latest now : Nat) (s : Cell) : Cell :=
 
 /-- The observable of one cycle: does the ready phase fire the transition?
 Enabled-and-window-open is `collect_ready_general`'s gate; `tokens` is
-`recheck_can_fire` re-running `can_enable` (`bitmap_backend.rs:708-713`),
+`recheck_can_fire` re-running `can_enable` (`bitmap_backend.rs`),
 redundant while enabled bits are in sync but kept for faithfulness.
 
 Since the EXEC-003 AC3/AC4 work that recheck reads the fire-pass presence
@@ -173,8 +173,8 @@ def fires (earliest now : Nat) (s : Cell) : Bool :=
 
 /-! ## One executor cycle, and runs over a schedule
 
-Phase order per the loop (`run_sync`, `executor_core/executor.rs:385`; the
-async loop's Phase 3/4/5, `:921-977`): update enablement, enforce deadlines,
+Phase order per the loop (`run_sync`, `executor_core/executor.rs`; the
+async loop's Phase 3/4/5 in `run_async`): update enablement, enforce deadlines,
 collect ready + fire. Advancing time between cycles is the schedule itself:
 a run is driven by the list of cycle timestamps `now`.
 
@@ -187,7 +187,7 @@ but explicitly does **not** promise it advances between two reads: a host
 clock derived from millisecond wall time or a replay log yields a schedule
 with repeated timestamps, which is already inside this quantification. The
 executor still reads the clock exactly once per cycle (`let cycle_now =
-self.elapsed_ms()`, `:393` sync / `:1064` async), which is the `now` here. -/
+self.elapsed_ms()` in both `run_sync` and `run_async`), which is the `now` here. -/
 
 /-- One cycle under the given enforcement step. Returns the post-cycle cell
 and the fire observable. Firing effects (consumption, `post_fire`) are
@@ -234,7 +234,7 @@ theorem no_reap_frame {latest now : Nat} {s : Cell}
 /-- **The re-enabling step**: one dirty-gated update step re-enables a
 disabled, dirty cell whose tokens are still present, with the fresh TIME-011
 clock: the newly-enabled path of `update_enablement`
-(`precompiled_backend.rs:983-987`), the same path initialization takes. Before
+(`precompiled_backend.rs`), the same path initialization takes. Before
 the ruling the reap itself set the dirty bit, so this step followed every reap;
 now only a token change sets it (`reaped_rearms_on_touch`). -/
 @[evidence cites "TIME-011" "a disabled, dirty cell whose inputs still enable it is re-enabled on the shared newly-enabled path with a restarted clock (enabled_at = now): restart-from-zero on re-enablement, on the control-cell fragment (before the TIME-013 ruling the reap itself set the dirty bit)"]
@@ -295,8 +295,8 @@ from firing at its enablement instant, the hard `latest` makes it reapable
 (TIME-013 applies to `Deadline`/`Window` only). -/
 def wTiming : Timing := { earliest := 3, latest := 5 }
 
-/-- The cell as `initialize` leaves it (`precompiled_backend.rs:911`,
-`bitmap_backend.rs:550`): tokens present from the initial marking, everything
+/-- The cell as `initialize` leaves it (`precompiled_backend.rs`,
+`bitmap_backend.rs`): tokens present from the initial marking, everything
 dirty (`mark_all_dirty`), nothing enabled yet. -/
 def wInit : Cell := { tokens := true, enabled := false, clock := none, dirty := true }
 

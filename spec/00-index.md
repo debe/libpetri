@@ -23,8 +23,8 @@ This specification defines the **observable contract** of the Coloured Time Petr
 - **Language-agnostic**: Requirements describe *what*, not *how*. No Java types, Rust traits, or TypeScript interfaces appear in requirement text.
 - **Verifiable**: Every requirement has acceptance criteria that can be tested.
 - **Traceable**: Requirements use `[PREFIX-NNN]` cross-references.
-- **Implementation notes** appear only where runtime behavior necessarily diverges (e.g., bitmap word size: 64-bit in Java, 32-bit in TypeScript/Rust).
-- **Status lines**: an accepted requirement carries **no** `Status` line. `**Status:** Proposed` marks a requirement that at least one implementation it targets has not built yet — its `Implementation status` line says which — and the line is deleted when the last one lands. `**Status:** Removed` marks a tombstone. A requirement reading "Proposed" directly above "implemented in all four" is a stale line, not a third state.
+- **Rule only**: requirement text states no runtime status. Per-language API names are in each language's own documentation; defects, unbuilt requirements and implementation-defined divergences are in the runtime ledger ([runtime-defects.md](runtime-defects.md)).
+- **Status lines**: an accepted requirement carries no `Status` line. `**Status:** Proposed` marks a requirement that at least one implementation it targets has not built yet. The spec does not say which: each such implementation has an UNBUILT entry for the requirement in the runtime ledger ([runtime-defects.md](runtime-defects.md)), and the Status line is deleted when the last entry closes. `**Status:** Removed` marks a tombstone. Requirement text states the rule only; what a runtime does beyond it belongs to that runtime's own documentation, and where a runtime breaks an accepted requirement, to a defect entry in the ledger.
 
 ---
 
@@ -56,7 +56,7 @@ This specification defines the **observable contract** of the Coloured Time Petr
 
 [glossary.md](glossary.md) defines the terms of the CORE and IO firing semantics. It is unnumbered, holds no requirements and is not counted above.
 
-[runtime-defects.md](runtime-defects.md) is the runtime defect ledger: each place where a runtime breaks or broke a requirement the spec keeps, numbered `RD-NN`, with its status, open or fixed, and the change that fixed it. It is unnumbered, holds no requirements and is not counted above.
+[runtime-defects.md](runtime-defects.md) is the runtime ledger. It records each place where a runtime breaks or broke a requirement the spec keeps (`RD-NN`, open or fixed, with the change that fixed it), each Proposed requirement a targeted runtime has not built (UNBUILT), and the implementation-defined divergences the spec allows. It is unnumbered, holds no requirements and is not counted above.
 
 ---
 
@@ -349,102 +349,6 @@ This specification defines the **observable contract** of the Coloured Time Petr
 | SHOULD   | 63    | Recommended; implementations should include unless technically infeasible |
 | MAY      | 17    | Optional; implementations may include |
 | **Total** | **224** | Matches the active-requirement total above; tombstones (IO-006, EXEC-011, CORE-064, CONC-012, EXEC-050) excluded |
-
----
-
-## Shared Semantics vs Implementation-Specific Divergences
-
-| Aspect | Shared | Java | TypeScript | Rust |
-|--------|--------|------|------------|------|
-| Arc types | 5 (Input, Output, Inhibitor, Read, Reset) | ✓ | ✓ | ✓ (untyped PlaceId) |
-| Input cardinality | 4 (One, Exactly, All, AtLeast) | ✓ | ✓ | ✓ |
-| Output composition | 5 (And, Xor, Place, Timeout, ForwardInput) | ✓ | ✓ | ✓ |
-| Timing variants | 5 (Immediate, Deadline, Delayed, Window, Exact) | ✓ | ✓ | ✓ |
-| Bitmap word size | — | 64-bit (long) | 32-bit (Uint32Array) | 64-bit (u64) * |
-| Concurrency model | Single-threaded orchestrator | Actions invoked inline; concurrency from the returned stage (e.g. virtual threads) | Promise microtasks | Tokio async tasks |
-| Timeout abandonment | Firing abandoned; pre-timeout output discarded ([IO-013]) | ✓ (context detach) | ✓ (context detach) | ✓ (drops ctx) |
-| Sync action-throw containment | Failing action fails only that firing ([EXEC-030]) | ✓ | ✓ | ✓ |
-| Inject after natural termination | Rejected, not hung ([ENV-006]) | ✓ (`terminated` flag) | ✓ (draining guard) | ✓ |
-| Inject into an unregistered place | An error for an inject that takes an environment-place handle; a host of a name-keyed inject injects only into registered environment places ([ENV-002]) | ✓ (failed future) | ✓ (rejects; `injectNoAwait` throws) | Deposited into the named place; registration is the host's ([ENV-002]) |
-| Immediate termination / observable termination | [ENV-015] / [ENV-016] (MAY) | ✓ | Run-timeout policy of [ENV-016] only | Pending |
-| Terminal places | [EXEC-042] (SHOULD) | ✓ | ✓ | ✓ |
-| Token type safety | Typed places + typed tokens | Generics (compile-time) | Phantom type param | Generics (compile-time) |
-| Guard predicates | **Removed** from the model ([IO-006], [EXEC-011]) — no per-token value predicate exists | n/a (never implemented) | n/a (removed) | n/a (removed) |
-| Output spec validation ([IO-015]) | Enforced on every executor backend | ✓ | ✓ | ✓ (both backends; previously unenforced) |
-| Unknown-place token retention | Tokens produced/injected into uncompiled places retained, not dropped ([CORE-072] AC3) | ✓ (both backends) | ✓ (both backends) | ✓ (both backends) |
-| Duplicate input arcs | Rejected at transition build with a descriptive error; compile check kept as a backstop ([CORE-030] AC3) | ✓ | ✓ | ✓ |
-| Duplicate output place in one AND branch | Rejected at spec or transition build; outputs are sets ([IO-011] AC4, [IO-015]) | ✓ | ✓ | ✓ |
-| Ambiguous output spec | Two distinct assignments claiming one set of places rejected at transition build ([IO-012] AC5) | ✓ | ✓ | ✓ |
-| One `Timeout` per output spec | A second `Timeout`, nested or not, rejected at transition build ([IO-013] AC7) | ✓ | ✓ | ✓ |
-| No `Xor` in the `Timeout` child | An `Xor` at any depth of the `Timeout` child rejected at transition build; the timeout outcome deposits one fixed set of places ([IO-013] AC8) | ✓ | ✓ | ✓ |
-| `ForwardInput` only under a `Timeout` | Rejected at transition build elsewhere ([IO-014] AC7) | ✓ | ✓ | ✓ |
-| Forwarded token keeps `created_at` | Forward the consumed token, not its value ([IO-014] AC5) | ✓ | ✓ | ✓ |
-| Enablement-timestamp resolution | Sub-ms precision preserved; equal stamps tie-break by declaration order ([EXEC-002] AC3) | Monotonic long nanos | Float ms | Float ms |
-| SMT verification | IC3/PDR via Z3 Spacer, reached through the `z3` executable ([VER-013]) | ✓ | ✓ | ✓ |
-| Verification cancellation | Shares the total budget's stop; running `z3` killed; `Unknown` "verification cancelled during …" ([VER-013]) | Thread interruption (flag restored) | `AbortSignal` | `CancelToken` (Python `libpetri.CancelToken`) |
-| State class graph | Berthomieu-Diaz | ✓ | ✓ | ✓ |
-| Graph export | At least one format | DOT (Graphviz) | DOT (Graphviz) | DOT (Graphviz) |
-| Log capture | Action log → events | SLF4J LogCaptureScope | ctx.log() | ctx.log() |
-| Debug event store | Live tailing | ✓ | ✓ | ✓ |
-| Action binding | Separated from structure | ✓ (bindActions) | ✓ (bindActions) | NetStructureBuilder |
-| Precompiled flat-array executor | 2–4× speedup via flat arrays | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) | ✓ (PrecompiledNetExecutor) |
-| Inline sync execution | Avoid task dispatch | — | — | ✓ (try_run_inline) |
-| Modular composition | Open-net subnets, instantiation, port composition, fusion ([MOD-001]..[MOD-024]) | ✓ | ✓ | ✓ |
-| ν-net correlated fork/join | Fresh-name minting + join by name equality | ✓ | ✓ | ✓ |
-| Marking snapshot / restore | One normative snapshot form; mid-run `snapshot()` reports work in flight; resume-safe minting ([CORE-073], [ENV-014], [NU-011]) | ✓ (both executors; restore resolves names against the net, [MOD-024]) | ✓ (both executors) | ✓ (both backends) |
-| Injectable clock | Host-supplied firing clock, epoch clock and wait ([TIME-015]) | ✓ (`ExecutionEnvironment`) | ✓ (`Clock`) | ✓ (`ExecutorClock`; no Python seam, by design) |
-| MarkingSnapshot event producer | Emitted at start and before completion, canonical place order ([EVT-014]) | ✓ | ✓ | — (event declared and consumed, never emitted) |
-
-\* Rust uses 64-bit words matching Java.
-
-**Python** (`libpetri-py`) binds the Rust crate rather than re-implementing the engine, so it
-inherits the Rust column above instead of forming its own, and its session archives are
-wire-compatible with Rust's. Live event subscriptions ([EVT-031]) are a SHOULD capability that currently
-lands Rust/Python-first; its per-language status is tracked in that requirement. The marking replay
-cache ([EVT-032]) began that way and is now in all four. Marking snapshot/restore ([CORE-073]) and the
-mid-execution snapshot ([ENV-014]) began that way and are now in all four.
-
-**Executor-hardening divergence (Java-first).** A 2026 hardening pass landed several
-robustness fixes in Java ahead of the other implementations: a synchronous action throw fails
-only that firing rather than killing the loop ([EXEC-030]); output written before an `Out.Timeout`
-budget expires is discarded rather than merged with the timeout branch ([IO-013] AC5); `inject()`
-after natural termination is rejected rather than hanging ([ENV-006]); and the new lifecycle
-surface `terminateNow()` / `awaitTermination()` / run-timeout policy ([ENV-015], [ENV-016]).
-TypeScript has since matched the failure-containment ([EXEC-030]) and timeout-abandonment
-([IO-013]) semantics via a context-detach port, and already satisfied inject-after-termination by
-construction — its draining/closed guard makes the hang unreachable. Rust matches the same three.
-The lifecycle surface ([ENV-015]/[ENV-016]) remains Java-only, except the run-timeout policy of
-[ENV-016], which TypeScript also has; the rest is tracked for a coordinated addition to
-Rust/Python/TypeScript. The table above is the authoritative per-language status.
-
-**Compile- and verify-time output conformance (all four).** [CORE-043] — rejecting a net in which
-an output-declaring transition carries the built-in passthrough action — is enforced when the net
-is compiled for execution *and* at the verification entry points (state-class graph, SMT) in all
-four implementations, so verification cannot green-light a net that will not compile. Binding itself stays lazy and total,
-so [CORE-042] and the staged-binding idiom of [MOD-031] AC7 are unaffected.
-
-**Guard removal (completed).** Guard predicates were struck from the model in [IO-006]
-and their consumption rule in [EXEC-011]. Java never implemented them; Rust and
-TypeScript carried them until they were deleted, so the construct is now absent from all
-four implementations and from the enablement check on every backend. The row above is
-kept rather than dropped so the history stays traceable. Name correlation ([NU-020]) is
-the sole surviving per-token filter ([NU-021]).
-
-**Output-validation alignment.** [IO-015] is a MUST that Rust did not previously enforce
-(its validation routine had no callers), so Rust and Python fired without checking the
-declared output spec. It is now enforced on both Rust backends, matching Java and
-TypeScript, and all three languages share the same **exact-explanation** validation
-([IO-015]): exactly one assignment of the spec tree must claim precisely the produced set. What remains for the runtime check, now that [CORE-043] rejects the
-built-in-passthrough case statically, is the case no static check can decide: a
-hand-written action that produces nothing, or produces only on some paths. Rust and
-Python nets relying on the previously unchecked path need their spec or their action
-corrected.
-
-**Mid-action publication (Rust/Python only).** `ctx.flush()` publishes buffered output
-before the action returns; Java and TypeScript expose no equivalent. Flushed places count
-towards satisfying the output spec, and flushed tokens are not withdrawn when validation
-later rejects the firing — so on those two runtimes a violating firing is atomic only
-with respect to output not yet published ([IO-015]).
 
 ---
 

@@ -8,15 +8,15 @@ the emptiness flag do. This file models the four operations the successor step o
 `state_class_graph.rs::compute_successor` applies to a firing domain, positionally, on the
 row-major `data` of `rust/libpetri-verification/src/dbm.rs`:
 
-* `createPre` — `Dbm::create` before its `canonicalize` (`dbm.rs:35-47`);
-* `ltpPre` — `Dbm::let_time_pass` before its `canonicalize` (`dbm.rs:137-147`): row 0 zeroed
+* `createPre` — `Dbm::create` before its `canonicalize`;
+* `ltpPre` — `Dbm::let_time_pass` before its `canonicalize`: row 0 zeroed
   from column 1 on, `(0, 0)` untouched;
-* `constrainPre` — step 1 of `Dbm::fire_transition` (`dbm.rs:171-181`): `D[f][i] := min(D[f][i], 0)`
+* `constrainPre` — step 1 of `Dbm::fire_transition`: `D[f][i] := min(D[f][i], 0)`
   for every other clock `i`, the "fired fires first" constraint `θ_f ≤ θ_i`;
-* `fireMat` — steps 3–5 of `fire_transition` (`dbm.rs:188-224`): persistent clocks copied with
+* `fireMat` — steps 3–5 of `fire_transition`: persistent clocks copied with
   shifted bounds, newly enabled clocks with their static interval, `∞` elsewhere, `0` on the
   diagonal of the fresh rows;
-* `permMat` — `Dbm::permuted` (`dbm.rs:251-275`), `(0, 0)` set to `0`.
+* `permMat` — `Dbm::permuted`, `(0, 0)` set to `0`.
 
 A matrix is `NMat := Nat → Nat → Bound`, a dimension travels beside it, and `canonN d` is the
 Rust Floyd–Warshall (`Dbm.fwSteps`, same loop order) on the first `d` indices. `toFin_canonN`

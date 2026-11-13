@@ -35,7 +35,7 @@ namespace Libpetri
 /-- A transition together with the ν name-layer verdict the base marking cannot
 see. `nameEnabled = false` models a join that is base-enabled — its input places
 hold tokens — but whose correlated names do not match, so it cannot fire
-(`name_state_class_graph.rs:601`, the `will_fire` guard). `inFlight = true`
+(the `will_fire` guard in `name_state_class_graph.rs`). `inFlight = true`
 models a marked `inflight:<t>` on the split net: an earlier firing of the
 transition has started and its action has not completed. -/
 structure NuTransition where
@@ -44,11 +44,11 @@ structure NuTransition where
   inFlight    : Bool := false
 
 /-- Demand on `p` from consumed input arcs only. Read and inhibitor arcs
-deliberately do not count (`priority_semantics.rs:32`). -/
+deliberately do not count (`PrioritySemantics::Conflict` in `priority_semantics.rs`). -/
 def demand (t : Transition) (p : PlaceId) : Nat := pre t p
 
 /-- Real competition: some consumed place cannot satisfy both demands at once
-(`priority_semantics.rs:31-32`). -/
+(`PrioritySemantics::Conflict` in `priority_semantics.rs`). -/
 def competes (places : List PlaceId) (m : AMarking) (H L : Transition) : Bool :=
   places.any fun p =>
     0 < demand H p && 0 < demand L p && m p < demand H p + demand L p
@@ -70,7 +70,7 @@ def preInFlightPrune (places : List PlaceId) (m : AMarking)
       && competes places m H.base L.base
 
 /-- **Shipped.** Same, plus: `H` must actually fire in this class, and no earlier
-firing of `H` is in flight (`priority_dominated`, `name_state_class_graph.rs:574`). -/
+firing of `H` is in flight (`priority_dominated` in `name_state_class_graph.rs`). -/
 def postFixPrune (places : List PlaceId) (m : AMarking)
     (cands : List NuTransition) (L : NuTransition) : Bool :=
   cands.any fun H =>

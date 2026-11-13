@@ -16,10 +16,11 @@ export type {
   TokenAdded, TokenRemoved,
   LogMessage, MarkingSnapshot,
 } from './net-event.js';
-export { eventTransitionName, isFailureEvent } from './net-event.js';
+export { eventTransitionName, eventPlaceName, isFailureEvent } from './net-event.js';
 
-export type { EventStore } from './event-store.js';
+export type { EventStore, EventQuery } from './event-store.js';
 export {
   InMemoryEventStore, noopEventStore, inMemoryEventStore,
-  filterEvents, eventsOfType, transitionEvents, failures,
+  filterEvents, eventsOfType, transitionEvents, placeEvents, failures,
+  queryEvents, countEvents, counters,
 } from './event-store.js';

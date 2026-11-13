@@ -3,7 +3,7 @@
 
 Commit `98b9297` fixed a false `Proven`: environment places were never injected
 into the CHC encoding, so the reachable set froze at `M₀` and every safety bound
-held vacuously. `encode_net` (the body of `encode`, `smt_encoder.rs:175-184`)
+held vacuously. `encode_net` (the body of `encode`, `smt_encoder.rs`)
 now emits, per injectable env place,
 
     Reachable(M') :- Reachable(M) [AND m_p < bound] AND m'_p = m_p + 1
@@ -65,8 +65,8 @@ def StepAInjRel (net : FlatNet) (envs : List PlaceId) (a a' : AMarking) : Prop :
   StepARel net a a' ∨ ∃ p ∈ envs, a' = fun q => if q == p then a q + 1 else a q
 
 /-- `R(N̂)` with the environment-injection rule (`encode_injection_rule`,
-`smt_encoder.rs:532-560`, one per injectable place from `encode_net`'s loop at
-`:182-184`; the conjuncts are `injection_conditions`, `:446-467`).
+`smt_encoder.rs`, one per injectable place from `encode_net`'s loop; the
+conjuncts are `injection_conditions`).
 `AlwaysAvailable` (unbounded) is modelled; the `Bounded k` variant adds the
 `m_p < bound` guard. -/
 def ReachAInj (net : FlatNet) (envs : List PlaceId) (a0 : AMarking) : AMarking → Prop :=

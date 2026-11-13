@@ -15,8 +15,8 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 - Lean form: block **199**, cites only **20**, neither **5**
 - Proven in Lean (≥ 1 validated theorem fragment): **121**
 - Referenced in Lean comments only (mention without a validated theorem mapping): **103**
-- Referenced by ≥ 1 test file: java **126**, typescript **123**, rust **129**, python **79**
-- Untested anywhere (no test-file reference in any language): **76**
+- Referenced by ≥ 1 test file: java **127**, typescript **125**, rust **131**, python **81**
+- Untested anywhere (no test-file reference in any language): **75**
 
 ## 01-core-model.md — CORE
 
@@ -198,16 +198,16 @@ Column semantics: a ✓ in a test column means "referenced by ≥ 1 test file" i
 | EVT-011 | B | block ×2 | `clashEvt_initialAdded` — the tokens of the initial marking get no TokenAdded event (ruling D76 (a)): no executor meets EVT-011 and also reports each token of the initial marking as added at boot, and the reference, under both emissions, meets EVT-011 | ✓ | — | — | — | — |
 | EVT-012 | B | block ×2 | — | ✓ | — | — | — | — |
 | EVT-013 | B | block | — | ✓ | ✓ | ✓ | ✓ | — |
-| EVT-014 | B | block | — | ✓ | ✓ | ✓ | ✓ | — |
+| EVT-014 | B | block | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 | EVT-020 | F | block | `evt020_sink_disabled` — AC3: an executor appends nothing to a store that reports itself not enabled, so such a store shows no emitted event (glossary storeSink) | ✓ | — | — | — | — |
 | EVT-021 | F | block | — | ✓ | — | — | — | — |
 | EVT-022 | F | block | — | ✓ | — | — | — | — |
 | EVT-023 | F | block | — | ✓ | — | — | — | — |
-| EVT-024 | F | block ×2 | — | ✓ | — | — | — | — |
+| EVT-024 | F | block ×2 | — | ✓ | ✓ | — | — | — |
 | EVT-025 | F | block | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| EVT-030 | F | block | — | ✓ | ✓ | — | — | — |
+| EVT-030 | F | block | — | ✓ | ✓ | ✓ | ✓ | — |
 | EVT-031 | B | block | — | ✓ | — | — | — | — |
-| EVT-032 | F | block ×2 | — | ✓ | ✓ | — | — | — |
+| EVT-032 | F | block ×2 | — | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## 09-export.md — EXP
 

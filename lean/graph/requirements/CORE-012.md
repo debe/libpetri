@@ -9,48 +9,48 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/GlossaryAction.lean"]
-    n7986["Libpetri.Spec.IsUnitToken"]
+    n7987["Libpetri.Spec.IsUnitToken"]
   end
   subgraph g1["Libpetri/Spec/Req/CORE_011.lean"]
-    n5323["Libpetri.Spec.CORE_011"]
-    n5978["Libpetri.Spec.ClockReadings"]
-    n5981["Libpetri.Spec.ClockReadings.wall"]
-    n7573["Libpetri.Spec.FacTok"]
-    n7574["Libpetri.Spec.FacTok.mk"]
-    n7575["Libpetri.Spec.FacTok.stamp"]
-    n7576["Libpetri.Spec.FacTok.val"]
-    n10399["Libpetri.Spec.TokenFactory"]
-    n10400["Libpetri.Spec.TokenFactory.make"]
-    n10401["Libpetri.Spec.TokenFactory.makeAt"]
-    n10403["Libpetri.Spec.TokenFactory.unit"]
-    n13254["Libpetri.Spec.core011_unit_isUnit"]
+    n5324["Libpetri.Spec.CORE_011"]
+    n5979["Libpetri.Spec.ClockReadings"]
+    n5982["Libpetri.Spec.ClockReadings.wall"]
+    n7574["Libpetri.Spec.FacTok"]
+    n7575["Libpetri.Spec.FacTok.mk"]
+    n7576["Libpetri.Spec.FacTok.stamp"]
+    n7577["Libpetri.Spec.FacTok.val"]
+    n10400["Libpetri.Spec.TokenFactory"]
+    n10401["Libpetri.Spec.TokenFactory.make"]
+    n10402["Libpetri.Spec.TokenFactory.makeAt"]
+    n10404["Libpetri.Spec.TokenFactory.unit"]
+    n13255["Libpetri.Spec.core011_unit_isUnit"]
   end
-  n5323 --> n5981
-  n5323 --> n7574
-  n5323 --> n7575
-  n5323 --> n7576
-  n5323 --> n7986
-  n5323 --> n10400
-  n5323 --> n10401
-  n5323 --> n10403
-  n5981 --> n5978
-  n7574 --> n7573
-  n7575 --> n7573
-  n7576 --> n7573
-  n10400 --> n5978
-  n10400 --> n7573
-  n10400 --> n10399
-  n10401 --> n5978
-  n10401 --> n7573
-  n10401 --> n10399
-  n10403 --> n5978
-  n10403 --> n7573
-  n10403 --> n10399
-  n13254 --> n5323
+  n5324 --> n5982
+  n5324 --> n7575
+  n5324 --> n7576
+  n5324 --> n7577
+  n5324 --> n7987
+  n5324 --> n10401
+  n5324 --> n10402
+  n5324 --> n10404
+  n5982 --> n5979
+  n7575 --> n7574
+  n7576 --> n7574
+  n7577 --> n7574
+  n10401 --> n5979
+  n10401 --> n7574
+  n10401 --> n10400
+  n10402 --> n5979
+  n10402 --> n7574
+  n10402 --> n10400
+  n10404 --> n5979
+  n10404 --> n7574
+  n10404 --> n10400
+  n13255 --> n5324
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13254 root
+  class n13255 root
 ```
 
 Axioms used:

@@ -55,6 +55,70 @@ def test_event_store_records_run() -> None:
     assert len(store) > 0
 
 
+def _build_evt014_net() -> tuple[lp.Place, lp.Place, lp.Place, lp.Place, lp.BuiltNet]:
+    # "\ue000" sorts before "\U0001f600" by code point, after it by UTF-16 unit.
+    a = lp.Place("a")
+    b = lp.Place("b")
+    private_use = lp.Place("\ue000")
+    astral = lp.Place("\U0001f600")
+    net = (
+        lp.Net("evt014")
+        .place(private_use)
+        .place(astral)
+        .transition(
+            lp.Transition("t")
+            .input(lp.one(a))
+            .output(lp.out(b))
+            .action(lp.fork)
+            .build()
+        )
+        .build()
+    )
+    return a, b, private_use, astral, net
+
+
+def _assert_evt014_snapshots(events: list[lp.NetEvent]) -> None:
+    snapshots = [
+        (i, list(e.payload()["marking"].items()))
+        for i, e in enumerate(events)
+        if e.type == "MarkingSnapshot"
+    ]
+    assert snapshots == [
+        (1, [("a", 2), ("\ue000", 1), ("\U0001f600", 1)]),
+        (len(events) - 2, [("b", 2), ("\ue000", 1), ("\U0001f600", 1)]),
+    ]
+    assert events[0].type == "ExecutionStarted"
+    assert events[-1].type == "ExecutionCompleted"
+
+
+def test_marking_snapshot_at_start_and_end() -> None:
+    """[EVT-014] AC1/AC3/AC4: the run records its initial marking right after
+    ExecutionStarted and its final marking right before ExecutionCompleted,
+    as token counts of the non-empty places in code-point order."""
+    a, _b, private_use, astral, net = _build_evt014_net()
+    store = lp.InMemoryEventStore()
+    lp.run_sync(
+        net,
+        initial={astral: [1], a: [2, 4], private_use: [3]},
+        event_store=store,
+    )
+    _assert_evt014_snapshots(store.events())
+    assert store.count(types={"MarkingSnapshot"}) == 2
+
+
+@requires_tokio
+async def test_marking_snapshot_at_start_and_end_async() -> None:
+    """[EVT-014] AC1/AC3/AC4 on the async path."""
+    a, _b, private_use, astral, net = _build_evt014_net()
+    store = lp.InMemoryEventStore()
+    await lp.run_async(
+        net,
+        initial={astral: [1], a: [2, 4], private_use: [3]},
+        event_store=store,
+    )
+    _assert_evt014_snapshots(store.events())
+
+
 def test_event_store_filters_by_type() -> None:
     p_in, _p_out, net = _build_chain()
     store = lp.InMemoryEventStore()

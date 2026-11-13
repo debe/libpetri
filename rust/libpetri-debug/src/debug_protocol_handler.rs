@@ -321,7 +321,7 @@ impl DebugProtocolHandler {
             .get_session(&session_id)
             .ok_or("Session not found")?;
 
-        let events = session.event_store.events();
+        let (events, evicted) = session.event_store.events_with_evicted_count();
         let target_ts: u64 = timestamp.parse().unwrap_or(0);
 
         let mut target_index = events.len();
@@ -338,7 +338,7 @@ impl DebugProtocolHandler {
             .set_event_index(&session_id, target_index);
         let computed = client
             .subscriptions
-            .compute_state_at(&events, &session_id, target_index);
+            .compute_state_at(&events, evicted, &session_id, target_index);
 
         send(
             &*client.sink,
@@ -456,7 +456,7 @@ impl DebugProtocolHandler {
             .get_session(&session_id)
             .ok_or("Session not found")?;
 
-        let events = session.event_store.events();
+        let (events, evicted) = session.event_store.events_with_evicted_count();
         let client = self.clients.get_mut(client_id).unwrap();
         let current_index = client.subscriptions.get_event_index(&session_id);
 
@@ -465,7 +465,7 @@ impl DebugProtocolHandler {
             client.subscriptions.set_event_index(&session_id, new_index);
             let computed = client
                 .subscriptions
-                .compute_state_at(&events, &session_id, new_index);
+                .compute_state_at(&events, evicted, &session_id, new_index);
 
             send(
                 &*client.sink,
@@ -722,6 +722,10 @@ fn check_breakpoints(
 struct SessionSubscription {
     event_index: usize,
     marking_cache: MarkingCache,
+    /// Evicted-event count of the store window `marking_cache` was built
+    /// over (\[EVT-032\] AC3): an eviction drops the oldest retained events,
+    /// so the cached snapshots no longer replay the window that follows.
+    cache_evicted: usize,
     breakpoints: HashMap<String, BreakpointConfig>,
     paused: bool,
     speed: f64,
@@ -745,6 +749,7 @@ impl SubscriptionState {
             SessionSubscription {
                 event_index,
                 marking_cache: MarkingCache::new(),
+                cache_evicted: 0,
                 breakpoints: HashMap::new(),
                 paused,
                 speed: 1.0,
@@ -787,13 +792,22 @@ impl SubscriptionState {
         }
     }
 
+    /// State after the first `target_index` of `events`, the store's retained
+    /// window, which begins after `evicted` evicted events. \[EVT-032\] AC3:
+    /// the replay cache is valid only for a stream that grew at its end, so
+    /// it is invalidated whenever the window moved since it was filled.
     fn compute_state_at(
         &mut self,
         events: &[NetEvent],
+        evicted: usize,
         session_id: &str,
         target_index: usize,
     ) -> crate::marking_cache::ComputedState {
         if let Some(sub) = self.sessions.get_mut(session_id) {
+            if sub.cache_evicted != evicted {
+                sub.marking_cache.invalidate();
+                sub.cache_evicted = evicted;
+            }
             sub.marking_cache.compute_at(events, target_index)
         } else {
             compute_state(&events[..target_index.min(events.len())])
@@ -1292,6 +1306,88 @@ mod tests {
         handler.client_connected("c1".into(), sink);
         handler.client_disconnected("c1");
         assert!(handler.clients.is_empty());
+    }
+
+    /// A handler over one session `s1` whose debug store keeps at most
+    /// `capacity` events, subscribed by `c1` in replay mode.
+    fn replay_handler_with_capacity(
+        capacity: usize,
+    ) -> (DebugProtocolHandler, Arc<DebugEventStore>, Arc<Mutex<Vec<DebugResponse>>>) {
+        let factory: crate::debug_session_registry::EventStoreFactory =
+            Box::new(move |id: &str| DebugEventStore::with_capacity(id.to_string(), capacity));
+        let mut registry = DebugSessionRegistry::with_options(50, Some(factory), Vec::new());
+        let store = registry.register("s1".into(), &tagged_net());
+        let mut handler = DebugProtocolHandler::new(registry);
+        let (sink, collected) = collector_sink();
+        handler.client_connected("c1".into(), sink);
+        handler.handle_command(
+            "c1",
+            DebugCommand::Subscribe {
+                session_id: "s1".into(),
+                mode: crate::debug_command::SubscriptionMode::Replay,
+                from_index: Some(0),
+            },
+        );
+        (handler, store, collected)
+    }
+
+    /// Token counts of the last `MarkingSnapshot` response.
+    fn last_snapshot_counts(collected: &Arc<Mutex<Vec<DebugResponse>>>) -> Vec<(String, usize)> {
+        let responses = collected.lock().unwrap();
+        let marking = responses
+            .iter()
+            .rev()
+            .find_map(|r| match r {
+                DebugResponse::MarkingSnapshot { marking, .. } => Some(marking.clone()),
+                _ => None,
+            })
+            .expect("a MarkingSnapshot response");
+        marking.into_iter().map(|(place, tokens)| (place, tokens.len())).collect()
+    }
+
+    /// Fills a 300-event store with tokens on `p1` and seeks to its end, so
+    /// the subscription's replay cache holds a snapshot at index 256; then
+    /// appends 300 tokens on `p2`, which evicts every `p1` event.
+    fn fill_cache_then_evict(
+        handler: &mut DebugProtocolHandler,
+        store: &DebugEventStore,
+    ) {
+        for i in 0..300 {
+            store.append(NetEvent::token_added(Arc::from("p1"), i));
+        }
+        handler.handle_command(
+            "c1",
+            DebugCommand::Seek { session_id: "s1".into(), timestamp: "999999".into() },
+        );
+        for i in 0..300 {
+            store.append(NetEvent::token_added(Arc::from("p2"), 1_000 + i));
+        }
+        assert_eq!(store.evicted_count(), 300);
+    }
+
+    /// \[EVT-032\] AC3: an eviction changes the stream other than at its end,
+    /// so the handler invalidates the replay cache before the next seek. A
+    /// stale cache answered `p1=256, p2=44` here: its snapshot at 256 replayed
+    /// the evicted `p1` events.
+    #[test]
+    fn evt032_seek_after_eviction_is_the_replay_of_the_retained_events() {
+        let (mut handler, store, collected) = replay_handler_with_capacity(300);
+        fill_cache_then_evict(&mut handler, &store);
+        handler.handle_command(
+            "c1",
+            DebugCommand::Seek { session_id: "s1".into(), timestamp: "999999".into() },
+        );
+        assert_eq!(last_snapshot_counts(&collected), vec![("p2".to_string(), 300)]);
+    }
+
+    /// \[EVT-032\] AC3: the same holds when a step backward is the first
+    /// replay after the eviction.
+    #[test]
+    fn evt032_step_backward_after_eviction_is_the_replay_of_the_retained_events() {
+        let (mut handler, store, collected) = replay_handler_with_capacity(300);
+        fill_cache_then_evict(&mut handler, &store);
+        handler.handle_command("c1", DebugCommand::StepBackward { session_id: "s1".into() });
+        assert_eq!(last_snapshot_counts(&collected), vec![("p2".to_string(), 299)]);
     }
 
     #[test]

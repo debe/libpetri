@@ -264,7 +264,8 @@ public class DebugProtocolHandler {
         client.subscriptions.setEventIndex(cmd.sessionId(), targetIndex);
 
         // Compute state up to this point (using cache for O(interval) instead of O(n))
-        var computed = client.subscriptions.computeStateAt(cmd.sessionId(), events, targetIndex);
+        var computed = client.subscriptions.computeStateAt(
+            cmd.sessionId(), debugSession.eventStore(), events, targetIndex);
 
         send(client, new DebugResponse.MarkingSnapshot(
             cmd.sessionId(),
@@ -337,8 +338,10 @@ public class DebugProtocolHandler {
             client.subscriptions.setEventIndex(cmd.sessionId(), currentIndex);
 
             // Recompute state up to this point (using cache for O(interval) instead of O(n))
-            var events = debugSessionOpt.get().eventStore().events();
-            var computed = client.subscriptions.computeStateAt(cmd.sessionId(), events, (int) currentIndex);
+            var eventStore = debugSessionOpt.get().eventStore();
+            var events = eventStore.events();
+            var computed = client.subscriptions.computeStateAt(
+                cmd.sessionId(), eventStore, events, (int) currentIndex);
 
             send(client, new DebugResponse.MarkingSnapshot(
                 cmd.sessionId(),
@@ -627,9 +630,28 @@ public class DebugProtocolHandler {
             }
         }
 
-        ComputedState computeStateAt(String sessionId, List<NetEvent> events, int targetIndex) {
+        /**
+         * Replays {@code events}, a snapshot of {@code store} taken by the caller, up to
+         * {@code targetIndex} through the session's replay cache.
+         *
+         * <p>The cache is only valid for a stream that grew at its end ([EVT-032] AC3). When the
+         * store evicted events since the cache was last used ([EVT-024]), its retained window
+         * moved and every cached snapshot replays a prefix that is gone, so the cache is
+         * invalidated first. The evicted count is read after the caller took {@code events}: an
+         * eviction between the two only costs a needless invalidation. An eviction whose count
+         * has not been published yet still shows as a new first event, which is checked too.
+         */
+        ComputedState computeStateAt(String sessionId, DebugEventStore store,
+                                     List<NetEvent> events, int targetIndex) {
             var sub = sessionSubs.get(sessionId);
             if (sub != null) {
+                long evicted = store.evictedCount();
+                NetEvent head = events.isEmpty() ? null : events.getFirst();
+                if (evicted != sub.cacheEvictedCount || head != sub.cacheHead) {
+                    sub.markingCache.invalidate();
+                    sub.cacheEvictedCount = evicted;
+                    sub.cacheHead = head;
+                }
                 return sub.markingCache.computeAt(events, targetIndex);
             }
             return computeState(events.subList(0, Math.clamp(targetIndex, 0, events.size())));
@@ -777,6 +799,10 @@ public class DebugProtocolHandler {
             final DebugEventStore.Subscription subscription;
             final AtomicLong eventIndex;
             final MarkingCache markingCache = new MarkingCache();
+            /** Evicted count of the store when {@link #markingCache} was last used. */
+            long cacheEvictedCount = 0;
+            /** First retained event when {@link #markingCache} was last used, compared by identity. */
+            NetEvent cacheHead = null;
             final ConcurrentHashMap<String, DebugCommand.BreakpointConfig> breakpoints = new ConcurrentHashMap<>();
             volatile boolean paused = false;
             volatile double speed = 1.0;

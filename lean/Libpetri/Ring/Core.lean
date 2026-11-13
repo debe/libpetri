@@ -35,7 +35,7 @@ def slot (s : Pool) (p : PlaceId) (i : Nat) : Nat :=
   cached `tail` equals `(head + cnt) % cap` and whose block fits in the pool.
 * `occupied` / `free` — RB2: live positions hold `Some`, free positions of the
   *current* block hold `None`. This is what makes `ring_remove_first`'s
-  `.take().unwrap()` (`precompiled_backend.rs:399`) total. Slots outside every
+  `.take().unwrap()` (`precompiled_backend.rs`) total. Slots outside every
   current block (blocks leaked by `grow_ring_static`) are unconstrained.
 * `disjoint` — RB3: current blocks of distinct places never overlap, so one
   place's writes cannot corrupt another's ring. -/
@@ -162,7 +162,7 @@ theorem proj_length {s : Pool} (hwf : WF s) {p : PlaceId} (hp : p < s.nplaces) :
     have := hwf.occupied p hp i hi
     simpa using this)
 
-/-! ## `ring_remove_first` (`precompiled_backend.rs:396-403`)
+/-! ## `ring_remove_first` (`precompiled_backend.rs`)
 
 `take()` the head slot (the returned token is `first`), advance the head,
 decrement the count. -/
@@ -209,7 +209,7 @@ theorem removeFirst_slot_other (s : Pool) {p q : PlaceId} (hne : q ≠ p) (i : N
   unfold slot
   rw [removeFirst_offset, removeFirst_cap, removeFirst_head_other s hne]
 
-/-- Totality of the `.unwrap()` at `precompiled_backend.rs:399`: under RB2 a
+/-- Totality of the `.unwrap()` in `ring_remove_first` (`precompiled_backend.rs`): under RB2 a
 non-empty ring's head slot is `Some`. -/
 theorem first_isSome {s : Pool} (hwf : WF s) {p : PlaceId} (hp : p < s.nplaces)
     (hcnt : 0 < s.cnt p) : (s.first p).isSome :=
@@ -333,7 +333,7 @@ theorem removeFirst_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
   rw [removeFirst_slot_other s hne, removeFirst_pool,
     if_neg (Ne.symm (slot_ne_of_place_ne hwf hp hq (Ne.symm hne) 0 (0 + i)))]
 
-/-! ## `ring_peek_first` (`precompiled_backend.rs:426-431`) -/
+/-! ## `ring_peek_first` (`precompiled_backend.rs`) -/
 
 def peekFirst (s : Pool) (p : PlaceId) : Option Colour :=
   if s.cnt p = 0 then none else s.pool (s.slot p 0)

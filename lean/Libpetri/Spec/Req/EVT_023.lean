@@ -11,8 +11,8 @@ set_option linter.missingDocs true
 The logging event store is a decorator: it logs each appended event to the platform's logging
 framework at a level fixed by the event's kind, then passes the event to the store it wraps,
 and answers `events()` from that store. Only Java implements it (`EventStore.logging()` and
-`EventStore.logging(delegate)`, `java/src/main/java/org/libpetri/event/EventStore.java:212-242`,
-`334-428`).
+`EventStore.logging(delegate)`, both returning a `LoggingEventStore`,
+`java/src/main/java/org/libpetri/event/EventStore.java`).
 
 The requirement is a predicate over an abstract decorator `D : LogDecorator E`: the effects one
 append makes (`onAppend W th e`: log calls and passes to the wrapped store, in order, for the
@@ -49,7 +49,7 @@ namespace Libpetri.Spec
 /-! ## Block-local vocabulary -/
 
 /-- The level table of the logging event store (ruling D29 (a), evt-c EVT-C3 (a): Java's table,
-`EventStore.java:374-416`): the failure kinds at WARN, the two lifecycle kinds at INFO, the other
+`LoggingEventStore.logEvent` in `EventStore.java`): the failure kinds at WARN, the two lifecycle kinds at INFO, the other
 four transition kinds at DEBUG, and the token kinds, `MarkingSnapshot` and `LogMessage` at
 TRACE. -/
 def eventLogLevel : NetEventKind → LogLevel
@@ -106,7 +106,7 @@ def passedOn (D : LogDecorator E) (W : StoreObs E) (th : LogLevel) (tr : List E)
     | .log _ _ => none
     | .pass x => some x
 
-/-- Java's early-return guard `isWarnOrInfo` (`EventStore.java:418-425`): the kinds logged at
+/-- Java's early-return guard `isWarnOrInfo` (`LoggingEventStore.isWarnOrInfo`): the kinds logged at
 WARN or INFO. -/
 def NetEventKind.isWarnOrInfo : NetEventKind → Bool
   | .executionStarted | .executionCompleted | .transitionFailed | .transitionTimedOut
@@ -115,16 +115,16 @@ def NetEventKind.isWarnOrInfo : NetEventKind → Bool
 
 /-- The calls of Java's `LoggingEventStore.append` for an event of kind `k` with the framework at
 the threshold `th` and the early-return guard `g`: when DEBUG is not loggable and `g k` is false,
-no log call (`EventStore.java:370`); otherwise one call at the level of the kind. Then the pass. -/
+no log call (the early return of `LoggingEventStore.logEvent`); otherwise one call at the level of the kind. Then the pass. -/
 def guardedCalls (g : NetEventKind → Bool) (th : LogLevel) (k : NetEventKind) (e : E) :
     List (LogEffect E) :=
   if !(LogLevel.debug.loggableAt th) && !(g k) then [.pass e]
   else [.log (eventLogLevel k) e, .pass e]
 
-/-- The reference logging decorator (Java `LoggingEventStore`, `EventStore.java:334-428`): an
+/-- The reference logging decorator (Java `LoggingEventStore`, `EventStore.java`): an
 append logs the event at the level of its kind, skipping the call for a DEBUG or TRACE kind when
 DEBUG is not loggable, then passes it to the wrapped store; `events()` is the wrapped store's; it
-reports itself enabled whatever it wraps (`EventStore.java:355-358`) and provides no
+reports itself enabled whatever it wraps (`LoggingEventStore.isEnabled`) and provides no
 `clear()`. -/
 def refLogStore (kind : E → NetEventKind) : LogDecorator E where
   onAppend _ th e := guardedCalls NetEventKind.isWarnOrInfo th (kind e) e
@@ -153,14 +153,14 @@ requirement EVT_023
           "for every wrapped store W and all histories h and h', a call of events() on D around W shows what a call of events() on W shows;"
           "for every wrapped store W, D around W reports itself as enabled."
   assumes "The model is the observation of one decorator, D : LogDecorator E: onAppend W th e, the effects of one append(e) on the decorator around the store W with the logging framework at the threshold th, in order (a log call at a level, or passing an event to the wrapped store), and over W, the decorator around W observed as a store (glossary: Event store). The event type E is a parameter and is read only through kind : E → NetEventKind, so the block says nothing about an event's payload or about the text of a log message (Java logs the transition name, token counts and durations; a message format is not a line). The kind function is the event model's (wave W7's glossary of events: the kind of each of the thirteen events of EVT-002 to EVT-014), not a choice of the implementation: a decorator paired with a kind function that maps every event to TokenAdded would log everything at TRACE and meet the line, so the line binds only with the event model's kind function, and tying the two is an obligation of the W7 integrator, recorded in the consistency module of the events (ConsistencyEvents.lean)."
-          "The configuration of the logging framework is a threshold th: a level is enabled when it is th or more severe (LogLevel.loggableAt; System.Logger levels are ordered, and its default backend, java.util.logging, filters by a threshold). A log call at a disabled level writes no record, so line 1 compares the observed effects only, and a decorator may make or skip such a call, as the second quoted sentence says. Java skips it: logEvent returns early when DEBUG is not loggable and the event is not a WARN or INFO kind (EventStore.java:370, 418-425), and refLogStore has that guard. EVT_023_mutant_slipGuard is the guard with ActionTimedOut left out: with every level enabled it logs as Java does, but with the framework at INFO it writes no WARN record for an ActionTimedOut, so it violates line 1. A framework filter that is not a threshold, and a logging call that throws, are out of scope."
+          "The configuration of the logging framework is a threshold th: a level is enabled when it is th or more severe (LogLevel.loggableAt; System.Logger levels are ordered, and its default backend, java.util.logging, filters by a threshold). A log call at a disabled level writes no record, so line 1 compares the observed effects only, and a decorator may make or skip such a call, as the second quoted sentence says. Java skips it: logEvent returns early when DEBUG is not loggable and the event is not a WARN or INFO kind (LoggingEventStore.logEvent and isWarnOrInfo in EventStore.java), and refLogStore has that guard. EVT_023_mutant_slipGuard is the guard with ActionTimedOut left out: with every level enabled it logs as Java does, but with the framework at INFO it writes no WARN record for an ActionTimedOut, so it violates line 1. A framework filter that is not a threshold, and a logging call that throws, are out of scope."
           "Line 1 is the first six quoted sentences. The first fixes the two effects, their order, that there is no other, and that they do not depend on the wrapped store: onAppend is given W, and line 1 holds for every W. EVT_023_mutant_logTwice and EVT_023_mutant_passTwice keep the order and log or pass a second time, so they violate 'once'. EVT_023_mutant_gatedOnWrapped logs and passes nothing around a store that reports itself not enabled, as an append guarded by the wrapped store's isEnabled() would, so EventStore.logging() would log nothing; it meets line 1 around the in-memory store and violates it around the noop store. The second sentence is the threshold. The other four are the level table eventLogLevel, which names each of the thirteen kinds once."
           "AC1, AC2, AC3 and AC4 (failure events at WARN, lifecycle events at INFO, the other transition events at DEBUG, token events, MarkingSnapshot and LogMessage at TRACE) are the table of line 1. As first written they overlapped and did not cover every kind: TransitionFailed, TransitionTimedOut and ActionTimedOut are both failure and transition events, and MarkingSnapshot and LogMessage were in no class (clash evt-c#3). Ruling D29 (a) (evt-c EVT-C3 (a)) writes Java's table into the requirement, failures first, and the spec edit of this wave names the kinds in each AC. EVT_023_mutant_transitionFirst is AC3 read literally (TransitionFailed at DEBUG) and violates line 1. eventLogLevel_failure states that every failure kind, the set EVT-030's failures() returns, is logged at WARN."
           "AC5 (delegates to the wrapped store after logging) is the order in line 1 and line 2. evt023_passedOn states the consequence that the wrapped store receives exactly the events appended to the decorator, in order, so line 2 compares the decorator and W after the same history; with line 2 the decorator holds no list of its own (Java's events(), size() and isEmpty() call the delegate). The clause of AC5 on events() and the sixth quoted sentence were added under ruling D20: they restate what Java, the only implementation, does. size() and isEmpty() are not named by the spec and not modelled. Line 2 quantifies over every history, clears included, so a clear() the decorator provided would have to leave events() as a clear on the wrapped store does; Java's decorator provides none, and the block does not constrain hasClear."
-          "AC6 (reports itself as enabled whatever store it wraps) is line 3 and the last quoted sentence, both added under ruling D20 as what Java does. It is what makes EventStore.logging(), the decorator around the noop store, log anything: an executor appends only to a store that reports itself enabled (the glossary's storeSink, EVT-020 AC3), so a decorator that reported the noop store's flag would receive no event. Java's LoggingEventStore.isEnabled() returns true (EventStore.java:355-358; LoggingEventStoreTest.shouldAlwaysBeEnabled). evt023_sink states the consequence; evt023_not_noop shows that the decorator around any store is not a noop store, which is EVT-022's mutant evt022_discardEnabled."
-          "Scope: Java only. TypeScript, Rust and the Python binding have no logging store, as the implementation notes say; the requirement is a SHOULD. The implementation note naming SLF4J is out of date: the class logs through java.lang.System.Logger (EventStore.java:336), and the spec edit of this wave corrects it and adds the missing Python line (ruling D20, evt-c EVT-C11 item 4)."
+          "AC6 (reports itself as enabled whatever store it wraps) is line 3 and the last quoted sentence, both added under ruling D20 as what Java does. It is what makes EventStore.logging(), the decorator around the noop store, log anything: an executor appends only to a store that reports itself enabled (the glossary's storeSink, EVT-020 AC3), so a decorator that reported the noop store's flag would receive no event. Java's LoggingEventStore.isEnabled() returns true (EventStore.java; LoggingEventStoreTest.shouldAlwaysBeEnabled). evt023_sink states the consequence; evt023_not_noop shows that the decorator around any store is not a noop store, which is EVT-022's mutant evt022_discardEnabled."
+          "Scope: Java only. TypeScript, Rust and the Python binding have no logging store, as the implementation notes say; the requirement is a SHOULD. The implementation note naming SLF4J is out of date: the class logs through java.lang.System.Logger (the LOG field of LoggingEventStore), and the spec edit of this wave corrects it and adds the missing Python line (ruling D20, evt-c EVT-C11 item 4)."
           "The test derivation (run a net with the logging store and check the levels of the log output) is EVT_023_nonvacuous: the thirteen kinds appended through an executor's sink to the reference around the in-memory store give, with every level enabled, the log records at the table's levels in order, and with the framework at INFO only the WARN and INFO records; events() returns the thirteen events; the transition-first table gives other records."
-  signoff "2026-11-13 ba011fd16b047e87 ai"
+  signoff "2026-11-13 3407bd9cb5d08cc4 ai"
   statement : ∀ {E : Type}, (E → NetEventKind) → LogDecorator E → Prop :=
     fun kind D =>
       (∀ W th e, observed th (D.onAppend W th e) =

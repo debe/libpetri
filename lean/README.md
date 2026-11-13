@@ -70,8 +70,8 @@ and the record of what the abstraction could *not* have been made sound against.
 
 `net_flattener.rs` never inspects an input arc's guard, so the encoder emits
 `m'_i = post[i]` — place emptied — for every `In::All` / `In::AtLeast` place
-(`firing_conditions`, `smt_encoder.rs:379-381`). The executor consumes only
-guard-*matching* tokens (`bitmap_backend.rs:590-600`, `count_matching` +
+(`firing_conditions`, `smt_encoder.rs`). The executor consumes only
+guard-*matching* tokens (`BitmapBackend::consume_for_firing` in `bitmap_backend.rs`,
 `remove_matching`), so guard-failing tokens survive the firing.
 
 Concretely: place holds `[1, 2]`, guard accepts only `1`. The executor leaves
@@ -87,10 +87,10 @@ them there. So this was a two-verifier gap, not three.
 
 `UnitOutput`, witness `unit_output_hypothesis_is_necessary`.
 
-`validate_out_spec` (`executor_core/output.rs:37`) is a **set-membership**
+`validate_out_spec` (`executor_core/output.rs`) is a **set-membership**
 check — it verifies *which* places the action wrote to, never how many tokens
 it wrote to each. So an action satisfying `Out::Place(p)` may write any number
-of tokens to `p`, while `net_flattener.rs:85-88` fixes the abstract gain at one
+of tokens to `p`, while `flatten_with_reapable` (`net_flattener.rs`) fixes the abstract gain at one
 token per branch place (`all_places` returns a `HashSet`).
 
 Neither paper states this condition. Paper A's Assumption W1 ("observationally
@@ -409,11 +409,12 @@ divergence. The same explicit model would close all three.
 ## Fidelity
 
 A model that drifts from the encoder proves nothing about the encoder. Every
-definition carries a doc comment naming the exact shipped function and line it
-models. If one of those functions changes, this development is wrong until the
-comment is rechecked — that is the maintenance obligation this directory adds.
-The function name is the primary reference and the line number a hint: a moved
-line is a doc fix, a changed function is a fidelity breach.
+definition carries a doc comment naming the exact shipped function it models.
+If one of those functions changes, this development is wrong until the comment
+is rechecked: that is the maintenance obligation this directory adds. Code is
+cited by name only, never by line number, because a line number goes stale as
+soon as the code above it moves; `scripts/no-line-hints.py` rejects one in any
+Lean file, this README or the spec.
 
 ### Fidelity check
 
@@ -421,23 +422,17 @@ That obligation is mechanized. `fidelity.toml` pins every modeled Rust item —
 one `[[pin]]` per function (or type, where the type itself is what is modeled)
 with the Lean modules that model it — and `fidelity.lock` records a SHA-256 of
 each pinned item's current source span, doc comments and attributes included.
-There are 229 pins (2026-09-30). `scripts/lean-fidelity-check.py` re-hashes the pins against the lock, and runs
-two citation guards:
+`scripts/lean-fidelity-check.py` re-hashes the pins against the lock, and runs
+a citation guard:
 
 - **file coverage** — every `.rs` file cited in a Lean doc comment (every
   `.lean` file under `Libpetri/`, subdirectories included) must have at
   least one pin. This is per *file*, not per item: a comment that starts
   modelling a second function in an already-pinned file is not caught here, so
   add the pin by hand.
-- **line hints** — a `file.rs:NNN` hint written in the same comment block as a
-  pinned item's name must fall inside that item. Hints that name no pinned item
-  (a struct field, a call site) are structural and skipped, so this adds no
-  manifest burden; it only stops the hints that *do* name a pin from rotting.
-  Bare continuation hints (`` `:NNN` `` after a file is named) carry no file of
-  their own and are not machine-checked.
 
-`RetrodictExec.lean`'s pre-fix citations (commit `1bdf586`) are historical: no
-pins of their own, and exempt from the line-hint guard.
+`RetrodictExec.lean`'s pre-fix citations (commit `1bdf586`) are historical and
+have no pins of their own.
 
 The recovery workflow is printed by the script on every failure; the short form
 is re-verify the Lean model against the named Rust item, then

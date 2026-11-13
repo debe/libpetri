@@ -1,7 +1,11 @@
 package org.libpetri.event;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -28,8 +32,10 @@ import static java.lang.System.Logger.Level;
  *
  * <h2>Default Method Efficiency</h2>
  * <p>The default query methods ({@link #stream()}, {@link #filter(Predicate)},
- * {@link #transitionEvents(String)}, {@link #failures()}) all call {@link #events()} which
- * returns an O(n) snapshot copy. Concrete implementations may override for efficiency.
+ * {@link #filter(Predicate, int, int)}, {@link #transitionEvents(String)},
+ * {@link #placeEvents(String...)}, {@link #failures()}, {@link #counters()}) all call
+ * {@link #events()} which returns an O(n) snapshot copy. Concrete implementations may override
+ * for efficiency.
  *
  * <h2>Thread Safety</h2>
  * <p>{@link #append(NetEvent)} must be thread-safe. Events are emitted from the executor's
@@ -117,6 +123,26 @@ public interface EventStore {
     }
 
     /**
+     * Returns one page of the events matching a predicate ([EVT-030]).
+     *
+     * <p>The page is taken over the filtered result, not over the store: the first {@code offset}
+     * matching events are skipped and at most {@code limit} of the matching events that follow
+     * are returned, in the order {@link #events()} returns them. Pass {@link Integer#MAX_VALUE}
+     * as {@code limit} for all of them.
+     *
+     * @param predicate filter condition
+     * @param offset number of matching events to skip
+     * @param limit maximum number of matching events to return
+     * @return list of matching events in the page
+     * @throws IllegalArgumentException if {@code offset} or {@code limit} is negative
+     */
+    default List<NetEvent> filter(Predicate<NetEvent> predicate, int offset, int limit) {
+        if (offset < 0) throw new IllegalArgumentException("offset must not be negative, got: " + offset);
+        if (limit < 0) throw new IllegalArgumentException("limit must not be negative, got: " + limit);
+        return stream().filter(predicate).skip(offset).limit(limit).toList();
+    }
+
+    /**
      * Returns events of a specific type.
      *
      * @param <T> event type
@@ -156,6 +182,27 @@ public interface EventStore {
     }
 
     /**
+     * Returns the token events ({@link NetEvent.TokenAdded}, {@link NetEvent.TokenRemoved}) of the
+     * named places, in the order {@link #events()} returns them ([EVT-030]).
+     *
+     * <p>No other event carries a place name, so no other event matches. With no name given,
+     * no event matches.
+     *
+     * @param placeNames names of the places
+     * @return list of token events of those places
+     */
+    default List<NetEvent> placeEvents(String... placeNames) {
+        var names = Arrays.asList(placeNames);
+        return stream()
+            .filter(e -> switch (e) {
+                case NetEvent.TokenAdded t -> names.contains(t.placeName());
+                case NetEvent.TokenRemoved t -> names.contains(t.placeName());
+                default -> false;
+            })
+            .toList();
+    }
+
+    /**
      * Returns all failure events (failed, timed-out transitions, and action timeouts).
      *
      * @return list of failure events
@@ -166,6 +213,24 @@ public interface EventStore {
                       || e instanceof NetEvent.TransitionTimedOut
                       || e instanceof NetEvent.ActionTimedOut)
             .toList();
+    }
+
+    /**
+     * Returns the event-type histogram of the events {@link #events()} returns ([EVT-030]).
+     *
+     * <p>Each event type that occurs is named exactly once, by its simple name (for example
+     * {@code "TransitionStarted"}), with the number of events of that type; no other type is
+     * named. The map iterates in ascending order of the type name, and its values sum to the
+     * number of events.
+     *
+     * @return unmodifiable map of event type name to event count
+     */
+    default Map<String, Integer> counters() {
+        var counts = new TreeMap<String, Integer>();
+        for (var event : events()) {
+            counts.merge(event.getClass().getSimpleName(), 1, Integer::sum);
+        }
+        return Collections.unmodifiableSortedMap(counts);
     }
 
     /**

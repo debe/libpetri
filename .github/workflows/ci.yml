@@ -915,6 +915,13 @@ jobs:
         run: |
           python3 -m unittest scripts/test_lean_fidelity_check.py
           python3 scripts/lean-fidelity-check.py
+      # Lean prose and the spec name code items, never line numbers: a line
+      # number goes stale as soon as the code above it moves.
+      - name: No line-number citations in Lean or the spec
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 -m unittest scripts/test_no_line_hints.py
+          python3 scripts/no-line-hints.py
       # lean/report/requirements.{md,json} and lean/report/proof-coverage.json
       # are generated from the requirement blocks and their @[evidence] tags
       # (proof-coverage.json from the `cites` tags); regenerating them must be

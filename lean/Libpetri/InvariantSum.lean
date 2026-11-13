@@ -14,19 +14,19 @@ namespace Libpetri
 /-!
 ## Weight vectors and the emitted sums
 
-`PInvariant` (`p_invariant.rs:9-13`) carries `weights: Vec<i64>` over the
+`PInvariant` (`p_invariant.rs`) carries `weights: Vec<i64>` over the
 dense place index plus a `support` that `validate_invariants_exact` pins to
-exactly the nonzero weights (`p_invariant.rs:300-311`). A weight vector is
+exactly the nonzero weights (`p_invariant.rs`). A weight vector is
 modelled total over `PlaceId` with its support below `place_count` — a plain
 function rather than a `Finsupp`, so concrete vectors stay definable by `if`;
 sums run over the first `n` places (`Finset.range n`, `dotProduct` over
 `Fin n`), which is the sum `invariant_conditions` emits
-(`smt_encoder.rs:406-429`), since the dense index of `flatten`
-(`flatten_with_reapable`, `net_flattener.rs:102-111`) keeps every place id below `place_count`.
+(`smt_encoder.rs`), since the dense index of `flatten`
+(`flatten_with_reapable`, `net_flattener.rs`) keeps every place id below `place_count`.
 -/
 
 /-- A P-invariant weight vector `y`: one integer weight per dense place index
-(`PInvariant.weights`, `p_invariant.rs:9-13`). -/
+(`PInvariant.weights`, `p_invariant.rs`). -/
 abbrev Weight := PlaceId → Int
 
 /-- The support of `y` lies below `n` — what `PInvariant.support ⊆
@@ -40,17 +40,18 @@ def isum (f : PlaceId → Int) (n : Nat) : Int :=
 
 /-- The weighted token sum `y·M` over the first `n` places — the equality the
 encoder conjoins on the successor variables `m'_i` (`invariant_conditions`,
-`smt_encoder.rs:406-429`). -/
+`smt_encoder.rs`). -/
 def dot (y : Weight) (m : AMarking) (n : Nat) : Int :=
   dotProduct (fun i : Fin n => y i) (fun i : Fin n => (m i : Int))
 
 /-- `y·(post − pre)` over the first `n` places: `y` applied to one flat
 transition's **incidence column exactly as the shipped matrix builds it** —
 `C[t][p] = post − pre` with `pre = required_count`
-(`incidence_matrix.rs:45-51` from `net_flattener.rs:120-127`; TS
+(`IncidenceMatrix::from_flat_net` in `incidence_matrix.rs` from `flatten_with_reapable` in
+`net_flattener.rs`; TS
 `incidence-matrix.ts` from `net-flattener.ts`). `dotInc y ft n = 0` is
 therefore *verbatim* the condition `validate_invariants_exact` re-validates in
-exact arithmetic (`p_invariant.rs:325-343`; TS `p-invariant-computer.ts`).
+exact arithmetic (`p_invariant.rs`; TS `p-invariant-computer.ts`).
 Note what the column does **not** say: nothing about `consume_all` or
 `reset_places` — that omission is H1 below. -/
 def dotInc (y : Weight) (ft : FlatTransition) (n : Nat) : Int :=
@@ -74,7 +75,7 @@ theorem isum_add (f g : PlaceId → Int) :
 
 /-- A weight vector supported below `n` sums identically under any wider
 truncation — the encoder's support-indexed sum (`invariant_conditions`,
-`smt_encoder.rs:414-418`, iterates `inv.support` only) loses nothing against
+`smt_encoder.rs`, iterates `inv.support` only) loses nothing against
 the full `y·M`. -/
 theorem dot_stable_of_support_below {y : Weight} {n : Nat}
     (hy : SupportBelow n y) (m : AMarking) :

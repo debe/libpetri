@@ -11,7 +11,7 @@ namespace Libpetri
 /-! ## The eligibility predicate, exactly as `init_match_caches` states it -/
 
 /-- The `required` match of `init_match_caches`
-(`precompiled_backend.rs:321-330`): `Some(In::One) => 1`,
+(`precompiled_backend.rs`): `Some(In::One) => 1`,
 `Some(In::Exactly{count}) => count`, everything else — `All`, `AtLeast`, or
 no input spec at all — is ineligible (`_ => { eligible = false }`). -/
 def fixedRequired : Card → Option Nat
@@ -21,20 +21,20 @@ def fixedRequired : Card → Option Nat
   | .atLeast _ => none
 
 /-- Conjunct 1 for one correlated input: the spec lookup
-(`t.input_specs().iter().find(...)`, `precompiled_backend.rs:317-320` —
+(`t.input_specs().iter().find(...)` in `init_match_caches` —
 `specAt` in `Basic.lean`) composed with `fixedRequired`. `some k` means the
 input consumes a fixed `k` tokens per firing. -/
 def requiredOf (t : Transition) (p : PlaceId) : Option Nat :=
   (specAt t p).bind fun sp => fixedRequired sp.card
 
 /-- Conjunct 2's artifact: the `reset_target` boolean array of
-`init_match_caches` (`precompiled_backend.rs:286-298`) — is `p` a reset
+`init_match_caches` (`precompiled_backend.rs`) — is `p` a reset
 target of *any* transition (the owner included)? -/
 def resetTarget (ts : List Transition) (p : PlaceId) : Bool :=
   ts.any fun u => u.resets.any fun r => r == p
 
 /-- The Rust inner loop `for spec in t.input_specs() { if pid { push(tid) } }`
-(`precompiled_backend.rs:289-293`): one entry per input spec of the
+(`init_match_caches` in `precompiled_backend.rs`): one entry per input spec of the
 transition at index `i` that lands on `p`. -/
 def specTids (i : Nat) (p : PlaceId) : List InSpec → List Nat
   | [] => []
@@ -42,7 +42,7 @@ def specTids (i : Nat) (p : PlaceId) : List InSpec → List Nat
     if sp.place == p then i :: specTids i p rest else specTids i p rest
 
 /-- Conjunct 3's artifact: the `input_consumers[pid]` vector
-(`precompiled_backend.rs:285-293`) — every transition index that consumes
+of `init_match_caches` (`precompiled_backend.rs`) — every transition index that consumes
 `p` through an input arc, in index order, with multiplicity. -/
 def consumerTids : List Transition → Nat → PlaceId → List Nat
   | [], _, _ => []
@@ -52,16 +52,16 @@ def inputConsumers (ts : List Transition) (p : PlaceId) : List Nat :=
   consumerTids ts 0 p
 
 /-- **The fast-path eligibility predicate of `init_match_caches`**
-(`precompiled_backend.rs:312-336`), for the correlated input `p` of the
+(`precompiled_backend.rs`), for the correlated input `p` of the
 matched transition at index `tid`:
 
 * `fixed_count` — the input spec on `p` is `One`/`Exactly` with consume
-  count `k` (`:311-320`);
-* `no_reset` — `!reset_target[pid]` (`:321`);
-* `sole_consumer` — `input_consumers[pid] == [tid]` (`:321`): exactly one
+  count `k`;
+* `no_reset` — `!reset_target[pid]`;
+* `sole_consumer` — `input_consumers[pid] == [tid]`: exactly one
   input arc in the whole net lands on `p`, and it is `tid`'s.
 
-The code additionally requires `p` to be a compiled place id (`:303-306`);
+The code additionally requires `p` to be a compiled place id (`place_id`);
 the model's `PlaceId`s are dense, so that conjunct is absorbed (tokens for
 unknown places never enter the pool or the caches — CORE-072). A matched
 transition is fast-path eligible when every one of its key places satisfies

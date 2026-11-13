@@ -376,6 +376,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 timestamp: self.epoch_ms(),
             });
         }
+        self.emit_marking_snapshot();
         self.warn_unknown_places("");
 
         let mut newly_enabled: Vec<usize> = Vec::new();
@@ -473,6 +474,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             TerminationReason::Quiescent
         };
 
+        self.emit_marking_snapshot();
         if E::ENABLED {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
             self.event_store.append(NetEvent::ExecutionCompleted {
@@ -482,6 +484,28 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
         }
 
         self.backend.snapshot_marking()
+    }
+
+    /// \[EVT-014\] Records the current marking as a `MarkingSnapshot`: right
+    /// after `ExecutionStarted` (the initial marking) and right before
+    /// `ExecutionCompleted` (the marking the run ends with), on both
+    /// backends. Token counts of the non-empty places only, keyed in the
+    /// event's `BTreeMap` and so in ascending code-point order of the place
+    /// name (\[CORE-073\]). A place the net does not declare is listed too,
+    /// as the marking retains its tokens (\[CORE-072\]).
+    fn emit_marking_snapshot(&mut self) {
+        if !E::ENABLED {
+            return;
+        }
+        let timestamp = self.epoch_ms();
+        let marking = self
+            .backend
+            .snapshot_marking()
+            .token_counts()
+            .into_iter()
+            .collect();
+        self.event_store
+            .append(NetEvent::MarkingSnapshot { marking, timestamp });
     }
 
     /// Emits the CORE-072 AC4 diagnostic for every place the backend flagged
@@ -1024,6 +1048,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
                 timestamp: self.epoch_ms(),
             });
         }
+        self.emit_marking_snapshot();
         self.warn_unknown_places("");
 
         let mut newly_enabled: Vec<usize> = Vec::new();
@@ -1241,6 +1266,7 @@ impl<S: ExecutorBackend, E: EventStore> Executor<S, E> {
             TerminationReason::Stopped
         };
 
+        self.emit_marking_snapshot();
         if E::ENABLED {
             let net_name: Arc<str> = self.backend.compiled().net().name().into();
             self.event_store.append(NetEvent::ExecutionCompleted {

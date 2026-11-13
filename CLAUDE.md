@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`, **224 active requirements across 13 files** — `spec/00-index.md` is the canonical count):
+libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with formal verification. Four implementations conform to one language-agnostic specification (`spec/`; `spec/00-index.md` is the canonical registry and count):
 
 | Implementation | Language | Runtime | Status |
 |---|---|---|---|
@@ -76,13 +76,13 @@ As of 2026-09-20 that reports 0 errors and 43 warnings, all of them pre-existing
 **`python3 scripts/lean-fidelity-check.py` is a CI gate** (`.github/workflows/ci.yml`) and is easy
 to miss because it is not a cargo command. The Lean development pins specific Rust items by
 **content hash** (`lean/fidelity.toml`, hashes in `lean/fidelity.lock`), so editing a pinned item (`run_sync`,
-`Token`, or any other of the 230 pins) fails the check even when every cargo gate is green. The failure is the
+`Token`, or any other pin) fails the check even when every cargo gate is green. The failure is the
 point: it forces you to re-read the named Lean model and confirm it still describes the changed
 Rust before re-pinning. Run `--update` only *after* that re-verification, never as the fix itself.
 The same CI step first runs the checker's own tests: `python3 -m unittest scripts/test_lean_fidelity_check.py`.
 
 **The `conformance` CI job is another non-cargo gate.** It builds the verified Lean reference
-(`lake build reference`), re-derives the expected verdicts of the 305-net corpus in
+(`lake build reference`), re-derives the expected verdicts of the net corpus in
 `spec/verification-fixtures/conformance/` (`python3 scripts/conformance-corpus.py --check`), then
 replays the corpus in every language (`python3 scripts/conformance-replay.py --lang rust|java|ts|py`).
 Expected verdicts are written by the Lean binary, never by hand. A verifier change that makes any
@@ -233,7 +233,7 @@ contents change, and they're identical across the three destinations.
 
 ## Specification
 
-`spec/` contains 13 spec files (`00-index.md` … `12-nu-nets.md`), **224 active requirements**. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
+`spec/` contains the spec files `00-index.md` … `12-nu-nets.md`. Prefixes: CORE, IO, TIME, EXEC, CONC, ENV, VER, EVT, EXP, PERF, plus **MOD** (modular composition, `11-`) and **NU** (ν-nets / correlated fork-join by ID, `12-`). Requirements use MUST/SHOULD/MAY priority with testable acceptance criteria; cross-references use `[PREFIX-NNN]`. `spec/00-index.md` is the canonical registry — it tracks active vs removed/tombstoned IDs (e.g. IO-006), so trust the index count over any prose figure elsewhere.
 
 ## Release
 

@@ -4,7 +4,7 @@ import Libpetri.Novel.TimedScg.Timing
 /-!
 # Every zone of the graph stays on the millisecond grid (premise 4, `EPSILON = 1e-9`)
 
-The Rust emptiness flag is `D[i][i] < -EPSILON` with `EPSILON = 1e-9` (`dbm.rs:1`, `:128`), so a
+The Rust emptiness flag is `D[i][i] < -EPSILON` with `EPSILON = 1e-9` (the `EPSILON` constant and `Dbm::canonicalize` in `dbm.rs`), so a
 zone whose most negative cycle lies in `[-1e-9, 0)` would be stored although empty. This file
 shows that cannot happen on a net whose static bounds are multiples of a grid step `g > eps`:
 

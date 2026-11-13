@@ -3,8 +3,8 @@
 
 All three language verifiers conjoin every computed P-invariant `y·M = y·M₀`
 into the CHC transition-rule *bodies* (`invariant_conditions`,
-`smt_encoder.rs:406-429`, heading the `strengthening` list `encode_net` builds
-at `:157` and `encode_transition_rule` splices at `:502`; the
+`smt_encoder.rs`, heading the `strengthening` list `encode_net` builds
+and `encode_transition_rule` splices; the
 TypeScript and Java encoders mirror it). With `EncodeOptions::state_equation`
 ([VER-016]) that list also carries the firing-counter update and the
 state-equation rows, which `StateEquation.lean` models; this file models the
@@ -14,16 +14,16 @@ successors from the least fixpoint. A wrong invariant therefore shrinks
 `Reachable` below the true reachable set and can certify a false `Proven`,
 the failure mode this development exists to close.
 
-The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs:259-390`,
+The C2 runtime gate (`validate_invariants_exact`, `p_invariant.rs`,
 which now takes the whole `&FlatNet` so the H1 guard below cannot be
 disabled by handing it an empty transition list; TS
 `validateInvariantsExact` in `p-invariant-computer.ts`) re-validates
 `y·C = 0` in exact arithmetic — but against the *linearized* incidence
-matrix (`IncidenceMatrix::from_flat_net`, `incidence_matrix.rs:23-60`), whose
+matrix (`IncidenceMatrix::from_flat_net`, `incidence_matrix.rs`), whose
 column is `post − pre` with `pre = required_count`
-(`net_flattener.rs:120-127`). Consume-all and reset semantics are not linear —
+(`flatten_with_reapable`, `net_flattener.rs`). Consume-all and reset semantics are not linear —
 they are the two `m'_i = post[i]` arms of the encoder's fire relation
-(`firing_conditions`, `smt_encoder.rs:376-381`, modelled by `fireA`) — so
+(`firing_conditions`, `smt_encoder.rs`, modelled by `fireA`) — so
 passing the gate is
 necessary but not sufficient. This file proves, at the `fireA` level
 ([VER-004]'s untimed count abstraction, where the encoders operate), exactly
@@ -40,14 +40,14 @@ what *is* sufficient:
 * `invariant_strengthening_sound_inj` / `strengthened_reach_eq_inj` — the
   env-aware variant ([VER-006]): with injection rules present, soundness
   needs H3′ `y = 0` on injectable places — exactly what the injector columns
-  of `incidence_matrix.rs:40-43` feed through the gate's `y·C = 0`.
+  of `IncidenceMatrix::from_flat_net` feed through the gate's `y·C = 0`.
 * `consume_all_hypothesis_is_necessary`, `injection_hypothesis_is_necessary`
   — concrete nets where H2 still holds (`y·C = 0` alone still accepts `y`)
   yet dropping H1 / H3′ makes the strengthened relation lose a genuinely
   reachable violating state: the false-`Proven` shape, checked by
   `decide`/`omega`, not asserted.
 * `bad_rule_nonvacuity` — `encode_property_violation`'s unresolvable-place
-  fallback (`smt_encoder.rs:744-747`: unknown `pending` place ⇒ error-rule body
+  fallback (its `JoinedOrDeadLettered` arm: unknown `pending` place ⇒ error-rule body
   `false`) proves every net vacuously; refusing to certify is the only
   sound behaviour.
 * `quiescent_count_clause_exact` — the `QuiescentCount` arm's `Bad` is exactly
@@ -69,18 +69,18 @@ Hypotheses, exactly as the proof forces them:
 
 * **H1** (`ZeroOnNonlinear`): per flat transition, `y` is zero below `n` on
   its reset and consume-all places — the arms where `firing_conditions`
-  (`smt_encoder.rs:376-381`) emits `m'_i = post[i]` and the marking's history
+  (`smt_encoder.rs`) emits `m'_i = post[i]` and the marking's history
   is erased. The C2 gate
   enforces it by *dropping* any invariant whose support meets such a place
   (see `consume_all_hypothesis_is_necessary`, the witness that forced it).
 * **H2** (`dotInc y ft n = 0`): `y` annihilates every flat transition's
   incidence column — verbatim the exact-arithmetic check of the C2 gate
-  (`validate_invariants_exact`, `p_invariant.rs:325-343`).
+  (`validate_invariants_exact`, `p_invariant.rs`).
 * **H3** (env-freedom): implicit in `ReachA`, which has no injection rule;
   `invariant_strengthening_sound_inj` is the env-aware variant.
 
 Conclusion: `y·M = y·M₀` on every reachable abstract marking — the conjunct
-of `invariant_conditions` (`smt_encoder.rs:406-429`) really is invariant
+of `invariant_conditions` (`smt_encoder.rs`) really is invariant
 ([VER-005] AC2). -/
 @[evidence cites "VER-005" "weighted-sum conservation over ReachA under H1 (zero weight on consume-all/atLeast/reset places; now enforced by the shipped validators) and H2 (y.C = 0, the exact-validation gate's check); injection-free fragment"]
 theorem invariant_strengthening_sound {net : FlatNet} {a0 a : AMarking}
@@ -100,9 +100,9 @@ def StepAStrRel (net : FlatNet) (y : Weight) (n : Nat) (a0 a a' : AMarking) : Pr
 
 /-- `ReachA` with the invariant conjunct `y·M' = y·M₀` added to every
 transition-rule body — the shape `encode_transition_rule` actually emits
-(`smt_encoder.rs:502` conjoins the `strengthening` list, which `encode_net`
-opens with `invariant_conditions` over the successor variables `m'_i` at
-`:157`, inside the rule body, so a violating successor is pruned,
+(`encode_transition_rule` conjoins the `strengthening` list, which `encode_net`
+opens with `invariant_conditions` over the successor variables `m'_i`,
+inside the rule body, so a violating successor is pruned,
 not flagged). -/
 def ReachAStr (net : FlatNet) (y : Weight) (n : Nat) (a0 : AMarking) :
     AMarking → Prop :=
@@ -157,16 +157,16 @@ theorem strengthened_reach_eq {net : FlatNet} {a0 : AMarking} {y : Weight} {n : 
 
 /-- H3′-aware conservation: with injection rules present (`ReachAInj`,
 modelling the injection loop of `encode_net`, `encode`'s body,
-`smt_encoder.rs:175-184`), `y·M = y·M₀`
+`smt_encoder.rs`), `y·M = y·M₀`
 additionally needs `y` to
 vanish on every injectable place — an injection mints a token nothing
 consumed, so a nonzero weight there breaks conservation (the encoder knows:
 "No P-invariant strengthening — injection deliberately breaks conservation",
-`smt_encoder.rs:180`).
+a comment of `encode_net`).
 
 H3′ is exactly what the shipped env-aware matrix enforces mechanically: each
 injectable place contributes an injector column `+e_p`
-(`incidence_matrix.rs:40-43`; TS `incidence-matrix.ts`), and `y·C = 0`
+(`IncidenceMatrix::from_flat_net`; TS `incidence-matrix.ts`), and `y·C = 0`
 on that column *is* `y p = 0`. This theorem is the sufficiency proof for
 that design. -/
 @[evidence cites "VER-006" "env-aware variant: with injection rules, conservation needs H3' (zero weight on injectable places) - the sufficiency proof for the shipped injector-column design"]
@@ -203,9 +203,9 @@ def StepAInjStrRel (net : FlatNet) (envs : List PlaceId) (y : Weight) (n : Nat)
 
 /-- The shipped strengthened shape with env injection: the invariant conjunct
 sits in *transition*-rule bodies only (`encode_transition_rule`,
-`smt_encoder.rs:485-511`); injection rules carry no invariant conjunct
-(`encode_injection_rule`, `smt_encoder.rs:532-560` — with
-`EncodeOptions::state_equation` they copy the firing counters, `:550-553`,
+`smt_encoder.rs`); injection rules carry no invariant conjunct
+(`encode_injection_rule`, `smt_encoder.rs` — with
+`EncodeOptions::state_equation` they copy the firing counters,
 modelled in `StateEquation.lean`). -/
 def ReachAInjStr (net : FlatNet) (envs : List PlaceId) (y : Weight)
     (n : Nat) (a0 : AMarking) : AMarking → Prop :=
@@ -319,7 +319,7 @@ violates H3′. The consequence: the true injected relation reaches
 `outPlace = 1` (`injection_reaches_violation`, second conjunct), while the
 strengthened relation freezes it at `0` (third conjunct) — a false `Proven`
 for `PlaceBound(p₁, 0)`. This is exactly the law the injector columns of
-`incidence_matrix.rs:40-43` exist to kill: `y·C = 0` on the `+e_envPlace`
+`IncidenceMatrix::from_flat_net` exist to kill: `y·C = 0` on the `+e_envPlace`
 column forces `y envPlace = 0`, i.e. H3′. -/
 @[evidence cites "VER-006" "necessity of H3': a unit weight on an injectable place freezes the strengthened relation while the true relation reaches a violation"]
 theorem injection_hypothesis_is_necessary :
@@ -330,10 +330,10 @@ theorem injection_hypothesis_is_necessary :
 
 /-- Drains place `0` with an (unguarded) `In::All`, producing one token into
 place `1`. Its shipped incidence column is `(−1, +1)`: `required_count` of
-`In::All` is `1` (`required_count`, `input.rs:87`, modelled by
+`In::All` is `1` (`required_count`, `input.rs`, modelled by
 `Card.required`), and
 `from_flat_net` builds the column from `pre`/`post` alone, never consulting
-`consume_all` (`incidence_matrix.rs:31-38`). -/
+`consume_all` (`incidence_matrix.rs`). -/
 def tAll : Transition :=
   { name := "drain_all"
   , inputs := [{ place := 0, card := .all, guard := none }]
@@ -375,11 +375,11 @@ theorem strengthened_all_freezes :
 `consumeAllAt tAll 0 = true` with `yUnit 0 = 1 ≠ 0` violates H1, yet `yUnit`
 annihilates `tAll`'s shipped incidence column (first conjunct): the column is
 built from `required_count` and never consults `consume_all`
-(`incidence_matrix.rs:31-38`, `net_flattener.rs:120-127`), so both Farkas
+(`IncidenceMatrix::from_flat_net`, `flatten_with_reapable`), so both Farkas
 computation and the C2 gate's `y·C = 0` recheck accept `yUnit` in exact
 arithmetic — which is precisely why the gate needed a *separate* H1 guard on
 top of it. The real firing drains BOTH tokens (`fireA`'s consume-all
-arm, `firing_conditions`, `smt_encoder.rs:379-381`), dropping `y·M` from `2`
+arm, `firing_conditions`, `smt_encoder.rs`), dropping `y·M` from `2`
 to `1`: the true
 relation reaches `p₁ = 1` (second conjunct) while the strengthened relation
 freezes `p₁` at `0` (third conjunct) — a false `Proven` for
@@ -399,10 +399,10 @@ theorem consume_all_hypothesis_is_necessary :
 /-!
 ## The error-rule `false` fallback
 
-`encode_property_violation` (`smt_encoder.rs:656-781`) emits `Bad ≡ false` in
+`encode_property_violation` (`smt_encoder.rs`) emits `Bad ≡ false` in
 two kinds of case.
 
-* **Unresolved place.** `PlaceBound` and `JoinedOrDeadLettered` (`:741-744`)
+* **Unresolved place.** `PlaceBound` and `JoinedOrDeadLettered`
   fall back to `false` for a place the flat net lacks, `Unreachable` does so when
   none resolves, and the pairwise `MutualExclusion` (`pairwise_marked`) when fewer
   than two entries resolve — exactly, as an unresolved name is never marked
@@ -411,7 +411,7 @@ two kinds of case.
   reaches this fallback.
 * **Unviolatable predicate.** No marking is quiescent (`encode_quiescent`
   returns `None`, in every quiescence arm), no place can strand a token under
-  `DeadlockFree` (`:681-684`), or `QuiescentCount` asks for `[0, ∞)`
+  `DeadlockFree`, or `QuiescentCount` asks for `[0, ∞)`
   (`count_violation_condition` returns `None`). These are exact:
   `quiescent_count_clause_exact` proves it for the count clause.
 
@@ -434,7 +434,7 @@ information — it holds for any reachable set whatsoever, so it certifies a
 net about which the encoder resolved nothing. The only sound behaviour for
 an unresolvable property place is to refuse to certify (surface an error
 instead of an error rule), which is the formal argument against
-`encode_property_violation`'s `smt_encoder.rs:744-747` fallback. -/
+`encode_property_violation`'s unresolved-place fallback (`smt_encoder.rs`). -/
 @[evidence cites "VER-004" "the flat encoder's unresolvable-property-place fallback (Bad body = false) certifies any net vacuously - the formal argument that refusing to certify is the only sound behavior for that case"]
 theorem bad_rule_nonvacuity (Reach : AMarking → Prop) :
     ProvenFor Reach (fun _ => False) :=
@@ -453,7 +453,7 @@ theorem bad_rule_proves_every_net (net : FlatNet) (a0 : AMarking) :
 -- Keep core's `Zero ℕ` for `List.sum` below, as elaborated before Mathlib's algebra was imported.
 attribute [local instance high] Zero.ofOfNat0
 
-/-- `count_violation_condition` (`smt_encoder.rs:783-812`) over the count
+/-- `count_violation_condition` (`smt_encoder.rs`) over the count
 `total` and whether every waiver is empty: the lower part when `min > 0`, the
 upper part when `max` is bounded, `none` when neither applies. -/
 def countClause (total : Nat) (waiversEmpty : Bool) (min : Nat) (max : Option Nat) :
@@ -465,9 +465,9 @@ def countClause (total : Nat) (waiversEmpty : Bool) (min : Nat) (max : Option Na
   | parts => some (parts.any id)
 
 /-- The `QuiescentCount` arm of `encode_property_violation`
-(`smt_encoder.rs:754-774`) at one marking. `quiescent` stands for
+(`smt_encoder.rs`) at one marking. `quiescent` stands for
 `encode_quiescent`, unmodelled (`none`: no marking is quiescent). `counted` and
-`waivers` are what `index_ordered` (`smt_encoder.rs:835-846`) returns: each
+`waivers` are what `index_ordered` (`smt_encoder.rs`) returns: each
 resolved place once, so the list sum is the count over the place set. -/
 def quiescentCountBad (quiescent : Option (AMarking → Bool))
     (counted waivers : List PlaceId) (min : Nat) (max : Option Nat) (a : AMarking) :

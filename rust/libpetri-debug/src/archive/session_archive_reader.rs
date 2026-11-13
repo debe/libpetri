@@ -281,6 +281,29 @@ fn event_info_to_net_event(
                 timestamp,
             }
         }
+        "MarkingSnapshot" => {
+            // \[EVT-014\] A Rust archive carries a token count per place; a
+            // Java or TypeScript one carries the place's tokens, whose count
+            // is all the event keeps. Empty places stay out, as on the event.
+            let marking = info
+                .details
+                .get("marking")
+                .and_then(|v| v.as_object())
+                .map(|places| {
+                    places
+                        .iter()
+                        .filter_map(|(place, tokens)| {
+                            let count = tokens
+                                .as_u64()
+                                .map(|n| n as usize)
+                                .or_else(|| tokens.as_array().map(Vec::len))?;
+                            (count > 0).then(|| (Arc::from(place.as_str()), count))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            NetEvent::MarkingSnapshot { marking, timestamp }
+        }
         _ => {
             // Fallback for unknown types
             NetEvent::TransitionEnabled {
@@ -426,6 +449,58 @@ mod tests {
         assert!(matches!(events[0], NetEvent::ExecutionStarted { .. }));
         assert!(matches!(events[1], NetEvent::TransitionStarted { .. }));
         assert!(matches!(events[2], NetEvent::TransitionCompleted { .. }));
+    }
+
+    /// \[EVT-014\] A `MarkingSnapshot` survives the archive round trip with
+    /// its counts and place order; it used to come back as a
+    /// `TransitionEnabled` of a transition named `unknown`.
+    #[test]
+    fn marking_snapshot_round_trips() {
+        let session = test_session_with_events();
+        let marking = [("a", 2), ("\u{E000}", 1), ("\u{1F600}", 3)]
+            .into_iter()
+            .map(|(k, v)| (Arc::from(k), v))
+            .collect();
+        session
+            .event_store
+            .append(NetEvent::MarkingSnapshot { marking, timestamp: 4000 });
+        let compressed = super::super::SessionArchiveWriter::write(&session).unwrap();
+
+        let imported = SessionArchiveReader::read_full(&compressed).unwrap();
+        let events = imported.event_store.events();
+        match &events[3] {
+            NetEvent::MarkingSnapshot { marking, timestamp } => {
+                assert_eq!(*timestamp, 4000);
+                let read: Vec<(&str, usize)> =
+                    marking.iter().map(|(k, &v)| (k.as_ref(), v)).collect();
+                assert_eq!(read, vec![("a", 2), ("\u{E000}", 1), ("\u{1F600}", 3)]);
+            }
+            other => panic!("expected MarkingSnapshot, got {other:?}"),
+        }
+    }
+
+    /// \[EVT-014\] A Java or TypeScript archive carries the tokens of each
+    /// place; the reader keeps their count.
+    #[test]
+    fn marking_snapshot_with_token_lists_reads_counts() {
+        let info = NetEventInfo {
+            event_type: "MarkingSnapshot".into(),
+            timestamp: "5".into(),
+            transition_name: None,
+            place_name: None,
+            details: std::collections::BTreeMap::from([(
+                "marking".into(),
+                serde_json::json!({"p": [{"type": "Integer"}, {"type": "Integer"}], "q": []}),
+            )]),
+        };
+        match event_info_to_net_event(&info).unwrap() {
+            NetEvent::MarkingSnapshot { marking, .. } => {
+                let read: Vec<(&str, usize)> =
+                    marking.iter().map(|(k, &v)| (k.as_ref(), v)).collect();
+                assert_eq!(read, vec![("p", 2)]);
+            }
+            other => panic!("expected MarkingSnapshot, got {other:?}"),
+        }
     }
 
     #[test]

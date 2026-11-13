@@ -3,9 +3,9 @@
 
 `PrecompiledBackend` keeps one `IncrementalMatcher` per *fast-path eligible*
 matched transition (the `match_caches` field) so that a ν-join's enablement
-read (`can_enable`, `precompiled_backend.rs:734-753`) is O(1) instead of the
-O(n) index rebuild `find_match_binding` (`precompiled_backend.rs:758-799`).
-The doc comment on `init_match_caches` (`precompiled_backend.rs:255-262`)
+read (`can_enable` in `precompiled_backend.rs`) is O(1) instead of the
+O(n) index rebuild `find_match_binding`.
+The doc comment on `init_match_caches`
 argues that under its eligibility
 conditions "the cache can never desync". This module turns that prose into
 theorems over the flat-pool model of `Ring.lean`:
@@ -21,7 +21,7 @@ theorems over the flat-pool model of `Ring.lean`:
 * `fire_muts_lockstep` — the bridge from the eligibility predicate to that
   hypothesis: under the exact three-conjunct gate of `init_match_caches`,
   the consume phase of ANY transition firing (`consume_for_firing`,
-  `precompiled_backend.rs:1135`) performs only permitted mutations on the
+  `precompiled_backend.rs`) performs only permitted mutations on the
   cached place — a foreign firing performs none at all
   (`foreign_fire_emits_nothing`), the owner performs exactly one matched
   consume with equal ring/cache counts (`owner_fire_emits_lockstep`).
@@ -32,23 +32,23 @@ theorems over the flat-pool model of `Ring.lean`:
 ## The eligibility predicate (spec NU-020, `init_match_caches`)
 
 For every correlated input place `p` of a matched transition `tid`
-(`precompiled_backend.rs:301-339`), the code requires — beyond `p` being a
-compiled place id (`:303-306`, absorbed here by dense `PlaceId`s; unknown
+(the eligibility loop of `init_match_caches`), the code requires — beyond `p` being a
+compiled place id (the `place_id(mk.place_name())` lookup, absorbed here by dense `PlaceId`s; unknown
 places live in `extra_marking`, outside both the pool and the caches,
 CORE-072):
 
 1. the input spec on `p` is `One`/`Exactly` — a **fixed consume count**
-   (`:311-320`, the `_ => eligible = false` arm also catching a missing
+   (the `required` match, the `_ => eligible = false` arm also catching a missing
    spec);
-2. `p` is **never a reset target** of any transition (`:321`,
-   `reset_target` built at `:274-289`);
+2. `p` is **never a reset target** of any transition (the `reset_target[pid] || input_consumers[pid] != [tid]` test,
+   `reset_target` built by the consumer scan before it);
 3. `tid` is the **sole input consumer** of `p` —
-   `input_consumers[pid] == [tid]` (`:321`, map built at `:274-289`; one
+   `input_consumers[pid] == [tid]` (the same test, map built by the same scan; one
    entry per input spec, so a duplicate input arc of `tid` itself also
    fails the test).
 
 Since the EXEC-003 AC4 work `init_match_caches` also precomputes
-`match_input_pids` (`:261-272`) — the correlated input pids of *every*
+`match_input_pids` — the correlated input pids of *every*
 matched transition, eligible or not — for `can_enable`'s same-pass deposit
 check. It is written before the eligibility scan and read only by that
 check; it adds no conjunct, gates no cache, and is outside this module's
@@ -61,8 +61,8 @@ fragment. The three conjuncts below are still the whole gate.
 
 * **Per-key granularity.** The matcher's state is one FIFO-per-name queue
   map per correlated input (`IncrementalMatcher.ts`,
-  `match_engine.rs:154-156`), and `consume` acts on each input's component
-  independently (`match_engine.rs:195-208`). The theorems here cover one
+  `match_engine.rs`), and `IncrementalMatcher::consume` acts on each input's component
+  independently. The theorems here cover one
   correlated input (place + key extractor); the whole cache is the
   conjunction of this statement over the join's key places, each place
   eligible by the same gate.
@@ -78,10 +78,10 @@ fragment. The three conjuncts below are still the whole gate.
   executor's cardinality gate (`can_enable`; `Ring.lean`'s `first_isSome`
   is the totality fact). A reset drains by `cnt` repeated head removals,
   exactly as `consume_for_firing`'s RESET tail does
-  (`precompiled_backend.rs:1225-1235` matched, `:1294-1303` opcode).
+  (the `reset_arcs` loop on the matched path, the `RESET` opcode arm on the opcode path).
 * A matched firing with no binding cannot reach the consume phase
-  (`can_enable`'s `no_binding` bail-out,
-  `precompiled_backend.rs:746-752`), so the firing model
+  (`can_enable`'s `no_binding` bail-out
+  in `precompiled_backend.rs`), so the firing model
   carries the chosen name.
 * `cache_add_token` at a *different* place touches other key indices of the
   matcher only, never this input's queues — the frame case of `applyStep`.
@@ -250,17 +250,17 @@ theorem match_cache_lockstep {key : KeyOf} {p : PlaceId}
 /-! ## What one firing does to the cached place -/
 
 /-- The mutations the consume phase of one firing of `u`
-(`consume_for_firing`, `precompiled_backend.rs:1135-1318`) performs **on the
+(`consume_for_firing`, `precompiled_backend.rs`) performs **on the
 single place `p`**, in program order: for each input spec landing on `p`, a
 matched consume when `p` is one of `u`'s correlated inputs
-(`key_for(...).is_some()`, `:1130-1135`; ring count per `:1143-1153` —
+(`key_for(...).is_some()`; ring count per the matched arm's `to_consume` —
 `One => 1`, `Exactly => count`, `All`/`AtLeast` => the matched tally over the
 drainable ring prefix, the `matchAvail` parameter — cache pops per the
 matcher's fixed `requireds[i] = sp.card.required`, cf. `find_match_binding`'s
-`:755-759`), else plain FIFO removals (`consumeCountAt`, opcode path,
+`required` match), else plain FIFO removals (`consumeCountAt`, opcode path,
 `avail = drainable(pid, token_counts[pid])`); then one reset drain per reset
-arc on `p` (`:1196-1204` / `:1265-1274`). Read arcs peek and mutate nothing
-(`:1194`). Steps at other places of the same firing are separate `applyStep`
+arc on `p` (the `reset_arcs` loop / the `RESET` opcode arm). Read arcs peek and mutate nothing
+(`peek_reads`). Steps at other places of the same firing are separate `applyStep`
 targets, covered by the frame case.
 
 `avail` and `matchAvail` are free parameters, so how far a drain reaches —
@@ -305,7 +305,7 @@ theorem foreign_fire_emits_nothing {ts : List Transition} {tid : Nat}
 /-- Conjunct 1 shapes the owner's own firing: on an eligible key place the
 whole consume phase is **one** matched consume whose ring count and cache
 count are both the fixed `k` — `One`/`Exactly` is precisely the fragment
-where `to_consume` (`precompiled_backend.rs:1171-1181`) and the matcher's
+where the matched arm's `to_consume` in `consume_for_firing` and the matcher's
 `requireds[i]` agree, and
 `sole_consumer` guarantees the single spec and `no_reset` the empty reset
 tail. -/
@@ -351,7 +351,7 @@ sequence of shipped mutations (adds are `LockstepMut` by definition, and
 they plus firings are the only pool mutations the backend has). `howner`
 records what the shipped matched path guarantees when the owner itself
 fires: `p` is one of its correlated inputs and the predicate is the
-name-equality closure for the chosen binding (`:1137-1142`). -/
+name-equality closure for the chosen binding (the `pred` closure in `consume_for_firing`). -/
 @[evidence cites "NU-020" "the eligibility gate isolates a cached place: foreign firings emit no mutation on it, the owner's consume phase is exactly one fixed-count matched consume mirrored by the matcher - consume phase modeled per place, produce/inject as mirrored adds"]
 theorem fire_muts_lockstep {ts : List Transition} {tid : Nat}
     {t : Transition} {p : PlaceId} {k : Nat}
@@ -440,8 +440,8 @@ theorem wJoinOne_is_fast_path : FastPathEligible [wJoinOne] 0 wJoinOne 0 1 :=
 
 /-- **Conjunct 1 (`One`/`Exactly`) is necessary.** With `at_least(1)` the
 other two conjuncts still hold, but the firing's ring side consumes
-`count_matching = 2` tokens (`:1143-1153`) while the fixed-consume matcher's
-`consume` pops only `requireds[i] = 1` (`match_engine.rs:195-201` — it has
+`count_matching = 2` tokens (`count_matching_in_ring`) while the fixed-consume matcher's
+`consume` pops only `requireds[i] = 1` (`IncrementalMatcher::consume` — it has
 no variable-count operation, which is the code comment's "not modellable by
 the fixed-consume matcher"). The emitted mutation is exactly
 `matchedConsume` with `ringK = 2 ≠ 1 = cacheK` — `LockstepMut` fails — and

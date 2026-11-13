@@ -17,17 +17,17 @@ flowchart TD
     n3310["Libpetri.Reference.PlaceKeyed.mk"]
     n3311["Libpetri.Reference.PlaceKeyed.name"]
     n3313["Libpetri.Reference.PlaceKeyed.ty"]
-    n4439["Libpetri.Reference.refPlacesByName"]
-    n4440["Libpetri.Reference.refPlacesByNameType"]
-    n4442["Libpetri.Reference.refPlacesByNameType_same"]
+    n4440["Libpetri.Reference.refPlacesByName"]
+    n4441["Libpetri.Reference.refPlacesByNameType"]
+    n4443["Libpetri.Reference.refPlacesByNameType_same"]
   end
   subgraph g1["Libpetri/Spec/ConsistencyStructure.lean"]
-    n13169["Libpetri.Spec.core001_place"]
+    n13170["Libpetri.Spec.core001_place"]
   end
   subgraph g2["Libpetri/Spec/Req/CORE_002.lean"]
-    n5273["Libpetri.Spec.CORE_002"]
-    n5274["Libpetri.Spec.CORE_002_byName"]
-    n5275["Libpetri.Spec.CORE_002_byNameType"]
+    n5274["Libpetri.Spec.CORE_002"]
+    n5275["Libpetri.Spec.CORE_002_byName"]
+    n5276["Libpetri.Spec.CORE_002_byNameType"]
   end
   n3306 --> n3305
   n3307 --> n3305
@@ -37,23 +37,23 @@ flowchart TD
   n3310 --> n3305
   n3311 --> n3307
   n3313 --> n3307
-  n4439 --> n3310
   n4440 --> n3310
-  n4442 --> n3308
-  n4442 --> n4440
-  n5273 --> n3308
-  n5273 --> n3311
-  n5273 --> n3313
-  n5274 --> n4439
-  n5274 --> n5273
-  n5275 --> n4442
-  n5275 --> n5273
-  n13169 --> n5274
-  n13169 --> n5275
+  n4441 --> n3310
+  n4443 --> n3308
+  n4443 --> n4441
+  n5274 --> n3308
+  n5274 --> n3311
+  n5274 --> n3313
+  n5275 --> n4440
+  n5275 --> n5274
+  n5276 --> n4443
+  n5276 --> n5274
+  n13170 --> n5275
+  n13170 --> n5276
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n13169 root
+  class n13170 root
 ```
 
 Axioms used:

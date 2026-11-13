@@ -61,8 +61,14 @@ test('keyboard: g s, g r, g c switch views and focus the h1', async ({ page }) =
   const errors: string[] = [];
   await openRoute(page, '#/conf', errors);
   for (const [key, view] of [['r', 'req'], ['s', 'situations'], ['c', 'conf']] as const) {
-    await page.keyboard.press('g');
-    await page.keyboard.press(key);
+    // Both keys of the chord in one task: two separate presses are two round trips, and on a
+    // loaded machine the second can land after the chord window (CHORD_MS) has closed.
+    await page.evaluate((k) => {
+      const target = document.activeElement ?? document.body;
+      for (const key of ['g', k]) {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      }
+    }, key);
     await expect(page.locator('html')).toHaveAttribute('data-route', view);
     await expect(page.locator('main#main h1')).toBeFocused();
   }

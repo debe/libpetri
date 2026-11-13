@@ -1,7 +1,72 @@
-# Runtime Defect Ledger
+# Runtime Ledger
 
 This file is not a requirement file. It holds no requirement IDs of its own and is not counted
 in the 13 spec files or the active requirements of [00-index.md](00-index.md).
+
+It holds three kinds of entry:
+
+- **Defect** (`RD-NN`): a runtime breaks a requirement that the spec keeps. See [Defects](#defects).
+- **UNBUILT** (`UB-NN`): a `**Status:** Proposed` requirement that a runtime it targets has not
+  built. There is one entry per requirement and set of runtimes. An entry is removed when those
+  runtimes build the requirement, and the requirement's Status line is deleted when its last entry
+  goes.
+- **Divergence**: an implementation-defined difference that the spec allows. It needs no fix and
+  has no status.
+
+## Unbuilt requirements
+
+### UB-01. Immediate termination
+
+- **Requirements:** ENV-015.
+- **Runtimes:** Rust, TypeScript, Python.
+- **Missing:** `terminateNow()`. Java has it on both executors.
+- **Status:** open.
+
+### UB-02. awaitTermination
+
+- **Requirements:** ENV-016.
+- **Runtimes:** TypeScript, Rust, Python.
+- **Missing:** `awaitTermination(timeout)`. Java has it on both executors.
+- **Status:** open.
+
+### UB-03. Run-timeout policy
+
+- **Requirements:** ENV-016.
+- **Runtimes:** Rust, Python.
+- **Missing:** a run with a caller timeout and an *abandon* or *close* policy. Java
+  (`run(Duration, RunTimeoutPolicy)`) and TypeScript (`run(timeoutMs, onTimeout)`) have it on both
+  executors; Rust has `run_sync` and `run_async` only.
+- **Status:** open.
+
+### UB-04. Live event-store subscriptions
+
+- **Requirements:** EVT-031.
+- **Runtimes:** Java, TypeScript, Rust.
+- **Missing:** live subscriptions on the event store. The Python binding has them
+  (`InMemoryEventStore.subscribe` and `subscribe_stream`, built in `rust/libpetri-py`); the Rust
+  crate's own `InMemoryEventStore` (`libpetri-event`) has none.
+- **Status:** open.
+
+## Divergences
+
+Python binds the Rust crate, so it follows the Rust column unless a cell says otherwise.
+
+| Aspect | Spec | Java | TypeScript | Rust |
+|---|---|---|---|---|
+| Bitmap word size | not specified | 64-bit (`long`) | 32-bit (`Uint32Array`) | 64-bit (`u64`) |
+| Concurrency model | single-threaded orchestrator | actions invoked inline; concurrency comes from the returned stage | Promise microtasks | Tokio async tasks |
+| Place equality ([MOD-024]) | implementation's own | structural on name and token type; restore takes the net's places | name only | name only |
+| Token type safety | typed places and tokens | generics (compile time) | phantom type parameter | generics (compile time) |
+| Inject into an unregistered place ([ENV-002]) | error for a handle-taking inject | failed future | rejects; `injectNoAwait` throws | deposited into the named place; registration is the host's |
+| Enablement-timestamp resolution ([EXEC-002] AC3) | sub-ms precision kept | monotonic `long` nanoseconds | float milliseconds | float milliseconds |
+| Injectable clock seam ([TIME-015]) | host-supplied clock | `ExecutionEnvironment` | `Clock` | `ExecutorClock`; Python offers only the Rust-side `ManualClock` and `SteppedClock` |
+| Mid-action publication ([IO-015]) | optional | none | none | `ctx.flush()`; flushed tokens survive a later validation failure |
+| Inline synchronous execution | not specified | none | none | `try_run_inline` |
+| Action binding | separate from structure | `bindActions` | `bindActions` | `NetStructureBuilder` |
+| Log capture ([EVT-013]) | action log becomes events | SLF4J `LogCaptureScope` | `ctx.log()` | `ctx.log()` |
+| Verification cancellation ([VER-013]) | shares the total budget's stop | thread interruption, flag restored | `AbortSignal` | `CancelToken` (Python `libpetri.CancelToken`) |
+
+## Defects
 
 A **runtime defect** is a place where a runtime breaks a requirement that the spec keeps. The
 spec was not weakened to match the runtime: the requirement stays as written, the Lean block
@@ -12,8 +77,8 @@ number (`RD-NN`).
 
 An entry stays `open` until the runtime change lands. Its status is then `fixed, unreleased` until
 a release carries the fix, and `fixed in <version>` after that. A fixed entry stays here as history,
-with a **Fix** item that says what changed and names the regression tests in each runtime. Line
-numbers are hints taken when the entry was written; the named function is the reference.
+with a **Fix** item that says what changed and names the regression tests in each runtime. Code
+is named by its function, type or test, not by line number.
 
 Every entry from RD-01 to RD-43 is fixed. RD-44 to RD-47 were found while those fixes were made and
 are recorded here already fixed.
@@ -68,6 +133,10 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 | RD-45 | EVT-014, EVT-025 | Java | fixed, unreleased |
 | RD-46 | EVT-032 | Java | fixed, unreleased |
 | RD-47 | CORE-043 | Java | fixed, unreleased |
+| RD-48 | EVT-032 | Java, TypeScript, Rust, Python | fixed, unreleased |
+| RD-49 | EVT-014 | Rust, Python | fixed, unreleased |
+| RD-50 | EVT-014 | Rust, Python | open |
+| RD-51 | EVT-030 | Java, TypeScript, Rust | fixed, unreleased |
 
 ### RD-01. The timeout outcome is validated against the output spec
 
@@ -78,9 +147,10 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Defect:** both validate the timeout outcome against the whole output spec, so a spec such as
   `And(A, Timeout(d, B))` fails the firing on every timeout instead of depositing `B`. Rust skips
   validation on the timeout path and still runs the join-relay check.
-  `java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java:1897-1898`
-  (`processCompletedTransitions`), `typescript/src/runtime/bitmap-net-executor.ts:1253`
-  (`validateOutSpec` on the completion path that also settles a timed-out firing). The production
+  `java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java`
+  (`processCompletedTransitions`), `typescript/src/runtime/bitmap-net-executor.ts`
+  (`validateOutSpec` in `processCompletedTransitions`, on the completion path that also settles a
+  timed-out firing). The production
   executors have the same check: `PrecompiledNetExecutor.processCompletedTransitions` in Java and
   the general branch of `typescript/src/runtime/precompiled-net-executor.ts`.
 - **Lean evidence:** `clashExec_timeoutValidated_conflict` (ClashesExec.lean),
@@ -100,7 +170,8 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Requirements:** CORE-041 (ruling D66 (a)).
 - **Runtimes:** TypeScript.
 - **Defect:** `build()` passes the builder's own place and transition sets to the net, so a later
-  builder call changes a net that was already built. `typescript/src/core/petri-net.ts:740-741`.
+  builder call changes a net that was already built. `PetriNetBuilder.build`
+  (`typescript/src/core/petri-net.ts`).
   A channel `compose` after `build()` even deletes the caller transition from the built net. Only
   the build without fusion shares the sets.
 - **Lean evidence:** `CORE_041_forbids_alias` (CORE_041.lean), `aliasBuilder_unstable`
@@ -118,7 +189,8 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** TypeScript.
 - **Defect:** `place(name)` returns a new object on each call and the built net keeps places by
   reference, while the compiled net keys them by name, so one place can be held twice.
-  `typescript/src/core/place.ts:25-27`, `typescript/src/core/petri-net.ts:158`, `:212-227`.
+  `place` (`typescript/src/core/place.ts`), the `_places` field of `PetriNetBuilder` and its
+  `transition` method (`typescript/src/core/petri-net.ts`).
   The output spec's place sets do the same: `allPlaces` and `enumerateBranches`
   (`typescript/src/core/out.ts`) collect into a JS `Set` of place objects, so
   `Xor(And(A, B), And(A', C))` with `A` and `A'` two `place('A')` objects (it builds: the IO-011
@@ -143,7 +215,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** TypeScript.
 - **Defect:** the `TransitionStarted` event carries the executor's own `consumed` array, which the
   executor also hands on, so the event is not a copy. `typescript/src/runtime/bitmap-net-executor.ts`
-  (`fireTransition`), `typescript/src/event/net-event.ts:59-64`. The precompiled executor
+  (`fireTransition`), `TransitionStarted` (`typescript/src/event/net-event.ts`). The precompiled executor
   (`typescript/src/runtime/precompiled-net-executor.ts`) does the same.
 - **Lean evidence:** none. EVT-001 has no block: a Lean event is a value, so a shared array cannot
   be stated (`netEvent_value`, GlossaryEvents.lean, cites EVT-001).
@@ -158,7 +230,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** TypeScript.
 - **Defect:** `bindActionsWithResolver` treats only `null` as no action, so a plain JavaScript
   resolver such as `name => obj[name]` rebinds an unknown transition to `undefined`.
-  `typescript/src/core/petri-net.ts:95-97`. `SubnetDef.bindActionsWithResolver`
+  `PetriNet.bindActionsWithResolver` (`typescript/src/core/petri-net.ts`). `SubnetDef.bindActionsWithResolver`
   (`typescript/src/core/subnet-def.ts`) makes the same test.
 - **Lean evidence:** none; the CORE_042 assumes cite it (the block reads a resolver's `null`/`None`
   as `none`, line 3, and the model has no `undefined`).
@@ -175,8 +247,9 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java, TypeScript.
 - **Defect:** the builder setter stores `null` (or `undefined`) as the action. The identity check
   of CORE-043 passes such a transition, and every firing of it then fails. Python raises
-  `TypeError`; Rust cannot express it. `java/src/main/java/org/libpetri/core/Transition.java:367-370`,
-  `typescript/src/core/transition.ts:222-225`.
+  `TypeError`; Rust cannot express it. `Transition.Builder.action`
+  (`java/src/main/java/org/libpetri/core/Transition.java`), `TransitionBuilder.action`
+  (`typescript/src/core/transition.ts`).
 - **Lean evidence:** none; the CORE_051 assumes record it.
 - **Fix:** the builder setter rejects a missing action: Java throws `NullPointerException` on
   `action(null)` and TypeScript a `TypeError` on `null` or `undefined`; leaving the call out still
@@ -191,7 +264,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Defect:** the `Transition` wrapper defines no `__eq__` or `__hash__`, and `PetriNet.transitions`
   returns a fresh wrapper on every access, so `net.transitions[0] == net.transitions[0]` is
   `False`. The fix is `__eq__` and `__hash__` on the wrapped `TransitionId`.
-  `rust/libpetri-py/src/model.rs:198-225`, `:492-496`.
+  `PyTransition` and the `transitions` getter of `PyPetriNet` (`rust/libpetri-py/src/model.rs`).
 - **Lean evidence:** none; the CORE_021 assumes record it.
 - **Fix:** the wrapper defines `__eq__` and `__hash__` over the wrapped transition's `TransitionId`.
   Python `test_smoke.py::test_core_021_ac2_transition_read_back_equals_itself`.
@@ -206,12 +279,13 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   which keeps the sink's name and action and gains an output place, and then runs the CORE-043
   check on that derived net. A net that compiles is refused, and the Rust error says the sink
   declares an output spec when it declares none.
-  Rust: `rust/libpetri-verification/src/smt_verifier.rs:872-879`, `in_flight.rs:390-403`,
-  `nu_scg_verifier.rs:277` (`verify_name_scg`), `state_class_graph.rs:160`
-  (`StateClassGraph::build_core`).
-  Java: `java/src/main/java/org/libpetri/smt/SmtVerifier.java:1885-1888`,
-  `java/src/main/java/org/libpetri/analysis/StateClassGraph.java:630`.
-  TypeScript: `typescript/src/verification/smt-verifier.ts:1215-1216` (after `prepare()`).
+  Rust: `with_in_flight` (`rust/libpetri-verification/src/smt_verifier.rs`), `halves`
+  (`in_flight.rs`), `verify_name_scg` (`nu_scg_verifier.rs`), `StateClassGraph::build_core`
+  (`state_class_graph.rs`).
+  Java: the state-space lookup in `SmtVerifier.pipeline`
+  (`java/src/main/java/org/libpetri/smt/SmtVerifier.java`), `StateClassGraph.initialStateClass`
+  (`java/src/main/java/org/libpetri/analysis/StateClassGraph.java`).
+  TypeScript: `SmtVerifier.verify` (`typescript/src/verification/smt-verifier.ts`, after `prepare()`).
   Rust's SMT entry already checks the submitted net; its refusals come from the graph builders it
   calls on the split net, which are CORE-043 entry points with checks of their own, so a check
   run once before any rewrite does not end the defect on its own. Java also checks a field that
@@ -234,7 +308,8 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java.
 - **Defect:** with more than one token delivered from a place, `input` returns the oldest token's
   value, while its javadoc says it fails. Rust, TypeScript and Python report an error.
-  `java/src/main/java/org/libpetri/core/TransitionContext.java:164-168` against the javadoc at `:162`.
+  `TransitionContext.input` (`java/src/main/java/org/libpetri/core/TransitionContext.java`) against
+  its own javadoc.
   Java's `fork()` and `transform(Place, fn)` rely on `input` returning the oldest token (the
   documented CORE-052 divergence), so the javadoc is what is wrong.
 - **Lean evidence:** `CORE_060_batch_undecided` shows the block leaves the case open; the
@@ -249,9 +324,9 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Requirements:** MOD-020 (ruling D72 (ii)(b): a caller transition bound to two channels of
   one instance in one call is an error, AC6). The port half of the first entry is withdrawn:
   every runtime rejects a port re-bound in one call with `Port '<name>' is already bound`
-  (ruling D72 (i)(a); `rust/libpetri-core/src/compose.rs:103-105`,
-  `java/src/main/java/org/libpetri/core/ComposeBindings.java:69-72`,
-  `typescript/src/core/compose-bindings.ts:74-76`).
+  (ruling D72 (i)(a); `ComposeBindingsBuilder::bind_port` in `rust/libpetri-core/src/compose.rs`,
+  `ComposeBindings.bindPort` in `java/src/main/java/org/libpetri/core/ComposeBindings.java` and
+  `typescript/src/core/compose-bindings.ts`).
 - **Runtimes:** all.
 - **Defect:** no runtime rejects one caller transition bound to two channels of one instance.
   Rust stages the merges in a map keyed by the caller's name, so only the merge its hash order
@@ -277,7 +352,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Rust (panics), Java and TypeScript (throw), and Python through Rust.
 - **Defect:** on a key such as `a//x` or `http://host/x`, `register_prefix_chain` skips the empty
   segment and never registers the key itself; the builder then fails at the node's key.
-  `rust/libpetri-export/src/cluster_builder.rs:270` (`register_prefix_chain`). Python's
+  `rust/libpetri-export/src/cluster_builder.rs` (`register_prefix_chain`). Python's
   `dot_export` and archive writer reach that exporter and raise `PanicException`. Java fails on
   fewer keys: `String.split` keeps inner empty segments, so the keys `a//x` and `http://host`
   draw, and only a key with a leading or trailing `/`, such as `/a` (the key of `/a/x`) or `a/`
@@ -312,8 +387,9 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   return or the expiry of its budget (on a timeout the executor drops the action future). Phase
   1b then deposits that batch, although the action had completed before it flushed it. The fix
   is an abandoned flag on the closure, set in the timeout arm and at completion.
-  `rust/libpetri-runtime/src/executor_core/executor.rs:1653-1673` (`set_flush_fn` closure),
-  `rust/libpetri-core/src/context.rs:176` (`flush_fn`), `rust/libpetri-py/src/action.rs:389`.
+  `rust/libpetri-runtime/src/executor_core/executor.rs` (the `set_flush_fn` closure in
+  `fire_transition_async`), `rust/libpetri-core/src/context.rs` (`flush_fn`),
+  `rust/libpetri-py/src/action.rs` (`PyActionContext::from_transition_context`).
 - **Lean evidence:** `EXEC_022_forbids_lateFlush` (EXEC_022.lean); `CONC_003_forbids_flushAfterError`
   (CONC_003.lean), the case after an error return.
 - **Fix:** the flush closure and its spawned task share a gate under one lock: the task marks the
@@ -347,11 +423,11 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   (elapsed 105, not past 105, so no reap), the pass reads 106.0 ms (elapsed 106) and fires it.
   The reading at the decision to wait is later than the deadline step's, so it only shortens the
   wait, which CONC-010 accepts; it is still a new reading that TIME-010 rules out.
-  `java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java:1292`, `:1451`, `:1528`,
-  `:2091` (`updateDirtyTransitions`, `enforceDeadlines`, `fireReadyGeneral`,
-  `nanosUntilNextTimedTransition`, used at `:2032`, `:2056`, `:2076`, `:2122`);
-  `java/src/main/java/org/libpetri/runtime/PrecompiledNetExecutor.java:2009`, `:2110`, `:2202`,
-  `:2768` (used at `:2719`, `:2743`, `:2763`, `:2802`).
+  `updateDirtyTransitions`, `enforceDeadlines`, `fireReadyGeneral` and
+  `nanosUntilNextTimedTransition` (used in `awaitCompletionOrEvent`, its poll loop
+  `awaitCompletionPolling` and `awaitExternalEvent`), in
+  `java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java` and
+  `java/src/main/java/org/libpetri/runtime/PrecompiledNetExecutor.java`.
 - **Lean evidence:** `TIME_014_forbids_passReread` (TIME_014.lean),
   `TIME_010_cycle_forbids_rereadAtBegin` and `TIME_010_cycle_forbids_rereadAtPark`
   (TIME_cycle.lean).
@@ -372,10 +448,11 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java.
 - **Defect:** the V2 and V3 header build the tags and the metadata histogram with `Map.copyOf`,
   whose iteration order is randomised per JVM, and the writer serialises maps in iteration order.
-  `java/src/main/java/org/libpetri/debug/archive/SessionArchive.java:148`, `:181`,
-  `java/src/main/java/org/libpetri/debug/archive/SessionMetadata.java:48`. The writer makes its own
-  `Map.copyOf` of the tags before the header does
-  (`java/src/main/java/org/libpetri/debug/archive/SessionArchiveWriter.java:123`, `:149`), so every
+  The compact constructors of `SessionArchive.V2` and `SessionArchive.V3`
+  (`java/src/main/java/org/libpetri/debug/archive/SessionArchive.java`) and of `SessionMetadata`
+  (`java/src/main/java/org/libpetri/debug/archive/SessionMetadata.java`). The writer makes its own
+  `Map.copyOf` of the tags before the header does (`writeV2` and `writeV3` in
+  `java/src/main/java/org/libpetri/debug/archive/SessionArchiveWriter.java`), so every
   V2 and V3 header the writer writes is affected.
 - **Lean evidence:** `EVT_025_mutant_seededTags` (EVT_025.lean).
 - **Fix:** the header tags and the metadata histogram are unmodifiable maps in ascending code-point
@@ -391,7 +468,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Python.
 - **Defect:** `write_from_store` copies the store into a debug store of the default capacity of
   10,000 events before writing, so a larger store is archived without its oldest events.
-  `rust/libpetri-py/src/archive.rs:87` (`DebugEventStore::new`).
+  `rust/libpetri-py/src/archive.rs` (`DebugEventStore::new` in `write_from_store`).
 - **Lean evidence:** `EVT_025_forbids_copyThroughBounded` (EVT_025.lean).
 - **Fix:** the copy is a debug store sized to the snapshot, so no event is evicted before the write.
   Python `test_archive.py::test_evt_025_archive_keeps_every_event_of_a_store_over_10000`.
@@ -415,7 +492,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Python.
 - **Defect:** for an empty store `write_from_store` takes the start and end times from
   `SystemTime::now`, so two archives of the same empty session differ.
-  `rust/libpetri-py/src/archive.rs:73-81`.
+  `rust/libpetri-py/src/archive.rs`.
 - **Lean evidence:** none; the EVT_025 assumes record it.
 - **Fix:** the start time is the first event's timestamp, or 0 for an empty store, and the end time
   the last event's, or none for an empty store; the wall clock is not read. Python
@@ -430,7 +507,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java.
 - **Defect:** `transitionEvents` calls `equals` on the transition name of every log message and
   throws on an engine diagnostic whose name is `null`, which both Java executors emit on an
-  interrupted run. `java/src/main/java/org/libpetri/event/EventStore.java:138`.
+  interrupted run. `java/src/main/java/org/libpetri/event/EventStore.java`.
 - **Lean evidence:** `EVT_030_mutant_throwsOnNameless` (EVT_030.lean).
 - **Fix:** `transitionEvents` compares names with `Objects.equals`, so an event with no transition
   name is skipped and the helper does not throw. Java
@@ -444,7 +521,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java.
 - **Defect:** `MarkingCache.computeAt` passes the index to `subList` and throws
   `IndexOutOfBoundsException` past the stream length.
-  `java/src/main/java/org/libpetri/debug/MarkingCache.java:40`. The debug protocol handler has the
+  `java/src/main/java/org/libpetri/debug/MarkingCache.java`. The debug protocol handler has the
   same unclamped `subList` on its fallback path (RD-46).
 - **Lean evidence:** `EVT_032_mutant_noClamp` (EVT_032.lean).
 - **Fix:** `computeAt` clamps the index to the stream length after its check for an index of 0 or
@@ -462,11 +539,11 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   caller's declared places are then no keys, so a later pass that renames one of them (fusion at
   build, or instantiating the retrofitted net under MOD-014) leaves it unresolved, and the
   caller's action fails its declared-place check after its inputs were consumed (EXEC-031).
-  `rust/libpetri-core/src/rewriter.rs:746`, `:309-318`,
-  `java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:654-655`,
-  `typescript/src/core/internal/subnet-rewriter.ts:603-604`. The opposite case, a caller that
+  `merge_local_name_maps` and `build_local_name_map` (`rust/libpetri-core/src/rewriter.rs`),
+  `mergePlaceAlias` (`java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java` and
+  `typescript/src/core/internal/subnet-rewriter.ts`). The opposite case, a caller that
   carries a correspondence merged with an instance transition that carries none, drops the
-  instance side's declared places at the same lines.
+  instance side's declared places in the same functions.
 - **Lean evidence:** `MOD_031_mergeThenPass_undecided` (MOD_031.lean): after the runtimes' merge
   and one pass the declared place `h` resolves to `h`, which no arc names; after the reference's
   merge it resolves to `f`.
@@ -494,7 +571,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   one put last into a name-keyed map. When the builder already holds two places of one name with
   different token types (Java's `Place` equality is structural on name and type) and the last one
   has the body place's type, Java accepts the call where MOD-025 rejects it.
-  `java/src/main/java/org/libpetri/core/PetriNet.java:611-615`.
+  `java/src/main/java/org/libpetri/core/PetriNet.java` (`Builder.compose(SubnetDef)`).
 - **Lean evidence:** none; line 4 of MOD-025 (MOD_025.lean) states the rejection, and no theorem
   models Java's name-keyed map.
 - **Fix:** the check indexes the host places by name to a list and rejects a body place when any
@@ -511,9 +588,9 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   with members `[a, b, a]` counts `a` among them. Fusion then drops the declared place `a` (it
   comes back only through an arc of a rewritten transition), runs the input merge on a transition
   whose only input arcs are on `a`, and drops `a`'s cluster entry.
-  `rust/libpetri-core/src/petri_net.rs:939-943`, `:962-974`,
-  `java/src/main/java/org/libpetri/core/PetriNet.java:1163-1169`, `:1093-1107`,
-  `typescript/src/core/petri-net.ts:844-848`, `:771-783`. The input merge has no visible effect,
+  `build_with_fusion` (`rust/libpetri-core/src/petri_net.rs`), `buildWithFusion` and
+  `filterFusedMembership` (`java/src/main/java/org/libpetri/core/PetriNet.java` and
+  `typescript/src/core/petri-net.ts`). The input merge has no visible effect,
   since CORE-030 already rejects two input arcs on one place; what shows is the dropped standalone
   `a` and its dropped membership entry. Python was listed at first, but the binding declares no
   fusion sets (MOD-060), so it has no such call.
@@ -542,9 +619,10 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   coloured `Reachable` has another shape), the empty decode makes `assessCounterexample` return
   `Unconfirmed`, and the result is `Violated` with `counterexampleConfirmed` `false`, also when
   the initial marking violates the property. Rust and TypeScript leave the field absent on this
-  path. `java/src/main/java/org/libpetri/smt/SmtVerifier.java:2421`, `:2455`, `:2488`,
-  `:3698`; `java/src/main/java/org/libpetri/smt/z3/CounterexampleDecoder.java:69`; Rust
-  `rust/libpetri-verification/src/smt_verifier.rs:3164` (`replay_phase` returns `None` when
+  path. The IC3/PDR `Violated` case of `SmtVerifier.pipeline` and `SmtVerifier.assessCounterexample`
+  (`java/src/main/java/org/libpetri/smt/SmtVerifier.java`); `CounterexampleDecoder.decodeStateSet`
+  (`java/src/main/java/org/libpetri/smt/z3/CounterexampleDecoder.java`); Rust
+  `rust/libpetri-verification/src/smt_verifier.rs` (`replay_phase` returns `None` when
   coloured). Confirmed by a run: `JoinRelayTest.fig12c(true)` with `R = 2`, budget `R`, the
   `FIG12C_CARRIERS` and `PlaceBound(R, 1)` (violated at the initial marking) returns `Violated`
   on route `SMT` with the name-coloured encoding, an empty trace and `counterexampleConfirmed`
@@ -568,13 +646,13 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   is refused, in either fragment mode and whatever the query; ruling D95 (a)).
 - **Runtimes:** Rust, Python (which runs the Rust verifier).
 - **Defect:** Rust checks the declared carriers only under EXTENDED and only inside Route B
-  (`rust/libpetri-verification/src/nu_scg_verifier.rs:279-290`, `verify_name_scg`, which answers
+  (`rust/libpetri-verification/src/nu_scg_verifier.rs`, `verify_name_scg`, which answers
   `Unknown` naming the place). An absent carrier is therefore silently ignored in three cases:
   under BASE; under EXTENDED on a call that does not reach Route B; and under EXTENDED on a
   bounded quiescence query that does reach it, because the pipeline drops the Route B `Unknown`
-  there and defers to Route A (`rust/libpetri-verification/src/smt_verifier.rs:1374-1379`,
-  `defer_to_route_a`), whose `build_plan` skips a carrier it cannot resolve
-  (`rust/libpetri-verification/src/name_coloured_encoder.rs:196-201`). The open-net route
+  there and defers to Route A (`defer_to_route_a` in `SmtVerifier::verify_net`,
+  `rust/libpetri-verification/src/smt_verifier.rs`), whose `build_plan` skips a carrier it cannot
+  resolve (`rust/libpetri-verification/src/name_coloured_encoder.rs`). The open-net route
   (`verify_open_net` with a `configure_smt` hook) refuses an unknown mint but ignores an unknown
   carrier as well, and the doc comments promised more than Rust checked. Java and TypeScript
   reject the declaration in both modes (`SmtVerifier.carrierPlaces`).
@@ -598,11 +676,11 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   verifier does not use the cache for that query and says so in the report; AC7).
 - **Runtimes:** TypeScript.
 - **Defect:** the enumeration looks the graph up under the caller's net and the closed initial
-  marking (`typescript/src/verification/smt-verifier.ts:2251-2254`, `enumerate`), and the marking
+  marking (`typescript/src/verification/smt-verifier.ts`, `enumerate`), and the marking
   half of the key names `Place` objects by identity
-  (`typescript/src/verification/state-space-cache.ts:139`, `:163-171`, `markingKey`). The
+  (`typescript/src/verification/state-space-cache.ts`, `resolveStateSpace` and `markingKey`). The
   `Arrivals` closure makes new arrival-source `Place` objects on every call
-  (`typescript/src/verification/smt-verifier.ts:338-345`, `applyArrivals`), so every query under
+  (`typescript/src/verification/smt-verifier.ts`, `applyArrivals`), so every query under
   `Arrivals` misses, builds, and adds one more entry, and the report does not say that the cache
   was not used. No verdict is wrong, since the cache never hits there. `Arrivals(0)`, and
   `Arrivals` with no environment place, do not close the net and hit the cache. Java bypasses the
@@ -622,12 +700,13 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   together with the synthetic net, through the configure hook).
 - **Runtimes:** TypeScript.
 - **Defect:** `SubnetDef.verify` registers the environment places and the selected mode only when
-  the harness has an environment place (`typescript/src/core/subnet-def.ts:359-362`). For a subnet
+  the harness has an environment place (`typescript/src/core/subnet-def.ts`). For a subnet
   with no input or in-out port the configure hook receives a verifier on the verifier default
-  `AlwaysAvailable` (`typescript/src/verification/smt-verifier.ts:149`), not on the selected
+  `AlwaysAvailable` (the `_environmentMode` field of `SmtVerifier`,
+  `typescript/src/verification/smt-verifier.ts`), not on the selected
   mode, so a hook that registers an environment place itself runs under the wrong mode. Rust
-  (`rust/libpetri-verification/src/harness.rs:465-468`) and Java
-  (`java/src/main/java/org/libpetri/core/SubnetDef.java:369-371`) set the mode on every call, and
+  (`run_per_property`, `rust/libpetri-verification/src/harness.rs`) and Java
+  (`SubnetDef.verify`, `java/src/main/java/org/libpetri/core/SubnetDef.java`) set the mode on every call, and
   Python rides on Rust.
 - **Lean evidence:** `MOD_051_forbids_modeOnlyWithEnvs` in `MOD_051.lean`: the forwarder without
   its input port, verified under `Ignore` with a hook that registers `sut/IN`; the TypeScript
@@ -645,7 +724,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Python.
 - **Defect:** `require_output` and `resolve_lookup_key` first look the given name up in the
   allowed outputs or in the delivered input or read map, and fall back through `local_name_map`
-  only when that fails (`rust/libpetri-py/src/action.rs:307-345`). When the given name is itself
+  only when that fails (`rust/libpetri-py/src/action.rs`). When the given name is itself
   a place of the call's kind that the correspondence resolves to another place (a port `a` bound
   to the caller place `b`, and a port `b` bound to `c`), the call answers for the given place,
   not for the place the correspondence names. Java and TypeScript resolve first; the Rust native
@@ -670,11 +749,11 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java, TypeScript.
 - **Defect:** the executor deposits the timeout branch through `outputToHarvest` and
   `forwardToHarvest` with the places the rewritten output specification names, which are already
-  the actual places (`java/src/main/java/org/libpetri/runtime/ExecutorSupport.java:505`, `:514`,
-  `produceTimeoutOutputRecursive`; `typescript/src/runtime/executor-support.ts:320`, `:328`,
+  the actual places (`java/src/main/java/org/libpetri/runtime/ExecutorSupport.java`,
+  `produceTimeoutOutputRecursive`; `typescript/src/runtime/executor-support.ts`,
   `produceTimeoutOutput`). Both methods resolve the place through the correspondence again
-  (`java/src/main/java/org/libpetri/core/TransitionContext.java:404-428`;
-  `typescript/src/core/transition-context.ts:262-283`). On a collision (port `a` bound to the
+  (`java/src/main/java/org/libpetri/core/TransitionContext.java`;
+  `typescript/src/core/transition-context.ts`). On a collision (port `a` bound to the
   caller place `b`, port `b` bound to `c`) the timeout token meant for `b` lands on `c`. The
   `from` side of a `ForwardInput` is resolved twice as well (Java reads it through
   `TransitionContext.inputTokens`, TypeScript in `forwardToHarvest`), so a timeout can forward a
@@ -700,18 +779,18 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   the cycle takes a new reading for these judgements).
 - **Runtimes:** TypeScript (both executors).
 - **Defect:** `awaitWork` computes its timer from a fresh clock reading taken inside
-  `millisUntilNextTimedTransition` (`typescript/src/runtime/bitmap-net-executor.ts:1474`,
-  `precompiled-net-executor.ts:1707`), later than the cycle reading `cycleNowMs`
-  (`bitmap-net-executor.ts:553`, `precompiled-net-executor.ts:611`) and after the
+  `millisUntilNextTimedTransition` (`typescript/src/runtime/bitmap-net-executor.ts`,
+  `precompiled-net-executor.ts`), later than the cycle reading `cycleNowMs` (taken in
+  `executeLoop`) and after the
   `await Promise.resolve()` yield. When a boundary has passed by that later reading, the method
-  returns 0 (`:1486`, `:1720`). The wait returns early only when no action is in flight
-  (`if (timerMs === 0 && promises.length === 0) return;`, `:1433`, `:1666`); with an action in
-  flight it skips the timer (`if (timerMs > 0)`, `:1446`, `:1679`) and blocks in `Promise.race`
+  returns 0. The wait returns early only when no action is in flight
+  (`if (timerMs === 0 && promises.length === 0) return;`); with an action in
+  flight it skips the timer (`if (timerMs > 0)`) and blocks in `Promise.race`
   over the in-flight completions and the wake-up only. Example: a `Delayed(10)` transition `t`
   armed at reading 0, an action `u` in flight for an hour, a cycle reading of 9.9 (so `t` is not
   Ready and nothing fires) and a wait reading of 10.05: the loop blocks with no timer and `t`
   waits for `u` to return. Rust takes its timer from `cycle_now`
-  (`rust/libpetri-runtime/src/executor_core/executor.rs:1145`), and Java leaves its poll as soon
+  (`run_async`, `rust/libpetri-runtime/src/executor_core/executor.rs`), and Java leaves its poll as soon
   as `nanosUntilNextTimedTransition() <= 0` (`BitmapNetExecutor.java`,
   `PrecompiledNetExecutor.java`); Python rides on Rust. This is the TypeScript half of RD-16's
   decision to wait.
@@ -734,12 +813,13 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java and TypeScript (both executors).
 - **Defect:** neither runtime detaches the output collector when an action completes normally;
   only the timeout path detaches it (`detachForTimeout`,
-  `java/src/main/java/org/libpetri/core/TransitionContext.java:372`,
-  `typescript/src/core/transition-context.ts:248`). The output is read when the orchestrator
-  later admits the completion: `java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java:1897`
-  (`flight.context().rawOutput()`; the completion is queued at `:1765-1768`),
-  `PrecompiledNetExecutor.java:2590`; `typescript/src/runtime/bitmap-net-executor.ts:1248` (the
-  `.then` at `:1173-1183` detaches nothing), `precompiled-net-executor.ts:1442`. So a token an
+  `java/src/main/java/org/libpetri/core/TransitionContext.java`,
+  `typescript/src/core/transition-context.ts`). The output is read when the orchestrator
+  later admits the completion, in `processCompletedTransitions` of
+  `java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java`
+  (`flight.context().rawOutput()`; the completion is queued in `fireTransition`),
+  `PrecompiledNetExecutor.java`, `typescript/src/runtime/bitmap-net-executor.ts` (the
+  `.then` in `fireTransition` detaches nothing) and `precompiled-net-executor.ts`. So a token an
   action writes after its future or promise completed, from a thread or a timer it started, and
   before the completion is admitted, is deposited at the commit. Rust moves the outputs into the
   completion message when the action returns. Java's synchronous paths (`processSyncOutput`) read
@@ -770,15 +850,15 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   answers false, on every later call too.
   (a) A rejected submit. `run(Duration, RunTimeoutPolicy)` sets `started = true` before
   `CompletableFuture.supplyAsync(this::executeLoop, executor)`
-  (`java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java:853-854`,
-  `PrecompiledNetExecutor.java:1271-1272`). When the executor rejects the task, the call throws
+  (`java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java`,
+  `PrecompiledNetExecutor.java`). When the executor rejects the task, the call throws
   `RejectedExecutionException` and the loop never runs. A `close()` before the run does this on
-  an executor that owns its pool, since `close()` shuts the pool down (`BitmapNetExecutor.java`
-  `close`, `:2576`); a caller-supplied executor that rejects the task does it without a close.
+  an executor that owns its pool, since `close()` shuts the pool down (`BitmapNetExecutor.close`);
+  a caller-supplied executor that rejects the task does it without a close.
   (b) A store that throws at boot. `executeLoop` emits `ExecutionStarted` and the first marking
-  snapshot before its `try`/`finally` (`BitmapNetExecutor.java:1004-1013`,
-  `PrecompiledNetExecutor.java:1833-1842`), and `emitEvent` does not catch
-  (`BitmapNetExecutor.java:2509-2513`, `PrecompiledNetExecutor.java:2935-2939`). A store that
+  snapshot before its `try`/`finally` (`BitmapNetExecutor.java`,
+  `PrecompiledNetExecutor.java`), and `emitEvent` does not catch
+  (`BitmapNetExecutor.java`, `PrecompiledNetExecutor.java`). A store that
   throws on these appends makes `run()` throw before the `finally` that completes
   `terminatedFuture`; the loop is gone and `running` stays true. The termination bookkeeping of
   the `finally` already survives a throwing store; the boot does not.
@@ -807,14 +887,12 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   line 1 and line 3), ENV-010 (whether the run waits at quiescence).
 - **Runtimes:** Java (both executors).
 - **Defect:** `Builder.environmentPlaces(Set<EnvironmentPlace<?>>)` stores the caller's set
-  (`java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java:664-666`,
-  `PrecompiledNetExecutor.java:1068-1069`), `build()` passes it on and the constructor keeps it
-  without a copy (`this.environmentPlaces = environmentPlaces;`, `BitmapNetExecutor.java:350`,
-  `PrecompiledNetExecutor.java:350`). `inject` tests that live set on every call
-  (`environmentPlaces.contains(place)`, `BitmapNetExecutor.java:893`,
-  `PrecompiledNetExecutor.java:1311`), so a host that changes its own set after `build()` adds or
+  (`java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java`,
+  `PrecompiledNetExecutor.java`), `build()` passes it on and the constructor keeps it
+  without a copy (`this.environmentPlaces = environmentPlaces;` in both constructors). `inject`
+  tests that live set on every call (`environmentPlaces.contains(place)` in both), so a host that changes its own set after `build()` adds or
   removes a registration in the middle of the run. `hasEnvironmentPlaces` is read once in the
-  constructor (`:351` in both), so the quiescence decision of ENV-010 keeps the registration of
+  constructor, so the quiescence decision of ENV-010 keeps the registration of
   the build while `inject` and the dead-arc report follow the changed set. The varargs overload
   copies (`Set.of(places)`) and is not affected. TypeScript copies the names into a set of its
   own; Rust and Python take the registrations by value.
@@ -842,11 +920,12 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   `TransitionCompleted`, `TransitionFailed`, `TransitionTimedOut`), and `withInstancePrefix`
   returns `Map.copyOf(copy)`, so every event of a composed net whose details then hold two or
   more entries is affected too.
-  `java/src/main/java/org/libpetri/debug/NetEventConverter.java:96`, `:107`, `:145`, `:156`,
-  `:167`, `:252`, and through `withInstancePrefix` also `:135`, `:178`, `:188` and `:198`.
+  `java/src/main/java/org/libpetri/debug/NetEventConverter.java`: those five cases of
+  `toEventInfo` and the `Map.copyOf` in `withInstancePrefix`, and through `withInstancePrefix` also
+  the `TransitionStarted`, `ActionTimedOut`, `TokenAdded` and `TokenRemoved` cases.
   `DebugSessionRegistry.tagsFor` hands `Map.copyOf(session.tags())` to
-  `SessionSummary.tags` (`DebugSessionRegistry.java:267`), and the `SubnetInstanceInfo`
-  constructor copies its name sets with `Set.copyOf` (`DebugResponse.java:485-486`), which drops
+  `SessionSummary.tags` (`DebugSessionRegistry.java`), and the `SubnetInstanceInfo`
+  constructor copies its name sets with `Set.copyOf` (`DebugResponse.java`), which drops
   the `LinkedHashSet` order `buildSubnetInstances` builds for a stable `Subscribed` response
   (recorded on its own as RD-45).
   The iteration order of these immutable collections is salted per JVM, `DebugResponse` is a
@@ -875,8 +954,8 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   ordered pair. A cluster key may hold the NUL character (it is ASCII, inside EXP-016's name
   assumption, and no builder checks place names), so the distinct pairs (`a\0b`, `c`) and
   (`a`, `b\0c`) share the key `a\0b\0c` and the second pair gets no ghost edge.
-  `java/src/main/java/org/libpetri/export/ClusterBuilder.java:269`,
-  `typescript/src/export/cluster-builder.ts:266`. Rust keys the dedup map by the
+  `java/src/main/java/org/libpetri/export/ClusterBuilder.java`,
+  `typescript/src/export/cluster-builder.ts`. Rust keys the dedup map by the
   `(String, String)` pair (`rust/libpetri-export/src/cluster_builder.rs`, ghost synthesis). The
   fix is a key that cannot collide, such as a nested map or a length-prefixed key.
 - **Lean evidence:** `EXP_017_forbids_nulDedup` and `exp017_nulNet_counts` (EXP_017.lean): on
@@ -894,21 +973,22 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Rust, Python (which runs the Rust verifier).
 - **Defect:** `SmtVerifier::verify` checks the declared mints
   (`name_fragment::unknown_mint_reason(self.net, ...)`,
-  `rust/libpetri-verification/src/smt_verifier.rs:1181`) inside `verify_net`, after the
-  verifier's own rewrites: the `Arrivals(k)` closure (`with_arrivals`, `:765-776`), the inert
-  places, the in-flight split and the terminal rewrite (`:905-935`). Those rewrites add
-  transitions such as `complete:<t>` (`rust/libpetri-verification/src/in_flight.rs:101`) and
-  `env:arrive[i]:<p>` (`rust/libpetri-verification/src/open_net/closure.rs:169`), so a
+  `rust/libpetri-verification/src/smt_verifier.rs`) inside `verify_net`, after the
+  verifier's own rewrites: the `Arrivals(k)` closure (`with_arrivals`, called from `verify`), the
+  inert places, the in-flight split and the terminal rewrite (`verify_terminals_split`). Those
+  rewrites add transitions such as `complete:<t>` (`completion_transition`,
+  `rust/libpetri-verification/src/in_flight.rs`) and `env:arrive[i]:<p>` (`close_open_net`,
+  `rust/libpetri-verification/src/open_net/closure.rs`), so a
   declaration naming one of them is accepted and verification answers a verdict. Every other
   entry point checks the caller's net and refuses the same request with
   `declared mint transition 'complete:t' not in the net (NU-010)`: Rust `encode_scripts`
-  (`smt_verifier.rs:2277`, before `with_arrivals`), Python `encode`
-  (`rust/libpetri-py/src/verification.rs:950-955`), Java at declaration
-  (`SmtVerifier.mintTransitions`, `java/src/main/java/org/libpetri/smt/SmtVerifier.java:710-716`)
+  (`smt_verifier.rs`, before `with_arrivals`), Python `encode_smt_scripts`
+  (`py_encode_smt_scripts`, `rust/libpetri-py/src/verification.rs`), Java at declaration
+  (`SmtVerifier.mintTransitions`, `java/src/main/java/org/libpetri/smt/SmtVerifier.java`)
   and TypeScript at declaration and in `encodeScripts`
-  (`typescript/src/verification/smt-verifier.ts:539`, `:1132`, both on `callerNet`). Rust's own
-  docs promise the same answer (`encode_scripts` panics "with the reason verify answers Unknown
-  with"; `name_fragment.rs:154-160`). The fix is to run the check on the caller's net before
+  (`mintTransitions` and `encodeScripts`, `typescript/src/verification/smt-verifier.ts`, both on
+  `callerNet`). Rust's own docs promise the same answer (`encode_scripts` panics "with the reason
+  verify answers Unknown with"; the doc comment of `unknown_mint_reason` in `name_fragment.rs`). The fix is to run the check on the caller's net before
   `with_arrivals`, as `encode_scripts` does. Open-net verification is not affected: all three
   runtimes check its declaration on the closed net.
 - **Lean evidence:** `NU_010_unknownMint_forbids_rewrittenNet` (`NU_010_ac6.lean`): an entry
@@ -948,17 +1028,19 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   that steps 1 to 4 and the first two rules of step 5 let through, answers `Unknown` ("is a
   consumed input shared under conflict priority") where the refusal order of NU-055 reaches its
   later rules or builds the graph.
-  Rust: `rust/libpetri-verification/src/smt_verifier.rs:1345` (passes `self.priority_semantics`
-  to `route_b_env_observation`), `:4170` (the decline).
-  Java: `java/src/main/java/org/libpetri/smt/SmtVerifier.java:1734` (passes
-  `effectivePriority()`, still `CONFLICT` unless `conflictOff`), `:3226` (the decline).
-  TypeScript: `typescript/src/verification/smt-verifier.ts:1500` (passes `_effectivePriority`),
-  `:3060` (the decline).
+  Rust: `SmtVerifier::verify_net` (passes `self.priority_semantics` to
+  `route_b_env_observation`) and `route_b_env_observation` (the decline), in
+  `rust/libpetri-verification/src/smt_verifier.rs`.
+  Java: `SmtVerifier.pipeline` (passes `effectivePriority()`, still `CONFLICT` unless
+  `conflictOff`) and `routeBEnvObservation` (the decline), in
+  `java/src/main/java/org/libpetri/smt/SmtVerifier.java`.
+  TypeScript: `SmtVerifier.runPipeline` (passes `_effectivePriority`) and `routeBEnvObservation`
+  (the decline), in `typescript/src/verification/smt-verifier.ts`.
   The fix is to hand the environment check `CONFLICT` only when conflict priority applies
   (`conflict_pruning_applies` and the pruning not turned off by the split), `NONE` otherwise.
 - **Lean evidence:** none; the setup model `NuSetupFn` of `NU_052_split` does not model the
   environment decline. The `NU_052_split` assumes record it, and the `NU_055_refusal` assumes
-  (`NU_055_steps.lean`, line 5) record that the gate's conflict fact is "conflict priority is in
+  in `NU_055_steps.lean` (the paragraph on step 5 of the refusal order) record that the gate's conflict fact is "conflict priority is in
   effect" as NU-052 states it, not the runtimes' reading.
 - **Fix:** the Route B environment check gets `CONFLICT` only where conflict pruning applies and
   `NONE` otherwise, in all three runtimes; where pruning applies the decline still stands. Rust
@@ -979,16 +1061,16 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Rust, TypeScript, and Python through Rust's verifier.
 - **Defect:** both runtimes dedup state classes by a rendered string in which place names are not
   escaped. Rust renders the marking as `name:count` entries joined by `,`
-  (`MarkingState::canonical_key`, `rust/libpetri-verification/src/marking_state.rs:147-157`), the
-  class key appends `|` and `Dbm::zone_key` (`state_class.rs:59-61`, `dbm.rs:288-295`, clock names
-  joined by `,`), and `StateClassGraph::build` dedups by that string
-  (`state_class_graph.rs:171`, `:224`). TypeScript renders the marking as `{name:count, ...}`
-  (`MarkingState.toString`, `typescript/src/verification/marking-state.ts:63-69`) and dedups by
-  `classKey` = marking string, `|`, zone key (`analysis/state-class-graph.ts:299-300`, used at
-  `:148-149` and `:183`). Route B interns the base class by the same strings: Rust `intern_base`
-  (`name_state_class_graph.rs:323-338`, `canonical_key` then `#` and the `ready_earliest` bits),
-  TypeScript `internBase` over `baseKeyOf` (`analysis/name-state-class.ts:39-41`,
-  `analysis/name-state-class-graph.ts:263-264`). Place names are arbitrary strings (`Place::new`
+  (`MarkingState::canonical_key`, `rust/libpetri-verification/src/marking_state.rs`), the
+  class key appends `|` and `Dbm::zone_key` (`StateClass::canonical_key` in `state_class.rs`;
+  `dbm.rs`, clock names joined by `,`), and `StateClassGraph::build` dedups by that string
+  (in `build_core`, `state_class_graph.rs`). TypeScript renders the marking as `{name:count, ...}`
+  (`MarkingState.toString`, `typescript/src/verification/marking-state.ts`) and dedups by
+  `classKey` = marking string, `|`, zone key (`analysis/state-class-graph.ts`, used in
+  `StateClassGraph.build`). Route B interns the base class by the same strings: Rust `intern_base`
+  (`name_state_class_graph.rs`, `canonical_key` then `#` and the `ready_earliest` bits),
+  TypeScript `internBase` over `baseKeyOf` (`analysis/name-state-class.ts`,
+  `analysis/name-state-class-graph.ts`). Place names are arbitrary strings (`Place::new`
   checks nothing), so the markings {`a`:1, `b`:1} and {`a:1,b`:1} (TypeScript: {`a:1, b`:1}) get
   one key. On the net `t1: x -> a, b`, `t2: x -> 'a:1,b'` from {`x`:1}, both successors of the
   initial class have no clocks, so their class keys are equal: the Rust build reports
@@ -998,7 +1080,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   a graph reported closed, which can give an unsound `Proven`; in Route B the first arrival's base
   class is kept and the second marking is lost the same way. Java keys by structure
   (`StateClass.equals` over `MarkingState` and the DBM, and the record `BaseKey` in
-  `NameStateClassGraph.java:347`), so it does not collide. Rust's `reachable_markings` dedups by
+  `NameStateClassGraph.java`), so it does not collide. Rust's `reachable_markings` dedups by
   the same string, and `zone_key` leaves clock names unescaped; TypeScript's counterexample
   decoder dedups markings by `toString()` too. The fix is a key that cannot collide:
   key the maps by the structured marking and zone, as Java does, or escape or length-prefix every
@@ -1025,17 +1107,18 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** TypeScript.
 - **Defect:** `Instance.bindActions` binds the renamed body through a resolver that, for a name
   the mapping does not give, returns the action of the first transition of the renamed body with
-  that name (`typescript/src/core/instance.ts:156-163`), and
+  that name (`typescript/src/core/instance.ts`), and
   `PetriNet.bindActionsWithResolver` rebuilds a transition whenever the resolver's action differs
-  from its own (`typescript/src/core/petri-net.ts:95-97`). No builder and no instantiation checks
+  from its own (`typescript/src/core/petri-net.ts`). No builder and no instantiation checks
   transition names (ruling D23 assumes them distinct; `renameNet` adds every body transition,
-  `typescript/src/core/internal/subnet-rewriter.ts:127-130`), so an instance can hold two
+  `typescript/src/core/internal/subnet-rewriter.ts`), so an instance can hold two
   transitions of one name. Instantiate a body with `x` (action A1), `x` (action A2) and `y` as
   `p` and call `bindActions({y: B})`: the second `p/x` ends up with A1 instead of A2. With
   distinct names the first transition of a name is the transition itself and nothing changes.
   Rust and Python (the resolver returns `None`, so the transition is cloned,
-  `rust/libpetri-core/src/petri_net.rs:187-202`) and Java (the resolver returns `null`, so the
-  action is kept, `java/src/main/java/org/libpetri/core/Instance.java:220-226`) keep the
+  `bind_actions_with_resolver` in `rust/libpetri-core/src/petri_net.rs`) and Java (the resolver
+  returns `null`, so the action is kept, `Instance.bindActions` in
+  `java/src/main/java/org/libpetri/core/Instance.java`) keep the
   transition's own action. The fix is a resolver that returns `null` for a name the mapping does not give, as Java does.
 - **Lean evidence:** `MOD_030_forbids_firstOfName` (`MOD_030.lean`): the binding that gives an
   unnamed transition the action of the first transition of its name breaks `MOD_030` line 4 on
@@ -1055,20 +1138,20 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java, TypeScript.
 - **Defect:** both runtimes poll the deadline on a finer clock than the clamp reads it, so when
   less than one millisecond of the total budget is left the two disagree. Java:
-  `Z3Solver.run` (`java/src/main/java/org/libpetri/smt/z3/Z3Solver.java:132-138`) calls
+  `Z3Solver.run` (`java/src/main/java/org/libpetri/smt/z3/Z3Solver.java`) calls
   `deadline.check()`, which throws only once the nanosecond deadline has passed
-  (`VerificationDeadline.expired`, `java/src/main/java/org/libpetri/core/internal/VerificationDeadline.java:106-108`),
+  (`VerificationDeadline.expired`, `java/src/main/java/org/libpetri/core/internal/VerificationDeadline.java`),
   and then sets `left = Math.max(1, deadline.remainingMs())` with `remainingMs` the remaining
-  nanoseconds divided down to whole milliseconds (`:102`). With 0 < remaining < 1 ms the whole
+  nanoseconds divided down to whole milliseconds. With 0 < remaining < 1 ms the whole
   milliseconds left are 0, yet Java starts a `z3` process with `-t:1`, `-T:2` and a 2001 ms
-  watchdog. TypeScript: `runZ3Text` (`typescript/src/verification/z3/z3-process.ts:312-316`)
+  watchdog. TypeScript: `runZ3Text` (`typescript/src/verification/z3/z3-process.ts`)
   refuses when `Math.floor(deadline.remainingMs()) <= 0` but records no stop, while every poll
   (`Deadline.check` through `passed()`, `remainingMs() <= 0`,
-  `typescript/src/verification/total-budget.ts:88-96`; `enter` at `smt-verifier.ts:1268-1272`, the
-  `unknown` case of the IC3/PDR query at `:2221`, the certificate check at `:2087`) still sees
+  `typescript/src/verification/total-budget.ts`; `enter`, and the `unknown` case of the IC3/PDR
+  query and the certificate check in `runPipeline`, `smt-verifier.ts`) still sees
   time left. In that window the IC3/PDR query is refused, `runZ3Spacer` turns the rejection into
   `unknown` with the reason `total verification budget of <N> ms exhausted; z3 not started`
-  (`z3/spacer-runner.ts:54-58`), the `check()` of the `unknown` case does not throw, and
+  (`z3/spacer-runner.ts`), the `check()` of the `unknown` case does not throw, and
   `verify()` returns that reason without `during IC3/PDR query`. A step that steps aside after a
   refused call (the state-equation phase, for example) is followed by `enter()` of the next
   step, which passes, so a step is entered after the refusal. Rust and Python use one
@@ -1100,19 +1183,19 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   the deadline passed gets `total verification budget of <N> ms exhausted during <phase>`).
 - **Runtimes:** Java.
 - **Defect:** after the process, `Z3Solver.run`
-  (`java/src/main/java/org/libpetri/smt/z3/Z3Solver.java:138-150`) checks only
+  (`java/src/main/java/org/libpetri/smt/z3/Z3Solver.java`) checks only
   `VerificationDeadline.cancelled()` and `clamped && deadline.expired() && !answered(reply)`. A
   total budget that runs out during a call whose own timeout was not clamped is therefore not
   recorded. Concrete run: total budget 10 000 ms, per-call timeout 5 000 ms, and the IC3/PDR
   query starts with exactly 5 000 ms left, so `left < timeoutMs` is false and the call is not
   clamped; `z3` overruns `-t` and is stopped by the `-T` backstop at about 6 s. `SpacerRunner.run`
-  returns `Unknown` with the hard-timeout reason, the HORN `Unknown` case
-  (`java/src/main/java/org/libpetri/smt/SmtVerifier.java:2506`) does not poll, and no later
+  returns `Unknown` with the hard-timeout reason, the HORN `Unknown` case of `SmtVerifier.pipeline`
+  (`java/src/main/java/org/libpetri/smt/SmtVerifier.java`) does not poll, and no later
   `enter()` follows, so `verify()` returns the solver's reason where Rust and TypeScript give
   `total verification budget of 10000 ms exhausted during IC3/PDR query`. Rust and Python poll
   after every call (`Z3Solver::run` calls `total_budget::note_if_expired`, which is `cut`), and
   TypeScript's `unknown` case of the IC3/PDR query polls with `run.deadline?.check()`
-  (`typescript/src/verification/smt-verifier.ts:2221`). The fix is a deadline
+  (in `runPipeline`, `typescript/src/verification/smt-verifier.ts`). The fix is a deadline
   poll after every call, clamped or not (`deadline.check()` once the reply is in, before it is
   returned unanswered), as Rust's `note_if_expired` does.
 - **Lean evidence:** `VER_013_stop_forbids_noPostPoll` (`VER_013.lean`): the runner whose solver
@@ -1130,10 +1213,10 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Requirements:** EVT-025 (the writer line: the header carries the session's own header fields).
 - **Runtimes:** Python.
 - **Defect:** `write_from_store` built the archived debug session with `places: None`
-  (`rust/libpetri-py/src/archive.rs:95`), so `build_net_structure` returned no places and no
-  transitions (`rust/libpetri-debug/src/debug_session_registry.rs:51-56`) and the header's
+  (`rust/libpetri-py/src/archive.rs`), so `build_net_structure` returned no places and no
+  transitions (`rust/libpetri-debug/src/debug_session_registry.rs`) and the header's
   `structure` listed neither, although the writer has the net. The Rust registry fills it (`places:
-  Some(PlaceAnalysis::from_net(net))`, `debug_session_registry.rs:206`).
+  Some(PlaceAnalysis::from_net(net))`, `register_with_tags` in `debug_session_registry.rs`).
 - **Lean evidence:** none; the EVT_025 model keeps the session's header fields, the net structure
   among them, opaque.
 - **Fix:** the archived session carries `places: Some(PlaceAnalysis::from_net(net))`, so the
@@ -1147,10 +1230,10 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   yields identical output), EVT-025 (the reproducibility paragraph, the debug protocol half).
 - **Runtimes:** Java.
 - **Defect:** the `SubnetInstanceInfo` constructor copied its place and transition name sets with
-  `Set.copyOf` (`java/src/main/java/org/libpetri/debug/DebugResponse.java:485-486`), which drops the
+  `Set.copyOf` (`java/src/main/java/org/libpetri/debug/DebugResponse.java`), which drops the
   `LinkedHashSet` order `buildSubnetInstances` builds, so a `Subscribed` response listed the names
   of a subnet instance in an order salted per JVM. It was found with RD-36, whose text names the
-  same line.
+  same constructor.
 - **Lean evidence:** none; the debug protocol has no model.
 - **Fix:** the constructor copies each set into an unmodifiable `LinkedHashSet`, which keeps the
   build order and still rejects `null`. Java
@@ -1163,7 +1246,7 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Runtimes:** Java.
 - **Defect:** `DebugProtocolHandler.ClientState.computeStateAt` passes the index to `subList` on its
   fallback without a subscription
-  (`java/src/main/java/org/libpetri/debug/DebugProtocolHandler.java:630-636`), the same unclamped
+  (`java/src/main/java/org/libpetri/debug/DebugProtocolHandler.java`), the same unclamped
   call as RD-22. It was latent: the protocol commands reach that fallback only with an index within
   the stream.
 - **Lean evidence:** `EVT_032_mutant_noClamp` (EVT_032.lean).
@@ -1187,4 +1270,71 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 - **Lean evidence:** none; the CORE_043 assumes record it, as for RD-08.
 - **Fix:** `pipeline()` and `encodeScripts()` run the check on the caller's net (`callerNet`), with
   the RD-08 change. Java `SplitDemandTest.CORE043_aReusedVerifierChecksTheCallersNet`.
+- **Status:** fixed, unreleased.
+
+### RD-48. No debug protocol handler invalidates its replay cache after an eviction
+
+- **Requirements:** EVT-032 (AC3: a cache whose event list changed other than by growing at its end
+  needs `invalidate()` before the next call).
+- **Runtimes:** Java, TypeScript, Rust, Python.
+- **Defect:** the debug protocol handler kept one marking replay cache per session and reused it
+  after the session's debug event store evicted events. A seek or a step backward after an eviction
+  replayed from a snapshot of events the store no longer held, so it returned a state that is not
+  the replay of the retained events.
+- **Lean evidence:** none; EVT_032 and EVT_032_B state the cache contract and assume a coherent
+  caller.
+- **Fix:** the handler invalidates the cache before it computes a state whenever the store's
+  evicted count changed since the cache was last used (Java also compares the first retained
+  event). Java `DebugProtocolHandler.SubscriptionState.computeStateAt`, TypeScript
+  `SubscriptionState.computeStateAt` in `debug-protocol-handler.ts`, Rust `compute_state_at` in
+  `debug_protocol_handler.rs`; Python uses the Rust handler. Tests: Java
+  `DebugProtocolHandlerTest.SeekAndStepFlow.seekAfterEvictionReplaysTheRetainedEvents_EVT032_AC3`
+  and the step-backward twin, the TypeScript and Rust handler tests citing EVT-032.
+- **Status:** fixed, unreleased.
+
+### RD-49. Rust never emits the MarkingSnapshot event
+
+- **Requirements:** EVT-014 (AC1: emitted at least at execution start and before execution
+  completion).
+- **Runtimes:** Rust, Python.
+- **Defect:** Rust declared `NetEvent::MarkingSnapshot` and its consumers read it (debug converter,
+  marking cache, archive metadata), but no executor emitted it.
+- **Lean evidence:** the Rust and Python emission `polRust` (`lean/Libpetri/Reference/Events.lean`)
+  emits both snapshots; the Rust stream then meets EVT-032's run companion (`EVT_032_B_rust`),
+  which reads only the counts.
+- **Fix:** the shared executor core emits `MarkingSnapshot` right after `ExecutionStarted` and right
+  before `ExecutionCompleted`, on both backends and in `run_sync` and `run_async`, so Python gets it
+  too. The session archive reader now reads an archived snapshot back instead of turning it into a
+  `TransitionEnabled` for an unknown transition. A store that records several runs now holds each
+  run's start snapshot, so a replay resets to that run's marking.
+- **Status:** fixed, unreleased.
+
+### RD-50. The Rust MarkingSnapshot event carries token counts, not tokens
+
+- **Requirements:** EVT-014 (the snapshot is a map from place name to the place's tokens in FIFO
+  order).
+- **Runtimes:** Rust, Python.
+- **Defect:** `NetEvent::MarkingSnapshot` holds `BTreeMap<Arc<str>, usize>`, a count per place,
+  so the event cannot carry the tokens.
+- **Lean evidence:** `EVT_014_forbids_countsOnly`: a snapshot that keeps each place's count and
+  loses its tokens breaks EVT-014, and keeps its order and place-set lines
+  (`evt014_countsOnly_lines34`). No theorem states EVT-014 of the Rust emission `polRust`.
+- **Fix:** none yet. Carrying tokens changes the shape of a public enum variant, a breaking change
+  that needs a coordinated major release of the Rust crate and the Python binding.
+- **Status:** open.
+
+### RD-51. The event stores lack the EVT-030 query helpers
+
+- **Requirements:** EVT-030 (AC3: filter by place name and page with offset and limit; AC5: an
+  event-type histogram).
+- **Runtimes:** Java, TypeScript, Rust.
+- **Defect:** only the Python binding offered a place filter, offset and limit, and `counters()`;
+  the Rust store also had no filter by event type.
+- **Lean evidence:** none.
+- **Fix:** each store gains the helpers with the Python binding's semantics, without an API break.
+  Java: default methods `EventStore.placeEvents`, `filter(predicate, offset, limit)` and
+  `counters()`. TypeScript: free functions `queryEvents` (with `EventQuery`), `placeEvents`,
+  `countEvents`, `counters` and `eventPlaceName`. Rust: `InMemoryEventStore::events_of_type`,
+  `place_events`, `query(&EventQuery)`, `count_of_types` and `counters`, and
+  `NetEvent::event_type`. Tests cite EVT-030 in each language.
 - **Status:** fixed, unreleased.

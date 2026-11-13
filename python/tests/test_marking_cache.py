@@ -129,11 +129,12 @@ def test_compute_at_out_of_bounds_clamps_to_end() -> None:
 
 
 def test_compute_at_counts_multiple_tokens_in_one_place() -> None:
-    """Two runs into the same store accumulate two tokens in p_out."""
+    """Two tokens through the chain leave two tokens in p_out. (Two runs into
+    one store would not: each run's MarkingSnapshot ([EVT-014]) resets the
+    replayed marking to that run's own.)"""
     p_in, _p_out, net = _build_chain()
     store = lp.InMemoryEventStore()
-    lp.run_sync(net, initial={p_in: ["a"]}, event_store=store)
-    lp.run_sync(net, initial={p_in: ["b"]}, event_store=store)
+    lp.run_sync(net, initial={p_in: ["a", "b"]}, event_store=store)
 
     cache = lp.MarkingCache()
     state = cache.compute_at(store, len(store))
@@ -175,3 +176,21 @@ def test_computed_state_is_ordered_independently_of_the_process() -> None:
     # The ordering assertions above must have had something to order.
     assert len(widest_marking) >= len(names), widest_marking
     assert len(widest_enabled) >= 6, widest_enabled
+
+
+def test_replay_before_first_step_counts_the_initial_marking() -> None:
+    """[EVT-032] [EVT-014] The run reports its initial marking in a
+    MarkingSnapshot right after ExecutionStarted, so the replay of the events
+    before the first step counts the initial tokens."""
+    p_in, _p_out, net = _build_chain()
+    store = lp.InMemoryEventStore()
+    lp.run_sync(net, initial={p_in: ["v", "w"]}, event_store=store)
+
+    # A step starts with the TokenRemoved events of its firing.
+    events = store.events()
+    first_step = next(
+        i for i, e in enumerate(events) if e.type in ("TokenRemoved", "TransitionStarted")
+    )
+    state = lp.MarkingCache().compute_at(store, first_step)
+    assert state.marking == {"p_in": 2}
+    assert state.enabled_transitions == ["t"]

@@ -21,7 +21,7 @@ built on RefQFire's vocabulary (`Reference/Queue.lean`) and the terms of `Spec/G
   place keyed twice); `refNuBuild` is the transition builder with a match: `refBuild`'s checks,
   then a place keyed twice, then a key on a place that is not an input place, then per relay
   target "declared twice" before "not an output", the order of
-  `rust/libpetri-core/src/transition.rs:513-556`. The spec fixes no message text for these checks;
+  `TransitionBuilder::build` (`rust/libpetri-core/src/transition.rs`). The spec fixes no message text for these checks;
   the messages here are Rust's, as stand-ins.
 * **Firing.** `RefNuFire`: without a match it is `RefQFire` (`refNuFire_restrictsTo`). With a
   match the NU-022 selection picks the chosen name `n`, the transition is enabled on its counts,
@@ -197,7 +197,7 @@ def refNuBuild (t : NuTrans N K) : Option String :=
 
 /-- **The reference match builder** (ruling D37 (a)): fewer than two keys fail, then a place
 keyed twice. `none`: the match builds. Relay targets are checked when the transition is built,
-not here (`rust/libpetri-core/src/match_spec.rs:220-235`). -/
+not here (`MatchSpecBuilder::build`, `rust/libpetri-core/src/match_spec.rs`). -/
 def refMatchBuild (ks : List (N × K)) : Option String :=
   if ks.length < 2 then some (msgFewKeys ks.length)
   else match firstRepeat [] (ks.map Prod.fst) with

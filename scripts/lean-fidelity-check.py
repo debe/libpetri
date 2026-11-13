@@ -12,10 +12,10 @@ functions changed. This script closes that gap:
                           deliberately strict, a comment edit also trips it).
 
 Default mode re-hashes every pinned item and compares against the lock: any
-mismatch, missing item, or lock drift is a failure. Two citation guards run
-alongside it — every `.rs` file cited in a Lean doc comment must have at least
-one pin, and every `file.rs:NNN` line *hint* written next to a pinned item's
-name must fall inside that item. The recovery workflow is printed on failure.
+mismatch, missing item, or lock drift is a failure. A citation guard runs
+alongside it: every `.rs` file cited in a Lean doc comment must have at least
+one pin. Line numbers are not cited at all (`scripts/no-line-hints.py`). The
+recovery workflow is printed on failure.
 
     python3 scripts/lean-fidelity-check.py            # verify (CI mode)
     python3 scripts/lean-fidelity-check.py --update   # regenerate the lock
@@ -280,131 +280,6 @@ def _resolve_cited_file(cited: str, pin_files) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Line-hint guard
-# ---------------------------------------------------------------------------
-
-# `file.rs:120` / the head of `file.rs:120-134` — the line-number *hints* in
-# Lean doc comments. The item name is the primary reference and the hint is
-# secondary (lean/README.md, "Fidelity"), but a hint that points into
-# unrelated code is worse than no hint: it sends the next reader to the wrong
-# function while the fidelity hash stays green.
-_LINE_CITATION = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_/.\-]*\.rs):(\d+)")
-
-# RetrodictExec.lean deliberately cites the PRE-FIX tree (commit `1bdf586`):
-# those line numbers describe code that no longer exists, so they are exempt.
-HISTORICAL_CITATIONS = {"lean/Libpetri/RetrodictExec.lean"}
-
-
-def _comment_blocks(src: str) -> list[tuple[int, str]]:
-    """(offset, text) for every Lean comment block — `/- … -/` (nested, so
-    `/--` and `/-!` are included) and each `--` line. A hint is read in the
-    context of its own block: the pinned items named there are the ones it is
-    allowed to point into."""
-    blocks: list[tuple[int, str]] = []
-    i, n = 0, len(src)
-    while i < n:
-        if src.startswith("/-", i):
-            depth, j = 1, i + 2
-            while j < n and depth:
-                if src.startswith("/-", j):
-                    depth += 1
-                    j += 2
-                elif src.startswith("-/", j):
-                    depth -= 1
-                    j += 2
-                else:
-                    j += 1
-            blocks.append((i, src[i:j]))
-            i = j
-        elif src.startswith("--", i):
-            j = src.find("\n", i)
-            j = n if j == -1 else j
-            blocks.append((i, src[i:j]))
-            i = j
-        else:
-            i += 1
-    return blocks
-
-
-def item_line_spans(path: Path, names: list[str]) -> dict[str, list[tuple[int, int]]]:
-    """Pinned item -> its current 1-based line range(s) in `path`."""
-    text = path.read_text(encoding="utf-8")
-    masked = mask_rust(text)
-    out: dict[str, list[tuple[int, int]]] = {}
-    for name in names:
-        rows = [
-            (text.count("\n", 0, a) + 1, text.count("\n", 0, b) + 1)
-            for a, b in find_spans(text, masked, name)
-        ]
-        if rows:
-            out[name] = rows
-    return out
-
-
-def names_item(name: str, quoted: str) -> bool:
-    """Whether the backticked text `quoted` names the Rust item `name`. A file
-    name is not an item name: `structural_check.rs:120` cites the file
-    `structural_check.rs`, not the function `structural_check` inside it, so a
-    match followed by `.rs` does not count."""
-    return re.search(r"\b" + re.escape(name) + r"\b(?!\.rs\b)", quoted) is not None
-
-
-def check_line_hints(pins: list[dict]) -> list[str]:
-    """Every `file.rs:NNN` hint written in the same comment block as a pinned
-    item's name must fall inside that item. Hints next to no pinned name (a
-    struct field, a constant, a call site) are structural and skipped — the
-    guard adds no manifest burden, it only stops the hints that DO name a
-    pinned item from rotting silently."""
-    by_file: dict[str, list[str]] = {}
-    for pin in pins:
-        by_file.setdefault(pin["file"], []).append(pin["fn"])
-    spans = {
-        f: item_line_spans(REPO_ROOT / f, fns)
-        for f, fns in by_file.items()
-        if (REPO_ROOT / f).exists()
-    }
-
-    problems: list[str] = []
-    lean_dir = REPO_ROOT / "lean"
-    files = [lean_dir / "Libpetri.lean"] + sorted((lean_dir / "Libpetri").rglob("*.lean"))
-    for lf in files:
-        rel = str(lf.relative_to(REPO_ROOT))
-        if rel in HISTORICAL_CITATIONS:
-            continue
-        src = lf.read_text(encoding="utf-8")
-        for offset, block in _comment_blocks(src):
-            # Only backticked identifiers count as naming an item: this
-            # development writes every code reference as `name`, and matching
-            # bare prose would flag "every disable path" as citing `disable`.
-            quoted = " ".join(re.findall(r"`([^`]*)`", block))
-            for m in _LINE_CITATION.finditer(block):
-                cited, hint = m.group(1), int(m.group(2))
-                path = _resolve_cited_file(cited, spans)
-                if path is None:
-                    continue
-                named = {
-                    name: rows
-                    for name, rows in spans[path].items()
-                    if names_item(name, quoted)
-                }
-                if not named:
-                    continue  # structural hint — nothing pinned to check it against
-                if any(a <= hint <= b for rows in named.values() for a, b in rows):
-                    continue
-                line = src.count("\n", 0, offset + m.start()) + 1
-                where = "; ".join(
-                    f"{name} is at {', '.join(f'{a}-{b}' for a, b in rows)}"
-                    for name, rows in sorted(named.items())
-                )
-                problems.append(
-                    f"stale line hint: {rel}:{line} cites {cited}:{hint}, "
-                    f"outside every pinned item named in that comment ({where})"
-                )
-    # The same hint is often repeated across a module; report each shape once.
-    return sorted(dict.fromkeys(problems))
-
-
-# ---------------------------------------------------------------------------
 # Manifest / lock IO
 # ---------------------------------------------------------------------------
 
@@ -480,9 +355,6 @@ def main(argv: list[str]) -> int:
         if not cited_file_has_pin(cited, pin_files):
             problems.append(f"citation without pin: {cited} (cited in {lean_file})")
 
-    # Line hints next to a pinned item's name must still point at that item.
-    problems.extend(check_line_hints(pins))
-
     if update:
         if problems:
             for p in problems:
@@ -528,7 +400,7 @@ def main(argv: list[str]) -> int:
     cited_files = {c for c, _ in lean_citations()}
     print(
         f"lean-fidelity: OK — {len(current)} pins verified, "
-        f"{len(cited_files)} distinct .rs citations covered, line hints in range"
+        f"{len(cited_files)} distinct .rs citations covered"
     )
     return 0
 

@@ -10,7 +10,7 @@ namespace Libpetri
 
 namespace Pool
 
-/-! ## `ring_remove_matching` (`precompiled_backend.rs:438-490`)
+/-! ## `ring_remove_matching` (`precompiled_backend.rs`)
 
 The ν-net matched consume: scan positions from the head for the first token
 satisfying `pred`, `take()` it, then close the gap from whichever end is
@@ -98,7 +98,7 @@ theorem proj_split {s : Pool} (_hwf : WF s) {p : PlaceId} (_hp : p < s.nplaces)
     List.nil_append]
 
 /-! ### The head-side compaction (`ring_remove_matching`'s nearer-the-head
-branch, `precompiled_backend.rs:462-470`) -/
+branch in `precompiled_backend.rs`) -/
 
 def headSlideAt (s : Pool) (p : PlaceId) (i : Nat) : Pool :=
   { s with
@@ -280,7 +280,7 @@ theorem headSlideAt_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
     headSlideAt_pool_other hwf hp hq hne i (0 + m)]
 
 /-! ### The tail-side compaction (`ring_remove_matching`'s nearer-the-tail
-branch, `precompiled_backend.rs:471-484`) -/
+branch in `precompiled_backend.rs`) -/
 
 def tailSlideAt (s : Pool) (p : PlaceId) (i : Nat) : Pool :=
   { s with

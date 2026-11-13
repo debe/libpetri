@@ -399,10 +399,6 @@ Forwarding is thus multiplicity-preserving, which enables retry patterns without
    `Xor(c, ForwardInput(a, b))` and `And(c, Xor(e, ForwardInput(a, b)))`.
    `Timeout(d, ForwardInput(a, b))` and `Xor(c, Timeout(d, And(e, ForwardInput(a, b))))` build.
 
-**Implementation status:** every implementation forwards the consumed token itself and keeps its
-`created_at`, with a test pinning the asymmetry against a minted sibling under an injected clock
-(Java `AbstractInjectableClockTest`, TypeScript `injectable-clock.test.ts`, Rust
-`time015_injectable_clock`, which Python inherits).
 **Depends on:** [IO-007], [IO-013], [EXEC-010], [TIME-015]
 **Test derivation:** Transition with input P1 and ForwardInput(P1, P2) in timeout; action
 times out; verify P2 receives the original P1 values. Repeat with `all()` and

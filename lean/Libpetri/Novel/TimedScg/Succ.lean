@@ -8,7 +8,7 @@ import Mathlib.Order.Interval.Finset.Nat
 
 Model of `state_class_graph.rs::compute_successor` on the timed path (`untimed = false`), of
 `initial_state_class`, and of the loop of `build_core` (behind `build_with_options`) that lists a class's successors
-(`state_class_graph.rs:186-247`), with no environment places (`env_places = []`, `Ignore`).
+(`state_class_graph.rs`), with no environment places (`env_places = []`, `Ignore`).
 
 ## The model
 
@@ -20,9 +20,9 @@ Model of `state_class_graph.rs::compute_successor` on the timed path (`untimed =
   `MAX_DURATION_MS` for `immediate` and `delayed` (never `f64::INFINITY`), so `lft` is never `⊤`
   in the faithful instantiation (`Timing.lftT_ne_top`). `⊤` is allowed by the model and used by
   `Late.relax`. A transition is its index in the list.
-* A marking is an `AMarking`; enablement is `Basic.enabledA` (`is_enabled`,
-  `state_class_graph.rs:435-457`); firing a row is `ForwardDeposit.fireAD`; the intermediate
-  marking `inter` is `consume_marking` (`state_class_graph.rs:662-692`): inputs taken by
+* A marking is an `AMarking`; enablement is `Basic.enabledA` (`is_enabled` in
+  `state_class_graph.rs`); firing a row is `ForwardDeposit.fireAD`; the intermediate
+  marking `inter` is `consume_marking` (`state_class_graph.rs`): inputs taken by
   `consumptionCount`, reset places drained, nothing deposited. `fireAD_eq_inter_add`: the
   successor marking is the intermediate one plus the deposit, which is `produce_marking` for a
   constant row.
@@ -30,7 +30,7 @@ Model of `state_class_graph.rs::compute_successor` on the timed path (`untimed =
   firing domain `D` of dimension `cs.length + 1` (`Dbm.data`, `Zone.lean`).
 * `succWith surv` is `compute_successor` with the survival test `surv` as a parameter:
   `survives` (`c ≠ f`, enabled after, enabled in the intermediate marking: the current rule,
-  in `compute_successor_gated`, `state_class_graph.rs:519-547`) and `survivesOld` (no
+  in `compute_successor_gated` in `state_class_graph.rs`) and `survivesOld` (no
   intermediate test: the rule before 6.0.0, see `Retrodict.lean`). `succ := succWith survives`.
   `compute_successor` is `compute_successor_gated` with both gates `|_| true`, and that is the
   only form modelled here. Route B's name layer passes `name_enabled` as the gates (a ν-join
@@ -251,7 +251,8 @@ structure Cls where
   cs : List Nat
   D  : NMat
 
-/-- The survival test of the current rule (`state_class_graph.rs:490-514`, since 6.0.0): not
+/-- The survival test of the current rule (the `survivors` pass of
+`compute_successor_gated` in `state_class_graph.rs`, since 6.0.0): not
 the fired transition, enabled after, enabled in the intermediate marking. -/
 def survives (N : TNet) (f : Nat) (a' mid : AMarking) (c : Nat) : Bool :=
   c != f && en N a' c && en N mid c
@@ -305,7 +306,7 @@ def succWith (surv : Nat → AMarking → AMarking → Nat → Bool) (N : TNet)
 def succ (N : TNet) := succWith (survives N) N
 
 /-- The successors of a class in the Rust order: clocks in class order, rows in `outcomes`
-order (`state_class_graph.rs:186-247`), dropped ones left out. -/
+order (the successor loop of `build_core` in `state_class_graph.rs`), dropped ones left out. -/
 def succListWith (surv : Nat → AMarking → AMarking → Nat → Bool) (N : TNet)
     (co : List Nat → Option (List Nat)) (eps : ℚ) (C : Cls) : List Cls :=
   (List.range C.cs.length).flatMap fun k =>

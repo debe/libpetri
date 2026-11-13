@@ -15,7 +15,7 @@ namespace Libpetri
 
 /-- Place identity. The shipped code keys places by name (`Arc<str>`); the
 flattener sorts and dedups those names into a dense index
-(`net_flattener.rs:102-111`, in `flatten_with_reapable`), which is what `PlaceId` models. -/
+(`flatten_with_reapable` in `net_flattener.rs`), which is what `PlaceId` models. -/
 abbrev PlaceId := Nat
 
 /-- A token's colour payload. `libpetri-core/src/token.rs` carries an arbitrary
@@ -28,7 +28,7 @@ abbrev CMarking := PlaceId → List Colour
 
 /-- Abstract marking: one token *count* per place. Models the `m_i` integer
 variables of the CHC encoding (`encode_net`, the body of `encode`,
-`smt_encoder.rs:132-133`). The firing counters `n_k` that
+in `smt_encoder.rs`). The firing counters `n_k` that
 `EncodeOptions::state_equation` ([VER-016]) appends after the places are
 modelled in `StateEquation.lean`. -/
 abbrev AMarking := PlaceId → Nat
@@ -49,7 +49,7 @@ inductive Card where
   | atLeast (n : Nat)
   deriving DecidableEq, Repr
 
-/-- Models `libpetri-core/src/input.rs:83` `required_count`. -/
+/-- Models `required_count` in `libpetri-core/src/input.rs`. -/
 def Card.required : Card → Nat
   | .one => 1
   | .exactly n => n
@@ -57,7 +57,7 @@ def Card.required : Card → Nat
   | .atLeast n => n
 
 /-- The `matches!(spec, In::All { .. } | In::AtLeast { .. })` test that drives
-`consume_all` in `net_flattener.rs:124` (`flatten_with_reapable`). -/
+`consume_all` in `flatten_with_reapable` (`net_flattener.rs`). -/
 def Card.consumesAll : Card → Bool
   | .all => true
   | .atLeast _ => true
@@ -83,7 +83,7 @@ structure Transition where
 /-!
 ## Per-place projections
 
-`net_flattener.rs:120-127` (`flatten_with_reapable`) *sums* `required_count` over every input spec landing on
+`flatten_with_reapable` (`net_flattener.rs`) *sums* `required_count` over every input spec landing on
 the same place. This development models **at most one input spec per place**,
 which is the case every shipped fixture exercises; `specAt` is the projection
 that assumption buys us. A net with two input arcs on one place is outside the
@@ -94,13 +94,13 @@ model — stated as `InputsDistinctPlaces` where it is needed.
 def specAt (t : Transition) (p : PlaceId) : Option InSpec :=
   t.inputs.find? (fun s => s.place == p)
 
-/-- `pre[p]` of the flat transition (`net_flattener.rs:122-123`). -/
+/-- `pre[p]` of the flat transition (`base_pre` in `flatten_with_reapable`, `net_flattener.rs`). -/
 def pre (t : Transition) (p : PlaceId) : Nat :=
   match specAt t p with
   | none => 0
   | some s => s.card.required
 
-/-- Whether `p` is in `consume_all` (`net_flattener.rs:124-126`). -/
+/-- Whether `p` is in `consume_all` (`flatten_with_reapable`, `net_flattener.rs`). -/
 def consumeAllAt (t : Transition) (p : PlaceId) : Bool :=
   match specAt t p with
   | none => false
@@ -117,13 +117,13 @@ def post (br : List PlaceId) (p : PlaceId) : Nat :=
 /-!
 ## Concrete semantics
 
-Models `bitmap_backend.rs:329 can_enable` (enablement) and
-`bitmap_backend.rs:715 consume_for_firing` + `:840 produce_token` (effect).
+Models `can_enable` (enablement) and `consume_for_firing` + `produce_token`
+(effect), all in `bitmap_backend.rs`.
 -/
 
 /-- Tokens at `s.place` satisfying `s`'s guard. Models the guard-matching
 tally a draining arc computes inside `consume_for_firing`
-(`bitmap_backend.rs:775-781`). That arm called `Marking::count_matching`
+(`bitmap_backend.rs`). That arm called `Marking::count_matching`
 (`marking.rs`), which counts over the *whole* queue, until the EXEC-003 AC5
 work replaced it with the same count bounded to the drainable prefix; the
 bound is the scope note on `consumeCount` below. -/
@@ -134,7 +134,7 @@ def matchCount (m : CMarking) (s : InSpec) : Nat :=
 
 /-- Tokens actually removed from `s.place` by one firing.
 
-`consume_for_firing` (`bitmap_backend.rs:766-783`): `One => 1`,
+`consume_for_firing` (`bitmap_backend.rs`): `One => 1`,
 `Exactly{n} => n`, and
 `All`/`AtLeast` => the guard-matching count, i.e. **all guard-matching
 tokens** — tokens failing the guard are left behind by `remove_matching`.
@@ -161,7 +161,7 @@ def consumedAt (m : CMarking) (t : Transition) (p : PlaceId) : Nat :=
   | none => 0
   | some s => consumeCount m s
 
-/-- Concrete enablement (`can_enable`, `bitmap_backend.rs:329`, minus timing
+/-- Concrete enablement (`can_enable` in `bitmap_backend.rs`, minus timing
 and ν): every input arc has enough *matching* tokens, every inhibited place is
 empty, every read place is non-empty. Reset arcs deliberately do not gate
 (CORE-034).
@@ -182,8 +182,8 @@ removes exactly `consumedAt` tokens, a reset arc drains the place
 (`bitmap_backend.rs` reset handling), and the action's writes add `prod p`
 tokens via `produce_token`.
 
-`prod` is deliberately an arbitrary function: `executor_core/output.rs:86`
-`validate_out_spec` checks only *which places* the action wrote to, never how
+`prod` is deliberately an arbitrary function: `validate_out_spec`
+(`executor_core/output.rs`) checks only *which places* the action wrote to, never how
 many tokens it wrote to each. ([IO-015] made it an exact-explanation search over
 place SETS — one assignment's claim must equal the produced set — which changed
 which place sets are accepted but not the fact that token counts are invisible
@@ -197,19 +197,18 @@ def alphaFireC (m : CMarking) (t : Transition) (prod : PlaceId → Nat) : AMarki
 /-!
 ## Abstract semantics — the CHC encoding
 
-Models `firing_conditions` (`smt_encoder.rs:341-404`) exactly.
+Models `firing_conditions` (`smt_encoder.rs`) exactly.
 -/
 
-/-- Abstract enablement: `m_i >= pre[i]` (`firing_conditions`,
-`smt_encoder.rs:355-360`), `m_i = 0` for inhibitors (`:362-365`), `m_i >= 1`
-for reads (`:367-370`). -/
+/-- Abstract enablement: `m_i >= pre[i]`, `m_i = 0` for inhibitors, `m_i >= 1`
+for reads (all in `firing_conditions`, `smt_encoder.rs`). -/
 def enabledA (m : AMarking) (t : Transition) : Bool :=
   t.inputs.all (fun s => s.card.required ≤ m s.place)
     && t.inhibitors.all (fun p => m p == 0)
     && t.reads.all (fun p => 1 ≤ m p)
 
 /-- The abstract fire relation (`firing_conditions`,
-`smt_encoder.rs:372-396`):
+`smt_encoder.rs`):
 
 * reset place      → `m'_i = post[i]`
 * `consume_all` place → `m'_i = post[i]`

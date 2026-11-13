@@ -13,7 +13,7 @@ A firing ends one of two ways, and they deposit differently:
 * **The executor's `Timeout` fires** ([IO-013]). The marking receives the timeout child's
   tokens *and nothing else* (AC5), and a `ForwardInput(src, dst)` leaf deposits one token in
   `dst` **per token the firing consumed from `src`** ([IO-014] AC2, AC4). Rust:
-  `timeout_outputs` / `collect_timeout_outputs` (`executor_core/output.rs:419-470`) walk
+  `timeout_outputs` / `collect_timeout_outputs` (`executor_core/output.rs`) walk
   the first `Timeout`'s child (`find_timeout`) and re-emit every snapshotted consumed token.
 
 Before the fix the flattener (`net_flattener.rs`) and the state-class graph
@@ -102,7 +102,7 @@ def branches : OutSpec → List Deposit
 
 /-- What a `Timeout` child deposits when the timeout fires ([IO-013] AC5, [IO-014]): a minted
 token per place, and per `forward src dst` one token in `dst` per token consumed from `src`.
-Models `collect_timeout_outputs` (`executor_core/output.rs:431-470`). -/
+Models `collect_timeout_outputs` (`executor_core/output.rs`). -/
 def timeoutDeposits (consumed : PlaceId → Nat) : OutSpec → List Deposit
   | .place p => [[p]]
   | .forward src dst => [List.replicate (consumed src) dst]

@@ -103,7 +103,8 @@ theorem PlaceKeyed.same_equivalence {Nm Ty : Type} (M : PlaceKeyed Nm Ty) : Equi
   ⟨fun _ => rfl, Eq.symm, Eq.trans⟩
 
 /-- **Name identity** (TypeScript, Rust, Python): a place object is a name and a token type, and
-the key is the name (`rust/libpetri-core/src/place.rs:50-62`, `typescript/src/core/place.ts:7-8`).
+the key is the name (Rust's `PartialEq` and `Hash` for `Place` in `rust/libpetri-core/src/place.rs`, the
+`Place` interface in `typescript/src/core/place.ts`).
 The key type is the name type: `N := Nm` (`String` in all three). -/
 def refPlacesByName {Nm Ty : Type} : PlaceKeyed Nm Ty where
   P := Nm × Ty
@@ -113,7 +114,7 @@ def refPlacesByName {Nm Ty : Type} : PlaceKeyed Nm Ty where
   key := Prod.fst
 
 /-- **Name-and-type identity** (Java, a record of name and token type,
-`java/src/main/java/org/libpetri/core/Place.java:23-26`): the key is the pair. The key type is
+`Place` in `java/src/main/java/org/libpetri/core/Place.java`): the key is the pair. The key type is
 `N := Nm × Ty`. -/
 def refPlacesByNameType {Nm Ty : Type} : PlaceKeyed Nm Ty where
   P := Nm × Ty
@@ -230,7 +231,7 @@ variable [DecidableEq N] [ToString N]
 
 /-- The reference build function: `refBuild`'s arc and output-spec checks, then, for a timing
 written out without a factory, TIME-001's reference factory again ([TIME-001] AC5). Rust runs the
-timing check after the input checks and before the output-spec checks (`transition.rs:381-470`);
+timing check after the input checks and before the output-spec checks (`TransitionBuilder::build`, `transition.rs`);
 only success is stated anywhere, so the order matters for the message alone. A successful call
 returns its call number and the resolved definition. -/
 def refTransBuildRaw (k : Nat) (i : TransIn N A) : Except String (Nat × TransDef N A) :=
@@ -405,8 +406,9 @@ def NetIn.collect [DecidableEq N] {B : TBuilder N A} (inp : NetIn B) : BuiltNet 
 every declared place, every terminal place and every place an added transition names, the
 transitions in the order added, the terminal places once each. It rejects nothing of its own
 ([CORE-040]). All three runtimes add a terminal place to the net's places and declare it once (the
-Rust core crate's `PetriNet` builder, `java/src/main/java/org/libpetri/core/PetriNet.java:362-367`,
-`typescript/src/core/petri-net.ts:199-203`). Fusion sets, instance composition and retired ports
+Rust core crate's `PetriNetBuilder::terminal`, `PetriNet.Builder.terminal` in
+`java/src/main/java/org/libpetri/core/PetriNet.java`, `PetriNetBuilder.terminal` in
+`typescript/src/core/petri-net.ts`). Fusion sets, instance composition and retired ports
 are not modelled: they rewrite arcs and drop places, and belong to the composition model (W8). -/
 def refNetBuild [DecidableEq N] {B : TBuilder N A} (inp : NetIn B) :
     Except String (BuiltNet N A) :=
@@ -644,10 +646,10 @@ variable [DecidableEq N] {B : TBuilder N A}
 /-- **The reference builder state machine**: the state is what was added so far and the nets
 built so far; `build` runs the reference net builder on what was added and keeps the result, and
 a handle is the index of a result. A later call changes what was added, never a kept result: Java
-copies its collections in `build()` (`java/src/main/java/org/libpetri/core/PetriNet.java:70-71`),
-TypeScript copies its place and transition sets in `build()`
-(`typescript/src/core/petri-net.ts:743-744`), Rust consumes the builder
-(`rust/libpetri-core/src/petri_net.rs:678`). -/
+copies its collections in `build()` (the private `PetriNet` constructor it calls,
+`java/src/main/java/org/libpetri/core/PetriNet.java`), TypeScript copies its place and transition
+sets in `build()` (`PetriNetBuilder.build`, `typescript/src/core/petri-net.ts`), Rust consumes the
+builder (`PetriNetBuilder::build` takes `self`, `rust/libpetri-core/src/petri_net.rs`). -/
 def copyBuilder (B : TBuilder N A) : BuilderApi B where
   S := NetIn B × List (Except String (BuiltNet N A))
   H := Nat
@@ -776,11 +778,12 @@ def refBind (b : BuiltNet N A) (r : String → Option (Act A)) : BuiltNet N A :=
 #spec_witness refBind
 
 /-- The map form as Rust reads it: a name the map omits is deferred (keeps its action,
-`rust/libpetri-core/src/petri_net.rs:177-183`). -/
+`PetriNet::bind_actions` in `rust/libpetri-core/src/petri_net.rs`). -/
 def mapKeep (m : String → Option (Act A)) : String → Option (Act A) := m
 
 /-- The map form as Java and TypeScript read it: a name the map omits gets passthrough
-(`java/src/main/java/org/libpetri/core/PetriNet.java:202`, `typescript/src/core/petri-net.ts:80-82`). -/
+(`PetriNet.bindActions(Map)` in `java/src/main/java/org/libpetri/core/PetriNet.java`,
+`PetriNet.bindActions` in `typescript/src/core/petri-net.ts`). -/
 def mapClobber (m : String → Option (Act A)) : String → Option (Act A) :=
   fun n => some ((m n).getD .passthrough)
 
@@ -895,9 +898,10 @@ theorem TransDef.outputPassthrough_iff {d : TransDef N A} :
 /-- **The reference compile check** ([CORE-043]): `none` = this check passes; `some n` = it fails,
 naming `n`, the name of the first transition in declaration order that declares an output
 specification and carries passthrough (all three runtimes throw on the first offender in
-transition order: `rust/libpetri-runtime/src/compiled_net.rs:66`,
-`java/src/main/java/org/libpetri/runtime/CompiledNet.java:101`,
-`typescript/src/runtime/compiled-net.ts:80`). -/
+transition order: `require_output_producing_actions`, called first by `CompiledNet::compile` in
+`rust/libpetri-runtime/src/compiled_net.rs`, and `requireOutputProducingActions`, called first by
+the `CompiledNet` constructor in `java/src/main/java/org/libpetri/runtime/CompiledNet.java` and
+`typescript/src/runtime/compiled-net.ts`). -/
 def refCompile (b : BuiltNet N A) : Option String :=
   (b.trans.find? TransDef.outputPassthrough).map (·.core.name)
 

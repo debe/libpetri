@@ -20,8 +20,8 @@ executions", on the rationale that "timing only restricts behavior". [TIME-013]:
   `JoinedOrDeadLettered`) are not predicates of the marking alone. The untimed `Bad` reads
   quiescence as "no transition enabled at this marking" (`encode_quiescent`); the executor
   comes to rest when its enabled *bits* are clear. A reap clears a bit while the tokens stay,
-  and both loops then terminate: `run_sync` (`executor_core/executor.rs:411`, the
-  `enabled_count() == 0` break right after `enforce_deadlines`) and `run_async` (`:1090`, the
+  and both loops then terminate: `run_sync` (`executor_core/executor.rs`, the
+  `enabled_count() == 0` break right after `enforce_deadlines`) and `run_async` (the
   same test with nothing in flight). Neither shipped backend marks a reaped transition dirty
   (the [TIME-013] ruling, `TimedCycle.lean`), so **both backends** stop, reason `Quiescent`,
   with the token stranded. The break comes before the next update phase, so the precompiled
@@ -168,9 +168,9 @@ def Outcome.marking : Outcome → AMarking
   | .running a _ => a
   | .halted a _ => a
 
-/-- One executor cycle on `netR` (`run_sync`, `executor_core/executor.rs:386`; `run_async`
-Phase 3/4 and the termination checks, `:1063-1095`): update enablement from the live marking,
-enforce deadlines, stop when nothing is enabled (`:411` / `:1090`; no environment place,
+/-- One executor cycle on `netR` (`run_sync`, `executor_core/executor.rs`; `run_async`
+Phase 3/4 and the termination checks): update enablement from the live marking,
+enforce deadlines, stop when nothing is enabled (the `enabled_count() == 0` break of both loops; no environment place,
 nothing in flight), otherwise fire `t` if the window is open and `recheck_can_fire` passes. -/
 def execCycle (enforce : Nat → Nat → Cell → Cell) (tm : Timing) (now : Nat) (a : AMarking)
     (s : Cell) : Outcome :=

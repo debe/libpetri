@@ -27,7 +27,7 @@ pub fn compute_metadata(events: &[NetEvent]) -> SessionMetadata {
     let mut has_errors = false;
 
     for event in events {
-        let type_name = event_type_name(event);
+        let type_name = event.event_type();
         *histogram.entry(type_name.to_string()).or_insert(0) += 1;
 
         let ts = event.timestamp();
@@ -46,26 +46,6 @@ pub fn compute_metadata(events: &[NetEvent]) -> SessionMetadata {
         first_event_time: first.map(|t| t.to_string()),
         last_event_time: last.map(|t| t.to_string()),
         has_errors,
-    }
-}
-
-/// Returns the PascalCase variant name of a `NetEvent`. Kept in sync with the
-/// Java/TS conventions so the histogram keys are identical across languages.
-fn event_type_name(event: &NetEvent) -> &'static str {
-    match event {
-        NetEvent::ExecutionStarted { .. } => "ExecutionStarted",
-        NetEvent::ExecutionCompleted { .. } => "ExecutionCompleted",
-        NetEvent::TransitionEnabled { .. } => "TransitionEnabled",
-        NetEvent::TransitionClockRestarted { .. } => "TransitionClockRestarted",
-        NetEvent::TransitionStarted { .. } => "TransitionStarted",
-        NetEvent::TransitionCompleted { .. } => "TransitionCompleted",
-        NetEvent::TransitionFailed { .. } => "TransitionFailed",
-        NetEvent::TransitionTimedOut { .. } => "TransitionTimedOut",
-        NetEvent::ActionTimedOut { .. } => "ActionTimedOut",
-        NetEvent::TokenAdded { .. } => "TokenAdded",
-        NetEvent::TokenRemoved { .. } => "TokenRemoved",
-        NetEvent::LogMessage { .. } => "LogMessage",
-        NetEvent::MarkingSnapshot { .. } => "MarkingSnapshot",
     }
 }
 

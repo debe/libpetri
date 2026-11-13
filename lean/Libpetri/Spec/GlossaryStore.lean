@@ -137,7 +137,7 @@ def refBoundedStore (c : Nat) : StoreObs E where
 These are not glossary terms: they are the store shapes that more than one block of the store
 tier uses as evidence, defined once here. -/
 
-/-- The live in-memory store (TypeScript `InMemoryEventStore`, `event-store.ts:58-60`): the array
+/-- The live in-memory store (TypeScript `InMemoryEventStore.events`, `event-store.ts`): the array
 `events()` returns is the store's own, so it shows every operation made after the call (its
 `clear()` empties that array in place). -/
 def liveMemStore : StoreObs E where

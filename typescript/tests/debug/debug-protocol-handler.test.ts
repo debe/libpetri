@@ -429,6 +429,56 @@ describe('DebugProtocolHandler', () => {
       expect(events).toHaveLength(0);
     });
 
+    // [EVT-032] AC3: an eviction moves every retained event to a lower index, so the
+    // handler must drop the replay cache's snapshots before the next seek / step.
+    function evictionScenario(): { store: DebugEventStore; lastTs: number } {
+      registry = new DebugSessionRegistry(50, id => new DebugEventStore(id, 300));
+      handler = new DebugProtocolHandler(registry);
+      responses = [];
+      connectClient('c1');
+      const session = registry.register('s1', TEST_NET);
+      const store = session.eventStore;
+      let ts = 1;
+      // 300 adds fill the store; seeking to the end caches the snapshot at index 256 (A = 256).
+      for (let i = 0; i < 300; i++) {
+        store.append({ type: 'token-added', timestamp: ts++, placeName: 'A', token: tokenOf(i) });
+      }
+      handler.handleCommand('c1', { type: 'subscribe', sessionId: 's1', mode: 'replay', fromIndex: 0 });
+      handler.handleCommand('c1', { type: 'seek', sessionId: 's1', timestamp: new Date(ts).toISOString() });
+      expect(lastResponseOfType('markingSnapshot')!.marking['A']).toHaveLength(256 + 44);
+      // 100 removals evict the 100 oldest adds: the retained window is 200 adds, 100 removals.
+      for (let i = 0; i < 100; i++) {
+        store.append({ type: 'token-removed', timestamp: ts++, placeName: 'A', token: tokenOf(i) });
+      }
+      expect(store.evictedCount()).toBe(100);
+      return { store, lastTs: ts };
+    }
+
+    it('[EVT-032] AC3: seek after an eviction returns the replay of the retained events', () => {
+      const { store, lastTs } = evictionScenario();
+      responses.length = 0;
+
+      handler.handleCommand('c1', { type: 'seek', sessionId: 's1', timestamp: new Date(lastTs).toISOString() });
+
+      const snapshot = lastResponseOfType('markingSnapshot')!;
+      const expected = computeState(store.events());
+      expect(snapshot.marking['A']).toHaveLength(expected.marking.get('A')!.length);
+      expect(snapshot.marking['A']).toHaveLength(100);
+    });
+
+    it('[EVT-032] AC3: step backward after an eviction returns the replay of the retained events', () => {
+      const { store } = evictionScenario();
+      // Seek put the cursor at 300 before the eviction; stepping back lands on 299.
+      responses.length = 0;
+
+      handler.handleCommand('c1', { type: 'stepBackward', sessionId: 's1' });
+
+      const snapshot = lastResponseOfType('markingSnapshot')!;
+      const expected = computeState(store.events().slice(0, 299));
+      expect(snapshot.marking['A']).toHaveLength(expected.marking.get('A')!.length);
+      expect(snapshot.marking['A']).toHaveLength(200 - 99);
+    });
+
     it('should not step backward before start', () => {
       setup();
       connectClient('c1');

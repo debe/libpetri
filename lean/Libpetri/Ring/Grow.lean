@@ -10,7 +10,7 @@ namespace Libpetri
 
 namespace Pool
 
-/-! ## `grow_ring_static` (`precompiled_backend.rs:1412-1439`)
+/-! ## `grow_ring_static` (`precompiled_backend.rs`)
 
 Appends a fresh `2 * cap` block at the end of the pool, `take()`s the `cnt`
 live tokens into it linearly (`head = 0`, `tail = cnt`), and re-points the
@@ -244,7 +244,7 @@ theorem growRing_proj_other {s : Pool} (hwf : WF s) {p q : PlaceId}
       have h2 := offset_le_slot s q i
       rcases hwf.disjoint p q hp hq (fun h => hne h.symm) with h | h <;> omega)]
 
-/-! ## `ring_add_last` (`precompiled_backend.rs:406-423`)
+/-! ## `ring_add_last` (`precompiled_backend.rs`)
 
 Write at the tail slot, bump the tail, increment the count — growing first
 when the ring is full. `pushLast` is the write half; `addLast` is the shipped

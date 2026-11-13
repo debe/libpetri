@@ -147,7 +147,7 @@ executor.terminationReason();                // 'terminal'
 isComplete(executor.terminationReason());    // true
 ```
 
-The executor stops at the deposit that marks the terminal place. Nothing fires after it, actions still in flight are abandoned and their late results discarded, and queued external events are refused (`inject` resolves `false`). A terminal place may be an environment place: injecting into it ends the run. It must not be an input or read-arc place of any transition, and a subnet body may not declare one. The SMT verifier applies terminal places by itself: each one inhibits every transition and excuses every token while it is marked, so no sink options are needed. It also models the abandoned actions: a `quiescentCount` with a lower bound counts only the tokens a run deposits before the terminal stop, unless the terminal place is in its `waivedBy`.
+The executor stops at the deposit that marks the terminal place. Nothing fires after it, actions still in flight are abandoned and their late results discarded (outputs are deposited in the completion phase, so a transition started earlier in the same pass is among them), and queued external events are refused (`inject` resolves `false`). A terminal place may be an environment place: injecting into it ends the run. It must not be an input or read-arc place of any transition, and a subnet body may not declare one. The SMT verifier applies terminal places by itself: each one inhibits every transition and excuses every token while it is marked, so no sink options are needed. It also models the abandoned actions: a `quiescentCount` with a lower bound counts only the tokens a run deposits before the terminal stop, unless the terminal place is in its `waivedBy`.
 
 `terminationReason()` returns `'quiescent'`, `'terminal'`, `'closed'` (after `close()`) or `'stopped'` (an expired `run(timeoutMs)` budget, which still rejects), and `'running'` before the run ends. `isComplete(reason)` is true only for `'quiescent'` and `'terminal'`: the other two are truncations.
 
@@ -161,7 +161,18 @@ const restore: MarkingSnapshotForm = new Map(JSON.parse(stored));
 const resumed = new BitmapNetExecutor(net, new Map(), { restore });
 ```
 
-A snapshot maps place names to tokens, in a canonical order, and carries `createdAt` through untouched. Persist one only when `isRestorePoint(result)` — that is, when `actionInFlight` is false: the flag is true while an action is running or an injected event has not reached its place yet, and either way a token is in no place. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `executionScope` when a replay must reproduce them, fresh per run segment.
+A snapshot maps place names to tokens, in a canonical order, and carries `createdAt` through untouched. Persist one only when `isRestorePoint(result)` — that is, when `actionInFlight` is false: the flag is true while an action is running or an injected event has not reached its place yet, and either way a token is in no place. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `executionScope` when a replay must reproduce them, fresh per run segment. The default scope is `crypto.randomUUID()` without dashes; an empty scope or one containing `:` or `#` throws an `Error`. `Marking.snapshot()` and `Marking.fromSnapshot()` convert between a marking and the snapshot form; places are equal by name, so a restore needs no list of the net's places.
+
+## Clocks
+
+Pass `clock` in the executor options to drive a run from a host clock (`Clock`: `now`, `epochNow`, `sleep`). `systemClock()` is the real clock and `seedToken(clock, value)` stamps a token from the clock's epoch. Without a clock the executor reads the real clocks directly. Each `sleep` gets its own `AbortSignal`, aborted when the wait is no longer needed and on `close()`. The contract is settled, but the names and signatures of this API may still change.
+
+## Events
+
+- `TransitionCompleted` carries `producedTokens` and `durationMs`. It is also emitted for a firing that ended with its timeout outcome, after `ActionTimedOut`, once the timeout branch is deposited.
+- `TransitionFailed` carries `errorMessage`, `exceptionType` (the error's name) and, when available, `stack`.
+- `TransitionTimedOut` carries `deadlineMs` and `actualDurationMs`, the time elapsed since enablement.
+- `ActionTimedOut` carries `timeoutMs` and is emitted from the action's timer when the budget runs out.
 
 ## Package entry points
 

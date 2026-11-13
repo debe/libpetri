@@ -334,8 +334,8 @@ mod tests {
         assert_eq!(state.marking.get("p1").map(|t| t.len()), Some(300));
     }
 
-    /// \[EVT-014\] AC5 (rendering reproducibility — Rust has no producer of
-    /// the event, so AC1–AC4 are not covered here or anywhere).
+    /// \[EVT-014\] AC5 (rendering reproducibility). AC1–AC4 are covered on
+    /// the executors, in `libpetri-runtime`'s backend suite.
     ///
     /// A replayed state is handed to the debug protocol and to the Python
     /// binding, which both iterate it — so its order must not depend on the

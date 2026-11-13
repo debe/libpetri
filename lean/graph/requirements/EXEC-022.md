@@ -13,38 +13,38 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/EVT_010.lean"]
-    n6419["Libpetri.Spec.EVT_010"]
-    n6436["Libpetri.Spec.EVT_010_rust"]
-    n15261["Libpetri.Spec.evt010_AgreesAto"]
-    n15262["Libpetri.Spec.evt010_AtoFirst"]
-    n15264["Libpetri.Spec.evt010_Spent"]
-    n15270["Libpetri.Spec.evt010_atoAt"]
-    n15271["Libpetri.Spec.evt010_atoAt_agree"]
-    n15272["Libpetri.Spec.evt010_atoAt_of"]
-    n15273["Libpetri.Spec.evt010_atoFirst_append"]
-    n15274["Libpetri.Spec.evt010_atoOf"]
-    n15275["Libpetri.Spec.evt010_atoOf_cons"]
-    n15286["Libpetri.Spec.evt010_iff"]
-    n15288["Libpetri.Spec.evt010_isExpire"]
-    n15289["Libpetri.Spec.evt010_isTimeoutOut_iff"]
-    n15296["Libpetri.Spec.evt010_lblId"]
-    n15297["Libpetri.Spec.evt010_line1"]
-    n15298["Libpetri.Spec.evt010_line1_of"]
-    n15299["Libpetri.Spec.evt010_line2"]
-    n15300["Libpetri.Spec.evt010_line2_of"]
-    n15301["Libpetri.Spec.evt010_line3"]
-    n15302["Libpetri.Spec.evt010_line3_of"]
-    n15306["Libpetri.Spec.evt010_ref"]
-    n15307["Libpetri.Spec.evt010_refAto"]
-    n15308["Libpetri.Spec.evt010_refBoot"]
-    n15309["Libpetri.Spec.evt010_refCount_expire"]
-    n15310["Libpetri.Spec.evt010_refCount_fail"]
-    n15311["Libpetri.Spec.evt010_refCount_tdeposit"]
-    n15314["Libpetri.Spec.evt010_refTdeposit"]
-    n15316["Libpetri.Spec.evt010_runLB"]
-    n15317["Libpetri.Spec.evt010_runUB"]
-    n15318["Libpetri.Spec.evt010_settlesTimeout"]
-    n15321["Libpetri.Spec.evt010_stepUB"]
+    n6420["Libpetri.Spec.EVT_010"]
+    n6437["Libpetri.Spec.EVT_010_rust"]
+    n15262["Libpetri.Spec.evt010_AgreesAto"]
+    n15263["Libpetri.Spec.evt010_AtoFirst"]
+    n15265["Libpetri.Spec.evt010_Spent"]
+    n15271["Libpetri.Spec.evt010_atoAt"]
+    n15272["Libpetri.Spec.evt010_atoAt_agree"]
+    n15273["Libpetri.Spec.evt010_atoAt_of"]
+    n15274["Libpetri.Spec.evt010_atoFirst_append"]
+    n15275["Libpetri.Spec.evt010_atoOf"]
+    n15276["Libpetri.Spec.evt010_atoOf_cons"]
+    n15287["Libpetri.Spec.evt010_iff"]
+    n15289["Libpetri.Spec.evt010_isExpire"]
+    n15290["Libpetri.Spec.evt010_isTimeoutOut_iff"]
+    n15297["Libpetri.Spec.evt010_lblId"]
+    n15298["Libpetri.Spec.evt010_line1"]
+    n15299["Libpetri.Spec.evt010_line1_of"]
+    n15300["Libpetri.Spec.evt010_line2"]
+    n15301["Libpetri.Spec.evt010_line2_of"]
+    n15302["Libpetri.Spec.evt010_line3"]
+    n15303["Libpetri.Spec.evt010_line3_of"]
+    n15307["Libpetri.Spec.evt010_ref"]
+    n15308["Libpetri.Spec.evt010_refAto"]
+    n15309["Libpetri.Spec.evt010_refBoot"]
+    n15310["Libpetri.Spec.evt010_refCount_expire"]
+    n15311["Libpetri.Spec.evt010_refCount_fail"]
+    n15312["Libpetri.Spec.evt010_refCount_tdeposit"]
+    n15315["Libpetri.Spec.evt010_refTdeposit"]
+    n15317["Libpetri.Spec.evt010_runLB"]
+    n15318["Libpetri.Spec.evt010_runUB"]
+    n15319["Libpetri.Spec.evt010_settlesTimeout"]
+    n15322["Libpetri.Spec.evt010_stepUB"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
@@ -82,85 +82,85 @@ flowchart TD
   c232 --> c103
   c232 --> c146
   c239 --> c80
-  n6419 --> c131
-  n6419 --> n15262
-  n6419 --> n15274
-  n6419 --> n15288
-  n6419 --> n15318
-  n6436 --> n15306
-  n15261 --> c78
-  n15261 --> n15296
-  n15262 --> c138
-  n15264 --> c78
-  n15264 --> c239
-  n15270 --> c138
-  n15270 --> n15296
-  n15271 --> n15261
-  n15271 --> n15270
-  n15272 --> n15270
-  n15273 --> n15262
-  n15274 --> c78
-  n15274 --> n15270
-  n15275 --> n15274
-  n15286 --> n6419
-  n15286 --> n15297
-  n15286 --> n15299
-  n15286 --> n15301
-  n15288 --> c139
-  n15289 --> c78
-  n15296 --> c139
-  n15297 --> c78
-  n15297 --> c131
-  n15297 --> n15288
-  n15297 --> n15296
+  n6420 --> c131
+  n6420 --> n15263
+  n6420 --> n15275
+  n6420 --> n15289
+  n6420 --> n15319
+  n6437 --> n15307
+  n15262 --> c78
+  n15262 --> n15297
+  n15263 --> c138
+  n15265 --> c78
+  n15265 --> c239
+  n15271 --> c138
+  n15271 --> n15297
+  n15272 --> n15262
+  n15272 --> n15271
+  n15273 --> n15271
+  n15274 --> n15263
+  n15275 --> c78
+  n15275 --> n15271
+  n15276 --> n15275
+  n15287 --> n6420
+  n15287 --> n15298
+  n15287 --> n15300
+  n15287 --> n15302
+  n15289 --> c139
+  n15290 --> c78
+  n15297 --> c139
+  n15298 --> c78
+  n15298 --> c131
+  n15298 --> n15289
   n15298 --> n15297
-  n15298 --> n15307
-  n15299 --> c78
-  n15299 --> c131
-  n15299 --> n15262
-  n15300 --> n15299
-  n15301 --> n15274
-  n15301 --> n15318
-  n15302 --> n15301
-  n15302 --> n15316
-  n15302 --> n15317
-  n15306 --> n15286
-  n15306 --> n15298
-  n15306 --> n15300
-  n15306 --> n15302
-  n15306 --> n15308
-  n15306 --> n15314
-  n15307 --> c78
-  n15307 --> n15288
-  n15307 --> n15296
+  n15299 --> n15298
+  n15299 --> n15308
+  n15300 --> c78
+  n15300 --> c131
+  n15300 --> n15263
+  n15301 --> n15300
+  n15302 --> n15275
+  n15302 --> n15319
+  n15303 --> n15302
+  n15303 --> n15317
+  n15303 --> n15318
+  n15307 --> n15287
+  n15307 --> n15299
+  n15307 --> n15301
+  n15307 --> n15303
+  n15307 --> n15309
+  n15307 --> n15315
   n15308 --> c78
+  n15308 --> n15289
+  n15308 --> n15297
   n15309 --> c78
-  n15310 --> c214
-  n15311 --> c78
-  n15314 --> c78
-  n15314 --> n15273
-  n15316 --> c239
-  n15316 --> n15271
-  n15316 --> n15272
-  n15316 --> n15275
-  n15316 --> n15289
-  n15316 --> n15309
-  n15316 --> n15310
-  n15316 --> n15311
-  n15316 --> n15318
-  n15317 --> n15271
-  n15317 --> n15275
-  n15317 --> n15321
-  n15318 --> c78
-  n15321 --> n15264
-  n15321 --> n15270
-  n15321 --> n15309
-  n15321 --> n15310
-  n15321 --> n15311
+  n15310 --> c78
+  n15311 --> c214
+  n15312 --> c78
+  n15315 --> c78
+  n15315 --> n15274
+  n15317 --> c239
+  n15317 --> n15272
+  n15317 --> n15273
+  n15317 --> n15276
+  n15317 --> n15290
+  n15317 --> n15310
+  n15317 --> n15311
+  n15317 --> n15312
+  n15317 --> n15319
+  n15318 --> n15272
+  n15318 --> n15276
+  n15318 --> n15322
+  n15319 --> c78
+  n15322 --> n15265
+  n15322 --> n15271
+  n15322 --> n15310
+  n15322 --> n15311
+  n15322 --> n15312
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n6436 root
+  class n6437 root
   class c0,c54,c66,c78,c80,c91,c94,c98,c103,c109,c131,c132,c138,c139,c146,c214,c232,c239 collapsed
 ```
 

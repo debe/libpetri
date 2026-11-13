@@ -237,22 +237,10 @@ pub fn extract_place_name(event: &NetEvent) -> Option<&str> {
 }
 
 /// Maps a Rust `NetEvent` variant to a PascalCase type name string.
+///
+/// Same as [`NetEvent::event_type`].
 pub fn event_type_name(event: &NetEvent) -> &'static str {
-    match event {
-        NetEvent::ExecutionStarted { .. } => "ExecutionStarted",
-        NetEvent::ExecutionCompleted { .. } => "ExecutionCompleted",
-        NetEvent::TransitionEnabled { .. } => "TransitionEnabled",
-        NetEvent::TransitionClockRestarted { .. } => "TransitionClockRestarted",
-        NetEvent::TransitionStarted { .. } => "TransitionStarted",
-        NetEvent::TransitionCompleted { .. } => "TransitionCompleted",
-        NetEvent::TransitionFailed { .. } => "TransitionFailed",
-        NetEvent::TransitionTimedOut { .. } => "TransitionTimedOut",
-        NetEvent::ActionTimedOut { .. } => "ActionTimedOut",
-        NetEvent::TokenAdded { .. } => "TokenAdded",
-        NetEvent::TokenRemoved { .. } => "TokenRemoved",
-        NetEvent::LogMessage { .. } => "LogMessage",
-        NetEvent::MarkingSnapshot { .. } => "MarkingSnapshot",
-    }
+    event.event_type()
 }
 
 #[cfg(test)]

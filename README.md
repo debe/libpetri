@@ -203,10 +203,10 @@ id travels through them. See [ν-nets](spec/12-nu-nets.md).
 A verifier is only useful if its model matches what the runtime does. libpetri backs that up in three layers.
 
 <p align="center">
-  <img src="docs/readme/evidence.svg" alt="One specification with 224 requirements feeds independent Java, TypeScript and Rust implementations; Python binds the Rust one. All three send identical SMT-LIB2 scripts to z3. Lean 4 proofs show that the verifier abstraction covers every run and that the precompiled executor refines the reference." width="900">
+  <img src="docs/readme/evidence.svg" alt="One specification feeds independent Java, TypeScript and Rust implementations; Python binds the Rust one. All three send identical SMT-LIB2 scripts to z3. Lean 4 proofs show that the verifier abstraction covers every run and that the precompiled executor refines the reference." width="900">
 </p>
 
-1. **One specification.** [224 requirements](https://libpetri.org/spec/) with acceptance criteria define the
+1. **One specification.** [Requirements](https://libpetri.org/spec/) with acceptance criteria define the
    model, the execution loop, timing, composition, ν-nets and verification. Java, TypeScript and Rust implement
    it independently, and each runs its own conformance tests. Python binds the Rust engine and tests its binding.
 2. **Identical solver input.** The three implementations write byte-identical SMT-LIB2 scripts for every fixture.
@@ -235,7 +235,7 @@ depends on. The [spec site](https://libpetri.org/spec/) shows every requirement 
 statement and its evidence, next to small example runs that the Lean reference replays step by step.
 
 <p align="center">
-  <a href="https://libpetri.org/spec/"><img src="docs/readme/spec-site.png" alt="The home page of the libpetri spec site. A row of counts shows 224 rules, 138 of them with a Lean block, 22 open defects and 24 situations. Below it, cards for small example nets each show a diagram, a short summary, how many rules the run touches and whether the Lean reference replays it." width="900"></a>
+  <a href="https://libpetri.org/spec/"><img src="docs/readme/spec-site.png" alt="The home page of the libpetri spec site. A row of counts shows how many rules there are, how many have a Lean block, the open defects and the example situations. Below it, cards for small example nets each show a diagram, a short summary, how many rules the run touches and whether the Lean reference replays it." width="900"></a>
 </p>
 
 ## Where it is used

@@ -45,8 +45,8 @@ export interface CountItem {
 }
 
 /**
- * The live numbers on the Specification card (design 11: "224 rules · 138 with a Lean block ·
- * 24 situations · 22 open defects"). Every one is read from the site data.
+ * The live numbers on the Specification card (design 11: rules, rules with a Lean block,
+ * situations, open defects). Every one is read from the site data.
  */
 export function specCountItems(c: SiteCounts): readonly CountItem[] {
   return [

@@ -31,15 +31,16 @@ executor events and the store tier speak of one event type (design events.md, se
 * **E4, the replay** (`ReplayAgrees`, `replayAgrees_step`, `refReplay_agrees`): replaying a run's
   events with [EVT-032]'s replay (`NetEvent.replayView`) gives, on every declared place, the
   tokens the executor holds, and an enabled set that contains every armed transition, provided
-  the boot carries the snapshot of the initial marking (Java and TypeScript;
-  `replayAgrees_needs_snapshot` shows Rust and Python fail it, clash evt-c#11).
+  the boot carries the snapshot of the initial marking (every runtime's emission;
+  `replayAgrees_needs_snapshot` shows an emission without it fails, clash evt-c#11).
   `cov_replay_end` shows the enabled set is strictly wider (ruling D83 (a)).
 * **E5, coverage** (`EvCovers`, `refEvCovers`, `evCovers_excludes_silent`): one decided trace of
   the reference holds all twelve kinds the executor tier emits (every kind but `LogMessage`, for
   which the executor has no label), and an executor that emits nothing fails the condition.
 * **E6, scope** (`polBlind`, `refEmitW_polBlind`, `refBoot_polBlind`): the two emission variants
   emit the same events at every step once the three points of `EvPol` are left out (snapshots,
-  where `ActionTimedOut` is emitted, the completion of a timeout deposit), which is why each main
+  where `ActionTimedOut` is emitted, the completion of a timeout deposit; the runtimes differ in
+  the last two), which is why each main
   block's `_rust` holds theorem goes through with the same proof.
 * **The replay view** (`NetEvent.toRec`, `NetEvent.replayView`): the map that forgets what the
   replay does not read (tokens, durations, payload lists; a snapshot's queues become counts),
@@ -498,9 +499,10 @@ def isTdepositL : XLbl N T → Bool
   | _ => false
 
 /-- **The events every emission variant agrees on**, at a step labelled `l`: every event but a
-`MarkingSnapshot` (Java and TypeScript only), an `ActionTimedOut` (emitted at the expiry by Java
-and TypeScript, at the settle by Rust and Python) and the `TransitionCompleted` of a timeout
-deposit (Java and TypeScript only). These are the three fields of `EvPol`. -/
+`MarkingSnapshot` (absent from an emission without snapshots, `polNoSnap`), an `ActionTimedOut`
+(emitted at the expiry by Java and TypeScript, at the settle by Rust and Python) and the
+`TransitionCompleted` of a timeout deposit (Java and TypeScript only). These are the three fields
+of `EvPol`. -/
 def polBlind (l : XLbl N T) (e : NetEvent N T) : Bool :=
   e.kind != .markingSnapshot && e.kind != .actionTimedOut &&
     !(isTdepositL l && e.kind == .transitionCompleted)
@@ -814,7 +816,7 @@ def ReplayAgrees (C : Cfg N T) (r : RState N) (s : XSt N T) : Prop :=
 
 /-- **E4, one step**: a step of the reference executor with events keeps replay agreement, under
 every emission variant. A start's `TokenRemoved` events take what it removes, a deposit's
-`TokenAdded` events add what it appends, a finish's snapshot (Java and TypeScript) restates the
+`TokenAdded` events add what it appends, a finish's snapshot (where the variant emits one) restates the
 counts, an update's `TransitionEnabled` events announce what it arms, and no other step arms. -/
 theorem replayAgrees_step (P : EvPol) {C : Cfg N T} {H : List (NetEvent N T)} {s s' : XSt N T}
     {l : XLbl N T} (hs : xstep C s l = some s') {r : RState N} (hr : ReplayAgrees C r s) :
@@ -933,8 +935,8 @@ theorem replayAgrees_lrun (P : EvPol) {C : Cfg N T} :
     have := replayAgrees_lrun P hrest h1
     simpa [EvStep.events, List.flatMap_cons, List.append_assoc, runEnd] using this
 
-/-- Replay agreement at the boot, when the boot carries the snapshot of the initial marking (Java
-and TypeScript): nothing is armed yet, and the snapshot gives the declared counts. -/
+/-- Replay agreement at the boot, when the boot carries the snapshot of the initial marking (every
+runtime's emission): nothing is armed yet, and the snapshot gives the declared counts. -/
 theorem replayAgrees_boot (P : EvPol) (hP : P.snapshots = true) (C : Cfg N T) (M0 : QMarking N T)
     (r0 : Nat) : ReplayAgrees C (evReplay (refBoot P C M0)) (xinit M0 r0) := by
   refine ⟨fun p hp => ?_, fun n hn => by simp [xinit, isArmedS] at hn⟩
@@ -945,8 +947,8 @@ theorem replayAgrees_boot (P : EvPol) (hP : P.snapshots = true) (C : Cfg N T) (M
 
 /-- **E4, the replay of a run** (design link E4, the base of the [EVT-032] executor companion):
 for every labelled run of the reference executor with events from the initial state, under an
-emission variant whose boot carries the snapshot of the initial marking (Java and TypeScript,
-`polJT`), replaying the run's events (the boot events, then the events of each step) gives, on
+emission variant whose boot carries the snapshot of the initial marking (`polJT` and `polRust`),
+replaying the run's events (the boot events, then the events of each step) gives, on
 every declared place, the number of tokens the place holds at the end of the run, and an enabled
 set that contains every transition armed at the end.
 
@@ -1033,11 +1035,11 @@ def covTraceJT : List (NetEvent Nat Nat) :=
    .tokenAdded 5 7, .transitionCompleted "a" [(5, 7)] 0,
    .markingSnapshot [(0, [9]), (5, [7]), (6, [6])], .executionCompleted]
 
-/-- The events of the scenario under the Rust and Python emission: no snapshot, and the
-`ActionTimedOut` of `a` comes with the deposit of its timeout outcome, which reports no
-`TransitionCompleted`. -/
+/-- The events of the scenario under the Rust and Python emission: the `ActionTimedOut` of `a`
+comes with the deposit of its timeout outcome, which reports no `TransitionCompleted`. The two
+snapshots are the model's; Rust's carry the counts of these queues (RD-50). -/
 def covTraceRust : List (NetEvent Nat Nat) :=
-  [.executionStarted,
+  [.executionStarted, .markingSnapshot [(0, [1]), (1, [4]), (2, [2]), (3, [3]), (6, [6])],
    .transitionEnabled "r", .transitionEnabled "T", .transitionEnabled "f",
    .transitionEnabled "a", .transitionEnabled "w",
    .tokenRemoved 0 1, .tokenRemoved 1 4, .transitionStarted "r" [(0, 1), (1, 4)],
@@ -1046,7 +1048,7 @@ def covTraceRust : List (NetEvent Nat Nat) :=
    .tokenRemoved 2 2, .transitionStarted "f" [(2, 2)], .transitionFailed "f",
    .transitionTimedOut "w" 4 12,
    .tokenRemoved 3 3, .transitionStarted "a" [(3, 3)], .actionTimedOut "a",
-   .tokenAdded 5 7, .executionCompleted]
+   .tokenAdded 5 7, .markingSnapshot [(0, [9]), (5, [7]), (6, [6])], .executionCompleted]
 
 /-- The Java and TypeScript trace of the scenario, decided. -/
 theorem covTrace_jt : refTrace polJT covCfg covM0 0 covRun = some covTraceJT := by
@@ -1065,9 +1067,9 @@ its completion, and the final snapshot and `ExecutionCompleted`. -/
 theorem refEvCovers : EvCovers (refEvExec polJT) :=
   ⟨covCfg, covM0, 0, covTraceJT, refTrace_trace polJT covTrace_jt, by decide⟩
 
-/-- E5 for the Rust and Python emission: the same scenario holds every kind but the snapshot
-(Rust and Python have no producer, [EVT-014]). -/
-theorem refEvCovers_rust : EvCoversKinds (execKinds.erase .markingSnapshot) (refEvExec polRust) :=
+/-- E5 for the Rust and Python emission: the same scenario holds all twelve kinds, with the
+`ActionTimedOut` of `a` at the deposit of its timeout outcome and no `TransitionCompleted` there. -/
+theorem refEvCovers_rust : EvCovers (refEvExec polRust) :=
   ⟨covCfg, covM0, 0, covTraceRust, refTrace_trace polRust covTrace_rust, by decide⟩
 
 /-- An executor that steps as the reference and emits nothing at all. -/
@@ -1117,8 +1119,8 @@ theorem atomic_loser_run :
           decide (s.st "T" = .armed 0 false)) = some true ∧
     refTrace polRust loserCfg loserM0 0
         (covCyc ++ [.deadline []] ++ atomicLabels "r" 0 [(0, 9)] ["T"]) =
-      some [.executionStarted, .transitionEnabled "r", .transitionEnabled "T",
-        .tokenRemoved 0 1, .transitionStarted "r" [(0, 1)], .tokenAdded 0 9,
+      some [.executionStarted, .markingSnapshot [(0, [1])], .transitionEnabled "r",
+        .transitionEnabled "T", .tokenRemoved 0 1, .transitionStarted "r" [(0, 1)], .tokenAdded 0 9,
         .transitionCompleted "r" [(0, 9)] 0, .transitionEnabled "r", .transitionEnabled "T"] := by
   decide +kernel
 
@@ -1138,11 +1140,11 @@ theorem cov_replay_end :
         some (covCfg.X.net.places.map fun p => (evReplay covTraceJT).cnt p) := by
   decide +kernel
 
-/-- **The snapshot is needed** (clash evt-c#11): the Rust and Python boot carries no snapshot, so
-the replay of their boot counts no token in place 0 where the initial marking holds one, and
-replay agreement fails at the boot. -/
+/-- **The snapshot is needed** (clash evt-c#11): the boot of an emission without snapshots
+(`polNoSnap`) is `ExecutionStarted` alone, so the replay of the boot counts no token in place 0
+where the initial marking holds one, and replay agreement fails at the boot. -/
 theorem replayAgrees_needs_snapshot :
-    ¬ ReplayAgrees covCfg (evReplay (refBoot polRust covCfg covM0)) (xinit covM0 0) := by
+    ¬ ReplayAgrees covCfg (evReplay (refBoot polNoSnap covCfg covM0)) (xinit covM0 0) := by
   intro h
   have := h.1 0 (by decide)
   revert this

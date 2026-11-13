@@ -102,7 +102,8 @@ Two theorems sit beside it, one model each:
 * `joint_events_covers_sketch` adds the coverage of the event kinds (design link E5,
   `EvCovers`), stated over `Nat` places and tokens as the coverage scenario is;
 * `events_rust_scope` shows the Rust and Python emission (`refEvExec polRust`) meeting every main
-  block (design link E6); the payload companions and EVT-014 are scoped to Java and TypeScript.
+  block (design link E6); the payload companions are scoped to Java and TypeScript, and EVT-014,
+  whose snapshot carries tokens, is not stated of Rust, whose snapshot carries counts (RD-50).
 -/
 
 namespace Libpetri.Spec
@@ -265,10 +266,10 @@ theorem joint_events_covers_sketch :
 
 /-- ✓ The Rust and Python emission meets every main executor event block (design link E6): the
 reference executor with events, emitting as Rust and Python do and with no captured action log,
-meets them all. Its emission differs from the Java and TypeScript one only in the marking
-snapshots, the `ActionTimedOut` events and the completion of a timeout outcome, which no main
-block reads. For example, a run of it emits no `MarkingSnapshot` and still announces its start
-and end once. -/
+meets them all. Its emission differs from the Java and TypeScript one only in the `ActionTimedOut`
+events and the completion of a timeout outcome, which no main block reads. For example, at the
+deposit of a timeout outcome it reports `ActionTimedOut` and the `TokenAdded` events and no
+`TransitionCompleted`, and it still announces the start and end of a run once. -/
 @[evidence consistent EVT_002 EVT_003 EVT_004 EVT_005 EVT_006 EVT_007 EVT_008 EVT_009 EVT_010
   EVT_011 EVT_012 EVT_013 ENV_016_await]
 theorem events_rust_scope {N T : Type} [DecidableEq N] :

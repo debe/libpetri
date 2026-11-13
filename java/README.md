@@ -59,6 +59,12 @@ Java actions are invoked **inline on the orchestrator thread**. libpetri does no
 
 One orchestrator owns the marking. Completed stages, external events, and timers wake it so token movement remains deterministic even when actions overlap.
 
+The executor does not read the thread's interrupt flag as a stop request. Both executors clear and remember the flag when the run starts, after each inline action returns and before every wait, and restore it when `run()` returns. A flag set before `run()` or by an action never truncates the run. Only an interrupt that arrives during a wait entered with the flag clear ends the run, with `terminationReason()` `INTERRUPTED` and a `WARN` log. An interrupt that lands while an inline action runs is deferred and is set again when `run()` returns. `terminationReason()` also tells a completed run (`QUIESCENT`, `TERMINAL`) from a truncated one.
+
+## Clocks
+
+`ExecutionEnvironment` (`nanoTime`, `now`, `awaitWork`) lets a host drive both executors from its own clock; without one the executor reads the real clocks directly. `awaitWork` cannot throw `InterruptedException`: the executor calls it with the interrupt flag clear and reads the flag when it returns, so a host that blocks interruptibly catches the exception, re-interrupts and returns. The contract is settled, but the names and signatures of this API may still change.
+
 ## Terminal places
 
 ```java
@@ -71,7 +77,7 @@ var marking = executor.run();
 executor.terminationReason(); // TERMINAL — a completed reason, like QUIESCENT
 ```
 
-A net that never quiesces, such as one with environment places, can say "done" in the model. The executor checks the initial marking and every token it deposits. Once a terminal place is marked, no transition fires afterwards, not even one already enabled later in the same pass. Actions still in flight are abandoned and their results discarded, and queued external events are refused. A terminal place must not be an input or read by any transition, and a subnet body may not declare one. The verifiers apply the declaration themselves: you do not restate it as sink places.
+A net that never quiesces, such as one with environment places, can say "done" in the model. The executor checks the initial marking and every token it deposits. Once a terminal place is marked, no transition fires afterwards, not even one already enabled later in the same pass: a synchronous action's outputs are deposited inside the firing pass, which stops there. Actions still in flight are abandoned and their results discarded, and queued external events are refused. A terminal place must not be an input or read by any transition, and a subnet body may not declare one. The verifiers apply the declaration themselves: you do not restate it as sink places.
 
 ## Checkpoint and resume
 
@@ -82,9 +88,9 @@ if (snap.isRestorePoint()) save(snap.marking()); // Map<String, List<Token<?>>>
 var resumed = BitmapNetExecutor.builder(net, Map.of()).restore(saved).build();
 ```
 
-A snapshot maps place names to tokens, in a canonical order, and carries `createdAt` through untouched. Persist one only when `isRestorePoint()` is true: `actionInFlight` is set while an action is running or an injected event has not reached its place yet, and either way a token is in no place. While the orchestrator is parked in its wait, built-in or a host's, a `marking()` or `snapshot()` from another thread is answered at once from the current state, without waking it. A `snapshot()` from another thread that the orchestrator cannot serve within two seconds — it is stuck in a blocking inline action — comes back flagged in flight, never as a restore point. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `executionScope(...)` on the builder when a replay must reproduce them, fresh per run segment.
+A snapshot maps place names to tokens, in a canonical order, and carries `createdAt` through untouched. Persist one only when `isRestorePoint()` is true: `actionInFlight` is set while an action is running or an injected event has not reached its place yet, and either way a token is in no place. While the orchestrator is parked in its wait, built-in or a host's, a `marking()` or `snapshot()` from another thread is answered at once from the current state, without waking it. A `snapshot()` from another thread that the orchestrator cannot serve within two seconds — it is stuck in a blocking inline action — comes back flagged in flight, never as a restore point. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `executionScope(...)` on the builder when a replay must reproduce them, fresh per run segment. The default scope is `UUID.randomUUID()` without dashes; an empty scope or one containing `:` or `#` throws `IllegalArgumentException`.
 
-Because `Place` equality is structural, `Marking.fromSnapshot(snapshot, net.places())` takes the net's places, and a net declaring two places with one name cannot be snapshotted or restored.
+Because `Place` equality is structural, `Marking.fromSnapshot(snapshot, net.places())` takes the net's places, and a net declaring two places with one name cannot be snapshotted or restored: `fromSnapshot`, the executor's `snapshot()` and a builder given `restore(...)` reject it on the caller's thread.
 
 ## SMT verification needs a `z3` executable
 

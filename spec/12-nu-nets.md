@@ -219,7 +219,7 @@ per-process counter restarts with the process, and the first executor of the new
 the first name of the old one: exactly the silent merge above, in the default configuration.
 
 **The default scope MUST be unique across processes — and is therefore not the run identifier.**
-Absent a host-supplied scope, an implementation using the scope mechanism — all four do — MUST
+Absent a host-supplied scope, an implementation using the scope mechanism MUST
 draw one per executor from the platform's random source: a 128-bit value rendered as exactly **32 lowercase hexadecimal characters**, of
 which at least 122 bits are random (a version-4 UUID with its dashes removed conforms). The
 rendering is fixed so that a default-scope name looks alike, and parses alike, in every language.
@@ -309,17 +309,6 @@ A host *shall not* pin one scope for two executions of one restore lineage, exce
    and counter by the rule above.
 
 **Depends on:** [NU-010], [NU-020], [CORE-073], [TIME-015], [VER-004]
-**Implementation status:** Implemented in all four, as `<transition>#<scope>:<n>`. The default
-scope is a random 32-hex token drawn per executor — `crypto.randomUUID()` in **TypeScript** and
-`UUID.randomUUID()` in **Java**, dashes stripped; 128 bits of the platform's random state in
-**Rust**, which **Python** rides — and it is internal everywhere, so nothing was added to any
-event and the session-archive decision stays open on its own terms. The run identifier
-(`executionId` / `execution_id`) is a *different* value: it stays the reproducible per-process
-counter of [TIME-015] AC#14. A host pins the scope (`executionScope` / `execution_scope`) for the
-replay reproducibility of AC#3. Validation is the same in all four — length zero, `:` or `#` —
-and is raised as the language's argument error (`IllegalArgumentException`, `Error`, Python
-`ValueError` from both the binding and the `ExecutorOptions` wrapper); **Rust** panics, in
-`set_execution_scope` and in every builder that takes a scope, and documents the panic on each.
 **Test derivation:** Run a ν-fork net under a **pinned** scope until a token carrying a minted
 name awaits its sibling at a join; snapshot and restore into a fresh execution under a different
 pinned scope — and again under the default one; fire the fork and assert the new name differs
@@ -1846,8 +1835,6 @@ and the bug does not occur, which is why the verdict is about the net and not ab
    list)` names `typed` (an environment place before a marked coloured place).
 
 **Depends on:** [VER-002], [VER-003], [VER-006], [VER-012], [NU-010], [NU-050], [NU-051], [NU-054]
-**Implementation status:** Lean proof in `lean/Libpetri/Novel/RouteB/Aligned.lean`; implemented
-in Java, TypeScript and Rust, and in Python through the Rust verifier.
 **Test derivation:** the fixtures of `spec/verification-fixtures/nu-aligned-fixtures.json`, run in
 every language: the four search-as-you-type verdicts of AC1, the uncoloured places of AC2, the BASE
 run of AC3, the environment and marked-coloured-place runs of AC6, the list verdicts of AC7 and the

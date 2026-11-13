@@ -26,6 +26,17 @@
  *   <tr><td>Checkpointing</td><td>MarkingSnapshot</td></tr>
  * </table>
  *
+ * <h2>Transition outcome payloads</h2>
+ * <ul>
+ *   <li>{@code TransitionCompleted} carries the produced tokens and the duration; a synchronously
+ *       completed action reports a zero duration. It is also emitted for a firing that ended with
+ *       its timeout outcome, after {@code ActionTimedOut}, once the timeout branch is deposited.</li>
+ *   <li>{@code TransitionFailed} carries the error message and the exception's class name.</li>
+ *   <li>{@code TransitionTimedOut} carries the deadline and the elapsed time.</li>
+ *   <li>{@code ActionTimedOut} carries the timeout as a {@link java.time.Duration} and is emitted
+ *       from the action's timer when the budget runs out.</li>
+ * </ul>
+ *
  * <h2>Immutability and Thread Safety</h2>
  * <p>All events are immutable records with defensive copies of collections.
  * The in-memory store uses {@link java.util.concurrent.CopyOnWriteArrayList}

@@ -1237,15 +1237,6 @@ a hand-authored marking no run produced.
 **Depends on:** [CORE-010], [CORE-011], [CORE-013], [CORE-072], [TIME-010], [TIME-011], [TIME-013],
 [TIME-015], [ENV-014], [EVT-009], [EVT-014], [EVT-025], [IO-013], [MOD-024], [NU-022], [VER-004],
 [VER-010], [VER-013]
-**Implementation status:** Implemented in all four. **Java** (`Marking.snapshot()` /
-`fromSnapshot(snapshot, places)`, the second argument forced by [MOD-024] structural place
-equality; two same-named places are rejected by `fromSnapshot`, by the executor's `snapshot()` and
-by a builder given `restore(...)`, on the caller's thread), **TypeScript** (`Marking.snapshot()` /
-`fromSnapshot()`, name-only equality so it restores unaided), **Rust**
-(`MarkingSnapshot = BTreeMap<Arc<str>, Vec<ErasedToken>>`, with `Clone` retained alongside as the
-in-process copy it always was) and **Python** (`MarkingView.snapshot()` / `from_snapshot()`). The
-entry is each language's existing token type; the key is the place name; every emitted snapshot
-omits empty places, on both executors of each implementation.
 
 **Test derivation:** Seed an executor from a restored marking whose token `created_at` is in the
 distant past feeding a `Delayed(d)` transition; verify it fires ~`d` after start, not immediately

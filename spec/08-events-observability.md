@@ -184,7 +184,6 @@ The executor *shall* emit TransitionCompleted events only when it deposits an ad
 2. (Java and TypeScript) The duration is at most the firing-clock time between the start of the firing and the deposit of its outcome; zero is allowed.
 
 **Depends on:** [EVT-011], [EXEC-020], [EXEC-021], [EXEC-022]
-**Implementation status:** Java and TypeScript also emit TransitionCompleted when they deposit a timeout outcome, after ActionTimedOut ([EVT-010]); Rust and Python do not. Java and TypeScript carry the produced tokens and the duration, and Java reports a zero duration for every synchronously completed action. The Rust event, which Python also uses, carries the transition name and a timestamp only.
 **Test derivation:** Fire a transition whose action produces a token after the clock advanced; verify the TokenAdded event, then TransitionCompleted naming the transition, which in Java and TypeScript lists the produced token with a duration no larger than the clock advance.
 
 ---
@@ -213,7 +212,6 @@ Each TransitionFailed event *shall* carry the error message of the failure.
 2. The error message is captured, and the exception type name where the event carries it (Java and TypeScript).
 
 **Depends on:** [EXEC-030], [EXEC-021], [NU-054]
-**Implementation status:** Java and TypeScript carry the error message and the exception type name (TypeScript also the stack trace). The Rust event, which Python also uses, carries one error text and no exception type.
 **Test derivation:** Action throws; verify TransitionFailed with error details.
 
 ---
@@ -245,7 +243,6 @@ Transition names are taken to be pairwise distinct, as in the timing requirement
    fire until one of its arc places is written ([TIME-013]).
 
 **Depends on:** [TIME-013]
-**Implementation status:** Java and TypeScript carry the deadline and the elapsed time. The Rust event, which Python also uses, carries the timestamp and the transition name only.
 **Test derivation:** Transition with Deadline(100ms); delay firing 200ms; verify TransitionTimedOut event.
 
 ---
@@ -273,7 +270,6 @@ Each ActionTimedOut event *shall* carry the duration of the `Timeout` node of th
 2. The TokenAdded events of the timeout branch come after this event.
 
 **Depends on:** [IO-013], [EXEC-022], [EVT-009], [NU-054]
-**Implementation status:** Java and TypeScript emit the event from the action's timer when the budget runs out, and emit TransitionCompleted after the timeout branch is deposited ([EVT-007]). Rust, which Python also uses, emits it when the executor settles the timeout outcome, and emits no TransitionCompleted for it. Every runtime carries the timeout duration (Java as a Duration, TypeScript and Rust in milliseconds).
 **Test derivation:** Action sleeps 500ms; Out.Timeout at 100ms; verify ActionTimedOut event.
 
 ---
@@ -400,21 +396,21 @@ Emitted at specific points during execution to capture the marking. Contains:
 - Timestamp
 - Map of place name → list of tokens
 
-*Where* an executor emits MarkingSnapshot events (Java and TypeScript), *when* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking.
+*When* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking.
 
-*Where* an executor emits MarkingSnapshot events (Java and TypeScript), *when* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event.
+*When* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event.
 
-*Where* an executor emits MarkingSnapshot events (Java and TypeScript), the marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token.
+The marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token.
 
-*Where* an executor emits MarkingSnapshot events (Java and TypeScript), the marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073]).
+The marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073]).
 
-A place the net does not declare may be listed with its tokens (Java) or left out (TypeScript). Rust and Python have no producer of this event (see the implementation status below).
+A place the net does not declare may be listed with its tokens or left out.
 
 A marking snapshot carried on this event is the snapshot form of [CORE-073], and [CORE-073]'s
-canonical place-order rule applies to it: where an implementation emits this event, the places of
-the marking it carries MUST appear in ascending code-point order of the place name. The event is
-an ordered, in-process value, so the order is both meetable and observable there, and it is one
-of the two places a host takes a snapshot from.
+canonical place-order rule applies to it: the places of the marking it carries MUST appear in
+ascending code-point order of the place name. The event is an ordered, in-process value, so the
+order is both meetable and observable there, and it is one of the two places a host takes a
+snapshot from.
 
 The order is **not** promised past the event. A JSON session archive ([EVT-025]) and the JSON
 debug protocol are unordered media, and code-point order is deliberately not required of them.
@@ -431,21 +427,11 @@ same-named places belongs to the host-facing snapshot and restore operations, no
 2. Snapshot is a deep defensive copy (not a live reference).
 3. Only non-empty places are included.
 4. The places of the marking carried on the event appear in ascending code-point order of the
-   place name ([CORE-073] AC12), on every executor that emits the event (Java and TypeScript), including for a place name above U+FFFF.
+   place name ([CORE-073] AC12), on every executor that emits the event, including for a place name above U+FFFF.
 5. Rendering the same event stream twice with one implementation — into an archive or onto the
    debug protocol — yields identical output.
 
 **Depends on:** [CORE-073]
-**Implementation status:** **Java** and **TypeScript** emit the event at start and before
-completion, on both executors, in canonical order. **Rust** — and **Python**, which rides it —
-declares the event and consumes it (debug converter, marking cache, archive metadata) but has **no
-producer**: no executor emits it, so AC1–AC4 are unmet there and a test that constructs the event
-by hand is not coverage of them. AC5 holds in all four. Rust's tests cite this requirement for
-AC5 alone — the `libpetri-debug` rendering-order tests over debug frames, the marking cache, the
-net structure and archive headers, each of which failed on the per-process-randomised map they
-replaced. A converter-level test of event-to-JSON order would prove nothing (`serde_json`'s map is
-ordered unless `preserve_order` is enabled, and it is not), so there is deliberately none.
-
 **Test derivation:** Run net; verify MarkingSnapshot at start and end; verify snapshot accuracy.
 For AC4, run a net whose place names include one above U+FFFF and one in U+E000–U+FFFF and assert
 the order on the emitted event. For AC5, render one recorded stream twice — in two processes where
@@ -799,7 +785,6 @@ An event that carries no transition name *shall* match no filter by transition n
 4. `failures()` returns TransitionFailed, TransitionTimedOut, and ActionTimedOut events.
 5. `counters()` returns a `{eventType: count}` histogram whose values sum to the total event count.
 
-**Implementation status:** the helpers differ per language. Filter by type: Java and TypeScript (`eventsOfType`), Python (`events(types=...)`); the Rust store has none. Filter by transition name: Java and TypeScript (`transitionEvents`), Rust (`transition_events`), Python (`events(transitions=...)`). Filter by place name, offset/limit and `counters()`: Python only. Count: all four count every event (`size()` in Java, TypeScript and Rust, `len()` in Python), and Python also counts by type (`count(types=...)`). `failures()`: all four. Every implementation marks the missing transition name of an engine diagnostic at the initial-marking seam by the empty name, so a filter for the empty name returns those diagnostics; such a filter is outside this requirement. Java's `transitionEvents` skips an event with no transition name, such as the engine diagnostic of an interrupted run.
 **Test derivation:** Run net with mixed events; verify each filter, pagination, and the counters
 histogram return correct subsets / totals.
 
@@ -840,6 +825,8 @@ Until the store is dropped, an append *shall* be accepted at every point; in par
 
 *When* the store is dropped, the receives of each of its subscriptions that has no receive pending *shall* take the events its channel holds and then report the end of the stream, unless the subscription is closed first.
 
+What a close or an overflow does to a receive that is already pending is not specified.
+
 **Acceptance Criteria:**
 1. A subscriber receives only events matching its filters, in append order.
 2. Events appended before the subscription are not delivered (forward-only).
@@ -849,8 +836,6 @@ Until the store is dropped, an append *shall* be accepted at every point; in par
 
 **Depends on:** [EVT-020], [EVT-021], [EVT-030]
 **Status:** Proposed
-**Implementation status:** Rust binding + Python (`InMemoryEventStore.subscribe(...)`,
-`async for batch in ...`, and `subscribe_stream(...)`, which is `batch_size = 1` without the list wrapper) implemented; Java/TypeScript pending. Python's defaults are `batch_size = 64`, `batch_timeout_ms = 10` and `channel_capacity = 4096`, and a `batch_size` or `channel_capacity` of 0 is rejected with `ValueError`. In Python, `close()` called while a receive is pending does nothing, so the pending receive keeps waiting; this case is outside the requirement. A receive pending when an append finds its channel full is outside the requirement too. The end of the stream is reported the same way after a close, a drop and an overflow.
 **Test derivation:** Run an async net feeding environment events; subscribe with a transition
 filter; verify batched forward-only delivery and clean close.
 
@@ -872,9 +857,9 @@ from the nearest periodically-cached snapshot rather than from the start of the 
 
 The replay of an event stream *shall* start from the empty state (no token in any place, no enabled and no in-flight transition) and apply its events in order, each as follows: a `MarkingSnapshot` sets the token count of every place it carries to the count it carries and of every other place to zero; a `TokenAdded` adds one token to its place; a `TokenRemoved` removes one token from its place, and does nothing if the place has none; a `TransitionEnabled` adds its transition to the enabled transitions; a `TransitionStarted` removes its transition from the enabled transitions and adds it to the in-flight transitions; a `TransitionCompleted`, `TransitionFailed`, `TransitionTimedOut` or `ActionTimedOut` removes its transition from the in-flight transitions; any other event (`ExecutionStarted`, `ExecutionCompleted`, `TransitionClockRestarted`, `LogMessage`) leaves the state unchanged.
 
-The enabled transitions are those with a `TransitionEnabled` event and no later `TransitionStarted` event, so they over-approximate the transitions enabled at that point of the run: a transition whose tokens another firing took, or a reaped transition, stays listed. The in-flight transitions are a set of names, so a transition with two firings in flight at once leaves it when its first firing ends. The replayed token counts include the initial marking only for a stream that reports it: a Java or TypeScript stream reports the initial marking in a `MarkingSnapshot` right after its `ExecutionStarted` event, while a Rust or Python stream reports no initial token. The two transition lists of a `ComputedState` are sets: their order is not specified.
+The enabled transitions are those with a `TransitionEnabled` event and no later `TransitionStarted` event, so they over-approximate the transitions enabled at that point of the run: a transition whose tokens another firing took, or a reaped transition, stays listed. The in-flight transitions are a set of names, so a transition with two firings in flight at once leaves it when its first firing ends. The replayed token counts include the initial marking only for a stream that reports it in a `MarkingSnapshot` right after its `ExecutionStarted` event, as every executor's stream does ([EVT-014]); the replay reads only the counts of a snapshot. The two transition lists of a `ComputedState` are sets: their order is not specified.
 
-*Where* the executor is a Java or TypeScript executor, which reports the initial marking in a `MarkingSnapshot` right after `ExecutionStarted` ([EVT-014]), the replay of all events a run has emitted before its first step, or up to the end of any of its steps, *shall* count, for every place the net declares, the tokens that place holds at that point, and *shall* list among the enabled transitions every transition that holds a clock at that point, also one whose clock restart is pending ([EVT-005]). At an index inside the events of one step, for example between the `TokenRemoved` events of a firing that starts, the replayed counts can match no marking the executor held. The count is required only on the places the net declares: a TypeScript snapshot lists only the declared places, so the snapshot before `ExecutionCompleted` sets the replayed count of an undeclared place back to zero.
+The replay of all events a run has emitted before its first step, or up to the end of any of its steps, *shall* count, for every place the net declares, the tokens that place holds at that point, and *shall* list among the enabled transitions every transition that holds a clock at that point, also one whose clock restart is pending ([EVT-005]). At an index inside the events of one step, for example between the `TokenRemoved` events of a firing that starts, the replayed counts can match no marking the executor held. The count is required only on the places the net declares: a TypeScript snapshot lists only the declared places, so the snapshot before `ExecutionCompleted` sets the replayed count of an undeclared place back to zero.
 
 **Acceptance Criteria:**
 1. `compute_at(events, 0)` is the empty state; `compute_at(events, len)` is the replay of the whole
@@ -887,19 +872,13 @@ The enabled transitions are those with a `TransitionEnabled` event and no later 
    is expected for speed only: it does not change the state returned.
 4. The marking in `ComputedState` carries token counts; replayed tokens need not carry value
    payloads (events carry type + structured metadata, not live objects).
-5. In Java and TypeScript, before the first step of a run and after each of its steps, the replay
-   of the events emitted so far counts on every declared place the tokens it holds, and lists as
-   enabled every transition that holds a clock; a Rust or Python stream of a net with an initial
-   token fails this before the first step.
+5. Before the first step of a run and after each of its steps, the replay of the events emitted
+   so far counts on every declared place the tokens it holds, and lists as enabled every
+   transition that holds a clock.
 
 **Depends on:** [EVT-021], [EVT-004], [EVT-006], [EVT-007], [EVT-008], [EVT-009], [EVT-010], [EVT-011], [EVT-012], [EVT-014]
-**Implementation status:** Implemented in all four: Rust (`libpetri-debug::MarkingCache`), Python
-(`MarkingCache`, `ComputedState`), Java (`org.libpetri.debug.MarkingCache.computeAt`) and
-TypeScript (`MarkingCache.computeAt` in `libpetri/debug`). Known gap:
-no debug protocol handler calls `invalidate()` when its debug store evicts events ([EVT-024]), so a
-seek after an eviction can return a state that is not the replay (AC3).
 **Test derivation:** Record a multi-firing run; `compute_at` at 0, an intermediate index, the end,
-and beyond-end; verify clamping and snapshot reuse. In Java and TypeScript, run a net with token 1 in
+and beyond-end; verify clamping and snapshot reuse. Run a net with token 1 in
 place 0 and one transition that takes it and puts 9 back; before the first step and after each
 step, compare the replayed counts with the executor's marking and check that every transition
 that holds a clock is listed as enabled.

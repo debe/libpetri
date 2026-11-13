@@ -24,7 +24,7 @@ needs no executor model.
 * **The reference.** `refMintSys` (a registered witness): the state is the scope and one counter
   per executor, shared by all transitions; a call mints `mintName t scope counter` and advances
   the counter; a firing boundary changes nothing. This is `fresh_name_fn` in
-  `rust/libpetri-runtime/src/executor_core/executor.rs:203-221` (one `fresh_name_counter` per
+  `rust/libpetri-runtime/src/executor_core/executor.rs` (one `fresh_name_counter` per
   executor, starting at 0, read with `fetch_add`), and the same in Java and TypeScript.
 * **Lemmas for the blocks.** Uniqueness (`refRun_nodup`), the n-th name (`refRun_names`),
   determinism (`refMintSys_functional`, `mintRun_det`), totality (`refMintSys_total`,
@@ -53,7 +53,7 @@ abbrev ScopeCheck := String → Bool
 
 /-- The reference scope check ([NU-011]): a scope is accepted when it is not empty (length zero)
 and holds neither `:` nor `#`. A whitespace-only scope is accepted; nothing is trimmed. This is
-`validate_execution_scope` in `rust/libpetri-runtime/src/executor_core/scope.rs:63-70`. -/
+`validate_execution_scope` in `rust/libpetri-runtime/src/executor_core/scope.rs`. -/
 def refValidScope : ScopeCheck := fun s =>
   decide (s ≠ "") && decide (':' ∉ s.toList) && decide ('#' ∉ s.toList)
 

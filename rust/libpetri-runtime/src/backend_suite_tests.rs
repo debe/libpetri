@@ -227,6 +227,88 @@ fn sync_with_event_store<R: BackendRunner>() {
     assert!(!result.events.is_empty());
 }
 
+// ========================= EVT-014 marking snapshots =========================
+
+/// A net whose place names sort differently by code point than by UTF-16
+/// unit: `\u{1F600}` (above U+FFFF, a surrogate pair in UTF-16) comes after
+/// `\u{E000}` in code-point order and before it in UTF-16 order. `t` moves
+/// the two tokens of `a` to `b`, so the start and end snapshots differ.
+pub(crate) fn evt014_net() -> (PetriNet, Marking) {
+    let a = Place::<i32>::new("a");
+    let b = Place::<i32>::new("b");
+    let private_use = Place::<i32>::new("\u{E000}");
+    let astral = Place::<i32>::new("\u{1F600}");
+    let t = Transition::builder("t")
+        .input(one(&a))
+        .output(out_place(&b))
+        .action(fork())
+        .build();
+    let net = PetriNet::builder("evt014")
+        .place(private_use.as_ref())
+        .place(astral.as_ref())
+        .transition(t)
+        .build();
+    let mut marking = Marking::new();
+    marking.add(&astral, Token::at(1, 0));
+    marking.add(&a, Token::at(2, 0));
+    marking.add(&private_use, Token::at(3, 0));
+    marking.add(&a, Token::at(4, 0));
+    (net, marking)
+}
+
+/// \[EVT-014\] AC1, AC3, AC4 over the events of a run of [`evt014_net`]:
+/// exactly two snapshots, the first right after `ExecutionStarted` with the
+/// initial marking, the last right before `ExecutionCompleted` with the final
+/// one; empty places left out; places in ascending code-point order.
+pub(crate) fn assert_evt014_snapshots(events: &[NetEvent]) {
+    let snapshots: Vec<(usize, Vec<(String, usize)>)> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e {
+            NetEvent::MarkingSnapshot { marking, .. } => Some((
+                i,
+                marking.iter().map(|(k, &v)| (k.to_string(), v)).collect(),
+            )),
+            _ => None,
+        })
+        .collect();
+    let owned = |pairs: &[(&str, usize)]| -> Vec<(String, usize)> {
+        pairs.iter().map(|&(k, v)| (k.to_string(), v)).collect()
+    };
+    assert_eq!(
+        snapshots,
+        vec![
+            (1, owned(&[("a", 2), ("\u{E000}", 1), ("\u{1F600}", 1)])),
+            (events.len() - 2, owned(&[("b", 2), ("\u{E000}", 1), ("\u{1F600}", 1)])),
+        ],
+    );
+    assert!(matches!(events[0], NetEvent::ExecutionStarted { .. }));
+    assert!(matches!(events[events.len() - 1], NetEvent::ExecutionCompleted { .. }));
+}
+
+/// \[EVT-014\] AC1/AC3/AC4 on `run_sync`, both backends.
+fn evt014_marking_snapshot_at_start_and_end<R: BackendRunner>() {
+    let (net, marking) = evt014_net();
+    let result = R::run(&net, marking);
+    assert_evt014_snapshots(&result.events);
+}
+
+/// \[EVT-014\] The snapshots are emitted on a run that starts from an empty
+/// marking too, and carry no place then.
+fn evt014_marking_snapshot_of_empty_marking<R: BackendRunner>() {
+    let (net, _, _, _) = simple_chain();
+    let result = R::run(&net, Marking::new());
+    let snapshots: Vec<usize> = result
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            NetEvent::MarkingSnapshot { marking, .. } => Some(marking.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(snapshots, vec![0, 0]);
+}
+
 fn sync_fork_chain<R: BackendRunner>() {
     let p1 = Place::<i32>::new("p1");
     let p2 = Place::<i32>::new("p2");
@@ -4081,6 +4163,8 @@ macro_rules! for_each_backend {
 for_each_backend!(
     sync_passthrough_chain,
     sync_with_event_store,
+    evt014_marking_snapshot_at_start_and_end,
+    evt014_marking_snapshot_of_empty_marking,
     sync_fork_chain,
     sync_no_initial_tokens,
     sync_linear_chain_5,
@@ -4324,5 +4408,34 @@ mod late_flush {
             assert_eq!(end.count("early"), 1, "{backend:?}");
             assert_eq!(end.count("timed_out"), 1, "{backend:?}");
         }
+    }
+}
+
+/// \[EVT-014\] AC1/AC3/AC4 on `run_async`, both backends.
+#[cfg(feature = "tokio")]
+mod evt014_async {
+    use super::*;
+    use crate::environment::ExecutorSignal;
+
+    #[tokio::test]
+    async fn bitmap_run_async_emits_marking_snapshots() {
+        let (net, marking) = evt014_net();
+        let mut executor =
+            BitmapNetExecutor::<InMemoryEventStore>::new(&net, marking, ExecutorOptions::default());
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        executor.run_async(rx).await;
+        assert_evt014_snapshots(executor.event_store().events());
+    }
+
+    #[tokio::test]
+    async fn precompiled_run_async_emits_marking_snapshots() {
+        let (net, marking) = evt014_net();
+        let prog = PrecompiledNet::from_compiled(CompiledNet::compile(&net));
+        let mut executor = PrecompiledNetExecutor::<InMemoryEventStore>::builder(&prog, marking)
+            .event_store(InMemoryEventStore::new())
+            .build();
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorSignal>();
+        executor.run_async(rx).await;
+        assert_evt014_snapshots(executor.event_store().events());
     }
 }

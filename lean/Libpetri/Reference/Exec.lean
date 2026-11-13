@@ -45,33 +45,33 @@ flight under `¬reentrant`, and a reaped name's transition is enabled (`invU_bou
 
 **Rust correspondence** (`executor_core/executor.rs`, async loop `run_async`):
 
-* `commit`, `fail`, `tdeposit` in phase `completions`: `handle_completion` (1248-1345), called in
-  Phase 1 (1044-1048) while no terminal place is marked. Validation reads the returned outputs
-  and `flushed_places` (`output_conforms`, 674-704, called at 1266-1270); the timeout path skips
-  validation and still runs the relay check (1261-1299, ruling D24 (a)); a violation or a relay
-  rejection deposits nothing (`return`), an error result emits TransitionFailed (1331-1339).
-* `commit`, `fail` inside the pass for a synchronous firing: `fire_transition_async`'s sync branch
-  (1491-1572), the same checks inline; a synchronous firing has no timeout race.
-* `publish`: Phase 1b, `handle_flush` (1347-1365), unconditional, FIFO on one channel.
-* `update`: Phase 3 at `cycle_now` (1063-1065); `deadline`: Phase 4 at the same reading
-  (1067-1083), a reference run with no delay between the two. The reference deadline step takes a
+* `commit`, `fail`, `tdeposit` in phase `completions`: `handle_completion`, called in
+  Phase 1 while no terminal place is marked. Validation reads the returned outputs
+  and `flushed_places` (`output_conforms`, called from `handle_completion`); the timeout path skips
+  validation and still runs the relay check (`relay_check`, ruling D24 (a)); a violation or a relay
+  rejection deposits nothing (`return`), an error result emits TransitionFailed.
+* `commit`, `fail` inside the pass for a synchronous firing: `fire_transition_async`'s sync branch,
+  the same checks inline; a synchronous firing has no timeout race.
+* `publish`: Phase 1b, `handle_flush`, unconditional, FIFO on one channel.
+* `update`: Phase 3 at `cycle_now`; `deadline`: Phase 4 at the same reading,
+  a reference run with no delay between the two. The reference deadline step takes a
   reading of its own (`atDeadline`, never earlier than the update's, ruling D61 (c)), so a runtime
   that reads the clock again after its update (TypeScript's `cycleNowMs`) is a run with a delay
-  between the update and the deadline step; `finish`: the termination checks (1085-1095) and the terminal check at the top of
-  the loop (1035-1042).
-* `inject`, `discard`, `snapshot`: Phase 2's `handle_signal` (1368-1448); a close discards
-  what is still queued behind it (1427-1432). `request`, `drain`, `close`: `ExecutorHandle`
-  (executor_handle.rs 67-125), refusing once drained or closed.
-* `park`, `wake`: Phase 6 (1131-1199), the timer from `cycle_now` (1145); every channel arm
+  between the update and the deadline step; `finish`: the termination checks after Phase 4 and the
+  terminal check (`terminal!`) at the top of the loop.
+* `inject`, `discard`, `snapshot`: Phase 2's `handle_signal`; a close discards
+  what is still queued behind it (its `Close` arm). `request`, `drain`, `close`: `ExecutorHandle`
+  (`executor_handle.rs`), refusing once drained or closed.
+* `park`, `wake`: Phase 6 (`await_work!`), the timer from `cycle_now`; every channel arm
   wakes the loop.
-* `begin`, `start`, `lose`, `endPass`: Phase 5 (1097-1124); the recheck is
-  `recheck_can_fire` against the pass snapshot (`bitmap_backend.rs:708-713`), a loser is
+* `begin`, `start`, `lose`, `endPass`: Phase 5; the recheck is
+  `recheck_can_fire` against the pass snapshot (`bitmap_backend.rs`), a loser is
   `disable`d.
-* `expire`: the spawned task's `select!` against the budget (1679-1705), only for an async
+* `expire`: the spawned task's `select!` against the budget in `fire_transition_async`, only for an async
   firing whose spec has a `Timeout` node; `ret`: the task's completion message; `flush`: the
-  action's `ctx.flush()` with the relay guard of its callback (1640-1670); a synchronous firing
+  action's `ctx.flush()` with the relay guard of its callback (`relay_guard`); a synchronous firing
   has no callback, so its flush is no step. A batch the relay check rejects marks the firing
-  `relayBad`, and its completion, normal or timed out, becomes an error (1711-1715).
+  `relayBad`, and its completion, normal or timed out, becomes an error (`FlushGate::relay_error`).
 -/
 
 namespace Libpetri.Reference
@@ -101,7 +101,7 @@ places count for validation. A synchronous firing cannot flush (Rust: `ctx.flush
 when no flush callback is installed, the buffer untouched; `flush` of the Rust context module), and an empty
 flush is no step (`Ok` with nothing sent). A batch the join-relay check of [NU-054] rejects, and
 every batch after it, is dropped and marks the firing `relayBad` (the relay guard of the flush
-callback, executor_core/executor.rs 1640-1670). -/
+callback, `relay_guard` in `fire_transition_async`, `executor_core/executor.rs`). -/
 def flushStep (C : Cfg N T) (s : XSt N T) (i : Nat) : Option (XSt N T) :=
   match s.fl.find? (·.id == i) with
   | some f =>
@@ -115,7 +115,8 @@ def flushStep (C : Cfg N T) (s : XSt N T) (i : Nat) : Option (XSt N T) :=
   | none => none
 
 /-- `ret i ok`: the action returns; a normal return freezes the buffer as its emission. A firing
-whose flushed batch failed the relay check ends with an error (executor_core/executor.rs 1711-1715). -/
+whose flushed batch failed the relay check ends with an error (`FlushGate::relay_error`,
+`executor_core/executor.rs`). -/
 def retStep (s : XSt N T) (i : Nat) (ok : Bool) : Option (XSt N T) :=
   onOpen s i fun _ =>
     { s with cq := s.cq ++ [i], parked := false,
@@ -124,7 +125,7 @@ def retStep (s : XSt N T) (i : Nat) (ok : Bool) : Option (XSt N T) :=
 
 /-- `expire i e`: the budget of an asynchronous firing with a `Timeout` node expires first, with
 timeout outcome `e`. A firing whose flushed batch failed the relay check ends with an error here
-too: the slot is read after the `select!` (executor_core/executor.rs 1711-1715). -/
+too: the slot (`FlushGate::relay_error`) is read after the `select!` (`executor_core/executor.rs`). -/
 def expireStep (C : Cfg N T) (s : XSt N T) (i : Nat) (e : List (N × T)) : Option (XSt N T) :=
   match s.fl.find? (·.id == i) with
   | some f =>
@@ -202,7 +203,7 @@ def publishStep (C : Cfg N T) (s : XSt N T) (i : Nat) : Option (XSt N T) :=
 D48 (a): FIFO by acceptance, appended at the tail); an injected token writes its place (ruling D6),
 so a reaped transition with an arc on it is no longer reaped. Offered in step 2 and on the wake of
 the wait (R-EXEC-9 (a)), while the executor is open or draining. Rust: `handle_signal`'s `Event`
-arm (executor_core/executor.rs 1377-1393), Phase 2 (1055-1058) and the wait's signal arm (1175-1190). -/
+arm (`executor_core/executor.rs`), Phase 2 and the wait's signal arm (`await_work!`). -/
 def injectStep (C : Cfg N T) (s : XSt N T) (k : Nat) : Option (XSt N T) :=
   match s.eq with
   | (j, p, x) :: rest =>
@@ -227,7 +228,7 @@ def discardStep (C : Cfg N T) (s : XSt N T) (k : Nat) : Option (XSt N T) :=
 
 /-- `snapshot a`: the executor answers a snapshot request with `a = snapAnswer s` and the marking
 `M`, and changes nothing ([ENV-014], ruling D43 (a)). Offered after step 2's injections, before
-the update, and in the wait. Rust: `handle_signal`'s `Snapshot` arm (1433-1446), the in-flight
+the update, and in the wait. Rust: `handle_signal`'s `Snapshot` arm, the in-flight
 flag read in the same step as the marking; Java: `serviceMarkingRequest` after the external-events
 phase. -/
 def snapshotStep (C : Cfg N T) (s : XSt N T) (a : Option Bool) : Option (XSt N T) :=
@@ -238,7 +239,7 @@ def snapshotStep (C : Cfg N T) (s : XSt N T) (a : Option Bool) : Option (XSt N T
 
 /-- `request p x r`: a caller asks to inject `x` into `p` and gets `r = replyFor C s p`; an
 accepted request queues the event with a fresh ticket and wakes the wait ([ENV-003], [ENV-005]).
-Rust: `ExecutorHandle::inject` (executor_handle.rs 67-74), refusing once drained or closed. -/
+Rust: `ExecutorHandle::inject` (`executor_handle.rs`), refusing once drained or closed. -/
 def requestStep (C : Cfg N T) (s : XSt N T) (p : N) (x : T) (r : Reply) : Option (XSt N T) :=
   if r = replyFor C s p then
     if r = .accepted then
@@ -247,13 +248,13 @@ def requestStep (C : Cfg N T) (s : XSt N T) (p : N) (x : T) (r : Reply) : Option
   else none
 
 /-- `drain`: an open executor starts draining and wakes ([ENV-011]). Rust: `drain()`
-(executor_handle.rs 106-113) and the `Drain` signal (1424-1426). -/
+(`executor_handle.rs`) and the `Drain` arm of `handle_signal`. -/
 def drainStep (s : XSt N T) : Option (XSt N T) :=
   if s.mode = .open then some { s with mode := .draining, parked := false } else none
 
 /-- `close`: an open or draining executor closes and wakes ([ENV-013]). Nothing in flight is
 abandoned, and the loop goes on starting ready transitions while a firing is in flight (ruling
-D85 (a)). Rust: `close()` (executor_handle.rs 122-125) and the `Close` signal (1427-1432). -/
+D85 (a)). Rust: `close()` (`executor_handle.rs`) and the `Close` arm of `handle_signal`. -/
 def closeStep (s : XSt N T) : Option (XSt N T) :=
   if s.mode = .open || s.mode = .draining then some { s with mode := .closed, parked := false }
   else none
@@ -269,8 +270,8 @@ def terminateStep (s : XSt N T) : Option (XSt N T) :=
 
 /-- `park tmr`: with nothing queued and nothing Ready or Expired at the cycle reading, the loop
 waits, with a timer no later than the next timing boundary plus the timer resolution
-([CONC-010], ruling D13 (a), design R8). Rust: Phase 6 (1131-1199), the timer from
-`millis_until_next_timed_transition(cycle_now)` (1145). -/
+([CONC-010], ruling D13 (a), design R8). Rust: Phase 6 (`await_work!`), the timer from
+`millis_until_next_timed_transition(cycle_now)`. -/
 def parkStep (C : Cfg N T) (s : XSt N T) (tmr : Option Nat) : Option (XSt N T) :=
   if s.phase = .await && liveB C s && !s.parked && s.cq.isEmpty && s.pq.isEmpty &&
       s.eq.isEmpty && nothingDue C s && timerOk C s tmr

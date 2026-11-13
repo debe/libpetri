@@ -768,31 +768,6 @@ other.
 **Depends on:** [TIME-010], [TIME-011], [TIME-013], [CORE-011], [CORE-072], [EXEC-001],
 [EXEC-002], [CONC-010], [ENV-003], [ENV-004], [ENV-005], [ENV-013], [IO-013], [MOD-010], [PERF-010], [PERF-020],
 [PERF-021]
-**Implementation status:** The contract is settled; the host-facing API is **not yet frozen** and
-its names and signatures may still move. **Java** (`ExecutionEnvironment`: `nanoTime` / `now` /
-`awaitWork`, both executors), **TypeScript** (`Clock`: `now` / `epochNow` / `sleep`, plus
-`systemClock()` and `seedToken()`, both executors) and **Rust** (`ExecutorClock`: `now_ms` / `epoch_ms` /
-`await_work` / `await_work_async`, plus `SystemClock`, `ManualClock`, the host-stepped
-`SteppedClock` with `settle` / `settle_after`, `seed_token()` and `ExecutorOptions::clock`, both
-backends) expose the seam; the default path in each reads the real
-clocks directly, with no indirection. Signatures and units differ by idiom (nanoseconds, float
-milliseconds, `Instant` versus a number); the semantics above are what is held in common. Only
-**TypeScript**'s seam carries a listener-style abort signal, so only it owes contract 4's per-wait
-scope: each wait gets its own `AbortController`, aborted when the race settles and on `close()`,
-and the no-clock fast path allocates none. Java's wait is a call that returns and Rust's a future
-that is dropped, so neither retains anything for an abandoned wait. For Rust that is checked, not
-assumed: the clock's async wait is one arm of the idle-cycle `select!`, built fresh each cycle
-and dropped in place when it loses, the executor keeps no other reference to it, and there is no
-listener list for a wait to be forgotten on; a test on both backends counts live wait futures —
-each holding the waker it was polled with — across repeated idle cycles and finds none surviving
-into the next. **Java**'s `awaitWork` cannot throw `InterruptedException`, so its interrupt
-contract is on the flag ([EXEC-041]): the executor calls it with the flag clear and reads the
-flag when it returns, a host that blocks interruptibly catches, re-interrupts and returns, and a
-flag set on return ends the run `INTERRUPTED`. **Python** exposes the Rust-side `ManualClock`
-and `SteppedClock` through `ExecutorOptions(clock=...)`, and stamps legacy initial values and
-injected tokens from the clock's epoch. A Python-implemented clock is still deliberately
-unsupported: it would put a GIL acquisition on every orchestrator cycle.
-
 AC#13 is the criterion most easily missed on a partial implementation: an executor may route
 `ctx.output` and raw-value injection through the epoch clock and still mint action-timeout recovery
 tokens ([IO-013]) at wall time, because that path often constructs tokens somewhere other than the

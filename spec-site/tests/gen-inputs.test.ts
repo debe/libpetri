@@ -216,6 +216,27 @@ describe('defects', () => {
     ]);
   });
 
+  it('ignores the unbuilt and divergence sections, before or after the entries', () => {
+    const other = `## Unbuilt requirements
+
+### UB-01. Immediate termination
+
+- **Requirements:** ENV-015.
+- **Runtimes:** Rust, TypeScript, Python.
+- **Missing:** \`terminateNow()\`.
+- **Status:** open.
+
+## Divergences
+
+| Aspect | Spec | Java | TypeScript | Rust |
+|---|---|---|---|---|
+| Bitmap word size | not specified | 64-bit | 32-bit | 64-bit |
+`;
+    const expected = parseDefects(LEDGER);
+    expect(parseDefects(`${LEDGER}\n${other}`)).toEqual(expected);
+    expect(parseDefects(LEDGER.replace('\n| ID |', `\n${other}\n## Defects\n\n| ID |`))).toEqual(expected);
+  });
+
   it('maps runtime names and statuses, and fails on unknown ones or table drift', () => {
     expect(parseRuntimes('Rust, Java, TypeScript, and Python through Rust.')).toEqual(['java', 'typescript', 'rust', 'python']);
     expect(parseRuntimes('Go')).toBeNull();

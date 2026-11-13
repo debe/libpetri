@@ -17,7 +17,7 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12453["Libpetri.Spec.cites_core071_completion"]
+    n12454["Libpetri.Spec.cites_core071_completion"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -39,11 +39,11 @@ flowchart TD
   c144 --> c91
   c183 --> c131
   c183 --> c133
-  n12453 --> c183
+  n12454 --> c183
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12453 root
+  class n12454 root
   class c0,c28,c54,c91,c94,c131,c132,c133,c144,c183 collapsed
 ```
 
@@ -54,7 +54,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Cites.lean"]
-    n12454["Libpetri.Spec.cites_core071_ctx"]
+    n12455["Libpetri.Spec.cites_core071_ctx"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -74,11 +74,11 @@ flowchart TD
   c133 --> c144
   c136 --> c133
   c144 --> c91
-  n12454 --> c136
+  n12455 --> c136
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12454 root
+  class n12455 root
   class c0,c28,c54,c91,c94,c132,c133,c136,c144 collapsed
 ```
 
@@ -92,96 +92,96 @@ flowchart TD
     n3335["Libpetri.Reference.QMarking"]
   end
   subgraph g1["Libpetri/Spec/Ears.lean"]
-    n10031["Libpetri.Spec.StepShall"]
+    n10032["Libpetri.Spec.StepShall"]
   end
   subgraph g2["Libpetri/Spec/GlossaryExec.lean"]
-    n5894["Libpetri.Spec.Cause"]
-    n5901["Libpetri.Spec.Cfg"]
-    n7579["Libpetri.Spec.Firing"]
-    n8674["Libpetri.Spec.Mode"]
-    n8680["Libpetri.Spec.Mode.open"]
-    n9701["Libpetri.Spec.Phase"]
-    n9702["Libpetri.Spec.Phase.await"]
-    n9703["Libpetri.Spec.Phase.completions"]
-    n9704["Libpetri.Spec.Phase.deadline"]
-    n9705["Libpetri.Spec.Phase.done"]
-    n9706["Libpetri.Spec.Phase.events"]
-    n9707["Libpetri.Spec.Phase.pass"]
-    n9708["Libpetri.Spec.Phase.publications"]
-    n9709["Libpetri.Spec.Phase.test"]
-    n9710["Libpetri.Spec.Phase.update"]
-    n12218["Libpetri.Spec.XLbl"]
-    n12243["Libpetri.Spec.XLbl.snapshot"]
-    n12267["Libpetri.Spec.XRel"]
-    n12268["Libpetri.Spec.XRun"]
-    n12270["Libpetri.Spec.XSt"]
-    n12271["Libpetri.Spec.XSt.M"]
-    n12275["Libpetri.Spec.XSt.eq"]
-    n12276["Libpetri.Spec.XSt.fl"]
-    n12278["Libpetri.Spec.XSt.mode"]
-    n12283["Libpetri.Spec.XSt.phase"]
-    n12284["Libpetri.Spec.XSt.pq"]
-    n12287["Libpetri.Spec.XStep"]
-    n17565["Libpetri.Spec.isExecPhase"]
+    n5895["Libpetri.Spec.Cause"]
+    n5902["Libpetri.Spec.Cfg"]
+    n7580["Libpetri.Spec.Firing"]
+    n8675["Libpetri.Spec.Mode"]
+    n8681["Libpetri.Spec.Mode.open"]
+    n9702["Libpetri.Spec.Phase"]
+    n9703["Libpetri.Spec.Phase.await"]
+    n9704["Libpetri.Spec.Phase.completions"]
+    n9705["Libpetri.Spec.Phase.deadline"]
+    n9706["Libpetri.Spec.Phase.done"]
+    n9707["Libpetri.Spec.Phase.events"]
+    n9708["Libpetri.Spec.Phase.pass"]
+    n9709["Libpetri.Spec.Phase.publications"]
+    n9710["Libpetri.Spec.Phase.test"]
+    n9711["Libpetri.Spec.Phase.update"]
+    n12219["Libpetri.Spec.XLbl"]
+    n12244["Libpetri.Spec.XLbl.snapshot"]
+    n12268["Libpetri.Spec.XRel"]
+    n12269["Libpetri.Spec.XRun"]
+    n12271["Libpetri.Spec.XSt"]
+    n12272["Libpetri.Spec.XSt.M"]
+    n12276["Libpetri.Spec.XSt.eq"]
+    n12277["Libpetri.Spec.XSt.fl"]
+    n12279["Libpetri.Spec.XSt.mode"]
+    n12284["Libpetri.Spec.XSt.phase"]
+    n12285["Libpetri.Spec.XSt.pq"]
+    n12288["Libpetri.Spec.XStep"]
+    n17569["Libpetri.Spec.isExecPhase"]
   end
   subgraph g3["Libpetri/Spec/Req/ENV_014.lean"]
-    n6239["Libpetri.Spec.ENV_014"]
-    n14749["Libpetri.Spec.env014_snapshot_frame"]
+    n6240["Libpetri.Spec.ENV_014"]
+    n14750["Libpetri.Spec.env014_snapshot_frame"]
   end
-  n6239 --> n8680
-  n6239 --> n10031
-  n6239 --> n12243
-  n6239 --> n12268
-  n6239 --> n12275
-  n6239 --> n12276
-  n6239 --> n12278
-  n6239 --> n12283
-  n6239 --> n12284
-  n6239 --> n17565
-  n8680 --> n8674
-  n9702 --> n9701
-  n9703 --> n9701
-  n9704 --> n9701
-  n9705 --> n5894
-  n9705 --> n9701
-  n9706 --> n9701
-  n9707 --> n9701
-  n9708 --> n9701
-  n9709 --> n9701
-  n9710 --> n9701
-  n12243 --> n12218
-  n12267 --> n5901
-  n12267 --> n12218
-  n12267 --> n12270
-  n12268 --> n12267
-  n12268 --> n12287
-  n12271 --> n3335
-  n12271 --> n12270
-  n12275 --> n12270
-  n12276 --> n7579
-  n12276 --> n12270
-  n12278 --> n8674
-  n12278 --> n12270
-  n12283 --> n9701
-  n12283 --> n12270
-  n12284 --> n12270
-  n12287 --> n12218
-  n12287 --> n12270
-  n14749 --> n6239
-  n14749 --> n12271
-  n17565 --> n9702
-  n17565 --> n9703
-  n17565 --> n9704
-  n17565 --> n9705
-  n17565 --> n9706
-  n17565 --> n9707
-  n17565 --> n9708
-  n17565 --> n9709
-  n17565 --> n9710
+  n6240 --> n8681
+  n6240 --> n10032
+  n6240 --> n12244
+  n6240 --> n12269
+  n6240 --> n12276
+  n6240 --> n12277
+  n6240 --> n12279
+  n6240 --> n12284
+  n6240 --> n12285
+  n6240 --> n17569
+  n8681 --> n8675
+  n9703 --> n9702
+  n9704 --> n9702
+  n9705 --> n9702
+  n9706 --> n5895
+  n9706 --> n9702
+  n9707 --> n9702
+  n9708 --> n9702
+  n9709 --> n9702
+  n9710 --> n9702
+  n9711 --> n9702
+  n12244 --> n12219
+  n12268 --> n5902
+  n12268 --> n12219
+  n12268 --> n12271
+  n12269 --> n12268
+  n12269 --> n12288
+  n12272 --> n3335
+  n12272 --> n12271
+  n12276 --> n12271
+  n12277 --> n7580
+  n12277 --> n12271
+  n12279 --> n8675
+  n12279 --> n12271
+  n12284 --> n9702
+  n12284 --> n12271
+  n12285 --> n12271
+  n12288 --> n12219
+  n12288 --> n12271
+  n14750 --> n6240
+  n14750 --> n12272
+  n17569 --> n9703
+  n17569 --> n9704
+  n17569 --> n9705
+  n17569 --> n9706
+  n17569 --> n9707
+  n17569 --> n9708
+  n17569 --> n9709
+  n17569 --> n9710
+  n17569 --> n9711
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n14749 root
+  class n14750 root
 ```
 
 Axioms used:

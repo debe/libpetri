@@ -16,27 +16,6 @@ lfc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lfc)
 
 
-class NamesItem(unittest.TestCase):
-    def test_a_backticked_name_names_the_item(self):
-        self.assertTrue(lfc.names_item("structural_check", "structural_check"))
-        self.assertTrue(lfc.names_item("flatten", "net_flattener::flatten"))
-        self.assertTrue(lfc.names_item("verify_net", "SmtVerifier::verify_net (x)"))
-
-    def test_a_file_named_like_the_item_does_not_name_it(self):
-        # `structural_check.rs:120` cites the file, not `fn structural_check`.
-        self.assertFalse(lfc.names_item("structural_check", "structural_check.rs:120"))
-        self.assertFalse(lfc.names_item("reaping", "reaping.rs"))
-
-    def test_the_file_and_the_item_side_by_side(self):
-        self.assertTrue(
-            lfc.names_item("structural_check", "structural_check.rs:120 structural_check")
-        )
-
-    def test_a_longer_identifier_is_not_the_item(self):
-        self.assertFalse(lfc.names_item("flatten", "flatten_with_reapable"))
-        self.assertFalse(lfc.names_item("is_quiescent", "is_quiescent_at"))
-
-
 class MaskRust(unittest.TestCase):
     def test_braces_in_strings_and_comments_are_masked(self):
         src = 'fn f() { let s = "}"; // }\n let c = \'}\'; }\n'

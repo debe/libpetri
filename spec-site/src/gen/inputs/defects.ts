@@ -7,7 +7,8 @@
  *   "python", "all" -> every runtime), in `RUNTIMES` order; an unknown name fails the build.
  * - Lean evidence: the backticked names, or none when the item starts with "none".
  * - Status: `open`, `fixed in <version>` or `fixed, unreleased`, matching the table row.
- * Entries in ledger order.
+ * Entries in ledger order. An entry ends at the next heading of level 1 to 3; the ledger's
+ * other sections (`UB-NN` unbuilt entries, the divergence table) are not read.
  */
 import type { Defect, DefectStatus, ReqId, Runtime } from '../../model.js';
 import { RUNTIMES } from '../../model.js';
@@ -19,6 +20,7 @@ import { inputError, unique } from './text.js';
 export const DEFECTS_FILE = 'spec/runtime-defects.md';
 
 const ENTRY_RE = /^### (RD-\d+)\.\s+(.+?)\s*$/;
+const HEADING_RE = /^#{1,3}\s/;
 const ITEM_RE = /^- \*\*([^*]+?):\*\*\s*(.*)$/;
 const ID_RE = /\b[A-Z]{2,6}-\d{3}\b/g;
 const ITEMS = ['Requirements', 'Runtimes', 'Defect', 'Lean evidence', 'Fix', 'Status'] as const;
@@ -79,8 +81,10 @@ export function parseDefects(text: string, file: string = DEFECTS_FILE): Defect[
   scanned.forEach((l, i) => {
     if (!l.fence && ENTRY_RE.test(l.text)) starts.push(i);
   });
-  for (const [k, start] of starts.entries()) {
-    const end = starts[k + 1] ?? scanned.length;
+  for (const start of starts) {
+    // An entry ends at the next heading of level 1 to 3, so the ledger's other sections are not read as part of it.
+    const next = scanned.findIndex((l, i) => i > start && !l.fence && HEADING_RE.test(l.text));
+    const end = next === -1 ? scanned.length : next;
     const head = ENTRY_RE.exec(scanned[start]?.text ?? '');
     const id = head?.[1] ?? '';
     const title = head?.[2] ?? '';

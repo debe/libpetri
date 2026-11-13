@@ -75,7 +75,7 @@ structure ZoneLib where
   /-- `sameKey d D D'`: the dedup keys of the two `d × d` zones are equal (`zone_key`). -/
   sameKey : Nat → NMat → NMat → Prop
 
-/-- `EPSILON = 1e-9` of `dbm.rs:1`, in seconds. -/
+/-- The constant `EPSILON = 1e-9` of `dbm.rs`, in seconds. -/
 def ver011_eps : ℚ := 1 / 1000000000
 
 /-- A bound rendered to the nearest millisecond (half up), `⊤` for `∞`: a bound in seconds

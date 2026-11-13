@@ -251,6 +251,17 @@ open(p, \"w\").write(json.dumps(d, indent=2, ensure_ascii=False) + \"\\n\")
 '" \
   "planted_claim" "hand-added"
 
+# ---- line-number citations -----------------------------------------------------------------
+
+# A line-number citation in Lean prose and one in the spec: the no-line-hints lint must reject
+# both (code is cited by name only).
+expect_caught "line-number citation in Lean -> no-line-hints" 'python3 ../scripts/no-line-hints.py' \
+  "plant_core '-- planted: see executor.rs:412'" \
+  "Libpetri/Spec/Core.lean" "executor.rs:412"
+expect_caught "line-number citation in the spec -> no-line-hints" 'python3 ../scripts/no-line-hints.py' \
+  'printf "\nPlanted: see lines 10-20 of \`Transition.java\`.\n" >> ../spec/01-core-model.md' \
+  "spec/01-core-model.md" "lines 10-20 of"
+
 # ---- spec site -----------------------------------------------------------------------------
 
 # 16. A wrong-typed assignment in the site's browser code: `npm run check` (both tsconfigs, as

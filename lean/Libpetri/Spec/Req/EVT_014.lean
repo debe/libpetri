@@ -8,12 +8,13 @@ set_option linter.missingDocs true
 /-!
 # EVT-014: MarkingSnapshot Event (`spec/08-events-observability.md`)
 
-Java and TypeScript report the marking twice per run: once when the run starts, right after
+Every executor reports the marking twice per run: once when the run starts, right after
 `ExecutionStarted`, and once when it ends, before `ExecutionCompleted`. Each report is a
 `MarkingSnapshot` event carrying the snapshot form of [CORE-073]: the marked places, ascending
-by code point of the name, each with its whole queue. Rust and Python declare the event but no
-executor of theirs emits it, so the requirement is one block scoped to Java and TypeScript, and
-it has no block for every executor (ruling D38 (a), design note SC-6).
+by code point of the name, each with its whole queue. Rust and Python emit the event at both
+points, but it carries each place's token count and not its tokens (RD-50 in
+`spec/runtime-defects.md`, open), so they break the token content of lines 1 and 2; no theorem
+here states EVT-014 of them (`EVT_014_forbids_countsOnly`).
 
 The block is a predicate over an abstract executor with events `E : EvExec String T`
 (`Reference/Events.lean`), with place names as strings so that the order is the code-point order
@@ -23,8 +24,8 @@ place with its queue, and every listed place with its own queue. Lines 3 and 4 h
 snapshot event, at the boot and at any step, to the canonical form: a further snapshot is
 allowed, but not one that lists a place twice, out of order or with no token.
 
-**The witness.** The witness is the shared reference executor with events of Java and
-TypeScript, `refEvExec polJT`, over string place names. Its snapshots list the declared places
+**The witness.** The witness is the reference executor with the Java and TypeScript emission,
+`refEvExec polJT`, over string place names. Its snapshots list the declared places
 that hold a token ascending by name (`snapOf`), and on strings that is the [CORE-073] snapshot
 (`refSnapshot`) of the declared places (`evt014_snapOf_eq`). An executor that lists the places in
 the order the net declares them violates EVT-014 (`EVT_014_forbids_declOrder`).
@@ -54,34 +55,34 @@ instance {T : Type} [DecidableEq T] (C : Cfg String T) (M : QMarking String T)
     (m : QSnap String T) : Decidable (SnapCarries C M m) :=
   inferInstanceAs (Decidable (_ ∧ _ ∧ _))
 
-/-! ## EVT-014, Java and TypeScript: a snapshot at the start and at the end of a run -/
+/-! ## EVT-014: a snapshot at the start and at the end of a run -/
 
 requirement EVT_014
   id "EVT-014"
   title "MarkingSnapshot Event"
   kind B
-  scope "Java and TypeScript executors (event store enabled); Rust and Python have no producer"
+  scope "every executor (event store enabled); Rust and Python carry token counts rather than tokens (RD-50)"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* an executor emits MarkingSnapshot events (Java and TypeScript), *when* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking."
-        "*Where* an executor emits MarkingSnapshot events (Java and TypeScript), *when* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event."
-        "*Where* an executor emits MarkingSnapshot events (Java and TypeScript), the marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token."
-        "*Where* an executor emits MarkingSnapshot events (Java and TypeScript), the marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073])."
+  quote "*When* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking."
+        "*When* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event."
+        "The marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token."
+        "The marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073])."
   reading "For every executor with events E over string place names and every configuration C:"
           "for every initial marking M0, the events a run emits before its first step contain a MarkingSnapshot event with an ExecutionStarted event before it, and the snapshot m it carries is canonical (names strictly ascending, no empty queue), restores every declared place to its queue in M0, and lists every place with its queue in M0;"
           "for every history H, a finish step from state s to state s' that appends the events evs contains a MarkingSnapshot event with an ExecutionCompleted event after it, and the snapshot m it carries is canonical, restores every declared place to its queue in s', and lists every place with its queue in s';"
           "for every initial marking M0, every MarkingSnapshot event the run emits before its first step carries a canonical snapshot;"
           "for every history H and every label l, every MarkingSnapshot event a step labelled l appends carries a canonical snapshot."
-  assumes "The model is an executor with events E : EvExec String T (Reference/Events.lean): the events a run emits before its first step (the boot), and a step relation E.step C H s l evs s' saying that the step labelled l leads from s to s' and appends the events evs. Place names are strings, so the order of QCanon is Lean's order on strings, which is code-point order (CORE-073). The witness is the shared reference executor with events of Java and TypeScript, refEvExec polJT, over string place names: its two snapshots list the declared places that hold a token ascending by name (snapOf, with String's order), and that is the CORE-073 snapshot of the declared places, evt014_declSnap, which is refSnapshot imported from Reference/Snapshot.lean and not a second form (evt014_snapOf_eq). The same executor meets every other executor event block (the consistency theorem joint_events_exec_sketch). An executor that lists the places in the order the net declares them breaks the block (EVT_014_forbids_declOrder): TypeScript listed them that way before it adopted the CORE-073 order (typescript/src/runtime/bitmap-net-executor.ts snapshotMarking)."
-          "Scope (ruling D38 (a), design note SC-6): every line is about Java and TypeScript, so the requirement has no block for every executor. Java emits the start snapshot after ExecutionStarted and before its loop (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java 1004-1013; PrecompiledNetExecutor.java 1842) and the end snapshot before ExecutionCompleted (BitmapNetExecutor.java 1080-1094; PrecompiledNetExecutor.java 1907); TypeScript likewise (typescript/src/runtime/bitmap-net-executor.ts 536-540 and 576-580; precompiled-net-executor.ts 596-600 and 628-632). Rust and Python declare the event but no executor emits it; the reference with the Rust and Python emission violates line 1 (EVT_014_forbids_rust)."
+  assumes "The model is an executor with events E : EvExec String T (Reference/Events.lean): the events a run emits before its first step (the boot), and a step relation E.step C H s l evs s' saying that the step labelled l leads from s to s' and appends the events evs. Place names are strings, so the order of QCanon is Lean's order on strings, which is code-point order (CORE-073). The witness is the reference executor with the Java and TypeScript emission, refEvExec polJT, over string place names: its two snapshots list the declared places that hold a token ascending by name (snapOf, with String's order), and that is the CORE-073 snapshot of the declared places, evt014_declSnap, which is refSnapshot imported from Reference/Snapshot.lean and not a second form (evt014_snapOf_eq). The same executor meets every other executor event block (the consistency theorem joint_events_exec_sketch). An executor that lists the places in the order the net declares them breaks the block (EVT_014_forbids_declOrder): TypeScript listed them that way before it adopted the CORE-073 order (typescript/src/runtime/bitmap-net-executor.ts snapshotMarking)."
+          "Scope: every line binds every executor. Java emits the start snapshot after ExecutionStarted and before its loop, and the end snapshot before ExecutionCompleted from the finally of its loop (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java executeLoop and emitMarkingSnapshot; PrecompiledNetExecutor.java likewise); TypeScript likewise (typescript/src/runtime/bitmap-net-executor.ts executeLoop and snapshotMarking; precompiled-net-executor.ts likewise); Rust emits both from the shared executor core, on both backends and in run_sync and run_async (emit_marking_snapshot in rust/libpetri-runtime/src/executor_core/executor.rs), and Python through it. Rust's event carries a count per place and no token (NetEvent::MarkingSnapshot holds a BTreeMap from place name to usize; RD-50 in spec/runtime-defects.md, open): its snapshots come at the points of lines 1 and 2 and list each marked place once, ascending by code point, as lines 3 and 4 ask of the place names, but they cannot carry 'all of that place's tokens in FIFO order', the second part of SnapCarries, so Rust breaks lines 1 and 2. EVT_014_forbids_countsOnly is that payload over Nat tokens, each token replaced by 0 and each count kept: it breaks line 1, and evt014_countsOnly_lines34 shows that it keeps lines 3 and 4. No theorem states EVT_014 of Rust: the reference with the Rust and Python emission, refEvExec polRust, emits its snapshots at the same points as refEvExec polJT, but its payload is the model's queue form, which stands for Rust's only through the count view NetEvent.toRec (polRust in Reference/Events.lean)."
           "Line 1 is the first quoted sentence and the start half of AC1: the boot holds ExecutionStarted and, after it, a snapshot that carries the initial marking. An executor that reports the snapshot before ExecutionStarted breaks it and keeps lines 2 to 4 (EVT_014_mutant_snapFirst). Line 2 is the second quoted sentence and the end half of AC1: the finish step, whatever the cause, holds a snapshot that carries the marking the run ends with and, after it, ExecutionCompleted, both in the events of that one step. An executor that reports ExecutionCompleted first breaks it and keeps lines 1, 3 and 4 (EVT_014_mutant_completedFirst). Line 2 does not say 'immediately before', and the line allows any event between the two."
-          "Which run ends line 2 reaches: a finish of the model, whose cause is quiescent, terminal, closed or stopped (Cause, EXEC-041). Java's INTERRUPTED end (a host cancellation observed in the orchestrator's wait, EXEC-041) is not a cause of the model, which has no host cancellation; Java emits the end snapshot, a WARN and then ExecutionCompleted on that path too, from the finally of its loop (BitmapNetExecutor.java 1062-1094), so the quoted sentence holds there as well. An expired run budget ends the caller's wait and not the loop (EXEC-041, last quoted sentence): TypeScript's run(timeoutMs) with the abandon policy rejects the caller's promise and reports stopped while the loop runs on, and when that loop finishes it emits the end snapshot and ExecutionCompleted (bitmap-net-executor.ts 494-519 and 570-580). A run that ends with an exception thrown out of the loop is not a finish (EXEC-041: a run ends only by finishing) and is outside this block: Java still emits both events from its finally, and TypeScript's executeLoop, which has no finally, emits neither (an open item for EXEC-041)."
+          "Which run ends line 2 reaches: a finish of the model, whose cause is quiescent, terminal, closed or stopped (Cause, EXEC-041). Java's INTERRUPTED end (a host cancellation observed in the orchestrator's wait, EXEC-041) is not a cause of the model, which has no host cancellation; Java emits the end snapshot, a WARN and then ExecutionCompleted on that path too, from the finally of its loop (BitmapNetExecutor.java executeLoop), so the quoted sentence holds there as well. An expired run budget ends the caller's wait and not the loop (EXEC-041, last quoted sentence): TypeScript's run(timeoutMs) with the abandon policy rejects the caller's promise and reports stopped while the loop runs on, and when that loop finishes it emits the end snapshot and ExecutionCompleted (bitmap-net-executor.ts run and executeLoop). A run that ends with an exception thrown out of the loop is not a finish (EXEC-041: a run ends only by finishing) and is outside this block: Java still emits both events from its finally, and TypeScript's executeLoop, which has no finally, emits neither (an open item for EXEC-041)."
           "SnapCarries is the third and fourth quoted sentences for the start and the end snapshot. Its first part, QCanon, is AC3 (only non-empty places; EVT_014_forbids_keepEmpty, a snapshot that keeps the empty place c), 'each place at most once' (EVT_014_forbids_duplicate, a snapshot that lists every place twice, in otherwise ascending order) and AC4 (ascending code-point order, also above U+FFFF; EVT_014_forbids_declOrder on the places b and a, EVT_014_forbids_utf16 on the names U+E000 and U+10000, which a UTF-16 order puts the other way round). Its second part is 'every declared place with all its tokens in FIFO order' (EVT_014_forbids_empty, a snapshot that lists nothing; EVT_014_forbids_lifo, a snapshot that lists the queue 2 then 3 of a as 3 then 2). Its third part is that a listed place carries its own queue (EVT_014_forbids_forged, a snapshot that lists the undeclared place z with a token z does not hold). For a snapshot that lists declared places only, as TypeScript's does, SnapCarries says that it is exactly the CORE-073 snapshot of the declared places (evt014_carries_iff)."
           "Lines 3 and 4 are the third and fourth quoted sentences for every other snapshot event: each such sentence speaks of every MarkingSnapshot event, so a snapshot the boot or any step emits besides the two of lines 1 and 2 must be canonical too (no place twice, ascending code-point order, no place without a token). An executor that also emits a snapshot that keeps the empty place c at the boot breaks line 3 and keeps lines 1, 2 and 4 (EVT_014_mutant_bootKeepEmpty); one that also emits a snapshot in declaration order at the start of each cycle breaks line 4 and keeps lines 1 to 3 (EVT_014_mutant_cycleDeclOrder); one that emits, after ExecutionCompleted, a second end snapshot that keeps the empty places breaks line 4 although its first end snapshot meets line 2 (EVT_014_forbids_finishKeepEmpty). Which marking such a further snapshot is of is not stated: no quoted sentence says when it is taken, no runtime emits one, and so the parts of SnapCarries that compare with a marking are not required of it."
-          "Declared places (ruling D38 (a), clash evt-b#10): the marking a snapshot event carries is read over the places the net declares. TypeScript lists the places of the compiled net only (bitmap-net-executor.ts 1536-1552), and Java lists every marked place, an undeclared one included (java/src/main/java/org/libpetri/runtime/Marking.java 273-283), since an undeclared place keeps its tokens (CORE-072). Both meet the lines: a snapshot that also lists an undeclared place with its tokens meets them (EVT_014_allows_undeclared)."
+          "Declared places (ruling D38 (a), clash evt-b#10): the marking a snapshot event carries is read over the places the net declares. TypeScript lists the places of the compiled net only (bitmap-net-executor.ts snapshotMarking), and Java and Rust list every marked place, an undeclared one included (java/src/main/java/org/libpetri/runtime/Marking.java snapshot; Rust Marking::token_counts in rust/libpetri-runtime/src/marking.rs), since an undeclared place keeps its tokens (CORE-072). Each choice meets the lines: a snapshot that also lists an undeclared place with its tokens meets them (EVT_014_allows_undeclared)."
           "Not stated: AC1 says 'at least', so a further snapshot elsewhere is not forbidden, only held to the canonical form (lines 3 and 4). AC2 (a deep defensive copy) holds by type: an event is a value (EVT-001), and a queue in the model is a list. AC5 and the paragraph on renderings (an archive or the debug protocol renders the same stream identically twice; the order is not promised past the event) are about renderings, which are EVT-025's and the debug protocol's, not the event's. The paragraph 'Emitting this event MUST NOT fail the run' is not a line here: in the model a snapshot is a value computed from the marking, place names are never ambiguous (a Lean place is its name), and that the event layer neither adds nor blocks a step is the consistency theorem's conjunct W.erase = E (EventsLink E1); the refusal over two same-named places is the host operation's (CORE-073). The timestamp is not modelled (the epoch clock is the CORE-011 slice)."
           "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020; Java's end snapshot sits in a try that swallows a store failure); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator."
           "The test derivation (run a net, check the snapshot at the start and at the end and its accuracy) is EVT_014_nonvacuous: on the example net the start snapshot is a 2, b 1 (the declared but empty c left out, and a before b although the net declares b first), and the end snapshot after t fired is a 2. For AC4 the test derivation's names U+E000 and U+10000 are EVT_014_forbids_utf16."
-  signoff "2026-11-13 ef545b035d52a039 ai"
+  signoff "2026-11-13 aa0582e14fcbbfc4 ai"
   statement : ∀ {T : Type}, EvExec String T → Prop :=
     fun {T} E => ∀ C,
       (∀ M0, ∃ (pre : List (NetEvent String T)) (m : QSnap String T)
@@ -497,16 +498,40 @@ theorem EVT_014_nonvacuous :
 
 /-! ## Wrong executors -/
 
-/-- ✗ The reference with the Rust and Python emission violates EVT-014 (line 1): it reports no
-snapshot at all, so the requirement is scoped to Java and TypeScript. -/
+/-- The payload of an executor that reports each place's token count and not its tokens, over
+`Nat` tokens: the [CORE-073] snapshot of the declared places with every token replaced by 0, so
+each listed place keeps its count. Rust's and Python's `MarkingSnapshot` carries a count per
+place and no token (RD-50); this is that content in the event type of the model. -/
+def evt014_countsOnly (C : Cfg String Nat) (M : QMarking String Nat) : QSnap String Nat :=
+  (evt014_declSnap C M).map fun e => (e.1, e.2.map fun _ => 0)
+
+/-- Replacing the tokens of a canonical snapshot keeps it canonical: the names and the lengths of
+the queues stay. -/
+theorem evt014_counts_canon {m : QSnap String Nat} (h : QCanon m) :
+    QCanon (m.map fun e => (e.1, e.2.map fun _ => (0 : Nat))) := by
+  refine ⟨?_, fun e he => ?_⟩
+  · simpa only [List.map_map, Function.comp_def] using h.1
+  · obtain ⟨e', he', rfl⟩ := List.mem_map.1 he
+    simpa using h.2 e' he'
+
+/-- A count-only payload keeps lines 3 and 4 of EVT-014: its place names are listed once each,
+ascending, and none without a token. -/
+theorem evt014_countsOnly_lines34 :
+    evt014_line3 (evt014With evt014_countsOnly) ∧ evt014_line4 (evt014With evt014_countsOnly) :=
+  ⟨evt014_line3_of (fun C M => evt014_counts_canon (evt014_declSnap_carries C M).1) _,
+   evt014_line4_of (fun C M => evt014_counts_canon (evt014_declSnap_carries C M).1) _⟩
+
+/-- ✗ A snapshot that carries each place's token count and not its tokens violates EVT-014
+(line 1): on the example the start snapshot lists `a` with the token 0 and `b` with the token 0,
+the right places and counts in the right order, where `a` holds 2 and `b` holds 1. This is the
+content of Rust's and Python's `MarkingSnapshot`, which carries a count per place (RD-50, open);
+it keeps lines 3 and 4 (`evt014_countsOnly_lines34`). -/
 @[evidence forbids EVT_014]
-theorem EVT_014_forbids_rust : ¬ EVT_014 (refEvExec (N := String) (T := Nat) polRust) := by
+theorem EVT_014_forbids_countsOnly : ¬ EVT_014 (evt014With evt014_countsOnly) := by
   intro h
-  obtain ⟨pre, m, post, he, hs, -⟩ := (h evt014_cfg).1 evt014_m0
-  have he' : [NetEvent.executionStarted] = pre ++ .markingSnapshot m :: post := he
-  rcases pre with _ | ⟨a, rest⟩
-  · simp at he'
-  · simp at he'
+  have := evt014With_boot_carries ((evt014_iff _).1 h).1 evt014_cfg evt014_m0
+  revert this
+  decide +kernel
 
 /-- ✗ Listing the places in the order the net declares them violates EVT-014: the example net
 declares `b` before `a`, so the start snapshot lists `b` first. This was TypeScript's payload

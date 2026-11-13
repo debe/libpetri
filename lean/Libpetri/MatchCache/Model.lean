@@ -15,39 +15,39 @@ string; only equality matters for lockstep (NU-001 ordering matters to
 selection, which is out of scope here), so `Nat` suffices. -/
 abbrev Name := Nat
 
-/-- A match key's projection: `MatchKey::extract` (`match_spec.rs:55`), as
+/-- A match key's projection: `MatchKey::extract` (`match_spec.rs`), as
 called by `cache_add_token` and `find_match_binding`. `value → Option<NameId>`
 — a token whose extraction fails is invisible to the matcher. -/
 abbrev KeyOf := Colour → Option Name
 
 /-- The ν-net name-equality test — the `pred` closure the matched consume
-builds at `precompiled_backend.rs:1165-1170`:
+builds in `consume_for_firing` (`precompiled_backend.rs`):
 `matches!((key(v), &chosen), (Some(n), Some(c)) if n == *c)`. Per NU-021 this
 is the *only* per-token filter in the system. -/
 def keyPred (key : KeyOf) (n : Name) : Colour → Bool := fun c => key c == some n
 
 /-- One correlated input's cache component: `name → FIFO queue`, modelling
 `IncrementalMatcher.ts[i] : HashMap<NameId, MinQueue>`
-(`match_engine.rs:154-156`). The `MinQueue` keeps each token's `created_at`
+(`match_engine.rs`). The `MinQueue` keeps each token's `created_at`
 only; the model keeps the whole colour (which determines the timestamp), and
 a name mapped to `[]` is the map's absent entry. -/
 abbrev CacheQ := Name → List Colour
 
-/-- `IncrementalMatcher::add` (`match_engine.rs:186-191`) as called by
-`cache_add_token` (`precompiled_backend.rs:364-383`): if the key extracts a
+/-- `IncrementalMatcher::add` (`match_engine.rs`) as called by
+`cache_add_token` (`precompiled_backend.rs`): if the key extracts a
 name, push the token at the back of that name's queue; otherwise do
 nothing. -/
 def cacheAdd (key : KeyOf) (q : CacheQ) (c : Colour) : CacheQ :=
   fun n => if key c == some n then q n ++ [c] else q n
 
 /-- One `q.pop_front()` on name `m`'s queue — `IncrementalMatcher::consume`
-(`match_engine.rs:197-199`) calling `MinQueue::pop_front` (`:102-109`):
+(`match_engine.rs`) calling `MinQueue::pop_front`:
 FIFO-within-name removal, a no-op on an empty queue. -/
 def cachePop (q : CacheQ) (m : Name) : CacheQ :=
   fun n => if n == m then (q n).tail else q n
 
 /-- `IncrementalMatcher::consume`'s per-input loop
-`for _ in 0..requireds[i] { q.pop_front() }` (`match_engine.rs:195-201`):
+`for _ in 0..requireds[i] { q.pop_front() }` (`match_engine.rs`):
 `k` single pops of name `m`'s queue. -/
 def cachePopN (q : CacheQ) (m : Name) : Nat → CacheQ
   | 0 => q
@@ -56,9 +56,9 @@ def cachePopN (q : CacheQ) (m : Name) : Nat → CacheQ
 /-- The from-scratch answer the cache claims to equal: walk the ring
 projection in FIFO order and keep, per name, the tokens extracting to it.
 This is what the seeding loop of `init_match_caches` builds
-(`precompiled_backend.rs:341-359`) and the queue-level ground truth
+(`precompiled_backend.rs`) and the queue-level ground truth
 underlying `find_match_binding`'s `(count, min_created_at)` index
-(`precompiled_backend.rs:779-793`) — the index is the image of these
+(`precompiled_backend.rs`) — the index is the image of these
 queues. -/
 def recompute (key : KeyOf) (l : List Colour) : CacheQ :=
   fun n => l.filter (keyPred key n)
@@ -79,7 +79,7 @@ def Sync (key : KeyOf) (s : Pool) (p : PlaceId) (q : CacheQ) : Prop :=
 
 /-- Seeding establishes the invariant: `init_match_caches` walks the ring in
 FIFO order and `add`s every extracting token
-(`precompiled_backend.rs:344-359`), which is `recompute` by construction. -/
+(`precompiled_backend.rs`), which is `recompute` by construction. -/
 theorem sync_seed (key : KeyOf) (s : Pool) (p : PlaceId) :
     Sync key s p (recompute key (s.proj p)) := fun _ => rfl
 
@@ -90,7 +90,7 @@ cache mirroring exactly the calls the code makes (and only those). -/
 
 /-- The ring side of one matched consume: `to_consume` iterations of
 `ring_remove_matching`, as `consume_for_firing` calls it
-(`precompiled_backend.rs:1180-1188`), each removing the first
+(`precompiled_backend.rs`), each removing the first
 `pred`-satisfying token or nothing. -/
 def matchedRemoveIter (s : Pool) (p : PlaceId) (pred : Colour → Bool) :
     Nat → Pool
@@ -99,7 +99,7 @@ def matchedRemoveIter (s : Pool) (p : PlaceId) (pred : Colour → Bool) :
 
 /-- A reset drain: `drainable(pid, token_counts[pid])` repeated
 `ring_remove_first` calls — `consume_for_firing`'s RESET tail
-(`precompiled_backend.rs:1222-1230` matched, `:1265-1274` opcode). -/
+(`precompiled_backend.rs`, both the matched and the opcode path). -/
 def drainIter (s : Pool) (p : PlaceId) : Nat → Pool
   | 0 => s
   | k + 1 => drainIter (s.removeFirst p) p k
@@ -107,24 +107,24 @@ def drainIter (s : Pool) (p : PlaceId) : Nat → Pool
 /-- One backend mutation addressed to one place.
 
 * `add c` — `produce_token` / `inject_external_token`
-  (`precompiled_backend.rs:1313-1327`, `:1319-1329`): `cache_add_token`
+  (`precompiled_backend.rs`): `cache_add_token`
   then `ring_add_last`. The only mutations that *insert* into a ring.
   `produce_token` additionally records a same-pass deposit (EXEC-003 AC4/AC5,
-  `:1292-1294`), which touches neither ring nor cache and is invisible here.
+  `record_deposit`), which touches neither ring nor cache and is invisible here.
 * `matchedConsume pred m ringK cacheK` — the matched branch of
   `consume_for_firing` on one correlated input: `ringK` iterations of
-  `ring_remove_matching pred` (`precompiled_backend.rs:1180-1188`) plus
+  `ring_remove_matching pred` (`precompiled_backend.rs`) plus
   `cache.consume(m)` popping `cacheK` tokens of `m`'s queue for this input
-  (`:1188-1192`, `match_engine.rs:195-201`). The shipped eligible path always
-  has `pred = keyPred key m` (the `precompiled_backend.rs:1165-1170` closure) and
+  (`IncrementalMatcher::consume`, `match_engine.rs`). The shipped eligible path always
+  has `pred = keyPred key m` (the `consume_for_firing` closure) and
   `ringK = cacheK = required`; the counts are carried separately precisely
   so `one_exactly_is_necessary` can exhibit why `One`/`Exactly` is
   load-bearing.
 * `consumeFirst` — one foreign `ring_remove_first`
-  (`precompiled_backend.rs:396-403`; the opcode
+  (`precompiled_backend.rs`; the opcode
   path of `consume_for_firing` and the matched path's non-correlated
   inputs). **No cache call exists on this path.**
-* `reset` — the RESET drain (`:1196-1204` / `:1265-1274`). **No cache call
+* `reset` — the RESET drain of `consume_for_firing` (matched / opcode path). **No cache call
   exists on this path either.** -/
 inductive Mut where
   | add (c : Colour)

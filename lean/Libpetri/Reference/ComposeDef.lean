@@ -13,8 +13,8 @@ transition definition through one rewrite pass `CDef.map (Nm.pre p) (preS p)` (a
 output-spec places renamed, name `p/name`, timing, priority and action kept), in the body's
 order. The handles resolve port and channel names through the rename ([MOD-011]).
 
-The order of the two checks follows Rust (`rust/libpetri-core/src/subnet_def.rs:90-104`: the
-prefix, then the terminal places). The terminal-place rejection names the first terminal place,
+The order of the two checks follows Rust (`SubnetDef::instantiate` in
+`rust/libpetri-core/src/subnet_def.rs`: the prefix, then the terminal places). The terminal-place rejection names the first terminal place,
 as in every runtime ([MOD-010] line 4); the prefix message is a stand-in.
 -/
 
@@ -37,9 +37,10 @@ def renamedInstance (Nm : Naming N) (S : SubnetDef N A) (p : String) : Instance 
   iface := S.ports
 
 /-- The rejection of a body with a declared terminal place ([EXEC-042] AC6): it names the first
-terminal place, as every runtime's message does (`rust/libpetri-core/src/subnet_def.rs:103-104`,
-`java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java:130-135`,
-`typescript/src/core/internal/subnet-rewriter.ts:106-107`). -/
+terminal place, as every runtime's message does (`reject_subnet_terminals` called from
+`SubnetDef::instantiate` in `rust/libpetri-core/src/subnet_def.rs`, `SubnetRewriter.rejectTerminals`
+in `java/src/main/java/org/libpetri/core/internal/SubnetRewriter.java`, `rejectSubnetTerminals`
+called from `renameNet` in `typescript/src/core/internal/subnet-rewriter.ts`). -/
 def instTermMsg (Nm : Naming N) (S : SubnetDef N A) : String :=
   match S.terminals with
   | [] => s!"subnet '{S.name}' declares no terminal place"

@@ -10,8 +10,7 @@ import Libpetri.Spec.Registry
 # DBM zones: canonicalisation preserves the zone, emptiness detection is exact ([VER-011])
 
 Model of `Dbm` (`rust/libpetri-verification/src/dbm.rs`), the difference bound matrix of the
-state-class graph. Entry `D i j` bounds `θᵢ - θⱼ` (the struct's doc comment, and `get`,
-`dbm.rs:74-77`);
+state-class graph. Entry `D i j` bounds `θᵢ - θⱼ` (the struct's doc comment, and `get`);
 `f64::INFINITY` is `⊤` of `WithTop ℚ`. The zone of `D` is its solution set `Sat D`.
 
 * `canonicalize` and `canonicalize_in_place` (`dbm.rs`) are in-place
@@ -20,9 +19,9 @@ state-class graph. Entry `D i j` bounds `θᵢ - θⱼ` (the struct's doc commen
   finiteness guard. `canon` runs the relaxations in the Rust loop order (`fwSteps`: `k`, then
   `i`, then `j`), each one reading the matrix as the previous one left it, so the in-place
   semantics is exact.
-* The zone is flagged empty when some diagonal entry is below `-EPSILON` (`dbm.rs:126-132`),
-  which is `Flagged eps`. The `EPSILON = 1e-9` of the Rust code is any `eps ≥ 0` here.
-* `permuted` (`dbm.rs:251-275`) reorders the clocks, which is `permD` with the reference clock
+* The zone is flagged empty when some diagonal entry is below `-EPSILON` (the final loop of
+  `canonicalize`), which is `Flagged eps`. The `EPSILON = 1e-9` of the Rust code is any `eps ≥ 0` here.
+* `permuted` reorders the clocks, which is `permD` with the reference clock
   left in place; the Rust comment says a permuted canonical matrix is canonical.
 
 Results:

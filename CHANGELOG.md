@@ -11,12 +11,20 @@
 - Junctions, hidden nodes and nodes in collapsed clusters never match; each replica of a shared place is its own hit.
 - `ViewerHandle` gains `search(query)`, `searchNext()`, `searchPrev()`, `clearSearch()` and `searchState`; the search survives re-mounts. New theming variables `--lpv-search-stroke` and `--lpv-search-glow`.
 
+**Event-store query helpers ([EVT-030]; Java, TypeScript, Rust)**, with the Python binding's semantics.
+
+- Java: default methods `EventStore.placeEvents(String...)`, `filter(predicate, offset, limit)` and `counters()`.
+- TypeScript: `queryEvents(store, query)` with `EventQuery` (types, transitions, places, offset, limit), `placeEvents`, `countEvents`, `counters` and `eventPlaceName`.
+- Rust: `InMemoryEventStore::query(&EventQuery)`, `events_of_type`, `place_events`, `count_of_types`, `counters` and `NetEvent::event_type`.
+
 ### Fixed
 
-**Every entry of the runtime defect ledger (`spec/runtime-defects.md`) is fixed in the runtimes it names.** Python gets every Rust fix through the binding. Four calls that used to be accepted are now refused: `action(null)` (Java, TypeScript), one caller transition bound to two channels (all languages), a flush after the firing ended (Rust, Python), and a mint or carrier declaration the caller's net does not hold (Rust, Python; `verify` answers `Unknown`).
+**Every entry of the runtime ledger (`spec/runtime-defects.md`) is fixed in the runtimes it names, except RD-50, which needs a breaking change.** Python gets every Rust fix through the binding. Four calls that used to be accepted are now refused: `action(null)` (Java, TypeScript), one caller transition bound to two channels (all languages), a flush after the firing ended (Rust, Python), and a mint or carrier declaration the caller's net does not hold (Rust, Python; `verify` answers `Unknown`).
 
 #### All languages, or several
 
+- **The debug replay cache is dropped after an eviction ([EVT-032]; all languages).** Seek and step-backward after the debug store evicts events return the replay of the retained events, not a stale snapshot.
+- **Rust and Python emit `MarkingSnapshot` ([EVT-014]).** Both backends emit it right after `ExecutionStarted` and right before `ExecutionCompleted` (token counts per place). A store that records several runs now holds each run's start snapshot. Session archives read the event back instead of an `unknown` `TransitionEnabled`.
 - **One caller transition bound to two channels is rejected ([MOD-020]).** Java and TypeScript throw, Rust panics and Python raises `ValueError`, all with `Transition '<t>' is already bound to channel '<c1>'; it cannot also be bound to channel '<c2>' (MOD-020)`.
 - **A channel merge keeps the declared places of both sides ([MOD-031]; all languages).** A side without a correspondence contributes its own places, so after a later fusion or instantiation of the retrofitted net the caller's action still resolves `ctx.input(...)` on its declared place instead of failing the firing.
 - **A fusion set that repeats its first member keeps that member ([MOD-061], [MOD-026]; Java, TypeScript, Rust).** `[a, b, a]` keeps the declared place `a` and its membership entry.

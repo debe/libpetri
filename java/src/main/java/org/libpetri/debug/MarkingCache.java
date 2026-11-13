@@ -14,8 +14,10 @@ import java.util.List;
  * <p>Without caching, computing state at index N requires replaying all N events from the start.
  * With a snapshot interval of 256, the worst case is replaying 255 events from the nearest snapshot.
  *
- * <p>Snapshots are immutable (events are append-only) so they never become stale.
- * The cache is built lazily and extended incrementally as new events arrive.
+ * <p>Snapshots stay valid while the event list only grows at its end. The cache is built lazily
+ * and extended incrementally as new events arrive. A list that changed otherwise, for example by
+ * the eviction of its oldest events from a {@link DebugEventStore}, needs {@link #invalidate()}
+ * before the next {@link #computeAt} ([EVT-032] AC3).
  *
  * <h2>Thread Safety</h2>
  * <p>Not thread-safe. Each instance is used by a single client's subscription state,
@@ -73,8 +75,8 @@ public final class MarkingCache {
     }
 
     /**
-     * Invalidates the cache. Should be called when the event list changes
-     * (e.g., session switch or event store reset).
+     * Invalidates the cache. Must be called when the event list changed other than by growing at
+     * its end (e.g., eviction, session switch or event store reset).
      */
     public void invalidate() {
         snapshots.clear();

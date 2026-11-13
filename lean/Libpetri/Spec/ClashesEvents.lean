@@ -344,9 +344,9 @@ theorem clashEvt_initialAdded_conflict : ¬ ∃ V : EvExec Nat Nat, EVT_011 V �
 /-- ✗ **evt-b#1, ruling D76 (a): the tokens of the initial marking get no `TokenAdded`.** Worked
 example: a run starts with 7 in place 0. The old clause 'whether from initial marking' asks the
 boot to report 7 as added; EVT-011 now says the boot reports no `TokenAdded`, and no runtime emits
-one (the start snapshot carries the initial marking in Java and TypeScript). No executor meets
-both; the reference meets EVT-011 under both emissions, and the boot that reports the initial
-marking as added meets the old clause. -/
+one (the start snapshot reports the initial marking, in Rust and Python as counts, RD-50). No
+executor meets both; the reference meets EVT-011 under both emissions, and the boot that reports
+the initial marking as added meets the old clause. -/
 @[evidence cites "EVT-011" "the tokens of the initial marking get no TokenAdded event (ruling D76 (a)): no executor meets EVT-011 and also reports each token of the initial marking as added at boot, and the reference, under both emissions, meets EVT-011"]
 theorem clashEvt_initialAdded :
     (¬ ∃ V : EvExec Nat Nat, EVT_011 V ∧ ReportsInitial V) ∧

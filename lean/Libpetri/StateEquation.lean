@@ -2,7 +2,7 @@
 # The state equation with firing counters ([VER-016])
 
 With `EncodeOptions::state_equation` the CHC state is `(M, n)`, one counter per
-flat transition after the places (`encode_net`, `smt_encoder.rs:134-161`). The
+flat transition after the places (`encode_net`, `smt_encoder.rs`). The
 init fact has `n = 0`. Rule `k` sets `n'_k = n_k + 1`, copies the other
 counters and conjoins `n' ≥ 0` (`counter_conditions`). An injection rule copies
 every counter (`encode_injection_rule`). After the P-invariants, each
@@ -33,14 +33,14 @@ namespace Libpetri
 in `Reachable`. `Nat`-valued, so the emitted `n' ≥ 0` holds by construction. -/
 abbrev Counters := Nat → Nat
 
-/-- `n'` of rule `k` (`counter_conditions`, `smt_encoder.rs:254-267`):
+/-- `n'` of rule `k` (`counter_conditions`, `smt_encoder.rs`):
 `n'_k = n_k + 1`, every other counter copied. -/
 def bump (n : Counters) (k : Nat) : Counters :=
   fun j => if j = k then n j + 1 else n j
 
 /-- `C[p][k] = post − pre` of flat transition `k`, `0` past the end: the
 coefficient `state_equation_conditions` reads off `ft.post[p] - ft.pre[p]`
-(`smt_encoder.rs:294-308`). -/
+(`smt_encoder.rs`). -/
 def incAt (net : FlatNet) (k : Nat) (p : PlaceId) : Int :=
   match net[k]? with
   | some ft => (post ft.2 p : Int) - (pre ft.1 p : Int)
@@ -52,12 +52,12 @@ def rowRhs (net : FlatNet) (a0 : AMarking) (n : Counters) (p : PlaceId) : Int :=
   (a0 p : Int) + isum (fun k => incAt net k p * (n k : Int)) net.length
 
 /-- Some flat transition clears `p` with a reset or consume-all arc
-(`nonlinear_places`, `p_invariant.rs:241-257`). -/
+(`nonlinear_places`, `p_invariant.rs`). -/
 def cleared (net : FlatNet) (p : PlaceId) : Bool :=
   net.any fun ft => ft.1.resets.contains p || consumeAllAt ft.1 p
 
 /-- The row `state_equation_conditions` emits for `p`
-(`smt_encoder.rs:269-319`): `≤` on a cleared place, `=` elsewhere. -/
+(`smt_encoder.rs`): `≤` on a cleared place, `=` elsewhere. -/
 def Row (net : FlatNet) (a0 a : AMarking) (n : Counters) (p : PlaceId) : Prop :=
   if cleared net p = true then (a p : Int) ≤ rowRhs net a0 n p
   else (a p : Int) = rowRhs net a0 n p
@@ -119,7 +119,7 @@ def StepCntStrRel (net : FlatNet) (envs : List PlaceId) (ys : List Weight) (w : 
       s' = (fireA s.1 ft.1 ft.2, bump s.2 k))
   ∨ ∃ p ∈ envs, s' = (fun q => if q == p then s.1 q + 1 else s.1 q, s.2)
 
-/-- The shipped options-on rules (`encode_net`, `smt_encoder.rs:151-173`):
+/-- The shipped options-on rules (`encode_net`, `smt_encoder.rs`):
 every transition rule conjoins each law of `ys` and the row of every
 non-injected place below `w` over `(M', n')`; injection rules conjoin
 neither. -/

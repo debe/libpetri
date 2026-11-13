@@ -91,8 +91,8 @@ def tReadReset : Transition :=
     reads := [1]
     resets := [1] }
 
-/-- The pre-fix read loop (commit `1bdf586`,
-`precompiled_backend.rs:1046-1055`): peek *after* the whole consume program,
+/-- The pre-fix read loop of `consume_for_firing` (commit `1bdf586`,
+`precompiled_backend.rs`): peek *after* the whole consume program,
 resets included. -/
 def preFixReads (s : Pool) (t : Transition) : TokenBag :=
   peekReads
@@ -124,7 +124,7 @@ def tDup : Transition :=
 /-- `can_enable` passes (each spec's requirement is checked individually
 against the same single token), yet after the first `CONSUME_ONE` the head
 slot is `None` — exactly the value the second op's
-`ring_remove_first().unwrap()` (pre-fix `precompiled_backend.rs:307`)
+`ring_remove_first().unwrap()` (pre-fix `precompiled_backend.rs`)
 panicked on. Post-fix this net is rejected at compile time: it violates
 `DistinctInputPlaces` (CORE-030 AC3), the hypothesis every consumption
 theorem in this development carries. -/
@@ -141,7 +141,7 @@ theorem canEnable_insufficient_for_totality :
 /-! ## (d) Unknown-place token drop -/
 
 /-- Pre-fix `produce_token` (commit `1bdf586`,
-`precompiled_backend.rs:1039-1046`): `if let Some(pid) = place_id(place)`
+`precompiled_backend.rs`): `if let Some(pid) = place_id(place)`
 with **no else branch** — for a place the program does not know, nothing
 happens. -/
 def preFixProduce (s : Pool) (p : PlaceId) (c : Colour) : Pool :=

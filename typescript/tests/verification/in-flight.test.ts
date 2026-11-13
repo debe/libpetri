@@ -121,7 +121,7 @@ describe('the executor fires other transitions while an action is in flight', ()
 });
 
 /**
- * TypeScript deposits every output in the completion phase ([EXEC-042] implementation status),
+ * TypeScript deposits every output in the completion phase (typescript/README.md, "Ending a run"; [EXEC-042]),
  * so an action that resolves at once still leaves its outputs out of the firing pass: the same
  * interleavings happen without any delay.
  */

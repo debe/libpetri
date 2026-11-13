@@ -157,6 +157,27 @@ impl NetEvent {
         Self::TokenRemoved { place_name, timestamp, token: Some(token) }
     }
 
+    /// Returns the event type name: the variant name, as the archive
+    /// headers, the debug wire format and the Python binding's
+    /// `NetEvent.type` spell it (`"TransitionStarted"`, `"TokenAdded"`, …).
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            NetEvent::ExecutionStarted { .. } => "ExecutionStarted",
+            NetEvent::ExecutionCompleted { .. } => "ExecutionCompleted",
+            NetEvent::TransitionEnabled { .. } => "TransitionEnabled",
+            NetEvent::TransitionClockRestarted { .. } => "TransitionClockRestarted",
+            NetEvent::TransitionStarted { .. } => "TransitionStarted",
+            NetEvent::TransitionCompleted { .. } => "TransitionCompleted",
+            NetEvent::TransitionFailed { .. } => "TransitionFailed",
+            NetEvent::TransitionTimedOut { .. } => "TransitionTimedOut",
+            NetEvent::ActionTimedOut { .. } => "ActionTimedOut",
+            NetEvent::TokenAdded { .. } => "TokenAdded",
+            NetEvent::TokenRemoved { .. } => "TokenRemoved",
+            NetEvent::LogMessage { .. } => "LogMessage",
+            NetEvent::MarkingSnapshot { .. } => "MarkingSnapshot",
+        }
+    }
+
     /// Returns the timestamp of this event.
     pub fn timestamp(&self) -> u64 {
         match self {

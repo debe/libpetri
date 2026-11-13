@@ -71,26 +71,26 @@ flowchart TD
     n3515["Libpetri.Reference.arcPlaces"]
   end
   subgraph g5["Libpetri/Spec/Glossary.lean"]
-    n7962["Libpetri.Spec.InhibitorArc"]
-    n9664["Libpetri.Spec.OutputArc"]
-    n9803["Libpetri.Spec.ReadArc"]
-    n9870["Libpetri.Spec.ResetArc"]
-    n17002["Libpetri.Spec.inPlaces"]
-    n19773["Libpetri.Spec.outPlaces"]
-    n20441["Libpetri.Spec.requiredCount"]
+    n7963["Libpetri.Spec.InhibitorArc"]
+    n9665["Libpetri.Spec.OutputArc"]
+    n9804["Libpetri.Spec.ReadArc"]
+    n9871["Libpetri.Spec.ResetArc"]
+    n17006["Libpetri.Spec.inPlaces"]
+    n19777["Libpetri.Spec.outPlaces"]
+    n20445["Libpetri.Spec.requiredCount"]
   end
   subgraph g6["Libpetri/Spec/GlossaryEnable.lean"]
-    n7963["Libpetri.Spec.InhibitorMask"]
-    n8539["Libpetri.Spec.MaskCheck"]
-    n9203["Libpetri.Spec.NeedsMask"]
+    n7964["Libpetri.Spec.InhibitorMask"]
+    n8540["Libpetri.Spec.MaskCheck"]
+    n9204["Libpetri.Spec.NeedsMask"]
   end
   subgraph g7["Libpetri/Spec/GlossaryTime.lean"]
-    n4900["Libpetri.Spec.ArcPlace"]
-    n12357["Libpetri.Spec.arcPlace_iff"]
+    n4901["Libpetri.Spec.ArcPlace"]
+    n12358["Libpetri.Spec.arcPlace_iff"]
   end
   subgraph g8["Libpetri/Spec/Req/CONC_007.lean"]
-    n5114["Libpetri.Spec.CONC_007"]
-    n12924["Libpetri.Spec.conc007_presence_iff"]
+    n5115["Libpetri.Spec.CONC_007"]
+    n12925["Libpetri.Spec.conc007_presence_iff"]
   end
   n9 --> n8
   n10 --> n8
@@ -148,63 +148,63 @@ flowchart TD
   n3515 --> n1961
   n3515 --> n3455
   n4001 --> n4118
-  n4001 --> n9664
-  n4001 --> n12357
+  n4001 --> n9665
+  n4001 --> n12358
   n4002 --> n4001
   n4118 --> n3105
   n4118 --> n3106
   n4118 --> n3457
   n4118 --> n3515
-  n4118 --> n19773
-  n4900 --> n7962
-  n4900 --> n9803
-  n4900 --> n9870
-  n4900 --> n17002
-  n5114 --> n1937
-  n5114 --> n2958
-  n5114 --> n2959
-  n5114 --> n2960
-  n5114 --> n2961
-  n5114 --> n2963
-  n5114 --> n2967
-  n5114 --> n2968
-  n5114 --> n2969
-  n5114 --> n2970
-  n5114 --> n2973
-  n5114 --> n4118
-  n5114 --> n4900
-  n5114 --> n7963
-  n5114 --> n9203
-  n5114 --> n20441
-  n7962 --> n1956
-  n7962 --> n3455
-  n7963 --> n7962
-  n8539 --> n7963
-  n8539 --> n9203
-  n9203 --> n9803
-  n9203 --> n17002
-  n9664 --> n3457
-  n9664 --> n19773
-  n9803 --> n1960
-  n9803 --> n3455
-  n9870 --> n1961
-  n9870 --> n3455
-  n12357 --> n3515
-  n12357 --> n4900
-  n12924 --> n2962
-  n12924 --> n2971
-  n12924 --> n4002
-  n12924 --> n5114
-  n12924 --> n8539
-  n17002 --> n1939
-  n17002 --> n1957
-  n17002 --> n3455
-  n19773 --> n3292
-  n20441 --> n14
+  n4118 --> n19777
+  n4901 --> n7963
+  n4901 --> n9804
+  n4901 --> n9871
+  n4901 --> n17006
+  n5115 --> n1937
+  n5115 --> n2958
+  n5115 --> n2959
+  n5115 --> n2960
+  n5115 --> n2961
+  n5115 --> n2963
+  n5115 --> n2967
+  n5115 --> n2968
+  n5115 --> n2969
+  n5115 --> n2970
+  n5115 --> n2973
+  n5115 --> n4118
+  n5115 --> n4901
+  n5115 --> n7964
+  n5115 --> n9204
+  n5115 --> n20445
+  n7963 --> n1956
+  n7963 --> n3455
+  n7964 --> n7963
+  n8540 --> n7964
+  n8540 --> n9204
+  n9204 --> n9804
+  n9204 --> n17006
+  n9665 --> n3457
+  n9665 --> n19777
+  n9804 --> n1960
+  n9804 --> n3455
+  n9871 --> n1961
+  n9871 --> n3455
+  n12358 --> n3515
+  n12358 --> n4901
+  n12925 --> n2962
+  n12925 --> n2971
+  n12925 --> n4002
+  n12925 --> n5115
+  n12925 --> n8540
+  n17006 --> n1939
+  n17006 --> n1957
+  n17006 --> n3455
+  n19777 --> n3292
+  n20445 --> n14
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12924 root
+  class n12925 root
 ```
 
 ### `Libpetri.Spec.denseEnable_maskCheck`
@@ -226,30 +226,30 @@ flowchart TD
     n3455["Libpetri.Reference.Trans.core"]
   end
   subgraph g2["Libpetri/Spec/Glossary.lean"]
-    n7962["Libpetri.Spec.InhibitorArc"]
-    n9803["Libpetri.Spec.ReadArc"]
-    n17002["Libpetri.Spec.inPlaces"]
+    n7963["Libpetri.Spec.InhibitorArc"]
+    n9804["Libpetri.Spec.ReadArc"]
+    n17006["Libpetri.Spec.inPlaces"]
   end
   subgraph g3["Libpetri/Spec/GlossaryEnable.lean"]
-    n7963["Libpetri.Spec.InhibitorMask"]
-    n8539["Libpetri.Spec.MaskCheck"]
-    n9203["Libpetri.Spec.NeedsMask"]
+    n7964["Libpetri.Spec.InhibitorMask"]
+    n8540["Libpetri.Spec.MaskCheck"]
+    n9204["Libpetri.Spec.NeedsMask"]
   end
   subgraph g4["Libpetri/Spec/Req/PERF_042.lean"]
-    n9698["Libpetri.Spec.PacksTo"]
-    n12186["Libpetri.Spec.Words"]
-    n14264["Libpetri.Spec.denseContainsAll"]
-    n14265["Libpetri.Spec.denseContainsAll_iff"]
-    n14266["Libpetri.Spec.denseEnable"]
-    n14267["Libpetri.Spec.denseEnable_iff_bits"]
-    n14268["Libpetri.Spec.denseEnable_iff_places"]
-    n14269["Libpetri.Spec.denseEnable_maskCheck"]
-    n14270["Libpetri.Spec.denseIntersects"]
-    n14271["Libpetri.Spec.denseIntersects_iff"]
-    n22299["Libpetri.Spec.wordAt"]
-    n22300["Libpetri.Spec.wordAt_ge"]
-    n22301["Libpetri.Spec.word_and_eq_iff_bits"]
-    n22302["Libpetri.Spec.word_and_ne_zero_iff_bits"]
+    n9699["Libpetri.Spec.PacksTo"]
+    n12187["Libpetri.Spec.Words"]
+    n14265["Libpetri.Spec.denseContainsAll"]
+    n14266["Libpetri.Spec.denseContainsAll_iff"]
+    n14267["Libpetri.Spec.denseEnable"]
+    n14268["Libpetri.Spec.denseEnable_iff_bits"]
+    n14269["Libpetri.Spec.denseEnable_iff_places"]
+    n14270["Libpetri.Spec.denseEnable_maskCheck"]
+    n14271["Libpetri.Spec.denseIntersects"]
+    n14272["Libpetri.Spec.denseIntersects_iff"]
+    n22303["Libpetri.Spec.wordAt"]
+    n22304["Libpetri.Spec.wordAt_ge"]
+    n22305["Libpetri.Spec.word_and_eq_iff_bits"]
+    n22306["Libpetri.Spec.word_and_ne_zero_iff_bits"]
   end
   n1939 --> n1936
   n1956 --> n1955
@@ -258,42 +258,42 @@ flowchart TD
   n1960 --> n1955
   n3455 --> n1955
   n3455 --> n3454
-  n7962 --> n1956
-  n7962 --> n3455
-  n7963 --> n7962
-  n8539 --> n7963
-  n8539 --> n9203
-  n9203 --> n9803
-  n9203 --> n17002
-  n9698 --> n22299
-  n9803 --> n1960
-  n9803 --> n3455
-  n14264 --> n22299
-  n14265 --> n14264
-  n14265 --> n22300
-  n14265 --> n22301
-  n14266 --> n14264
-  n14266 --> n14270
+  n7963 --> n1956
+  n7963 --> n3455
+  n7964 --> n7963
+  n8540 --> n7964
+  n8540 --> n9204
+  n9204 --> n9804
+  n9204 --> n17006
+  n9699 --> n22303
+  n9804 --> n1960
+  n9804 --> n3455
+  n14265 --> n22303
+  n14266 --> n14265
+  n14266 --> n22304
+  n14266 --> n22305
   n14267 --> n14265
-  n14267 --> n14266
   n14267 --> n14271
-  n14268 --> n9698
+  n14268 --> n14266
   n14268 --> n14267
-  n14269 --> n8539
+  n14268 --> n14272
+  n14269 --> n9699
   n14269 --> n14268
-  n14270 --> n22299
-  n14271 --> n14270
-  n14271 --> n22300
-  n14271 --> n22302
-  n17002 --> n1939
-  n17002 --> n1957
-  n17002 --> n3455
-  n22299 --> n12186
-  n22300 --> n22299
+  n14270 --> n8540
+  n14270 --> n14269
+  n14271 --> n22303
+  n14272 --> n14271
+  n14272 --> n22304
+  n14272 --> n22306
+  n17006 --> n1939
+  n17006 --> n1957
+  n17006 --> n3455
+  n22303 --> n12187
+  n22304 --> n22303
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n14269 root
+  class n14270 root
 ```
 
 Axioms used:

@@ -470,6 +470,68 @@ class DebugProtocolHandlerTest {
             assertEquals("s1", snapshot.sessionId());
         }
 
+        /**
+         * [EVT-032] AC3: after the debug store evicted its oldest events ([EVT-024]), the cache
+         * snapshot at index 256 replays a prefix that is gone. The handler must invalidate it, so
+         * a seek returns the replay of the retained window and not that stale snapshot plus delta.
+         */
+        @Test
+        void seekAfterEvictionReplaysTheRetainedEvents_EVT032_AC3() {
+            var evictingRegistry = new DebugSessionRegistry(10, id -> new DebugEventStore(id, 300));
+            var evictingHandler = new DebugProtocolHandler(evictingRegistry);
+            evictingHandler.clientConnected("c1", responses::add);
+            var store = evictingRegistry.register("s1", TEST_NET).eventStore();
+            var t0 = Instant.parse("2024-01-01T00:00:00Z");
+            var end = t0.plusSeconds(1);
+            for (int i = 0; i < 300; i++) {
+                store.append(new NetEvent.TokenAdded(t0, "A", Token.of("a")));
+            }
+
+            evictingHandler.handleCommand("c1", new DebugCommand.Subscribe("s1",
+                    DebugCommand.SubscriptionMode.replay, 0));
+            evictingHandler.handleCommand("c1", new DebugCommand.Seek("s1", end));
+            assertEquals(300, lastResponseOfType(DebugResponse.MarkingSnapshot.class).marking().get("A").size());
+
+            for (int i = 0; i < 100; i++) {
+                store.append(new NetEvent.TokenAdded(t0, "B", Token.of("b")));
+            }
+            assertEquals(100, store.evictedCount());
+
+            evictingHandler.handleCommand("c1", new DebugCommand.Seek("s1", end));
+            var marking = lastResponseOfType(DebugResponse.MarkingSnapshot.class).marking();
+            assertEquals(200, marking.get("A").size());
+            assertEquals(100, marking.get("B").size());
+        }
+
+        /** [EVT-032] AC3: the step-backward path invalidates the cache after an eviction as well. */
+        @Test
+        void stepBackwardAfterEvictionReplaysTheRetainedEvents_EVT032_AC3() {
+            var evictingRegistry = new DebugSessionRegistry(10, id -> new DebugEventStore(id, 300));
+            var evictingHandler = new DebugProtocolHandler(evictingRegistry);
+            evictingHandler.clientConnected("c1", responses::add);
+            var store = evictingRegistry.register("s1", TEST_NET).eventStore();
+            var t0 = Instant.parse("2024-01-01T00:00:00Z");
+            for (int i = 0; i < 300; i++) {
+                store.append(new NetEvent.TokenAdded(t0, "A", Token.of("a")));
+            }
+
+            // Replay subscription leaves the index at 300; the step back replays 299 events.
+            evictingHandler.handleCommand("c1", new DebugCommand.Subscribe("s1",
+                    DebugCommand.SubscriptionMode.replay, 0));
+            evictingHandler.handleCommand("c1", new DebugCommand.StepBackward("s1"));
+            assertEquals(299, lastResponseOfType(DebugResponse.MarkingSnapshot.class).marking().get("A").size());
+
+            for (int i = 0; i < 100; i++) {
+                store.append(new NetEvent.TokenAdded(t0, "B", Token.of("b")));
+            }
+
+            // Index 299 to 298 over the retained window: 200 A, then 98 B.
+            evictingHandler.handleCommand("c1", new DebugCommand.StepBackward("s1"));
+            var marking = lastResponseOfType(DebugResponse.MarkingSnapshot.class).marking();
+            assertEquals(200, marking.get("A").size());
+            assertEquals(98, marking.get("B").size());
+        }
+
         @Test
         void shouldStepForward() {
             connectClient("c1");

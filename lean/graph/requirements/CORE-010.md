@@ -13,8 +13,8 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/CORE_010.lean"]
-    n5302["Libpetri.Spec.CORE_010"]
-    n5321["Libpetri.Spec.CORE_010_of_EXEC"]
+    n5303["Libpetri.Spec.CORE_010"]
+    n5322["Libpetri.Spec.CORE_010_of_EXEC"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c28["📁 Libpetri/Novel/ForwardDeposit.lean (3 declarations, collapsed)"]
@@ -42,17 +42,17 @@ flowchart TD
   c236 --> c131
   c236 --> c144
   c237 --> c144
-  n5302 --> c131
-  n5302 --> c144
-  n5321 --> c234
-  n5321 --> c235
-  n5321 --> c236
-  n5321 --> c237
-  n5321 --> n5302
+  n5303 --> c131
+  n5303 --> c144
+  n5322 --> c234
+  n5322 --> c235
+  n5322 --> c236
+  n5322 --> c237
+  n5322 --> n5303
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n5321 root
+  class n5322 root
   class c0,c28,c54,c91,c94,c131,c132,c144,c234,c235,c236,c237 collapsed
 ```
 

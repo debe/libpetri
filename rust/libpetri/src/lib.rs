@@ -92,7 +92,7 @@ pub use libpetri_core::timing::{Timing, deadline, delayed, exact, immediate, win
 pub use libpetri_core::token::Token;
 pub use libpetri_core::transition::Transition;
 
-pub use libpetri_event::event_store::{EventStore, InMemoryEventStore, NoopEventStore};
+pub use libpetri_event::event_store::{EventQuery, EventStore, InMemoryEventStore, NoopEventStore};
 pub use libpetri_event::net_event::NetEvent;
 
 pub use libpetri_export::dot_exporter::dot_export;

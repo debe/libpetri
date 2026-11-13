@@ -9,11 +9,11 @@ import Libpetri.Novel.ReapAware
 the loops of `rust/libpetri-verification/src/structural_check.rs` and proves they decide what
 the theorem needs:
 
-* `structural_check` (`structural_check.rs:36`) as `structuralCheck`;
-* `find_minimal_siphons` (`:66`) as `findMinimalSiphons`, with the start-place loop `searchZ`
+* `structural_check` as `structuralCheck`;
+* `find_minimal_siphons` as `findMinimalSiphons`, with the start-place loop `searchZ`
   and the minimality filter `minimalOf`;
-* `grow_siphon` (`:96`) as `growZ`;
-* `find_maximal_trap_in` (`:149`) as `maximalTrapIn`, with one `while changed` round as `pass`.
+* `grow_siphon` as `growZ`;
+* `find_maximal_trap_in` as `maximalTrapIn`, with one `while changed` round as `pass`.
 
 ## The Rust as data
 
@@ -26,7 +26,7 @@ handed to `find_maximal_trap_in` is a `Vec<usize>` of indices, here `List PlaceI
 
 * **P1 `pre`.** `ft.pre[p] > 0` iff `Consumes ft.1 p` (as `consumesB`). `flatten` writes
   `pre[p] = Σ required_count` over the input arcs on `p` (`flatten_with_reapable`,
-  `net_flattener.rs:120-127`), so the
+  `net_flattener.rs`), so the
   sum is positive iff one arc requires a token. No `InputsDistinctPlaces` is needed.
 * **P2 `post`.** `ft.post[p] > 0` iff `ft.2.contains p` (as `outputsB`): every place of an
   outcome deposits at least one token (`branch_outcomes::outcomes`, `ForwardDeposit.lean`).
@@ -140,15 +140,15 @@ def consumesB (ft : FlatTransition) (p : PlaceId) : Bool :=
 /-- `ft.post[p] > 0`. -/
 def outputsB (ft : FlatTransition) (p : PlaceId) : Bool := ft.2.contains p
 
-/-- `outputs_to_siphon` (`structural_check.rs:113-117`). -/
+/-- `outputs_to_siphon` (in `grow_siphon`). -/
 def outputsInto (n : Nat) (S : PSet) (ft : FlatTransition) : Bool :=
   (List.range n).any fun p => outputsB ft p && S p
 
-/-- `has_input_in_siphon` (`structural_check.rs:118-122`). -/
+/-- `has_input_in_siphon` (in `grow_siphon`). -/
 def consumesFrom (n : Nat) (S : PSet) (ft : FlatTransition) : Bool :=
   (List.range n).any fun p => consumesB ft p && S p
 
-/-- The predicate of the `find` at `structural_check.rs:112`. -/
+/-- The predicate of the `find` that `grow_siphon` binds to `violating`. -/
 def violates (n : Nat) (S : PSet) (ft : FlatTransition) : Bool :=
   outputsInto n S ft && !consumesFrom n S ft
 
@@ -168,7 +168,7 @@ def seqM {α : Type} (g : α → St → Option St) : List α → St → Option S
     | none => none
     | some st' => seqM g xs st'
 
-/-- `grow_siphon` (`structural_check.rs:96`), with fuel `f` and fuel fallback `z`. `none` is
+/-- `grow_siphon` (`structural_check.rs`), with fuel `f` and fuel fallback `z`. `none` is
 the Rust's `false`: the node budget was exceeded or the stop fired. -/
 def growZ (net : FlatNet) (n budget : Nat) (cut : Nat → Bool) (z : Option St) :
     Nat → PSet → St → Option St
@@ -182,11 +182,11 @@ def growZ (net : FlatNet) (n budget : Nat) (cut : Nat → Bool) (z : Option St) 
       | some ft =>
         seqM (fun p => growZ net n budget cut z f (ins S p)) (inputsOf n ft) (st.1, st.2 + 1)
 
-/-- The start-place loop of `find_minimal_siphons` (`structural_check.rs:69-75`), at fuel `n`. -/
+/-- The start-place loop of `find_minimal_siphons`, at fuel `n`. -/
 def searchZ (net : FlatNet) (n budget : Nat) (cut : Nat → Bool) (z : Option St) : Option St :=
   seqM (fun p => growZ net n budget cut z n (single p)) (List.range n) ([], 0)
 
-/-- The minimality filter of `find_minimal_siphons` (`structural_check.rs:78-88`): keep entry
+/-- The minimality filter of `find_minimal_siphons`: keep entry
 `i` unless another *index* `j ≠ i` holds a subset of it. -/
 def minimalOf (n : Nat) (found : List PSet) : List PSet :=
   (List.range found.length).filterMap fun i =>
@@ -194,19 +194,19 @@ def minimalOf (n : Nat) (found : List PSet) : List PSet :=
         (fun j => j != i && subsetB n (found[j]?.getD emptyS) (found[i]?.getD emptyS))
     then none else some (found[i]?.getD emptyS)
 
-/-- `find_minimal_siphons` (`structural_check.rs:66`). -/
+/-- `find_minimal_siphons` (`structural_check.rs`). -/
 def findMinimalSiphons (net : FlatNet) (n budget : Nat) (cut : Nat → Bool) :
     Option (List (List PlaceId)) :=
   (searchZ net n budget cut none).map fun st => (minimalOf n st.1).map (toList n)
 
 /-! ## `find_maximal_trap_in` -/
 
-/-- The inner `for ft in &flat.transitions` loop (`structural_check.rs:166-180`): every
+/-- The inner `for ft in &flat.transitions` loop of `find_maximal_trap_in`: every
 transition consuming from `pid` produces into the current trap. -/
 def okAt (net : FlatNet) (n : Nat) (T : PSet) (pid : PlaceId) : Bool :=
   net.all fun ft => !consumesB ft pid || (List.range n).any fun p => outputsB ft p && T p
 
-/-- One iteration of `for &pid in siphon` (`structural_check.rs:159-186`), updating in place. -/
+/-- One iteration of `for &pid in siphon` (`find_maximal_trap_in`), updating in place. -/
 def passStep (net : FlatNet) (n : Nat) (st : PSet × Bool) (pid : PlaceId) : PSet × Bool :=
   if !st.1 pid then st
   else if okAt net n st.1 pid then st
@@ -223,25 +223,25 @@ def contractZ (net : FlatNet) (n : Nat) (sip : List PlaceId) (z : PSet) : Nat �
     if (pass net n sip T).2 then contractZ net n sip z f (pass net n sip T).1
     else (pass net n sip T).1
 
-/-- `find_maximal_trap_in` (`structural_check.rs:149`). -/
+/-- `find_maximal_trap_in` (`structural_check.rs`). -/
 def maximalTrapIn (net : FlatNet) (n : Nat) (sip : List PlaceId) : List PlaceId :=
   toList n (contractZ net n sip emptyS (sip.length + 1) (ofList sip))
 
 /-! ## `structural_check` -/
 
-/-- `StructuralCheckResult` (`structural_check.rs:6`). -/
+/-- `StructuralCheckResult` (`structural_check.rs`). -/
 inductive Verdict where
   | noPotentialDeadlock
   | potentialDeadlock
   | inconclusive
   deriving DecidableEq, Repr
 
-/-- `SIPHON_SEARCH_BUDGET` (`structural_check.rs:19`). -/
+/-- `SIPHON_SEARCH_BUDGET` (`structural_check.rs`). -/
 def siphonSearchBudget : Nat := 10000
 
 /-- The siphon/trap verdict once the cut-offs are passed: `Inconclusive` when the search was cut,
 else `NoPotentialDeadlock` iff every returned siphon's maximal trap holds a token
-(`structural_check.rs:41-55`). -/
+(the `for siphon in &siphons` loop of `structural_check`). -/
 def siphonVerdict (net : FlatNet) (n budget : Nat) (cut : Nat → Bool) (a0 : AMarking) :
     Verdict :=
   match findMinimalSiphons net n budget cut with
@@ -250,7 +250,7 @@ def siphonVerdict (net : FlatNet) (n budget : Nat) (cut : Nat → Bool) (a0 : AM
     if sips.all (fun sip => (maximalTrapIn net n sip).any fun p => decide (0 < a0 p))
     then .noPotentialDeadlock else .potentialDeadlock
 
-/-- `structural_check` (`structural_check.rs:36`) with node budget `budget` (the Rust passes
+/-- `structural_check` (`structural_check.rs`) with node budget `budget` (the Rust passes
 `siphonSearchBudget`) and stop oracle `cut` (P5). The guard
 `flat.place_count > 50 || flat.transitions.is_empty()` answers `Inconclusive`; the second
 disjunct is the fix for `empty_net_structural_proven_dead`. -/

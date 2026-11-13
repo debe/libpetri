@@ -448,47 +448,6 @@ after whatever synchronisation of internal token storage any other marking read 
 
 **Depends on:** [ENV-003], [ENV-004], [ENV-010], [ENV-011], [ENV-013], [ENV-015], [EXEC-001], [EXEC-031], [EXEC-040], [CORE-071], [CORE-073],
 [TIME-015]
-**Implementation status:** AC1–AC8 in all four. AC9 in all four:
-- **Rust** races the clock's wait against its signal channel, so a request is served mid-wait
-  (Python rides on it).
-- **TypeScript** is single-threaded, so no read can overlap a wait.
-- **Java** has a park epoch. The orchestrator bumps a volatile counter just before and just after
-  each wait. A foreign reader that finds it parked copies the state directly, checks the counter
-  again, and falls back to the request protocol below only if the orchestrator moved in between.
-
-`snapshot()` returns a result carrying the marking
-**and** an in-flight indication, read in the same operation that captures the marking — a
-separately-queryable flag would be read at a different instant, which is the race AC5 closes. The
-field keeps its name (`actionInFlight` / `action_in_flight`) and means **work in flight: an action,
-or an accepted but un-injected external event**. **TypeScript** and **Java** read the marking
-outside the event queue, so they OR a pending-external-queue check into the flag at the instant
-of capture; **TypeScript** counts a firing as in flight from consumption, and **Java**, whose
-actions run inline, captures directly when called on the orchestrator thread (the precompiled
-executor synchronising its ring buffers first, as its `marking()` does) and reports the flag
-true. A Java request from a *foreign* thread waits for the orchestrator to serve it, bounded by a
-2 s best-effort cap so a caller is never parked behind a blocking inline action; a request that
-was **not served** within the cap returns the last published marking with the flag **forced
-true**, whatever flag that older marking was published with — since then an accepted event may
-have been injected and consumed by the very firing that is blocking, so an unserved request is
-never a restore point (AC7). Both Java executors compute the published flag with one shared
-expression, and an event that will be *refused* — queued behind a run that has already
-terminated or closed, so `inject` answers `false` and the host keeps the token — was never
-accepted and does not count. **Rust** and **Python** need neither: injections and the snapshot request share one FIFO
-channel, so every earlier injection is already in the marking when the snapshot is served, and a
-request is a non-blocking send whose reply arrives from the orchestrator's next cycle — an
-**asynchronous** action that awaits it is, correctly, reported in flight, from its first statement
-as well as after it has suspended (in Python the awaitable binds to the loop `start_async` /
-`run_async` captured, since an action's thread has no running loop). As with `inject()` under
-[TIME-015], that reply MUST NOT be *blocked on* from the orchestrator's own thread of control,
-and there are two such places: an `ExecutorClock` wait, and a **synchronous** action under
-`run_async` / `start_async`, which runs inline in the orchestrator loop. Such an action may send
-the request, but the orchestrator cannot serve it until the action returns, so blocking on the
-reply hangs the run; and the reply, once it comes, describes the instant *after* that firing
-settled — outputs deposited, no token missing, and therefore possibly a restore point. That is
-AC8's deferred arm: in Rust and Python an asynchronous action gets the flagged result, and an
-inline synchronous one gets the deferred one. Under `run_sync` there is no signal channel and the
-case does not arise.
-
 **Test derivation:** Start a long-running net; call `snapshot()` mid-execution; verify the returned
 marking reflects current state and the executor continues; call after `close()` and verify rejection.
 For AC5/AC6, gate a transition's action open, snapshot while it is in flight, and assert the caller
@@ -580,7 +539,6 @@ cancelled is the runtime's capability ([IO-013]); the executor never deposits it
 
 **Depends on:** [ENV-013]
 **Status:** Proposed
-**Implementation status:** Java implemented; Rust/TypeScript/Python pending.
 **Test derivation:** Start a net with a gated in-flight action; call `terminateNow()`; verify the loop
 terminates without releasing the gate and the action's output never reaches the marking.
 
@@ -638,8 +596,6 @@ its real final marking.
 
 **Depends on:** [ENV-013], [EXEC-041]
 **Status:** Proposed
-**Implementation status:** Java implemented. TypeScript implements the run-timeout policy
-(`run(timeoutMs, onTimeout)`) but not `awaitTermination`; Rust/Python pending.
 **Test derivation:** Run a net whose action is still in flight when a short timeout expires, under
 each policy; verify that under *close* the executor is closed and the loop stops once the action
 completes, that under *abandon* the loop stays live and reports the action's output in its final

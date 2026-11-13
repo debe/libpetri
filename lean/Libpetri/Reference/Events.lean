@@ -37,7 +37,7 @@ Which label emits what (`refEmitW`); every label not listed emits nothing.
 
 | label | events appended, in the reference's order |
 |---|---|
-| boot | `ExecutionStarted`, then [JT] the snapshot of the initial marking; no `TokenAdded` for it |
+| boot | `ExecutionStarted`, then the snapshot of the initial marking; no `TokenAdded` for it |
 | `update` | `TransitionEnabled n` for each name off before and armed after; then `TransitionClockRestarted n` for each name restart pending before and armed after |
 | `deadline ns` | `TransitionTimedOut n` per reaped name, with its latest bound and its elapsed time at the deadline reading |
 | `start n` | `TokenRemoved` per token removed from the pass-visible marking (input arcs in declaration order, then reset arcs), then `TransitionStarted n` with the same tokens |
@@ -47,14 +47,23 @@ Which label emits what (`refEmitW`); every label not listed emits nothing.
 | `expire i e` | [JT] `ActionTimedOut`, from the action's timer |
 | `publish i` | `TokenAdded` per token of the batch |
 | `inject k` | `TokenAdded` of the injected token |
-| `finish c` | [JT] the snapshot of the marking, then `ExecutionCompleted` |
+| `finish c` | the snapshot of the marking, then `ExecutionCompleted` |
 
 The places of a snapshot are listed ascending by name (`snapArrange`, under the names' `Ord`;
 code-point order on strings, [CORE-073] and [EVT-014]).
 
-The three points where the runtimes emit differently are the fields of `EvPol` (Rust and Python:
-`polRust`; Java and TypeScript: `polJT`). A line for every executor holds of both; a payload
-companion of Java and TypeScript holds of `polJT`.
+The points where an emission may differ are the fields of `EvPol` (Rust and Python: `polRust`;
+Java and TypeScript: `polJT`). The runtimes differ at two of them, where `ActionTimedOut` is
+emitted and the completion of a timeout deposit; every runtime emits the snapshots. A line for
+every executor holds of both; a payload companion of Java and TypeScript holds of `polJT`.
+
+**The snapshot's payload.** The reference's snapshot carries each listed place's queue. Java's
+and TypeScript's carry the tokens; Rust's and Python's carry only each place's token count
+(RD-50 in `spec/runtime-defects.md`, open). So `refEvExec polRust` stands for the Rust and Python
+stream only up to a snapshot's payload: what Rust reports is the count view of the reference's
+snapshot (`NetEvent.toRec`, the view the replay of [EVT-032] reads), and Rust also lists a marked
+place the net does not declare, which the reference leaves out. A block that reads a snapshot's
+tokens ([EVT-014]) is never stated of `polRust`.
 
 Not emitted by the reference yet: the construction diagnostics (dead arcs, [CORE-037]; unknown
 initial places, [CORE-072]), the multiplicity and unknown-place warnings of an admission
@@ -132,8 +141,9 @@ variable {N T : Type}
 
 /-- The three emission points where the runtimes differ. -/
 structure EvPol where
-  /-- A `MarkingSnapshot` at the start of a run and before `ExecutionCompleted` ([EVT-014];
-  Java and TypeScript; Rust and Python have no producer). -/
+  /-- A `MarkingSnapshot` at the start of a run and before `ExecutionCompleted` ([EVT-014]). Every
+  runtime emits it; the field stays for an emission without it (`polNoSnap`), which the replay of
+  [EVT-032] cannot follow. -/
   snapshots             : Bool
   /-- `ActionTimedOut` from the action's timer, as an outside step (Java, TypeScript), rather
   than when the executor settles the timeout outcome (Rust, Python) ([EVT-010]). -/
@@ -143,11 +153,19 @@ structure EvPol where
   completedAfterTimeout : Bool
   deriving DecidableEq, Repr
 
-/-- Rust and Python. -/
-def polRust : EvPol := ⟨false, false, false⟩
+/-- Rust and Python: the snapshots, with `ActionTimedOut` emitted when the executor settles a
+timeout outcome and no `TransitionCompleted` after a timeout deposit. Their snapshot carries a
+token count per place where the reference's carries the queue (RD-50; see the module
+docstring), so `polRust` models the points of emission and the count view of the payload. -/
+def polRust : EvPol := ⟨true, false, false⟩
 
 /-- Java and TypeScript. -/
 def polJT : EvPol := ⟨true, true, true⟩
+
+/-- The Java and TypeScript emission without its snapshots: no runtime's. An executor that emits
+no start snapshot reports no initial token, so the replay of [EVT-032] cannot follow it
+(`replayAgrees_needs_snapshot`). -/
+def polNoSnap : EvPol := ⟨false, true, true⟩
 
 /-! ## The tokens a start removes -/
 
@@ -181,9 +199,10 @@ theorem nodup_dedupFirst (l : List N) : (dedupFirst l).Nodup :=
 
 /-- The tokens a firing of `t` from `M` removes, place by place in declaration order: each input
 place's consumed tokens, then each reset place's drained tokens (the order of the consume in
-Java, TypeScript and Rust, `BitmapNetExecutor.java` 1660-1733, `bitmap-net-executor.ts`
-1063-1090, `bitmap_backend.rs` 750-857). Each place is taken once per group, at its first arc in
-declaration order: a later reset arc on the same place finds nothing the pass can drain. -/
+Java, TypeScript and Rust: `fireTransition` in `BitmapNetExecutor.java` and in
+`bitmap-net-executor.ts`, `consume_for_firing` in `bitmap_backend.rs`). Each place is taken once
+per group, at its first arc in declaration order: a later reset arc on the same place finds
+nothing the pass can drain. -/
 def removedListDecl (M : QMarking N T) (t : Trans N) : List (N × T) :=
   (dedupFirst (inPlaces t)).flatMap (fun p => (qInputs M t p).map (p, ·)) ++
     (dedupFirst t.core.resets).flatMap (fun p => (drained M t p).map (p, ·))

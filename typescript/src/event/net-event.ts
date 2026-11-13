@@ -166,6 +166,17 @@ export function eventTransitionName(event: NetEvent): string | null {
   }
 }
 
+/** Extracts the place name from token events (`token-added`, `token-removed`). Returns null otherwise. */
+export function eventPlaceName(event: NetEvent): string | null {
+  switch (event.type) {
+    case 'token-added':
+    case 'token-removed':
+      return event.placeName;
+    default:
+      return null;
+  }
+}
+
 /**
  * Returns the instance prefix derived from a place or transition name per
  * `spec/11-modular-composition.md` **MOD-041**: the substring before the

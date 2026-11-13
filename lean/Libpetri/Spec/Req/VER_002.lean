@@ -870,8 +870,8 @@ requirement VER_002_count
   assumes "The bounds are rationals as the caller passes them, so that a negative and a fractional min are both expressible; Java (OptionalInt) and Rust (usize, Option<usize>) take integer types, which rule a fractional bound out before the constructor runs, and Rust's usize rules out a negative min. A rejection is none: how the language reports it (an exception, a panic, a ValueError) is the API (kind N), and no verdict is produced because no property exists."
           "A bounded max must be whole as well: TypeScript (Number.isInteger) and Python reject a fractional max, and Java and Rust cannot express one, so the sentence restates every runtime; a constructor that floors a fractional max is killed (VER_002_count_forbids_maxFloor), and so is one that clamps a negative min to 0 (VER_002_count_forbids_clampNeg)."
           "Line 1 is the quoted MUST and AC9's first sentence (a negative or non-integral min, or a non-integral max or one below min, is rejected at construction); line 2 is AC1 for QuiescentCount (it can be constructed). AC9's second sentence (two implementations given the same unbounded max emit the same script, whatever each stores for it) is the script (kind Q); the representation of an unbounded max is not observable, here none."
-          "Rust's SmtProperty::QuiescentCount is a public enum variant, so a struct literal builds a property without the constructor's check (rust/libpetri-verification/src/property.rs:161-175); the spec scopes the requirement to the constructor function and says a literal is not checked."
-  signoff "2026-11-13 f1b4293f956dd9b6 ai"
+          "Rust's SmtProperty::QuiescentCount is a public enum variant, so a struct literal builds a property without the constructor's check (SmtProperty::quiescent_count in rust/libpetri-verification/src/property.rs); the spec scopes the requirement to the constructor function and says a literal is not checked."
+  signoff "2026-11-13 bd51d01b199296a0 ai"
   statement : ∀ {N : Type}, CountBuild N → Prop :=
     fun B =>
       (∀ ps lo hi w, (lo < 0 ∨ lo.den ≠ 1 ∨ ∃ h, hi = some h ∧ (h.den ≠ 1 ∨ h < lo)) →

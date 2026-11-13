@@ -86,6 +86,14 @@ assert handle.event_store_error is None
 - An exception from `append` does not stop the run. It is logged to the `libpetri` logger, later events are still delivered, and on an async run the first one is kept on `ExecutorHandle.event_store_error`. A sync run has no handle, so there it is only logged.
 - Two optional members are read once when the run starts, as an attribute or a zero-argument method. `is_enabled` set to false turns event recording off for the run. `captures_tokens` is described next.
 
+### Queries and live subscriptions
+
+`InMemoryEventStore` answers `events(types=, transitions=, places=, limit=, offset=)`, `count(types=)`, `counters()` (a histogram by event type), `failures()` and `len()`.
+
+`subscribe(types=, transitions=, places=, batch_size=64, batch_timeout_ms=10, channel_capacity=4096)` streams the matching events appended after the call, as lists for `async for batch in sub`. `subscribe_stream(...)` is `batch_size=1` and yields single events. A `batch_size` or `channel_capacity` of 0 raises `ValueError`. A full channel ends the subscription instead of blocking `append`. `close()` called while a receive is pending does nothing, so that receive keeps waiting.
+
+Events are the Rust ones (see the Rust crate's README): `TransitionCompleted` and `TransitionTimedOut` carry the transition name and timestamp only, `TransitionFailed` carries one error text, and `ActionTimedOut` carries the timeout in milliseconds and is not followed by `TransitionCompleted`.
+
 ### Token capture
 
 By default events carry no token values. To get them on `TokenAdded` and `TokenRemoved`, ask for them on the outermost store: `lp.InMemoryEventStore(capture_tokens=True)`, or a list of place names to capture only those places. A Python store sets a `captures_tokens` attribute with the same meaning. The value is `event.token`, the same object that sits in the marking (not a copy), and `None` when it was not captured:
@@ -144,6 +152,9 @@ Points to know:
 - Environment events, event stores, debug protocol, and DOT export.
 - ν-net fresh identities and correlated joins.
 - Marking snapshot and restore through `initial=`. `await handle.snapshot()` returns a `SnapshotResult` (`.marking`, `.is_restore_point`): check the flag, then pass `.marking` as `initial=` — handing over the result itself is a `TypeError` that says so.
+  `MarkingView.snapshot()` and `MarkingView.from_snapshot()` convert to and from the snapshot form. Injections and snapshot requests share one channel, so every earlier `inject` is in the marking. An `async def` action that awaits `snapshot()` is reported in flight; a synchronous action under `run_async` / `start_async` must not block on the reply.
+- Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor. Pin `ExecutorOptions(execution_scope=...)` when a replay must reproduce them; an empty scope or one containing `:` or `#` raises `ValueError`.
+- A run's result and `ExecutorHandle` report `termination_reason`: `quiescent` or `terminal` for a completed run, `closed` or `stopped` for a truncated one.
 - Structural, timed, and SMT verification through the Rust engine where available.
 
 ## SMT verification needs a `z3` executable

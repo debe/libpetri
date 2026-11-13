@@ -17,18 +17,18 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
-    n5952["Libpetri.Spec.ClashExec.isDeposit"]
-    n5953["Libpetri.Spec.ClashExec.run_of_check"]
-    n7485["Libpetri.Spec.ExecNaiveLine1"]
-    n12504["Libpetri.Spec.clashExec_naiveLine1"]
-    n14228["Libpetri.Spec.cxA"]
-    n14229["Libpetri.Spec.cxB"]
-    n14230["Libpetri.Spec.cxCfg"]
-    n14234["Libpetri.Spec.cxCfgPass"]
-    n14238["Libpetri.Spec.cxM"]
-    n14240["Libpetri.Spec.cxQuiet"]
-    n14246["Libpetri.Spec.cxRunPass"]
-    n14250["Libpetri.Spec.cxT"]
+    n5953["Libpetri.Spec.ClashExec.isDeposit"]
+    n5954["Libpetri.Spec.ClashExec.run_of_check"]
+    n7486["Libpetri.Spec.ExecNaiveLine1"]
+    n12505["Libpetri.Spec.clashExec_naiveLine1"]
+    n14229["Libpetri.Spec.cxA"]
+    n14230["Libpetri.Spec.cxB"]
+    n14231["Libpetri.Spec.cxCfg"]
+    n14235["Libpetri.Spec.cxCfgPass"]
+    n14239["Libpetri.Spec.cxM"]
+    n14241["Libpetri.Spec.cxQuiet"]
+    n14247["Libpetri.Spec.cxRunPass"]
+    n14251["Libpetri.Spec.cxT"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -39,9 +39,9 @@ flowchart TD
   c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
-  c131["📁 Libpetri/Spec/Ears.lean (19 declarations, collapsed)"]
+  c131["📁 Libpetri/Spec/Ears.lean (20 declarations, collapsed)"]
   c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/GlossaryExec.lean (159 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
   c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
   c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
@@ -51,36 +51,37 @@ flowchart TD
   c98 --> c66
   c98 --> c94
   c103 --> c109
+  c131 --> c139
   c132 --> c94
   c139 --> c91
-  c139 --> c131
   c139 --> c232
   c146 --> c98
   c146 --> c132
   c232 --> c103
   c232 --> c146
-  n5952 --> c139
-  n5953 --> c80
-  n7485 --> n5952
-  n12504 --> n5953
-  n12504 --> n7485
-  n12504 --> n14234
-  n12504 --> n14238
-  n12504 --> n14246
-  n14228 --> n14250
-  n14229 --> n14250
-  n14230 --> c139
-  n14234 --> n14228
-  n14234 --> n14229
-  n14234 --> n14230
-  n14238 --> c91
-  n14240 --> c139
-  n14246 --> n14240
-  n14250 --> c94
+  n5953 --> c139
+  n5954 --> c80
+  n7486 --> c131
+  n7486 --> n5953
+  n12505 --> n5954
+  n12505 --> n7486
+  n12505 --> n14235
+  n12505 --> n14239
+  n12505 --> n14247
+  n14229 --> n14251
+  n14230 --> n14251
+  n14231 --> c139
+  n14235 --> n14229
+  n14235 --> n14230
+  n14235 --> n14231
+  n14239 --> c91
+  n14241 --> c139
+  n14247 --> n14241
+  n14251 --> c94
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12504 root
+  class n12505 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232 collapsed
 ```
 
@@ -91,16 +92,16 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/ClashesExec.lean"]
-    n5952["Libpetri.Spec.ClashExec.isDeposit"]
-    n5953["Libpetri.Spec.ClashExec.run_of_check"]
-    n7489["Libpetri.Spec.ExecStrictOrder"]
-    n12507["Libpetri.Spec.clashExec_strictOrder"]
-    n14230["Libpetri.Spec.cxCfg"]
-    n14233["Libpetri.Spec.cxCfgEnv"]
-    n14237["Libpetri.Spec.cxInjectInWait"]
-    n14239["Libpetri.Spec.cxM0"]
-    n14240["Libpetri.Spec.cxQuiet"]
-    n14249["Libpetri.Spec.cxRunWake"]
+    n5953["Libpetri.Spec.ClashExec.isDeposit"]
+    n5954["Libpetri.Spec.ClashExec.run_of_check"]
+    n7490["Libpetri.Spec.ExecStrictOrder"]
+    n12508["Libpetri.Spec.clashExec_strictOrder"]
+    n14231["Libpetri.Spec.cxCfg"]
+    n14234["Libpetri.Spec.cxCfgEnv"]
+    n14238["Libpetri.Spec.cxInjectInWait"]
+    n14240["Libpetri.Spec.cxM0"]
+    n14241["Libpetri.Spec.cxQuiet"]
+    n14250["Libpetri.Spec.cxRunWake"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (12 declarations, collapsed)"]
@@ -111,9 +112,9 @@ flowchart TD
   c98["📁 Libpetri/Reference/Timed.lean (14 declarations, collapsed)"]
   c103["📁 Libpetri/RetrodictExec.lean (1 declarations, collapsed)"]
   c109["📁 Libpetri/Sched.lean (5 declarations, collapsed)"]
-  c131["📁 Libpetri/Spec/Ears.lean (19 declarations, collapsed)"]
+  c131["📁 Libpetri/Spec/Ears.lean (20 declarations, collapsed)"]
   c132["📁 Libpetri/Spec/Glossary.lean (4 declarations, collapsed)"]
-  c139["📁 Libpetri/Spec/GlossaryExec.lean (159 declarations, collapsed)"]
+  c139["📁 Libpetri/Spec/GlossaryExec.lean (158 declarations, collapsed)"]
   c146["📁 Libpetri/Spec/GlossaryTime.lean (12 declarations, collapsed)"]
   c232["📁 Libpetri/Spec/Req/EXEC_002.lean (16 declarations, collapsed)"]
   c54 --> c0
@@ -123,33 +124,34 @@ flowchart TD
   c98 --> c66
   c98 --> c94
   c103 --> c109
+  c131 --> c139
   c132 --> c94
   c139 --> c91
-  c139 --> c131
   c139 --> c232
   c146 --> c98
   c146 --> c132
   c232 --> c103
   c232 --> c146
-  n5952 --> c139
-  n5953 --> c80
-  n7489 --> n5952
-  n12507 --> n5953
-  n12507 --> n7489
-  n12507 --> n14233
-  n12507 --> n14237
-  n12507 --> n14239
-  n12507 --> n14249
-  n14230 --> c139
-  n14233 --> n14230
-  n14237 --> n5952
-  n14239 --> c91
-  n14240 --> c139
-  n14249 --> n14240
+  n5953 --> c139
+  n5954 --> c80
+  n7490 --> n5953
+  n12508 --> c131
+  n12508 --> n5954
+  n12508 --> n7490
+  n12508 --> n14234
+  n12508 --> n14238
+  n12508 --> n14240
+  n12508 --> n14250
+  n14231 --> c139
+  n14234 --> n14231
+  n14238 --> n5953
+  n14240 --> c91
+  n14241 --> c139
+  n14250 --> n14241
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n12507 root
+  class n12508 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232 collapsed
 ```
 
@@ -170,13 +172,13 @@ flowchart TD
     n135["Libpetri.InSpec.card"]
     n138["Libpetri.InSpec.place"]
     n2723["Libpetri.PlaceId"]
-    n22341["Libpetri.Transition"]
-    n22342["Libpetri.Transition.inhibitors"]
-    n22343["Libpetri.Transition.inputs"]
-    n22347["Libpetri.Transition.reads"]
+    n22345["Libpetri.Transition"]
+    n22346["Libpetri.Transition.inhibitors"]
+    n22347["Libpetri.Transition.inputs"]
+    n22351["Libpetri.Transition.reads"]
   end
   subgraph g1["Libpetri/Compile.lean"]
-    n22406["Libpetri.canEnable"]
+    n22410["Libpetri.canEnable"]
   end
   subgraph g2["Libpetri/Enablement.lean"]
     n37["Libpetri.EnabledSync"]
@@ -187,16 +189,16 @@ flowchart TD
     n2720["Libpetri.PBState.mk"]
     n2721["Libpetri.PBState.presence"]
     n2722["Libpetri.PBState.ring"]
-    n22335["Libpetri.TId"]
-    n22690["Libpetri.updateEnablement"]
-    n22693["🔒 Libpetri.updateEnablement_sync"]
+    n22339["Libpetri.TId"]
+    n22694["Libpetri.updateEnablement"]
+    n22697["🔒 Libpetri.updateEnablement_sync"]
   end
   subgraph g3["Libpetri/Ring/Core.lean"]
     n2730["Libpetri.Pool"]
     n2746["Libpetri.Pool.cnt"]
   end
   subgraph g4["Libpetri/Spec/Req/EXEC_001.lean"]
-    n15879["Libpetri.Spec.exec001_dirty_set_exact"]
+    n15883["Libpetri.Spec.exec001_dirty_set_exact"]
   end
   n9 --> n8
   n10 --> n8
@@ -210,54 +212,54 @@ flowchart TD
   n37 --> n2718
   n37 --> n2719
   n37 --> n2722
-  n37 --> n22406
+  n37 --> n22410
   n135 --> n8
   n135 --> n134
   n138 --> n134
   n138 --> n2723
-  n154 --> n22341
+  n154 --> n22345
   n2718 --> n2717
-  n2718 --> n22335
+  n2718 --> n22339
   n2719 --> n2717
-  n2719 --> n22335
+  n2719 --> n22339
   n2720 --> n2717
   n2720 --> n2723
   n2720 --> n2730
-  n2720 --> n22335
+  n2720 --> n22339
   n2721 --> n2717
   n2721 --> n2723
   n2722 --> n2717
   n2722 --> n2730
   n2746 --> n2723
   n2746 --> n2730
-  n15879 --> n22693
-  n22342 --> n2723
-  n22342 --> n22341
-  n22343 --> n134
-  n22343 --> n22341
-  n22347 --> n2723
-  n22347 --> n22341
-  n22406 --> n14
-  n22406 --> n135
-  n22406 --> n138
-  n22406 --> n2746
-  n22406 --> n22342
-  n22406 --> n22343
-  n22406 --> n22347
-  n22690 --> n154
-  n22690 --> n2718
-  n22690 --> n2719
-  n22690 --> n2720
-  n22690 --> n2721
-  n22690 --> n2722
-  n22690 --> n22406
-  n22693 --> n37
-  n22693 --> n22690
+  n15883 --> n22697
+  n22346 --> n2723
+  n22346 --> n22345
+  n22347 --> n134
+  n22347 --> n22345
+  n22351 --> n2723
+  n22351 --> n22345
+  n22410 --> n14
+  n22410 --> n135
+  n22410 --> n138
+  n22410 --> n2746
+  n22410 --> n22346
+  n22410 --> n22347
+  n22410 --> n22351
+  n22694 --> n154
+  n22694 --> n2718
+  n22694 --> n2719
+  n22694 --> n2720
+  n22694 --> n2721
+  n22694 --> n2722
+  n22694 --> n22410
+  n22697 --> n37
+  n22697 --> n22694
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n15879 root
-  class n22693 locked
+  class n15883 root
+  class n22697 locked
 ```
 
 Axioms used:

@@ -11,9 +11,9 @@ namespace Libpetri
 /-!
 ## The hypotheses the proof forces
 
-The abstract fire relation (`fireA`, modelling `firing_conditions`,
-`smt_encoder.rs:372-396`) has exactly two non-linear arms: a reset place and a
-consume-all place both get `m'_i = post[i]` (`smt_encoder.rs:376-381`), erasing
+The abstract fire relation (`fireA`, modelling `firing_conditions`
+in `smt_encoder.rs`) has exactly two non-linear arms: a reset place and a
+consume-all place both get `m'_i = post[i]`, erasing
 however many tokens the
 place actually held. A weighted sum survives such an arm only where the
 weight is zero — that is H1, and `consume_all_hypothesis_is_necessary` is the
@@ -26,7 +26,7 @@ reachability relation itself; its env-aware replacement H3′ appears with
 /-- **H1 (linearity).** Below the truncation bound, `y` vanishes on every
 place where `fireA` is non-linear: reset places and consume-all places
 (`Card.consumesAll`, i.e. `In::All` / `In::AtLeast`: `flatten` through
-`flatten_with_reapable`, `net_flattener.rs:124-126`).
+`flatten_with_reapable`, `net_flattener.rs`).
 Only places below `n` matter: the emitted sum never reads past `place_count`. -/
 def ZeroOnNonlinear (y : Weight) (t : Transition) (n : Nat) : Prop :=
   ∀ p, p < n → t.resets.contains p = true ∨ consumeAllAt t p = true → y p = 0

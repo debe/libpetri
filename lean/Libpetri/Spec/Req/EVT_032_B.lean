@@ -10,8 +10,8 @@ set_option linter.missingDocs true
 The replay cache of [EVT-032] answers the state that the replay of recorded events gives. Its
 first block, `EVT_032` (wave W6, kind F), compares the cache with that replay and says nothing
 about the run the events came from. This second block (wave W11, design link E4 on RefEvents)
-compares the replay with the run: on the whole event stream of a Java or TypeScript run, read
-before the first step or after any step of the executor, the replay counts on every declared place
+compares the replay with the run: on the whole event stream of a run, read before the first
+step or after any step of the executor, the replay counts on every declared place
 the tokens the executor holds there, and lists every transition that holds a clock as enabled (ruling D83 (a): the replayed enabled
 set over-approximates, so the line is a subset, not an equality).
 
@@ -23,8 +23,8 @@ count, line 2 the enabled set.
 
 **The witness.** `refEvExec polJT`, the reference executor with the Java and TypeScript emission;
 the proof is link E4 (`refReplay_agrees_jt` in `Reference/EventsLink.lean`). The Rust and Python
-emission fails line 1 at the boot, since it reports no initial marking
-(`EVT_032_B_forbids_rust`).
+emission meets the block too (`EVT_032_B_rust`): their snapshot carries counts and not tokens
+(RD-50), and the replay reads only the counts.
 
 **The wrong executors.** All three step as the reference and emit otherwise: one without the
 start snapshot and one whose completion reports no `TokenAdded` (line 1), and one that reports a
@@ -45,24 +45,24 @@ requirement EVT_032_B
   id "EVT-032"
   title "Marking Replay Cache (the replay of a run's events)"
   kind B
-  scope "Java and TypeScript executors (event store enabled), read over the whole event stream of a run; Rust and Python report no initial marking"
+  scope "every executor (event store enabled), read over the whole event stream of a run"
   source verbatim "spec/08-events-observability.md"
-  quote "*Where* the executor is a Java or TypeScript executor, which reports the initial marking in a `MarkingSnapshot` right after `ExecutionStarted` ([EVT-014]), the replay of all events a run has emitted before its first step, or up to the end of any of its steps, *shall* count, for every place the net declares, the tokens that place holds at that point, and *shall* list among the enabled transitions every transition that holds a clock at that point, also one whose clock restart is pending ([EVT-005])."
+  quote "The replay of all events a run has emitted before its first step, or up to the end of any of its steps, *shall* count, for every place the net declares, the tokens that place holds at that point, and *shall* list among the enabled transitions every transition that holds a clock at that point, also one whose clock restart is pending ([EVT-005])."
   reading "For every executor with events E and every configuration C, every initial marking M0, every reading r0 and every labelled run of E from the initial state of M0 at r0, with the boot events as its history, the run with no step included:"
           "the replay of the boot events followed by the events of the run counts, on every place the net declares, the tokens that place holds in the state the run ends in;"
           "and lists as enabled every transition whose status in that state holds a clock."
   assumes "The model is an executor with events E : EvExec N T (Reference/Events.lean): the events a run emits before its first step (the boot), and a step relation E.step C H s l evs s' saying that the step labelled l leads from s to s' and appends the events evs, given the events H emitted before it. A labelled run from the initial state xinit M0 r0, with the boot events as its history (LRun), emits the boot events followed by the events of each step; runEnd is the state it ends in. The replay is the replay of the first block of EVT-032 (replay over applyEv) read through the replay view of an executor event, NetEvent.replayView (recView after NetEvent.toRec, Reference/EventsLink.lean), so this block uses the replay rules the first block states and adds none. The witness is refEvExec polJT, the reference executor with the Java and TypeScript emission; the proof is design link E4 (refReplay_agrees_jt)."
-          "Scope: the quoted sentence is scoped by runtime, to the Java and TypeScript executors, and not by the emission, so a Java or TypeScript executor that emitted no start snapshot would violate it rather than fall out of it. Java and TypeScript report the initial marking in the MarkingSnapshot right after ExecutionStarted (EVT-014 line 1); Rust and Python have no MarkingSnapshot producer and report no TokenAdded for the initial marking (ruling D76 (a)), so the replay of their stream misses every initial token (clash evt-c#11), and the sentence leaves them out. The reference with the Rust and Python emission violates line 1 at the boot of a run with a token in its initial marking (EVT_032_B_forbids_rust, replayAgrees_needs_snapshot), as the body's sentence on which streams report the initial marking says. A Java or TypeScript executor that dropped its start snapshot breaks line 1 the same way and keeps line 2 (EVT_032_B_mutant_noStartSnap)."
-          "Both lines are read before the first step too: the run may have no step, and then the replay reads the boot events alone, which is the sentence's 'before its first step'. Both refutations of line 1 above use that run, with token 1 in place 0 and no TokenAdded or MarkingSnapshot to count it."
+          "Scope: the sentence binds every executor, and every executor reports the initial marking in the MarkingSnapshot right after ExecutionStarted (EVT-014 line 1). Rust's and Python's snapshot carries each place's token count and not its tokens (RD-50 in spec/runtime-defects.md), and the replay reads only the counts (NetEvent.toRec, then recView), so their stream meets both lines: EVT_032_B_rust is the reference with the Rust and Python emission, refEvExec polRust, whose snapshot has Rust's counts on every declared place (Rust also lists a marked place the net does not declare, which line 1 does not read). No TokenAdded is emitted for the initial marking (ruling D76 (a)), so an executor that emitted no start snapshot would report no initial token and the replay of its stream would miss every one (clash evt-c#11): it breaks line 1 at the boot of a run with a token in its initial marking and keeps line 2 (EVT_032_B_mutant_noStartSnap, replayAgrees_needs_snapshot), as the body's sentence on which streams report the initial marking says."
+          "Both lines are read before the first step too: the run may have no step, and then the replay reads the boot events alone, which is the sentence's 'before its first step'. The refutation of line 1 above uses that run, with token 1 in place 0 and no TokenAdded or MarkingSnapshot to count it."
           "Line 1 is the count half of the quoted sentence: on every declared place the replayed count is the length of the place's queue after the step. It holds because the start snapshot gives the initial counts (EVT-014), every token a start takes has its TokenRemoved event (EVT-012), every token a deposit appends has its TokenAdded event (EVT-011), and the end snapshot restates the counts; replayAgrees_step checks each step of the reference. A completion that reports its TransitionCompleted and none of its TokenAdded events breaks line 1 and keeps line 2 (EVT_032_B_mutant_silentCommit). Line 1 is read on the places the net declares, as the markdown's third sentence on the run says: a TypeScript snapshot lists the places of the compiled net only (typescript/src/runtime/bitmap-net-executor.ts snapshotMarking), while Java lists every marked place, so on a place the net does not declare the end snapshot of the reference erases a count its TokenAdded events built (evt032b_undeclared: an action puts 9 into the undeclared place 5, and after the end snapshot the replay counts no token there while the executor holds one)."
-          "Line 2 is the enabled half of the quoted sentence: every transition whose status holds a clock (isArmedS) is in the replayed enabled set. That includes a transition whose clock restart is pending (pendingS, TIME-012): another transition's start took its tokens in the intermediate marking, and it keeps its old stamp until the next enablement update, so in that window the marking may not enable it. The sentence says 'holds a clock, also one whose clock restart is pending' (the term of EVT-005) for that reason: the glossary entry Armed says that a transition that is not enabled is not armed, which leaves this window out, while EVT-005 calls such a transition armed; aligning the glossary entry is an open item. The set is an over-approximation (ruling D83 (a), clash evt-c#10): a transition that lost its clock because another firing took its tokens, and a reaped transition, stay listed until their next TransitionStarted (cov_replay_end in Reference/EventsLink.lean; clashEvt_replayEnabled), so the line is an inclusion and the converse is not stated. It holds because a transition gets a clock only from an update that reports it with TransitionEnabled, and only its own start removes it from the replayed set. The runtimes arm the same way: Java's updateDirtyTransitions emits TransitionEnabled whenever it sets a transition enabled and stamps a clock (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java 1314-1320), restarts the clock of a transition still marked enabled with TransitionClockRestarted (1324-1330), which the replay leaves as it is, and clears the enabled mark when the transition starts (1755-1758); TypeScript does the same (typescript/src/runtime/bitmap-net-executor.ts 748-774). An executor that reports a transition as enabled only the first time in a run breaks line 2 and keeps line 1 (EVT_032_B_mutant_enabledOnce)."
+          "Line 2 is the enabled half of the quoted sentence: every transition whose status holds a clock (isArmedS) is in the replayed enabled set. That includes a transition whose clock restart is pending (pendingS, TIME-012): another transition's start took its tokens in the intermediate marking, and it keeps its old stamp until the next enablement update, so in that window the marking may not enable it. The sentence says 'holds a clock, also one whose clock restart is pending' (the term of EVT-005) for that reason: the glossary entry Armed says that a transition that is not enabled is not armed, which leaves this window out, while EVT-005 calls such a transition armed; aligning the glossary entry is an open item. The set is an over-approximation (ruling D83 (a), clash evt-c#10): a transition that lost its clock because another firing took its tokens, and a reaped transition, stay listed until their next TransitionStarted (cov_replay_end in Reference/EventsLink.lean; clashEvt_replayEnabled), so the line is an inclusion and the converse is not stated. It holds because a transition gets a clock only from an update that reports it with TransitionEnabled, and only its own start removes it from the replayed set. The runtimes arm the same way: Java's updateDirtyTransitions (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java) emits TransitionEnabled whenever it sets a transition enabled and stamps a clock, restarts the clock of a transition still marked enabled with TransitionClockRestarted, which the replay leaves as it is, and fireTransition clears the enabled mark when the transition starts; TypeScript does the same (updateDirtyTransitions in typescript/src/runtime/bitmap-net-executor.ts); Rust announces through the shared executor core's enablement update, as the reference does. An executor that reports a transition as enabled only the first time in a run breaks line 2 and keeps line 1 (EVT_032_B_mutant_enabledOnce)."
           "The grain is a step of the executor: a step appends its events at once, and the lines are read at the end of a step. At an index inside the events of one step, for example between the TokenRemoved events of a firing that starts, the replayed counts can match no marking the executor held, as the markdown sentence after the quoted one says. Java appends ActionTimedOut events and the log messages it captures from other threads than the orchestrator (the reading at the top of spec/08-events-observability.md), so in a Java store such an event can fall between the events of one step; neither changes a replayed count or the replayed enabled set (the replay reads ActionTimedOut as an end event and a log message as other), so both lines hold on the store as recorded."
-          "The line reads the whole event stream of a run, from its boot. A stream that lost its first events, such as a debug store that evicted its oldest events past its capacity (EVT-024) or a subscription opened after the run started, does not carry the start snapshot, and the line says nothing about it. The replay cache answers this replay through the first block: evt032b_cache shows that a cache meeting EVT_032, coherent with the stream, answers at the end of the stream the counts of line 1. That a debug protocol handler keeps its cache coherent (invalidate() after an eviction) is the known gap the first block records."
+          "The line reads the whole event stream of a run, from its boot. A stream that lost its first events, such as a debug store that evicted its oldest events past its capacity (EVT-024) or a subscription opened after the run started, does not carry the start snapshot, and the line says nothing about it. The replay cache answers this replay through the first block: evt032b_cache shows that a cache meeting EVT_032, coherent with the stream, answers at the end of the stream the counts of line 1. Every debug protocol handler keeps its cache coherent: it calls invalidate() whenever its debug store's evicted count changed since the cache was last used (RD-48 in spec/runtime-defects.md; the first block's assumes name the handlers)."
           "Not stated: the in-flight set of the replay is not compared with the firings in flight. The Java and TypeScript ActionTimedOut event comes from the action's timer (EVT-010, polJT), and the replay reads it as an end event, while the executor keeps the firing in flight until it settles the timeout outcome; and the set holds names, so it cannot count two firings of one transition (a re-entrant configuration, Rust and Python under ruling D8 (b)). Both lines hold for both values of Cfg.reentrant, so the block carries no hypothesis on it (design events.md, skeptic correction on D8). A line on the in-flight set would need a reentrant = false hypothesis and a reading of ActionTimedOut as the end of the action, not of the firing; it is left as an open item."
-          "Acceptance criteria: AC1 (compute_at at 0 and at the length of the stream), AC2 and AC3 (clamping and repeated calls) are the first block's; the comparison of the replay with the run is this block. AC4 (counts, no payloads) is why line 1 compares counts and not tokens. AC5 is this block: line 1 and line 2 before the first step and after each step, for Java and TypeScript, and its Rust and Python clause is EVT_032_B_forbids_rust."
+          "Acceptance criteria: AC1 (compute_at at 0 and at the length of the stream), AC2 and AC3 (clamping and repeated calls) are the first block's; the comparison of the replay with the run is this block. AC4 (counts, no payloads) is why line 1 compares counts and not tokens. AC5 is this block: line 1 and line 2 before the first step and after each step, on every executor."
           "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); an event is a value (EVT-001); transition names are distinct (ruling D10). The model has no ν firing, whose consumption the payload companion of EVT-012 scopes out; its TokenRemoved events are counted the same way."
           "The test derivation of the run companion, the second sentence of the markdown's test derivation, is EVT_032_B_nonvacuous: on the example run (token 1 in place 0, r takes it, its action puts 9 back, the completion is settled, the next update arms r again) the replay counts one token in place 0, where the executor holds 9, and lists r, which is armed, as enabled."
-  signoff "2026-11-13 b032e418252cc0e5 ai"
+  signoff "2026-11-13 c86afdf9cf952faf ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C M0 r0 run, LRun E C (E.boot C M0) (xinit M0 r0) run →
       (∀ p ∈ C.X.net.places,
@@ -125,15 +125,14 @@ theorem EVT_032_B_reference {N T : Type} [DecidableEq N] [Ord N] :
     EVT_032_B (refEvExec (N := N) (T := T) polJT) :=
   fun _ _ _ _ h => refReplay_agrees_jt h
 
-/-- ✗ The Rust and Python emission is out of scope: its boot reports no initial marking. A run
-starts with token 1 in place 0 and has taken no step yet; the replay of its one event,
-`ExecutionStarted`, counts no token in place 0. -/
-@[evidence forbids EVT_032_B]
-theorem EVT_032_B_forbids_rust : ¬ EVT_032_B (refEvExec (N := Nat) (T := Nat) polRust) := by
-  intro h
-  have := (h covCfg covM0 0 [] trivial).1 0 (by decide)
-  revert this
-  decide
+/-- ✓ The Rust and Python emission meets EVT-032's run companion: its boot reports the initial
+marking in the start snapshot as well. The replay reads a snapshot only through its counts
+(`NetEvent.toRec`), which is all Rust's and Python's snapshot carries (RD-50), so this theorem
+says nothing about their tokens. -/
+@[evidence holds EVT_032_B]
+theorem EVT_032_B_rust {N T : Type} [DecidableEq N] [Ord N] :
+    EVT_032_B (refEvExec (N := N) (T := T) polRust) :=
+  fun _ _ _ _ h => refReplay_agrees polRust rfl h
 
 /-! ## Moving a line between executors that differ only in some events -/
 
@@ -443,7 +442,7 @@ theorem evt032b_cache {E : EvExec N T} {call : CacheCall N (NetEvent N T)}
 
 /-- The Java and TypeScript emission, without the start snapshot: its boot is `ExecutionStarted`
 alone. -/
-def evt032b_noStartSnap : EvExec N T := emitExec (refBoot polRust) (refEmitW polJT)
+def evt032b_noStartSnap : EvExec N T := emitExec (refBoot polNoSnap) (refEmitW polJT)
 
 /-- The Java and TypeScript emission, with the settling of a completion reporting its
 `TransitionCompleted` and none of its `TokenAdded` events. -/
@@ -490,7 +489,7 @@ theorem evt032b_tok_notReported (H : List (NetEvent N T)) (x : NetEvent N T) :
 theorem evt032b_noStartSnap_line2 : evt032b_line2 (evt032b_noStartSnap (N := N) (T := T)) :=
   evt032b_line2_of
     (fun C M0 => by
-      simp [refBoot, polRust, polJT, NetEvent.replayView, NetEvent.toRec, recView, REv.isTok])
+      simp [refBoot, polNoSnap, polJT, NetEvent.replayView, NetEvent.toRec, recView, REv.isTok])
     (fun _ _ _ _ _ => rfl)
 
 /-- The executor whose completion reports no addition meets line 2: it drops token events only. -/
@@ -512,7 +511,7 @@ theorem evt032b_enabledOnce_line1 : evt032b_line1 (evt032b_enabledOnce (N := N) 
 
 end Mutants
 
-/-- ✗ A Java or TypeScript executor that drops the start snapshot violates EVT-032's run
+/-- ✗ An executor that drops the start snapshot violates EVT-032's run
 companion (line 1) and keeps line 2: a run starts with token 1 in place 0 and has taken no step,
 and the replay of `ExecutionStarted` alone counts no token there. -/
 @[evidence mutant EVT_032_B]

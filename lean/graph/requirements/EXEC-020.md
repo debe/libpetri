@@ -16,25 +16,25 @@ Theorems carrying this ID:
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Spec/Req/EXEC_cycle.lean"]
-    n6763["Libpetri.Spec.EXEC_020_cycle"]
-    n6772["Libpetri.Spec.EXEC_020_cycle_reference"]
-    n7476["Libpetri.Spec.Exec020Covers"]
-    n16076["Libpetri.Spec.exec020_covers_neverCommits"]
-    n16097["Libpetri.Spec.exec020c_deposits"]
-    n16098["Libpetri.Spec.exec020c_xstepW_M"]
-    n16446["Libpetri.Spec.execc20_acceptB"]
-    n16447["Libpetri.Spec.execc20_at"]
-    n16449["Libpetri.Spec.execc20_cfg"]
-    n16450["Libpetri.Spec.execc20_m0"]
-    n16452["Libpetri.Spec.execc20_t"]
-    n16456["Libpetri.Spec.execc20_two"]
-    n16478["Libpetri.Spec.execc_noCommit"]
-    n16479["Libpetri.Spec.execc_noCommitStep"]
-    n16480["Libpetri.Spec.execc_noCommit_meets"]
-    n16481["Libpetri.Spec.execc_noCommit_sub"]
-    n16486["Libpetri.Spec.execc_pre"]
-    n16495["Libpetri.Spec.execc_run"]
-    n16505["Libpetri.Spec.execc_tr"]
+    n6764["Libpetri.Spec.EXEC_020_cycle"]
+    n6773["Libpetri.Spec.EXEC_020_cycle_reference"]
+    n7477["Libpetri.Spec.Exec020Covers"]
+    n16080["Libpetri.Spec.exec020_covers_neverCommits"]
+    n16101["Libpetri.Spec.exec020c_deposits"]
+    n16102["Libpetri.Spec.exec020c_xstepW_M"]
+    n16450["Libpetri.Spec.execc20_acceptB"]
+    n16451["Libpetri.Spec.execc20_at"]
+    n16453["Libpetri.Spec.execc20_cfg"]
+    n16454["Libpetri.Spec.execc20_m0"]
+    n16456["Libpetri.Spec.execc20_t"]
+    n16460["Libpetri.Spec.execc20_two"]
+    n16482["Libpetri.Spec.execc_noCommit"]
+    n16483["Libpetri.Spec.execc_noCommitStep"]
+    n16484["Libpetri.Spec.execc_noCommit_meets"]
+    n16485["Libpetri.Spec.execc_noCommit_sub"]
+    n16490["Libpetri.Spec.execc_pre"]
+    n16499["Libpetri.Spec.execc_run"]
+    n16509["Libpetri.Spec.execc_tr"]
   end
   c0["📁 Libpetri/Basic.lean (7 declarations, collapsed)"]
   c54["📁 Libpetri/Novel/Seam/Net.lean (14 declarations, collapsed)"]
@@ -64,43 +64,43 @@ flowchart TD
   c146 --> c132
   c232 --> c103
   c232 --> c146
-  n6763 --> c131
-  n6763 --> n16097
-  n6772 --> n6763
-  n6772 --> n16098
-  n7476 --> c139
-  n16076 --> n7476
-  n16076 --> n16446
-  n16076 --> n16447
-  n16076 --> n16456
-  n16076 --> n16480
-  n16097 --> c139
-  n16098 --> c80
-  n16098 --> n16097
-  n16446 --> n16449
-  n16447 --> c80
-  n16447 --> n16449
-  n16447 --> n16450
-  n16447 --> n16486
-  n16447 --> n16495
-  n16449 --> c139
-  n16449 --> n16452
-  n16449 --> n16505
-  n16450 --> c91
-  n16452 --> c94
-  n16456 --> c139
-  n16478 --> n16479
-  n16479 --> c80
-  n16480 --> n6772
-  n16480 --> n16481
-  n16481 --> n16478
-  n16486 --> c139
-  n16495 --> c139
-  n16505 --> c94
+  n6764 --> c131
+  n6764 --> n16101
+  n6773 --> n6764
+  n6773 --> n16102
+  n7477 --> c139
+  n16080 --> n7477
+  n16080 --> n16450
+  n16080 --> n16451
+  n16080 --> n16460
+  n16080 --> n16484
+  n16101 --> c139
+  n16102 --> c80
+  n16102 --> n16101
+  n16450 --> n16453
+  n16451 --> c80
+  n16451 --> n16453
+  n16451 --> n16454
+  n16451 --> n16490
+  n16451 --> n16499
+  n16453 --> c139
+  n16453 --> n16456
+  n16453 --> n16509
+  n16454 --> c91
+  n16456 --> c94
+  n16460 --> c139
+  n16482 --> n16483
+  n16483 --> c80
+  n16484 --> n6773
+  n16484 --> n16485
+  n16485 --> n16482
+  n16490 --> c139
+  n16499 --> c139
+  n16509 --> c94
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n16076 root
+  class n16080 root
   class c0,c54,c66,c80,c91,c94,c98,c103,c109,c131,c132,c139,c146,c232 collapsed
 ```
 
@@ -111,8 +111,8 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph g0["Libpetri/Conservation.lean"]
-    n22602["Libpetri.produceAll"]
-    n22603["🔒 Libpetri.produceAll_spec"]
+    n22606["Libpetri.produceAll"]
+    n22607["🔒 Libpetri.produceAll_spec"]
   end
   c0["📁 Libpetri/Basic.lean (2 declarations, collapsed)"]
   c105["📁 Libpetri/Ring/Core.lean (29 declarations, collapsed)"]
@@ -121,13 +121,13 @@ flowchart TD
   c105 --> c0
   c105 --> c108
   c106 --> c105
-  n22602 --> c106
-  n22603 --> n22602
+  n22606 --> c106
+  n22607 --> n22606
   classDef root stroke-width:3px
   classDef locked fill:#fff3cd,stroke:#b8860b
   classDef collapsed fill:#eeeeee,stroke-dasharray:4 4
-  class n22603 root
-  class n22603 locked
+  class n22607 root
+  class n22607 locked
   class c0,c105,c106,c108 collapsed
 ```
 

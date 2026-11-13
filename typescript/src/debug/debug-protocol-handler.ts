@@ -18,7 +18,7 @@ import {
   buildNetStructure,
   buildSubnetInstances,
 } from './debug-session-registry.js';
-import type { Subscription } from './debug-event-store.js';
+import type { DebugEventStore, Subscription } from './debug-event-store.js';
 import { MarkingCache } from './marking-cache.js';
 import { toEventInfo, tokenInfo, convertMarking } from './net-event-converter.js';
 
@@ -224,7 +224,7 @@ export class DebugProtocolHandler {
     }
 
     client.subscriptions.setEventIndex(cmd.sessionId, targetIndex);
-    const computed = client.subscriptions.computeStateAt(cmd.sessionId, events, targetIndex);
+    const computed = client.subscriptions.computeStateAt(cmd.sessionId, debugSession.eventStore, targetIndex);
 
     this.send(client, {
       type: 'markingSnapshot',
@@ -307,8 +307,7 @@ export class DebugProtocolHandler {
       currentIndex--;
       client.subscriptions.setEventIndex(cmd.sessionId, currentIndex);
 
-      const events = debugSession.eventStore.events();
-      const computed = client.subscriptions.computeStateAt(cmd.sessionId, events, currentIndex);
+      const computed = client.subscriptions.computeStateAt(cmd.sessionId, debugSession.eventStore, currentIndex);
 
       this.send(client, {
         type: 'markingSnapshot',
@@ -562,6 +561,8 @@ interface SessionSubscription {
   subscription: Subscription | null;
   eventIndex: number;
   markingCache: MarkingCache;
+  /** The store's evicted count when `markingCache` was last used; a change means its snapshots are stale. */
+  cacheEvictedCount: number;
   breakpoints: Map<string, BreakpointConfig>;
   paused: boolean;
   speed: number;
@@ -576,6 +577,7 @@ class SubscriptionState {
       subscription,
       eventIndex,
       markingCache: new MarkingCache(),
+      cacheEvictedCount: 0,
       breakpoints: new Map(),
       paused: false,
       speed: 1.0,
@@ -623,10 +625,21 @@ class SubscriptionState {
     if (sub) sub.eventIndex = index;
   }
 
-  computeStateAt(sessionId: string, events: readonly NetEvent[], targetIndex: number): ComputedState {
+  /**
+   * Replays the store's retained events up to `targetIndex`. An eviction since the cache
+   * was last used shifts every retained event to a lower index, so the cached snapshots
+   * no longer replay the stream they are reused on: drop them first ([EVT-032] AC3).
+   */
+  computeStateAt(sessionId: string, eventStore: DebugEventStore, targetIndex: number): ComputedState {
+    const events = eventStore.events();
     const sub = this._sessionSubs.get(sessionId);
-    if (sub) return sub.markingCache.computeAt(events, targetIndex);
-    return computeState(events.slice(0, targetIndex));
+    if (!sub) return computeState(events.slice(0, targetIndex));
+    const evicted = eventStore.evictedCount();
+    if (evicted !== sub.cacheEvictedCount) {
+      sub.markingCache.invalidate();
+      sub.cacheEvictedCount = evicted;
+    }
+    return sub.markingCache.computeAt(events, targetIndex);
   }
 
   setFilter(sessionId: string, filter: EventFilter): void {

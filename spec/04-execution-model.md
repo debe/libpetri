@@ -511,6 +511,8 @@ A run budget that expires ends the caller's wait, not the loop: the executor rep
 
 The executor *shall not* treat host cancellation state that it did not set itself, such as a thread's interrupt flag set before the run or by the run's own action code, as a request to stop the run.
 
+Where the runtime exposes no ambient cancellation state an executor could consult, the previous sentence and AC4/AC5 hold vacuously.
+
 **Acceptance Criteria:**
 1. Return value contains the token state after quiescence.
 2. All places with tokens are represented.
@@ -522,37 +524,6 @@ The executor *shall not* treat host cancellation state that it did not set itsel
    propagate a caught cancellation — does not truncate the run.
 
 **Depends on:** [EXEC-040], [ENV-013], [ENV-015]
-**Implementation status:** AC1–AC2 implemented everywhere. AC3–AC5 are new: **Java** implemented
-(a queryable termination reason; a `WARN` log message accompanies it only where the stop was not
-caller-requested, per [EVT-013] AC5). For AC4/AC5 Java does not merely avoid *reading* the
-interrupt flag as a loop condition — that alone is not enough, because every blocking wait on the
-platform throws at once when entered with the flag already set, so an ambient flag truncates the
-run at its first wait instead of its first cycle. Both executors therefore **clear and remember**
-the flag before every wait (the [TIME-015] host wait included) and after each inline action
-returns, and **restore** it when `run()` returns. Only an interrupt that arrives during a wait
-that was *entered with the flag clear* ends the run, as `INTERRUPTED`. A built-in wait reports
-that by throwing. The [TIME-015] hosted wait (`ExecutionEnvironment.awaitWork`) cannot throw, so
-there the executor reads the flag when the wait returns: **set on return from a wait entered
-clear is the same event**, and ends the run `INTERRUPTED` the same way, with the same `WARN` and
-the flag handed back when `run()` returns — otherwise an executor under an injected clock could
-not be interrupted at all. The host's half of that contract is to let the flag survive its wait
-(catch the exception, re-interrupt, return); a host that swallows the interrupt makes the run
-uninterruptible while it waits. The consequences are documented rather than hidden: an external
-interrupt that lands while an inline action is executing is indistinguishable from one the action
-set itself, so it does not stop the run; it is deferred, and reappears on the thread when `run()`
-returns. Inside the hosted wait the same ambiguity is resolved the other way — anything the host
-runs on the orchestrator thread within `awaitWork` that sets the flag is indistinguishable from
-an external interrupt, and ends the run — because an action is the run's own code and a wait is
-not.
-**TypeScript**, **Rust** and **Python** expose a queryable termination reason
-(`quiescent`, `terminal`, `closed`, `stopped`), added with [EXEC-042]. That satisfies AC3; an
-expired TypeScript run budget still raises as well. AC4/AC5 are vacuous where the runtime exposes no
-ambient cancellation state an executor *could* consult, so no conformance test can even be written:
-**Python** is the clearest case (actions run on Tokio threads with no running asyncio loop, there is
-no thread-level interrupt flag, and the synchronous run loop never polls signals), then **Rust**
-(which has no ambient cancellation state at all — task cancellation drops the future, which is not
-state an executor reads) and **TypeScript** (a single-threaded event loop with nothing ambient to
-consult).
 **Test derivation:** Run net; inspect returned marking; verify expected token distribution. For
 AC4, set the host's cancellation flag immediately before `run()` and assert the net still executes
 to quiescence. For AC5, have an action set that flag mid-run and assert every downstream transition
@@ -696,11 +667,6 @@ other, so the model abandons the action as the executor does.
 
 **Depends on:** [EXEC-001], [EXEC-020], [EXEC-022], [EXEC-040], [EXEC-041], [CONC-001], [IO-015],
 [ENV-004], [ENV-013], [ENV-014], [ENV-015], [EVT-013], [VER-002], [VER-014], [VER-022], [MOD-001]
-**Implementation status:** Java, TypeScript, Rust and Python (via Rust). Java and Rust deposit a
-synchronous action's outputs inside the firing pass, so they break the pass there. TypeScript
-deposits every output in the completion phase, so a transition started earlier in the same pass is
-abandoned instead (AC4, second case). Either way it is an interleaving the atomic model allows: the
-transition started before the terminal place was marked.
 **Test derivation:** One net per AC. For AC4, build a pass with two enabled transitions ordered
 by priority: the first is synchronous and marks the terminal place, the second must never fire.
 For AC7, use a fork whose one arm marks the terminal place while the other arm's action is still

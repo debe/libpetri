@@ -100,6 +100,16 @@ impl DebugEventStore {
         self.inner.lock().unwrap().events.clone()
     }
 
+    /// Returns a snapshot of all retained events together with the number of
+    /// events evicted before them, read under one lock: the first retained
+    /// event has global index `evicted_count`. A caller that caches state
+    /// derived from the retained events (\[EVT-032\]) compares the count with
+    /// the one it cached at, since an eviction moves the window.
+    pub fn events_with_evicted_count(&self) -> (Vec<NetEvent>, usize) {
+        let inner = self.inner.lock().unwrap();
+        (inner.events.clone(), inner.evicted_count)
+    }
+
     /// Total number of events ever appended (including evicted).
     pub fn event_count(&self) -> usize {
         self.inner.lock().unwrap().event_count

@@ -19,7 +19,7 @@ namespace Libpetri
 
 /-! ## A flat transition is a transition together with one outcome
 
-`flatten` (through `flatten_with_reapable`, `net_flattener.rs:150-186`) emits one `FlatTransition` per way a firing
+`flatten` (through `flatten_with_reapable` in `net_flattener.rs`) emits one `FlatTransition` per way a firing
 can end (`branch_outcomes::outcomes`), all sharing the same `pre`. For a branch the
 action writes, that is exactly the set of places that receive one token. The
 timeout outcome of a `ForwardInput` batch deposits more than one token in a place;
@@ -173,8 +173,8 @@ def StepARel (net : FlatNet) (a a' : AMarking) : Prop :=
   ∃ ft ∈ net, enabledA a ft.1 = true ∧ a' = fireA a ft.1 ft.2
 
 /-- Abstract reachability `R(N̂)` — the least fixpoint of the CHC rules
-(`encode_net`, the body of `encode`: `smt_encoder.rs:145` seeds it with `M₀`,
-`:156-173` adds one rule per flat transition). This is the options-off path;
+(`encode_net` in `smt_encoder.rs`, the body of `encode`, seeds it with `M₀`
+and adds one rule per flat transition through `encode_transition_rule`). This is the options-off path;
 the firing counters of `EncodeOptions::state_equation` ([VER-016]) are
 `StateEquation.lean`'s. -/
 def ReachA (net : FlatNet) (a0 : AMarking) : AMarking → Prop :=
@@ -252,7 +252,7 @@ theorem guarded_all_is_enabled : enabledC mGuarded tGuardedAll = true := by deci
 
 The executor consumed only the guard-matching token, so place 0 still held one
 token after the firing. The encoder emits `m'_0 = post[0] = 0` for every
-`consume_all` place (`firing_conditions`, `smt_encoder.rs:379-381`), because
+`consume_all` place (`firing_conditions` in `smt_encoder.rs`), because
 `net_flattener.rs` never inspects the guard. The abstract successor is
 therefore *smaller* than the
 concrete one — an under-approximation, which is precisely how a
@@ -280,13 +280,13 @@ def mSimple : CMarking := fun p => if p == 0 then [7] else []
 /-- An action that writes *two* tokens to its single output place. -/
 def prodDouble : PlaceId → Nat := fun p => if p == 1 then 2 else 0
 
-/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs:86`) compares
+/-- **Finding 2.** `validate_out_spec` (`executor_core/output.rs`) compares
 place SETS and never token counts, so this action is accepted: the produced set
 is `{p₁}`, which is exactly what `Out::Place(p₁)` claims. (The [IO-015]
 exact-explanation rewrite tightened WHICH place sets conform — a claim must now
 equal the produced set — but the two tokens this action writes to place 1 remain
 invisible to it, so the finding stands unchanged.) The encoder fixes the gain at one token per
-branch place an action writes (`net_flattener.rs:169-171`, in `flatten_with_reapable`). Again the concrete
+branch place an action writes (`flatten_with_reapable` in `net_flattener.rs`). Again the concrete
 successor escapes the abstract relation. (A `ForwardInput` timeout batch is not an
 action write: the flattener deposits its full count, `Novel/ForwardDeposit.lean`.) -/
 @[evidence cites "VER-004" "necessity of the unit-output side condition: validate_out_spec checks place membership, never multiplicity, while the encoder fixes the abstract gain at one token per branch place — the hypothesis remains unchecked by the shipped encoder"]

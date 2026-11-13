@@ -48,6 +48,8 @@ assert_eq!(&*executor.marking().peek(&output).unwrap(), "hello");
 
 With the `tokio` feature, transition futures can overlap while the orchestrator alone updates the marking. Actions receive owned context and return it with their outputs, preventing concurrent mutation of runtime state.
 
+`termination_reason()` tells a completed run (`Quiescent`, `Terminal`, see `is_complete()`) from a truncated one (`Closed`, `Stopped`). A synchronous action's outputs are deposited inside the firing pass, so the pass stops at the deposit that marks a terminal place.
+
 ## Checkpoint and resume
 
 ```rust
@@ -57,7 +59,21 @@ if snap.is_restore_point() { save(&snap.marking); }       // MarkingSnapshot
 let resumed = Marking::from_snapshot(&saved);             // pass as the initial marking
 ```
 
-A `MarkingSnapshot` is a `BTreeMap` from place name to tokens and carries `created_at` through untouched. Persist one only when `is_restore_point()` is true; otherwise an action had consumed inputs whose outputs had not landed. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `execution_scope(...)` when a replay must reproduce them, fresh per run segment. An invalid scope panics at construction, so check untrusted input with `validate_execution_scope` first.
+A `MarkingSnapshot` is a `BTreeMap` from place name to tokens and carries `created_at` through untouched. Persist one only when `is_restore_point()` is true; otherwise an action had consumed inputs whose outputs had not landed. Timing clocks restart on resume, so a `deadline` gets a fresh full budget. Minted ν-names are `<transition>#<scope>:<n>` with a random scope per executor; pin `execution_scope(...)` when a replay must reproduce them, fresh per run segment. The default scope is 128 bits of the platform's randomness. An invalid scope panics at construction, so check untrusted input with `validate_execution_scope` first.
+
+Injections and snapshot requests share one FIFO channel, so every earlier injection is in the marking a snapshot reports. An asynchronous action that awaits `snapshot()` is reported in flight. A synchronous action under `run_async` runs inside the orchestrator loop: it may send the request but must not block on the reply, which arrives after the firing has settled. `run_sync` has no signal channel.
+
+## Clocks
+
+`ExecutorOptions::clock` (or the `clock(...)` builder method) drives a run from a host clock implementing `ExecutorClock` (`now_ms`, `epoch_ms`, `await_work`, `await_work_async`). The crate ships `SystemClock`, `ManualClock`, which jumps to each timing boundary, and `SteppedClock`, which moves only when the host advances it (`settle`, `settle_after`). `seed_token()` stamps an initial token from the clock's epoch. Without a clock the executor reads the real clocks directly. The contract is settled, but the names and signatures of this API may still change.
+
+## Events
+
+The Rust events, which Python also uses, carry less than the Java and TypeScript ones:
+
+- `TransitionCompleted` and `TransitionTimedOut` carry the transition name and a timestamp only.
+- `TransitionFailed` carries one `error` text and no exception type.
+- `ActionTimedOut` carries `timeout_ms`. It is emitted when the executor settles the timeout outcome, and no `TransitionCompleted` follows it.
 
 ## Workspace crates
 

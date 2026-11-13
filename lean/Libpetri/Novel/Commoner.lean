@@ -5,9 +5,9 @@ import Libpetri.Spec.Registry
 # Siphons, traps and Commoner's theorem ([VER-020])
 
 Model of the structural deadlock pre-check: `structural_check`
-(`rust/libpetri-verification/src/structural_check.rs:36`), its siphon search
+(`rust/libpetri-verification/src/structural_check.rs`), its siphon search
 `find_minimal_siphons` / `grow_siphon` and its trap contraction `find_maximal_trap_in`
-(`structural_check.rs:149`), and the early `Proven` that `verify_net` builds on it in
+(`structural_check.rs`), and the early `Proven` that `verify_net` builds on it in
 `smt_verifier.rs`, guarded by `commoner_applies` (`smt_verifier.rs`). The semantics is the
 CHC relation `ReachA` over flat transitions (`Soundness.lean`), one entry per outcome
 (`branch_outcomes::outcomes`), as `flatten` produces them. `ReachA` reads a row as a set
@@ -20,14 +20,13 @@ net the guard admits is duplicate-free and `fireA` is `ForwardDeposit.fireAD` on
 * `Siphon`: every flat transition that outputs into `S` consumes from `S`.
   `Trap`: every flat transition that consumes from `T` outputs into `T`. These are the
   properties the Rust fixpoints test: the violating-producer search of `grow_siphon`
-  (`structural_check.rs:112-124`) and the contraction test of `find_maximal_trap_in`
-  (`structural_check.rs:164-179`).
+  and the contraction test of `find_maximal_trap_in`.
 * `Ordinary` is `commoner_applies`: no read, inhibitor or reset arc, no consume-all input, and
   every input arc requires at most one token. The Rust guard bounds the per-place *sum* by one,
   which implies the per-arc bound used here.
 * `CommonerCond` is what `structural_check` decides: `NoPotentialDeadlock` requires that each
   minimal siphon's maximal trap holds a token under the initial marking
-  (`initial.count(..) > 0`, `structural_check.rs:44-52`).
+  (`initial.count(..) > 0` in `structural_check`).
 
 Results:
 * `siphon_stays_empty` (any arcs): once a siphon is empty it stays empty on every

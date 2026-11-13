@@ -44,9 +44,9 @@ non-empty and contains no `/`, the reserved separator [MOD-010]. Under prefix `p
 transition named `x` is renamed `p/x` [MOD-010]; nesting gives names of the form
 `outer/inner/x` [MOD-013]."
 
-The validity half (ruling D25 (a): what Rust, Java and TypeScript check before renaming, `rust/libpetri-core/src/subnet_def.rs:90-101`,
-`java/src/main/java/org/libpetri/core/SubnetDef.java:450-461`,
-`typescript/src/core/subnet-def.ts:595-605`). -/
+The validity half (ruling D25 (a): what Rust, Java and TypeScript check before renaming, `SubnetDef::instantiate` in `rust/libpetri-core/src/subnet_def.rs`,
+`validatePrefix` in `java/src/main/java/org/libpetri/core/SubnetDef.java`,
+`validatePrefix` in `typescript/src/core/subnet-def.ts`). -/
 def ValidPrefix (p : String) : Prop := p ≠ "" ∧ '/' ∉ p.toList
 
 instance (p : String) : Decidable (ValidPrefix p) := inferInstanceAs (Decidable (_ ∧ _))

@@ -83,7 +83,8 @@ written, and fail with `refTimingMsg` otherwise. -/
 def refTimingFactory (tm : Timing) : Except String Timing :=
   if tm.Valid then .ok tm else .error (refTimingMsg tm)
 
-/-- The reference contract: the accessors of `Novel.TimedScg.Timing` (`timing.rs:108-138`), the
+/-- The reference contract: the accessors of `Novel.TimedScg.Timing` (`earliest`, `latest` and `has_deadline` in `impl Timing`,
+`timing.rs`), the
 reference factory, and a builder that runs the factory's check again (`transition.rs::build`,
 [TIME-001] AC5), so it builds a valid timing unchanged and fails on an invalid one with the
 factory's message; a transition built without a timing is `Immediate` (`transition.rs`, AC1). -/
