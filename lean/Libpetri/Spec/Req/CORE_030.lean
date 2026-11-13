@@ -49,7 +49,7 @@ requirement CORE_030
           "The deposit a firing reports is not trusted for the count on a place the output spec does not name (glossary: Output arc): no firing of t can deposit there ([CORE-035]), so the consumption shows in the marking alone, as the third line says. Without it a firing that consumes nothing but reports a deposit equal to the consumption count in its input place would pass the second line. This is the guard IO-001 to IO-004 also carry, so each of those blocks stands alone."
           "Interpretation: both lines are required only of firings from a marking in which p holds at least the arc's required count. A firing from a marking where p holds fewer is not enabled (CORE-022, IO-005); whether such a firing may happen at all is those requirements' business, and CORE-030, which speaks only of how much a firing consumes, says nothing about it."
           "'The same place' is equality of place names (TypeScript, Rust, [CORE-002]); Java's name-and-type equality is not modelled."
-  signoff "2026-11-13 37a9147db6a0f409 ai"
+  signoff "2026-11-13 467bda95044411b9 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p c, InputPlacesDistinct t → InputArc t p c → ¬ ResetArc t p → ∀ d,
       (on (fun m m' => F t m d m'), shall

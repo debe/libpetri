@@ -71,7 +71,7 @@ requirement CORE_060
           "AC3 (inputToken(place) returns the token with metadata, including its timestamp) is line 3, scoped to Java and TypeScript."
           "AC4 (accessing an undeclared input place results in an error) is line 4."
           "The test derivation (fire a transition consuming 3 tokens, verify inputs() returns 3 values) is CORE_060_nonvacuous: the reference firing of a transition whose input arc takes exactly 3 tokens delivers the 3 oldest, and the reference context returns their 3 values, in queue order."
-  signoff "2026-11-13 b43fc487e82e5cc3 ai"
+  signoff "2026-11-13 e1c5fadb33c58378 ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → Ctx N T V → Prop :=
     fun value C =>
       (∀ t δ p, p ∈ inPlaces t → δ.inputs p ≠ [] →

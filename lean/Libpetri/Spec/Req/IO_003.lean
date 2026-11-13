@@ -55,7 +55,7 @@ requirement IO_003
           "Which token is consumed first, and that the consumed tokens reach the action, are below the count granularity of a firing relation; they are not encoded."
           "A firing is one step at the count granularity: EXEC-003 AC5 (an `All` or `AtLeast` arc that fires later in a firing pass drains only the tokens the firing may drain, and leaves in place the tokens a synchronous action deposited earlier in the same pass) is below this granularity; that refinement is EXEC-003's subject and the reference executor's (RefExec, wave W5), not this block's."
           "A transition with two input arcs on p is rejected at build by CORE-030. On such a transition the formula reads the first arc on p, as the reference does (`InputArc`); `withoutAll` removes only the `All` arcs on p."
-  signoff "2026-11-13 f3ab08fa5c1929cf ai"
+  signoff "2026-11-13 1df646da0a336bd8 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p, AllArc t p →
       (while (fun m => ¬ Marked m p), never Fire F t) ∧

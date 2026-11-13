@@ -101,7 +101,7 @@ requirement CONC_026
           "AC4 (Place(P) writing nothing, And(A, B) writing only A, both deposited) is the first two lines; CONC_026_nonvacuous fires both under the witness."
           "AC5 (no NU-054 diagnostic, no IO-016 AC4 warning) is below the token-count granularity; not encoded."
           "AC6: 'a write to an undeclared place still fails' is the third line; 'building a transition whose output spec [IO-012] rejects still fails' is the builder's, IO_012's build line over refBuild, as the build-time paragraph above says."
-  signoff "2026-11-13 7fa0bb97a098a2a8 ai"
+  signoff "2026-11-13 fe6b6d06d66e8eb7 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F =>
       (∀ t, Builds t → ∀ m, Enabled t m → ∀ d, (∀ p, Produced d p → OutputArc t p) →
@@ -281,7 +281,7 @@ requirement IO_015_firing
           "Timing and priority play no part: whether the action completes within a Timeout budget is nondeterministic (IO-013), so a validated write is always one way a firing can end."
           "The block asks firings only of a transition that builds (glossary: Builds): a transition the build-time checks reject (CORE-022, IO-011 to IO-014) is held by no executor, since every runtime rejects its definition when the net is built, so no firing of it is asked. The firing relation itself ranges over every transition, as CORE-036's does: the witness refFireValidated fires unbuilt transitions too, and a validating executor that holds only transitions that build satisfies the block as well (IO_015_firing_builtOnly)."
           "CORE-036 compares deposits per place and asks only that the places a firing deposits in be the places of one output branch, each receiving one or more tokens, so it allows such a deposit: both blocks hold of the validated-write executor (theorem CORE_036_IO_015_firing_consistent)."
-  signoff "2026-11-13 6ce6a995bcfc59ca ai"
+  signoff "2026-11-13 2218d01fbc44b335 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t, Builds t → ∀ o, OutputSpec t = some o → ∀ m, Enabled t m → ∀ d,
       (∃ i, ExactAssignment o d i ∧ ∀ j, ExactAssignment o d j → j = i) → ∃ m', F t m d m'

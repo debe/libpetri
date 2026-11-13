@@ -364,6 +364,8 @@ output spec of transition '<t>' uses ForwardInput('<from>', '<to>') outside the 
 
 naming the first such node in the order the spec is written (pre-order, children left to right). The check runs when the transition is built, on every construction path, as the check of [IO-011] does.
 
+An implementation whose places carry run-time token types (Java) *may* also fail building a transition that has a `ForwardInput(from, to)` whose `to` place's token type cannot hold the tokens of `from`. It runs that check on each `ForwardInput` in pre-order, right after the check that the node's `from` is an input place (AC3). Without that check, keeping a forwarded token compatible with `to` is the net author's task ([CORE-003]).
+
 *When* a firing ends with the timeout outcome, every `ForwardInput(from, to)` in the `Timeout` child *shall* deposit in `to` one token for each token the firing consumed from `from`, carrying the token's value, in consumption order.
 
 The count *shall* be the consumption count of the input arc on `from` ([IO-007]): 1 for `One`, `n` for `Exactly(n)`, and the whole drained batch for `All` and `AtLeast(m)`.

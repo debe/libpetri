@@ -56,7 +56,7 @@ requirement CORE_043
           "AC3 (submitting the same net to a verification entry point fails the same way) is line 3, once per entry point and option setting; a verification entry point that never refuses violates it (CORE_043_forbids_verifyNever), and so do the readings 'refuses at least the nets compiling refuses' (CORE_043_mutant_verifyCovers_killed) and 'refuses the same nets, naming any transition' (CORE_043_mutant_sameNets_killed)."
           "AC4 (a sink may carry passthrough; CORE-042 is untouched) is line 2 on a net whose transitions carrying passthrough have no output specification, and the third quoted sentence on a net that also holds an offender. That binding stays lazy and total is CORE-042's line, not restated here."
           "AC5 (the built-in is recognised by identity, so a hand-written action that produces nothing is not claimed) is line 2 and the third quoted sentence read over the identity tag; the extensional reading of the whole check (an output-declaring transition is refused when its action produces nothing) is CORE_043_mutant_extensional, killed by the extensional check. That such an action fails at run time is IO-015's."
-  signoff "2026-11-13 933ab58dbd29501c ai"
+  signoff "2026-11-13 62920d24551e966c ai"
   statement : ∀ {N A : Type}, (BuiltNet N A → Option String) → (BuiltNet N A → Option String) → Prop :=
     fun C V =>
       (∀ b l₁ d l₂, b.trans = l₁ ++ d :: l₂ → d.out ≠ none → d.action = .passthrough →

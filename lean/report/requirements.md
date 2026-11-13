@@ -52,302 +52,302 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 
 | ID | Title | Kind | Scope | Source | Evidence | Sign-off |
 |---|---|---|---|---|---|---|
-| [CONC-001](#Libpetri-Spec-CONC_001) | Orchestrator Thread Ownership | B | all executors | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1d951f4b3445aece ai |
-| [CONC-002](#Libpetri-Spec-CONC_002) | Non-Blocking Action Dispatch | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 850823bbf843d44e ai |
-| [CONC-003](#Libpetri-Spec-CONC_003) | Happens-Before Guarantee | B | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 113b22a155e6e4ea ai |
-| [CONC-004](#Libpetri-Spec-CONC_004) | Bitmap-Based Enablement Check | F | all executors (the mask test of the bitmap executor; the precompiled executor's sparse form is PERF-042) | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 6e1dc524b499bce4 ai |
-| [CONC-005](#Libpetri-Spec-CONC_005) | Dirty Set Optimization | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×3 | 2026-11-13 6697def60b6f4e75 ai |
-| [CONC-005](#Libpetri-Spec-CONC_005_cycle) | Dirty Set Optimization (executor cycle) | B | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 5743a54f91350a9d ai |
-| [CONC-007](#Libpetri-Spec-CONC_007) | Compiled Net Representation | F | all compilers of the bitmap executor's compiled net (Rust CompiledNet::compile, Java CompiledNet.compile, TypeScript CompiledNet.compile), on every net, read as its arcs and output specifications together with which of its transitions carry a match specification | verbatim | ✓ holds, ✓ allows, ✗ forbids ×5, ✗ mutant ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c607109d61d47fb1 ai |
-| [CONC-008](#Libpetri-Spec-CONC_008) | Multi-Phase Enablement | F | all executors, transitions that build and have no match specification | verbatim | ✓ holds, ✓ allows ×4, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 2ed06600a6fb11e9 ai |
-| [CONC-008](#Libpetri-Spec-CONC_008_nu) | Multi-Phase Enablement (ν-match check) | F | all executors, transitions that build, with and without a match specification | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 2cfe4119c63eae2a ai |
-| [CONC-010](#Libpetri-Spec-CONC_010) | Orchestrator Wake-Up | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0e0f4c602d8b221e ai |
-| [CONC-021](#Libpetri-Spec-CONC_021) | Opcode-Based Consume Operations | F | the precompiled executor, transitions without a match specification | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e8c2f1340f65c19e ai |
-| [CONC-022](#Libpetri-Spec-CONC_022) | Flat-Array Token Storage | F | the precompiled executor's token storage | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids ×8, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 46bdeb1acd296260 ai |
-| [CONC-023](#Libpetri-Spec-CONC_023) | Priority-Partitioned Ready Queues | F | the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path the declaration order (ruling D14 (a)) | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 814d35b7abaf7bf8 ai |
-| [CONC-024](#Libpetri-Spec-CONC_024) | Precomputed Timing Arrays | F | the precompiled net of every implementation | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 5a1c90acb46d9c40 ai |
-| [CONC-025](#Libpetri-Spec-CONC_025) | Lazy Marking Synchronization | B | precompiled executor | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 59a2fa6b11fb0b87 ai |
-| [CONC-026](#Libpetri-Spec-CONC_026) | Optional output validation skip (option enabled) | N | an executor that offers the option, with the option enabled | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 7fa0bb97a098a2a8 ai |
-| [CORE-002](#Libpetri-Spec-CORE_002) | Place Identity | F | all implementations | verbatim | ✓ holds ×2, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2d1cd1e89380fb5a ai |
-| [CORE-003](#Libpetri-Spec-CORE_003) | Place Type Safety | A | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×4, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0ea88201c63f35e8 ai |
-| [CORE-010](#Libpetri-Spec-CORE_010) | Token Immutability | B | all executors | verbatim | ✓ holds, ✗ forbids ×8, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3b58a50ccb0d412f ai |
-| [CORE-011](#Libpetri-Spec-CORE_011) | Token Creation | F | the host token factories of Java, TypeScript and Rust | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2bfe1f7b290d1782 ai |
-| [CORE-011](#Libpetri-Spec-CORE_011_B) | Token Creation (tokens the executor creates) | B | the tokens the executors of Java, TypeScript, Rust and Python create: action outputs written as values, raw-value injections, minted timeout outcomes | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent | 2026-11-13 08776b8cad7bb709 ai |
-| [CORE-013](#Libpetri-Spec-CORE_013) | Token FIFO Ordering | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 cd1eca5bb95e9b90 ai |
-| [CORE-020](#Libpetri-Spec-CORE_020) | Transition Definition | F | all transition builders | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 bd4977fa5a0efd72 ai |
-| [CORE-021](#Libpetri-Spec-CORE_021) | Transition Identity | F | all transition builders | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7792de31f8f3f5f3 ai |
-| [CORE-022](#Libpetri-Spec-CORE_022) | Transition enablement | B | all executors | verbatim | ✓ holds ×2, ✗ forbids ×5, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×11 | 2026-11-13 ac97fd4b8210a654 ai |
-| [CORE-030](#Libpetri-Spec-CORE_030) | Input arc | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 37a9147db6a0f409 ai |
-| [CORE-031](#Libpetri-Spec-CORE_031) | Inhibitor arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 13bd1b82094c56b6 ai |
-| [CORE-032](#Libpetri-Spec-CORE_032) | Read Arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 114ece4e82239077 ai |
-| [CORE-033](#Libpetri-Spec-CORE_033) | Read arc multi-reader | B | all executors | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 a864c7bea1b325a9 ai |
-| [CORE-034](#Libpetri-Spec-CORE_034) | Reset arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 93e6155b06c813c7 ai |
-| [CORE-035](#Libpetri-Spec-CORE_035) | Output arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 7ce7e918319b593c ai |
-| [CORE-036](#Libpetri-Spec-CORE_036) | Arc semantics summary | B | all executors; the outcome line with output validation enabled (CONC-026, the default) | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids ×5, ✗ mutant ×10, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 153aed3781898e2a ai |
-| [CORE-037](#Libpetri-Spec-CORE_037) | Dead Arc Warning | F | the dead-arc report of every executor backend and of the SMT verifier; the events and report lines are the second block of this ID | verbatim | ✓ holds, ✗ forbids ×15, ✗ mutant ×2, ✓ nonvacuous ×3, ✓ consistent ×2 | 2026-11-13 ebc7c7b7ff9bccba ai |
-| [CORE-037](#Libpetri-Spec-CORE_037_events) | Dead Arc Warning: executor events | B | every executor backend with its event store enabled (SHOULD; the shall sentences bind an executor that reports dead arcs); for Java, on a net and initial marking where no two places share a name with different token types ([MOD-024]) | verbatim | ✓ holds ×3, ✗ forbids ×10, ✓ nonvacuous, ✓ consistent | 2026-11-13 2a197db642c0057a ai |
-| [CORE-037](#Libpetri-Spec-CORE_037_verifier) | Dead Arc Warning: verifier report lines | B | the SMT verifier, all implementations (SHOULD; the shall sentences bind a verifier that reports dead arcs) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent | 2026-11-13 bb99246757cbb1e5 ai |
-| [CORE-040](#Libpetri-Spec-CORE_040) | Net Builder | F | all net builders used without composition or fusion sets | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 306502b72cef9ade ai |
-| [CORE-041](#Libpetri-Spec-CORE_041) | Net Immutability | B | all net builders used without composition or fusion sets | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 9626d777196eacc9 ai |
-| [CORE-042](#Libpetri-Spec-CORE_042) | Action Binding Separation | F | Java, TypeScript, Rust (net-level bindActions, both forms); Python rides on the Rust binding and exposes no net-level binding | verbatim | ✓ holds ×2, ✗ forbids ×3, ? undecided, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a350df7bca509dc0 ai |
-| [CORE-042](#Libpetri-Spec-CORE_042_nu) | Action Binding Separation: the match specification | F | Java, TypeScript, Rust (net-level bindActions, both forms, on a net whose transitions may have a match specification); Python rides on the Rust binding | verbatim | ✓ holds ×2, ✗ mutant, ✓ nonvacuous | 2026-11-13 3f906fdfcf23b4d9 ai |
-| [CORE-043](#Libpetri-Spec-CORE_043) | Output-Declaring Transitions Must Produce | F | every compile step and every verification entry point (state-class graph and SMT), under every property and option setting the entry point accepts | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 933ab58dbd29501c ai |
-| [CORE-050](#Libpetri-Spec-CORE_050) | Transition Action | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0e01354c5393cdc4 ai |
-| [CORE-051](#Libpetri-Spec-CORE_051) | Passthrough Action | F | all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 03fbcb7e4e151706 ai |
-| [CORE-052](#Libpetri-Spec-CORE_052) | Fork Action | F | all implementations (the built-in fork action; Python rides on the Rust action) | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ forbids ×2, ? undecided, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b67572cce63eec54 ai |
-| [CORE-053](#Libpetri-Spec-CORE_053) | Transform Action | F | implementations that provide transform() | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6b70bde76f2235a5 ai |
-| [CORE-054](#Libpetri-Spec-CORE_054) | Produce Action | F | the built-in produce action of Java, TypeScript and Rust (the Python binding exposes no produce built-in) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3179646a0a186c37 ai |
-| [CORE-060](#Libpetri-Spec-CORE_060) | Context Input Access | F | the transition context of every implementation; line 3 and the inputToken part of line 4 only where the context gives access to tokens: Java and TypeScript | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ? undecided, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b43fc487e82e5cc3 ai |
-| [CORE-061](#Libpetri-Spec-CORE_061) | Context Read Access | F | the transition context of every implementation | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 e9686be508ee4d51 ai |
-| [CORE-062](#Libpetri-Spec-CORE_062) | Context Output Access | F | the transition context of every implementation, except output calls made after the firing has ended with the timeout outcome | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 aadbfae1c586127b ai |
-| [CORE-063](#Libpetri-Spec-CORE_063) | Context Structure Enforcement | F | the transition context of every implementation; the inputToken part of line 1 only where the context gives access to tokens: Java and TypeScript | verbatim | ✓ holds, ✓ allows, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6f3fb70f7a46effd ai |
-| [CORE-070](#Libpetri-Spec-CORE_070) | Marking State | F | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1cc7b90b478876c1 ai |
-| [CORE-072](#Libpetri-Spec-CORE_072) | Initial Marking | B | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 31b2fc4630cbe0e6 ai |
-| [CORE-073](#Libpetri-Spec-CORE_073) | Marking Snapshot and Restore | F | all implementations; line 6 binds every executor, an executor built from a restored marking alone (Rust, Python) included; lines 5 and 7 bind every executor that accepts a restored marking and an explicit initial marking together (Java, TypeScript) | verbatim | ✓ holds, ✗ forbids ×5, ? undecided, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6d172b9f8eb5b302 ai |
-| [CORE-073](#Libpetri-Spec-CORE_073_T) | Marking Snapshot and Restore (resume timing) | T | all executors | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 780f44c3d032f165 ai |
-| [ENV-002](#Libpetri-Spec-ENV_002) | Environment Place Registration | B | executors whose inject takes an environment-place handle (Java, TypeScript) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 225c5b12c950cc51 ai |
-| [ENV-002](#Libpetri-Spec-ENV_002_host) | Environment Place Registration (host of a name-keyed inject) | A | executors whose inject takes a place name (Rust, Python), and their hosts | verbatim | ✗ forbids, ✓ nonvacuous | 2026-11-13 e10bc7fa91cf3a17 ai |
-| [ENV-003](#Libpetri-Spec-ENV_003) | inject() Thread Safety | B | all executors with environment places | verbatim | ✓ holds, ✓ allows, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6d9b8eacf3b03d16 ai |
-| [ENV-004](#Libpetri-Spec-ENV_004) | inject() Completion Semantics | B | executors with an admission signal (Java, TypeScript); Rust and Python report acceptance only (ruling D44 (a)) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7d20bbf9de3d56df ai |
-| [ENV-005](#Libpetri-Spec-ENV_005) | inject() Wake-Up | T | all executors | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 29befa0357c21bc6 ai |
-| [ENV-006](#Libpetri-Spec-ENV_006) | inject() Rejection on Closed or Draining Executor | B | all executors with environment places | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f763b1af231c3340 ai |
-| [ENV-010](#Libpetri-Spec-ENV_010) | Implicit Long-Running Behavior | B | executors with environment places | verbatim | ✓ holds, ✓ allows ×3, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 112d7fdb35d59dcb ai |
-| [ENV-011](#Libpetri-Spec-ENV_011) | Graceful Drain | B | executors with a drain operation | verbatim | ✓ holds, ✗ forbids ×11, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7f4f71d351ffaeea ai |
-| [ENV-013](#Libpetri-Spec-ENV_013) | Immediate Close | B | all executors | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 facafa2407799dfd ai |
-| [ENV-014](#Libpetri-Spec-ENV_014) | Mid-Execution Marking Snapshot | B | all executors | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 98ccafcb0c495997 ai |
-| [ENV-015](#Libpetri-Spec-ENV_015) | Immediate Termination | B | all executors; the operation itself is optional (MAY) and only Java provides it | verbatim | ✓ holds, ✗ forbids ×19, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f922a30127799577 ai |
-| [ENV-016](#Libpetri-Spec-ENV_016) | Observable Termination | B | executors that provide run-with-timeout with a timeout policy (Java, TypeScript) | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a8480b1637cf2316 ai |
-| [ENV-016](#Libpetri-Spec-ENV_016_await) | Observable Termination (awaitTermination) | B | executors that provide awaitTermination (Java: BitmapNetExecutor and PrecompiledNetExecutor), for the first run of an executor | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 25f9a0909b8357ab ai |
-| [EVT-002](#Libpetri-Spec-EVT_002) | ExecutionStarted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 402b10defa18579f ai |
-| [EVT-002](#Libpetri-Spec-EVT_002_executionId) | ExecutionStarted Event (execution ID) | F | Java, TypeScript and Rust executors | verbatim | ✓ holds, ✗ mutant, ✓ nonvacuous, ✓ consistent | 2026-11-13 616505a7f94df939 ai |
-| [EVT-002](#Libpetri-Spec-EVT_002_lifecycleId) | ExecutionStarted Event (execution ID on the lifecycle events) | F | Java and TypeScript executors (the lifecycle events of Rust and Python carry no execution ID) | verbatim | ✓ holds, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 59784c3fe92eac83 ai |
-| [EVT-003](#Libpetri-Spec-EVT_003) | ExecutionCompleted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 0a42de0e37536960 ai |
-| [EVT-003](#Libpetri-Spec-EVT_003_duration) | ExecutionCompleted Event (total duration) | F | Java and TypeScript executors (the ExecutionCompleted event of Rust and Python carries no duration) | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent | 2026-11-13 7dad8ab40c4313d6 ai |
-| [EVT-004](#Libpetri-Spec-EVT_004) | TransitionEnabled Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 7f2ec3f635627dab ai |
-| [EVT-005](#Libpetri-Spec-EVT_005) | TransitionClockRestarted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×5 | 2026-11-13 d7b06ab6fc7825bb ai |
-| [EVT-006](#Libpetri-Spec-EVT_006) | TransitionStarted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 5a955369b4586277 ai |
-| [EVT-006](#Libpetri-Spec-EVT_006_payload) | TransitionStarted Event (removed tokens) | B | Java and TypeScript executors (event store enabled) | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×4, ✓ nonvacuous ×2, ✓ consistent ×4 | 2026-11-13 34ec428491b65151 ai |
-| [EVT-007](#Libpetri-Spec-EVT_007) | TransitionCompleted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 02fba859f6695f29 ai |
-| [EVT-007](#Libpetri-Spec-EVT_007_payload) | TransitionCompleted Event (produced tokens and duration) | B | Java and TypeScript executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 16d80a6b5a3bfc6a ai |
-| [EVT-008](#Libpetri-Spec-EVT_008) | TransitionFailed Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 592f70c382992d1c ai |
-| [EVT-009](#Libpetri-Spec-EVT_009) | TransitionTimedOut Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×5 | 2026-11-13 3b83953ac7adb832 ai |
-| [EVT-009](#Libpetri-Spec-EVT_009_payload) | TransitionTimedOut Event (deadline and elapsed time) | B | Java and TypeScript executors (event store enabled) | verbatim | ✓ holds, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×4 | 2026-11-13 6e7d17ef5af90b01 ai |
-| [EVT-010](#Libpetri-Spec-EVT_010) | ActionTimedOut Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 62f3150f8891e0e3 ai |
-| [EVT-010](#Libpetri-Spec-EVT_010_payload) | ActionTimedOut Event (duration) | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×2, ✓ nonvacuous | 2026-11-13 6d9570c61a2d44ce ai |
-| [EVT-011](#Libpetri-Spec-EVT_011) | TokenAdded Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 c32d37d50ee0ef12 ai |
-| [EVT-011](#Libpetri-Spec-EVT_011_payload) | TokenAdded Event (token payload) | B | Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 40bdde7fc7fa15d1 ai |
-| [EVT-012](#Libpetri-Spec-EVT_012) | TokenRemoved Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous ×2, ✓ consistent ×5 | 2026-11-13 631114adfc0faf23 ai |
-| [EVT-012](#Libpetri-Spec-EVT_012_payload) | TokenRemoved Event (token payload) | B | Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled); places without a correlated input of a match specification (NU-020) | verbatim | ✓ holds, ✗ forbids, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 0e649946f4f4c226 ai |
-| [EVT-013](#Libpetri-Spec-EVT_013) | LogMessage Event | B | all executors (event store enabled); the action log of line 1 is offered by Java and TypeScript | verbatim | ✓ holds ×4, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 758e0297ac01144b ai |
-| [EVT-014](#Libpetri-Spec-EVT_014) | MarkingSnapshot Event | B | every executor (event store enabled); Rust and Python carry token counts rather than tokens (RD-50) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×9, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 aa0582e14fcbbfc4 ai |
-| [EVT-020](#Libpetri-Spec-EVT_020) | EventStore Interface | F | every event store (the interface: the in-memory, noop, logging, debug and debug-aware stores of Java, TypeScript and Rust, and the Python binding's store) | verbatim | ✓ holds ×3, ✓ allows ×5, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 de8415d9c32f1753 ai |
-| [EVT-021](#Libpetri-Spec-EVT_021) | InMemoryEventStore | F | the in-memory event store (Java EventStore.inMemory(), TypeScript InMemoryEventStore, Rust InMemoryEventStore, Python InMemoryEventStore) | verbatim | ✓ holds, ✓ allows ×4, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 bfb6afabf5f29703 ai |
-| [EVT-022](#Libpetri-Spec-EVT_022) | NoopEventStore | F | the noop event store (Java EventStore.noop(), TypeScript noopEventStore(), Rust NoopEventStore) | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 07379021855ffbc8 ai |
-| [EVT-023](#Libpetri-Spec-EVT_023) | LoggingEventStore | F | the logging event store decorator (Java EventStore.logging() and EventStore.logging(delegate)); TypeScript, Rust and Python have none | verbatim | ✓ holds, ✗ mutant ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 3407bd9cb5d08cc4 ai |
-| [EVT-024](#Libpetri-Spec-EVT_024) | DebugEventStore | F | the debug event store (Java DebugEventStore, TypeScript DebugEventStore, Rust libpetri-debug DebugEventStore) | verbatim | ✓ holds, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 546c9502cf8f0fad ai |
-| [EVT-024](#Libpetri-Spec-EVT_024_B) | DebugEventStore (subscriptions) | B | the debug event store's live subscriptions (Java DebugEventStore.subscribe, TypeScript DebugEventStore.subscribe, Rust libpetri-debug DebugEventStore::subscribe) | verbatim | ✓ holds, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 42dcc5c89a1b23fd ai |
-| [EVT-025](#Libpetri-Spec-EVT_025) | Session Archive Format | F | where an implementation provides session archives: the Java, TypeScript and Rust SessionArchiveWriter and SessionArchiveReader, and Python's, which run Rust's | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×6, ✗ mutant ×9, ✓ nonvacuous, ✓ total, ✓ consistent ×3 | 2026-11-13 952f0c3640ed9828 ai |
-| [EVT-030](#Libpetri-Spec-EVT_030) | Event Filtering | F | the event query helpers where an implementation provides them (Java: eventsOfType, transitionEvents, placeEvents, filter with offset and limit, failures, counters and size; TypeScript: queryEvents, eventsOfType, transitionEvents, placeEvents, failures, counters, countEvents and size; Rust: events_of_type, transition_events, place_events, query, failures, size, count_of_types and counters; every helper in the Python binding) | verbatim | ✓ holds, ✓ allows, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 216fc85788afa925 ai |
-| [EVT-031](#Libpetri-Spec-EVT_031) | EventStore Live Subscriptions | B | the live subscriptions of an event store, where an implementation provides them: the Python binding's InMemoryEventStore (subscribe and subscribe_stream, run on Rust in rust/libpetri-py); Java, TypeScript and the Rust crate's own InMemoryEventStore have none (spec/runtime-defects.md, UB-04) | verbatim | ✓ holds, ✓ allows, ✗ mutant ×19, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 12a76a65a4411764 ai |
-| [EVT-032](#Libpetri-Spec-EVT_032) | Marking Replay Cache | F | the replay cache of the debug protocol (Rust libpetri-debug MarkingCache, Python MarkingCache, Java org.libpetri.debug.MarkingCache, TypeScript MarkingCache in libpetri/debug) | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×14, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 c098dfbcd7d591bf ai |
-| [EVT-032](#Libpetri-Spec-EVT_032_B) | Marking Replay Cache (the replay of a run's events) | B | every executor (event store enabled), read over the whole event stream of a run | verbatim | ✓ holds ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent | 2026-11-13 c86afdf9cf952faf ai |
-| [EXEC-001](#Libpetri-Spec-EXEC_001) | Orchestrator Loop Steps | B | all executors | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e0db038ae801add5 ai |
-| [EXEC-002](#Libpetri-Spec-EXEC_002) | Priority-Based Firing Order | F | every executor backend, the all-immediate fast path included (ruling D14 (a)) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 87b0ff5ab34db820 ai |
-| [EXEC-002](#Libpetri-Spec-EXEC_002_cycle) | Priority-Based Firing Order (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d555dee1be64cd67 ai |
-| [EXEC-003](#Libpetri-Spec-EXEC_003) | Competitive Conflict Resolution | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×11, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 af7d24bd8a735333 ai |
-| [EXEC-010](#Libpetri-Spec-EXEC_010) | FIFO Token Consumption | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous ×2, ✓ consistent ×6 | 2026-11-13 7db429a4e2bfffec ai |
-| [EXEC-010](#Libpetri-Spec-EXEC_010_cycle) | FIFO Token Consumption (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2bd82b3d5f377403 ai |
-| [EXEC-012](#Libpetri-Spec-EXEC_012) | Read Arc Peek | B | all executors and transition builders | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×4, ✓ nonvacuous ×6, ✓ consistent ×4 | 2026-11-13 87233b0a127ae7ae ai |
-| [EXEC-013](#Libpetri-Spec-EXEC_013) | Reset Arc Execution | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 d6c6647e059af795 ai |
-| [EXEC-013](#Libpetri-Spec-EXEC_013_cycle) | Reset Arc Execution (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c01690b7a3e1805d ai |
-| [EXEC-020](#Libpetri-Spec-EXEC_020) | Output Token Deposition | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 4ba459c6e8931283 ai |
-| [EXEC-020](#Libpetri-Spec-EXEC_020_cycle) | Output Token Deposition (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 658dd4528f18a9cb ai |
-| [EXEC-021](#Libpetri-Spec-EXEC_021) | Output Spec Validation | B | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1649f694fa3b896b ai |
-| [EXEC-022](#Libpetri-Spec-EXEC_022) | Action Timeout Handling | T | all executors | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×14, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 02dc840a0413f189 ai |
-| [EXEC-030](#Libpetri-Spec-EXEC_030) | Action Failure | B | all executors | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a7c2745ce952446c ai |
-| [EXEC-031](#Libpetri-Spec-EXEC_031) | No Rollback | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 029bfecc80e62997 ai |
-| [EXEC-040](#Libpetri-Spec-EXEC_040) | Standard Quiescence | B | executors without environment places | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 cff5051448a4b4a2 ai |
-| [EXEC-041](#Libpetri-Spec-EXEC_041) | Execution Result | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 ddec5895d41c87cf ai |
-| [EXEC-042](#Libpetri-Spec-EXEC_042) | Terminal Places | B | all executors, for a net that declares terminal places (SHOULD) | verbatim | ✓ holds, ✗ forbids ×11, ✗ mutant, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 85b468e1f92b7cd1 ai |
-| [EXEC-042](#Libpetri-Spec-EXEC_042_build) | Terminal Places | F | the net builder of every implementation, used without composition and without fusion sets | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ca476acb02bf289b ai |
-| [EXP-001](#Libpetri-Spec-EXP_001) | Graph Export Format | F | every exporter, the nodes and the arc edges of one exported net | verbatim | ✓ holds, ✓ allows, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 a588bcf52468b6b3 ai |
-| [EXP-002](#Libpetri-Spec-EXP_002) | Visual Semantics: Places | F | every exporter's mapper, on the nodes of the exported graph (before a documentation generator restyles interface ports) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 776f3d9831fbcc36 ai |
-| [EXP-003](#Libpetri-Spec-EXP_003) | Visual Semantics: Transitions | F | every exporter, on the nodes of the graph it draws for a configuration and a net | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 1c0e0e06faf92826 ai |
-| [EXP-004](#Libpetri-Spec-EXP_004) | Arc Rendering | F | every exporter, the input, output, inhibitor, read and reset edges | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 f2d084ab1cbd747f ai |
-| [EXP-005](#Libpetri-Spec-EXP_005) | XOR Branch Labels | F | every exporter, the output side of one transition | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×10, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 175f42e98a44cae2 ai |
-| [EXP-006](#Libpetri-Spec-EXP_006) | Cardinality Labels | F | every exporter, on the input arcs of a net (the only arcs with a cardinality) | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 489541afb6b0730a ai |
-| [EXP-007](#Libpetri-Spec-EXP_007_config) | Export Configuration | F | every exporter | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 af2399c8d9c410dc ai |
-| [EXP-007](#Libpetri-Spec-EXP_007_label) | Export Configuration, the transition label | F | every exporter, the label of a transition node | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 9c513b8ff7802d44 ai |
-| [EXP-008](#Libpetri-Spec-EXP_008) | Styling | F | every exporter's mapper, on the place nodes of a net (before a documentation generator restyles interface ports) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 1e4bf950dfb9a657 ai |
-| [EXP-012](#Libpetri-Spec-EXP_012) | XOR/AND Junction Nodes | F | every exporter, the output side of one transition | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 058caa2740b22067 ai |
-| [EXP-013](#Libpetri-Spec-EXP_013) | Combined reset+output Edge | F | every exporter, the edges of one transition into one place | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 de8231f060c029c7 ai |
-| [EXP-014](#Libpetri-Spec-EXP_014) | Junction ID Format and Layout Stability | F | every exporter, the DOT IDs, the junction nodes and the junction numbering of the exported graph | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 93861fe2b59913fc ai |
-| [EXP-016](#Libpetri-Spec-EXP_016) | Subnet Instance Cluster Subgraphs | F | every exporter, the clusters of the exported graph | verbatim | ✓ holds, ✗ forbids ×14, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 2fc6972b040c7f87 ai |
-| [EXP-017](#Libpetri-Spec-EXP_017) | Compound Cluster Layout Hints | F | every exporter, the graph attribute compound and the ghost edges between clusters | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 e515badb27496d93 ai |
-| [EXP-018](#Libpetri-Spec-EXP_018) | ν-Match Edge Decoration | F | every exporter, on the input edges of the graph it draws for a configuration and a net | verbatim | ✓ holds, ✗ forbids ×13, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 8d8e8f61b13cc8dc ai |
-| [IO-001](#Libpetri-Spec-IO_001) | Input One | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 749a74beaedb4a3d ai |
-| [IO-002](#Libpetri-Spec-IO_002) | Input Exactly | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 96c1d96e85a20f1e ai |
-| [IO-002](#Libpetri-Spec-IO_002_build) | Input Exactly | F | all transition builders | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous | 2026-11-13 f8246e01110b0659 ai |
-| [IO-003](#Libpetri-Spec-IO_003) | Input All | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 f3ab08fa5c1929cf ai |
-| [IO-004](#Libpetri-Spec-IO_004) | Input AtLeast | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 7776d0592ec78630 ai |
-| [IO-004](#Libpetri-Spec-IO_004_build) | Input AtLeast | F | all transition builders | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous | 2026-11-13 ee0e91363094a08e ai |
-| [IO-005](#Libpetri-Spec-IO_005) | Input AND-Join Semantics | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 566c1a17d5cf3f37 ai |
-| [IO-007](#Libpetri-Spec-IO_007) | requiredCount and consumptionCount Contract | F | all input cardinalities | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 1860eb65b8a890ff ai |
-| [IO-010](#Libpetri-Spec-IO_010) | Output place (leaf) | B | executors with output validation enabled (the default) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×5, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 43da83ca0e74b3ef ai |
-| [IO-011](#Libpetri-Spec-IO_011) | Output And | B | executors with output validation enabled (the default, CONC-026) | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×4, ✓ nonvacuous ×3, ✓ consistent ×9 | 2026-11-13 7b09ae3f76121963 ai |
-| [IO-012](#Libpetri-Spec-IO_012) | Output Xor | B | build check: every transition, on every construction path; firing lines: executors with output validation enabled (the default, CONC-026) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×7, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×10 | 2026-11-13 5d3f24d7a5511c3e ai |
-| [IO-013](#Libpetri-Spec-IO_013) | Output timeout | B | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×7, ✓ nonvacuous ×2, ✓ consistent ×8 | 2026-11-13 4dd548dd2797bcc8 ai |
-| [IO-014](#Libpetri-Spec-IO_014) | Output ForwardInput | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×8 | 2026-11-13 73d8a8afcc5b3c0d ai |
-| [IO-015](#Libpetri-Spec-IO_015) | Output Validation | F | every declared output spec | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 52495a3afd3db94b ai |
-| [IO-015](#Libpetri-Spec-IO_015_firing) | Output validation: a validated write is deposited | B | executors with output validation enabled (the default, CONC-026) | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent | 2026-11-13 6ce6a995bcfc59ca ai |
-| [IO-016](#Libpetri-Spec-IO_016) | Branch Enumeration | F | all output specs | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 1271111c6f5c5e23 ai |
-| [IO-017](#Libpetri-Spec-IO_017) | allPlaces Flattening | F | all output specs | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3aee03ced6332910 ai |
-| [MOD-001](#Libpetri-Spec-MOD_001) | SubnetDef Definition (open net + interface) | F | every subnet builder | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c2908a690ad7ec13 ai |
-| [MOD-003](#Libpetri-Spec-MOD_003) | Port Declaration (name + direction + place) | B | every subnet builder | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a8ba026eaf2a647c ai |
-| [MOD-004](#Libpetri-Spec-MOD_004) | Port Direction Semantics (advisory; arcs govern flow) | B | every subnet builder and every instantiation of a subnet definition | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2717b76b98d3dc75 ai |
-| [MOD-005](#Libpetri-Spec-MOD_005) | Channel Declaration (interface transitions for synchronous fusion) | B | every subnet builder | verbatim | ✓ holds, ✓ allows, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ccf0be54db3fbe4a ai |
-| [MOD-006](#Libpetri-Spec-MOD_006) | Subnet Validation at Build | B | every subnet builder | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 87a8b78435a46624 ai |
-| [MOD-010](#Libpetri-Spec-MOD_010) | Instance Creation via instantiate(prefix, params) | F | every instantiation of a subnet definition | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 ee51dcfb3dcac4fe ai |
-| [MOD-011](#Libpetri-Spec-MOD_011) | Instance Handle Map (typed port + channel handles) | F | every module instance (Java, TypeScript, Rust, Python) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 00139c7399438b61 ai |
-| [MOD-011](#Libpetri-Spec-MOD_011_typed) | Instance Handle Map, the typed port lookup | F | implementations that keep a run-time token type for each port (Java, Rust) | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1c3a3d1caf54236a ai |
-| [MOD-012](#Libpetri-Spec-MOD_012) | Per-Instance State Isolation | B | every net built by composition | verbatim | ✓ holds, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3dbc2498a1abec6a ai |
-| [MOD-012](#Libpetri-Spec-MOD_012_clock) | Per-Instance State Isolation (clocks) | T | every net built by composition | verbatim | ✓ holds, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 21b3d480fd6289fe ai |
-| [MOD-013](#Libpetri-Spec-MOD_013) | Nested Instantiation (prefix concatenation associative) | F | every instantiation of a subnet definition whose body holds places or transitions of a composed instance | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a6b8a90eac14b12e ai |
-| [MOD-014](#Libpetri-Spec-MOD_014) | SubnetDef.fromNet retrofit utility | B | every retrofit utility fromNet | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2bc800ed75a38886 ai |
-| [MOD-020](#Libpetri-Spec-MOD_020) | Composition Operation (port mapping by structural rewrite) | B | every compose(instance, bindings) call of an enclosing net builder | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×10, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f5810a9e911aa811 ai |
-| [MOD-021](#Libpetri-Spec-MOD_021) | Channel Composition, the transition merge | B | channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 758692c07568f5cc ai |
-| [MOD-021](#Libpetri-Spec-MOD_021_table) | Channel Composition, the input-arc merge table | F | the input-arc merge table of every implementation, used by channel composition and by fusion (MOD-061) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f528a237be1afc84 ai |
-| [MOD-022](#Libpetri-Spec-MOD_022) | Type Compatibility at Compose | B | implementations whose place identity carries the token type (Java) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 5897f306f25db963 ai |
-| [MOD-023](#Libpetri-Spec-MOD_023) | Composition Produces Flat Net | B | build() of every enclosing builder, whatever compose(...), fuse(...) and other builder calls were made on it (Java, TypeScript, Rust, Python) | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 dac223b1df593616 ai |
-| [MOD-024](#Libpetri-Spec-MOD_024) | Identity-Default Port Inference (auto-compose) | B | every enclosing-net builder that offers the single-argument compose(instance) (Java, TypeScript, Rust); lines 3 and 4 for those with the inference path (all three) | verbatim | ✓ holds, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 056632f9552acc2f ai |
-| [MOD-025](#Libpetri-Spec-MOD_025) | Direct Composition (compose a subnet without instantiation) | B | every direct composition of a subnet definition into an enclosing builder (Java, TypeScript, Rust, Python); the token-type line where place identity carries the token type (Java) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f34667b43231ee55 ai |
-| [MOD-026](#Libpetri-Spec-MOD_026) | Subnet-Membership Metadata for Direct Composition | B | every build of a net through an enclosing builder (Java, TypeScript, Rust, Python) and every action binding of a built net | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 274a57bb5e8be4f3 ai |
-| [MOD-026](#Libpetri-Spec-MOD_026_resolve) | Subnet-Membership Metadata for Direct Composition (resolution of the recorded contributions) | F | the resolution of the subnet contributions recorded by direct composition into the membership mapping (Java, TypeScript, Rust, Python) | verbatim | ✓ holds, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 41e115c0fed24eb8 ai |
-| [MOD-027](#Libpetri-Spec-MOD_027) | References to Bound Ports | B | every net builder that composes instances (Java, TypeScript, Rust; Python through Rust) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 da132bead73006c3 ai |
-| [MOD-030](#Libpetri-Spec-MOD_030) | Action Binding Per Instance (share-by-default, override via bindActions) | F | every per-instance action binding (Instance.bindActions in Java, TypeScript and Rust; Python's Instance.bind_actions rides on the Rust binding) | verbatim | ✓ holds, ✗ forbids ×2, ? undecided, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6e0a241705c76f8e ai |
-| [MOD-031](#Libpetri-Spec-MOD_031) | Action Place Resolution under Composition (declared → actual correspondence) | F | the declared-to-actual place correspondence of every composed transition, through rewrite passes, channel merges and action binding | verbatim | ✓ holds, ✓ allows ×3, ✗ forbids ×3, ? undecided, ✗ mutant ×9, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3cc284663f97c8d1 ai |
-| [MOD-031](#Libpetri-Spec-MOD_031_ctx) | Action Place Resolution under Composition (the context operations) | F | the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter; not the Rust native context, which hands the correspondence to native actions | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent | 2026-11-13 75364e4c1e6e1511 ai |
-| [MOD-040](#Libpetri-Spec-MOD_040) | Export Grouping (subgraph cluster_* per instance prefix) | F | the subnetOf accessor of every built net, and the instance-prefix helper | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0c36db038ddd733e ai |
-| [MOD-040](#Libpetri-Spec-MOD_040_b) | Export Grouping (subgraph cluster_* per instance prefix): the export half | F | every exporter that draws cluster subgraphs, the clusters of the exported graph of a composed net | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent | 2026-11-13 e97ee6b07645e9c5 ai |
-| [MOD-041](#Libpetri-Spec-MOD_041) | Debug Protocol Subnet Instances | F | every debug protocol implementation (Java, TypeScript, Rust; Python has none) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 8576984852e6d00a ai |
-| [MOD-050](#Libpetri-Spec-MOD_050) | Verification Pass-Through on Composed Flat Net | B | every verification facility of section 07, on every net build() returns | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6d8fdc3d35d51c7e ai |
-| [MOD-051](#Libpetri-Spec-MOD_051) | SubnetDef.verify(harness) for local property verification | B | verify on a subnet definition in Java, TypeScript and Rust, and verify_subnet in Python (on the Rust one); SHOULD, so the shall sentences bind an implementation that offers it | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent | 2026-11-13 81d04ec131dce66c ai |
-| [MOD-051](#Libpetri-Spec-MOD_051_bind) | Binding actions on a subnet definition | F | bindActions (both forms) on a subnet definition in Java, TypeScript and Rust; Python's bind_actions on a definition rides on the Rust one | verbatim | ✓ holds ×2, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent | 2026-11-13 9accc44258bfabfa ai |
-| [MOD-060](#Libpetri-Spec-MOD_060) | Fusion Set Declaration (orthogonal to composition) | F | every fusion-set declaration check | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent | 2026-11-13 b3a203fdffbd528d ai |
-| [MOD-061](#Libpetri-Spec-MOD_061) | Fusion Resolution at build() | F | fusion at build() of every builder that declares fusion sets | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 5c60993d359bc7b0 ai |
-| [NU-001](#Libpetri-Spec-NU_001) | Name Identity | F | the names, the name equality and the name order of each implementation | verbatim | ✓ holds, ✓ allows, ✗ forbids, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 61b6b5dab6a7eee4 ai |
-| [NU-001](#Libpetri-Spec-NU_001_rename) | Name Identity (renaming) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6a5b71a3dce3b00b ai |
-| [NU-010](#Libpetri-Spec-NU_010_classify) | Fresh-Name Minting (declared mints in the fragment classifier) | F | the fragment classifier of every ν verifier | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 190ece283bc34a6e ai |
-| [NU-010](#Libpetri-Spec-NU_010_contract) | Fresh-Name Minting (mint contract) | A | the action of every declared mint, as the ν verification routes assume it | verbatim | ✗ forbids ×2, ✗ mutant, ✓ nonvacuous, ✓ consistent | 2026-11-13 730e1a716b922688 ai |
-| [NU-010](#Libpetri-Spec-NU_010_replay) | Fresh-Name Minting (replay) | F | the minter every executor installs on the action context | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7f55745fabacedea ai |
-| [NU-010](#Libpetri-Spec-NU_010_unique) | Fresh-Name Minting (uniqueness) | B | the minter every executor installs on the action context | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 aa4ce3c6804b6732 ai |
-| [NU-010](#Libpetri-Spec-NU_010_unknownMint) | Fresh-Name Minting (a declared mint not in the net) | F | every entry point that takes a mint declaration: verification, script encoding ([VER-013]) and open-net verification ([VER-022]), all implementations (MUST where the ν routes are offered) | verbatim | ✓ holds ×2, ✗ forbids ×6, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 9f535ea18aeb9d42 ai |
-| [NU-011](#Libpetri-Spec-NU_011_default) | Resume-Safe Fresh-Name Minting (default scope) | B | every executor that is given no scope (Rust, Java, TypeScript; Python through Rust) | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 619b1cd8541a44ae ai |
-| [NU-011](#Libpetri-Spec-NU_011_format) | Resume-Safe Fresh-Name Minting (scope check and name format) | F | every executor that mints under the scope mechanism (Rust, Java, TypeScript; Python through Rust) | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 bfdae78decf66018 ai |
-| [NU-011](#Libpetri-Spec-NU_011_host) | Resume-Safe Fresh-Name Minting (host of a restore lineage) | A | hosts that pin scopes for the executions of a restore lineage | verbatim | ✗ forbids ×2, ✓ nonvacuous | 2026-11-13 98ce789a680aa304 ai |
-| [NU-011](#Libpetri-Spec-NU_011_lineage) | Resume-Safe Fresh-Name Minting (different scopes, disjoint names) | B | every executor that mints under the scope mechanism; two executions of one restore lineage | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0099752b69b81ba7 ai |
-| [NU-020](#Libpetri-Spec-NU_020_build) | Match Specification (build checks) | F | every match builder and every transition builder, on every construction path | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 f0147b0dac984906 ai |
-| [NU-020](#Libpetri-Spec-NU_020_enable) | Match Specification (enablement and chosen name) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 c9f3f65945103a4c ai |
-| [NU-020](#Libpetri-Spec-NU_020_frame) | Match Specification (outcome, reads, resets and non-correlated places) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 6f4b70c409548ace ai |
-| [NU-020](#Libpetri-Spec-NU_020_take) | Match Specification (correlated take) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 f96d5d770695b19a ai |
-| [NU-021](#Libpetri-Spec-NU_021) | Match as the Sole Per-Token Filter | B | every executor; one firing of any transition, with or without a match specification | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 dc8ec6a7e9585374 ai |
-| [NU-022](#Libpetri-Spec-NU_022) | Deterministic Match Selection | F | the match selection of every executor: select_match_name / selectMatchName and every incremental matcher | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 10b4f766fd485813 ai |
-| [NU-030](#Libpetri-Spec-NU_030) | Freshness Scoping under Composition | F | every rebuild of a transition through a place rewrite, such as prefix renaming, port binding, place fusion and the identity rewrite of action binding; the channel merge of two transitions (MOD-021) is not such a rebuild | verbatim | ✓ holds, ✗ forbids ×10, ✓ nonvacuous | 2026-11-13 b0cf16a58e042aab ai |
-| [NU-040](#Libpetri-Spec-NU_040_jodl) | Bounded Budget and Decidability (JoinedOrDeadLettered) | F | every verifier route that decides JoinedOrDeadLettered: Route B, Route A, and on a net without a matched transition the untimed encoder, the structural and abstract-replay checks | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 c0e5e0834cca34c8 ai |
-| [NU-040](#Libpetri-Spec-NU_040_mint) | Bounded Budget and Decidability (budget places declare mints) | F | the mint declaration every verifier route reads (declared_mints / declaredMints), Route A and Route B of NU-050 | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous | 2026-11-13 abc4a216c30f4b57 ai |
-| [NU-050](#Libpetri-Spec-NU_050_prefix) | Exact Verification of Matched Transitions: the verdict on a built graph | F | every verifier that offers the Route B name-partition graph (MAY); the verdict it reads off a built graph, for every property | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 27bf729786cbfe08 ai |
-| [NU-050](#Libpetri-Spec-NU_050_soundA) | Exact Verification of Matched Transitions: Route A is sound | B | every verifier that offers the Route A coloured encoding (MAY), judged against the reference ν executor, untimed and environment-free | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous | 2026-11-13 28d84939f14ecd69 ai |
-| [NU-050](#Libpetri-Spec-NU_050_soundB) | Exact Verification of Matched Transitions: Route B is sound | B | every verifier that offers the Route B name-partition graph (MAY), judged against the reference ν executor, untimed and environment-free | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 4939a2769a438e36 ai |
-| [NU-050](#Libpetri-Spec-NU_050_timed) | Exact Verification of Matched Transitions: a join's clock on a timed net | T | every verifier that offers the Route B name-partition graph (MAY) on a timed net; the timed semantics its classes stand for | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous ×4, ✓ consistent | 2026-11-13 f39e225292e8140c ai |
-| [NU-051](#Libpetri-Spec-NU_051) | EXTENDED Coloured-Consumer Fragment | F | the fragment classifier of every ν verifier | verbatim | ✓ holds, ✗ forbids ×14, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 909c7a7142f57771 ai |
-| [NU-051](#Libpetri-Spec-NU_051_carrier) | EXTENDED Coloured-Consumer Fragment | F | every ν verifier entry point that takes carrier declarations | verbatim | ✓ holds, ✓ allows ×3, ✗ forbids ×6, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7a1b1a4383e15a26 ai |
-| [NU-051](#Libpetri-Spec-NU_051_colours) | EXTENDED Coloured-Consumer Fragment | F | the coloured set every ν verifier computes for a call | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c7e191c148c2ba43 ai |
-| [NU-051](#Libpetri-Spec-NU_051_relay) | EXTENDED Coloured-Consumer Fragment | F | the name layer of Route B | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous | 2026-11-13 14c65885d2d499bd ai |
-| [NU-052](#Libpetri-Spec-NU_052) | Conflict-Only Priority for the Route B Name-SCG | F | the Route B successor step, under CONFLICT and NONE | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant, ✓ nonvacuous ×2 | 2026-11-13 d0fdd1cdf880d0fc ai |
-| [NU-052](#Libpetri-Spec-NU_052_split) | Conflict-Only Priority for the Route B Name-SCG (which calls prune, the split, the in-flight test) | F | the verifier's setup of a call under CONFLICT and NONE (MAY; the shall sentences bind an implementation that offers CONFLICT), and the in-flight test of the Route B base layer | verbatim | ✓ holds, ✗ forbids ×12, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 d01e410be9cfbb68 ai |
-| [NU-053](#Libpetri-Spec-NU_053) | EXTENDED-Coloured Quiescence in the Route A SMT Encoder | F | the colour-slot bound, its exact re-check and the coloured consumer and quiescence terms of the Route A coloured encoding, where offered | verbatim | ✓ holds, ✗ forbids ×16, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0a2a2f6b1e00c6e8 ai |
-| [NU-053](#Libpetri-Spec-NU_053_dispatch) | EXTENDED-Coloured Quiescence in the Route A SMT Encoder: Place in the Dispatch | B | the dispatch of the SMT verifier on ν-nets, where the coloured encoding of Route A is offered (MAY; the shall sentences bind an implementation that offers it) | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 65c74b30c6cdb983 ai |
-| [NU-054](#Libpetri-Spec-NU_054_build) | Join Relay (build checks) | F | every transition builder, on every construction path | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 8456e186fa5fd371 ai |
-| [NU-054](#Libpetri-Spec-NU_054_check) | Join Relay (run-time relay check) | B | every executor, with output validation on; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 09e07caac5591a2f ai |
-| [NU-054](#Libpetri-Spec-NU_054_fail) | Join Relay (a firing the relay check rejects) | B | every executor with output validation on; the settle, flush and failure of a firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent | 2026-11-13 d287eadd8994842f ai |
-| [NU-054](#Libpetri-Spec-NU_054_verifier) | Join Relay (fragment classifier) | F | the fragment classifier of every ν verifier | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1a773a8a0094cc2b ai |
-| [NU-055](#Libpetri-Spec-NU_055) | Name Alignment | F | every verifier that offers NameAligned or QuiescentNameAligned (MAY); the predicate on a class of the Route B graph | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous | 2026-11-13 844b7488adecca57 ai |
-| [NU-055](#Libpetri-Spec-NU_055_refusal) | Name Alignment: the refusal order | F | every verifier that offers NameAligned or QuiescentNameAligned (MAY); the refusals before Route B builds the graph | verbatim | ✓ holds, ✗ forbids ×11, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 fdec05e446bbdbbb ai |
-| [NU-055](#Libpetri-Spec-NU_055_sound) | Name Alignment: soundness | B | every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the reference ν executor, untimed and environment-free, with atomic firings | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous | 2026-11-13 d20b41b4b40c0e65 ai |
-| [NU-055](#Libpetri-Spec-NU_055_truncation) | Name Alignment: the verdict on a built graph | F | every verifier that offers NameAligned or QuiescentNameAligned (MAY); the verdict Route B reads off a built graph | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×2, ✓ nonvacuous | 2026-11-13 3bc70272dbf00c2f ai |
-| [NU-060](#Libpetri-Spec-NU_060) | Match-Arc Composition | F | channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to, when either carries a ν-net match | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×3, ✓ nonvacuous | 2026-11-13 cf1f4cae4582beca ai |
-| [PERF-030](#Libpetri-Spec-PERF_030) | Bitmap Memory Efficiency | F | bitmap executors (the BitmapNetExecutor of Java, TypeScript and Rust; Python through Rust) | verbatim | ✓ holds, ✓ allows, ✗ forbids, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 0189e5210d0f3a7a ai |
-| [PERF-042](#Libpetri-Spec-PERF_042) | Sparse Enablement Masks | F | executors that use sparse enablement masks (the precompiled executors) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous ×2 | 2026-11-13 37bebb0ba41d2afe ai |
-| [TIME-001](#Libpetri-Spec-TIME_001) | Timing Specification | F | all timing variants, all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 6a4cf82f6d0443eb ai |
-| [TIME-002](#Libpetri-Spec-TIME_002) | Immediate Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×3 | 2026-11-13 dd46f1ae494fe220 ai |
-| [TIME-003](#Libpetri-Spec-TIME_003) | Deadline Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×4, ✓ nonvacuous ×2, ✓ consistent ×3 | 2026-11-13 d4286d66f31f5dbe ai |
-| [TIME-004](#Libpetri-Spec-TIME_004) | Delayed Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 105e54b6ff04bba2 ai |
-| [TIME-005](#Libpetri-Spec-TIME_005) | Window Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 0c95b3226f130dae ai |
-| [TIME-006](#Libpetri-Spec-TIME_006) | Exact Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 9a5e081db9a5fa53 ai |
-| [TIME-010](#Libpetri-Spec-TIME_010) | Clock Starts on Enablement | T | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 f85d0da5b9a419c8 ai |
-| [TIME-010](#Libpetri-Spec-TIME_010_cycle) | Clock Starts on Enablement (executor cycle) | T | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f0683ca6d471e6c1 ai |
-| [TIME-011](#Libpetri-Spec-TIME_011) | Clock Restarts on Re-enablement | T | all executors | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 79f782cb6058365b ai |
-| [TIME-012](#Libpetri-Spec-TIME_012) | Clock Restart on Intermediate Disablement | T | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous ×5, ✓ consistent ×4 | 2026-11-13 7567794250d69169 ai |
-| [TIME-012](#Libpetri-Spec-TIME_012_cycle) | Clock Restart on Intermediate Disablement (executor cycle) | T | all executors | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 188c28580f0296f9 ai |
-| [TIME-012](#Libpetri-Spec-TIME_012_nu) | Clock Restart on Intermediate Disablement (ν-join bindings) | T | every executor that runs matched transitions ([NU-020]), read on the atomic timed ν step | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous ×3, ✓ consistent | 2026-11-13 f72291b63bd6aa11 ai |
-| [TIME-013](#Libpetri-Spec-TIME_013) | Deadline Enforcement | T | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 cf60477e972fe310 ai |
-| [TIME-013](#Libpetri-Spec-TIME_013_cycle) | Deadline Enforcement (executor cycle) | T | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d73f66919f1a81ac ai |
-| [TIME-014](#Libpetri-Spec-TIME_014) | Competitive Scheduling with Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b3bcafa0d68de6a2 ai |
-| [TIME-015](#Libpetri-Spec-TIME_015) | Injectable Clock | A | all executors, on the default or an injected firing clock | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 59da872b35939352 ai |
-| [TIME-015](#Libpetri-Spec-TIME_015_cycle) | Injectable Clock (executor cycle) | A | all executors, on the default or an injected firing clock | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 158ce2ffd8358854 ai |
-| [VER-001](#Libpetri-Spec-VER_001) | SMT Verification Pipeline | F | every verification route, all implementations | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 d08edec1867cc96d ai |
-| [VER-002](#Libpetri-Spec-VER_002) | Safety Properties | F | every route that decides DeadlockFree, TerminatesAtSink, MutualExclusion, PlaceBound, Unreachable or QuiescentCount, all implementations (SHOULD; the shall sentences bind an implementation that offers the property) | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous ×6, ✓ consistent ×5 | 2026-11-13 8431b8ffece95a89 ai |
-| [VER-002](#Libpetri-Spec-VER_002_count) | QuiescentCount Construction | B | every implementation that offers QuiescentCount; the constructor | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 bd51d01b199296a0 ai |
-| [VER-003](#Libpetri-Spec-VER_003) | Verification Result | B | every verifier entry point and every route, all implementations (SHOULD; the shall sentences bind an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 752f8f0f680517ec ai |
-| [VER-004](#Libpetri-Spec-VER_004_exec) | Untimed Over-Approximation (the executor's runs with actions in flight) | B | the executor's runs on a net the split accepts, read through the count projection L5 of RefExec (SHOULD; the shall sentence binds an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent | 2026-11-13 b40cc4a794c3b2a9 ai |
-| [VER-004](#Libpetri-Spec-VER_004_split) | Untimed Over-Approximation (the in-flight split) | F | the verified-net function of every verifier entry point, before the terminal rewrite of EXEC-042 (SHOULD; the shall sentences bind an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 53f6e2bc165b7f4b ai |
-| [VER-004](#Libpetri-Spec-VER_004_timed) | Untimed Over-Approximation (timing only removes firings) | A | the executor's timed runs, as every verifier route reads them (SHOULD; the shall sentences bind an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1efbac2ac1dfbce0 ai |
-| [VER-005](#Libpetri-Spec-VER_005) | P-Invariant Computation | F | the SMT pipeline's invariant phase, all implementations | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 31974fa0fc93c0df ai |
-| [VER-006](#Libpetri-Spec-VER_006) | Environment Analysis Mode | B | the SMT verifier and every route it dispatches to, AlwaysAvailable and Bounded(k), all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a83eba97a52d71f7 ai |
-| [VER-006](#Libpetri-Spec-VER_006_arrivals) | Environment Analysis Mode: Arrivals(min, max) is a net rewrite | F | the SMT verifier under Arrivals(min, max), before any route, all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f562c16d7d447f94 ai |
-| [VER-006](#Libpetri-Spec-VER_006_premise) | Environment Analysis Mode: the Bounded(k) premises | F | the SMT verifier under Bounded(k), before any route, all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7355f61d98d77bbb ai |
-| [VER-006](#Libpetri-Spec-VER_006_quiescent) | Environment Analysis Mode: quiescence under modelled injection | F | the quiescence clause of DeadlockFree, TerminatesAtSink, QuiescentCount and JoinedOrDeadLettered on every route, AlwaysAvailable and Bounded(k), all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ecbb8aec3d9d76e6 ai |
-| [VER-006](#Libpetri-Spec-VER_006_verdict) | Environment Analysis Mode: verdicts | B | the SMT verifier and every route it dispatches to, all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 3fa0ed8c4eabc4cf ai |
-| [VER-007](#Libpetri-Spec-VER_007) | Invariant Strengthening from P-Semiflows | F | the SMT pipeline's Phase 3 and every encoder it feeds (flat and name-coloured), all implementations | verbatim | ✓ holds, ✓ allows, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 096f0196831dd00a ai |
-| [VER-010](#Libpetri-Spec-VER_010) | State Class Graph Analysis | B | the timed state class graph builder (StateClassGraph.build), Java, TypeScript and Rust (MAY; the shall sentences bind an implementation that offers it) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 d6bda91503f7cd1d ai |
-| [VER-010](#Libpetri-Spec-VER_010_key) | State Class Graph Analysis: canonical class identity | F | the canonical clock order and the class key of the timed state class graph, Java, TypeScript and Rust | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 8852fd38a2c7cdd1 ai |
-| [VER-010](#Libpetri-Spec-VER_010_persist) | State Class Graph Analysis: clock persistence | F | the survival test of the timed state class graph successor (compute_successor), Java, TypeScript and Rust | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 fb3b43c41d3c3910 ai |
-| [VER-011](#Libpetri-Spec-VER_011) | DBM Zone Representation | F | the zone library of every state class graph, all implementations | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous ×3, ✓ consistent ×2 | 2026-11-13 112209c5b3864d89 ai |
-| [VER-012](#Libpetri-Spec-VER_012) | Name-Aware State Class Graph: the graph step | F | every verifier that offers the Route B name-partition graph (MAY); one step of the graph, the untimed base | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 41a4de83f8732bd6 ai |
-| [VER-012](#Libpetri-Spec-VER_012_build) | Name-Aware State Class Graph: the build | F | every verifier that offers the Route B name-partition graph (MAY); the build loop of the graph | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 550823c0327b11ab ai |
-| [VER-013](#Libpetri-Spec-VER_013_args) | Solver Transport: timeouts of one process | F | every z3 process the verifier starts, all implementations | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 8c4c5184fbd153a4 ai |
-| [VER-013](#Libpetri-Spec-VER_013_classify) | Solver Transport: reply classification | F | every z3 reply the verifier reads, all implementations | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 f0d294ca752190df ai |
-| [VER-013](#Libpetri-Spec-VER_013_order) | Solver Transport: name order | F | every ordering of place or transition names that reaches a script, a flat index, a report, a witness or a violation list, all implementations | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 2f8d789291561f24 ai |
-| [VER-013](#Libpetri-Spec-VER_013_stop) | Solver Transport: solver failures, total budget and cancellation | B | the verifier pipeline of every implementation that offers a total budget or cancellation (SHOULD), and every solver call | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 5ed0de3600183abc ai |
-| [VER-014](#Libpetri-Spec-VER_014) | Conditional Sink Places (Designed Terminals) | F | every route that decides DeadlockFree or TerminatesAtSink, all implementations | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 69981fba136376c4 ai |
-| [VER-015](#Libpetri-Spec-VER_015) | Linear State-Equation Bound | F | the bound phase of the SMT verifier, all implementations | verbatim | ✓ holds, ✓ allows, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 dd4294169756b836 ai |
-| [VER-015](#Libpetri-Spec-VER_015_order) | Linear State-Equation Bound: Place in the Dispatch | B | the dispatch of the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the bound phase) | verbatim | ✓ holds, ✗ forbids ×18, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b3ef7bbb9ddbcd29 ai |
-| [VER-016](#Libpetri-Spec-VER_016) | State-Equation Strengthening with Firing Counters | B | the flat CHC encoding of every implementation, with the state-equation option enabled | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 103d3b889b9f137a ai |
-| [VER-017](#Libpetri-Spec-VER_017) | Bounded State-Space Enumeration Route | B | the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the route) | verbatim | ✓ holds, ✗ forbids ×19, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ac7e37919d5e9b2f ai |
-| [VER-017](#Libpetri-Spec-VER_017_cache) | Bounded State-Space Enumeration Route: State-Space Cache | B | the SMT verifier with a state-space cache, all implementations (SHOULD; the shall sentences bind an implementation that offers the cache) | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 9bdcdb87984d993b ai |
-| [VER-018](#Libpetri-Spec-VER_018) | State-Equation Phase with Refinement | B | the SMT verifier's state-equation phase on the flat path, all implementations | verbatim | ✓ holds, ✗ forbids ×20, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 142e63675d5af03a ai |
-| [VER-018](#Libpetri-Spec-VER_018_order) | State-Equation Phase with Refinement: its place in the pipeline | B | the SMT verifier's pipeline, all implementations | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 cfe8823cc35862e7 ai |
-| [VER-019](#Libpetri-Spec-VER_019) | Firing-Bound Phase | B | the SMT verifier, all implementations | verbatim | ✓ holds, ✗ forbids ×14, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 0417695269924143 ai |
-| [VER-019](#Libpetri-Spec-VER_019_order) | Firing-Bound Phase: its place in the pipeline | B | the SMT verifier's pipeline, all implementations | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 b1113f3045b5d811 ai |
-| [VER-020](#Libpetri-Spec-VER_020) | Siphon and Trap Analysis | F | the structural deadlock pre-check (siphon search, trap contraction, structural check) of every implementation | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 65822d981cd6d6c8 ai |
-| [VER-020](#Libpetri-Spec-VER_020_guard) | Siphon and Trap Analysis: Structural Proven Guard | B | the verifier's structural route (the step that turns the structural check's answer into a Proven) of every implementation | verbatim | ✓ holds, ✓ allows, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 e2ac0ef51eab9ee2 ai |
-| [VER-021](#Libpetri-Spec-VER_021) | XOR Branch Analysis | F | the XOR branch analysis over a built graph, Java, TypeScript and Rust (SHOULD; the shall sentences bind an implementation that offers it) | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 401d03208a127c1c ai |
-| [VER-022](#Libpetri-Spec-VER_022) | Open-Net Verification Against a Contract | B | the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 3eefd4e4d4f87621 ai |
-| [VER-022](#Libpetri-Spec-VER_022_closure) | Open-Net Verification Against a Contract: the closure | F | the open-net verifier before either route, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 69e9612d110c8eec ai |
-| [VER-022](#Libpetri-Spec-VER_022_meets) | Open-Net Verification Against a Contract: meeting the contract | F | the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 290fda3c67f29ec8 ai |
-| [VER-023](#Libpetri-Spec-VER_023) | Timed Counterexample Check | B | the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 fe863ee06981554b ai |
-| [VER-023](#Libpetri-Spec-VER_023_graph) | Timed Counterexample Check: the timed graph | B | the timed state-class graph the timed check builds, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 782ed7a0ca22e868 ai |
-| [VER-024](#Libpetri-Spec-VER_024) | Stubborn-Set Reduction of the Enumeration Route | B | the enumeration route of VER-017 on a quiescence property, all implementations (SHOULD; the shall sentences bind an implementation that offers the reduction) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 48e64fd98bd49532 ai |
-| [VER-024](#Libpetri-Spec-VER_024_route) | Stubborn-Set Reduction: when it applies, and the cache key | F | the enumeration route of VER-017 and its state-space cache, all implementations | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 391be69f7323e4af ai |
-| [VER-024](#Libpetri-Spec-VER_024_select) | Stubborn-Set Reduction: the pinned stubborn set | F | the stubborn set the enumeration route expands at each class, all implementations | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 fdc4cda81d9dd79d ai |
-| [VER-025](#Libpetri-Spec-VER_025) | Bounded Witness Phase | B | the SMT verifier, all implementations | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-10 104625b4eefcf18b |
+| [CONC-001](#Libpetri-Spec-CONC_001) | Orchestrator Thread Ownership | B | all executors | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 8ec97fcb886fa879 ai |
+| [CONC-002](#Libpetri-Spec-CONC_002) | Non-Blocking Action Dispatch | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 622ab260acace682 ai |
+| [CONC-003](#Libpetri-Spec-CONC_003) | Happens-Before Guarantee | B | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 9fe691d7fbd3289c ai |
+| [CONC-004](#Libpetri-Spec-CONC_004) | Bitmap-Based Enablement Check | F | all executors (the mask test of the bitmap executor; the precompiled executor's sparse form is PERF-042) | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 cc0093e767aeffa3 ai |
+| [CONC-005](#Libpetri-Spec-CONC_005) | Dirty Set Optimization | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×3 | 2026-11-13 1b18cd61a73e4270 ai |
+| [CONC-005](#Libpetri-Spec-CONC_005_cycle) | Dirty Set Optimization (executor cycle) | B | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 4ed73b6a1b398bab ai |
+| [CONC-007](#Libpetri-Spec-CONC_007) | Compiled Net Representation | F | all compilers of the bitmap executor's compiled net (Rust CompiledNet::compile, Java CompiledNet.compile, TypeScript CompiledNet.compile), on every net, read as its arcs and output specifications together with which of its transitions carry a match specification | verbatim | ✓ holds, ✓ allows, ✗ forbids ×5, ✗ mutant ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6a70e647dca7b839 ai |
+| [CONC-008](#Libpetri-Spec-CONC_008) | Multi-Phase Enablement | F | all executors, transitions that build and have no match specification | verbatim | ✓ holds, ✓ allows ×4, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 c22d7b15dd67d7fa ai |
+| [CONC-008](#Libpetri-Spec-CONC_008_nu) | Multi-Phase Enablement (ν-match check) | F | all executors, transitions that build, with and without a match specification | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 04332ab81db9a27c ai |
+| [CONC-010](#Libpetri-Spec-CONC_010) | Orchestrator Wake-Up | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c1d36b76676f80c5 ai |
+| [CONC-021](#Libpetri-Spec-CONC_021) | Opcode-Based Consume Operations | F | the precompiled executor, transitions without a match specification | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 57da04acf088d6ee ai |
+| [CONC-022](#Libpetri-Spec-CONC_022) | Flat-Array Token Storage | F | the precompiled executor's token storage | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids ×8, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 3f7723c8d0e44e50 ai |
+| [CONC-023](#Libpetri-Spec-CONC_023) | Priority-Partitioned Ready Queues | F | the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path the declaration order (ruling D14 (a)) | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 62d82e0965733d22 ai |
+| [CONC-024](#Libpetri-Spec-CONC_024) | Precomputed Timing Arrays | F | the precompiled net of every implementation | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 1f7ebd6d8d6d2983 ai |
+| [CONC-025](#Libpetri-Spec-CONC_025) | Lazy Marking Synchronization | B | precompiled executor | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 80539c8c497a3cf6 ai |
+| [CONC-026](#Libpetri-Spec-CONC_026) | Optional output validation skip (option enabled) | N | an executor that offers the option, with the option enabled | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 fe6b6d06d66e8eb7 ai |
+| [CORE-002](#Libpetri-Spec-CORE_002) | Place Identity | F | all implementations | verbatim | ✓ holds ×2, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d6990bd7d9a321a0 ai |
+| [CORE-003](#Libpetri-Spec-CORE_003) | Place Type Safety | A | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×4, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 27bef09c2e3e60a3 ai |
+| [CORE-010](#Libpetri-Spec-CORE_010) | Token Immutability | B | all executors | verbatim | ✓ holds, ✗ forbids ×8, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3747ae47cc3c6f5b ai |
+| [CORE-011](#Libpetri-Spec-CORE_011) | Token Creation | F | the host token factories of Java, TypeScript and Rust | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 10215fe700de632c ai |
+| [CORE-011](#Libpetri-Spec-CORE_011_B) | Token Creation (tokens the executor creates) | B | the tokens the executors of Java, TypeScript, Rust and Python create: action outputs written as values, raw-value injections, minted timeout outcomes | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent | 2026-11-13 c89d8884fe941ab9 ai |
+| [CORE-013](#Libpetri-Spec-CORE_013) | Token FIFO Ordering | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 6d49e51409096a52 ai |
+| [CORE-020](#Libpetri-Spec-CORE_020) | Transition Definition | F | all transition builders | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 945d731cabee5640 ai |
+| [CORE-021](#Libpetri-Spec-CORE_021) | Transition Identity | F | all transition builders | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 36e112e4c4eef850 ai |
+| [CORE-022](#Libpetri-Spec-CORE_022) | Transition enablement | B | all executors | verbatim | ✓ holds ×2, ✗ forbids ×5, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×11 | 2026-11-13 adee76c2bb1c1b01 ai |
+| [CORE-030](#Libpetri-Spec-CORE_030) | Input arc | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 467bda95044411b9 ai |
+| [CORE-031](#Libpetri-Spec-CORE_031) | Inhibitor arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 7d31c150ae4215ab ai |
+| [CORE-032](#Libpetri-Spec-CORE_032) | Read Arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 7fd3f8d88a4203c9 ai |
+| [CORE-033](#Libpetri-Spec-CORE_033) | Read arc multi-reader | B | all executors | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 17082fe299ea8dd5 ai |
+| [CORE-034](#Libpetri-Spec-CORE_034) | Reset arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 f239c7649ea6bb65 ai |
+| [CORE-035](#Libpetri-Spec-CORE_035) | Output arc | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 1af909a444b9b0bb ai |
+| [CORE-036](#Libpetri-Spec-CORE_036) | Arc semantics summary | B | all executors; the outcome line with output validation enabled (CONC-026, the default) | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids ×5, ✗ mutant ×10, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 11bbf112c510dd8c ai |
+| [CORE-037](#Libpetri-Spec-CORE_037) | Dead Arc Warning | F | the dead-arc report of every executor backend and of the SMT verifier; the events and report lines are the second block of this ID | verbatim | ✓ holds, ✗ forbids ×15, ✗ mutant ×2, ✓ nonvacuous ×3, ✓ consistent ×2 | 2026-11-13 ece1894f8fec8877 ai |
+| [CORE-037](#Libpetri-Spec-CORE_037_events) | Dead Arc Warning: executor events | B | every executor backend with its event store enabled (SHOULD; the shall sentences bind an executor that reports dead arcs); for Java, on a net and initial marking where no two places share a name with different token types ([MOD-024]) | verbatim | ✓ holds ×3, ✗ forbids ×10, ✓ nonvacuous, ✓ consistent | 2026-11-13 c16c90630c1f7afc ai |
+| [CORE-037](#Libpetri-Spec-CORE_037_verifier) | Dead Arc Warning: verifier report lines | B | the SMT verifier, all implementations (SHOULD; the shall sentences bind a verifier that reports dead arcs) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent | 2026-11-13 714dee4cb48fa43a ai |
+| [CORE-040](#Libpetri-Spec-CORE_040) | Net Builder | F | all net builders used without composition or fusion sets | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 6dfcf7f064039899 ai |
+| [CORE-041](#Libpetri-Spec-CORE_041) | Net Immutability | B | all net builders used without composition or fusion sets | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 5f2bdad361404f7b ai |
+| [CORE-042](#Libpetri-Spec-CORE_042) | Action Binding Separation | F | Java, TypeScript, Rust (net-level bindActions, both forms); Python rides on the Rust binding and exposes no net-level binding | verbatim | ✓ holds ×2, ✗ forbids ×3, ? undecided, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ac185926867e5058 ai |
+| [CORE-042](#Libpetri-Spec-CORE_042_nu) | Action Binding Separation: the match specification | F | Java, TypeScript, Rust (net-level bindActions, both forms, on a net whose transitions may have a match specification); Python rides on the Rust binding | verbatim | ✓ holds ×2, ✗ mutant, ✓ nonvacuous | 2026-11-13 cbbe1162f0601ca5 ai |
+| [CORE-043](#Libpetri-Spec-CORE_043) | Output-Declaring Transitions Must Produce | F | every compile step and every verification entry point (state-class graph and SMT), under every property and option setting the entry point accepts | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 62920d24551e966c ai |
+| [CORE-050](#Libpetri-Spec-CORE_050) | Transition Action | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c1ed38cfa6218f73 ai |
+| [CORE-051](#Libpetri-Spec-CORE_051) | Passthrough Action | F | all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 85983106b3c2790e ai |
+| [CORE-052](#Libpetri-Spec-CORE_052) | Fork Action | F | all implementations (the built-in fork action; Python rides on the Rust action) | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ forbids ×2, ? undecided, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 35ad4a0580f99f47 ai |
+| [CORE-053](#Libpetri-Spec-CORE_053) | Transform Action | F | implementations that provide transform() | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d68bb5f33756a9d7 ai |
+| [CORE-054](#Libpetri-Spec-CORE_054) | Produce Action | F | the built-in produce action of Java, TypeScript and Rust (the Python binding exposes no produce built-in) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 88e5197e82de08b3 ai |
+| [CORE-060](#Libpetri-Spec-CORE_060) | Context Input Access | F | the transition context of every implementation; line 3 and the inputToken part of line 4 only where the context gives access to tokens: Java and TypeScript | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ? undecided, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e1c5fadb33c58378 ai |
+| [CORE-061](#Libpetri-Spec-CORE_061) | Context Read Access | F | the transition context of every implementation | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 6f385fd4cc9dc684 ai |
+| [CORE-062](#Libpetri-Spec-CORE_062) | Context Output Access | F | the transition context of every implementation, except output calls made after the firing has ended with the timeout outcome | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3388de21659e4590 ai |
+| [CORE-063](#Libpetri-Spec-CORE_063) | Context Structure Enforcement | F | the transition context of every implementation; the inputToken part of line 1 only where the context gives access to tokens: Java and TypeScript | verbatim | ✓ holds, ✓ allows, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0ad4980fe52658b7 ai |
+| [CORE-070](#Libpetri-Spec-CORE_070) | Marking State | F | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 de0653cf6113eebf ai |
+| [CORE-072](#Libpetri-Spec-CORE_072) | Initial Marking | B | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 5f36d819f56677d7 ai |
+| [CORE-073](#Libpetri-Spec-CORE_073) | Marking Snapshot and Restore | F | all implementations; line 6 binds every executor, an executor built from a restored marking alone (Rust, Python) included; lines 5 and 7 bind every executor that accepts a restored marking and an explicit initial marking together (Java, TypeScript) | verbatim | ✓ holds, ✗ forbids ×5, ? undecided, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 248b9a4ed4eb5488 ai |
+| [CORE-073](#Libpetri-Spec-CORE_073_T) | Marking Snapshot and Restore (resume timing) | T | all executors | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e8056f771dcdfae0 ai |
+| [ENV-002](#Libpetri-Spec-ENV_002) | Environment Place Registration | B | executors whose inject takes an environment-place handle (Java, TypeScript) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 04a47dd90e755d34 ai |
+| [ENV-002](#Libpetri-Spec-ENV_002_host) | Environment Place Registration (host of a name-keyed inject) | A | executors whose inject takes a place name (Rust, Python), and their hosts | verbatim | ✗ forbids, ✓ nonvacuous | 2026-11-13 75617b78406d7c87 ai |
+| [ENV-003](#Libpetri-Spec-ENV_003) | inject() Thread Safety | B | all executors with environment places | verbatim | ✓ holds, ✓ allows, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b4210631b2c3af53 ai |
+| [ENV-004](#Libpetri-Spec-ENV_004) | inject() Completion Semantics | B | executors with an admission signal (Java, TypeScript); Rust and Python report acceptance only (ruling D44 (a)) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 13c265bb4d7b1a48 ai |
+| [ENV-005](#Libpetri-Spec-ENV_005) | inject() Wake-Up | T | all executors | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f055ec6495c51ae3 ai |
+| [ENV-006](#Libpetri-Spec-ENV_006) | inject() Rejection on Closed or Draining Executor | B | all executors with environment places | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 822c4161ee627f90 ai |
+| [ENV-010](#Libpetri-Spec-ENV_010) | Implicit Long-Running Behavior | B | executors with environment places | verbatim | ✓ holds, ✓ allows ×3, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c1128f66dd855daa ai |
+| [ENV-011](#Libpetri-Spec-ENV_011) | Graceful Drain | B | executors with a drain operation | verbatim | ✓ holds, ✗ forbids ×11, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 132530ca21a7e726 ai |
+| [ENV-013](#Libpetri-Spec-ENV_013) | Immediate Close | B | all executors | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 af84822d6b454606 ai |
+| [ENV-014](#Libpetri-Spec-ENV_014) | Mid-Execution Marking Snapshot | B | all executors | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c5a6e7a50f94a806 ai |
+| [ENV-015](#Libpetri-Spec-ENV_015) | Immediate Termination | B | all executors; the operation itself is optional (MAY) and only Java provides it | verbatim | ✓ holds, ✗ forbids ×19, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 a6230715cc874c0f ai |
+| [ENV-016](#Libpetri-Spec-ENV_016) | Observable Termination | B | executors that provide run-with-timeout with a timeout policy (Java, TypeScript) | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e3c4e69a7b654c37 ai |
+| [ENV-016](#Libpetri-Spec-ENV_016_await) | Observable Termination (awaitTermination) | B | executors that provide awaitTermination (Java: BitmapNetExecutor and PrecompiledNetExecutor), for the first run of an executor | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 cce583aca99ae0ed ai |
+| [EVT-002](#Libpetri-Spec-EVT_002) | ExecutionStarted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 068a313117160f5b ai |
+| [EVT-002](#Libpetri-Spec-EVT_002_executionId) | ExecutionStarted Event (execution ID) | F | Java, TypeScript and Rust executors | verbatim | ✓ holds, ✗ mutant, ✓ nonvacuous, ✓ consistent | 2026-11-13 c9e768e7ef461005 ai |
+| [EVT-002](#Libpetri-Spec-EVT_002_lifecycleId) | ExecutionStarted Event (execution ID on the lifecycle events) | F | Java and TypeScript executors (the lifecycle events of Rust and Python carry no execution ID) | verbatim | ✓ holds, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 6c8356046e3e4df3 ai |
+| [EVT-003](#Libpetri-Spec-EVT_003) | ExecutionCompleted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 48152dc1f0053a7c ai |
+| [EVT-003](#Libpetri-Spec-EVT_003_duration) | ExecutionCompleted Event (total duration) | F | Java and TypeScript executors (the ExecutionCompleted event of Rust and Python carries no duration) | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent | 2026-11-13 8ca7026e28dea664 ai |
+| [EVT-004](#Libpetri-Spec-EVT_004) | TransitionEnabled Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 be1306c2d9b63103 ai |
+| [EVT-005](#Libpetri-Spec-EVT_005) | TransitionClockRestarted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ forbids, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×5 | 2026-11-13 91ac45070a3bf371 ai |
+| [EVT-006](#Libpetri-Spec-EVT_006) | TransitionStarted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 07f719232e9617ab ai |
+| [EVT-006](#Libpetri-Spec-EVT_006_payload) | TransitionStarted Event (removed tokens) | B | Java and TypeScript executors (event store enabled) | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×4, ✓ nonvacuous ×2, ✓ consistent ×4 | 2026-11-13 8d4d53b3a431d3d6 ai |
+| [EVT-007](#Libpetri-Spec-EVT_007) | TransitionCompleted Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows ×2, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 36b0cc1699bf112c ai |
+| [EVT-007](#Libpetri-Spec-EVT_007_payload) | TransitionCompleted Event (produced tokens and duration) | B | Java and TypeScript executors (event store enabled) | verbatim | ✓ holds ×2, ✓ allows, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 85d1a27d515969e0 ai |
+| [EVT-008](#Libpetri-Spec-EVT_008) | TransitionFailed Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 f460319d44704185 ai |
+| [EVT-009](#Libpetri-Spec-EVT_009) | TransitionTimedOut Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×5 | 2026-11-13 a5e0e8b49416aa02 ai |
+| [EVT-009](#Libpetri-Spec-EVT_009_payload) | TransitionTimedOut Event (deadline and elapsed time) | B | Java and TypeScript executors (event store enabled) | verbatim | ✓ holds, ✗ mutant ×2, ✓ nonvacuous ×2, ✓ consistent ×4 | 2026-11-13 ec55eec76e30f3e2 ai |
+| [EVT-010](#Libpetri-Spec-EVT_010) | ActionTimedOut Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 0f37ff2f8e74cefb ai |
+| [EVT-010](#Libpetri-Spec-EVT_010_payload) | ActionTimedOut Event (duration) | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×2, ✓ nonvacuous | 2026-11-13 c9810c5ee7f8c17c ai |
+| [EVT-011](#Libpetri-Spec-EVT_011) | TokenAdded Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 c38856d693e6dba0 ai |
+| [EVT-011](#Libpetri-Spec-EVT_011_payload) | TokenAdded Event (token payload) | B | Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 0c1712c72ad18124 ai |
+| [EVT-012](#Libpetri-Spec-EVT_012) | TokenRemoved Event | B | all executors (event store enabled) | verbatim | ✓ holds ×2, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous ×2, ✓ consistent ×5 | 2026-11-13 97f1a7e2ad4bef54 ai |
+| [EVT-012](#Libpetri-Spec-EVT_012_payload) | TokenRemoved Event (token payload) | B | Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled); places without a correlated input of a match specification (NU-020) | verbatim | ✓ holds, ✗ forbids, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 70256e286f0878b3 ai |
+| [EVT-013](#Libpetri-Spec-EVT_013) | LogMessage Event | B | all executors (event store enabled); the action log of line 1 is offered by Java and TypeScript | verbatim | ✓ holds ×4, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 7c6c3c1714c9b21d ai |
+| [EVT-014](#Libpetri-Spec-EVT_014) | MarkingSnapshot Event | B | every executor (event store enabled); Rust and Python carry token counts rather than tokens (RD-50) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×9, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 ca140774f68149b3 ai |
+| [EVT-020](#Libpetri-Spec-EVT_020) | EventStore Interface | F | every event store (the interface: the in-memory, noop, logging, debug and debug-aware stores of Java, TypeScript and Rust, and the Python binding's store) | verbatim | ✓ holds ×3, ✓ allows ×5, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 44c31302e7913d44 ai |
+| [EVT-021](#Libpetri-Spec-EVT_021) | InMemoryEventStore | F | the in-memory event store (Java EventStore.inMemory(), TypeScript InMemoryEventStore, Rust InMemoryEventStore, Python InMemoryEventStore) | verbatim | ✓ holds, ✓ allows ×4, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 825a7d49f475758c ai |
+| [EVT-022](#Libpetri-Spec-EVT_022) | NoopEventStore | F | the noop event store (Java EventStore.noop(), TypeScript noopEventStore(), Rust NoopEventStore) | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 05f34bb0b7f6c833 ai |
+| [EVT-023](#Libpetri-Spec-EVT_023) | LoggingEventStore | F | the logging event store decorator (Java EventStore.logging() and EventStore.logging(delegate)); TypeScript, Rust and Python have none | verbatim | ✓ holds, ✗ mutant ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 07a82586093b1b53 ai |
+| [EVT-024](#Libpetri-Spec-EVT_024) | DebugEventStore | F | the debug event store (Java DebugEventStore, TypeScript DebugEventStore, Rust libpetri-debug DebugEventStore) | verbatim | ✓ holds, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 20d46c2deb81cd12 ai |
+| [EVT-024](#Libpetri-Spec-EVT_024_B) | DebugEventStore (subscriptions) | B | the debug event store's live subscriptions (Java DebugEventStore.subscribe, TypeScript DebugEventStore.subscribe, Rust libpetri-debug DebugEventStore::subscribe) | verbatim | ✓ holds, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 95fe50ba28bd69d6 ai |
+| [EVT-025](#Libpetri-Spec-EVT_025) | Session Archive Format | F | where an implementation provides session archives: the Java, TypeScript and Rust SessionArchiveWriter and SessionArchiveReader, and Python's, which run Rust's | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×6, ✗ mutant ×9, ✓ nonvacuous, ✓ total, ✓ consistent ×3 | 2026-11-13 40cba61c02bfb8b6 ai |
+| [EVT-030](#Libpetri-Spec-EVT_030) | Event Filtering | F | the event query helpers where an implementation provides them (Java: eventsOfType, transitionEvents, placeEvents, filter with offset and limit, failures, counters and size; TypeScript: queryEvents, eventsOfType, transitionEvents, placeEvents, failures, counters, countEvents and size; Rust: events_of_type, transition_events, place_events, query, failures, size, count_of_types and counters; every helper in the Python binding) | verbatim | ✓ holds, ✓ allows, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 1f5cff01b6ff6a2d ai |
+| [EVT-031](#Libpetri-Spec-EVT_031) | EventStore Live Subscriptions | B | the live subscriptions of an event store, where an implementation provides them: the Python binding's InMemoryEventStore (subscribe and subscribe_stream, run on Rust in rust/libpetri-py); Java, TypeScript and the Rust crate's own InMemoryEventStore have none (spec/runtime-defects.md, UB-04) | verbatim | ✓ holds, ✓ allows, ✗ mutant ×19, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 e3ae8d3d32a86f36 ai |
+| [EVT-032](#Libpetri-Spec-EVT_032) | Marking Replay Cache | F | the replay cache of the debug protocol (Rust libpetri-debug MarkingCache, Python MarkingCache, Java org.libpetri.debug.MarkingCache, TypeScript MarkingCache in libpetri/debug) | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×14, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 6fddc42509ad9e9e ai |
+| [EVT-032](#Libpetri-Spec-EVT_032_B) | Marking Replay Cache (the replay of a run's events) | B | every executor (event store enabled), read over the whole event stream of a run | verbatim | ✓ holds ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent | 2026-11-13 719f4abc093469e5 ai |
+| [EXEC-001](#Libpetri-Spec-EXEC_001) | Orchestrator Loop Steps | B | all executors | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 13bddd23b3c968ab ai |
+| [EXEC-002](#Libpetri-Spec-EXEC_002) | Priority-Based Firing Order | F | every executor backend, the all-immediate fast path included (ruling D14 (a)) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 70c357c823f6665b ai |
+| [EXEC-002](#Libpetri-Spec-EXEC_002_cycle) | Priority-Based Firing Order (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1a19e2555f1c8f42 ai |
+| [EXEC-003](#Libpetri-Spec-EXEC_003) | Competitive Conflict Resolution | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×11, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 49d5d3a2d157cf13 ai |
+| [EXEC-010](#Libpetri-Spec-EXEC_010) | FIFO Token Consumption | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous ×2, ✓ consistent ×6 | 2026-11-13 528559a13871b25d ai |
+| [EXEC-010](#Libpetri-Spec-EXEC_010_cycle) | FIFO Token Consumption (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ed8b670223e15f03 ai |
+| [EXEC-012](#Libpetri-Spec-EXEC_012) | Read Arc Peek | B | all executors and transition builders | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×4, ✓ nonvacuous ×6, ✓ consistent ×4 | 2026-11-13 eea03fa527ffc3f5 ai |
+| [EXEC-013](#Libpetri-Spec-EXEC_013) | Reset Arc Execution | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 dc9d0df139814ed2 ai |
+| [EXEC-013](#Libpetri-Spec-EXEC_013_cycle) | Reset Arc Execution (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 df1b6306fddf2808 ai |
+| [EXEC-020](#Libpetri-Spec-EXEC_020) | Output Token Deposition | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 b671259740fe73af ai |
+| [EXEC-020](#Libpetri-Spec-EXEC_020_cycle) | Output Token Deposition (executor companion) | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 4b2dc37f10d22f71 ai |
+| [EXEC-021](#Libpetri-Spec-EXEC_021) | Output Spec Validation | B | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 27a5c5e3606e28a8 ai |
+| [EXEC-022](#Libpetri-Spec-EXEC_022) | Action Timeout Handling | T | all executors | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×14, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 4269c3fa66f4ad07 ai |
+| [EXEC-030](#Libpetri-Spec-EXEC_030) | Action Failure | B | all executors | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2b6f18c42045d797 ai |
+| [EXEC-031](#Libpetri-Spec-EXEC_031) | No Rollback | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 9651a10fb12cfa77 ai |
+| [EXEC-040](#Libpetri-Spec-EXEC_040) | Standard Quiescence | B | executors without environment places | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d7c9760fb7ca0f84 ai |
+| [EXEC-041](#Libpetri-Spec-EXEC_041) | Execution Result | B | all executors | verbatim | ✓ holds, ✓ allows, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 59ebe00b1963613d ai |
+| [EXEC-042](#Libpetri-Spec-EXEC_042) | Terminal Places | B | all executors, for a net that declares terminal places (SHOULD) | verbatim | ✓ holds, ✗ forbids ×11, ✗ mutant, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 2f17c07ce9ef4d0b ai |
+| [EXEC-042](#Libpetri-Spec-EXEC_042_build) | Terminal Places | F | the net builder of every implementation, used without composition and without fusion sets | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 914c13df08e4f886 ai |
+| [EXP-001](#Libpetri-Spec-EXP_001) | Graph Export Format | F | every exporter, the nodes and the arc edges of one exported net | verbatim | ✓ holds, ✓ allows, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 96ff8e5fe57ed0b0 ai |
+| [EXP-002](#Libpetri-Spec-EXP_002) | Visual Semantics: Places | F | every exporter's mapper, on the nodes of the exported graph (before a documentation generator restyles interface ports) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 5d04aca30379fbb7 ai |
+| [EXP-003](#Libpetri-Spec-EXP_003) | Visual Semantics: Transitions | F | every exporter, on the nodes of the graph it draws for a configuration and a net | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 5234b771aa58aea2 ai |
+| [EXP-004](#Libpetri-Spec-EXP_004) | Arc Rendering | F | every exporter, the input, output, inhibitor, read and reset edges | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 fafa8f3b0602454d ai |
+| [EXP-005](#Libpetri-Spec-EXP_005) | XOR Branch Labels | F | every exporter, the output side of one transition | verbatim | ✓ holds, ✓ allows ×2, ✗ forbids ×10, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 39ff9acf25e72cc3 ai |
+| [EXP-006](#Libpetri-Spec-EXP_006) | Cardinality Labels | F | every exporter, on the input arcs of a net (the only arcs with a cardinality) | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 afa62cc20819a478 ai |
+| [EXP-007](#Libpetri-Spec-EXP_007_config) | Export Configuration | F | every exporter | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 805525838cd01e52 ai |
+| [EXP-007](#Libpetri-Spec-EXP_007_label) | Export Configuration, the transition label | F | every exporter, the label of a transition node | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 769326a7690d328f ai |
+| [EXP-008](#Libpetri-Spec-EXP_008) | Styling | F | every exporter's mapper, on the place nodes of a net (before a documentation generator restyles interface ports) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 9e531d5463fe2365 ai |
+| [EXP-012](#Libpetri-Spec-EXP_012) | XOR/AND Junction Nodes | F | every exporter, the output side of one transition | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 ec5657685846659c ai |
+| [EXP-013](#Libpetri-Spec-EXP_013) | Combined reset+output Edge | F | every exporter, the edges of one transition into one place | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 8a5daa18f1ea3d16 ai |
+| [EXP-014](#Libpetri-Spec-EXP_014) | Junction ID Format and Layout Stability | F | every exporter, the DOT IDs, the junction nodes and the junction numbering of the exported graph | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 f1aaffb0ce9c4adf ai |
+| [EXP-016](#Libpetri-Spec-EXP_016) | Subnet Instance Cluster Subgraphs | F | every exporter, the clusters of the exported graph | verbatim | ✓ holds, ✗ forbids ×14, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 8bbf5b5860047163 ai |
+| [EXP-017](#Libpetri-Spec-EXP_017) | Compound Cluster Layout Hints | F | every exporter, the graph attribute compound and the ghost edges between clusters | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 6669d2bdd6e263e5 ai |
+| [EXP-018](#Libpetri-Spec-EXP_018) | ν-Match Edge Decoration | F | every exporter, on the input edges of the graph it draws for a configuration and a net | verbatim | ✓ holds, ✗ forbids ×13, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 d7f751738e2caccc ai |
+| [IO-001](#Libpetri-Spec-IO_001) | Input One | B | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 7efdcea8fe4128a6 ai |
+| [IO-002](#Libpetri-Spec-IO_002) | Input Exactly | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 9b9aa5c23b0a1d7e ai |
+| [IO-002](#Libpetri-Spec-IO_002_build) | Input Exactly | F | all transition builders | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous | 2026-11-13 8a6a755e1a7355aa ai |
+| [IO-003](#Libpetri-Spec-IO_003) | Input All | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 1df646da0a336bd8 ai |
+| [IO-004](#Libpetri-Spec-IO_004) | Input AtLeast | B | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 1c1a03b70f65f680 ai |
+| [IO-004](#Libpetri-Spec-IO_004_build) | Input AtLeast | F | all transition builders | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous | 2026-11-13 fea4aa6ed6526b5f ai |
+| [IO-005](#Libpetri-Spec-IO_005) | Input AND-Join Semantics | B | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 d9b4cd0f5bd53345 ai |
+| [IO-007](#Libpetri-Spec-IO_007) | requiredCount and consumptionCount Contract | F | all input cardinalities | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 00c5fa1359e5ca43 ai |
+| [IO-010](#Libpetri-Spec-IO_010) | Output place (leaf) | B | executors with output validation enabled (the default) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×5, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×7 | 2026-11-13 803e51a7038744e5 ai |
+| [IO-011](#Libpetri-Spec-IO_011) | Output And | B | executors with output validation enabled (the default, CONC-026) | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×4, ✓ nonvacuous ×3, ✓ consistent ×9 | 2026-11-13 fd0cf424b6c03308 ai |
+| [IO-012](#Libpetri-Spec-IO_012) | Output Xor | B | build check: every transition, on every construction path; firing lines: executors with output validation enabled (the default, CONC-026) | verbatim | ✓ holds, ✓ allows, ✗ forbids ×7, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×10 | 2026-11-13 15c285956716e4b0 ai |
+| [IO-013](#Libpetri-Spec-IO_013) | Output timeout | B | all executors | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant ×7, ✓ nonvacuous ×2, ✓ consistent ×8 | 2026-11-13 729c134068fcb4bc ai |
+| [IO-014](#Libpetri-Spec-IO_014) | Output ForwardInput | B | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×7, ✓ nonvacuous, ✓ consistent ×8 | 2026-11-13 62e5239eceb43ee3 ai |
+| [IO-015](#Libpetri-Spec-IO_015) | Output Validation | F | every declared output spec | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 9229f2aaabb21f44 ai |
+| [IO-015](#Libpetri-Spec-IO_015_firing) | Output validation: a validated write is deposited | B | executors with output validation enabled (the default, CONC-026) | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent | 2026-11-13 2218d01fbc44b335 ai |
+| [IO-016](#Libpetri-Spec-IO_016) | Branch Enumeration | F | all output specs | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 9f5864d92dfe9b93 ai |
+| [IO-017](#Libpetri-Spec-IO_017) | allPlaces Flattening | F | all output specs | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 669046cb2047932b ai |
+| [MOD-001](#Libpetri-Spec-MOD_001) | SubnetDef Definition (open net + interface) | F | every subnet builder | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 53dc26be2eda1cd3 ai |
+| [MOD-003](#Libpetri-Spec-MOD_003) | Port Declaration (name + direction + place) | B | every subnet builder | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 eef0bc67e59dddad ai |
+| [MOD-004](#Libpetri-Spec-MOD_004) | Port Direction Semantics (advisory; arcs govern flow) | B | every subnet builder and every instantiation of a subnet definition | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3f9708a5372ab72c ai |
+| [MOD-005](#Libpetri-Spec-MOD_005) | Channel Declaration (interface transitions for synchronous fusion) | B | every subnet builder | verbatim | ✓ holds, ✓ allows, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 58d858d181a93426 ai |
+| [MOD-006](#Libpetri-Spec-MOD_006) | Subnet Validation at Build | B | every subnet builder | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 0286264af16c499a ai |
+| [MOD-010](#Libpetri-Spec-MOD_010) | Instance Creation via instantiate(prefix, params) | F | every instantiation of a subnet definition | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 420e0e745f43efca ai |
+| [MOD-011](#Libpetri-Spec-MOD_011) | Instance Handle Map (typed port + channel handles) | F | every module instance (Java, TypeScript, Rust, Python) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 879e996ee6e16a6f ai |
+| [MOD-011](#Libpetri-Spec-MOD_011_typed) | Instance Handle Map, the typed port lookup | F | implementations that keep a run-time token type for each port (Java, Rust) | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 05a41fb75002f423 ai |
+| [MOD-012](#Libpetri-Spec-MOD_012) | Per-Instance State Isolation | B | every net built by composition | verbatim | ✓ holds, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 65a639dcbb5843cc ai |
+| [MOD-012](#Libpetri-Spec-MOD_012_clock) | Per-Instance State Isolation (clocks) | T | every net built by composition | verbatim | ✓ holds, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e298e5035049cb8c ai |
+| [MOD-013](#Libpetri-Spec-MOD_013) | Nested Instantiation (prefix concatenation associative) | F | every instantiation of a subnet definition whose body holds places or transitions of a composed instance | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 63141a2e4140d851 ai |
+| [MOD-014](#Libpetri-Spec-MOD_014) | SubnetDef.fromNet retrofit utility | B | every retrofit utility fromNet | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 57e65636aa50ef6c ai |
+| [MOD-020](#Libpetri-Spec-MOD_020) | Composition Operation (port mapping by structural rewrite) | B | every compose(instance, bindings) call of an enclosing net builder | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×10, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 5b0f0c0a5815b2f5 ai |
+| [MOD-021](#Libpetri-Spec-MOD_021) | Channel Composition, the transition merge | B | channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 83e3285dd0348df1 ai |
+| [MOD-021](#Libpetri-Spec-MOD_021_table) | Channel Composition, the input-arc merge table | F | the input-arc merge table of every implementation, used by channel composition and by fusion (MOD-061) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 728df90e642aec82 ai |
+| [MOD-022](#Libpetri-Spec-MOD_022) | Type Compatibility at Compose | B | implementations whose place identity carries the token type (Java) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2a617c41b4f752c2 ai |
+| [MOD-023](#Libpetri-Spec-MOD_023) | Composition Produces Flat Net | B | build() of every enclosing builder, whatever compose(...), fuse(...) and other builder calls were made on it (Java, TypeScript, Rust, Python) | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 27c95050b685c890 ai |
+| [MOD-024](#Libpetri-Spec-MOD_024) | Identity-Default Port Inference (auto-compose) | B | every enclosing-net builder that offers the single-argument compose(instance) (Java, TypeScript, Rust); lines 3 and 4 for those with the inference path (all three) | verbatim | ✓ holds, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 20fefa049ec4cc15 ai |
+| [MOD-025](#Libpetri-Spec-MOD_025) | Direct Composition (compose a subnet without instantiation) | B | every direct composition of a subnet definition into an enclosing builder (Java, TypeScript, Rust, Python); the token-type line where place identity carries the token type (Java) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f26a97b3a2f43f00 ai |
+| [MOD-026](#Libpetri-Spec-MOD_026) | Subnet-Membership Metadata for Direct Composition | B | every build of a net through an enclosing builder (Java, TypeScript, Rust, Python) and every action binding of a built net | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 72ede67345d1615e ai |
+| [MOD-026](#Libpetri-Spec-MOD_026_resolve) | Subnet-Membership Metadata for Direct Composition (resolution of the recorded contributions) | F | the resolution of the subnet contributions recorded by direct composition into the membership mapping (Java, TypeScript, Rust, Python) | verbatim | ✓ holds, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d1db74bac500bc9a ai |
+| [MOD-027](#Libpetri-Spec-MOD_027) | References to Bound Ports | B | every net builder that composes instances (Java, TypeScript, Rust; Python through Rust) | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ddb19ee5dd9a9898 ai |
+| [MOD-030](#Libpetri-Spec-MOD_030) | Action Binding Per Instance (share-by-default, override via bindActions) | F | every per-instance action binding (Instance.bindActions in Java, TypeScript and Rust; Python's Instance.bind_actions rides on the Rust binding) | verbatim | ✓ holds, ✗ forbids ×2, ? undecided, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 4a926d3df7c4a516 ai |
+| [MOD-031](#Libpetri-Spec-MOD_031) | Action Place Resolution under Composition (declared → actual correspondence) | F | the declared-to-actual place correspondence of every composed transition, through rewrite passes, channel merges and action binding | verbatim | ✓ holds, ✓ allows ×3, ✗ forbids ×3, ? undecided, ✗ mutant ×9, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 55511c0dc98c1231 ai |
+| [MOD-031](#Libpetri-Spec-MOD_031_ctx) | Action Place Resolution under Composition (the context operations) | F | the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter; not the Rust native context, which hands the correspondence to native actions | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent | 2026-11-13 356933814782357b ai |
+| [MOD-040](#Libpetri-Spec-MOD_040) | Export Grouping (subgraph cluster_* per instance prefix) | F | the subnetOf accessor of every built net, and the instance-prefix helper | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e3074a4aeb304e8b ai |
+| [MOD-040](#Libpetri-Spec-MOD_040_b) | Export Grouping (subgraph cluster_* per instance prefix): the export half | F | every exporter that draws cluster subgraphs, the clusters of the exported graph of a composed net | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent | 2026-11-13 2606f890f16289e9 ai |
+| [MOD-041](#Libpetri-Spec-MOD_041) | Debug Protocol Subnet Instances | F | every debug protocol implementation (Java, TypeScript, Rust; Python has none) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 8d954a1a15bb1da8 ai |
+| [MOD-050](#Libpetri-Spec-MOD_050) | Verification Pass-Through on Composed Flat Net | B | every verification facility of section 07, on every net build() returns | verbatim | ✓ holds, ✓ allows, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 1a3d08ad59364f7d ai |
+| [MOD-051](#Libpetri-Spec-MOD_051) | SubnetDef.verify(harness) for local property verification | B | verify on a subnet definition in Java, TypeScript and Rust, and verify_subnet in Python (on the Rust one); SHOULD, so the shall sentences bind an implementation that offers it | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent | 2026-11-13 5364bdeee5816154 ai |
+| [MOD-051](#Libpetri-Spec-MOD_051_bind) | Binding actions on a subnet definition | F | bindActions (both forms) on a subnet definition in Java, TypeScript and Rust; Python's bind_actions on a definition rides on the Rust one | verbatim | ✓ holds ×2, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent | 2026-11-13 f5a7366fd0285ac5 ai |
+| [MOD-060](#Libpetri-Spec-MOD_060) | Fusion Set Declaration (orthogonal to composition) | F | every fusion-set declaration check | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent | 2026-11-13 84f6e61366f77df8 ai |
+| [MOD-061](#Libpetri-Spec-MOD_061) | Fusion Resolution at build() | F | fusion at build() of every builder that declares fusion sets | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 369a588139db1901 ai |
+| [NU-001](#Libpetri-Spec-NU_001) | Name Identity | F | the names, the name equality and the name order of each implementation | verbatim | ✓ holds, ✓ allows, ✗ forbids, ✗ mutant ×6, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 604542f2fcb1092e ai |
+| [NU-001](#Libpetri-Spec-NU_001_rename) | Name Identity (renaming) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 4b448e93554df7d2 ai |
+| [NU-010](#Libpetri-Spec-NU_010_classify) | Fresh-Name Minting (declared mints in the fragment classifier) | F | the fragment classifier of every ν verifier | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7b8705ab7e983433 ai |
+| [NU-010](#Libpetri-Spec-NU_010_contract) | Fresh-Name Minting (mint contract) | A | the action of every declared mint, as the ν verification routes assume it | verbatim | ✗ forbids ×2, ✗ mutant, ✓ nonvacuous, ✓ consistent | 2026-11-13 5accbe9a457b49b3 ai |
+| [NU-010](#Libpetri-Spec-NU_010_replay) | Fresh-Name Minting (replay) | F | the minter every executor installs on the action context | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b1575384786eb809 ai |
+| [NU-010](#Libpetri-Spec-NU_010_unique) | Fresh-Name Minting (uniqueness) | B | the minter every executor installs on the action context | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 bd4c8c79bf15e78b ai |
+| [NU-010](#Libpetri-Spec-NU_010_unknownMint) | Fresh-Name Minting (a declared mint not in the net) | F | every entry point that takes a mint declaration: verification, script encoding ([VER-013]) and open-net verification ([VER-022]), all implementations (MUST where the ν routes are offered) | verbatim | ✓ holds ×2, ✗ forbids ×6, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 853e7d417fccf5d7 ai |
+| [NU-011](#Libpetri-Spec-NU_011_default) | Resume-Safe Fresh-Name Minting (default scope) | B | every executor that is given no scope (Rust, Java, TypeScript; Python through Rust) | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e386109e5003829f ai |
+| [NU-011](#Libpetri-Spec-NU_011_format) | Resume-Safe Fresh-Name Minting (scope check and name format) | F | every executor that mints under the scope mechanism (Rust, Java, TypeScript; Python through Rust) | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 e991c428ff685d54 ai |
+| [NU-011](#Libpetri-Spec-NU_011_host) | Resume-Safe Fresh-Name Minting (host of a restore lineage) | A | hosts that pin scopes for the executions of a restore lineage | verbatim | ✗ forbids ×2, ✓ nonvacuous | 2026-11-13 98972dec45836fc0 ai |
+| [NU-011](#Libpetri-Spec-NU_011_lineage) | Resume-Safe Fresh-Name Minting (different scopes, disjoint names) | B | every executor that mints under the scope mechanism; two executions of one restore lineage | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 bacd928c2a3864eb ai |
+| [NU-020](#Libpetri-Spec-NU_020_build) | Match Specification (build checks) | F | every match builder and every transition builder, on every construction path | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 b85eb5b5999866c4 ai |
+| [NU-020](#Libpetri-Spec-NU_020_enable) | Match Specification (enablement and chosen name) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 e559d75fdf5f4ead ai |
+| [NU-020](#Libpetri-Spec-NU_020_frame) | Match Specification (outcome, reads, resets and non-correlated places) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 12732ded944554f1 ai |
+| [NU-020](#Libpetri-Spec-NU_020_take) | Match Specification (correlated take) | B | every executor; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×5 | 2026-11-13 047b93a90f856347 ai |
+| [NU-021](#Libpetri-Spec-NU_021) | Match as the Sole Per-Token Filter | B | every executor; one firing of any transition, with or without a match specification | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 03bd872e457f8151 ai |
+| [NU-022](#Libpetri-Spec-NU_022) | Deterministic Match Selection | F | the match selection of every executor: select_match_name / selectMatchName and every incremental matcher | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 3dbd98e065e4edd0 ai |
+| [NU-030](#Libpetri-Spec-NU_030) | Freshness Scoping under Composition | F | every rebuild of a transition through a place rewrite, such as prefix renaming, port binding, place fusion and the identity rewrite of action binding; the channel merge of two transitions (MOD-021) is not such a rebuild | verbatim | ✓ holds, ✗ forbids ×10, ✓ nonvacuous | 2026-11-13 72debf258cfd540c ai |
+| [NU-040](#Libpetri-Spec-NU_040_jodl) | Bounded Budget and Decidability (JoinedOrDeadLettered) | F | every verifier route that decides JoinedOrDeadLettered: Route B, Route A, and on a net without a matched transition the untimed encoder, the structural and abstract-replay checks | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 c35350aae8a80cf7 ai |
+| [NU-040](#Libpetri-Spec-NU_040_mint) | Bounded Budget and Decidability (budget places declare mints) | F | the mint declaration every verifier route reads (declared_mints / declaredMints), Route A and Route B of NU-050 | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×2, ✓ nonvacuous | 2026-11-13 75375bdd9adb27f6 ai |
+| [NU-050](#Libpetri-Spec-NU_050_prefix) | Exact Verification of Matched Transitions: the verdict on a built graph | F | every verifier that offers the Route B name-partition graph (MAY); the verdict it reads off a built graph, for every property | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 eb761cd46e6ad765 ai |
+| [NU-050](#Libpetri-Spec-NU_050_soundA) | Exact Verification of Matched Transitions: Route A is sound | B | every verifier that offers the Route A coloured encoding (MAY), judged against the reference ν executor, untimed and environment-free | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous | 2026-11-13 2840507775110471 ai |
+| [NU-050](#Libpetri-Spec-NU_050_soundB) | Exact Verification of Matched Transitions: Route B is sound | B | every verifier that offers the Route B name-partition graph (MAY), judged against the reference ν executor, untimed and environment-free | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent | 2026-11-13 658a3b1dd6585f78 ai |
+| [NU-050](#Libpetri-Spec-NU_050_timed) | Exact Verification of Matched Transitions: a join's clock on a timed net | T | every verifier that offers the Route B name-partition graph (MAY) on a timed net; the timed semantics its classes stand for | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous ×4, ✓ consistent | 2026-11-13 8521730a656ca00b ai |
+| [NU-051](#Libpetri-Spec-NU_051) | EXTENDED Coloured-Consumer Fragment | F | the fragment classifier of every ν verifier | verbatim | ✓ holds, ✗ forbids ×14, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f3325dbbfbd828e7 ai |
+| [NU-051](#Libpetri-Spec-NU_051_carrier) | EXTENDED Coloured-Consumer Fragment | F | every ν verifier entry point that takes carrier declarations | verbatim | ✓ holds, ✓ allows ×3, ✗ forbids ×6, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f770fef118c6c73d ai |
+| [NU-051](#Libpetri-Spec-NU_051_colours) | EXTENDED Coloured-Consumer Fragment | F | the coloured set every ν verifier computes for a call | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3c2f8a7c63394363 ai |
+| [NU-051](#Libpetri-Spec-NU_051_relay) | EXTENDED Coloured-Consumer Fragment | F | the name layer of Route B | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous | 2026-11-13 0227ee2bc85339ae ai |
+| [NU-052](#Libpetri-Spec-NU_052) | Conflict-Only Priority for the Route B Name-SCG | F | the Route B successor step, under CONFLICT and NONE | verbatim | ✓ holds, ✗ forbids ×10, ✗ mutant, ✓ nonvacuous ×2 | 2026-11-13 c9ddd3686d6ad259 ai |
+| [NU-052](#Libpetri-Spec-NU_052_split) | Conflict-Only Priority for the Route B Name-SCG (which calls prune, the split, the in-flight test) | F | the verifier's setup of a call under CONFLICT and NONE (MAY; the shall sentences bind an implementation that offers CONFLICT), and the in-flight test of the Route B base layer | verbatim | ✓ holds, ✗ forbids ×12, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 7f8fb3c28a4e4440 ai |
+| [NU-053](#Libpetri-Spec-NU_053) | EXTENDED-Coloured Quiescence in the Route A SMT Encoder | F | the colour-slot bound, its exact re-check and the coloured consumer and quiescence terms of the Route A coloured encoding, where offered | verbatim | ✓ holds, ✗ forbids ×16, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 cbe6df00a7d06949 ai |
+| [NU-053](#Libpetri-Spec-NU_053_dispatch) | EXTENDED-Coloured Quiescence in the Route A SMT Encoder: Place in the Dispatch | B | the dispatch of the SMT verifier on ν-nets, where the coloured encoding of Route A is offered (MAY; the shall sentences bind an implementation that offers it) | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 441c05be3d16cb47 ai |
+| [NU-054](#Libpetri-Spec-NU_054_build) | Join Relay (build checks) | F | every transition builder, on every construction path | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 851c29120a61c0ca ai |
+| [NU-054](#Libpetri-Spec-NU_054_check) | Join Relay (run-time relay check) | B | every executor, with output validation on; one firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3cd917cfac3eab68 ai |
+| [NU-054](#Libpetri-Spec-NU_054_fail) | Join Relay (a firing the relay check rejects) | B | every executor with output validation on; the settle, flush and failure of a firing of a transition with a match specification | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent | 2026-11-13 c9bc404d99e742c0 ai |
+| [NU-054](#Libpetri-Spec-NU_054_verifier) | Join Relay (fragment classifier) | F | the fragment classifier of every ν verifier | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 686b620b1a5e685b ai |
+| [NU-055](#Libpetri-Spec-NU_055) | Name Alignment | F | every verifier that offers NameAligned or QuiescentNameAligned (MAY); the predicate on a class of the Route B graph | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous | 2026-11-13 d63c49a037105656 ai |
+| [NU-055](#Libpetri-Spec-NU_055_refusal) | Name Alignment: the refusal order | F | every verifier that offers NameAligned or QuiescentNameAligned (MAY); the refusals before Route B builds the graph | verbatim | ✓ holds, ✗ forbids ×11, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ec2dc4bf32b7676d ai |
+| [NU-055](#Libpetri-Spec-NU_055_sound) | Name Alignment: soundness | B | every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the reference ν executor, untimed and environment-free, with atomic firings | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant, ✓ nonvacuous | 2026-11-13 79bf0a5c51e410a2 ai |
+| [NU-055](#Libpetri-Spec-NU_055_truncation) | Name Alignment: the verdict on a built graph | F | every verifier that offers NameAligned or QuiescentNameAligned (MAY); the verdict Route B reads off a built graph | verbatim | ✓ holds, ✗ forbids ×6, ✗ mutant ×2, ✓ nonvacuous | 2026-11-13 b11a29686f7a24d4 ai |
+| [NU-060](#Libpetri-Spec-NU_060) | Match-Arc Composition | F | channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to, when either carries a ν-net match | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×3, ✓ nonvacuous | 2026-11-13 c2956b8631b7db98 ai |
+| [PERF-030](#Libpetri-Spec-PERF_030) | Bitmap Memory Efficiency | F | bitmap executors (the BitmapNetExecutor of Java, TypeScript and Rust; Python through Rust) | verbatim | ✓ holds, ✓ allows, ✗ forbids, ✗ mutant ×5, ✓ nonvacuous ×2, ✓ consistent ×2 | 2026-11-13 86026a7d6f4ee347 ai |
+| [PERF-042](#Libpetri-Spec-PERF_042) | Sparse Enablement Masks | F | executors that use sparse enablement masks (the precompiled executors) | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous ×2 | 2026-11-13 ea5d1cba83ccbd5f ai |
+| [TIME-001](#Libpetri-Spec-TIME_001) | Timing Specification | F | all timing variants, all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 d34529578af26fe4 ai |
+| [TIME-002](#Libpetri-Spec-TIME_002) | Immediate Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant, ✓ nonvacuous ×2, ✓ consistent ×3 | 2026-11-13 d2b484cbad973046 ai |
+| [TIME-003](#Libpetri-Spec-TIME_003) | Deadline Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×4, ✓ nonvacuous ×2, ✓ consistent ×3 | 2026-11-13 f2afd767abde189b ai |
+| [TIME-004](#Libpetri-Spec-TIME_004) | Delayed Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×3, ✗ mutant ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 e515af64f65f7b36 ai |
+| [TIME-005](#Libpetri-Spec-TIME_005) | Window Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 4d99c46f6b5f098d ai |
+| [TIME-006](#Libpetri-Spec-TIME_006) | Exact Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 6e6bad1744175f13 ai |
+| [TIME-010](#Libpetri-Spec-TIME_010) | Clock Starts on Enablement | T | all executors | verbatim | ✓ holds, ✗ forbids ×4, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 ea9a99682276358a ai |
+| [TIME-010](#Libpetri-Spec-TIME_010_cycle) | Clock Starts on Enablement (executor cycle) | T | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 02af746e7ffa1879 ai |
+| [TIME-011](#Libpetri-Spec-TIME_011) | Clock Restarts on Re-enablement | T | all executors | verbatim | ✓ holds, ✗ forbids, ✗ mutant ×2, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 4737d8ed23ee9b61 ai |
+| [TIME-012](#Libpetri-Spec-TIME_012) | Clock Restart on Intermediate Disablement | T | all executors | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×2, ✓ nonvacuous ×5, ✓ consistent ×4 | 2026-11-13 6b18371197d46902 ai |
+| [TIME-012](#Libpetri-Spec-TIME_012_cycle) | Clock Restart on Intermediate Disablement (executor cycle) | T | all executors | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f76ff4d28aa15773 ai |
+| [TIME-012](#Libpetri-Spec-TIME_012_nu) | Clock Restart on Intermediate Disablement (ν-join bindings) | T | every executor that runs matched transitions ([NU-020]), read on the atomic timed ν step | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous ×3, ✓ consistent | 2026-11-13 827d165f11fbfa3d ai |
+| [TIME-013](#Libpetri-Spec-TIME_013) | Deadline Enforcement | T | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 2103a7de237a7c3a ai |
+| [TIME-013](#Libpetri-Spec-TIME_013_cycle) | Deadline Enforcement (executor cycle) | T | all executors | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3f1b87c1b5efb399 ai |
+| [TIME-014](#Libpetri-Spec-TIME_014) | Competitive Scheduling with Timing | T | all executors | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 9e670108a075e4be ai |
+| [TIME-015](#Libpetri-Spec-TIME_015) | Injectable Clock | A | all executors, on the default or an injected firing clock | verbatim | ✓ holds, ✗ forbids ×2, ✗ mutant ×5, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 83f89e480b356a95 ai |
+| [TIME-015](#Libpetri-Spec-TIME_015_cycle) | Injectable Clock (executor cycle) | A | all executors, on the default or an injected firing clock | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ac85d49fe9f864ce ai |
+| [VER-001](#Libpetri-Spec-VER_001) | SMT Verification Pipeline | F | every verification route, all implementations | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 5c2eff3dd1d5389c ai |
+| [VER-002](#Libpetri-Spec-VER_002) | Safety Properties | F | every route that decides DeadlockFree, TerminatesAtSink, MutualExclusion, PlaceBound, Unreachable or QuiescentCount, all implementations (SHOULD; the shall sentences bind an implementation that offers the property) | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous ×6, ✓ consistent ×5 | 2026-11-13 e9e3fc530c914598 ai |
+| [VER-002](#Libpetri-Spec-VER_002_count) | QuiescentCount Construction | B | every implementation that offers QuiescentCount; the constructor | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2f69f98bb7260760 ai |
+| [VER-003](#Libpetri-Spec-VER_003) | Verification Result | B | every verifier entry point and every route, all implementations (SHOULD; the shall sentences bind an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 b75ebb07659d89a8 ai |
+| [VER-004](#Libpetri-Spec-VER_004_exec) | Untimed Over-Approximation (the executor's runs with actions in flight) | B | the executor's runs on a net the split accepts, read through the count projection L5 of RefExec (SHOULD; the shall sentence binds an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent | 2026-11-13 ca090b067f10ff53 ai |
+| [VER-004](#Libpetri-Spec-VER_004_split) | Untimed Over-Approximation (the in-flight split) | F | the verified-net function of every verifier entry point, before the terminal rewrite of EXEC-042 (SHOULD; the shall sentences bind an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 ea653f701a1d3b2f ai |
+| [VER-004](#Libpetri-Spec-VER_004_timed) | Untimed Over-Approximation (timing only removes firings) | A | the executor's timed runs, as every verifier route reads them (SHOULD; the shall sentences bind an implementation that offers verification) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 5da9a4d413c312ac ai |
+| [VER-005](#Libpetri-Spec-VER_005) | P-Invariant Computation | F | the SMT pipeline's invariant phase, all implementations | verbatim | ✓ holds, ✗ forbids ×5, ✗ mutant ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 2d332a4c4aa7f603 ai |
+| [VER-006](#Libpetri-Spec-VER_006) | Environment Analysis Mode | B | the SMT verifier and every route it dispatches to, AlwaysAvailable and Bounded(k), all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 78e7cf929f6d5e80 ai |
+| [VER-006](#Libpetri-Spec-VER_006_arrivals) | Environment Analysis Mode: Arrivals(min, max) is a net rewrite | F | the SMT verifier under Arrivals(min, max), before any route, all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 935f095991d6f423 ai |
+| [VER-006](#Libpetri-Spec-VER_006_premise) | Environment Analysis Mode: the Bounded(k) premises | F | the SMT verifier under Bounded(k), before any route, all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 b320fdb9fbe5f6af ai |
+| [VER-006](#Libpetri-Spec-VER_006_quiescent) | Environment Analysis Mode: quiescence under modelled injection | F | the quiescence clause of DeadlockFree, TerminatesAtSink, QuiescentCount and JoinedOrDeadLettered on every route, AlwaysAvailable and Bounded(k), all implementations | verbatim | ✓ holds, ✗ forbids ×2, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 3b37261915f411c2 ai |
+| [VER-006](#Libpetri-Spec-VER_006_verdict) | Environment Analysis Mode: verdicts | B | the SMT verifier and every route it dispatches to, all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 d171b9a7b7d07920 ai |
+| [VER-007](#Libpetri-Spec-VER_007) | Invariant Strengthening from P-Semiflows | F | the SMT pipeline's Phase 3 and every encoder it feeds (flat and name-coloured), all implementations | verbatim | ✓ holds, ✓ allows, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f7dee685b94d4e51 ai |
+| [VER-010](#Libpetri-Spec-VER_010) | State Class Graph Analysis | B | the timed state class graph builder (StateClassGraph.build), Java, TypeScript and Rust (MAY; the shall sentences bind an implementation that offers it) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 93017dda6c430986 ai |
+| [VER-010](#Libpetri-Spec-VER_010_key) | State Class Graph Analysis: canonical class identity | F | the canonical clock order and the class key of the timed state class graph, Java, TypeScript and Rust | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 b6d21ecd185f60db ai |
+| [VER-010](#Libpetri-Spec-VER_010_persist) | State Class Graph Analysis: clock persistence | F | the survival test of the timed state class graph successor (compute_successor), Java, TypeScript and Rust | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 fd8c034030b81ecb ai |
+| [VER-011](#Libpetri-Spec-VER_011) | DBM Zone Representation | F | the zone library of every state class graph, all implementations | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous ×3, ✓ consistent ×2 | 2026-11-13 c25a6c8c7bda6335 ai |
+| [VER-012](#Libpetri-Spec-VER_012) | Name-Aware State Class Graph: the graph step | F | every verifier that offers the Route B name-partition graph (MAY); one step of the graph, the untimed base | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 9f29789b3063de66 ai |
+| [VER-012](#Libpetri-Spec-VER_012_build) | Name-Aware State Class Graph: the build | F | every verifier that offers the Route B name-partition graph (MAY); the build loop of the graph | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 bad01372e239b3bd ai |
+| [VER-013](#Libpetri-Spec-VER_013_args) | Solver Transport: timeouts of one process | F | every z3 process the verifier starts, all implementations | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 8a1accd7ea582526 ai |
+| [VER-013](#Libpetri-Spec-VER_013_classify) | Solver Transport: reply classification | F | every z3 reply the verifier reads, all implementations | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 c65157bb4d135901 ai |
+| [VER-013](#Libpetri-Spec-VER_013_order) | Solver Transport: name order | F | every ordering of place or transition names that reaches a script, a flat index, a report, a witness or a violation list, all implementations | verbatim | ✓ holds, ✗ forbids, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 3a8763ecf80c02b0 ai |
+| [VER-013](#Libpetri-Spec-VER_013_stop) | Solver Transport: solver failures, total budget and cancellation | B | the verifier pipeline of every implementation that offers a total budget or cancellation (SHOULD), and every solver call | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 d630da6dbe5a2a76 ai |
+| [VER-014](#Libpetri-Spec-VER_014) | Conditional Sink Places (Designed Terminals) | F | every route that decides DeadlockFree or TerminatesAtSink, all implementations | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×6 | 2026-11-13 f46e3fb9203f172b ai |
+| [VER-015](#Libpetri-Spec-VER_015) | Linear State-Equation Bound | F | the bound phase of the SMT verifier, all implementations | verbatim | ✓ holds, ✓ allows, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 c8c77db1f9d5b783 ai |
+| [VER-015](#Libpetri-Spec-VER_015_order) | Linear State-Equation Bound: Place in the Dispatch | B | the dispatch of the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the bound phase) | verbatim | ✓ holds, ✗ forbids ×18, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 d73db0ba60be9194 ai |
+| [VER-016](#Libpetri-Spec-VER_016) | State-Equation Strengthening with Firing Counters | B | the flat CHC encoding of every implementation, with the state-equation option enabled | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 906847a7607d81aa ai |
+| [VER-017](#Libpetri-Spec-VER_017) | Bounded State-Space Enumeration Route | B | the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the route) | verbatim | ✓ holds, ✗ forbids ×19, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 7114d5d6fe5cd525 ai |
+| [VER-017](#Libpetri-Spec-VER_017_cache) | Bounded State-Space Enumeration Route: State-Space Cache | B | the SMT verifier with a state-space cache, all implementations (SHOULD; the shall sentences bind an implementation that offers the cache) | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 05b8497a4705c1b5 ai |
+| [VER-018](#Libpetri-Spec-VER_018) | State-Equation Phase with Refinement | B | the SMT verifier's state-equation phase on the flat path, all implementations | verbatim | ✓ holds, ✗ forbids ×20, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 f6fed41d3e39e412 ai |
+| [VER-018](#Libpetri-Spec-VER_018_order) | State-Equation Phase with Refinement: its place in the pipeline | B | the SMT verifier's pipeline, all implementations | verbatim | ✓ holds, ✗ forbids ×6, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 7159897beca0bed3 ai |
+| [VER-019](#Libpetri-Spec-VER_019) | Firing-Bound Phase | B | the SMT verifier, all implementations | verbatim | ✓ holds, ✗ forbids ×14, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 97f29fe9e68378b6 ai |
+| [VER-019](#Libpetri-Spec-VER_019_order) | Firing-Bound Phase: its place in the pipeline | B | the SMT verifier's pipeline, all implementations | verbatim | ✓ holds, ✗ forbids ×12, ✓ nonvacuous, ✓ consistent ×4 | 2026-11-13 1b1aed09ffd928c6 ai |
+| [VER-020](#Libpetri-Spec-VER_020) | Siphon and Trap Analysis | F | the structural deadlock pre-check (siphon search, trap contraction, structural check) of every implementation | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 6d2a0a9268e7582d ai |
+| [VER-020](#Libpetri-Spec-VER_020_guard) | Siphon and Trap Analysis: Structural Proven Guard | B | the verifier's structural route (the step that turns the structural check's answer into a Proven) of every implementation | verbatim | ✓ holds, ✓ allows, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 887d26c90b0ba813 ai |
+| [VER-021](#Libpetri-Spec-VER_021) | XOR Branch Analysis | F | the XOR branch analysis over a built graph, Java, TypeScript and Rust (SHOULD; the shall sentences bind an implementation that offers it) | verbatim | ✓ holds, ✗ forbids ×7, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 813034d55a0a4494 ai |
+| [VER-022](#Libpetri-Spec-VER_022) | Open-Net Verification Against a Contract | B | the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) | verbatim | ✓ holds, ✗ forbids ×13, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 29eddd26f288fb70 ai |
+| [VER-022](#Libpetri-Spec-VER_022_closure) | Open-Net Verification Against a Contract: the closure | F | the open-net verifier before either route, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) | verbatim | ✓ holds, ✗ forbids ×9, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 8ea929bede855106 ai |
+| [VER-022](#Libpetri-Spec-VER_022_meets) | Open-Net Verification Against a Contract: meeting the contract | F | the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 4e9af8b142080c49 ai |
+| [VER-023](#Libpetri-Spec-VER_023) | Timed Counterexample Check | B | the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) | verbatim | ✓ holds, ✗ forbids ×15, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 f3cd2376b0f7f53b ai |
+| [VER-023](#Libpetri-Spec-VER_023_graph) | Timed Counterexample Check: the timed graph | B | the timed state-class graph the timed check builds, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) | verbatim | ✓ holds, ✗ forbids ×3, ✓ nonvacuous, ✓ consistent ×2 | 2026-11-13 eea071fd394aeff9 ai |
+| [VER-024](#Libpetri-Spec-VER_024) | Stubborn-Set Reduction of the Enumeration Route | B | the enumeration route of VER-017 on a quiescence property, all implementations (SHOULD; the shall sentences bind an implementation that offers the reduction) | verbatim | ✓ holds, ✗ forbids ×5, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 a139fab37c30c6cd ai |
+| [VER-024](#Libpetri-Spec-VER_024_route) | Stubborn-Set Reduction: when it applies, and the cache key | F | the enumeration route of VER-017 and its state-space cache, all implementations | verbatim | ✓ holds, ✗ forbids ×4, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 a3d9c8ab91020d26 ai |
+| [VER-024](#Libpetri-Spec-VER_024_select) | Stubborn-Set Reduction: the pinned stubborn set | F | the stubborn set the enumeration route expands at each class, all implementations | verbatim | ✓ holds, ✗ forbids ×8, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 1689e67e0d1afab9 ai |
+| [VER-025](#Libpetri-Spec-VER_025) | Bounded Witness Phase | B | the SMT verifier, all implementations | verbatim | ✓ holds, ✗ forbids ×11, ✓ nonvacuous, ✓ consistent ×3 | 2026-11-13 5ae1d410184671de |
 
 ---
 
 <a id="Libpetri-Spec-CONC_001"></a>
 ## CONC-001: Orchestrator Thread Ownership
 
-`Libpetri.Spec.CONC_001` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 1d951f4b3445aece ai** · Statement hash `1d951f4b3445aece`
+`Libpetri.Spec.CONC_001` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 8ec97fcb886fa879 ai** · Statement hash `8ec97fcb886fa879`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -405,7 +405,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_002"></a>
 ## CONC-002: Non-Blocking Action Dispatch
 
-`Libpetri.Spec.CONC_002` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 850823bbf843d44e ai** · Statement hash `850823bbf843d44e`
+`Libpetri.Spec.CONC_002` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 622ab260acace682 ai** · Statement hash `622ab260acace682`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -458,7 +458,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_003"></a>
 ## CONC-003: Happens-Before Guarantee
 
-`Libpetri.Spec.CONC_003` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 113b22a155e6e4ea ai** · Statement hash `113b22a155e6e4ea`
+`Libpetri.Spec.CONC_003` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 9fe691d7fbd3289c ai** · Statement hash `9fe691d7fbd3289c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -516,7 +516,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_004"></a>
 ## CONC-004: Bitmap-Based Enablement Check
 
-`Libpetri.Spec.CONC_004` · Kind **F** · Scope all executors (the mask test of the bitmap executor; the precompiled executor's sparse form is PERF-042) · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 6e1dc524b499bce4 ai** · Statement hash `6e1dc524b499bce4`
+`Libpetri.Spec.CONC_004` · Kind **F** · Scope all executors (the mask test of the bitmap executor; the precompiled executor's sparse form is PERF-042) · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 cc0093e767aeffa3 ai** · Statement hash `cc0093e767aeffa3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -569,7 +569,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_005"></a>
 ## CONC-005: Dirty Set Optimization
 
-`Libpetri.Spec.CONC_005` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 6697def60b6f4e75 ai** · Statement hash `6697def60b6f4e75`
+`Libpetri.Spec.CONC_005` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 1b18cd61a73e4270 ai** · Statement hash `1b18cd61a73e4270`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -628,7 +628,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_005_cycle"></a>
 ## CONC-005: Dirty Set Optimization (executor cycle)
 
-`Libpetri.Spec.CONC_005_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 5743a54f91350a9d ai** · Statement hash `5743a54f91350a9d`
+`Libpetri.Spec.CONC_005_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 4ed73b6a1b398bab ai** · Statement hash `4ed73b6a1b398bab`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -682,7 +682,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_007"></a>
 ## CONC-007: Compiled Net Representation
 
-`Libpetri.Spec.CONC_007` · Kind **F** · Scope all compilers of the bitmap executor's compiled net (Rust CompiledNet::compile, Java CompiledNet.compile, TypeScript CompiledNet.compile), on every net, read as its arcs and output specifications together with which of its transitions carry a match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 c607109d61d47fb1 ai** · Statement hash `c607109d61d47fb1`
+`Libpetri.Spec.CONC_007` · Kind **F** · Scope all compilers of the bitmap executor's compiled net (Rust CompiledNet::compile, Java CompiledNet.compile, TypeScript CompiledNet.compile), on every net, read as its arcs and output specifications together with which of its transitions carry a match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 6a70e647dca7b839 ai** · Statement hash `6a70e647dca7b839`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -752,7 +752,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_008"></a>
 ## CONC-008: Multi-Phase Enablement
 
-`Libpetri.Spec.CONC_008` · Kind **F** · Scope all executors, transitions that build and have no match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 2ed06600a6fb11e9 ai** · Statement hash `2ed06600a6fb11e9`
+`Libpetri.Spec.CONC_008` · Kind **F** · Scope all executors, transitions that build and have no match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 c22d7b15dd67d7fa ai** · Statement hash `c22d7b15dd67d7fa`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -814,7 +814,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_008_nu"></a>
 ## CONC-008: Multi-Phase Enablement (ν-match check)
 
-`Libpetri.Spec.CONC_008_nu` · Kind **F** · Scope all executors, transitions that build, with and without a match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 2cfe4119c63eae2a ai** · Statement hash `2cfe4119c63eae2a`
+`Libpetri.Spec.CONC_008_nu` · Kind **F** · Scope all executors, transitions that build, with and without a match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 04332ab81db9a27c ai** · Statement hash `04332ab81db9a27c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -860,7 +860,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_010"></a>
 ## CONC-010: Orchestrator Wake-Up
 
-`Libpetri.Spec.CONC_010` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 0e0f4c602d8b221e ai** · Statement hash `0e0f4c602d8b221e`
+`Libpetri.Spec.CONC_010` · Kind **B** · Scope all executors · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 c1d36b76676f80c5 ai** · Statement hash `c1d36b76676f80c5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -910,7 +910,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_021"></a>
 ## CONC-021: Opcode-Based Consume Operations
 
-`Libpetri.Spec.CONC_021` · Kind **F** · Scope the precompiled executor, transitions without a match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 e8c2f1340f65c19e ai** · Statement hash `e8c2f1340f65c19e`
+`Libpetri.Spec.CONC_021` · Kind **F** · Scope the precompiled executor, transitions without a match specification · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 57da04acf088d6ee ai** · Statement hash `57da04acf088d6ee`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -971,7 +971,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_022"></a>
 ## CONC-022: Flat-Array Token Storage
 
-`Libpetri.Spec.CONC_022` · Kind **F** · Scope the precompiled executor's token storage · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 46bdeb1acd296260 ai** · Statement hash `46bdeb1acd296260`
+`Libpetri.Spec.CONC_022` · Kind **F** · Scope the precompiled executor's token storage · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 3f7723c8d0e44e50 ai** · Statement hash `3f7723c8d0e44e50`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1040,7 +1040,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_023"></a>
 ## CONC-023: Priority-Partitioned Ready Queues
 
-`Libpetri.Spec.CONC_023` · Kind **F** · Scope the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path the declaration order (ruling D14 (a)) · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 814d35b7abaf7bf8 ai** · Statement hash `814d35b7abaf7bf8`
+`Libpetri.Spec.CONC_023` · Kind **F** · Scope the ready order of the precompiled executor, and by AC4 of every backend; on the all-immediate fast path the declaration order (ruling D14 (a)) · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 62d82e0965733d22 ai** · Statement hash `62d82e0965733d22`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1091,7 +1091,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_024"></a>
 ## CONC-024: Precomputed Timing Arrays
 
-`Libpetri.Spec.CONC_024` · Kind **F** · Scope the precompiled net of every implementation · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 5a1c90acb46d9c40 ai** · Statement hash `5a1c90acb46d9c40`
+`Libpetri.Spec.CONC_024` · Kind **F** · Scope the precompiled net of every implementation · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 1f7ebd6d8d6d2983 ai** · Statement hash `1f7ebd6d8d6d2983`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1153,7 +1153,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_025"></a>
 ## CONC-025: Lazy Marking Synchronization
 
-`Libpetri.Spec.CONC_025` · Kind **B** · Scope precompiled executor · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 59a2fa6b11fb0b87 ai** · Statement hash `59a2fa6b11fb0b87`
+`Libpetri.Spec.CONC_025` · Kind **B** · Scope precompiled executor · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 80539c8c497a3cf6 ai** · Statement hash `80539c8c497a3cf6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1202,7 +1202,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CONC_026"></a>
 ## CONC-026: Optional output validation skip (option enabled)
 
-`Libpetri.Spec.CONC_026` · Kind **N** · Scope an executor that offers the option, with the option enabled · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 7fa0bb97a098a2a8 ai** · Statement hash `7fa0bb97a098a2a8`
+`Libpetri.Spec.CONC_026` · Kind **N** · Scope an executor that offers the option, with the option enabled · Source **verbatim** (spec/05-concurrency.md) · Sign-off **2026-11-13 fe6b6d06d66e8eb7 ai** · Statement hash `fe6b6d06d66e8eb7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1249,7 +1249,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_002"></a>
 ## CORE-002: Place Identity
 
-`Libpetri.Spec.CORE_002` · Kind **F** · Scope all implementations · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 2d1cd1e89380fb5a ai** · Statement hash `2d1cd1e89380fb5a`
+`Libpetri.Spec.CORE_002` · Kind **F** · Scope all implementations · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 d6990bd7d9a321a0 ai** · Statement hash `d6990bd7d9a321a0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1301,7 +1301,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_003"></a>
 ## CORE-003: Place Type Safety
 
-`Libpetri.Spec.CORE_003` · Kind **A** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 0ea88201c63f35e8 ai** · Statement hash `0ea88201c63f35e8`
+`Libpetri.Spec.CORE_003` · Kind **A** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 27bef09c2e3e60a3 ai** · Statement hash `27bef09c2e3e60a3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1351,7 +1351,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_010"></a>
 ## CORE-010: Token Immutability
 
-`Libpetri.Spec.CORE_010` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 3b58a50ccb0d412f ai** · Statement hash `3b58a50ccb0d412f`
+`Libpetri.Spec.CORE_010` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 3747ae47cc3c6f5b ai** · Statement hash `3747ae47cc3c6f5b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1420,7 +1420,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_011"></a>
 ## CORE-011: Token Creation
 
-`Libpetri.Spec.CORE_011` · Kind **F** · Scope the host token factories of Java, TypeScript and Rust · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 2bfe1f7b290d1782 ai** · Statement hash `2bfe1f7b290d1782`
+`Libpetri.Spec.CORE_011` · Kind **F** · Scope the host token factories of Java, TypeScript and Rust · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 10215fe700de632c ai** · Statement hash `10215fe700de632c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1477,7 +1477,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_011_B"></a>
 ## CORE-011: Token Creation (tokens the executor creates)
 
-`Libpetri.Spec.CORE_011_B` · Kind **B** · Scope the tokens the executors of Java, TypeScript, Rust and Python create: action outputs written as values, raw-value injections, minted timeout outcomes · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 08776b8cad7bb709 ai** · Statement hash `08776b8cad7bb709`
+`Libpetri.Spec.CORE_011_B` · Kind **B** · Scope the tokens the executors of Java, TypeScript, Rust and Python create: action outputs written as values, raw-value injections, minted timeout outcomes · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 c89d8884fe941ab9 ai** · Statement hash `c89d8884fe941ab9`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1530,7 +1530,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_013"></a>
 ## CORE-013: Token FIFO Ordering
 
-`Libpetri.Spec.CORE_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 cd1eca5bb95e9b90 ai** · Statement hash `cd1eca5bb95e9b90`
+`Libpetri.Spec.CORE_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 6d49e51409096a52 ai** · Statement hash `6d49e51409096a52`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1581,7 +1581,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_020"></a>
 ## CORE-020: Transition Definition
 
-`Libpetri.Spec.CORE_020` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 bd4977fa5a0efd72 ai** · Statement hash `bd4977fa5a0efd72`
+`Libpetri.Spec.CORE_020` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 945d731cabee5640 ai** · Statement hash `945d731cabee5640`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1636,7 +1636,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_021"></a>
 ## CORE-021: Transition Identity
 
-`Libpetri.Spec.CORE_021` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 7792de31f8f3f5f3 ai** · Statement hash `7792de31f8f3f5f3`
+`Libpetri.Spec.CORE_021` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 36e112e4c4eef850 ai** · Statement hash `36e112e4c4eef850`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1682,7 +1682,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_022"></a>
 ## CORE-022: Transition enablement
 
-`Libpetri.Spec.CORE_022` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 ac97fd4b8210a654 ai** · Statement hash `ac97fd4b8210a654`
+`Libpetri.Spec.CORE_022` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 adee76c2bb1c1b01 ai** · Statement hash `adee76c2bb1c1b01`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1762,7 +1762,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_030"></a>
 ## CORE-030: Input arc
 
-`Libpetri.Spec.CORE_030` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 37a9147db6a0f409 ai** · Statement hash `37a9147db6a0f409`
+`Libpetri.Spec.CORE_030` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 467bda95044411b9 ai** · Statement hash `467bda95044411b9`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1819,7 +1819,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_031"></a>
 ## CORE-031: Inhibitor arc
 
-`Libpetri.Spec.CORE_031` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 13bd1b82094c56b6 ai** · Statement hash `13bd1b82094c56b6`
+`Libpetri.Spec.CORE_031` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 7d31c150ae4215ab ai** · Statement hash `7d31c150ae4215ab`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1865,7 +1865,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_032"></a>
 ## CORE-032: Read Arc
 
-`Libpetri.Spec.CORE_032` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 114ece4e82239077 ai** · Statement hash `114ece4e82239077`
+`Libpetri.Spec.CORE_032` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 7fd3f8d88a4203c9 ai** · Statement hash `7fd3f8d88a4203c9`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1918,7 +1918,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_033"></a>
 ## CORE-033: Read arc multi-reader
 
-`Libpetri.Spec.CORE_033` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 a864c7bea1b325a9 ai** · Statement hash `a864c7bea1b325a9`
+`Libpetri.Spec.CORE_033` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 17082fe299ea8dd5 ai** · Statement hash `17082fe299ea8dd5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -1972,7 +1972,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_034"></a>
 ## CORE-034: Reset arc
 
-`Libpetri.Spec.CORE_034` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 93e6155b06c813c7 ai** · Statement hash `93e6155b06c813c7`
+`Libpetri.Spec.CORE_034` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 f239c7649ea6bb65 ai** · Statement hash `f239c7649ea6bb65`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2032,7 +2032,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_035"></a>
 ## CORE-035: Output arc
 
-`Libpetri.Spec.CORE_035` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 7ce7e918319b593c ai** · Statement hash `7ce7e918319b593c`
+`Libpetri.Spec.CORE_035` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 1af909a444b9b0bb ai** · Statement hash `1af909a444b9b0bb`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2092,7 +2092,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_036"></a>
 ## CORE-036: Arc semantics summary
 
-`Libpetri.Spec.CORE_036` · Kind **B** · Scope all executors; the outcome line with output validation enabled (CONC-026, the default) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 153aed3781898e2a ai** · Statement hash `153aed3781898e2a`
+`Libpetri.Spec.CORE_036` · Kind **B** · Scope all executors; the outcome line with output validation enabled (CONC-026, the default) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 11bbf112c510dd8c ai** · Statement hash `11bbf112c510dd8c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2179,7 +2179,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_037"></a>
 ## CORE-037: Dead Arc Warning
 
-`Libpetri.Spec.CORE_037` · Kind **F** · Scope the dead-arc report of every executor backend and of the SMT verifier; the events and report lines are the second block of this ID · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 ebc7c7b7ff9bccba ai** · Statement hash `ebc7c7b7ff9bccba`
+`Libpetri.Spec.CORE_037` · Kind **F** · Scope the dead-arc report of every executor backend and of the SMT verifier; the events and report lines are the second block of this ID · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 ece1894f8fec8877 ai** · Statement hash `ece1894f8fec8877`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2255,7 +2255,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_037_events"></a>
 ## CORE-037: Dead Arc Warning: executor events
 
-`Libpetri.Spec.CORE_037_events` · Kind **B** · Scope every executor backend with its event store enabled (SHOULD; the shall sentences bind an executor that reports dead arcs); for Java, on a net and initial marking where no two places share a name with different token types ([MOD-024]) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 2a197db642c0057a ai** · Statement hash `2a197db642c0057a`
+`Libpetri.Spec.CORE_037_events` · Kind **B** · Scope every executor backend with its event store enabled (SHOULD; the shall sentences bind an executor that reports dead arcs); for Java, on a net and initial marking where no two places share a name with different token types ([MOD-024]) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 c16c90630c1f7afc ai** · Statement hash `c16c90630c1f7afc`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2310,7 +2310,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_037_verifier"></a>
 ## CORE-037: Dead Arc Warning: verifier report lines
 
-`Libpetri.Spec.CORE_037_verifier` · Kind **B** · Scope the SMT verifier, all implementations (SHOULD; the shall sentences bind a verifier that reports dead arcs) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 bb99246757cbb1e5 ai** · Statement hash `bb99246757cbb1e5`
+`Libpetri.Spec.CORE_037_verifier` · Kind **B** · Scope the SMT verifier, all implementations (SHOULD; the shall sentences bind a verifier that reports dead arcs) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 714dee4cb48fa43a ai** · Statement hash `714dee4cb48fa43a`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2348,7 +2348,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_040"></a>
 ## CORE-040: Net Builder
 
-`Libpetri.Spec.CORE_040` · Kind **F** · Scope all net builders used without composition or fusion sets · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 306502b72cef9ade ai** · Statement hash `306502b72cef9ade`
+`Libpetri.Spec.CORE_040` · Kind **F** · Scope all net builders used without composition or fusion sets · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 6dfcf7f064039899 ai** · Statement hash `6dfcf7f064039899`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2405,7 +2405,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_041"></a>
 ## CORE-041: Net Immutability
 
-`Libpetri.Spec.CORE_041` · Kind **B** · Scope all net builders used without composition or fusion sets · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 9626d777196eacc9 ai** · Statement hash `9626d777196eacc9`
+`Libpetri.Spec.CORE_041` · Kind **B** · Scope all net builders used without composition or fusion sets · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 5f2bdad361404f7b ai** · Statement hash `5f2bdad361404f7b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2446,7 +2446,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_042"></a>
 ## CORE-042: Action Binding Separation
 
-`Libpetri.Spec.CORE_042` · Kind **F** · Scope Java, TypeScript, Rust (net-level bindActions, both forms); Python rides on the Rust binding and exposes no net-level binding · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 a350df7bca509dc0 ai** · Statement hash `a350df7bca509dc0`
+`Libpetri.Spec.CORE_042` · Kind **F** · Scope Java, TypeScript, Rust (net-level bindActions, both forms); Python rides on the Rust binding and exposes no net-level binding · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 ac185926867e5058 ai** · Statement hash `ac185926867e5058`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2506,7 +2506,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_042_nu"></a>
 ## CORE-042: Action Binding Separation: the match specification
 
-`Libpetri.Spec.CORE_042_nu` · Kind **F** · Scope Java, TypeScript, Rust (net-level bindActions, both forms, on a net whose transitions may have a match specification); Python rides on the Rust binding · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 3f906fdfcf23b4d9 ai** · Statement hash `3f906fdfcf23b4d9`
+`Libpetri.Spec.CORE_042_nu` · Kind **F** · Scope Java, TypeScript, Rust (net-level bindActions, both forms, on a net whose transitions may have a match specification); Python rides on the Rust binding · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 cbbe1162f0601ca5 ai** · Statement hash `cbbe1162f0601ca5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2536,7 +2536,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_043"></a>
 ## CORE-043: Output-Declaring Transitions Must Produce
 
-`Libpetri.Spec.CORE_043` · Kind **F** · Scope every compile step and every verification entry point (state-class graph and SMT), under every property and option setting the entry point accepts · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 933ab58dbd29501c ai** · Statement hash `933ab58dbd29501c`
+`Libpetri.Spec.CORE_043` · Kind **F** · Scope every compile step and every verification entry point (state-class graph and SMT), under every property and option setting the entry point accepts · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 62920d24551e966c ai** · Statement hash `62920d24551e966c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2593,7 +2593,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_050"></a>
 ## CORE-050: Transition Action
 
-`Libpetri.Spec.CORE_050` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 0e01354c5393cdc4 ai** · Statement hash `0e01354c5393cdc4`
+`Libpetri.Spec.CORE_050` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 c1ed38cfa6218f73 ai** · Statement hash `c1ed38cfa6218f73`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2642,7 +2642,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_051"></a>
 ## CORE-051: Passthrough Action
 
-`Libpetri.Spec.CORE_051` · Kind **F** · Scope all implementations · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 03fbcb7e4e151706 ai** · Statement hash `03fbcb7e4e151706`
+`Libpetri.Spec.CORE_051` · Kind **F** · Scope all implementations · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 85983106b3c2790e ai** · Statement hash `85983106b3c2790e`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2691,7 +2691,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_052"></a>
 ## CORE-052: Fork Action
 
-`Libpetri.Spec.CORE_052` · Kind **F** · Scope all implementations (the built-in fork action; Python rides on the Rust action) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 b67572cce63eec54 ai** · Statement hash `b67572cce63eec54`
+`Libpetri.Spec.CORE_052` · Kind **F** · Scope all implementations (the built-in fork action; Python rides on the Rust action) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 35ad4a0580f99f47 ai** · Statement hash `35ad4a0580f99f47`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2751,7 +2751,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_053"></a>
 ## CORE-053: Transform Action
 
-`Libpetri.Spec.CORE_053` · Kind **F** · Scope implementations that provide transform() · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 6b70bde76f2235a5 ai** · Statement hash `6b70bde76f2235a5`
+`Libpetri.Spec.CORE_053` · Kind **F** · Scope implementations that provide transform() · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 d68bb5f33756a9d7 ai** · Statement hash `d68bb5f33756a9d7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2808,7 +2808,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_054"></a>
 ## CORE-054: Produce Action
 
-`Libpetri.Spec.CORE_054` · Kind **F** · Scope the built-in produce action of Java, TypeScript and Rust (the Python binding exposes no produce built-in) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 3179646a0a186c37 ai** · Statement hash `3179646a0a186c37`
+`Libpetri.Spec.CORE_054` · Kind **F** · Scope the built-in produce action of Java, TypeScript and Rust (the Python binding exposes no produce built-in) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 88e5197e82de08b3 ai** · Statement hash `88e5197e82de08b3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2857,7 +2857,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_060"></a>
 ## CORE-060: Context Input Access
 
-`Libpetri.Spec.CORE_060` · Kind **F** · Scope the transition context of every implementation; line 3 and the inputToken part of line 4 only where the context gives access to tokens: Java and TypeScript · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 b43fc487e82e5cc3 ai** · Statement hash `b43fc487e82e5cc3`
+`Libpetri.Spec.CORE_060` · Kind **F** · Scope the transition context of every implementation; line 3 and the inputToken part of line 4 only where the context gives access to tokens: Java and TypeScript · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 e1c5fadb33c58378 ai** · Statement hash `e1c5fadb33c58378`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2916,7 +2916,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_061"></a>
 ## CORE-061: Context Read Access
 
-`Libpetri.Spec.CORE_061` · Kind **F** · Scope the transition context of every implementation · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 e9686be508ee4d51 ai** · Statement hash `e9686be508ee4d51`
+`Libpetri.Spec.CORE_061` · Kind **F** · Scope the transition context of every implementation · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 6f385fd4cc9dc684 ai** · Statement hash `6f385fd4cc9dc684`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -2966,7 +2966,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_062"></a>
 ## CORE-062: Context Output Access
 
-`Libpetri.Spec.CORE_062` · Kind **F** · Scope the transition context of every implementation, except output calls made after the firing has ended with the timeout outcome · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 aadbfae1c586127b ai** · Statement hash `aadbfae1c586127b`
+`Libpetri.Spec.CORE_062` · Kind **F** · Scope the transition context of every implementation, except output calls made after the firing has ended with the timeout outcome · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 3388de21659e4590 ai** · Statement hash `3388de21659e4590`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3020,7 +3020,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_063"></a>
 ## CORE-063: Context Structure Enforcement
 
-`Libpetri.Spec.CORE_063` · Kind **F** · Scope the transition context of every implementation; the inputToken part of line 1 only where the context gives access to tokens: Java and TypeScript · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 6f3fb70f7a46effd ai** · Statement hash `6f3fb70f7a46effd`
+`Libpetri.Spec.CORE_063` · Kind **F** · Scope the transition context of every implementation; the inputToken part of line 1 only where the context gives access to tokens: Java and TypeScript · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 0ad4980fe52658b7 ai** · Statement hash `0ad4980fe52658b7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3074,7 +3074,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_070"></a>
 ## CORE-070: Marking State
 
-`Libpetri.Spec.CORE_070` · Kind **F** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 1cc7b90b478876c1 ai** · Statement hash `1cc7b90b478876c1`
+`Libpetri.Spec.CORE_070` · Kind **F** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 de0653cf6113eebf ai** · Statement hash `de0653cf6113eebf`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3143,7 +3143,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_072"></a>
 ## CORE-072: Initial Marking
 
-`Libpetri.Spec.CORE_072` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 31b2fc4630cbe0e6 ai** · Statement hash `31b2fc4630cbe0e6`
+`Libpetri.Spec.CORE_072` · Kind **B** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 5f36d819f56677d7 ai** · Statement hash `5f36d819f56677d7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3217,7 +3217,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_073"></a>
 ## CORE-073: Marking Snapshot and Restore
 
-`Libpetri.Spec.CORE_073` · Kind **F** · Scope all implementations; line 6 binds every executor, an executor built from a restored marking alone (Rust, Python) included; lines 5 and 7 bind every executor that accepts a restored marking and an explicit initial marking together (Java, TypeScript) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 6d172b9f8eb5b302 ai** · Statement hash `6d172b9f8eb5b302`
+`Libpetri.Spec.CORE_073` · Kind **F** · Scope all implementations; line 6 binds every executor, an executor built from a restored marking alone (Rust, Python) included; lines 5 and 7 bind every executor that accepts a restored marking and an explicit initial marking together (Java, TypeScript) · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 248b9a4ed4eb5488 ai** · Statement hash `248b9a4ed4eb5488`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3285,7 +3285,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-CORE_073_T"></a>
 ## CORE-073: Marking Snapshot and Restore (resume timing)
 
-`Libpetri.Spec.CORE_073_T` · Kind **T** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 780f44c3d032f165 ai** · Statement hash `780f44c3d032f165`
+`Libpetri.Spec.CORE_073_T` · Kind **T** · Scope all executors · Source **verbatim** (spec/01-core-model.md) · Sign-off **2026-11-13 e8056f771dcdfae0 ai** · Statement hash `e8056f771dcdfae0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3322,7 +3322,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_002"></a>
 ## ENV-002: Environment Place Registration
 
-`Libpetri.Spec.ENV_002` · Kind **B** · Scope executors whose inject takes an environment-place handle (Java, TypeScript) · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 225c5b12c950cc51 ai** · Statement hash `225c5b12c950cc51`
+`Libpetri.Spec.ENV_002` · Kind **B** · Scope executors whose inject takes an environment-place handle (Java, TypeScript) · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 04a47dd90e755d34 ai** · Statement hash `04a47dd90e755d34`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3372,7 +3372,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_002_host"></a>
 ## ENV-002: Environment Place Registration (host of a name-keyed inject)
 
-`Libpetri.Spec.ENV_002_host` · Kind **A** · Scope executors whose inject takes a place name (Rust, Python), and their hosts · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 e10bc7fa91cf3a17 ai** · Statement hash `e10bc7fa91cf3a17`
+`Libpetri.Spec.ENV_002_host` · Kind **A** · Scope executors whose inject takes a place name (Rust, Python), and their hosts · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 75617b78406d7c87 ai** · Statement hash `75617b78406d7c87`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3396,7 +3396,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_003"></a>
 ## ENV-003: inject() Thread Safety
 
-`Libpetri.Spec.ENV_003` · Kind **B** · Scope all executors with environment places · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 6d9b8eacf3b03d16 ai** · Statement hash `6d9b8eacf3b03d16`
+`Libpetri.Spec.ENV_003` · Kind **B** · Scope all executors with environment places · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 b4210631b2c3af53 ai** · Statement hash `b4210631b2c3af53`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3463,7 +3463,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_004"></a>
 ## ENV-004: inject() Completion Semantics
 
-`Libpetri.Spec.ENV_004` · Kind **B** · Scope executors with an admission signal (Java, TypeScript); Rust and Python report acceptance only (ruling D44 (a)) · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 7d20bbf9de3d56df ai** · Statement hash `7d20bbf9de3d56df`
+`Libpetri.Spec.ENV_004` · Kind **B** · Scope executors with an admission signal (Java, TypeScript); Rust and Python report acceptance only (ruling D44 (a)) · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 13c265bb4d7b1a48 ai** · Statement hash `13c265bb4d7b1a48`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3508,7 +3508,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_005"></a>
 ## ENV-005: inject() Wake-Up
 
-`Libpetri.Spec.ENV_005` · Kind **T** · Scope all executors · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 29befa0357c21bc6 ai** · Statement hash `29befa0357c21bc6`
+`Libpetri.Spec.ENV_005` · Kind **T** · Scope all executors · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 f055ec6495c51ae3 ai** · Statement hash `f055ec6495c51ae3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3552,7 +3552,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_006"></a>
 ## ENV-006: inject() Rejection on Closed or Draining Executor
 
-`Libpetri.Spec.ENV_006` · Kind **B** · Scope all executors with environment places · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 f763b1af231c3340 ai** · Statement hash `f763b1af231c3340`
+`Libpetri.Spec.ENV_006` · Kind **B** · Scope all executors with environment places · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 822c4161ee627f90 ai** · Statement hash `822c4161ee627f90`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3599,7 +3599,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_010"></a>
 ## ENV-010: Implicit Long-Running Behavior
 
-`Libpetri.Spec.ENV_010` · Kind **B** · Scope executors with environment places · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 112d7fdb35d59dcb ai** · Statement hash `112d7fdb35d59dcb`
+`Libpetri.Spec.ENV_010` · Kind **B** · Scope executors with environment places · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 c1128f66dd855daa ai** · Statement hash `c1128f66dd855daa`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3644,7 +3644,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_011"></a>
 ## ENV-011: Graceful Drain
 
-`Libpetri.Spec.ENV_011` · Kind **B** · Scope executors with a drain operation · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 7f4f71d351ffaeea ai** · Statement hash `7f4f71d351ffaeea`
+`Libpetri.Spec.ENV_011` · Kind **B** · Scope executors with a drain operation · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 132530ca21a7e726 ai** · Statement hash `132530ca21a7e726`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3708,7 +3708,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_013"></a>
 ## ENV-013: Immediate Close
 
-`Libpetri.Spec.ENV_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 facafa2407799dfd ai** · Statement hash `facafa2407799dfd`
+`Libpetri.Spec.ENV_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 af84822d6b454606 ai** · Statement hash `af84822d6b454606`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3766,7 +3766,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_014"></a>
 ## ENV-014: Mid-Execution Marking Snapshot
 
-`Libpetri.Spec.ENV_014` · Kind **B** · Scope all executors · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 98ccafcb0c495997 ai** · Statement hash `98ccafcb0c495997`
+`Libpetri.Spec.ENV_014` · Kind **B** · Scope all executors · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 c5a6e7a50f94a806 ai** · Statement hash `c5a6e7a50f94a806`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3822,7 +3822,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_015"></a>
 ## ENV-015: Immediate Termination
 
-`Libpetri.Spec.ENV_015` · Kind **B** · Scope all executors; the operation itself is optional (MAY) and only Java provides it · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 f922a30127799577 ai** · Statement hash `f922a30127799577`
+`Libpetri.Spec.ENV_015` · Kind **B** · Scope all executors; the operation itself is optional (MAY) and only Java provides it · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 a6230715cc874c0f ai** · Statement hash `a6230715cc874c0f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3905,7 +3905,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_016"></a>
 ## ENV-016: Observable Termination
 
-`Libpetri.Spec.ENV_016` · Kind **B** · Scope executors that provide run-with-timeout with a timeout policy (Java, TypeScript) · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 a8480b1637cf2316 ai** · Statement hash `a8480b1637cf2316`
+`Libpetri.Spec.ENV_016` · Kind **B** · Scope executors that provide run-with-timeout with a timeout policy (Java, TypeScript) · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 e3c4e69a7b654c37 ai** · Statement hash `e3c4e69a7b654c37`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -3916,12 +3916,12 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - The model is a pair: an executor R : XRel N T (glossary GlossaryExec.lean), where R C s l s' says that under configuration C the step labelled l leads from executor state s to s', and the expiry handling X : ExpiryRel N T of its run-with-timeout, where X C pol s s' says that the expiry of the caller's timeout under policy pol (TimeoutPolicy: abandon or close) takes the executor from s to s'. The expiry is an event of the host's clock, which the model does not carry (ruling D18 (b)), so it is a relation beside R and not a label of XLbl. The caller's own result (Java's returned stage failing with a TimeoutException, TypeScript's rejected promise) is not executor state and is outside the model. The witnesses are the reference executor RefExec (Reference/Exec.lean) and refExpiry: abandon changes nothing, close is RefExec's close step, or nothing when the executor is already closed or stopped.
 - That the expiry is handled under the policy the caller chose, and not another, is the meaning of X's policy argument: X C pol s s' is the handling of a run whose caller chose pol, so lines 1 and 2 say what each choice does, and the coverage clause Env016Covers says that the handling takes effect at all. The binding of the caller's argument to pol is not modelled further; an implementation that swapped the two policies breaks line 1 on the abandon side (ENV_016_forbids_abandonCloses) and line 2 on the close side (ENV_016_forbids_closeIgnored).
 - Scope (Status Proposed, priority MAY, ruling D47 (c)): the block applies to the implementations that expose the policy, Java (run(Duration, RunTimeoutPolicy) in BitmapNetExecutor and PrecompiledNetExecutor) and TypeScript (run(timeoutMs, onTimeout) in both executors). Rust and Python have no run-with-timeout policy (spec/runtime-defects.md, UB-03). Java's PetriNetExecutor interface has a default run(timeout, policy) that ignores the policy and abandons: an executor that keeps that default does not provide the close policy, and one that claimed to would break line 2 (ENV_016_forbids_closeIgnored).
-- Its offer is in ExecCoversW5.Env016Covers (ConsistencyExec.lean; the convention of GlossaryExec.lean: offers are coverage clauses, never block lines). The third EARS sentence demands an answer and is quoted whole; its safety halves are lines 1 and 2, and its existence half is that clause: from every state in which the loop is running, an expiry under either policy has an outcome in X, which the reference meets (env016_ref_covers). AC3 is lines 1 to 3 with that clause. Under abandon the expiry changes nothing and the loop keeps running (line 1; ENV_016_forbids_abandonCloses: an expiry that closes the executor under abandon breaks it). Under close, from an open or draining executor, the expiry is the executor's own close step (line 2; ENV_016_forbids_closeIgnored: an expiry that leaves the executor open breaks it, and so does ENV_016_forbids_closeTerminates, an expiry that stops the loop without waiting for its firings in flight, as terminateNow does under ENV-015). Line 2 reads 'already closed or stopped' on the lifecycle mode, not on the steps R offers, so line 2 and Env016Covers together require R to have a close step from every open or draining state in which its loop runs: an executor that refuses close() while its loop runs, so that the close policy acts as abandon, breaks line 2 (ENV_016_forbids_closeRefusedWhileRunning), and an expiry handling that gave such an executor no outcome there instead would fail Env016Covers. The expiry under close does not stop the loop at once (line 3; ENV_016_forbids_closeFinishes). That the loop then stops once its in-flight actions complete is ENV-013's requirement (its item 4), not a line of this block; ENV_016_nonvacuous part 3 shows it on the test derivation's run. Env016Covers makes the expiry take effect at all: an implementation whose expiry handler never runs meets every line and fails the clause (env016_covers_unhandled). The clause asks for an outcome only while the loop runs: once the run has returned, Java's orTimeout and TypeScript's cleared timer no longer fire.
+- Its offer is in ExecCoversW5.Env016Covers (ConsistencyExec.lean; the convention of GlossaryExec.lean: offers are coverage clauses, never block lines). Sentence s13 ('act on the expiry under the policy the caller chose') demands an answer and is covered whole; its safety halves are lines 1 and 2, and its existence half is that clause: from every state in which the loop is running, an expiry under either policy has an outcome in X, which the reference meets (env016_ref_covers). AC3 is lines 1 to 3 with that clause. Under abandon the expiry changes nothing and the loop keeps running (line 1; ENV_016_forbids_abandonCloses: an expiry that closes the executor under abandon breaks it). Under close, from an open or draining executor, the expiry is the executor's own close step (line 2; ENV_016_forbids_closeIgnored: an expiry that leaves the executor open breaks it, and so does ENV_016_forbids_closeTerminates, an expiry that stops the loop without waiting for its firings in flight, as terminateNow does under ENV-015). Line 2 reads 'already closed or stopped' on the lifecycle mode, not on the steps R offers, so line 2 and Env016Covers together require R to have a close step from every open or draining state in which its loop runs: an executor that refuses close() while its loop runs, so that the close policy acts as abandon, breaks line 2 (ENV_016_forbids_closeRefusedWhileRunning), and an expiry handling that gave such an executor no outcome there instead would fail Env016Covers. The expiry under close does not stop the loop at once (line 3; ENV_016_forbids_closeFinishes). That the loop then stops once its in-flight actions complete is ENV-013's requirement (its item 4), not a line of this block; ENV_016_nonvacuous part 3 shows it on the test derivation's run. Env016Covers makes the expiry take effect at all: an implementation whose expiry handler never runs meets every line and fails the clause (env016_covers_unhandled). The clause asks for an outcome only while the loop runs: once the run has returned, Java's orTimeout and TypeScript's cleared timer no longer fire.
 - The MUST NOT sentence is line 3 with line 1: no expiry while the loop runs ends the run or changes the marking, so the result the loop reports, the marking at its finish and the fact that it ended (EXEC-041), is fixed only by a finish step of the loop. Line 3 adds to line 1 only under close, where it constrains R's own close step; under abandon it follows from line 1. An implementation whose timer completes the loop's own result with the marking at the expiry, the defect Java's loop.copy() avoids, breaks line 1 (ENV_016_forbids_expiryCompletes); one whose close finishes the run at once, reporting the marking at the expiry, breaks line 3 although its expiry is its own close step (ENV_016_forbids_closeFinishes). 'An abandoned loop can still report its real final marking' is ENV_016_nonvacuous part 2: after an expiry under abandon the action in flight returns, its output is deposited, and the loop finishes quiescent with that output in the marking it reports.
-- The termination reason an abandoned run reports is EXEC-041's question, not this block's (env-b ENVB-R6 (a), ruling D53 (c)): TypeScript sets its reason to stopped when the caller's timeout expires and keeps it if the loop later ends on its own. That field is reporting state outside the executor state of the model, and D53 (c) allows it, since stopped is not a completed reason. Lines 1 and 3 speak of the executor state and the marking only.
+- The termination reason an abandoned run reports is EXEC-041's question, not this block's (env-b ENVB-R6 (a), ruling D53 (c)): TypeScript sets its reason to stopped when the caller's timeout expires and, when the loop later ends on its own, replaces it with the cause of that finish (RD-52). That field is reporting state outside the executor state of the model, and D53 (c) allows stopped while the loop runs on, since stopped is not a completed reason. Lines 1 and 3 speak of the executor state and the marking only.
 - Java closes the executor from a callback that runs after the returned stage has failed (whenCompleteAsync), so loop steps may come between the expiry and the close. The model places the expiry at the moment close() takes effect; a run in which loop steps come first is a run of R whose close step comes later. TypeScript calls close() in the turn that rejects the promise.
 - Which policy is the default is configuration (kind N) and not a line: run(timeout) without a policy abandons in Java and TypeScript, the historical default of the text. The lines hold for whichever policy the caller chooses.
-- AC1, AC2 and the first paragraph are the second block of ENV-016, ENV_016_await (ENV_016_l1.lean, wave W7, ruling D47 (c)), over the event model RefEvents, since the answer waits for the step that emits ExecutionCompleted: awaitTermination answers true when the loop was never started, false while it runs, true only after the finish step that answers the queued inject() calls and only once no emission of ExecutionCompleted is still to come, and true once the loop has finished, whatever a failing event store did. Blocking, the timeout of awaitTermination and 'promptly' are kind Q.
+- The awaitTermination sentences (s1 to s10, the first paragraph with them), AC1 and AC2 are the second block of ENV-016, ENV_016_await (ENV_016_l1.lean, wave W7, ruling D47 (c)), over the event model RefEvents, since the answer waits for the step that emits ExecutionCompleted: awaitTermination answers true when the loop was never started, false while it runs, true only after the finish step that answers the queued inject() calls and only once no emission of ExecutionCompleted is still to come, and true once the loop has finished, whatever a failing event store did. Blocking, the timeout of awaitTermination and 'promptly' are kind Q.
 - The test derivation (a net with an action still in flight when a short timeout expires, under each policy; the executor closed under close and the loop stopping once the action completes, the loop still live under abandon and reporting the action's output) is ENV_016_nonvacuous: at the expiry the loop is still running, parked with a firing in flight; under close the executor is closed by R's close step and the loop finishes closed after the action completes; under abandon the executor is unchanged and the loop goes on to finish quiescent with the action's output. The awaitTermination half of the test derivation is ENV_016_await_nonvacuous, on the same run.
 
 **Evidence**
@@ -3952,7 +3952,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-ENV_016_await"></a>
 ## ENV-016: Observable Termination (awaitTermination)
 
-`Libpetri.Spec.ENV_016_await` · Kind **B** · Scope executors that provide awaitTermination (Java: BitmapNetExecutor and PrecompiledNetExecutor), for the first run of an executor · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 25f9a0909b8357ab ai** · Statement hash `25f9a0909b8357ab`
+`Libpetri.Spec.ENV_016_await` · Kind **B** · Scope executors that provide awaitTermination (Java: BitmapNetExecutor and PrecompiledNetExecutor), for the first run of an executor · Source **verbatim** (spec/06-environment-places.md) · Sign-off **2026-11-13 cce583aca99ae0ed ai** · Statement hash `cce583aca99ae0ed`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4014,7 +4014,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_002"></a>
 ## EVT-002: ExecutionStarted Event
 
-`Libpetri.Spec.EVT_002` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 402b10defa18579f ai** · Statement hash `402b10defa18579f`
+`Libpetri.Spec.EVT_002` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 068a313117160f5b ai** · Statement hash `068a313117160f5b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4062,7 +4062,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_002_executionId"></a>
 ## EVT-002: ExecutionStarted Event (execution ID)
 
-`Libpetri.Spec.EVT_002_executionId` · Kind **F** · Scope Java, TypeScript and Rust executors · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 616505a7f94df939 ai** · Statement hash `616505a7f94df939`
+`Libpetri.Spec.EVT_002_executionId` · Kind **F** · Scope Java, TypeScript and Rust executors · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 c9e768e7ef461005 ai** · Statement hash `c9e768e7ef461005`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4091,7 +4091,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_002_lifecycleId"></a>
 ## EVT-002: ExecutionStarted Event (execution ID on the lifecycle events)
 
-`Libpetri.Spec.EVT_002_lifecycleId` · Kind **F** · Scope Java and TypeScript executors (the lifecycle events of Rust and Python carry no execution ID) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 59784c3fe92eac83 ai** · Statement hash `59784c3fe92eac83`
+`Libpetri.Spec.EVT_002_lifecycleId` · Kind **F** · Scope Java and TypeScript executors (the lifecycle events of Rust and Python carry no execution ID) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 6c8356046e3e4df3 ai** · Statement hash `6c8356046e3e4df3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4121,7 +4121,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_003"></a>
 ## EVT-003: ExecutionCompleted Event
 
-`Libpetri.Spec.EVT_003` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 0a42de0e37536960 ai** · Statement hash `0a42de0e37536960`
+`Libpetri.Spec.EVT_003` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 48152dc1f0053a7c ai** · Statement hash `48152dc1f0053a7c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4185,7 +4185,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_003_duration"></a>
 ## EVT-003: ExecutionCompleted Event (total duration)
 
-`Libpetri.Spec.EVT_003_duration` · Kind **F** · Scope Java and TypeScript executors (the ExecutionCompleted event of Rust and Python carries no duration) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 7dad8ab40c4313d6 ai** · Statement hash `7dad8ab40c4313d6`
+`Libpetri.Spec.EVT_003_duration` · Kind **F** · Scope Java and TypeScript executors (the ExecutionCompleted event of Rust and Python carries no duration) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 8ca7026e28dea664 ai** · Statement hash `8ca7026e28dea664`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4214,7 +4214,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_004"></a>
 ## EVT-004: TransitionEnabled Event
 
-`Libpetri.Spec.EVT_004` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 7f2ec3f635627dab ai** · Statement hash `7f2ec3f635627dab`
+`Libpetri.Spec.EVT_004` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 be1306c2d9b63103 ai** · Statement hash `be1306c2d9b63103`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4268,7 +4268,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_005"></a>
 ## EVT-005: TransitionClockRestarted Event
 
-`Libpetri.Spec.EVT_005` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 d7b06ab6fc7825bb ai** · Statement hash `d7b06ab6fc7825bb`
+`Libpetri.Spec.EVT_005` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 91ac45070a3bf371 ai** · Statement hash `91ac45070a3bf371`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4323,7 +4323,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_006"></a>
 ## EVT-006: TransitionStarted Event
 
-`Libpetri.Spec.EVT_006` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 5a955369b4586277 ai** · Statement hash `5a955369b4586277`
+`Libpetri.Spec.EVT_006` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 07f719232e9617ab ai** · Statement hash `07f719232e9617ab`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4375,7 +4375,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_006_payload"></a>
 ## EVT-006: TransitionStarted Event (removed tokens)
 
-`Libpetri.Spec.EVT_006_payload` · Kind **B** · Scope Java and TypeScript executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 34ec428491b65151 ai** · Statement hash `34ec428491b65151`
+`Libpetri.Spec.EVT_006_payload` · Kind **B** · Scope Java and TypeScript executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 8d4d53b3a431d3d6 ai** · Statement hash `8d4d53b3a431d3d6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4422,7 +4422,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_007"></a>
 ## EVT-007: TransitionCompleted Event
 
-`Libpetri.Spec.EVT_007` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 02fba859f6695f29 ai** · Statement hash `02fba859f6695f29`
+`Libpetri.Spec.EVT_007` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 36b0cc1699bf112c ai** · Statement hash `36b0cc1699bf112c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4435,13 +4435,13 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - Main block and companion (rulings D33 (a) and D38 (a)): this block reads an event only through its kind and the transition it names. The produced tokens and the duration are read only by the second block of EVT-007, EVT_007_payload, scoped to Java and TypeScript: the Rust TransitionCompleted event carries the transition name and a timestamp only (rust/libpetri-event/src/net_event.rs TransitionCompleted), and Python rides on it.
 - Line 1 is the first quoted sentence. Every runtime deposits the tokens one by one, emits a TokenAdded event for each, and then the TransitionCompleted event: Rust in handle_completion and in the synchronous paths of fire_transition_sync and fire_transition_async (rust/libpetri-runtime/src/executor_core/executor.rs); Java in processCompletedTransitions and processSyncOutput (java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java and PrecompiledNetExecutor.java); TypeScript after every output has landed (processCompletedTransitions in typescript/src/runtime/bitmap-net-executor.ts and precompiled-net-executor.ts). Which TokenAdded events the deposit emits, one per deposited token naming its place, is EVT-011's, as the cross-reference says; with it, the TransitionCompleted comes after the TokenAdded event of every token the action produced at completion (AC1). An executor that reports the completion before the deposited tokens breaks line 1 (EVT_007_mutant_completedFirst), and so does one that deposits silently (EVT_007_mutant_silentCommit).
 - Line 1 is stated on the events that are not log messages because the runtimes interleave diagnostics with the deposit: Rust emits the IO-016 multiplicity warning before the TokenAdded events and the CORE-072 unknown-place warning between them and the TransitionCompleted (warn_multiplicity and warn_unknown_places in handle_completion, executor_core/executor.rs), Java warns about an unknown place inside the deposit, TypeScript inside the loop (warnUnknownPlace in processCompletedTransitions of bitmap-net-executor.ts). Which log messages a deposit emits is EVT-013's.
-- AC1 also says the event comes after output deposition. Tokens the action published before it completed (IO-015, mid-action publication, Rust and Python only) are not part of the deposit of the completion: a publish step deposits them with their own TokenAdded events and no completion event (ruling D17, EXEC-020), and Rust processes completions before publications in a cycle (run_async drains completion_rx through handle_completion before flush_rx through handle_flush, executor_core/executor.rs), so such a TokenAdded event can follow the TransitionCompleted (EVT_007_allows_publishedAfter). The event marks the deposit of the tokens the action produced at completion, which the markdown now says.
+- AC1 also says the event comes after output deposition. Tokens the action published before it completed (IO-015, mid-action publication, Rust and Python only) are not part of the deposit of the completion: a publish step deposits them with their own TokenAdded events and no completion event (ruling D17, EXEC-020), and Rust processes completions before publications in a cycle (run_async drains completion_rx through handle_completion before flush_rx through handle_flush, executor_core/executor.rs), so such a TokenAdded event can follow the TransitionCompleted (EVT_007_allows_publishedAfter). The event marks the deposit of the tokens the action produced at completion, as the requirement text says.
 - Line 2 is the second quoted sentence. No runtime emits TransitionCompleted outside these sites. An executor that reports a completion that output validation rejects as completed breaks it (EVT_007_mutant_completedOnRejection; EVT-008 rejects it too), and so do one that reports a mid-action publication as a completion (EVT_007_mutant_completedAtPublish), one that reports a completion at the boot (EVT_007_mutant_bootCompleted) and one that reports a completion for a failed firing at the end of step 1, after the fail step settled it (EVT_007_mutant_completedAfterFail).
 - Line 3 is the third quoted sentence, the weak form of ruling D65 (a). Java and TypeScript emit ActionTimedOut from the action's timer and then, when the executor deposits the timeout outcome, TokenAdded events and a TransitionCompleted listing them (in Java, ExecutorSupport.withActionTimeout in java/src/main/java/org/libpetri/runtime/ExecutorSupport.java completes the future normally with the timeout output and BitmapNetExecutor.processCompletedTransitions deposits it; in TypeScript, the timeout branch of fireTransition in bitmap-net-executor.ts emits the event and processCompletedTransitions deposits the outcome). Rust emits ActionTimedOut and the TokenAdded events and no TransitionCompleted (handle_completion in executor_core/executor.rs: the event is guarded by completion.timed_out.is_none()), and a Rust test pins it (async_timeout_emits_action_timed_out in rust/libpetri-runtime/src/executor.rs). Both are allowed: the reference meets EVT_007 under both emission variants, and at the same timeout deposit polJT emits the event and polRust does not (EVT_007_allows_timeoutEither). What line 3 still fixes: if the event is emitted, it names the firing's transition, it is the only one of the deposit, and it comes after the deposited tokens. An executor that reports it before them breaks line 3 (EVT_007_mutant_timeoutCompletedFirst), and so does one that reports it twice (EVT_007_mutant_timeoutCompletedTwice). Ruling D65 (b) would make the event forbidden after a timeout outcome, and (c) required; either is a later change of line 3.
 - AC2 (the duration reflects action execution time) is the companion's line 3, scoped to Java and TypeScript; the Rust event has no duration.
-- Not fixed here: the timestamp the event carries (the epoch clock is the CORE-011 slice), and the defensive copy of the list (EVT-001; an event is a value here). That a commit step is offered at all when an admitted completion is waiting is the executor model's (EXEC-021, ExecCoversW5 in ConsistencyExec.lean), not a line here.
-- Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); no host callback throws inside a deposit (Java and TypeScript report a throw of the event store in the middle of a deposit as a TransitionFailed of a partly deposited firing; the model's deposit is atomic); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator.
-- The test derivation (fire a transition, verify TransitionCompleted with produced tokens and positive duration) is split. The shape is EVT_007_nonvacuous: t's action writes 50 to place 1 and returns, and the deposit emits TokenAdded 1 50 and then TransitionCompleted t; its timeout deposit emits TransitionCompleted t after the two TokenAdded events under the Java and TypeScript emission and none under the Rust emission. The produced tokens and the duration are EVT_007_payload_nonvacuous. A duration above zero is not required (ruling D38 (a)): the firing clock may return the same reading twice (TIME-015), and Java reports zero for every synchronously completed action (EVT_007_payload_allows_zeroDuration).
+- Not fixed here: the timestamp the event carries (the epoch clock is the CORE-011 slice), and the defensive copy of the list (EVT-001; an event is a value here). That a commit step is offered at all when an admitted completion is waiting is the executor model's (EXEC-020's coverage clause Exec020Covers in Req/EXEC_cycle.lean, a conjunct of ExecCoversW5 in ConsistencyExec.lean), not a line here.
+- Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); no host callback throws inside a deposit (Java reports a throw of the event store in the middle of a deposit as a TransitionFailed of a partly deposited firing; TypeScript drops the event and goes on, since emitEvent in bitmap-net-executor.ts and precompiled-net-executor.ts catches the failure through swallowEventStoreFailure; the model's deposit is atomic); an event is a value (EVT-001); transition names are distinct (ruling D10). The events of one step are contiguous in the model, since a step appends its events at once. Java appends ActionTimedOut events and the log messages it captures from actions from other threads than the orchestrator (the timeout callback BitmapNetExecutor.fireTransition hands java/src/main/java/org/libpetri/runtime/ExecutorSupport.java withActionTimeout, which appends through emitEvent from the timer thread; LogCaptureScope.java wrapRunnable and wrapCallable), so in a Java store such an event can fall between the events of one step; the lines are read on the store with those events left out, as the reading at the top of spec/08-events-observability.md says. TypeScript and Rust append every event from the orchestrator.
+- The test derivation (fire a transition whose action produces a token after the clock advanced; verify the TokenAdded event, then TransitionCompleted naming the transition, which in Java and TypeScript lists the produced token with a duration no larger than the clock advance) is split. The shape is EVT_007_nonvacuous: t's action writes 50 to place 1 and returns, and the deposit emits TokenAdded 1 50 and then TransitionCompleted t; its timeout deposit emits TransitionCompleted t after the two TokenAdded events under the Java and TypeScript emission and none under the Rust emission. The produced tokens and the duration are EVT_007_payload_nonvacuous. A duration above zero is not required (ruling D38 (a)): the firing clock may return the same reading twice (TIME-015), and Java reports zero for every synchronously completed action (EVT_007_payload_allows_zeroDuration).
 
 **Evidence**
 
@@ -4489,7 +4489,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_007_payload"></a>
 ## EVT-007: TransitionCompleted Event (produced tokens and duration)
 
-`Libpetri.Spec.EVT_007_payload` · Kind **B** · Scope Java and TypeScript executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 16d80a6b5a3bfc6a ai** · Statement hash `16d80a6b5a3bfc6a`
+`Libpetri.Spec.EVT_007_payload` · Kind **B** · Scope Java and TypeScript executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 85d1a27d515969e0 ai** · Statement hash `85d1a27d515969e0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4497,12 +4497,12 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 
 **Assumptions**
 
-- This is the second block of EVT-007 (rulings D33 (a) and D38 (a)): the produced tokens and the duration, for the executors whose TransitionCompleted event carries them. The first block, EVT_007, states the shape and the emission points for every executor. Java's TransitionCompleted carries List<Token<?>> producedTokens and Duration duration (java/src/main/java/org/libpetri/event/NetEvent.java TransitionCompleted), TypeScript's producedTokens and durationMs (typescript/src/event/net-event.ts); Rust's carries neither, so this block does not apply to Rust and Python. The witness is refEvExec polJT, and EVT_007_payload_rust shows the reference with the Rust emission meets it too, vacuously after a timeout outcome, where it emits no TransitionCompleted.
+- This is the second block of EVT-007 (rulings D33 (a) and D38 (a)): the produced tokens and the duration, for the executors whose TransitionCompleted event carries them. The first block, EVT_007, states the shape and the emission points for every executor. Java's TransitionCompleted carries List<Token<?>> producedTokens and Duration duration (java/src/main/java/org/libpetri/event/NetEvent.java TransitionCompleted), TypeScript's producedTokens and durationMs (typescript/src/event/net-event.ts); Rust's carries neither, so this block does not apply to Rust and Python. The model lists each produced token with its place (the outcome e : List (N × T)), while the Java and TypeScript lists hold the tokens alone, in the order of the outcome entries the executor walks; a runtime event is read as the model's by pairing its i-th token with the place of the i-th entry of the deposited outcome, which is the place of the deposit's i-th TokenAdded event. The witness is refEvExec polJT, and EVT_007_payload_rust shows the reference with the Rust emission meets it too, vacuously after a timeout outcome, where it emits no TransitionCompleted.
 - Line 1 is the first quoted sentence. Java and TypeScript walk the emission in order, deposit each token, emit its TokenAdded event and append the token to the produced list, then emit TransitionCompleted with that list (Java BitmapNetExecutor and PrecompiledNetExecutor: processSyncOutput for an action that completes synchronously and processCompletedTransitions for one that completes later; TypeScript bitmap-net-executor.ts and precompiled-net-executor.ts: processCompletedTransitions). The produced tokens are the emission of the completion, the tokens the action produced at completion (EXEC-020); tokens it published before (IO-015) are deposited by a publish step and are not listed, and only Rust offers a publication, whose event has no list. Line 1 also fixes the order of the TokenAdded events across places, emission order, which EVT-011 leaves to this block. An executor that lists no produced tokens breaks line 1 and meets the first block (EVT_007_payload_mutant_producedEmpty).
 - Line 2 is the second quoted sentence. Java and TypeScript deposit a timeout outcome through the same completion code, so the event lists the timeout outcome's tokens. An executor that lists none breaks line 2 (EVT_007_payload_mutant_timeoutEmpty). Like the reference, both executors of Java and TypeScript run only the join-relay check on a timeout outcome and do not validate it against the output spec (ruling D24 (a); TransitionContext.isDetachedForTimeout in processCompletedTransitions), so every timeout outcome the check accepts is deposited and listed. An executor that also validated it and failed the firing (the behaviour RD-01 recorded) would emit no TransitionCompleted for that firing; line 2 does not catch it, EXEC-021, EXEC-022 and IO-013 do.
-- Line 3 is the third quoted sentence and AC2, as a bound (ruling D38 (a)): the duration is never more than the firing-clock time between the start of the firing and the deposit, and zero is allowed. Java measures clockNanos() at processing minus the reading recorded in the in-flight record, which is taken after the action was invoked (BitmapNetExecutor.fireTransition stores it in the InFlightTransition record, PrecompiledNetExecutor.fireTransition in inFlightStartNanos, and processCompletedTransitions subtracts it), and reports Duration.ZERO for every synchronously completed action (processSyncOutput in both Java executors); TypeScript reports nowMs() at processing minus the reading taken when it fired the transition (the startMs of the in-flight record in bitmap-net-executor.ts and inFlightStartMs in precompiled-net-executor.ts, both set in fireTransition, and durationMs in processCompletedTransitions). The reference reports the difference of the two readings exactly. An executor that reports the reading since clock zero breaks line 3 (EVT_007_payload_mutant_durationFromZero). The old test derivation asked for a duration above zero; the firing clock may return the same reading twice (TIME-015), and the reference reports zero for an action that returns at the reading it started at (EVT_007_payload_allows_zeroDuration).
+- Line 3 is the third quoted sentence and AC2, as a bound (ruling D38 (a)): the duration is never more than the firing-clock time between the start of the firing and the deposit, and zero is allowed. Java measures clockNanos() at processing minus the reading recorded in the in-flight record, which is taken after the action was invoked (BitmapNetExecutor.fireTransition stores it in the InFlightTransition record, PrecompiledNetExecutor.fireTransition in inFlightStartNanos, and processCompletedTransitions subtracts it), and reports Duration.ZERO for every synchronously completed action (processSyncOutput in both Java executors); TypeScript reports nowMs() at processing minus the reading taken when it fired the transition (the startMs of the in-flight record in bitmap-net-executor.ts and inFlightStartMs in precompiled-net-executor.ts, both set in fireTransition, and durationMs in processCompletedTransitions). The reference reports the difference of the two readings exactly. An executor that reports the reading since clock zero breaks line 3 (EVT_007_payload_mutant_durationFromZero). A duration above zero is not required (ruling D38 (a)): the firing clock may return the same reading twice (TIME-015), and the reference reports zero for an action that returns at the reading it started at (EVT_007_payload_allows_zeroDuration).
 - As in the first block: the timestamp is not modelled, the defensive copy is EVT-001's, and the shared assumptions (store enabled, no host callback throws inside a deposit, events are values, distinct names) apply.
-- The test derivation (fire a transition, verify TransitionCompleted with produced tokens and positive duration) is EVT_007_payload_nonvacuous: the run starts at reading 2, t starts at 2, its action writes 50 to place 1 and returns at reading 5, and TransitionCompleted t lists (1, 50) with duration 3; when instead its budget runs out at reading 6, TransitionCompleted t lists (2, 7) and (2, 8), the timeout outcome, with duration 4.
+- The Java and TypeScript half of the test derivation (TransitionCompleted lists the produced token with a duration no larger than the clock advance) is EVT_007_payload_nonvacuous: the run starts at reading 2, t starts at 2, its action writes 50 to place 1 and returns at reading 5, and TransitionCompleted t lists (1, 50) with duration 3; when instead its budget runs out at reading 6, TransitionCompleted t lists (2, 7) and (2, 8), the timeout outcome, with duration 4.
 
 **Evidence**
 
@@ -4534,7 +4534,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_008"></a>
 ## EVT-008: TransitionFailed Event
 
-`Libpetri.Spec.EVT_008` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 592f70c382992d1c ai** · Statement hash `592f70c382992d1c`
+`Libpetri.Spec.EVT_008` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 f460319d44704185 ai** · Statement hash `f460319d44704185`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4591,7 +4591,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_009"></a>
 ## EVT-009: TransitionTimedOut Event
 
-`Libpetri.Spec.EVT_009` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 3b83953ac7adb832 ai** · Statement hash `3b83953ac7adb832`
+`Libpetri.Spec.EVT_009` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 a5e0e8b49416aa02 ai** · Statement hash `a5e0e8b49416aa02`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4644,7 +4644,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_009_payload"></a>
 ## EVT-009: TransitionTimedOut Event (deadline and elapsed time)
 
-`Libpetri.Spec.EVT_009_payload` · Kind **B** · Scope Java and TypeScript executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 6e7d17ef5af90b01 ai** · Statement hash `6e7d17ef5af90b01`
+`Libpetri.Spec.EVT_009_payload` · Kind **B** · Scope Java and TypeScript executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 ec55eec76e30f3e2 ai** · Statement hash `ec55eec76e30f3e2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4655,7 +4655,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - This is the second block of EVT-009 (rulings D33 (a) and D38 (a)): the deadline and elapsed fields, for the executors whose TransitionTimedOut event carries them. The first block, EVT_009, states when the event is emitted for every executor; this block adds what the two duration fields hold. Java builds the event from t.timing().latest() and the elapsed milliseconds the deadline check compared (enforceDeadlines in java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java and PrecompiledNetExecutor.java), TypeScript from timingLatest(t.timing) and the elapsed time it compared (enforceDeadlines in typescript/src/runtime/bitmap-net-executor.ts and precompiled-net-executor.ts). Rust and Python carry neither field (rust/libpetri-event/src/net_event.rs TransitionTimedOut), so only the first block applies to them.
 - The model is an executor with events E : EvExec N T, as in the first block; the witness is refEvExec polJT. The reading of a step is the cycle reading of its target state: a reap happens only in the deadline step (TIME_013_cycle), which moves the cycle reading to the reading it judges at (viewAt s s'.cyc, ruling D61 (c)), so the elapsed time is the one the deadline step compared with the bound plus the tolerance. The elapsed time is the glossary's Elapsed time, the time since the transition was last newly armed ([TIME-010], ruling D5), not the time since it was first enabled: a clock restart ([TIME-012]) starts it again. An executor whose deadline field adds the tolerance meets the first block and breaks this line (EVT_009_payload_mutant_plusTol), and so does one whose elapsed field is read at the update's reading while the reap is judged at the deadline step's (EVT_009_payload_mutant_updateReading).
 - This block does not say on its own which step reaps or what the cycle reading of the target state is: for an executor that meets only this block, s'.cyc may be any value, and the line speaks of every step that emits the event. That the event is emitted only at a reaping step is the first block's line 2, that only the deadline step reaps is TIME_013_cycle's lines 1, 2 and 6, and that the deadline step's s'.cyc is the update's reading or the host's later present reading is TIME_010_cycle line 4. The reference's elapsed field, read at max s.cyc s.now, agrees with this line through the reference deadline step (xstepW_deadline).
-- Durations are firing-clock readings in milliseconds; Java truncates its nanosecond readings to milliseconds before it subtracts, which the model's whole-millisecond readings do not show. The timestamp is not modelled. The shared assumptions of the first block (store enabled, events are values, distinct names) apply.
+- Durations are firing-clock readings in milliseconds. Java subtracts its two nanosecond readings and truncates the difference to whole milliseconds (elapsedMillis in enforceDeadlines), and TypeScript's readings and elapsed field are fractional milliseconds under its default clock (performance.now()); the model's whole-millisecond readings show neither. The timestamp is not modelled. The shared assumptions of the first block (store enabled, events are values, distinct names) apply.
 - The test derivation is EVT_009_payload_nonvacuous and EVT_009_nonvacuous_deadline: the Window(3, 5) transition reaped at reading 7 reports deadline 5, not 6, and elapsed time 7; the Deadline(5) transition armed by the update at reading 0 and reaped by the deadline step at reading 7 reports elapsed time 7, the deadline step's reading, not 0, the update's.
 
 **Evidence**
@@ -4684,7 +4684,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_010"></a>
 ## EVT-010: ActionTimedOut Event
 
-`Libpetri.Spec.EVT_010` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 62f3150f8891e0e3 ai** · Statement hash `62f3150f8891e0e3`
+`Libpetri.Spec.EVT_010` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 0f37ff2f8e74cefb ai** · Statement hash `0f37ff2f8e74cefb`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4745,7 +4745,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_010_payload"></a>
 ## EVT-010: ActionTimedOut Event (duration)
 
-`Libpetri.Spec.EVT_010_payload` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 6d9570c61a2d44ce ai** · Statement hash `6d9570c61a2d44ce`
+`Libpetri.Spec.EVT_010_payload` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 c9810c5ee7f8c17c ai** · Statement hash `c9810c5ee7f8c17c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4776,7 +4776,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_011"></a>
 ## EVT-011: TokenAdded Event
 
-`Libpetri.Spec.EVT_011` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 c32d37d50ee0ef12 ai** · Statement hash `c32d37d50ee0ef12`
+`Libpetri.Spec.EVT_011` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 c38856d693e6dba0 ai** · Statement hash `c38856d693e6dba0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4833,7 +4833,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_011_payload"></a>
 ## EVT-011: TokenAdded Event (token payload)
 
-`Libpetri.Spec.EVT_011_payload` · Kind **B** · Scope Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 40bdde7fc7fa15d1 ai** · Statement hash `40bdde7fc7fa15d1`
+`Libpetri.Spec.EVT_011_payload` · Kind **B** · Scope Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 0c1712c72ad18124 ai** · Statement hash `0c1712c72ad18124`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4872,7 +4872,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_012"></a>
 ## EVT-012: TokenRemoved Event
 
-`Libpetri.Spec.EVT_012` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 631114adfc0faf23 ai** · Statement hash `631114adfc0faf23`
+`Libpetri.Spec.EVT_012` · Kind **B** · Scope all executors (event store enabled) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 97f1a7e2ad4bef54 ai** · Statement hash `97f1a7e2ad4bef54`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4922,7 +4922,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_012_payload"></a>
 ## EVT-012: TokenRemoved Event (token payload)
 
-`Libpetri.Spec.EVT_012_payload` · Kind **B** · Scope Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled); places without a correlated input of a match specification (NU-020) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 0e649946f4f4c226 ai** · Statement hash `0e649946f4f4c226`
+`Libpetri.Spec.EVT_012_payload` · Kind **B** · Scope Java and TypeScript executors; Rust and Python executors whose event store captures tokens (event store enabled); places without a correlated input of a match specification (NU-020) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 70256e286f0878b3 ai** · Statement hash `70256e286f0878b3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -4959,7 +4959,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_013"></a>
 ## EVT-013: LogMessage Event
 
-`Libpetri.Spec.EVT_013` · Kind **B** · Scope all executors (event store enabled); the action log of line 1 is offered by Java and TypeScript · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 758e0297ac01144b ai** · Statement hash `758e0297ac01144b`
+`Libpetri.Spec.EVT_013` · Kind **B** · Scope all executors (event store enabled); the action log of line 1 is offered by Java and TypeScript · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 7c6c3c1714c9b21d ai** · Statement hash `7c6c3c1714c9b21d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5021,11 +5021,11 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_014"></a>
 ## EVT-014: MarkingSnapshot Event
 
-`Libpetri.Spec.EVT_014` · Kind **B** · Scope every executor (event store enabled); Rust and Python carry token counts rather than tokens (RD-50) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 aa0582e14fcbbfc4 ai** · Statement hash `aa0582e14fcbbfc4`
+`Libpetri.Spec.EVT_014` · Kind **B** · Scope every executor (event store enabled); Rust and Python carry token counts rather than tokens (RD-50) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 ca140774f68149b3 ai** · Statement hash `ca140774f68149b3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| *When* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking.<br><br>*When* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event.<br><br>The marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token.<br><br>The marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073]). | 1. For every executor with events E over string place names and every configuration C:<br>2. for every initial marking M0, the events a run emits before its first step contain a MarkingSnapshot event with an ExecutionStarted event before it, and the snapshot m it carries is canonical (names strictly ascending, no empty queue), restores every declared place to its queue in M0, and lists every place with its queue in M0;<br>3. for every history H, a finish step from state s to state s' that appends the events evs contains a MarkingSnapshot event with an ExecutionCompleted event after it, and the snapshot m it carries is canonical, restores every declared place to its queue in s', and lists every place with its queue in s';<br>4. for every initial marking M0, every MarkingSnapshot event the run emits before its first step carries a canonical snapshot;<br>5. for every history H and every label l, every MarkingSnapshot event a step labelled l appends carries a canonical snapshot. | <pre>fun {T} E ↦<br>  ∀ (C : Cfg String T),<br>    (∀ (M0 : QMarking String T),<br>        ∃ pre m post,<br>          E.boot C M0 = pre ++ NetEvent.markingSnapshot m :: post ∧<br>            NetEvent.executionStarted ∈ pre ∧ SnapCarries C M0 m) ∧<br>      (∀ (H : List (NetEvent String T)) (c : Cause) (evs : List (NetEvent String T)),<br>          on fun s s' ↦ E.step C H s (XLbl.finish c) evs s', shall fun x s' ↦<br>            ∃ pre m post,<br>              evs = pre ++ NetEvent.markingSnapshot m :: post ∧<br>                NetEvent.executionCompleted ∈ post ∧ SnapCarries C s'.M m) ∧<br>        (∀ (M0 : QMarking String T) (m : QSnap String T),<br>            NetEvent.markingSnapshot m ∈ E.boot C M0 → QCanon m) ∧<br>          ∀ (H : List (NetEvent String T)) (l : XLbl String T)<br>            (evs : List (NetEvent String T)),<br>            on fun s s' ↦ E.step C H s l evs s', shall fun x x_1 ↦<br>              ∀ (m : QSnap String T), NetEvent.markingSnapshot m ∈ evs → QCanon m</pre> |
+| *When* a run starts, the executor *shall* emit, before the run's first cycle, an ExecutionStarted event and, after it, a MarkingSnapshot event that carries the initial marking.<br><br>*When* a run finishes ([EXEC-041]), whatever its termination reason, the executor *shall* emit a MarkingSnapshot event that carries the marking the run ends with and, after it, an ExecutionCompleted event.<br><br>The marking a MarkingSnapshot event carries *shall* list every place the net declares that holds a token, *shall* list each place it lists with all of that place's tokens in FIFO order, and *shall not* list a place that holds no token.<br><br>The marking a MarkingSnapshot event carries *shall* list each place at most once and *shall* list its places in ascending code-point order of the place name, also for a place name above U+FFFF ([CORE-073]). | 1. For every executor with events E over string place names and every configuration C:<br>2. for every initial marking M0, the events a run emits before its first step contain a MarkingSnapshot event with an ExecutionStarted event before it, and the snapshot m it carries is canonical (names strictly ascending, no empty queue), restores every declared place to its queue in M0, and lists each place it lists with its queue in M0;<br>3. for every history H, a finish step from state s to state s' that appends the events evs contains a MarkingSnapshot event with an ExecutionCompleted event after it, and the snapshot m it carries is canonical, restores every declared place to its queue in s', and lists each place it lists with its queue in s';<br>4. for every initial marking M0, every MarkingSnapshot event the run emits before its first step carries a canonical snapshot;<br>5. for every history H and every label l, every MarkingSnapshot event a step labelled l appends carries a canonical snapshot. | <pre>fun {T} E ↦<br>  ∀ (C : Cfg String T),<br>    (∀ (M0 : QMarking String T),<br>        ∃ pre m post,<br>          E.boot C M0 = pre ++ NetEvent.markingSnapshot m :: post ∧<br>            NetEvent.executionStarted ∈ pre ∧ SnapCarries C M0 m) ∧<br>      (∀ (H : List (NetEvent String T)) (c : Cause) (evs : List (NetEvent String T)),<br>          on fun s s' ↦ E.step C H s (XLbl.finish c) evs s', shall fun x s' ↦<br>            ∃ pre m post,<br>              evs = pre ++ NetEvent.markingSnapshot m :: post ∧<br>                NetEvent.executionCompleted ∈ post ∧ SnapCarries C s'.M m) ∧<br>        (∀ (M0 : QMarking String T) (m : QSnap String T),<br>            NetEvent.markingSnapshot m ∈ E.boot C M0 → QCanon m) ∧<br>          ∀ (H : List (NetEvent String T)) (l : XLbl String T)<br>            (evs : List (NetEvent String T)),<br>            on fun s s' ↦ E.step C H s l evs s', shall fun x x_1 ↦<br>              ∀ (m : QSnap String T), NetEvent.markingSnapshot m ∈ evs → QCanon m</pre> |
 
 **Assumptions**
 
@@ -5086,7 +5086,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_020"></a>
 ## EVT-020: EventStore Interface
 
-`Libpetri.Spec.EVT_020` · Kind **F** · Scope every event store (the interface: the in-memory, noop, logging, debug and debug-aware stores of Java, TypeScript and Rust, and the Python binding's store) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 de8415d9c32f1753 ai** · Statement hash `de8415d9c32f1753`
+`Libpetri.Spec.EVT_020` · Kind **F** · Scope every event store (the interface: the in-memory, noop, logging, debug and debug-aware stores of Java, TypeScript and Rust, and the Python binding's store) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 44c31302e7913d44 ai** · Statement hash `44c31302e7913d44`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5148,7 +5148,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_021"></a>
 ## EVT-021: InMemoryEventStore
 
-`Libpetri.Spec.EVT_021` · Kind **F** · Scope the in-memory event store (Java EventStore.inMemory(), TypeScript InMemoryEventStore, Rust InMemoryEventStore, Python InMemoryEventStore) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 bfb6afabf5f29703 ai** · Statement hash `bfb6afabf5f29703`
+`Libpetri.Spec.EVT_021` · Kind **F** · Scope the in-memory event store (Java EventStore.inMemory(), TypeScript InMemoryEventStore, Rust InMemoryEventStore, Python InMemoryEventStore) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 825a7d49f475758c ai** · Statement hash `825a7d49f475758c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5207,7 +5207,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_022"></a>
 ## EVT-022: NoopEventStore
 
-`Libpetri.Spec.EVT_022` · Kind **F** · Scope the noop event store (Java EventStore.noop(), TypeScript noopEventStore(), Rust NoopEventStore) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 07379021855ffbc8 ai** · Statement hash `07379021855ffbc8`
+`Libpetri.Spec.EVT_022` · Kind **F** · Scope the noop event store (Java EventStore.noop(), TypeScript noopEventStore(), Rust NoopEventStore) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 05f34bb0b7f6c833 ai** · Statement hash `05f34bb0b7f6c833`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5250,7 +5250,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_023"></a>
 ## EVT-023: LoggingEventStore
 
-`Libpetri.Spec.EVT_023` · Kind **F** · Scope the logging event store decorator (Java EventStore.logging() and EventStore.logging(delegate)); TypeScript, Rust and Python have none · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 3407bd9cb5d08cc4 ai** · Statement hash `3407bd9cb5d08cc4`
+`Libpetri.Spec.EVT_023` · Kind **F** · Scope the logging event store decorator (Java EventStore.logging() and EventStore.logging(delegate)); TypeScript, Rust and Python have none · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 07a82586093b1b53 ai** · Statement hash `07a82586093b1b53`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5303,7 +5303,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_024"></a>
 ## EVT-024: DebugEventStore
 
-`Libpetri.Spec.EVT_024` · Kind **F** · Scope the debug event store (Java DebugEventStore, TypeScript DebugEventStore, Rust libpetri-debug DebugEventStore) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 546c9502cf8f0fad ai** · Statement hash `546c9502cf8f0fad`
+`Libpetri.Spec.EVT_024` · Kind **F** · Scope the debug event store (Java DebugEventStore, TypeScript DebugEventStore, Rust libpetri-debug DebugEventStore) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 20d46c2deb81cd12 ai** · Statement hash `20d46c2deb81cd12`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5345,7 +5345,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_024_B"></a>
 ## EVT-024: DebugEventStore (subscriptions)
 
-`Libpetri.Spec.EVT_024_B` · Kind **B** · Scope the debug event store's live subscriptions (Java DebugEventStore.subscribe, TypeScript DebugEventStore.subscribe, Rust libpetri-debug DebugEventStore::subscribe) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 42dcc5c89a1b23fd ai** · Statement hash `42dcc5c89a1b23fd`
+`Libpetri.Spec.EVT_024_B` · Kind **B** · Scope the debug event store's live subscriptions (Java DebugEventStore.subscribe, TypeScript DebugEventStore.subscribe, Rust libpetri-debug DebugEventStore::subscribe) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 95fe50ba28bd69d6 ai** · Statement hash `95fe50ba28bd69d6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5396,7 +5396,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_025"></a>
 ## EVT-025: Session Archive Format
 
-`Libpetri.Spec.EVT_025` · Kind **F** · Scope where an implementation provides session archives: the Java, TypeScript and Rust SessionArchiveWriter and SessionArchiveReader, and Python's, which run Rust's · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 952f0c3640ed9828 ai** · Statement hash `952f0c3640ed9828`
+`Libpetri.Spec.EVT_025` · Kind **F** · Scope where an implementation provides session archives: the Java, TypeScript and Rust SessionArchiveWriter and SessionArchiveReader, and Python's, which run Rust's · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 40cba61c02bfb8b6 ai** · Statement hash `40cba61c02bfb8b6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5473,7 +5473,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_030"></a>
 ## EVT-030: Event Filtering
 
-`Libpetri.Spec.EVT_030` · Kind **F** · Scope the event query helpers where an implementation provides them (Java: eventsOfType, transitionEvents, placeEvents, filter with offset and limit, failures, counters and size; TypeScript: queryEvents, eventsOfType, transitionEvents, placeEvents, failures, counters, countEvents and size; Rust: events_of_type, transition_events, place_events, query, failures, size, count_of_types and counters; every helper in the Python binding) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 216fc85788afa925 ai** · Statement hash `216fc85788afa925`
+`Libpetri.Spec.EVT_030` · Kind **F** · Scope the event query helpers where an implementation provides them (Java: eventsOfType, transitionEvents, placeEvents, filter with offset and limit, failures, counters and size; TypeScript: queryEvents, eventsOfType, transitionEvents, placeEvents, failures, counters, countEvents and size; Rust: events_of_type, transition_events, place_events, query, failures, size, count_of_types and counters; every helper in the Python binding) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 1f5cff01b6ff6a2d ai** · Statement hash `1f5cff01b6ff6a2d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5529,7 +5529,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_031"></a>
 ## EVT-031: EventStore Live Subscriptions
 
-`Libpetri.Spec.EVT_031` · Kind **B** · Scope the live subscriptions of an event store, where an implementation provides them: the Python binding's InMemoryEventStore (subscribe and subscribe_stream, run on Rust in rust/libpetri-py); Java, TypeScript and the Rust crate's own InMemoryEventStore have none (spec/runtime-defects.md, UB-04) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 12a76a65a4411764 ai** · Statement hash `12a76a65a4411764`
+`Libpetri.Spec.EVT_031` · Kind **B** · Scope the live subscriptions of an event store, where an implementation provides them: the Python binding's InMemoryEventStore (subscribe and subscribe_stream, run on Rust in rust/libpetri-py); Java, TypeScript and the Rust crate's own InMemoryEventStore have none (spec/runtime-defects.md, UB-04) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 e3ae8d3d32a86f36 ai** · Statement hash `e3ae8d3d32a86f36`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5606,7 +5606,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_032"></a>
 ## EVT-032: Marking Replay Cache
 
-`Libpetri.Spec.EVT_032` · Kind **F** · Scope the replay cache of the debug protocol (Rust libpetri-debug MarkingCache, Python MarkingCache, Java org.libpetri.debug.MarkingCache, TypeScript MarkingCache in libpetri/debug) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 c098dfbcd7d591bf ai** · Statement hash `c098dfbcd7d591bf`
+`Libpetri.Spec.EVT_032` · Kind **F** · Scope the replay cache of the debug protocol (Rust libpetri-debug MarkingCache, Python MarkingCache, Java org.libpetri.debug.MarkingCache, TypeScript MarkingCache in libpetri/debug) · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 6fddc42509ad9e9e ai** · Statement hash `6fddc42509ad9e9e`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5687,7 +5687,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EVT_032_B"></a>
 ## EVT-032: Marking Replay Cache (the replay of a run's events)
 
-`Libpetri.Spec.EVT_032_B` · Kind **B** · Scope every executor (event store enabled), read over the whole event stream of a run · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 c86afdf9cf952faf ai** · Statement hash `c86afdf9cf952faf`
+`Libpetri.Spec.EVT_032_B` · Kind **B** · Scope every executor (event store enabled), read over the whole event stream of a run · Source **verbatim** (spec/08-events-observability.md) · Sign-off **2026-11-13 719f4abc093469e5 ai** · Statement hash `719f4abc093469e5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5729,7 +5729,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_001"></a>
 ## EXEC-001: Orchestrator Loop Steps
 
-`Libpetri.Spec.EXEC_001` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 e0db038ae801add5 ai** · Statement hash `e0db038ae801add5`
+`Libpetri.Spec.EXEC_001` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 13bddd23b3c968ab ai** · Statement hash `13bddd23b3c968ab`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5740,7 +5740,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. A run (XRun) is a list of consecutive steps (source, label, target) of R, from any state, so every trace line also holds of a run observed from the middle. The labels are the steps of EXEC-001: step 1 settles finished firings (commit, fail, tdeposit) and ends with endCompletions; step 1b deposits mid-action publications (publish, Rust and Python, the markdown sentence 'Between steps 1 and 2'); step 2 injects or discards queued external events (inject, discard) and ends with endEvents; step 3 is update; step 4 is deadline ns, which reaps exactly the names ns; the termination test is finish or begin; step 5 is start, lose and endPass; step 6 is park (the loop blocks) and wake. The loop phase of the state says which step the loop is in, and each phase is entered by the step that ends the one before, so 'enters step 1' is a step whose target is in phase completions and whose source is not, and 'begins a cycle' is a step whose source is the pass or the wait and whose target is a running phase that is neither. The witness is the reference executor RefExec (Reference/Exec.lean), checked rule by rule against the Rust executor.
 - Every line is a prohibition or, for line 8, a condition on the state an update leaves: nothing here obliges a step to happen. That the loop goes on (the wait wakes on each arrival, a run ends only on its termination test) is CONC-010's and EXEC-040's subject, and a run with no trigger is unconstrained by lines 1 to 7.
 - Transition names are taken to be pairwise distinct (ruling D10, Cfg.WF.names, which the statement does not assume): lines 6 to 8 work on names, and lines 7 and 8 judge the transition the net holds under the name (findT, the first one with that name). On a net with distinct names this is the transition the start label started; the clock status is kept per name in every runtime.
-- Ruling D70 (a): the steps run in order, but the wait may itself process the completion, publication or event that ends it (Rust settles, publishes or injects in phase await and then runs step 1), and a synchronous firing may be admitted inside its own pass. The block therefore states the partial order every runtime keeps and no strict order of labels per cycle (R-EXEC-9). The literal acceptance criterion 'No transition fires before completions are processed' is false of Rust read over an admission inside the pass: Rust keeps starting the pass after an inline commit of a synchronous firing (executor_core/executor.rs, the firing loop of Phase 5), the decided run runPass of the design spike. The deposit trigger of lines 1 and 2 reads it 'since the last deposit made outside a firing pass' (design NR-3), which every runtime keeps. A synchronous deposit inside the pass is invisible to the rest of the pass, which is EXEC-003's subject.
+- Ruling D70 (a): the steps run in order, but the wait may itself process the completion, publication or event that ends it (Rust settles, publishes or injects in phase await and then runs step 1), and a synchronous firing may be admitted inside its own pass. The block therefore states the partial order every runtime keeps and no strict order of labels per cycle (R-EXEC-9). AC2 is scoped for this reason: read over every deposit, including an admission inside the pass, 'no transition starts before completions are processed' is false of Rust, which keeps starting the pass after an inline commit of a synchronous firing (executor_core/executor.rs, the firing loop of Phase 5), the decided run runPass of the design spike. So AC2 names the completions queued when the cycle began (line 4) and 'the last deposit made outside a firing pass' (design NR-3, the deposit trigger of lines 1 and 2), which every runtime keeps. A synchronous deposit inside the pass is invisible to the rest of the pass, which is EXEC-003's subject.
 - The first two EARS sentences are lines 1 and 2: after a cycle begins or a deposit is made outside a pass, a deadline step needs an update first (line 1) and a start needs a deadline step first (line 2), so the update, then the deadline step, then the starts. An executor that skips the update after step 2 and reaps on stale statuses breaks line 1 (EXEC_001_forbids_skipUpdate), and so does one whose wait jumps to the deadline step (EXEC_001_forbids_wakeToDeadline); one whose pass may begin before the deadline step (fire before reap, the run clash013_refresh_rescue of ClashesTime lifts to it) breaks line 2 (EXEC_001_forbids_fireBeforeReap).
 - The third EARS sentence is line 3: a cycle that begins ends step 2 (endEvents) before its update, so no cycle skips steps 1, 1b and 2. A timer wake that goes straight back to the enablement update (the fast path a Java or TypeScript loop takes if it continues to updateDirtyTransitions when awaitWork returns on its timer, or Rust's Phase 6 timer arm jumping to Phase 3) breaks it (EXEC_001_forbids_wakeToUpdate).
 - The fourth EARS sentence is line 4, the reading of AC2's first clause and of AC1's first clause: the finished firings queued when a cycle begins or step 1 is entered are processed (committed, failed or their timeout outcome deposited, EXEC-020, EXEC-021, EXEC-022, EXEC-030) before any publication, injection or start, so step 1 comes before steps 1b and 2 and before the pass. The cycle trigger catches an executor that skips step 1; the step 1 trigger one that enters it from elsewhere. A firing that finishes later, while step 1 runs, is a new item; the reference processes it too, as Rust drains its completion channel, but the line does not ask for it. A run that ends step 1 with a firing still queued and then starts a transition breaks the line (EXEC_001_forbids_endWithQueued).
@@ -5791,7 +5791,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_002"></a>
 ## EXEC-002: Priority-Based Firing Order
 
-`Libpetri.Spec.EXEC_002` · Kind **F** · Scope every executor backend, the all-immediate fast path included (ruling D14 (a)) · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 87b0ff5ab34db820 ai** · Statement hash `87b0ff5ab34db820`
+`Libpetri.Spec.EXEC_002` · Kind **F** · Scope every executor backend, the all-immediate fast path included (ruling D14 (a)) · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 70c357c823f6665b ai** · Statement hash `70c357c823f6665b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5840,7 +5840,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_002_cycle"></a>
 ## EXEC-002: Priority-Based Firing Order (executor companion)
 
-`Libpetri.Spec.EXEC_002_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 d555dee1be64cd67 ai** · Statement hash `d555dee1be64cd67`
+`Libpetri.Spec.EXEC_002_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 1a19e2555f1c8f42 ai** · Statement hash `1a19e2555f1c8f42`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5875,7 +5875,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_003"></a>
 ## EXEC-003: Competitive Conflict Resolution
 
-`Libpetri.Spec.EXEC_003` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 af7d24bd8a735333 ai** · Statement hash `af7d24bd8a735333`
+`Libpetri.Spec.EXEC_003` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 49d5d3a2d157cf13 ai** · Statement hash `49d5d3a2d157cf13`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5941,7 +5941,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_010"></a>
 ## EXEC-010: FIFO Token Consumption
 
-`Libpetri.Spec.EXEC_010` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 7db429a4e2bfffec ai** · Statement hash `7db429a4e2bfffec`
+`Libpetri.Spec.EXEC_010` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 528559a13871b25d ai** · Statement hash `528559a13871b25d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -5998,7 +5998,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_010_cycle"></a>
 ## EXEC-010: FIFO Token Consumption (executor companion)
 
-`Libpetri.Spec.EXEC_010_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 2bd82b3d5f377403 ai** · Statement hash `2bd82b3d5f377403`
+`Libpetri.Spec.EXEC_010_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 ed8b670223e15f03 ai** · Statement hash `ed8b670223e15f03`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6036,7 +6036,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_012"></a>
 ## EXEC-012: Read Arc Peek
 
-`Libpetri.Spec.EXEC_012` · Kind **B** · Scope all executors and transition builders · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 87233b0a127ae7ae ai** · Statement hash `87233b0a127ae7ae`
+`Libpetri.Spec.EXEC_012` · Kind **B** · Scope all executors and transition builders · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 eea03fa527ffc3f5 ai** · Statement hash `eea03fa527ffc3f5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6110,7 +6110,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_013"></a>
 ## EXEC-013: Reset Arc Execution
 
-`Libpetri.Spec.EXEC_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 d6c6647e059af795 ai** · Statement hash `d6c6647e059af795`
+`Libpetri.Spec.EXEC_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 dc9d0df139814ed2 ai** · Statement hash `dc9d0df139814ed2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6160,7 +6160,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_013_cycle"></a>
 ## EXEC-013: Reset Arc Execution (executor companion)
 
-`Libpetri.Spec.EXEC_013_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 c01690b7a3e1805d ai** · Statement hash `c01690b7a3e1805d`
+`Libpetri.Spec.EXEC_013_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 df1b6306fddf2808 ai** · Statement hash `df1b6306fddf2808`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6195,7 +6195,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_020"></a>
 ## EXEC-020: Output Token Deposition
 
-`Libpetri.Spec.EXEC_020` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 4ba459c6e8931283 ai** · Statement hash `4ba459c6e8931283`
+`Libpetri.Spec.EXEC_020` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 b671259740fe73af ai** · Statement hash `b671259740fe73af`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6246,7 +6246,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_020_cycle"></a>
 ## EXEC-020: Output Token Deposition (executor companion)
 
-`Libpetri.Spec.EXEC_020_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 658dd4528f18a9cb ai** · Statement hash `658dd4528f18a9cb`
+`Libpetri.Spec.EXEC_020_cycle` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 4b2dc37f10d22f71 ai** · Statement hash `4b2dc37f10d22f71`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6295,7 +6295,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_021"></a>
 ## EXEC-021: Output Spec Validation
 
-`Libpetri.Spec.EXEC_021` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 1649f694fa3b896b ai** · Statement hash `1649f694fa3b896b`
+`Libpetri.Spec.EXEC_021` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 27a5c5e3606e28a8 ai** · Statement hash `27a5c5e3606e28a8`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6352,7 +6352,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_022"></a>
 ## EXEC-022: Action Timeout Handling
 
-`Libpetri.Spec.EXEC_022` · Kind **T** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 02dc840a0413f189 ai** · Statement hash `02dc840a0413f189`
+`Libpetri.Spec.EXEC_022` · Kind **T** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 4269c3fa66f4ad07 ai** · Statement hash `4269c3fa66f4ad07`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6428,7 +6428,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_030"></a>
 ## EXEC-030: Action Failure
 
-`Libpetri.Spec.EXEC_030` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 a7c2745ce952446c ai** · Statement hash `a7c2745ce952446c`
+`Libpetri.Spec.EXEC_030` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 2b6f18c42045d797 ai** · Statement hash `2b6f18c42045d797`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6492,7 +6492,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_031"></a>
 ## EXEC-031: No Rollback
 
-`Libpetri.Spec.EXEC_031` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 029bfecc80e62997 ai** · Statement hash `029bfecc80e62997`
+`Libpetri.Spec.EXEC_031` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 9651a10fb12cfa77 ai** · Statement hash `9651a10fb12cfa77`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6540,7 +6540,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_040"></a>
 ## EXEC-040: Standard Quiescence
 
-`Libpetri.Spec.EXEC_040` · Kind **B** · Scope executors without environment places · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 cff5051448a4b4a2 ai** · Statement hash `cff5051448a4b4a2`
+`Libpetri.Spec.EXEC_040` · Kind **B** · Scope executors without environment places · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 d7c9760fb7ca0f84 ai** · Statement hash `d7c9760fb7ca0f84`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6592,11 +6592,11 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_041"></a>
 ## EXEC-041: Execution Result
 
-`Libpetri.Spec.EXEC_041` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 ddec5895d41c87cf ai** · Statement hash `ddec5895d41c87cf`
+`Libpetri.Spec.EXEC_041` · Kind **B** · Scope all executors · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 59ebe00b1963613d ai** · Statement hash `59ebe00b1963613d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| When execution completes, the executor returns the final marking (token distribution across all places).<br><br>**Termination cause MUST be observable.**<br><br>An executor that can stop for any reason other than quiescence ([EXEC-040]) — a close ([ENV-013]), a caller's run budget, a host cancellation — MUST make that reason distinguishable to the caller, by the return value, by a distinct event, or by a raised error.<br><br>Emitting the same completion signal for a quiesced run and a truncated one is non-conforming: a partial marking presented as final cannot be told apart from a net that had nothing left to do, so every consumer that treats completion as proof the run finished — a durable checkpoint, a workflow step, an assertion on the final marking — silently accepts the truncation.<br><br>*When* the executor finishes a run, it *shall* make the marking the run ended with, unchanged by the finish, and the termination reason of the finish available to the caller.<br><br>The executor *shall* end a run only by finishing it, never as a side effect of another step such as a close.<br><br>*While* a run is finished, the executor *shall not* take another step of its loop (answering a snapshot request ([ENV-014]) reads the state and is not a step of the loop), and *shall not* change the returned marking or the termination reason.<br><br>The executor *shall* report the termination reason `quiescent` only when nothing is armed, in flight or queued ([EXEC-040]), and `terminal` only when a terminal place is marked ([EXEC-042]).<br><br>The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination, another caller-requested stop, or a fault of the host runtime that ends the run with a raised error ([EXEC-030]).<br><br>At a rest the run reached after a close or an immediate termination, `quiescent` and `closed` both conform, and after an immediate termination `stopped` conforms too.<br><br>A run budget that expires ends the caller's wait, not the loop: the executor reports a truncating reason to the caller (`stopped`, or a raised error), and a loop that the timeout policy leaves running has not finished, so its later steps and its finish are not steps after a finish.<br><br>Where an implementation exposes the reason as a value, the values are: `quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget, another caller-requested stop, or a host fault that ends the run with a raised error) and `interrupted` (a cancellation observed in the wait, where the runtime has one).<br><br>`quiescent` and `terminal` are the two **completed** reasons: the returned marking is the one the net was designed to end in.<br><br>The others are truncations. | 1. For every executor R and every configuration C:<br>2. for every cause c, a finish step with cause c leaves the marking as it is and enters the finished phase with cause c, from which the caller reads the returned marking and the termination reason;<br>3. while the run is finished (its phase is a finished phase), no step of the loop happens: no executor step other than the answer to a snapshot request (the outside steps stay possible: time passing, an action writing, flushing, returning or timing out, a caller requesting, draining, closing or terminating);<br>4. every step from a finished state leaves the marking and the phase, and so the cause, as they are;<br>5. a finish with cause quiescent happens only at rest: nothing armed, nothing in flight, no completion, publication or injection queued;<br>6. a finish with cause terminal happens only when a terminal place is marked;<br>7. a finish with cause closed happens only when the mode is closed or stopped (a close or an immediate termination was requested);<br>8. a finish with cause stopped happens only when the mode is stopped (an immediate termination was requested);<br>9. every step from an executing phase into a finished phase is a finish step: a run ends only by a finish. | <pre>fun {N T} [DecidableEq N] R ↦<br>  ∀ (C : Cfg N T),<br>    (∀ (c : Cause),<br>        on fun s s' ↦ R C s (XLbl.finish c) s', shall fun s s' ↦<br>          s'.M = s.M ∧ s'.phase = Phase.done c) ∧<br>      (while fun s ↦ isExecPhase s.phase = false, never fun s s' ↦<br>          ∃ l, exec041_loopStep l = true ∧ R C s l s') ∧<br>        (on fun s s' ↦ isExecPhase s.phase = false ∧ ∃ l, R C s l s', shall fun s s' ↦<br>            s'.M = s.M ∧ s'.phase = s.phase) ∧<br>          (on fun s s' ↦ R C s (XLbl.finish Cause.quiescent) s', shall fun s x ↦<br>              Rest C s) ∧<br>            (on fun s s' ↦ R C s (XLbl.finish Cause.terminal) s', shall fun s x ↦<br>                ¬Live C s) ∧<br>              (on fun s s' ↦ R C s (XLbl.finish Cause.closed) s', shall fun s x ↦<br>                  s.mode.closing = true) ∧<br>                (on fun s s' ↦ R C s (XLbl.finish Cause.stopped) s', shall fun s x ↦<br>                    s.mode = Mode.stopped) ∧<br>                  ∀ (l : XLbl N T),<br>                    on fun s s' ↦<br>                      isExecPhase s.phase = true ∧<br>                        isExecPhase s'.phase = false ∧ R C s l s',<br>                      shall fun x x_1 ↦ exec041_isFinish l = true</pre> |
+| When execution completes, the executor returns the final marking (token distribution across all places).<br><br>**Termination cause MUST be observable.**<br><br>An executor that can stop for any reason other than quiescence ([EXEC-040]) — a close ([ENV-013]), a caller's run budget, a host cancellation — MUST make that reason distinguishable to the caller, by the return value, by a distinct event, or by a raised error.<br><br>Emitting the same completion signal for a quiesced run and a truncated one is non-conforming: a partial marking presented as final cannot be told apart from a net that had nothing left to do, so every consumer that treats completion as proof the run finished — a durable checkpoint, a workflow step, an assertion on the final marking — silently accepts the truncation.<br><br>*When* the executor finishes a run, it *shall* make the marking the run ended with, unchanged by the finish, and the termination reason of the finish available to the caller.<br><br>The executor *shall* end a run only by finishing it, never as a side effect of another step such as a close.<br><br>*While* a run is finished, the executor *shall not* take another step of its loop (answering a snapshot request ([ENV-014]) reads the state and is not a step of the loop), and *shall not* change the returned marking or the termination reason.<br><br>The executor *shall* report the termination reason `quiescent` only when nothing is armed, in flight or queued ([EXEC-040]), and `terminal` only when a terminal place is marked ([EXEC-042]).<br><br>The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination, another caller-requested stop, a fault of the host runtime that ends the run with a raised error ([EXEC-030]), or a failure of the run's event store that ends the run with a raised error.<br><br>At a rest the run reached after a close or an immediate termination, `quiescent` and `closed` both conform, and after an immediate termination `stopped` conforms too.<br><br>A run budget that expires ends the caller's wait, not the loop: the executor reports a truncating reason to the caller (`stopped`, or a raised error), and a loop that the timeout policy leaves running has not finished, so its later steps and its finish are not steps after a finish.<br><br>Where an implementation exposes the reason as a value, the values are: `quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget, another caller-requested stop, a host fault that ends the run with a raised error, or a failure of the run's event store that ends the run with a raised error) and `interrupted` (a cancellation observed in the wait, where the runtime has one).<br><br>`quiescent` and `terminal` are the two **completed** reasons: the returned marking is the one the net was designed to end in.<br><br>The others are truncations. | 1. For every executor R and every configuration C:<br>2. for every cause c, a finish step with cause c leaves the marking as it is and enters the finished phase with cause c, from which the caller reads the returned marking and the termination reason;<br>3. while the run is finished (its phase is a finished phase), no step of the loop happens: no executor step other than the answer to a snapshot request (the outside steps stay possible: time passing, an action writing, flushing, returning or timing out, a caller requesting, draining, closing or terminating);<br>4. every step from a finished state leaves the marking and the phase, and so the cause, as they are;<br>5. a finish with cause quiescent happens only at rest: nothing armed, nothing in flight, no completion, publication or injection queued;<br>6. a finish with cause terminal happens only when a terminal place is marked;<br>7. a finish with cause closed happens only when the mode is closed or stopped (a close or an immediate termination was requested);<br>8. a finish with cause stopped happens only when the mode is stopped (an immediate termination was requested);<br>9. every step from an executing phase into a finished phase is a finish step: a run ends only by a finish. | <pre>fun {N T} [DecidableEq N] R ↦<br>  ∀ (C : Cfg N T),<br>    (∀ (c : Cause),<br>        on fun s s' ↦ R C s (XLbl.finish c) s', shall fun s s' ↦<br>          s'.M = s.M ∧ s'.phase = Phase.done c) ∧<br>      (while fun s ↦ isExecPhase s.phase = false, never fun s s' ↦<br>          ∃ l, exec041_loopStep l = true ∧ R C s l s') ∧<br>        (on fun s s' ↦ isExecPhase s.phase = false ∧ ∃ l, R C s l s', shall fun s s' ↦<br>            s'.M = s.M ∧ s'.phase = s.phase) ∧<br>          (on fun s s' ↦ R C s (XLbl.finish Cause.quiescent) s', shall fun s x ↦<br>              Rest C s) ∧<br>            (on fun s s' ↦ R C s (XLbl.finish Cause.terminal) s', shall fun s x ↦<br>                ¬Live C s) ∧<br>              (on fun s s' ↦ R C s (XLbl.finish Cause.closed) s', shall fun s x ↦<br>                  s.mode.closing = true) ∧<br>                (on fun s s' ↦ R C s (XLbl.finish Cause.stopped) s', shall fun s x ↦<br>                    s.mode = Mode.stopped) ∧<br>                  ∀ (l : XLbl N T),<br>                    on fun s s' ↦<br>                      isExecPhase s.phase = true ∧<br>                        isExecPhase s'.phase = false ∧ R C s l s',<br>                      shall fun x x_1 ↦ exec041_isFinish l = true</pre> |
 
 **Assumptions**
 
@@ -6604,9 +6604,9 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - Naming: the markdown's 'the executor finishes a run' is a finish step; 'the termination reason' is its cause c, of type Cause (glossary GlossaryExec.lean), which the target state records as its phase done c. 'End a run' is entering a finished phase, a phase that is not an executing phase (isExecPhase). 'A step of its loop' is exec041_loopStep: an executor step (a label l with l.outside = false, CONC-001) other than the answer to a snapshot request, which the quoted sentence names. The outside steps are time passing and the actions, callers and hosts acting on the executor. A snapshot answer reads the state and changes nothing; EXEC-042's 'A snapshot taken afterwards ([ENV-014]) still reports abandoned work as work in flight' may answer one after a terminal stop (Rust answers a snapshot queued behind the stop after its loop), so line 2 leaves it to ENV-014, and line 3 still says it changes neither the marking nor the reason.
 - The shall sentences on the finish are lines 1, 8, 2 and 3. Line 1 is 'make the marking the run ended with, unchanged by the finish, and the termination reason of the finish available to the caller' (EXEC_041_forbids_sameSignal: every finish reports quiescent, so a chain closed before its first pass, t armed and 7 still in place 0, reports the completed reason; EXEC_041_forbids_consumeTerminal: the finish empties the terminal place). Line 8 is 'end a run only by finishing it': without it an executor could enter a finished phase by another step and skip every check on the cause and on the returned marking (EXEC_041_forbids_closeEndsRun: the close itself ends an executing run reporting quiescent while t is armed; EXEC_041_forbids_terminalShortcut: step 1 ends the run at a marked terminal place and empties it). Lines 2 and 3 are the sentence on a finished run: no executor step (EXEC_041_forbids_stepAfterFinish: a loop that keeps running after its finish; EXEC_041_forbids_settleAfterFinish: an abandoned firing settled after the finish), and no step, outside steps included, changes the returned marking or the reason (EXEC_041_forbids_lateDeposit: a late return deposited after the finish). Together they give 'at most one finish per run' (EXEC_041_atMostOnce) and 'after a finish, no step of the loop' over every run (EXEC_041_run).
 - The reason sentences are lines 4 to 7. Lines 4 and 5 say a completed reason names a run that completed, so a run that stops before rest with no terminal place marked reports closed or stopped and its end state records that reason (EXEC_041_ac3). That is the markdown's distinguishability rule in the direction ruling D53 (c) fixes: a truncated run is never reported with a completed reason. The converse is allowed: the quoted sentence 'At a rest the run reached after a close or an immediate termination, ...' is the reference offering both quiescent and closed at a closed rest (EXEC_041_nonvacuous), the TypeScript reading, closed only, satisfying the block (EXEC_041_allows_closedAtClosedRest), and lines 4, 6 and 7 together allowing quiescent, closed and stopped at a rest reached after an immediate termination.
-- Lines 6 and 7 say a truncating reason names a stop a caller requested. The model has two: close (ENV-013) and the immediate termination of ENV-015 (terminateNow, Java, ruling D47 (c)). The lines read 'after a close / an immediate termination was requested' as the mode of the source state: closing (closed or stopped) for closed, stopped for stopped. Java reports closed or quiescent after terminateNow when nothing is in flight, so closed is allowed in the stopped mode too. That the mode becomes closed only by a close step, stopped only by a terminateNow step and draining only by a drain step holds in the reference (closeStep, terminateStep and drainStep in Reference/Exec.lean) but is not this block's line: it is pinned for closed by ENV-013's lines 3 and 4 (the mode becomes closed only by a close and leaves closed only for an immediate termination) and for stopped by ENV-015's lines 1 and 2 (the mode becomes stopped only by an immediate termination and stays stopped). An executor whose wake set the mode closed with no close request passes lines 6 and 7 here and breaks ENV-013's line 3. Lines 6 and 7 do not read the draining mode.
-- Host fault (the spec follows the Java runtime): a fault of the host runtime is not an action failure (EXEC-030) and is outside the model, which has no label for it, so no finish step of the model is a host fault and lines 6 and 7 do not read it. In Java a VirtualMachineError or LinkageError thrown inside a firing is rethrown by ExecutorSupport.rethrowIfFatal (ExecutorSupport.java, called from fireTransitionGuarded in BitmapNetExecutor.java and PrecompiledNetExecutor.java); it escapes the loop, whose finally block records the reason STOPPED, since no quiescence, terminal place, wait interruption or close was seen (executeLoop in BitmapNetExecutor.java and PrecompiledNetExecutor.java; TerminationReason.STOPPED is 'stopped before quiescence for another reason'), and run() raises the error. The run is told apart from quiescence by the raised error and by the truncating reason, as the quoted MUST asks, and the quoted reason sentence names this end: stopped after a fault of the host runtime that ends the run with a raised error. Rust, TypeScript and Python have no host fault that ends the run with a reported reason.
-- Run budget: a caller's run budget is not a step of the model, and its expiry is not a finish of the loop; this is the quoted sentence 'A run budget that expires ends the caller's wait, not the loop: ...'. Java run(Duration) and TypeScript run(timeoutMs) fail the caller's stage or promise (the raised-error channel of the quoted MUST: a truncating reason, no marking), and TypeScript also records stopped. Under the abandon policy, the default in both, the loop goes on stepping and changing the marking; under the close policy the expiry is followed by a close step (ENV-013). Either way the loop has not finished, so its later steps and its later finish are steps of a running loop and lines 2 and 3 do not read them as steps after a finish. The expiry does not set the mode stopped: Mode.stopped refuses injections, discards the queued ones and ends the loop at the end of its cycle, none of which the abandon policy does. TypeScript keeps reporting stopped when that loop later finishes (it sets the reason only while it reads running): the reason of the caller's run, which ended at the expiry, does not change, and lines 4 to 7 allow a truncating reason for a loop that later reached rest.
+- Lines 6 and 7 say a truncating reason names a stop a caller requested. The model has two: close (ENV-013) and the immediate termination of ENV-015 (terminateNow, Java, ruling D47 (c)). The lines read 'after a close / an immediate termination was requested' as the mode of the source state: closing (closed or stopped) for closed, stopped for stopped. Java's terminateNow also sets the close flag, so Java reports closed after it, with work in flight or not, unless that cycle's termination test found a marked terminal place or rest (terminal, quiescent) or a cancellation interrupted its wait (interrupted), and never stopped (terminateNow and the finally of executeLoop in BitmapNetExecutor.java and PrecompiledNetExecutor.java); so closed is allowed in the stopped mode too. That the mode becomes closed only by a close step, stopped only by a terminateNow step and draining only by a drain step holds in the reference (closeStep, terminateStep and drainStep in Reference/Exec.lean) but is not this block's line: it is pinned for closed by ENV-013's lines 3 and 4 (the mode becomes closed only by a close and leaves closed only for an immediate termination) and for stopped by ENV-015's lines 1 and 2 (the mode becomes stopped only by an immediate termination and stays stopped). An executor whose wake set the mode closed with no close request passes lines 6 and 7 here and breaks ENV-013's line 3. Lines 6 and 7 do not read the draining mode.
+- Host fault (the spec follows the Java runtime): a fault of the host runtime is not an action failure (EXEC-030) and is outside the model, which has no label for it, so no finish step of the model is a host fault and lines 6 and 7 do not read it. In Java a VirtualMachineError or LinkageError thrown inside a firing is rethrown by ExecutorSupport.rethrowIfFatal (ExecutorSupport.java, called from fireTransitionGuarded in BitmapNetExecutor.java and PrecompiledNetExecutor.java); it escapes the loop, whose finally block records the reason STOPPED, since no quiescence, terminal place, wait interruption or close was seen (executeLoop in BitmapNetExecutor.java and PrecompiledNetExecutor.java; TerminationReason.STOPPED is 'stopped before quiescence for another reason'), and run() raises the error. The run is told apart from quiescence by the raised error and by the truncating reason, as the quoted MUST asks, and the quoted reason sentence names this end: stopped after a fault of the host runtime that ends the run with a raised error. Rust, TypeScript and Python have no host fault that ends the run with a reported reason. The quoted reason sentence names a second end of that kind, 'a failure of the run's event store that ends the run with a raised error', and it is outside the model too, which has no event store failure, so no finish step of the model is one and lines 6 and 7 do not read it. In Java a store that throws on ExecutionStarted or on the first marking snapshot ends the run that way: the boot emissions sit inside the try of executeLoop in BitmapNetExecutor.java and PrecompiledNetExecutor.java, kept so since RD-34, emitEvent does not catch, the finally records the reason STOPPED, and run() raises the store's exception; a store that throws on another event the loop emits outside a firing, TransitionEnabled for example, ends the run the same way. TypeScript swallows every store failure (emitEvent, swallowEventStoreFailure), and a Rust store cannot fail (EventStore::append returns nothing), so in Rust, TypeScript and Python no store failure ends a run. A match-key projection that fails while the loop decides enablement is no third end of that kind: in Java, Python and TypeScript a match-key projection that fails yields no name (NU-054; MatchSpec.MatchKey.extract in Java, projectName in typescript/src/runtime/match-engine.ts, make_py_projection in rust/libpetri-py/src/model.rs; RD-53), so the token correlates with nothing and the run goes on, and a Rust projection cannot fail by type.
+- Run budget: a caller's run budget is not a step of the model, and its expiry is not a finish of the loop; this is the quoted sentence 'A run budget that expires ends the caller's wait, not the loop: ...'. Java run(Duration) and TypeScript run(timeoutMs) fail the caller's stage or promise (the raised-error channel of the quoted MUST: a truncating reason, no marking), and TypeScript also records stopped until the loop finishes. Under the abandon policy, the default in both, the loop goes on stepping and changing the marking; under the close policy the expiry is followed by a close step (ENV-013). Either way the loop has not finished, so its later steps and its later finish are steps of a running loop and lines 2 and 3 do not read them as steps after a finish. The expiry does not set the mode stopped: Mode.stopped refuses injections, discards the queued ones and ends the loop at the end of its cycle, none of which the abandon policy does. When that loop later finishes, TypeScript replaces stopped with the cause of that finish, as line 1 asks and as Java does, which sets the reason only at the loop's finish (executeLoop in bitmap-net-executor.ts and precompiled-net-executor.ts; RD-52): stopped is reported only while the loop runs on, before any finish, so lines 4 to 7 do not read it.
 - Same signal (the quoted 'Emitting the same completion signal ...' sentence): an executor whose every finish reports quiescent breaks line 1 on a truncated run (EXEC_041_forbids_sameSignal). Whether the ExecutionCompleted event, which every runtime emits for every cause, is 'the same completion signal' when the reason is queryable is an event question (EVT-003, ruling D74, wave W7), not this block's.
 - Cause values and interrupted (kind Q, Java): the Cause type lists quiescent, terminal, closed and stopped. Where the runtime has a cancellation the executor observes in its own wait, the executor may finish the run on it, and shall then report `interrupted`, and shall report `interrupted` only after such a cancellation. The model has no host cancellation, so no step reports interrupted; the sentence is checked by the Java tests the test derivation names (a real interrupt raised from a foreign thread while the orchestrator is parked, in the built-in and the hosted wait, ends the run INTERRUPTED; an interrupt flag set before run() or by an action mid-run does not). Rust, TypeScript and Python have no such cancellation, so the Where clause does not apply to them. interrupted is a truncating reason: a model with it would add a cause with no completed-reason line. The completed reasons are quiescent and terminal (lines 4 and 5); the others are truncations.
 - Ambient host state (kind Q, Java): The executor shall not treat host cancellation state that it did not set itself, such as a thread's interrupt flag set before the run or by the run's own action code, as a request to stop the run. The model has no host cancellation state, so no step can read it; the sentence, AC4 and AC5 are checked by the Java tests the test derivation names (an interrupt flag set before run(), set by an action mid-run, and a real interrupt raised from a foreign thread in the built-in and the hosted wait). They are vacuous in Rust, TypeScript and Python, which expose no ambient cancellation state, as the markdown's sentence after the quoted one says ('Where the runtime exposes no ambient cancellation state an executor could consult, the previous sentence and AC4/AC5 hold vacuously.').
@@ -6658,7 +6658,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_042"></a>
 ## EXEC-042: Terminal Places
 
-`Libpetri.Spec.EXEC_042` · Kind **B** · Scope all executors, for a net that declares terminal places (SHOULD) · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 85b468e1f92b7cd1 ai** · Statement hash `85b468e1f92b7cd1`
+`Libpetri.Spec.EXEC_042` · Kind **B** · Scope all executors, for a net that declares terminal places (SHOULD) · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 2f17c07ce9ef4d0b ai** · Statement hash `2f17c07ce9ef4d0b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6731,7 +6731,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXEC_042_build"></a>
 ## EXEC-042: Terminal Places
 
-`Libpetri.Spec.EXEC_042_build` · Kind **F** · Scope the net builder of every implementation, used without composition and without fusion sets · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 ca476acb02bf289b ai** · Statement hash `ca476acb02bf289b`
+`Libpetri.Spec.EXEC_042_build` · Kind **F** · Scope the net builder of every implementation, used without composition and without fusion sets · Source **verbatim** (spec/04-execution-model.md) · Sign-off **2026-11-13 914c13df08e4f886 ai** · Statement hash `914c13df08e4f886`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6769,7 +6769,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_001"></a>
 ## EXP-001: Graph Export Format
 
-`Libpetri.Spec.EXP_001` · Kind **F** · Scope every exporter, the nodes and the arc edges of one exported net · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 a588bcf52468b6b3 ai** · Statement hash `a588bcf52468b6b3`
+`Libpetri.Spec.EXP_001` · Kind **F** · Scope every exporter, the nodes and the arc edges of one exported net · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 96ff8e5fe57ed0b0 ai** · Statement hash `96ff8e5fe57ed0b0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6841,7 +6841,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_002"></a>
 ## EXP-002: Visual Semantics: Places
 
-`Libpetri.Spec.EXP_002` · Kind **F** · Scope every exporter's mapper, on the nodes of the exported graph (before a documentation generator restyles interface ports) · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 776f3d9831fbcc36 ai** · Statement hash `776f3d9831fbcc36`
+`Libpetri.Spec.EXP_002` · Kind **F** · Scope every exporter's mapper, on the nodes of the exported graph (before a documentation generator restyles interface ports) · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 5d04aca30379fbb7 ai** · Statement hash `5d04aca30379fbb7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6887,7 +6887,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_003"></a>
 ## EXP-003: Visual Semantics: Transitions
 
-`Libpetri.Spec.EXP_003` · Kind **F** · Scope every exporter, on the nodes of the graph it draws for a configuration and a net · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 1c0e0e06faf92826 ai** · Statement hash `1c0e0e06faf92826`
+`Libpetri.Spec.EXP_003` · Kind **F** · Scope every exporter, on the nodes of the graph it draws for a configuration and a net · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 5234b771aa58aea2 ai** · Statement hash `5234b771aa58aea2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6933,7 +6933,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_004"></a>
 ## EXP-004: Arc Rendering
 
-`Libpetri.Spec.EXP_004` · Kind **F** · Scope every exporter, the input, output, inhibitor, read and reset edges · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 f2d084ab1cbd747f ai** · Statement hash `f2d084ab1cbd747f`
+`Libpetri.Spec.EXP_004` · Kind **F** · Scope every exporter, the input, output, inhibitor, read and reset edges · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 fafa8f3b0602454d ai** · Statement hash `fafa8f3b0602454d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -6990,7 +6990,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_005"></a>
 ## EXP-005: XOR Branch Labels
 
-`Libpetri.Spec.EXP_005` · Kind **F** · Scope every exporter, the output side of one transition · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 175f42e98a44cae2 ai** · Statement hash `175f42e98a44cae2`
+`Libpetri.Spec.EXP_005` · Kind **F** · Scope every exporter, the output side of one transition · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 39ff9acf25e72cc3 ai** · Statement hash `39ff9acf25e72cc3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7051,7 +7051,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_006"></a>
 ## EXP-006: Cardinality Labels
 
-`Libpetri.Spec.EXP_006` · Kind **F** · Scope every exporter, on the input arcs of a net (the only arcs with a cardinality) · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 489541afb6b0730a ai** · Statement hash `489541afb6b0730a`
+`Libpetri.Spec.EXP_006` · Kind **F** · Scope every exporter, on the input arcs of a net (the only arcs with a cardinality) · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 afa62cc20819a478 ai** · Statement hash `afa62cc20819a478`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7113,7 +7113,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_007_config"></a>
 ## EXP-007: Export Configuration
 
-`Libpetri.Spec.EXP_007_config` · Kind **F** · Scope every exporter · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 af2399c8d9c410dc ai** · Statement hash `af2399c8d9c410dc`
+`Libpetri.Spec.EXP_007_config` · Kind **F** · Scope every exporter · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 805525838cd01e52 ai** · Statement hash `805525838cd01e52`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7153,7 +7153,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_007_label"></a>
 ## EXP-007: Export Configuration, the transition label
 
-`Libpetri.Spec.EXP_007_label` · Kind **F** · Scope every exporter, the label of a transition node · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 9c513b8ff7802d44 ai** · Statement hash `9c513b8ff7802d44`
+`Libpetri.Spec.EXP_007_label` · Kind **F** · Scope every exporter, the label of a transition node · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 769326a7690d328f ai** · Statement hash `769326a7690d328f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7196,7 +7196,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_008"></a>
 ## EXP-008: Styling
 
-`Libpetri.Spec.EXP_008` · Kind **F** · Scope every exporter's mapper, on the place nodes of a net (before a documentation generator restyles interface ports) · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 1e4bf950dfb9a657 ai** · Statement hash `1e4bf950dfb9a657`
+`Libpetri.Spec.EXP_008` · Kind **F** · Scope every exporter's mapper, on the place nodes of a net (before a documentation generator restyles interface ports) · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 9e531d5463fe2365 ai** · Statement hash `9e531d5463fe2365`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7258,7 +7258,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_012"></a>
 ## EXP-012: XOR/AND Junction Nodes
 
-`Libpetri.Spec.EXP_012` · Kind **F** · Scope every exporter, the output side of one transition · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 058caa2740b22067 ai** · Statement hash `058caa2740b22067`
+`Libpetri.Spec.EXP_012` · Kind **F** · Scope every exporter, the output side of one transition · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 ec5657685846659c ai** · Statement hash `ec5657685846659c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7315,7 +7315,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_013"></a>
 ## EXP-013: Combined reset+output Edge
 
-`Libpetri.Spec.EXP_013` · Kind **F** · Scope every exporter, the edges of one transition into one place · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 de8231f060c029c7 ai** · Statement hash `de8231f060c029c7`
+`Libpetri.Spec.EXP_013` · Kind **F** · Scope every exporter, the edges of one transition into one place · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 8a5daa18f1ea3d16 ai** · Statement hash `8a5daa18f1ea3d16`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7384,7 +7384,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_014"></a>
 ## EXP-014: Junction ID Format and Layout Stability
 
-`Libpetri.Spec.EXP_014` · Kind **F** · Scope every exporter, the DOT IDs, the junction nodes and the junction numbering of the exported graph · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 93861fe2b59913fc ai** · Statement hash `93861fe2b59913fc`
+`Libpetri.Spec.EXP_014` · Kind **F** · Scope every exporter, the DOT IDs, the junction nodes and the junction numbering of the exported graph · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 f1aaffb0ce9c4adf ai** · Statement hash `f1aaffb0ce9c4adf`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7458,7 +7458,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_016"></a>
 ## EXP-016: Subnet Instance Cluster Subgraphs
 
-`Libpetri.Spec.EXP_016` · Kind **F** · Scope every exporter, the clusters of the exported graph · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 2fc6972b040c7f87 ai** · Statement hash `2fc6972b040c7f87`
+`Libpetri.Spec.EXP_016` · Kind **F** · Scope every exporter, the clusters of the exported graph · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 8bbf5b5860047163 ai** · Statement hash `8bbf5b5860047163`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7526,7 +7526,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_017"></a>
 ## EXP-017: Compound Cluster Layout Hints
 
-`Libpetri.Spec.EXP_017` · Kind **F** · Scope every exporter, the graph attribute compound and the ghost edges between clusters · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 e515badb27496d93 ai** · Statement hash `e515badb27496d93`
+`Libpetri.Spec.EXP_017` · Kind **F** · Scope every exporter, the graph attribute compound and the ghost edges between clusters · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 6669d2bdd6e263e5 ai** · Statement hash `6669d2bdd6e263e5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7589,7 +7589,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-EXP_018"></a>
 ## EXP-018: ν-Match Edge Decoration
 
-`Libpetri.Spec.EXP_018` · Kind **F** · Scope every exporter, on the input edges of the graph it draws for a configuration and a net · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 8d8e8f61b13cc8dc ai** · Statement hash `8d8e8f61b13cc8dc`
+`Libpetri.Spec.EXP_018` · Kind **F** · Scope every exporter, on the input edges of the graph it draws for a configuration and a net · Source **verbatim** (spec/09-export.md) · Sign-off **2026-11-13 d7f751738e2caccc ai** · Statement hash `d7f751738e2caccc`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7663,7 +7663,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_001"></a>
 ## IO-001: Input One
 
-`Libpetri.Spec.IO_001` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 749a74beaedb4a3d ai** · Statement hash `749a74beaedb4a3d`
+`Libpetri.Spec.IO_001` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 7efdcea8fe4128a6 ai** · Statement hash `7efdcea8fe4128a6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7721,7 +7721,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_002"></a>
 ## IO-002: Input Exactly
 
-`Libpetri.Spec.IO_002` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 96c1d96e85a20f1e ai** · Statement hash `96c1d96e85a20f1e`
+`Libpetri.Spec.IO_002` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 9b9aa5c23b0a1d7e ai** · Statement hash `9b9aa5c23b0a1d7e`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7775,7 +7775,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_002_build"></a>
 ## IO-002: Input Exactly
 
-`Libpetri.Spec.IO_002_build` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 f8246e01110b0659 ai** · Statement hash `f8246e01110b0659`
+`Libpetri.Spec.IO_002_build` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 8a6a755e1a7355aa ai** · Statement hash `8a6a755e1a7355aa`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7802,7 +7802,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_003"></a>
 ## IO-003: Input All
 
-`Libpetri.Spec.IO_003` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 f3ab08fa5c1929cf ai** · Statement hash `f3ab08fa5c1929cf`
+`Libpetri.Spec.IO_003` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 1df646da0a336bd8 ai** · Statement hash `1df646da0a336bd8`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7862,7 +7862,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_004"></a>
 ## IO-004: Input AtLeast
 
-`Libpetri.Spec.IO_004` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 7776d0592ec78630 ai** · Statement hash `7776d0592ec78630`
+`Libpetri.Spec.IO_004` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 1c1a03b70f65f680 ai** · Statement hash `1c1a03b70f65f680`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7920,7 +7920,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_004_build"></a>
 ## IO-004: Input AtLeast
 
-`Libpetri.Spec.IO_004_build` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 ee0e91363094a08e ai** · Statement hash `ee0e91363094a08e`
+`Libpetri.Spec.IO_004_build` · Kind **F** · Scope all transition builders · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 fea4aa6ed6526b5f ai** · Statement hash `fea4aa6ed6526b5f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7947,7 +7947,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_005"></a>
 ## IO-005: Input AND-Join Semantics
 
-`Libpetri.Spec.IO_005` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 566c1a17d5cf3f37 ai** · Statement hash `566c1a17d5cf3f37`
+`Libpetri.Spec.IO_005` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 d9b4cd0f5bd53345 ai** · Statement hash `d9b4cd0f5bd53345`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -7995,7 +7995,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_007"></a>
 ## IO-007: requiredCount and consumptionCount Contract
 
-`Libpetri.Spec.IO_007` · Kind **F** · Scope all input cardinalities · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 1860eb65b8a890ff ai** · Statement hash `1860eb65b8a890ff`
+`Libpetri.Spec.IO_007` · Kind **F** · Scope all input cardinalities · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 00c5fa1359e5ca43 ai** · Statement hash `00c5fa1359e5ca43`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8038,7 +8038,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_010"></a>
 ## IO-010: Output place (leaf)
 
-`Libpetri.Spec.IO_010` · Kind **B** · Scope executors with output validation enabled (the default) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 43da83ca0e74b3ef ai** · Statement hash `43da83ca0e74b3ef`
+`Libpetri.Spec.IO_010` · Kind **B** · Scope executors with output validation enabled (the default) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 803e51a7038744e5 ai** · Statement hash `803e51a7038744e5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8100,20 +8100,20 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_011"></a>
 ## IO-011: Output And
 
-`Libpetri.Spec.IO_011` · Kind **B** · Scope executors with output validation enabled (the default, CONC-026) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 7b09ae3f76121963 ai** · Statement hash `7b09ae3f76121963`
+`Libpetri.Spec.IO_011` · Kind **B** · Scope executors with output validation enabled (the default, CONC-026) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 fd0cf424b6c03308 ai** · Statement hash `fd0cf424b6c03308`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| `And(children)` is a node of an output spec that represents a parallel fork in which all children are active.<br><br>*When* a transition whose output spec is `And(children)` fires and its action completes, every child, with nested `And`s flattened, *shall* have received tokens: the produced set contains a place that the child names.<br><br>The same holds for an `And` nested in the alternative that an inner `Xor` chose: the produced set *shall* equal, on the places the output spec names, one output branch of the output spec.<br><br>That output branch is unique, because the output branches of a spec that builds are pairwise distinct sets ([IO-012]).<br><br>This requirement applies to an executor with output validation enabled, which is the default ([CONC-026]).<br><br>*If* a single output branch (one choice at every `Xor`, with nested `And`s flattened) names the same place twice, *then* the output spec *shall* be rejected, with<br><br>*If* the output spec names a place twice in one output branch, *then* `&lt;P>` in the message *shall* be the place that the following walk of the spec reports first, so that every implementation names the same place:<br><br>A `Place(P)` node and a `ForwardInput(from, P)` node name `P`.<br><br>A `Timeout` node walks its child and names the places its child names.<br><br>An `Xor` node walks its children left to right.<br><br>*If* a child reports a place, *then* the `Xor` *shall* report that place.<br><br>Otherwise the `Xor` names the places its children name, each once, in the order the walk first meets them.<br><br>An `And` node walks its children left to right.<br><br>*If* a child reports a place, *then* the `And` *shall* report that place.<br><br>Otherwise, *if* a place the child names, taken in the order the walk first met them, is already named by an earlier child, *then* the `And` *shall* report the first such place.<br><br>Otherwise the `And` names the places its children name, each once, in the order the walk first meets them.<br><br>The walk reports a place exactly when some output branch names a place twice, because the alternatives of an `Xor` under an `And` are chosen independently of the `And`'s other children. | 1. Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and F the firings.<br>2. For every transition t whose output spec o names a place twice in one output branch (DupBranch), building t fails; and if t's input places are distinct, it fails with IO-011's message for t and the place p the walk of o reports (firstDup o = some p, msgDup t p).<br>3. For every transition t that builds (Builds) whose output spec is an And node o with no Timeout node in it:<br>4. for every child c of o (nested Ands flattened) and every deposit d, every firing of t that deposits d produces some place that c names;<br>5. for every deposit d, every firing of t that deposits d has as its produced set, on the places o names, exactly the places of the output branch at one index of o's branch list, and of no branch at any other index (IO_011_uniqueBranch).<br>6. F is the firing relation of an executor with output validation enabled. | <pre>fun {N} [DecidableEq N] [ToString N] Build F ↦<br>  (∀ (t : Reference.Trans N) (o : Out N),<br>      OutputSpec t = some o →<br>        DupBranch o →<br>          Build t ≠ none ∧<br>            (PreOutputChecks t →<br>              ∀ (p : N), firstDup o = some p → Build t = some (msgDup t p))) ∧<br>    ∀ (t : Reference.Trans N) (l r : Out N),<br>      OutputSpec t = some (l.and r) →<br>        Builds t →<br>          (l.and r).findTimeout = none →<br>            (∀ c ∈ andChildren (l.and r),<br>                ∀ (d : List N),<br>                  on fun m m' ↦ F t m d m', shall fun x x_1 ↦ ChildReceived d c) ∧<br>              ∀ (d : List N),<br>                on fun m m' ↦ F t m d m', shall fun x x_1 ↦<br>                  IO_011_uniqueBranch (l.and r) d</pre> |
+| `And(children)` is a node of an output spec that represents a parallel fork in which all children are active.<br><br>*When* a transition whose output spec is `And(children)` fires and its action completes, every child, with nested `And`s flattened, *shall* have received tokens: the produced set contains a place that the child names.<br><br>The same holds for an `And` nested in the alternative that an inner `Xor` chose: the produced set *shall* equal, on the places the output spec names, one output branch of the output spec.<br><br>That output branch is unique, because the output branches of a spec that builds are pairwise distinct sets ([IO-012]).<br><br>This requirement applies to an executor with output validation enabled, which is the default ([CONC-026]).<br><br>*If* a single output branch (one choice at every `Xor`, with nested `And`s flattened) names the same place twice, *then* the output spec *shall* be rejected, with<br><br>*If* the output spec names a place twice in one output branch, *then* `&lt;P>` in the message *shall* be the place that the following walk of the spec reports first, so that every implementation names the same place:<br><br>A `Place(P)` node and a `ForwardInput(from, P)` node name `P`.<br><br>A `Timeout` node walks its child and names the places its child names.<br><br>An `Xor` node walks its children left to right.<br><br>*If* a child reports a place, *then* the `Xor` *shall* report that place.<br><br>Otherwise the `Xor` names the places its children name, each once, in the order the walk first meets them.<br><br>An `And` node walks its children left to right.<br><br>*If* a child reports a place, *then* the `And` *shall* report that place.<br><br>Otherwise, *if* a place the child names, taken in the order the walk first met them, is already named by an earlier child, *then* the `And` *shall* report the first such place.<br><br>Otherwise the `And` names the places its children name, each once, in the order the walk first meets them.<br><br>The walk reports a place exactly when some output branch names a place twice, because the alternatives of an `Xor` under an `And` are chosen independently of the `And`'s other children. | 1. Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and F the firings.<br>2. For every transition t whose output spec o names a place twice in one output branch (DupBranch), building t fails; and if t passes the checks before the output spec (PreOutputChecks: distinct input places, every input arc requiring at least one token, no input arc and read arc on one place), it fails with IO-011's message for t and the place p the walk of o reports (firstDup o = some p, msgDup t p).<br>3. For every transition t that builds (Builds) whose output spec is an And node o with no Timeout node in it:<br>4. for every child c of o (nested Ands flattened) and every deposit d, every firing of t that deposits d produces some place that c names;<br>5. for every deposit d, every firing of t that deposits d has as its produced set, on the places o names, exactly the places of the output branch at one index of o's branch list, and of no branch at any other index (IO_011_uniqueBranch).<br>6. F is the firing relation of an executor with output validation enabled. | <pre>fun {N} [DecidableEq N] [ToString N] Build F ↦<br>  (∀ (t : Reference.Trans N) (o : Out N),<br>      OutputSpec t = some o →<br>        DupBranch o →<br>          Build t ≠ none ∧<br>            (PreOutputChecks t →<br>              ∀ (p : N), firstDup o = some p → Build t = some (msgDup t p))) ∧<br>    ∀ (t : Reference.Trans N) (l r : Out N),<br>      OutputSpec t = some (l.and r) →<br>        Builds t →<br>          (l.and r).findTimeout = none →<br>            (∀ c ∈ andChildren (l.and r),<br>                ∀ (d : List N),<br>                  on fun m m' ↦ F t m d m', shall fun x x_1 ↦ ChildReceived d c) ∧<br>              ∀ (d : List N),<br>                on fun m m' ↦ F t m d m', shall fun x x_1 ↦<br>                  IO_011_uniqueBranch (l.and r) d</pre> |
 
 **Assumptions**
 
-- The model is the pair (Build, F). Build is the transition builder, read as the message building a transition fails with, none when it builds; the witness is the reference builder refBuild, which runs the build-time checks of the Output Composition preamble in order (glossary: Build-time checks). The build error is msgDup, byte for byte: the message of the paragraph 'A place at most once per branch' with <t> the transition's name and <P> the place the walk reports. The preamble does not place the CORE-030 input-arc check among the output-spec checks; refBuild runs it first, so on a transition with two input arcs on one place the build line only requires that building fails.
+- The model is the pair (Build, F). Build is the transition builder, read as the message building a transition fails with, none when it builds; the witness is the reference builder refBuild, which runs the build-time checks of the Output Composition preamble in order (glossary: Build-time checks). The build error is msgDup, byte for byte: the message of the paragraph 'A place at most once per branch' with <t> the transition's name and <P> the place the walk reports. The preamble does not place the CORE-030 input-arc check among the output-spec checks; refBuild runs it first, so on a transition with two input arcs on one place the build line only requires that building fails. The timing check of TIME-001, which runs before the output-spec checks (glossary: Build-time checks), is not in the model either: Trans carries no timing interval, so the build line's message clause is claimed of transitions whose timing passes that check.
 - The walk is firstDup, through dupScan, clause for clause: steps 1 and 2 are its place, forward and timeout clauses, step 3 its xor clause (xorJoin: the first child's report, else the second's, else the places of both, each once, in first-seen order), step 4 its and clause (andStep at each child: the child's report, else the first place the child names that an earlier child of the And names, else the child's places join the pool). The reference Out is binary: an n-ary And or Xor is right-nested, and dupScan walks a .and met as a child of a .and as part of its parent, so the children of And(c1, ..., cn) are walked as the n-ary node's children. A spec with an And written as a direct child of an And is the one shape the binary Out cannot tell from the flat n-ary node; on it the builders walk the inner And first, the loader's walk (Load.dupWalk, over the spec as written) does the same, and firstDup reads the flat node.
 - 'The walk reports a place exactly when some output branch names a place twice' is the theorem firstDup_eq_none_iff, and the place it reports is named twice in some output branch (firstDup_some); the build line therefore names a place exactly when it rejects a duplicate. AC5's And(Xor(A, B), Xor(B, A)) names B (IO_011_ac5); naming the first place repeated in the first repeating output branch, in IO-016 order, would name A, and that builder violates the build line (IO_011_forbids_firstBranchName).
 - 'Which place the message names' is a constraint on the message only: which transitions build is the first build line together with the other build-time checks, and IO-013's third line ties Builds to the builder.
 - Ruling D15: the premise PreOutputChecks t (glossary) is the checks the reference builder runs before the output-spec checks: distinct input places ([CORE-030]), input arcs that each require at least one token ([IO-002], [IO-004]) and no input arc and read arc on one place ([EXEC-012]). A transition that fails one of them fails with that check's message, so on it the build lines only require that building fails, as for CORE-030 before the ruling.
-- A firing is read as one step from a marking to a marking that deposits the tokens of one outcome (glossary: Fire, Deposit); timing and priority play no part. A completion that fails validation (AC3) deposits no outcome and is not a firing here.
+- A firing is read as one step from a marking to a marking that deposits the tokens of one outcome (glossary: Fire, Deposit); timing and priority play no part. A completion that fails validation (AC3) deposits no outcome and is not a firing here. Tokens an action publishes before it completes (the IO-015 flush, ctx.flush(), Rust and Python only) are not in the one-step model, as in CORE-036 and CORE-050: F is read as the firings whose action publishes nothing mid-action. With a flush, IO-015 counts the flushed places towards the produced set the validator checks, and flushed tokens stay in the marking when validation then fails (IO-015 AC7); neither is encoded.
 - Scope: 'applies to an executor with output validation enabled' is read as a restriction on the model: F is the firing relation of such an executor. An executor with the CONC-026 skip enabled is not an F this block speaks of; what it does (an And(A, B) firing that deposits only A, CONC-026 AC4) is exactly what io011_leftOnlyFire models, and this block forbids it of a validating executor (IO_011_forbids_leftOnly).
 - Scope: the statement quantifies over transitions that build. Building runs the checks of the Output Composition preamble (WellFormedOut: no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every ForwardInput's from an input place, no two output branches at different indices with the same set of places). CORE-022 applies to transitions that build, and a definition the checks reject is not a transition of any net. Build reads one transition definition, so the construction paths that reach the builder are not encoded.
 - The reference semantics reads an n-ary And as right-nested binary `Out.and` nodes; `andChildren` flattens them back, so the children of And(A, B, C) are A, B and C. Flattening is the recursive reading of 'ALL child output specs must receive tokens': a nested And has received tokens exactly when each of its own children has.
@@ -8123,7 +8123,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - 'That output branch is unique' is read by index: one entry of the IO-016 branch list, one per assignment. On a transition that builds it follows from the existence half and the last build check (IO_011_unique_of_wf), so it adds no constraint on F beyond the scope; no weaker mutant can tell it apart, and the evidence for it is that lemma and IO_011_reference_ambiguous, which shows that without the scope the reference fires And(Q, Xor(P, P)) with two exact branches.
 - AC1 (requires at least 1 child) is structural and not encoded: the reference output spec has binary And nodes only, so an And with no child cannot be written; an And with one child is that child.
 - AC2 (after the action completes, all children have received tokens) is the first clause, and the second at every depth.
-- AC3 (validation failure if a child received no tokens) is read on firings: a completion in which a child received no tokens is not a firing, so the marking never shows it. That the failure is reported (an ActionFailed outcome, the error the user sees) is not observable in the firing relation, which has no events or errors; it is EXEC-030's and IO-015's subject and is not encoded here.
+- AC3 (validation failure if a child received no tokens) is read on firings: a completion in which a child received no tokens is not a firing, so it deposits no outcome (tokens an action flushed before it completed stay in the marking, IO-015 AC7, outside this model). That the failure is reported (an ActionFailed outcome, the error the user sees) is not observable in the firing relation, which has no events or errors; it is EXEC-030's and IO-015's subject and is not encoded here.
 - AC4 and the paragraph 'A place at most once per branch' are the build line, and the first build check of WellFormedOut (every output branch Nodup, equivalently no BranchDuplicate, IO_011_noDuplicate_of_wf) for the firing lines' scope: And(P, P), And(P, And(Q, P)) and Xor(A, And(P, P)) are rejected with the message naming P, and Xor(And(P, A), And(P, B)) builds (IO_011_ac4). The construction paths and MOD-020's more specific message are not in the model. The reference semantics still fires And(P, P) depositing two tokens in P (IO_011_reference_fires_duplicate); that transition does not build, so the firing lines do not speak of it.
 - AC5 (And(Xor(A, B), Xor(B, A)) is rejected naming B) is the build line on that spec, checked under the reference builder (IO_011_ac5).
 
@@ -8179,18 +8179,18 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_012"></a>
 ## IO-012: Output Xor
 
-`Libpetri.Spec.IO_012` · Kind **B** · Scope build check: every transition, on every construction path; firing lines: executors with output validation enabled (the default, CONC-026) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 5d3f24d7a5511c3e ai** · Statement hash `5d3f24d7a5511c3e`
+`Libpetri.Spec.IO_012` · Kind **B** · Scope build check: every transition, on every construction path; firing lines: executors with output validation enabled (the default, CONC-026) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 15c285956716e4b0 ai** · Statement hash `15c285956716e4b0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| `Xor(children)` is an output spec node with two or more children; it represents a decision point where the action chooses one child.<br><br>*When* a transition whose output spec is `Xor(children)` fires and the firing ends with its action, its produced set *shall* equal, on the places the output spec names, one output branch of the output spec.<br><br>*When* a transition whose output spec is `Xor(children)` fires and the firing ends with its action, its produced set *shall not* equal, on the places the output spec names, two output branches that take different children at some `Xor` node.<br><br>This requirement applies to an executor with output validation enabled, which is the default ([CONC-026]).<br><br>A firing ends with its action when it does not end with the timeout outcome ([IO-013]).<br><br>Deposits are compared per place ([CORE-036]): a firing whose deposit puts in every place as many tokens as some timeout-outcome deposit of the transition from the same marking may have ended with the timeout outcome, and the two lines above do not constrain it.<br><br>An *assignment* of an output spec chooses one child at each `Xor` node it reaches ([IO-015]).<br><br>`Xor` nodes are told apart by their position in the spec, never by what they contain, so `Xor(P, P)` has two assignments.<br><br>Two assignments are *distinct* when they choose different children at some `Xor` node that both reach.<br><br>*If* two distinct assignments of a transition's output spec claim the same set of places, at any depth of the spec, *then* building the transition *shall* fail with<br><br>Enumerate the output branches of the spec per [IO-016], numbered from 0 in enumeration order (the numbering of the virtual transitions `&lt;t>_b&lt;i>` of [VER-001]).<br><br>The enumeration lists exactly one branch per assignment, so two branches at different indices come from distinct assignments.<br><br>Read each branch as the set of places it names, a `ForwardInput(from, to)` naming `to`.<br><br>Visit the branches in index order.<br><br>The first branch `j` whose set equals the set of an earlier branch fails the check, and `i` is the smallest index of such an earlier branch.<br><br>If no branch fails, the check passes.<br><br>`&lt;places>` lists the places of branch `i` by name, separated by `, `, in the order the spec as written names them (leaves left to right).<br><br>An implementation MAY decide the check without enumerating every branch, provided it reports the same `i`, `j` and `&lt;places>`.<br><br>A transition that builds therefore has pairwise distinct output branches, so at most one output branch equals any produced set, and the second line above holds of every firing of such a transition. | 1. Build check. For every output spec o (the output spec of the transition being built), with bs its output branches (Out.branches, one entry per assignment, numbered from 0):<br>2. the check C passes (C o = none) exactly when no two entries of bs at indices i &lt; j claim the same set of places (IO_012_unambiguous; IO_012_clash compares the entries as sets, SameSet);<br>3. the check fails reporting (i, j, ps) (C o = some (i, j, ps)) exactly when the entries i &lt; j clash, no entry before j clashes with an earlier one, no entry before i clashes with entry j, and ps is entry i as a list (IO_012_reported).<br>4. Building. For every transition t whose output spec o is ambiguous (not IO_012_unambiguous): building t fails (Build t ≠ none); and when every earlier build-time check passes (input places distinct, CORE-030; no output branch naming a place twice, IO-011; at most one Timeout node and no Xor node inside its child, IO-013; no ForwardInput outside a Timeout child and every forward from an input place, IO-014), building fails with IO-012's message for the pair (i, j) and the places ps the check reports (msgAmbiguous t i j ps).<br>5. Firing. For every transition t whose output spec is Xor(l, r) and passes the check, every deposit d, and every firing of t under F from m to m' that deposits d and whose deposit is not, place by place, a timeout-outcome deposit of t from m (IO_012_timeoutLike): some output branch b of Xor(l, r) is exact for d: on every place q the output spec names, d puts one or more tokens in q exactly when q is in b (ExactOn).<br>6. The second firing line is a consequence, not a clause: on an output spec that passes the check two exact branches would be the same set (both lie within outPlaces), so at most one is exact (theorem IO_012_unique).<br>7. `on R, shall Q` reads: every step from m to m' with R m m' satisfies Q m m'; here Q ignores both markings. | <pre>fun {N} [DecidableEq N] [ToString N] C Build F ↦<br>  (∀ (o : Out N), C o = none ↔ IO_012_unambiguous o) ∧<br>    (∀ (o : Out N) (i j : ℕ) (ps : List N),<br>        C o = some (i, j, ps) ↔ IO_012_reported o i j ps) ∧<br>      (∀ (t : Reference.Trans N) (o : Out N),<br>          OutputSpec t = some o →<br>            ¬IO_012_unambiguous o →<br>              Build t ≠ none ∧<br>                (PreOutputChecks t →<br>                  ¬DupBranch o →<br>                    timeoutCount o ≤ 1 →<br>                      xorInTimeout o = false →<br>                        forwardOutside o = none →<br>                          (∀ s ∈ forwardSources o, s ∈ inPlaces t) →<br>                            ∀ (i j : ℕ) (ps : List N),<br>                              C o = some (i, j, ps) →<br>                                Build t = some (msgAmbiguous t i j ps))) ∧<br>        ∀ (t : Reference.Trans N) (l r : Out N),<br>          OutputSpec t = some (l.xor r) →<br>            IO_012_unambiguous (l.xor r) →<br>              ∀ (d : List N),<br>                on fun m m' ↦ F t m d m' ∧ ¬IO_012_timeoutLike t m d, shall fun x x_1 ↦<br>                  ∃ b ∈ (l.xor r).branches, ExactOn (l.xor r) d b</pre> |
+| `Xor(children)` is an output spec node with two or more children; it represents a decision point where the action chooses one child.<br><br>*When* a transition whose output spec is `Xor(children)` fires and the firing ends with its action, its produced set *shall* equal, on the places the output spec names, one output branch of the output spec.<br><br>*When* a transition whose output spec is `Xor(children)` fires and the firing ends with its action, its produced set *shall not* equal, on the places the output spec names, two output branches that take different children at some `Xor` node.<br><br>This requirement applies to an executor with output validation enabled, which is the default ([CONC-026]).<br><br>A firing ends with its action when it does not end with the timeout outcome ([IO-013]).<br><br>Deposits are compared per place ([CORE-036]): a firing whose deposit puts in every place as many tokens as some timeout-outcome deposit of the transition from the same marking may have ended with the timeout outcome, and the two lines above do not constrain it.<br><br>An *assignment* of an output spec chooses one child at each `Xor` node it reaches ([IO-015]).<br><br>`Xor` nodes are told apart by their position in the spec, never by what they contain, so `Xor(P, P)` has two assignments.<br><br>Two assignments are *distinct* when they choose different children at some `Xor` node that both reach.<br><br>*If* two distinct assignments of a transition's output spec claim the same set of places, at any depth of the spec, *then* building the transition *shall* fail with<br><br>Enumerate the output branches of the spec per [IO-016], numbered from 0 in enumeration order (the numbering of the virtual transitions `&lt;t>_b&lt;i>` of [VER-001]).<br><br>The enumeration lists exactly one branch per assignment, so two branches at different indices come from distinct assignments.<br><br>Read each branch as the set of places it names, a `ForwardInput(from, to)` naming `to`.<br><br>Visit the branches in index order.<br><br>The first branch `j` whose set equals the set of an earlier branch fails the check, and `i` is the smallest index of such an earlier branch.<br><br>If no branch fails, the check passes.<br><br>`&lt;places>` lists the places of branch `i` by name, separated by `, `, in the order the spec as written names them (leaves left to right).<br><br>An implementation MAY decide the check without enumerating every branch, provided it reports the same `i`, `j` and `&lt;places>`.<br><br>A transition that builds therefore has pairwise distinct output branches, so at most one output branch equals any produced set, and the second line above holds of every firing of such a transition. | 1. Build check. For every output spec o (the output spec of the transition being built), with bs its output branches (Out.branches, one entry per assignment, numbered from 0):<br>2. the check C passes (C o = none) exactly when no two entries of bs at indices i &lt; j claim the same set of places (IO_012_unambiguous; IO_012_clash compares the entries as sets, SameSet);<br>3. the check fails reporting (i, j, ps) (C o = some (i, j, ps)) exactly when the entries i &lt; j clash, no entry before j clashes with an earlier one, no entry before i clashes with entry j, and ps is entry i as a list (IO_012_reported).<br>4. Building. For every transition t whose output spec o is ambiguous (not IO_012_unambiguous): building t fails (Build t ≠ none); and when every earlier build-time check passes (the checks before the output spec, PreOutputChecks: input places distinct, CORE-030, every input arc requiring at least one token, IO-002/IO-004, and no input arc and read arc on one place, EXEC-012; no output branch naming a place twice, IO-011; at most one Timeout node and no Xor node inside its child, IO-013; no ForwardInput outside a Timeout child and every forward from an input place, IO-014), building fails with IO-012's message for the pair (i, j) and the places ps the check reports (msgAmbiguous t i j ps).<br>5. Firing. For every transition t whose output spec is Xor(l, r) and passes the check, every deposit d, and every firing of t under F from m to m' that deposits d and whose deposit is not, place by place, a timeout-outcome deposit of t from m (IO_012_timeoutLike): some output branch b of Xor(l, r) is exact for d: on every place q the output spec names, d puts one or more tokens in q exactly when q is in b (ExactOn).<br>6. The second firing line is a consequence, not a clause: on an output spec that passes the check two exact branches would be the same set (both lie within outPlaces), so at most one is exact (theorem IO_012_unique).<br>7. `on R, shall Q` reads: every step from m to m' with R m m' satisfies Q m m'; here Q ignores both markings. | <pre>fun {N} [DecidableEq N] [ToString N] C Build F ↦<br>  (∀ (o : Out N), C o = none ↔ IO_012_unambiguous o) ∧<br>    (∀ (o : Out N) (i j : ℕ) (ps : List N),<br>        C o = some (i, j, ps) ↔ IO_012_reported o i j ps) ∧<br>      (∀ (t : Reference.Trans N) (o : Out N),<br>          OutputSpec t = some o →<br>            ¬IO_012_unambiguous o →<br>              Build t ≠ none ∧<br>                (PreOutputChecks t →<br>                  ¬DupBranch o →<br>                    timeoutCount o ≤ 1 →<br>                      xorInTimeout o = false →<br>                        forwardOutside o = none →<br>                          (∀ s ∈ forwardSources o, s ∈ inPlaces t) →<br>                            ∀ (i j : ℕ) (ps : List N),<br>                              C o = some (i, j, ps) →<br>                                Build t = some (msgAmbiguous t i j ps))) ∧<br>        ∀ (t : Reference.Trans N) (l r : Out N),<br>          OutputSpec t = some (l.xor r) →<br>            IO_012_unambiguous (l.xor r) →<br>              ∀ (d : List N),<br>                on fun m m' ↦ F t m d m' ∧ ¬IO_012_timeoutLike t m d, shall fun x x_1 ↦<br>                  ∃ b ∈ (l.xor r).branches, ExactOn (l.xor r) d b</pre> |
 
 **Assumptions**
 
 - A firing is read as one step from a marking to a marking that deposits the tokens of one outcome (glossary: Fire, Deposit); timing and priority play no part. A completion that fails, by an action exception (EXEC-030) or by IO-015 validation, deposits no outcome and is not a firing here: an action failure does not end the firing with its action.
 - F models an executor with output validation enabled, the default; an executor with the CONC-026 skip enabled is not constrained by the firing line (scope). The build check is independent of any executor: C is the check itself.
 - The check is modelled by what it reports, not by its text: C o = some (i, j, ps) stands for the message `output spec of transition '<t>' is ambiguous: output branches <i> and <j> both claim {<places>}; no write can tell them apart (IO-012)`, with <places> the names of ps joined by ', '. The transition name, the rendering of names, the message text, and the claim that it is byte-identical across implementations are not in the model; the cross-language tests of AC5 pin them.
-- The check C is stated for one output spec in isolation; the third line ties it to the builder. In the builder it runs last of the build-time checks (the Output Composition preamble: CORE-030's input check, then IO-011, IO-013's two checks, IO-014 before it), so a spec that an earlier check rejects reports that check's message instead: the third line asks for IO-012's message only when every earlier check passes, and otherwise only that building fails. The message is the glossary's msgAmbiguous, the text the markdown gives. That the check runs on every construction path (builders, composition, channel merge, fusion) and that no executor option skips it is read as: every transition in a net has an output spec C passes. The firing line is stated for such transitions; the model has no construction paths to enumerate.
+- The check C is stated for one output spec in isolation; the third line ties it to the builder. In the builder it runs last of the output-spec checks (the Output Composition preamble: IO-011, IO-013's two checks, IO-014 and IO-014 AC3 before it, and in an implementation with run-time token types, Java, IO-014's check that a ForwardInput's to place can hold the tokens of from), after the checks before the output spec (PreOutputChecks, ruling D15 below) and the TIME-001 timing check (glossary: Build-time checks), so a transition that an earlier check rejects reports that check's message instead: the third line asks for IO-012's message only when every earlier check passes, and otherwise only that building fails. Trans carries no timing interval and no token types, so the message part of the third line is claimed of transitions whose timing passes TIME-001's check and, in Java, whose every ForwardInput has a to place that can hold the tokens of its from place. The message is the glossary's msgAmbiguous, the text the markdown gives. That the check runs on every construction path (builders, composition, channel merge, fusion) and that no executor option skips it is read as: every transition in a net has an output spec C passes. The firing line is stated for such transitions; the model has no construction paths to enumerate.
 - 'An implementation MAY decide the check without enumerating every branch' is the extensional reading: the block constrains C only by what it returns, so any algorithm that returns the same (i, j, ps) satisfies it. IO_012_check is one such algorithm, the enumeration of the numbered steps.
 - Place identity is equality on N, the implementation's own Place equality (names in TypeScript, Rust and Python, name and token type in Java; CORE-002, MOD-024). A ForwardInput(from, to) claims `to`, a Timeout its child's claim (Out.branches).
 - Branches are numbered by the reference enumeration Out.branches over the right-nested binary Out: an n-ary Xor(c₁, …, cₙ) is xor c₁ (xor c₂ … cₙ) and concatenates its children's lists in child order; an n-ary And is the cartesian product with the first child varying slowest. These are IO-016's lists and VER-001's <t>_b<i> numbering, so the binary nesting changes no index.
@@ -8198,7 +8198,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - The produced set is compared on the places the output spec names (outPlaces), as IO-015 compares on declared places: a token in a place the spec never names is CORE-072's business. A token in a named place outside the selected branch still breaks the firing line (IO-015 AC9). A branch fixes which places receive tokens, not how many (glossary: Output branch): several tokens into one place of the branch conform.
 - A firing ends with its action unless it is the timeout outcome (glossary: Timeout outcome, IO-013); the abstract firing relation does not label the outcome, so a firing whose deposit puts in every place as many tokens as some timeout-outcome deposit of t from the same marking is not checked (IO-012), whatever the order of its tokens. When the action happens to write such a deposit, that firing is not checked either. An Xor that contains a Timeout node is otherwise covered.
 - The firing line covers a transition whose whole output spec is an Xor. An Xor nested inside And or Timeout is covered by IO-015, which validates every Xor an assignment reaches. The build check covers every output spec, an Xor at any depth included: And(Q, Xor(P, P)) is rejected.
-- AC1 (at least two children) is structural: the binary xor node has the two children l and r, and an n-ary Xor nests as xor c₁ (xor c₂ … cₙ) (checked by example below); the reference loader rejects an xor with fewer than two children.
+- AC1 (at least two children) is structural: the binary xor node has the two children l and r, and an n-ary Xor nests as xor c₁ (xor c₂ … cₙ) (checked by example below); the reference loader rejects an xor with fewer than two children. In the runtimes the check sits in the Xor constructor (Java's Arc.Out.Xor record, the xor() factory of Rust and TypeScript, Python through Rust's xor()); Rust's public Out::Xor variant and a TypeScript object literal skip that constructor, so the transition builders of Rust and TypeScript run the check again, with the factory's message, after the timing check and before the output-spec checks, as they do the IO-002/IO-004 counts and TIME-001's timing (RD-54).
 - AC2 (exactly one child received tokens) is the firing line (at least one exact branch, so one child of the top Xor) together with its consequence IO_012_unique (not two). An output branch takes exactly one child of the top Xor.
 - AC3 (zero branches satisfied → validation error) is the firing line: such a completion is not a firing. The test derivation's 'action produces to both' case is also the firing line under the exact reading: Xor(P1, P2) has no output branch {P1, P2}.
 - AC4 (two branches whose claims are the same set never reach a firing) is the build check: such a spec does not pass C, and the firing line is stated only for specs that pass. The strict-subset remark of AC4 is the exact reading above: Xor(And(A, B, C), And(A, B)) passes the check (checked by example below).
@@ -8268,22 +8268,22 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_013"></a>
 ## IO-013: Output timeout
 
-`Libpetri.Spec.IO_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 4dd548dd2797bcc8 ai** · Statement hash `4dd548dd2797bcc8`
+`Libpetri.Spec.IO_013` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 729c134068fcb4bc ai** · Statement hash `729c134068fcb4bc`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| `Timeout(duration, child)` is a node of an output spec that gives the action of a firing a budget of `duration` to complete.<br><br>*If* the action does not complete within `duration`, the firing *shall* end with the timeout outcome: it is abandoned, and it deposits the tokens of `child`.<br><br>*When* a firing ends with the timeout outcome, it *shall not* deposit any output of the action, so the marking receives the tokens of `child` and nothing else.<br><br>*If* an output spec holds more than one `Timeout` node, whether one is nested in the child of another or they sit apart, *then* building the transition *shall* fail with<br><br>where `&lt;n>` is the number of `Timeout` nodes in the spec.<br><br>The check runs when the transition is built, on every construction path, as the check of [IO-011] does.<br><br>A transition that builds therefore has at most one timeout outcome, and the `child` of its `Timeout` holds no `Timeout` node.<br><br>The executor, not the action, makes the deposit of the timeout outcome, so nothing chooses among alternatives inside the `Timeout` child.<br><br>*If* the child of an output spec's `Timeout` node holds an `Xor` node at any depth, *then* building the transition *shall* fail with<br><br>The check runs after the `Timeout` count check above, so the spec it sees holds at most one `Timeout` node.<br><br>The timeout outcome of a transition that builds therefore deposits in one fixed set of places: every place the `Timeout` child names. | 1. Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg), F the firings and T the firings that end with the timeout outcome.<br>2. For every transition t whose output spec o holds two or more Timeout nodes, building t fails; and if t's input places are distinct and no output branch of o names a place twice, it fails with the IO-013 message for t and the number of Timeout nodes in o.<br>3. Every transition that passes every build check (distinct input places, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward from an input place, no two output branches claiming one set of places) builds.<br>4. For every transition t that builds: every firing of t in T is a firing in F, with the same deposit and target marking.<br>5. For every transition t that builds: every firing of t in T from m deposits, place by place, exactly the tokens of the timeout outcome of t (for what t consumes at m), and nothing else.<br>6. For every transition t that builds: from every marking m at which t is enabled, every timeout outcome d of t (for what t consumes at m) is the deposit of some firing in T.<br>7. For every transition t that builds and whose output spec has a Timeout node, every firing of t in F is in T, or has as its produced set exactly the places of one output branch of t.<br>8. For every transition t whose output spec o holds at most one Timeout node and an Xor node at any depth of that node's child (xorInTimeout), building t fails; and if t's input places are distinct and no output branch of o names a place twice, it fails with IO-013's Xor message for t (msgXorInTimeout). | <pre>fun {N} [DecidableEq N] Build F T ↦<br>  (∀ (t : Reference.Trans N) (o : Out N),<br>      OutputSpec t = some o →<br>        2 ≤ timeoutCount o →<br>          Build t ≠ none ∧<br>            (PreOutputChecks t →<br>              ¬DupBranch o → Build t = some (msgTimeouts t (timeoutCount o)))) ∧<br>    (∀ (t : Reference.Trans N), Builds t → Build t = none) ∧<br>      (∀ (t : Reference.Trans N),<br>          Build t = none →<br>            ∀ (d : List N), on fun m m' ↦ T t m d m', shall fun m m' ↦ F t m d m') ∧<br>        (∀ (t : Reference.Trans N),<br>            Build t = none →<br>              ∀ (d : List N),<br>                on fun m m' ↦ T t m d m', shall fun m x ↦<br>                  ∃ d₀,<br>                    TimeoutOutcome t (Consumes t m) d₀ ∧<br>                      ∀ (p : N), Deposits d p = Deposits d₀ p) ∧<br>          (∀ (t : Reference.Trans N),<br>              Build t = none →<br>                ∀ (m : CountMarking N),<br>                  Enabled t m →<br>                    ∀ (d : List N),<br>                      TimeoutOutcome t (Consumes t m) d → ∃ m', T t m d m') ∧<br>            (∀ (t : Reference.Trans N),<br>                Build t = none →<br>                  HasTimeout t →<br>                    ∀ (d : List N),<br>                      on fun m m' ↦ F t m d m', shall fun m m' ↦<br>                        T t m d m' ∨<br>                          ∃ b, OutputBranch t b ∧ ∀ (p : N), Produced d p ↔ p ∈ b) ∧<br>              ∀ (t : Reference.Trans N) (o : Out N),<br>                OutputSpec t = some o →<br>                  timeoutCount o ≤ 1 →<br>                    xorInTimeout o = true →<br>                      Build t ≠ none ∧<br>                        (PreOutputChecks t →<br>                          ¬DupBranch o → Build t = some (msgXorInTimeout t))</pre> |
+| `Timeout(duration, child)` is a node of an output spec that gives the action of a firing a budget of `duration` to complete.<br><br>*If* the action does not complete within `duration`, the firing *shall* end with the timeout outcome: it is abandoned, and it deposits the tokens of `child`.<br><br>*When* a firing ends with the timeout outcome, it *shall not* deposit any output of the action, so the marking receives the tokens of `child` and nothing else.<br><br>*If* an output spec holds more than one `Timeout` node, whether one is nested in the child of another or they sit apart, *then* building the transition *shall* fail with<br><br>where `&lt;n>` is the number of `Timeout` nodes in the spec.<br><br>The check runs when the transition is built, on every construction path, as the check of [IO-011] does.<br><br>A transition that builds therefore has at most one timeout outcome, and the `child` of its `Timeout` holds no `Timeout` node.<br><br>The executor, not the action, makes the deposit of the timeout outcome, so nothing chooses among alternatives inside the `Timeout` child.<br><br>*If* the child of an output spec's `Timeout` node holds an `Xor` node at any depth, *then* building the transition *shall* fail with<br><br>The check runs after the `Timeout` count check above, so the spec it sees holds at most one `Timeout` node.<br><br>The timeout outcome of a transition that builds therefore deposits in one fixed set of places: every place the `Timeout` child names. | 1. Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg), F the firings and T the firings that end with the timeout outcome.<br>2. For every transition t whose output spec o holds two or more Timeout nodes, building t fails; and if t passes the checks before the output spec (PreOutputChecks: distinct input places, every input arc requiring at least one token, no input arc and read arc on one place) and no output branch of o names a place twice, it fails with the IO-013 message for t and the number of Timeout nodes in o.<br>3. Every transition that passes every build check (distinct input places, every input arc requiring at least one token, no input arc and read arc on one place, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward from an input place, no two output branches claiming one set of places) builds.<br>4. For every transition t that builds: every firing of t in T is a firing in F, with the same deposit and target marking.<br>5. For every transition t that builds: every firing of t in T from m deposits, place by place, exactly the tokens of the timeout outcome of t (for what t consumes at m), and nothing else.<br>6. For every transition t that builds: from every marking m at which t is enabled, every timeout outcome d of t (for what t consumes at m) is the deposit of some firing in T.<br>7. For every transition t that builds and whose output spec has a Timeout node, every firing of t in F is in T, or has as its produced set exactly the places of one output branch of t.<br>8. For every transition t whose output spec o holds at most one Timeout node and an Xor node at any depth of that node's child (xorInTimeout), building t fails; and if t passes the checks before the output spec (PreOutputChecks: distinct input places, every input arc requiring at least one token, no input arc and read arc on one place) and no output branch of o names a place twice, it fails with IO-013's Xor message for t (msgXorInTimeout). | <pre>fun {N} [DecidableEq N] Build F T ↦<br>  (∀ (t : Reference.Trans N) (o : Out N),<br>      OutputSpec t = some o →<br>        2 ≤ timeoutCount o →<br>          Build t ≠ none ∧<br>            (PreOutputChecks t →<br>              ¬DupBranch o → Build t = some (msgTimeouts t (timeoutCount o)))) ∧<br>    (∀ (t : Reference.Trans N), Builds t → Build t = none) ∧<br>      (∀ (t : Reference.Trans N),<br>          Build t = none →<br>            ∀ (d : List N), on fun m m' ↦ T t m d m', shall fun m m' ↦ F t m d m') ∧<br>        (∀ (t : Reference.Trans N),<br>            Build t = none →<br>              ∀ (d : List N),<br>                on fun m m' ↦ T t m d m', shall fun m x ↦<br>                  ∃ d₀,<br>                    TimeoutOutcome t (Consumes t m) d₀ ∧<br>                      ∀ (p : N), Deposits d p = Deposits d₀ p) ∧<br>          (∀ (t : Reference.Trans N),<br>              Build t = none →<br>                ∀ (m : CountMarking N),<br>                  Enabled t m →<br>                    ∀ (d : List N),<br>                      TimeoutOutcome t (Consumes t m) d → ∃ m', T t m d m') ∧<br>            (∀ (t : Reference.Trans N),<br>                Build t = none →<br>                  HasTimeout t →<br>                    ∀ (d : List N),<br>                      on fun m m' ↦ F t m d m', shall fun m m' ↦<br>                        T t m d m' ∨<br>                          ∃ b, OutputBranch t b ∧ ∀ (p : N), Produced d p ↔ p ∈ b) ∧<br>              ∀ (t : Reference.Trans N) (o : Out N),<br>                OutputSpec t = some o →<br>                  timeoutCount o ≤ 1 →<br>                    xorInTimeout o = true →<br>                      Build t ≠ none ∧<br>                        (PreOutputChecks t →<br>                          ¬DupBranch o → Build t = some (msgXorInTimeout t))</pre> |
 
 **Assumptions**
 
 - The model is the triple (Build, F, T). Build is the transition builder, read as the message building a transition fails with, none when it builds; the reference builder refBuild runs the checks the model can see in the order of the output composition preamble of spec/02-input-output-specs.md. F is the firing relation and T the firings that end with the timeout outcome (glossary: Timeout outcome), each read as one step from a marking to a marking that deposits the tokens of one outcome (glossary: Fire, Deposit); timing and priority play no part. A plain FireRel cannot carry T: on Xor(Place 0, Timeout(Place 1)) the timeout deposit [1] is also the action branch {1}, so a timed-out firing that deposits the sibling branch [0] would look like an action firing. The witness triple is refBuild, RefFire and refTimeoutOutcomeFire.
-- The build error is msgTimeouts, byte for byte: output spec of transition '<t>' has <n> Timeout nodes; an output spec has at most one, nested or not (IO-013), with <n> the number of Timeout nodes in the spec, nested and sibling ones alike (timeoutCount). The preamble's order puts the IO-011 check (a place twice in one output branch) first, so on such a spec the message is IO-011's and the second line only requires that building fails. The preamble does not place the CORE-030 input-arc check, so on a transition with two input arcs on one place the second line likewise only requires that building fails.
+- The build error is msgTimeouts, byte for byte: output spec of transition '<t>' has <n> Timeout nodes; an output spec has at most one, nested or not (IO-013), with <n> the number of Timeout nodes in the spec, nested and sibling ones alike (timeoutCount). The preamble's order puts the IO-011 check (a place twice in one output branch) first, so on such a spec the message is IO-011's and the second line only requires that building fails. The preamble does not place the CORE-030 input-arc check, so on a transition with two input arcs on one place the second line likewise only requires that building fails. The timing check of TIME-001, which runs before the output-spec checks (glossary: Build-time checks), is not in the model either: Trans carries no timing interval, so the message lines (second and eighth) are claimed of transitions whose timing passes that check.
 - 'On every construction path' is read as: Build is the one builder every construction path goes through (builders, composition, channel merge, fusion), so a transition that a path yields builds exactly when Build accepts it. Which paths exist is not in the model.
-- The third line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing the checks before the output spec (CORE-030, the IO-002/IO-004 input counts and EXEC-012's input-and-read check, PreOutputChecks) and every build check of the output composition preamble builds. The checks are the glossary terms Builds and WellFormedOut, the build-time checks of IO-011, IO-012, IO-013 and IO-014; checks the model cannot see (AC1's positive duration, a spec that names no place) are outside it.
+- The third line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing the checks before the output spec (CORE-030, the IO-002/IO-004 input counts and EXEC-012's input-and-read check, PreOutputChecks) and every build check of the output composition preamble builds. The checks are the glossary terms Builds and WellFormedOut, the build-time checks of IO-011, IO-012, IO-013 and IO-014; checks the model cannot see (AC1's positive duration, a spec that names no place) are outside it. So are the TIME-001 timing check, the NU-020 and NU-054 checks of a match specification and, in an implementation whose places carry token types, the ForwardInput type check IO-014 allows ('An implementation whose places carry run-time token types (Java) *may* also fail building a transition that has a `ForwardInput(from, to)` whose `to` place's token type cannot hold the tokens of `from`.'; Java runs it in ArcDiagnostics.outputSpecError, 'ForwardInput type mismatch'): Trans carries no timing interval, no match specification and no token types, so the line is read on transitions that pass those checks, AC8's accepted Timeout(d, And(A, ForwardInput(i, B))) with B able to hold the tokens of i.
 - A transition that builds has at most one Timeout node, so its timeout outcome is the one Timeout node's child (Out.findTimeout finds it), and that child holds no Timeout node. The firing lines are stated for transitions that build only: a transition building rejects is not a transition of any net (CORE-022) and never fires.
-- The duration is not in the model, so whether the budget expires is nondeterministic: from every marking at which t is enabled, the action may overrun it. The sixth line therefore reads 'if the action does not complete within duration, the firing shall end with the timeout outcome' as 'the timeout outcome is always one of the ways a firing of t can end'. That overrunning forces the timeout, and that completing in time rules it out, are statements about time that a model of untimed steps cannot express.
-- 'It is abandoned' is the action's output being excluded, which the fifth line states for the deposit. Whether the action is stopped is the side-effect paragraph that follows the first paragraph, not encoded.
-- 'The marking receives the tokens of child and nothing else' is read at the deposit (fifth line). Which marking a firing leads to is the effect rule of the glossary term Fire (CORE-030, CORE-034, CORE-035); the fourth line ties every timed-out firing to a firing of F, so that rule applies to it.
+- The duration is not in the model, so whether the budget expires is nondeterministic: from every marking at which t is enabled, the action may overrun it. Nor is the action (Trans carries none), and only an action that hands control back to the executor before it completes races its budget: EXEC-022 says 'an action that completes before it hands control back, a synchronous action for example, never times out' (Rust's inline run_sync branch of fire_transition_async, and in Java an action that returns an already-completed stage, which the completeOnTimeout of ExecutorSupport.withActionTimeout cannot end). IO-013's unconditional 'if the action does not complete within duration' is narrowed by EXEC-022 to actions that hand control back, and the sixth line is read over the actions a transition may carry: some such action can overrun the budget. The sixth line therefore reads 'if the action does not complete within duration, the firing shall end with the timeout outcome' as 'the timeout outcome is always one of the ways a firing of t can end'. That overrunning forces the timeout, and that completing in time rules it out, are statements about time that a model of untimed steps cannot express.
+- 'It is abandoned' is the action's output being excluded, which the fifth line states for the deposit. Whether the action is stopped is the paragraph after 'One fixed timeout deposit' ('Whether the abandoned action is actually stopped is implementation-defined and MUST NOT be relied upon ...'). It constrains what users may rely on and leaves the abandoned action's side effects to the implementation, so it is not encoded.
+- 'The marking receives the tokens of child and nothing else' is read at the deposit (fifth line). Which marking a firing leads to is the effect rule of the glossary term Fire (CORE-030, CORE-034, CORE-035); the fourth line ties every timed-out firing to a firing of F, so that rule applies to it. Output the action published mid-action (EXEC-020, IO-015 AC7) is deposited by its publication, not by the firing's end, and stays in the marking when the budget runs out (EXEC-022: 'Output the action published before the budget ran out stays in the marking'). It is outside this one-step model, so 'it shall not deposit any output of the action' and AC5's 'output the action produced before the budget expired' are read as the output the action had not published. Java and TypeScript have no mid-action publication; Rust's flush does, and Python's on it.
 - 'The tokens of child' is the glossary term Timeout outcome, as the reference reads it (Out.timeoutDeposits): one token per Place leaf of child, the product at every And, and one token in to per token consumed from from at every ForwardInput (IO-014), counted per place, so the order of the deposit list does not matter (CORE-036). Token values and created_at (the minted tokens of AC3, forwarded values and their stamps, IO-014 AC5) are below the count granularity.
 - The eighth line is the paragraph 'One fixed timeout deposit'. Its message is msgXorInTimeout, byte for byte. Any Xor at any depth of the Timeout child counts, under an And or a ForwardInput's sibling included (hasXor). It runs after the Timeout count check, as the premise timeoutCount o ≤ 1 states: with two Timeout nodes the message is the first line's. The preamble's order puts the IO-011 check before it, so on a spec that names a place twice in one output branch the eighth line only requires that building fails, and on a transition with two input arcs on one place likewise (CORE-030). 'The executor, not the action, makes the deposit' is the reason the markdown gives and is not a separate constraint.
 - 'The timeout outcome of a transition that builds therefore deposits in one fixed set of places' is a consequence, not a clause: on a transition that builds the Timeout child holds no Xor node, so Out.timeoutDeposits of the child has one entry and the fifth and sixth lines name one deposit (theorem IO_013_one_fixed_deposit, from the glossary's timeoutOutcome_unique). Without the check the reference offers one timeout outcome per alternative of an Xor in the child (IO_013_reference_xorChild_two_outcomes).
@@ -8366,20 +8366,20 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_014"></a>
 ## IO-014: Output ForwardInput
 
-`Libpetri.Spec.IO_014` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 73d8a8afcc5b3c0d ai** · Statement hash `73d8a8afcc5b3c0d`
+`Libpetri.Spec.IO_014` · Kind **B** · Scope all executors · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 62e5239eceb43ee3 ai** · Statement hash `62e5239eceb43ee3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| `ForwardInput(from, to)` is a node of an output spec that, on the timeout outcome, deposits in `to` the tokens a firing consumed from its input place `from`.<br><br>*If* a `ForwardInput` node of an output spec is not inside the child of a `Timeout` node, *then* building the transition *shall* fail with<br><br>naming the first such node in the order the spec is written (pre-order, children left to right).<br><br>The check runs when the transition is built, on every construction path, as the check of [IO-011] does.<br><br>*When* a firing ends with the timeout outcome, every `ForwardInput(from, to)` in the `Timeout` child *shall* deposit in `to` one token for each token the firing consumed from `from`, carrying the token's value, in consumption order.<br><br>The count *shall* be the consumption count of the input arc on `from` ([IO-007]): 1 for `One`, `n` for `Exactly(n)`, and the whole drained batch for `All` and `AtLeast(m)`.<br><br>*If* a firing consumed more than one token from `from`, *then* the forward *shall not* deposit fewer tokens in `to` than the firing consumed; in particular it *shall not* forward only the first consumed token.<br><br>*If* a firing consumed no token from `from`, which a declared input cannot do but a mis-declared spec can, *then* the forward *shall* deposit no token in `to`. | 1. Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and T the firings that end with the timeout outcome.<br>2. For every transition t whose output spec o has a ForwardInput(from, to) outside the child of a Timeout node, the first in pre-order, building t fails;<br>3. and if t's input places are distinct, no output branch of o names a place twice, o has at most one Timeout node and no Xor node inside its Timeout child, building t fails with the IO-014 message naming t, from and to.<br>4. For every transition t whose output spec has a ForwardInput from a place that is not one of t's input places, building t fails.<br>5. Every transition that passes every build check (distinct input places, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward from an input place, no two output branches claiming one set of places) builds.<br>6. For every transition t whose output spec has at most one Timeout node and a ForwardInput(from, to) anywhere in that node's child (also under And or Xor), every deposit d and every firing of t from m in T that deposits d, there is one timeout deposit e of the Timeout child, built with every ForwardInput(a, b) of the child putting in b one token per token the firing consumes from a, such that e puts no more tokens than d in any place (no consumed token is lost, at any forward of the child) and d puts no more tokens than e in any place (one token per consumed token, none extra). | <pre>fun {N} [DecidableEq N] [ToString N] Build T ↦<br>  (∀ (t : Reference.Trans N) (o : Out N) (src dst : N),<br>      OutputSpec t = some o → forwardOutside o = some (src, dst) → Build t ≠ none) ∧<br>    (∀ (t : Reference.Trans N) (o : Out N) (src dst : N),<br>        OutputSpec t = some o →<br>          forwardOutside o = some (src, dst) →<br>            PreOutputChecks t →<br>              ¬DupBranch o →<br>                timeoutCount o ≤ 1 →<br>                  xorInTimeout o = false → Build t = some (msgForward t src dst)) ∧<br>      (∀ (t : Reference.Trans N) (o : Out N) (src : N),<br>          OutputSpec t = some o →<br>            src ∈ forwardSources o → src ∉ inPlaces t → Build t ≠ none) ∧<br>        (∀ (t : Reference.Trans N), Builds t → Build t = none) ∧<br>          ∀ (t : Reference.Trans N) (src dst : N),<br>            (∀ (o : Out N), OutputSpec t = some o → timeoutCount o ≤ 1) →<br>              TimeoutForwards t src dst →<br>                ∀ (d : List N),<br>                  on fun m m' ↦ T t m d m', shall fun m x ↦<br>                    ∃ e,<br>                      TimeoutOutcome t (Consumes t m) e ∧<br>                        (∀ (p : N), Deposits e p ≤ Deposits d p) ∧<br>                          ∀ (p : N), Deposits d p ≤ Deposits e p</pre> |
+| `ForwardInput(from, to)` is a node of an output spec that, on the timeout outcome, deposits in `to` the tokens a firing consumed from its input place `from`.<br><br>*If* a `ForwardInput` node of an output spec is not inside the child of a `Timeout` node, *then* building the transition *shall* fail with<br><br>naming the first such node in the order the spec is written (pre-order, children left to right).<br><br>The check runs when the transition is built, on every construction path, as the check of [IO-011] does.<br><br>*When* a firing ends with the timeout outcome, every `ForwardInput(from, to)` in the `Timeout` child *shall* deposit in `to` one token for each token the firing consumed from `from`, carrying the token's value, in consumption order.<br><br>The count *shall* be the consumption count of the input arc on `from` ([IO-007]): 1 for `One`, `n` for `Exactly(n)`, and the whole drained batch for `All` and `AtLeast(m)`.<br><br>*If* a firing consumed more than one token from `from`, *then* the forward *shall not* deposit fewer tokens in `to` than the firing consumed; in particular it *shall not* forward only the first consumed token.<br><br>*If* a firing consumed no token from `from`, which a declared input cannot do but a mis-declared spec can, *then* the forward *shall* deposit no token in `to`. | 1. Let Build be the builder (Build t = none: t builds; Build t = some msg: building t fails with msg) and T the firings that end with the timeout outcome.<br>2. For every transition t whose output spec o has a ForwardInput(from, to) outside the child of a Timeout node, the first in pre-order, building t fails;<br>3. and if t passes the checks before the output spec (PreOutputChecks: distinct input places, every input arc requiring at least one token, no input arc and read arc on one place), no output branch of o names a place twice, o has at most one Timeout node and no Xor node inside its Timeout child, building t fails with the IO-014 message naming t, from and to.<br>4. For every transition t whose output spec has a ForwardInput from a place that is not one of t's input places, building t fails.<br>5. Every transition that passes every build check (distinct input places, every input arc requiring at least one token, no input arc and read arc on one place, no place twice in one output branch, at most one Timeout node, no Xor node inside the Timeout child, no ForwardInput outside a Timeout child, every forward from an input place, no two output branches claiming one set of places) builds.<br>6. For every transition t whose output spec has at most one Timeout node and a ForwardInput(from, to) anywhere in that node's child (also under And or Xor), every deposit d and every firing of t from m in T that deposits d, there is one timeout deposit e of the Timeout child, built with every ForwardInput(a, b) of the child putting in b one token per token the firing consumes from a, such that e puts no more tokens than d in any place (no consumed token is lost, at any forward of the child) and d puts no more tokens than e in any place (one token per consumed token, none extra). | <pre>fun {N} [DecidableEq N] [ToString N] Build T ↦<br>  (∀ (t : Reference.Trans N) (o : Out N) (src dst : N),<br>      OutputSpec t = some o → forwardOutside o = some (src, dst) → Build t ≠ none) ∧<br>    (∀ (t : Reference.Trans N) (o : Out N) (src dst : N),<br>        OutputSpec t = some o →<br>          forwardOutside o = some (src, dst) →<br>            PreOutputChecks t →<br>              ¬DupBranch o →<br>                timeoutCount o ≤ 1 →<br>                  xorInTimeout o = false → Build t = some (msgForward t src dst)) ∧<br>      (∀ (t : Reference.Trans N) (o : Out N) (src : N),<br>          OutputSpec t = some o →<br>            src ∈ forwardSources o → src ∉ inPlaces t → Build t ≠ none) ∧<br>        (∀ (t : Reference.Trans N), Builds t → Build t = none) ∧<br>          ∀ (t : Reference.Trans N) (src dst : N),<br>            (∀ (o : Out N), OutputSpec t = some o → timeoutCount o ≤ 1) →<br>              TimeoutForwards t src dst →<br>                ∀ (d : List N),<br>                  on fun m m' ↦ T t m d m', shall fun m x ↦<br>                    ∃ e,<br>                      TimeoutOutcome t (Consumes t m) e ∧<br>                        (∀ (p : N), Deposits e p ≤ Deposits d p) ∧<br>                          ∀ (p : N), Deposits d p ≤ Deposits e p</pre> |
 
 **Assumptions**
 
-- The model is the pair (Build, T). Build is the transition builder, read as the message building a transition fails with, none when it builds; the reference builder refBuild runs the CORE-030 input-arc check and then the output-spec checks in the order of the output composition preamble of spec/02-input-output-specs.md (IO-011, IO-013's Timeout count, IO-013's Xor inside the Timeout child, IO-014, IO-014 AC3, IO-012), with each message byte for byte except CORE-030's, which the spec does not give. Place names are rendered with the place type's ToString.
+- The model is the pair (Build, T). Build is the transition builder, read as the message building a transition fails with, none when it builds; the reference builder refBuild runs the CORE-030 input-arc check, the IO-002/IO-004 input-count check and EXEC-012's input-and-read check (PreOutputChecks), and then the output-spec checks in the order of the output composition preamble of spec/02-input-output-specs.md (IO-011, IO-013's Timeout count, IO-013's Xor inside the Timeout child, IO-014, IO-014 AC3, IO-012), with each message byte for byte except the stand-ins for CORE-030 and the IO-002/IO-004 count check (msgCount), which the spec does not give here. Place names are rendered with the place type's ToString.
 - T is the relation of firings that end with the timeout outcome (glossary: Timeout outcome), read as one step from a marking to a marking that deposits the Timeout child's tokens (glossary: Fire, Deposit); timing and priority play no part. A plain FireRel cannot be used: on Timeout(ForwardInput(from, to)) the action branch [to] and a forward of one token are the same deposit. The witness refTimedOutFire is the part of RefFire whose outcome is a timedOut choice (refTimedOutFire_refFire). That the resulting marking receives d is the effect rule (CORE-030, CORE-034, CORE-035) on the plain firing relation, not restated here.
-- The build error is msgForward, byte for byte: output spec of transition '<t>' uses ForwardInput('<from>', '<to>') outside the child of a Timeout node; a forward deposits only on the timeout outcome (IO-014). 'Not inside the child of a Timeout node' and 'the first such node' are forwardOutside: the pre-order walk, children left to right, that does not enter a Timeout node. The preamble's order runs the IO-011 check (a place twice in one output branch) and the IO-013 checks (more than one Timeout node, an Xor node inside the Timeout child) first, so on such a spec the message is theirs, and the second line only requires that building fails; CORE-030's input-arc check is not placed by the preamble and is treated the same way.
+- The build error is msgForward, byte for byte: output spec of transition '<t>' uses ForwardInput('<from>', '<to>') outside the child of a Timeout node; a forward deposits only on the timeout outcome (IO-014). 'Not inside the child of a Timeout node' and 'the first such node' are forwardOutside: the pre-order walk, children left to right, that does not enter a Timeout node. The preamble's order runs the IO-011 check (a place twice in one output branch) and the IO-013 checks (more than one Timeout node, an Xor node inside the Timeout child) first, so on such a spec the message is theirs, and the second line only requires that building fails; CORE-030's input-arc check is not placed by the preamble and is treated the same way. The timing check of TIME-001, which runs before the output-spec checks (glossary: Build-time checks), is not in the model either: Trans carries no timing interval, so the third line's message is claimed of transitions whose timing passes that check.
 - 'On every construction path' is read as: Build is the one builder every construction path goes through (builders, composition, channel merge, fusion), so a transition that a path yields builds exactly when Build accepts it. Which paths exist is not in the model. No executor option reaches Build (CONC-026).
-- The fifth line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing the checks before the output spec (CORE-030, the IO-002/IO-004 input counts and EXEC-012's input-and-read check, PreOutputChecks) and every build check of the output composition preamble builds. The checks are the glossary terms Builds and WellFormedOut, the same checks IO-013 reads.
-- The firing line is stated for every transition whose output spec has at most one Timeout node, not only for transitions that build: a transition with two or more Timeout nodes is rejected (IO-013) and has no single Timeout child, so no reading of 'the Timeout child' is claimed there, while a transition with a forward from a non-input place, rejected by the fourth line, is still covered, which is what keeps the fourth quote (no input consumed, nothing forwarded) checkable. A transition with one Timeout node has one Timeout child, the one Out.findTimeout finds.
+- The fifth line is the converse that makes 'builds' checkable (AC7's specs that build): a transition passing the checks before the output spec (CORE-030, the IO-002/IO-004 input counts and EXEC-012's input-and-read check, PreOutputChecks) and every build check of the output composition preamble builds. The checks are the glossary terms Builds and WellFormedOut, the same checks IO-013 reads. Trans carries no timing interval, no match specification and no token types, so the line is read on transitions whose TIME-001 timing check and NU-020/NU-054 checks pass (glossary: Build-time checks) and, in an implementation whose places carry token types, whose every ForwardInput has a to place that can hold the tokens of its from place. The sentence 'An implementation whose places carry run-time token types (Java) *may* also fail building a transition that has a `ForwardInput(from, to)` whose `to` place's token type cannot hold the tokens of `from`.' lets such an implementation reject the other transitions when they are built, as Java does (ArcDiagnostics.outputSpecError, called from Transition.Builder.build, 'ForwardInput type mismatch'). The check runs per ForwardInput after the check that its from is an input place, so it changes neither the third line's message nor the fourth line, and Rust and TypeScript, whose places carry no run-time token type, build such a transition.
+- The firing line is stated for every transition whose output spec has at most one Timeout node, not only for transitions that build: a transition with two or more Timeout nodes is rejected (IO-013) and has no single Timeout child, so no reading of 'the Timeout child' is claimed there, while a transition with a forward from a non-input place, rejected by the fourth line, is still covered, which is what keeps the eighth quote (no input consumed, nothing forwarded) checkable. A transition with one Timeout node has one Timeout child, the one Out.findTimeout finds.
 - 'The `ForwardInput(from, to)` node of an output spec that, on the timeout outcome, deposits in `to` the tokens a firing consumed' (first quote) is the firing line, which says how many.
 - 'Every ForwardInput(from, to) in the Timeout child' includes a ForwardInput nested under And or Xor. On a transition that builds the child holds no Xor node (IO-013), so it has one timeout deposit (glossary: timeoutOutcome_unique); the line is also stated for transitions that do not build, where an Xor child has several timeout deposits and which one a firing chose is visible only in the whole deposit, so the statement compares d place by place with one timeout deposit e of the child (glossary: Timeout outcome, TimeoutOutcome); deposits are compared per place, so the order of the deposit list does not matter (CORE-036). This also fixes the tokens the child's Place leaves put in, which is IO-013's subject (AC5); it is restated here only because it is what identifies the chosen alternative. Comparing only the place `to` would let a forward-first firing pass whenever another alternative of the child happens to put the same count in `to`.
 - 'The count' (sixth quote) is the firing's consumption from `from`, the glossary term Consume (Consumes t m from), which is IO-007's consumption count of the input arc on `from` (bridge lemma consumes_eq) and 0 for a place with no input arc. The two bounds of the firing line together say d equals e place by place, with one existential e for both; they are split so that losing tokens and inventing tokens are refuted separately.
@@ -8450,7 +8450,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_015"></a>
 ## IO-015: Output Validation
 
-`Libpetri.Spec.IO_015` · Kind **F** · Scope every declared output spec · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 52495a3afd3db94b ai** · Statement hash `52495a3afd3db94b`
+`Libpetri.Spec.IO_015` · Kind **F** · Scope every declared output spec · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 9229f2aaabb21f44 ai** · Statement hash `9229f2aaabb21f44`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8512,7 +8512,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_015_firing"></a>
 ## IO-015: Output validation: a validated write is deposited
 
-`Libpetri.Spec.IO_015_firing` · Kind **B** · Scope executors with output validation enabled (the default, CONC-026) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 6ce6a995bcfc59ca ai** · Statement hash `6ce6a995bcfc59ca`
+`Libpetri.Spec.IO_015_firing` · Kind **B** · Scope executors with output validation enabled (the default, CONC-026) · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 2218d01fbc44b335 ai** · Statement hash `2218d01fbc44b335`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8541,7 +8541,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_016"></a>
 ## IO-016: Branch Enumeration
 
-`Libpetri.Spec.IO_016` · Kind **F** · Scope all output specs · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 1271111c6f5c5e23 ai** · Statement hash `1271111c6f5c5e23`
+`Libpetri.Spec.IO_016` · Kind **F** · Scope all output specs · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 9f5864d92dfe9b93 ai** · Statement hash `9f5864d92dfe9b93`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8597,7 +8597,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-IO_017"></a>
 ## IO-017: allPlaces Flattening
 
-`Libpetri.Spec.IO_017` · Kind **F** · Scope all output specs · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 3aee03ced6332910 ai** · Statement hash `3aee03ced6332910`
+`Libpetri.Spec.IO_017` · Kind **F** · Scope all output specs · Source **verbatim** (spec/02-input-output-specs.md) · Sign-off **2026-11-13 669046cb2047932b ai** · Statement hash `669046cb2047932b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8651,7 +8651,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_001"></a>
 ## MOD-001: SubnetDef Definition (open net + interface)
 
-`Libpetri.Spec.MOD_001` · Kind **F** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 c2908a690ad7ec13 ai** · Statement hash `c2908a690ad7ec13`
+`Libpetri.Spec.MOD_001` · Kind **F** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 53dc26be2eda1cd3 ai** · Statement hash `53dc26be2eda1cd3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8701,7 +8701,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_003"></a>
 ## MOD-003: Port Declaration (name + direction + place)
 
-`Libpetri.Spec.MOD_003` · Kind **B** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 a8ba026eaf2a647c ai** · Statement hash `a8ba026eaf2a647c`
+`Libpetri.Spec.MOD_003` · Kind **B** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 eef0bc67e59dddad ai** · Statement hash `eef0bc67e59dddad`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8739,7 +8739,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_004"></a>
 ## MOD-004: Port Direction Semantics (advisory; arcs govern flow)
 
-`Libpetri.Spec.MOD_004` · Kind **B** · Scope every subnet builder and every instantiation of a subnet definition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 2717b76b98d3dc75 ai** · Statement hash `2717b76b98d3dc75`
+`Libpetri.Spec.MOD_004` · Kind **B** · Scope every subnet builder and every instantiation of a subnet definition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 3f9708a5372ab72c ai** · Statement hash `3f9708a5372ab72c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8785,7 +8785,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_005"></a>
 ## MOD-005: Channel Declaration (interface transitions for synchronous fusion)
 
-`Libpetri.Spec.MOD_005` · Kind **B** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 ccf0be54db3fbe4a ai** · Statement hash `ccf0be54db3fbe4a`
+`Libpetri.Spec.MOD_005` · Kind **B** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 58d858d181a93426 ai** · Statement hash `58d858d181a93426`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8827,7 +8827,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_006"></a>
 ## MOD-006: Subnet Validation at Build
 
-`Libpetri.Spec.MOD_006` · Kind **B** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 87a8b78435a46624 ai** · Statement hash `87a8b78435a46624`
+`Libpetri.Spec.MOD_006` · Kind **B** · Scope every subnet builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 0286264af16c499a ai** · Statement hash `0286264af16c499a`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8882,7 +8882,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_010"></a>
 ## MOD-010: Instance Creation via instantiate(prefix, params)
 
-`Libpetri.Spec.MOD_010` · Kind **F** · Scope every instantiation of a subnet definition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 ee51dcfb3dcac4fe ai** · Statement hash `ee51dcfb3dcac4fe`
+`Libpetri.Spec.MOD_010` · Kind **F** · Scope every instantiation of a subnet definition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 420e0e745f43efca ai** · Statement hash `420e0e745f43efca`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8934,7 +8934,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_011"></a>
 ## MOD-011: Instance Handle Map (typed port + channel handles)
 
-`Libpetri.Spec.MOD_011` · Kind **F** · Scope every module instance (Java, TypeScript, Rust, Python) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 00139c7399438b61 ai** · Statement hash `00139c7399438b61`
+`Libpetri.Spec.MOD_011` · Kind **F** · Scope every module instance (Java, TypeScript, Rust, Python) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 879e996ee6e16a6f ai** · Statement hash `879e996ee6e16a6f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -8980,7 +8980,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_011_typed"></a>
 ## MOD-011: Instance Handle Map, the typed port lookup
 
-`Libpetri.Spec.MOD_011_typed` · Kind **F** · Scope implementations that keep a run-time token type for each port (Java, Rust) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 1c3a3d1caf54236a ai** · Statement hash `1c3a3d1caf54236a`
+`Libpetri.Spec.MOD_011_typed` · Kind **F** · Scope implementations that keep a run-time token type for each port (Java, Rust) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 05a41fb75002f423 ai** · Statement hash `05a41fb75002f423`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9018,7 +9018,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_012"></a>
 ## MOD-012: Per-Instance State Isolation
 
-`Libpetri.Spec.MOD_012` · Kind **B** · Scope every net built by composition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 3dbc2498a1abec6a ai** · Statement hash `3dbc2498a1abec6a`
+`Libpetri.Spec.MOD_012` · Kind **B** · Scope every net built by composition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 65a639dcbb5843cc ai** · Statement hash `65a639dcbb5843cc`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9056,7 +9056,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_012_clock"></a>
 ## MOD-012: Per-Instance State Isolation (clocks)
 
-`Libpetri.Spec.MOD_012_clock` · Kind **T** · Scope every net built by composition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 21b3d480fd6289fe ai** · Statement hash `21b3d480fd6289fe`
+`Libpetri.Spec.MOD_012_clock` · Kind **T** · Scope every net built by composition · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 e298e5035049cb8c ai** · Statement hash `e298e5035049cb8c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9094,7 +9094,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_013"></a>
 ## MOD-013: Nested Instantiation (prefix concatenation associative)
 
-`Libpetri.Spec.MOD_013` · Kind **F** · Scope every instantiation of a subnet definition whose body holds places or transitions of a composed instance · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 a6b8a90eac14b12e ai** · Statement hash `a6b8a90eac14b12e`
+`Libpetri.Spec.MOD_013` · Kind **F** · Scope every instantiation of a subnet definition whose body holds places or transitions of a composed instance · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 63141a2e4140d851 ai** · Statement hash `63141a2e4140d851`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9140,7 +9140,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_014"></a>
 ## MOD-014: SubnetDef.fromNet retrofit utility
 
-`Libpetri.Spec.MOD_014` · Kind **B** · Scope every retrofit utility fromNet · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 2bc800ed75a38886 ai** · Statement hash `2bc800ed75a38886`
+`Libpetri.Spec.MOD_014` · Kind **B** · Scope every retrofit utility fromNet · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 57e65636aa50ef6c ai** · Statement hash `57e65636aa50ef6c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9191,7 +9191,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_020"></a>
 ## MOD-020: Composition Operation (port mapping by structural rewrite)
 
-`Libpetri.Spec.MOD_020` · Kind **B** · Scope every compose(instance, bindings) call of an enclosing net builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 f5810a9e911aa811 ai** · Statement hash `f5810a9e911aa811`
+`Libpetri.Spec.MOD_020` · Kind **B** · Scope every compose(instance, bindings) call of an enclosing net builder · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 5b0f0c0a5815b2f5 ai** · Statement hash `5b0f0c0a5815b2f5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9255,7 +9255,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_021"></a>
 ## MOD-021: Channel Composition, the transition merge
 
-`Libpetri.Spec.MOD_021` · Kind **B** · Scope channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 758692c07568f5cc ai** · Statement hash `758692c07568f5cc`
+`Libpetri.Spec.MOD_021` · Kind **B** · Scope channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 83e3285dd0348df1 ai** · Statement hash `83e3285dd0348df1`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9324,7 +9324,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_021_table"></a>
 ## MOD-021: Channel Composition, the input-arc merge table
 
-`Libpetri.Spec.MOD_021_table` · Kind **F** · Scope the input-arc merge table of every implementation, used by channel composition and by fusion (MOD-061) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 f528a237be1afc84 ai** · Statement hash `f528a237be1afc84`
+`Libpetri.Spec.MOD_021_table` · Kind **F** · Scope the input-arc merge table of every implementation, used by channel composition and by fusion (MOD-061) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 728df90e642aec82 ai** · Statement hash `728df90e642aec82`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9368,7 +9368,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_022"></a>
 ## MOD-022: Type Compatibility at Compose
 
-`Libpetri.Spec.MOD_022` · Kind **B** · Scope implementations whose place identity carries the token type (Java) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 5897f306f25db963 ai** · Statement hash `5897f306f25db963`
+`Libpetri.Spec.MOD_022` · Kind **B** · Scope implementations whose place identity carries the token type (Java) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 2a617c41b4f752c2 ai** · Statement hash `2a617c41b4f752c2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9415,7 +9415,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_023"></a>
 ## MOD-023: Composition Produces Flat Net
 
-`Libpetri.Spec.MOD_023` · Kind **B** · Scope build() of every enclosing builder, whatever compose(...), fuse(...) and other builder calls were made on it (Java, TypeScript, Rust, Python) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 dac223b1df593616 ai** · Statement hash `dac223b1df593616`
+`Libpetri.Spec.MOD_023` · Kind **B** · Scope build() of every enclosing builder, whatever compose(...), fuse(...) and other builder calls were made on it (Java, TypeScript, Rust, Python) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 27c95050b685c890 ai** · Statement hash `27c95050b685c890`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9459,7 +9459,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_024"></a>
 ## MOD-024: Identity-Default Port Inference (auto-compose)
 
-`Libpetri.Spec.MOD_024` · Kind **B** · Scope every enclosing-net builder that offers the single-argument compose(instance) (Java, TypeScript, Rust); lines 3 and 4 for those with the inference path (all three) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 056632f9552acc2f ai** · Statement hash `056632f9552acc2f`
+`Libpetri.Spec.MOD_024` · Kind **B** · Scope every enclosing-net builder that offers the single-argument compose(instance) (Java, TypeScript, Rust); lines 3 and 4 for those with the inference path (all three) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 20fefa049ec4cc15 ai** · Statement hash `20fefa049ec4cc15`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9506,7 +9506,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_025"></a>
 ## MOD-025: Direct Composition (compose a subnet without instantiation)
 
-`Libpetri.Spec.MOD_025` · Kind **B** · Scope every direct composition of a subnet definition into an enclosing builder (Java, TypeScript, Rust, Python); the token-type line where place identity carries the token type (Java) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 f34667b43231ee55 ai** · Statement hash `f34667b43231ee55`
+`Libpetri.Spec.MOD_025` · Kind **B** · Scope every direct composition of a subnet definition into an enclosing builder (Java, TypeScript, Rust, Python); the token-type line where place identity carries the token type (Java) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 f26a97b3a2f43f00 ai** · Statement hash `f26a97b3a2f43f00`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9560,7 +9560,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_026"></a>
 ## MOD-026: Subnet-Membership Metadata for Direct Composition
 
-`Libpetri.Spec.MOD_026` · Kind **B** · Scope every build of a net through an enclosing builder (Java, TypeScript, Rust, Python) and every action binding of a built net · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 274a57bb5e8be4f3 ai** · Statement hash `274a57bb5e8be4f3`
+`Libpetri.Spec.MOD_026` · Kind **B** · Scope every build of a net through an enclosing builder (Java, TypeScript, Rust, Python) and every action binding of a built net · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 72ede67345d1615e ai** · Statement hash `72ede67345d1615e`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9615,7 +9615,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_026_resolve"></a>
 ## MOD-026: Subnet-Membership Metadata for Direct Composition (resolution of the recorded contributions)
 
-`Libpetri.Spec.MOD_026_resolve` · Kind **F** · Scope the resolution of the subnet contributions recorded by direct composition into the membership mapping (Java, TypeScript, Rust, Python) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 41e115c0fed24eb8 ai** · Statement hash `41e115c0fed24eb8`
+`Libpetri.Spec.MOD_026_resolve` · Kind **F** · Scope the resolution of the subnet contributions recorded by direct composition into the membership mapping (Java, TypeScript, Rust, Python) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 d1db74bac500bc9a ai** · Statement hash `d1db74bac500bc9a`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9649,7 +9649,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_027"></a>
 ## MOD-027: References to Bound Ports
 
-`Libpetri.Spec.MOD_027` · Kind **B** · Scope every net builder that composes instances (Java, TypeScript, Rust; Python through Rust) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 da132bead73006c3 ai** · Statement hash `da132bead73006c3`
+`Libpetri.Spec.MOD_027` · Kind **B** · Scope every net builder that composes instances (Java, TypeScript, Rust; Python through Rust) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 ddb19ee5dd9a9898 ai** · Statement hash `ddb19ee5dd9a9898`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9700,7 +9700,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_030"></a>
 ## MOD-030: Action Binding Per Instance (share-by-default, override via bindActions)
 
-`Libpetri.Spec.MOD_030` · Kind **F** · Scope every per-instance action binding (Instance.bindActions in Java, TypeScript and Rust; Python's Instance.bind_actions rides on the Rust binding) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 6e0a241705c76f8e ai** · Statement hash `6e0a241705c76f8e`
+`Libpetri.Spec.MOD_030` · Kind **F** · Scope every per-instance action binding (Instance.bindActions in Java, TypeScript and Rust; Python's Instance.bind_actions rides on the Rust binding) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 4a926d3df7c4a516 ai** · Statement hash `4a926d3df7c4a516`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9751,7 +9751,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_031"></a>
 ## MOD-031: Action Place Resolution under Composition (declared → actual correspondence)
 
-`Libpetri.Spec.MOD_031` · Kind **F** · Scope the declared-to-actual place correspondence of every composed transition, through rewrite passes, channel merges and action binding · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 3cc284663f97c8d1 ai** · Statement hash `3cc284663f97c8d1`
+`Libpetri.Spec.MOD_031` · Kind **F** · Scope the declared-to-actual place correspondence of every composed transition, through rewrite passes, channel merges and action binding · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 55511c0dc98c1231 ai** · Statement hash `55511c0dc98c1231`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9822,7 +9822,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_031_ctx"></a>
 ## MOD-031: Action Place Resolution under Composition (the context operations)
 
-`Libpetri.Spec.MOD_031_ctx` · Kind **F** · Scope the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter; not the Rust native context, which hands the correspondence to native actions · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 75364e4c1e6e1511 ai** · Statement hash `75364e4c1e6e1511`
+`Libpetri.Spec.MOD_031_ctx` · Kind **F** · Scope the context operations of implementations that resolve a declared place in their context operations: Java and TypeScript in the context API (inputToken where it exists) and the Python binding adapter; not the Rust native context, which hands the correspondence to native actions · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 356933814782357b ai** · Statement hash `356933814782357b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9872,7 +9872,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_040"></a>
 ## MOD-040: Export Grouping (subgraph cluster_* per instance prefix)
 
-`Libpetri.Spec.MOD_040` · Kind **F** · Scope the subnetOf accessor of every built net, and the instance-prefix helper · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 0c36db038ddd733e ai** · Statement hash `0c36db038ddd733e`
+`Libpetri.Spec.MOD_040` · Kind **F** · Scope the subnetOf accessor of every built net, and the instance-prefix helper · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 e3074a4aeb304e8b ai** · Statement hash `e3074a4aeb304e8b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9926,7 +9926,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_040_b"></a>
 ## MOD-040: Export Grouping (subgraph cluster_* per instance prefix): the export half
 
-`Libpetri.Spec.MOD_040_b` · Kind **F** · Scope every exporter that draws cluster subgraphs, the clusters of the exported graph of a composed net · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 e97ee6b07645e9c5 ai** · Statement hash `e97ee6b07645e9c5`
+`Libpetri.Spec.MOD_040_b` · Kind **F** · Scope every exporter that draws cluster subgraphs, the clusters of the exported graph of a composed net · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 2606f890f16289e9 ai** · Statement hash `2606f890f16289e9`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -9984,7 +9984,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_041"></a>
 ## MOD-041: Debug Protocol Subnet Instances
 
-`Libpetri.Spec.MOD_041` · Kind **F** · Scope every debug protocol implementation (Java, TypeScript, Rust; Python has none) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 8576984852e6d00a ai** · Statement hash `8576984852e6d00a`
+`Libpetri.Spec.MOD_041` · Kind **F** · Scope every debug protocol implementation (Java, TypeScript, Rust; Python has none) · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 8d954a1a15bb1da8 ai** · Statement hash `8d954a1a15bb1da8`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10035,7 +10035,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_050"></a>
 ## MOD-050: Verification Pass-Through on Composed Flat Net
 
-`Libpetri.Spec.MOD_050` · Kind **B** · Scope every verification facility of section 07, on every net build() returns · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 6d8fdc3d35d51c7e ai** · Statement hash `6d8fdc3d35d51c7e`
+`Libpetri.Spec.MOD_050` · Kind **B** · Scope every verification facility of section 07, on every net build() returns · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 1a3d08ad59364f7d ai** · Statement hash `1a3d08ad59364f7d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10085,7 +10085,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_051"></a>
 ## MOD-051: SubnetDef.verify(harness) for local property verification
 
-`Libpetri.Spec.MOD_051` · Kind **B** · Scope verify on a subnet definition in Java, TypeScript and Rust, and verify_subnet in Python (on the Rust one); SHOULD, so the shall sentences bind an implementation that offers it · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 81d04ec131dce66c ai** · Statement hash `81d04ec131dce66c`
+`Libpetri.Spec.MOD_051` · Kind **B** · Scope verify on a subnet definition in Java, TypeScript and Rust, and verify_subnet in Python (on the Rust one); SHOULD, so the shall sentences bind an implementation that offers it · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 5364bdeee5816154 ai** · Statement hash `5364bdeee5816154`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10135,7 +10135,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_051_bind"></a>
 ## MOD-051: Binding actions on a subnet definition
 
-`Libpetri.Spec.MOD_051_bind` · Kind **F** · Scope bindActions (both forms) on a subnet definition in Java, TypeScript and Rust; Python's bind_actions on a definition rides on the Rust one · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 9accc44258bfabfa ai** · Statement hash `9accc44258bfabfa`
+`Libpetri.Spec.MOD_051_bind` · Kind **F** · Scope bindActions (both forms) on a subnet definition in Java, TypeScript and Rust; Python's bind_actions on a definition rides on the Rust one · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 f5a7366fd0285ac5 ai** · Statement hash `f5a7366fd0285ac5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10172,7 +10172,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_060"></a>
 ## MOD-060: Fusion Set Declaration (orthogonal to composition)
 
-`Libpetri.Spec.MOD_060` · Kind **F** · Scope every fusion-set declaration check · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 b3a203fdffbd528d ai** · Statement hash `b3a203fdffbd528d`
+`Libpetri.Spec.MOD_060` · Kind **F** · Scope every fusion-set declaration check · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 84f6e61366f77df8 ai** · Statement hash `84f6e61366f77df8`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10207,7 +10207,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-MOD_061"></a>
 ## MOD-061: Fusion Resolution at build()
 
-`Libpetri.Spec.MOD_061` · Kind **F** · Scope fusion at build() of every builder that declares fusion sets · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 5c60993d359bc7b0 ai** · Statement hash `5c60993d359bc7b0`
+`Libpetri.Spec.MOD_061` · Kind **F** · Scope fusion at build() of every builder that declares fusion sets · Source **verbatim** (spec/11-modular-composition.md) · Sign-off **2026-11-13 369a588139db1901 ai** · Statement hash `369a588139db1901`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10269,7 +10269,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_001"></a>
 ## NU-001: Name Identity
 
-`Libpetri.Spec.NU_001` · Kind **F** · Scope the names, the name equality and the name order of each implementation · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 61b6b5dab6a7eee4 ai** · Statement hash `61b6b5dab6a7eee4`
+`Libpetri.Spec.NU_001` · Kind **F** · Scope the names, the name equality and the name order of each implementation · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 604542f2fcb1092e ai** · Statement hash `604542f2fcb1092e`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10322,7 +10322,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_001_rename"></a>
 ## NU-001: Name Identity (renaming)
 
-`Libpetri.Spec.NU_001_rename` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 6a5b71a3dce3b00b ai** · Statement hash `6a5b71a3dce3b00b`
+`Libpetri.Spec.NU_001_rename` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 4b448e93554df7d2 ai** · Statement hash `4b448e93554df7d2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10334,7 +10334,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - The name order enters only through the premise: σ n must be the chosen name of the renamed transition at M (Selected over the renamed selection input, which is the renamed transition's own selection input at M, nu001_matchIn_rename). The premise speaks of the renamed side only; that n is the chosen name of t at M is not assumed, and for a relation that meets NU_020_enable it holds anyway. A renaming that keeps the name order keeps the pick of every firing NU_020_enable allows, so with NU_020_enable the line gives 'a firing commutes with every strictly monotone renaming' (nu001_rename_strictMono). A renaming that does not keep the name order is what rules out reading the order anywhere but the tie-break: a matcher that fires only when the chosen name is the least name held in its correlated inputs meets every firing line of NU-020 and is rejected here (NU_001_rename_mutant_leastHeld), and so is a matcher that treats the name 0 as no name, a test on the content of a name (NU_001_rename_forbids_zeroAsNone, the case NU-021's assumes defers to this line).
 - When the renaming changes which name the tie-break picks (possible only when two eligible names share their earliest createdAt), the line says nothing of the renamed transition's firing under the new pick. That it fires is the conjunct NuCovers of the ν consistency theorem: a transition enabled on its counts fires under its Selected name with every offered, relay-checked emission, and being enabled on the counts and eligibility read names only through equality (NU_020_enable's first two lines). So 'whether a matched transition is enabled' is this line together with NuCovers; enabledness is an existence clause and is not a line here. For a renaming that can be undone (a permutation of names) the line runs both ways when the pick is kept on both sides (nu001_rename_iff); a one-to-one renaming that is not onto has no one-to-one inverse, and for it the way back is again NuCovers with NU_020_enable's eligibility line.
 - A firing whose chosen name is not eligible meets the premise under no renaming, since a one-to-one renaming keeps a name that is not eligible not eligible (nu021_eligible), so this line says nothing of it: a matcher that lets a reserved name such as the empty string join any name when no name is eligible meets this line and is rejected by the eligibility line of NU_020_enable (nu001_wildcard_left_to_NU_020). Rust, Java and TypeScript have no such fallback.
-- The reference RefNuFire meets the line by NU-021's equivariance lemma refNuFire_transfer at the pairing 'equal values' (NU_001_rename_reference). The verifier's name symmetry is the same property one layer down: Route B's join enabling and steps are invariant under renamings (Novel.RouteB.joinEnab_inv, joinStep_sym, mintStep_sym) and its canonical key under permutations of name symbols (Novel.CanonicalKey.canonicalKey_comp).
+- The reference RefNuFire meets the line by the ingredients of NU-021's equivariance lemma at the pairing 'equal values' (nu021_nuInputs_nuPost, nu021_corrTake, nu021_relayOk, which need only a one-to-one renaming); refNuFire_transfer itself asks a strictly monotone renaming because it also carries the tie-break, which this line takes as its premise instead (NU_001_rename_reference). The verifier's name symmetry is the same property one layer down: Route B's join enabling and steps are invariant under renamings (Novel.RouteB.joinEnab_inv, joinStep_sym, mintStep_sym) and its canonical key under permutations of name symbols (Novel.CanonicalKey.canonicalKey_comp).
 - AC4 (a one-to-one renaming of the names a join's keys project, which makes the renamed chosen name the chosen name of the renamed join, does not change which tokens the join consumes or the marking it leaves) is this line, and the test derivation's renaming check is NU_001_rename_nonvacuous on the reference. No test in any language yet runs a join with its keys composed with a swap of names, so AC4 has no runtime test; it is recorded here as open. AC1 to AC3 are accounted for by the F block NU_001.
 - The sentences 'A name (NameId) is an opaque correlation identity, constructed from an underlying string value.' and 'The name order exists solely for that tie-break and carries no domain meaning.' are this line's design text. Transitions without a match project no name, so the line speaks of matched transitions only; timing, priority and the firing pass are not in the model, as for NU-020.
 
@@ -10360,7 +10360,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_010_classify"></a>
 ## NU-010: Fresh-Name Minting (declared mints in the fragment classifier)
 
-`Libpetri.Spec.NU_010_classify` · Kind **F** · Scope the fragment classifier of every ν verifier · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 190ece283bc34a6e ai** · Statement hash `190ece283bc34a6e`
+`Libpetri.Spec.NU_010_classify` · Kind **F** · Scope the fragment classifier of every ν verifier · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 7b8705ab7e983433 ai** · Statement hash `7b8705ab7e983433`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10407,7 +10407,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_010_contract"></a>
 ## NU-010: Fresh-Name Minting (mint contract)
 
-`Libpetri.Spec.NU_010_contract` · Kind **A** · Scope the action of every declared mint, as the ν verification routes assume it · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 730e1a716b922688 ai** · Statement hash `730e1a716b922688`
+`Libpetri.Spec.NU_010_contract` · Kind **A** · Scope the action of every declared mint, as the ν verification routes assume it · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 5accbe9a457b49b3 ai** · Statement hash `5accbe9a457b49b3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10441,7 +10441,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_010_replay"></a>
 ## NU-010: Fresh-Name Minting (replay)
 
-`Libpetri.Spec.NU_010_replay` · Kind **F** · Scope the minter every executor installs on the action context · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 7f55745fabacedea ai** · Statement hash `7f55745fabacedea`
+`Libpetri.Spec.NU_010_replay` · Kind **F** · Scope the minter every executor installs on the action context · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 b1575384786eb809 ai** · Statement hash `b1575384786eb809`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10476,7 +10476,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_010_unique"></a>
 ## NU-010: Fresh-Name Minting (uniqueness)
 
-`Libpetri.Spec.NU_010_unique` · Kind **B** · Scope the minter every executor installs on the action context · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 aa4ce3c6804b6732 ai** · Statement hash `aa4ce3c6804b6732`
+`Libpetri.Spec.NU_010_unique` · Kind **B** · Scope the minter every executor installs on the action context · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 bd4c8c79bf15e78b ai** · Statement hash `bd4c8c79bf15e78b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10511,7 +10511,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_010_unknownMint"></a>
 ## NU-010: Fresh-Name Minting (a declared mint not in the net)
 
-`Libpetri.Spec.NU_010_unknownMint` · Kind **F** · Scope every entry point that takes a mint declaration: verification, script encoding ([VER-013]) and open-net verification ([VER-022]), all implementations (MUST where the ν routes are offered) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 9f535ea18aeb9d42 ai** · Statement hash `9f535ea18aeb9d42`
+`Libpetri.Spec.NU_010_unknownMint` · Kind **F** · Scope every entry point that takes a mint declaration: verification, script encoding ([VER-013]) and open-net verification ([VER-022]), all implementations (MUST where the ν routes are offered) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 853e7d417fccf5d7 ai** · Statement hash `853e7d417fccf5d7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10562,7 +10562,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_011_default"></a>
 ## NU-011: Resume-Safe Fresh-Name Minting (default scope)
 
-`Libpetri.Spec.NU_011_default` · Kind **B** · Scope every executor that is given no scope (Rust, Java, TypeScript; Python through Rust) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 619b1cd8541a44ae ai** · Statement hash `619b1cd8541a44ae`
+`Libpetri.Spec.NU_011_default` · Kind **B** · Scope every executor that is given no scope (Rust, Java, TypeScript; Python through Rust) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 e386109e5003829f ai** · Statement hash `e386109e5003829f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10570,9 +10570,9 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 
 **Assumptions**
 
-- The model is the relation D : Nat → String → Prop, the scopes the k-th executor of a process can draw. The witness is refDefaultDraw, every 32-character lowercase hexadecimal string: Rust writes two 64-bit SipHash outputs of a RandomState keyed from the operating system's random source as {:016x}{:016x} (default_execution_scope in rust/libpetri-runtime/src/executor_core/scope.rs). Java (java/src/main/java/org/libpetri/core/internal/ExecutionScopes.java, UUID.randomUUID() with the dashes stripped) and TypeScript (crypto.randomUUID(), dashes stripped) draw a version-4 UUID, a smaller relation that fixes the version and variant digits; it meets both lines (nu011_uuidDraw_default).
-- The clause 'which neither its construction order nor its run identifier determines' says that some other draw is possible, an existence clause, so it is not a line here: it is the coverage conjunct DefaultUnfixed of the consistency theorem (joint_nu_sketch, over the same D, witnessed by refDefaultDraw through refDefaultDraw_unfixed; Java's and TypeScript's UUID draw meets it too, nu011_uuidDraw_unfixed). The run identifier of TIME-015 is the reproducible per-process counter (AC#14), a function of the construction index k, so that conjunct is 'an implementation MUST NOT derive either from the other' for the default scope and AC5's 'not equal to it' (nu011_default_not_runId). A default equal to the execution id written in 32 hexadecimal digits, the earlier Java behaviour, meets NU_011_format and NU_011_lineage, and this block for every execution id below 16^32, but breaks the conjunct (nu011_fromId_fixed): the process that persisted a snapshot and the process that resumes it both mint the same first name (nu011_fromId_merge), the silent merge of AC5's last sentence. A draw written with the dashes of a UUID breaks the line (NU_011_default_forbids_dashed).
-- The conjunct is a property of the set of possible draws, not of one run: randomness is not a safety property of a single execution, so it states the part a relation can see, that the construction order does not determine the draw. Kind Q (tests, not proven): that two draws differ ('The default scope MUST be unique across processes', AC5 'different for every executor'), which holds with overwhelming probability and not in every run, and 'at least 122 bits are random', which a relation over strings cannot count; that a pinned scope never equals a drawn default is the same claim, since the default is internal and random. Whether Rust's draw (keyed once per thread, with the process id, a draw counter and the clock folded in) meets 'draw one per executor from the platform's random source' is a review question.
+- The model is the relation D : Nat → String → Prop, the scopes the k-th executor of a process can draw. The witness is refDefaultDraw, every 32-character lowercase hexadecimal string: Rust writes two 64-bit SipHash outputs of RandomState hashers keyed from the operating system's random source as {:016x}{:016x} (default_execution_scope in rust/libpetri-runtime/src/executor_core/scope.rs). Java (ExecutionScopes.random in java/src/main/java/org/libpetri/core/internal/ExecutionScopes.java, UUID.randomUUID() written as two zero-padded 16-digit lowercase hexadecimal halves, the UUID with its dashes stripped) and TypeScript (randomExecutionScope in typescript/src/runtime/executor-support.ts, crypto.randomUUID() with its dashes stripped, where it exists) draw a version-4 UUID, a smaller relation that fixes the version and variant digits; it meets both lines (nu011_uuidDraw_default). Where Web Crypto has no randomUUID, TypeScript writes 16 bytes of crypto.getRandomValues, and with no Web Crypto at all 16 bytes of Math.random, as 32 lowercase hexadecimal characters: that is refDefaultDraw itself (NU_011_default_reference, refDefaultDraw_unfixed).
+- The clause 'which neither its construction order nor its run identifier determines' says that some other draw is possible, an existence clause, so it is not a line here: it is the coverage conjunct DefaultUnfixed of the consistency theorem (joint_nu_sketch, over the same D, witnessed by refDefaultDraw through refDefaultDraw_unfixed; Java's and TypeScript's UUID draw meets it too, nu011_uuidDraw_unfixed). The run identifier of TIME-015 is the reproducible per-process counter (AC#14), a function of the construction index k, so that conjunct is 'an implementation MUST NOT derive either from the other' for the default scope and AC5's 'not equal to it' (nu011_default_not_runId). The other direction, a run identifier derived from the default scope, is ruled out on the run identifier's side: EVT_002_executionId's model writes the ID as a function of the construction place k and the clock reading r alone, so an ID that depends on a random draw is not such an assignment, and every runtime draws it from a per-process counter (EXECUTION_ID_SEQ in rust/libpetri-runtime/src/executor_core/executor.rs, nextExecutionId in java/src/main/java/org/libpetri/runtime/ExecutorSupport.java and in typescript/src/runtime/executor-support.ts), never from the scope. A default equal to the execution id written in 32 hexadecimal digits, the earlier Java behaviour, meets NU_011_format and NU_011_lineage, and this block for every execution id below 16^32, but breaks the conjunct (nu011_fromId_fixed): the process that persisted a snapshot and the process that resumes it both mint the same first name (nu011_fromId_merge), the silent merge of AC5's last sentence. A draw written with the dashes of a UUID breaks the line (NU_011_default_forbids_dashed).
+- The conjunct is a property of the set of possible draws, not of one run: randomness is not a safety property of a single execution, so it states the part a relation can see, that the construction order does not determine the draw. Kind Q (tests, not proven): that two draws differ ('The default scope MUST be unique across processes', AC5 'different for every executor'), which holds with overwhelming probability and not in every run, and 'at least 122 bits are random', which a relation over strings cannot count; that a pinned scope never equals a drawn default is the same claim, since the default is internal and random. Rust's draw is two SipHash outputs under RandomState keys taken from the operating system's random source once per thread (each later RandomState::new() on the thread adds one to the key), with the process id, a draw counter and the clock folded in: a 128-bit value computed under a 128-bit operating-system random key, drawn once per executor (get_or_init), which this block reads as drawn from the platform's random source; like the bit count, that is kind Q.
 - The paragraph on observability ('The default scope MAY be entirely internal', and 'MUST NOT be read as required to merely to satisfy this requirement') constrains no line: the model never asks whether a draw is published. A drawn default is an accepted scope (nu011_default_draw_accepted), so NU_011_format and NU_011_lineage cover default-scope names. AC5 (an executor given no scope mints names whose scope is 32 lowercase hexadecimal characters, different for every executor and not the run identifier) is the line for the rendering, the coverage conjunct DefaultUnfixed for 'not equal to it', and kind Q for 'different for every executor'; worked in NU_011_default_nonvacuous.
 
 **Evidence**
@@ -10593,7 +10593,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_011_format"></a>
 ## NU-011: Resume-Safe Fresh-Name Minting (scope check and name format)
 
-`Libpetri.Spec.NU_011_format` · Kind **F** · Scope every executor that mints under the scope mechanism (Rust, Java, TypeScript; Python through Rust) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 bfdae78decf66018 ai** · Statement hash `bfdae78decf66018`
+`Libpetri.Spec.NU_011_format` · Kind **F** · Scope every executor that mints under the scope mechanism (Rust, Java, TypeScript; Python through Rust) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 e991c428ff685d54 ai** · Statement hash `e991c428ff685d54`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10639,16 +10639,16 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_011_host"></a>
 ## NU-011: Resume-Safe Fresh-Name Minting (host of a restore lineage)
 
-`Libpetri.Spec.NU_011_host` · Kind **A** · Scope hosts that pin scopes for the executions of a restore lineage · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 98ce789a680aa304 ai** · Statement hash `98ce789a680aa304`
+`Libpetri.Spec.NU_011_host` · Kind **A** · Scope hosts that pin scopes for the executions of a restore lineage · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 98972dec45836fc0 ai** · Statement hash `98972dec45836fc0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
-| A host *shall not* pin one scope for two executions of one restore lineage, except for a replay: an execution that re-runs an earlier segment, after it and not alongside it, from the marking that segment started from and with the same `freshName()` calls. | 1. Let es list the executions of one restore lineage whose scope the host pinned, each as (s, k, ts): its scope s, the segment k it runs, and the calling transitions ts of its freshName() calls in order. A segment is one stretch of the lineage's history: two executions that run alongside each other run two segments, even from one marking, and a replay runs the segment it re-runs.<br>2. For every two entries of es with the same scope, the segment and the calls are the same. | <pre>fun es ↦ ∀ e ∈ es, ∀ e' ∈ es, e.1 = e'.1 → e.2 = e'.2</pre> |
+| A host *shall not* pin one scope for two executions of one restore lineage, except for a replay: an execution that re-runs an earlier segment, after it and not alongside it, from the marking that segment started from and with the same `freshName()` calls. | 1. Let es list the executions of one restore lineage whose scope the host pinned, each as (s, k, ts): its scope s, the segment k it runs, and the calling transitions ts of its freshName() calls in order. A segment is one stretch of the lineage's history: two executions that run alongside each other run two segments, even from one marking; an execution that starts from another marking than the one a segment started from does not run that segment, whatever calls it makes; and a replay, which runs after the segment it re-runs, not alongside it, and from the marking that segment started from, runs that segment.<br>2. For every two entries of es with the same scope, the segment and the calls are the same. | <pre>fun es ↦ ∀ e ∈ es, ∀ e' ∈ es, e.1 = e'.1 → e.2 = e'.2</pre> |
 
 **Assumptions**
 
 - Ruling D56 (a). The block is an assumption on the host (kind A), not a behaviour of the executor: a pinned scope is used verbatim (NU_011_format), so a resumed execution pinned to the scope of the segment before it mints that segment's names again (nu011_host_needed). The Rust runtime documents the same promise ('a pinned one is the host's promise: two executions in one restore lineage MUST NOT share a scope', the doc of Executor::set_execution_scope in rust/libpetri-runtime/src/executor_core/executor.rs). The block speaks of pinned scopes only: default scopes are NU_011_default's, and that two defaults, or a default and a pinned scope, differ is the kind Q claim there.
-- The replay exception is in the formula: two entries with one scope run the same segment with the same calls. A replay that makes other calls breaks the block (NU_011_host_forbids_divergentReplay): under the one scope its second call takes the counter the segment's second call took, for another token. 'After it and not alongside it' is carried by the segment numbering of the reading (an execution running alongside another runs a segment of its own), not by a clock: which segment an execution runs is the host's bookkeeping, and the model takes it as given.
+- The replay exception is in the formula: two entries with one scope run the same segment with the same calls. A replay that makes other calls breaks the block (NU_011_host_forbids_divergentReplay): under the one scope its second call takes the counter the segment's second call took, for another token. 'After it and not alongside it' and 'from the marking that segment started from' are carried by the segment numbering of the reading (an execution that runs alongside another runs a segment of its own, and one that starts from another marking than a segment started from does not run that segment), not by a clock or a marking in the model: which segment an execution runs is the host's bookkeeping, and the model takes it as given. The marking condition is load-bearing: names are a function of the scope and the calls (nu011_calls_only), so an execution that re-made segment 0's calls under its scope from a later marking would mint segment 0's names into a marking that may still hold them.
 - What the assumption buys: under NU_011_format, two executions of the lineage that share a minted name run the same segment with the same calls and mint the same names (nu011_host_replay), so the only names two executions share are the ones a replay reproduces. Without a replay the pinned scopes are pairwise distinct (nu011_host_distinct), and with distinct scopes every name of the lineage is minted once (nu011_lineage_nodup): AC4, and for the names minted into a restored marking AC1 (refRun_fresh).
 - AC3 (for a fixed scope and a fixed order of freshName() calls, two runs from the same restored marking mint the identical name sequence) is NU_011_format's last line (nu011_replay); such a run is the replay this block excepts. That two runs under one scope mint equal names is the reason the non-collision of NU_011_lineage needs different scopes.
 
@@ -10666,7 +10666,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_011_lineage"></a>
 ## NU-011: Resume-Safe Fresh-Name Minting (different scopes, disjoint names)
 
-`Libpetri.Spec.NU_011_lineage` · Kind **B** · Scope every executor that mints under the scope mechanism; two executions of one restore lineage · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 0099752b69b81ba7 ai** · Statement hash `0099752b69b81ba7`
+`Libpetri.Spec.NU_011_lineage` · Kind **B** · Scope every executor that mints under the scope mechanism; two executions of one restore lineage · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 bacd928c2a3864eb ai** · Statement hash `bacd928c2a3864eb`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10699,7 +10699,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_020_build"></a>
 ## NU-020: Match Specification (build checks)
 
-`Libpetri.Spec.NU_020_build` · Kind **F** · Scope every match builder and every transition builder, on every construction path · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 f0147b0dac984906 ai** · Statement hash `f0147b0dac984906`
+`Libpetri.Spec.NU_020_build` · Kind **F** · Scope every match builder and every transition builder, on every construction path · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 b85eb5b5999866c4 ai** · Statement hash `b85eb5b5999866c4`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10747,7 +10747,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_020_enable"></a>
 ## NU-020: Match Specification (enablement and chosen name)
 
-`Libpetri.Spec.NU_020_enable` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c9f3f65945103a4c ai** · Statement hash `c9f3f65945103a4c`
+`Libpetri.Spec.NU_020_enable` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 e559d75fdf5f4ead ai** · Statement hash `e559d75fdf5f4ead`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10757,7 +10757,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 
 - The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel): R t M c δ e M' says that t fires from M with chosen name c (none without a match), delivers δ to its action, the action emits e, and the firing leaves M'. Without a match a ν firing is a queue firing (the conjunct NuRestrictsTo of the consistency theorem), so the count blocks speak of those firings; the lines here are about matched firings. Timing and priority play no part: one firing is one atomic step.
 - Ruling D31 (a): 'oldest matched token' is read as the earliest createdAt over every token carrying the name in the correlated inputs, whether the firing consumes it or not (glossary: Chosen name); the name order is a parameter, any linear order (NU-001 fixes it on BMP names). The Determinism paragraph and AC4 are the third line together with NU-022. 'So all languages fire identically on names whose values hold only Basic Multilingual Plane characters' rests on NU-001's fifth line and on NU-022's uniqueness: the line fixes the chosen name once the order is fixed. That the chosen name is the selection function's answer is the conjunct NuSelectsBy of the consistency theorem.
-- Ruling D37 (a): a token whose key yields no name has no name on that input, so it is not counted for any name (matchIn keeps only the tokens with a name). A match without keys has no eligible name, so it never fires, as in every runtime. A match-key projection that throws is outside the model, since a key is a total function to an optional name (KeyFn). The runtimes differ there: Python reads a raise, or a result that is not a str, as no name (make_py_projection in rust/libpetri-py/src/model.rs); Java catches only ClassCastException (MatchKey.extract in java/src/main/java/org/libpetri/core/MatchSpec.java, fireTransition in java/src/main/java/org/libpetri/runtime/BitmapNetExecutor.java) and TypeScript catches nothing (typescript/src/runtime/match-engine.ts, buildNameIndex; cacheAddToken and fireTransition in typescript/src/runtime/bitmap-net-executor.ts), so a throwing key propagates out of their executors; Rust keys cannot fail by type. The relay projection reads a throw as no name in every language (NU-054). Whether the spec states this divergence or a runtime defect is recorded is open.
+- Ruling D37 (a): a token whose key yields no name has no name on that input, so it is not counted for any name (matchIn keeps only the tokens with a name). A match without keys has no eligible name, so it never fires, as in every runtime. A match-key projection that throws is outside the model, since a key is a total function to an optional name (KeyFn). The runtimes agree there, as NU-054 reads the relay projection: a key that throws or raises yields no name, so the token correlates with nothing and the run goes on. Python reads a raise, or a result that is not a str, as no name (make_py_projection in rust/libpetri-py/src/model.rs); Java reads any RuntimeException as no name (MatchKey.extract in java/src/main/java/org/libpetri/core/MatchSpec.java, and the consume predicate of fireTransition in BitmapNetExecutor.java and PrecompiledNetExecutor.java); TypeScript reads any throw as no name (projectName in typescript/src/runtime/match-engine.ts, called from buildNameIndex, cacheAddToken and fireTransition in both executors); Rust keys cannot fail by type. Java and TypeScript let the throw escape their executors until RD-53.
 - The existence half of 'Enablement = the usual cardinality/bitmap/inhibitor checks and there exists a single name present in every correlated input with at least that input's required count' (an enabled matched transition fires) is an offer, not a safety line: it is the conjunct NuCovers of the consistency theorem, stated for the selected name and every outcome the output spec offers under the correlated takes. Without it the relation that never fires meets every line.
 - The firing pass is not in the model: a join whose correlated input received a same-pass deposit fires no earlier than the next pass (EXEC-003 AC4), and the Rust executor counts matches in the drainable prefix of the place (consume_for_firing in rust/libpetri-runtime/src/bitmap_backend.rs). No block states them: the executor model RefExec (Reference/Exec.lean) has no ν firing kernel. The timed ν join (TIME-012's ν clause: a join is armed only while a name is eligible) is the block TIME_012_nu, on the atomic timed ν step.
 - AC2 (with no name present in all correlated inputs the join is not enabled and its input tokens remain) is the second line: NU_020_ac2 shows that on such a marking the reference has no firing. AC4 (the tie-break selects the earliest-oldest name, then the least name in the name order) is the third line, worked in NU_020_enable_nonvacuous.
@@ -10788,7 +10788,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_020_frame"></a>
 ## NU-020: Match Specification (outcome, reads, resets and non-correlated places)
 
-`Libpetri.Spec.NU_020_frame` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 6f4b70c409548ace ai** · Statement hash `6f4b70c409548ace`
+`Libpetri.Spec.NU_020_frame` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 12732ded944554f1 ai** · Statement hash `12732ded944554f1`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10831,7 +10831,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_020_take"></a>
 ## NU-020: Match Specification (correlated take)
 
-`Libpetri.Spec.NU_020_take` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 f96d5d770695b19a ai** · Statement hash `f96d5d770695b19a`
+`Libpetri.Spec.NU_020_take` · Kind **B** · Scope every executor; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 047b93a90f856347 ai** · Statement hash `047b93a90f856347`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10874,7 +10874,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_021"></a>
 ## NU-021: Match as the Sole Per-Token Filter
 
-`Libpetri.Spec.NU_021` · Kind **B** · Scope every executor; one firing of any transition, with or without a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 dc8ec6a7e9585374 ai** · Statement hash `dc8ec6a7e9585374`
+`Libpetri.Spec.NU_021` · Kind **B** · Scope every executor; one firing of any transition, with or without a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 03bd872e457f8151 ai** · Statement hash `03bd872e457f8151`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10883,7 +10883,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 **Assumptions**
 
 - The model is a ν firing relation R over queue markings of stamped tokens (NuFireRel), as for NU_020_enable: R t M c δ e M' says that t fires from M with chosen name c (none without a match), delivers δ, the action emits e, and the firing leaves M'. 'Two markings differ only by a pairing a transition's keys and relay targets cannot tell apart' is a pairing ρ (a relation between values for each place) with KeepsNames and NuQRel. It is a relation and not a relabelling function, so that one line covers both directions (the graph of a relabelling g and its converse) and relabellings that merge values; a merging ρ is what rules out a firing that also compares payloads (NU_021_forbids_samePayload), which the graph of a function alone would not. It is given per place so that the values on a place no key reads are free: that rules out a name test on a plain input (NU_021_forbids_keyAll), which one pairing shared by every place would let through, since that pairing has to keep every key's name on every place.
-- 'Token selection is determined by position and, on correlated inputs, by name equality, nothing else' is read with createdAt: the tie-break of NU-020 reads the earliest createdAt of each name (ruling D31 (a)), so the first line keeps createdAt fixed at every queue position and lets only values vary (nu-a map; editorial NUA-10 item 5 adds the tie-break to the sentence). A key projection is a function of the value (KeyFn); a projection whose answer changes between calls on one value is outside the model, and so is a key that throws: Python reads a raise as no name (make_py_projection in rust/libpetri-py/src/model.rs), Java catches only ClassCastException (MatchSpec.MatchKey.extract in java/src/main/java/org/libpetri/core/MatchSpec.java) and TypeScript catches nothing (typescript/src/runtime/match-engine.ts, buildNameIndex), so there a throwing key propagates out of the executor; whether the spec states this or a runtime defect is recorded is open (NU_020_enable's assumes). Ruling D37 (a): a token whose key yields no name has no name on that input, and the pairing must keep 'no name' as well, so whether a token has a name at all is the second per-token test the line allows, and the only other one.
+- 'Token selection is determined by position and, on correlated inputs, by name equality, nothing else' is read with createdAt: the tie-break of NU-020 reads the earliest createdAt of each name (ruling D31 (a)), so the first line keeps createdAt fixed at every queue position and lets only values vary (nu-a map; editorial NUA-10 item 5 adds the tie-break to the sentence). A key projection is a function of the value (KeyFn); a projection whose answer changes between calls on one value is outside the model, and so is a key that throws: Java, TypeScript and Python read it as no name (MatchSpec.MatchKey.extract in java/src/main/java/org/libpetri/core/MatchSpec.java, projectName in typescript/src/runtime/match-engine.ts, make_py_projection in rust/libpetri-py/src/model.rs; RD-53), as NU_020_enable's assumes say. Ruling D37 (a): a token whose key yields no name has no name on that input, and the pairing must keep 'no name' as well, so whether a token has a name at all is the second per-token test the line allows, and the only other one.
 - The first line is the case σ = id of the equivariance lemma refNuFire_transfer, which also renames names by a strictly monotone σ; NU-001's behaviour line (ruling D96 (a)) uses it with ρ the equality of values. The line covers transitions without a match too, where it says that the queue firing reads no value at all (EXEC-010). A test on the content of a name rather than on a value, such as one that treats the name 0 or the empty name as no name, passes every pairing and so passes this line. It is ruled out by NU_020_enable's tie-break line when another name is eligible, by the conjunct NuCovers of the consistency theorem when no other name is, and it is the subject of NU-001's renaming line.
 - AC1, first half ('No input specification variant exposes a value predicate') is API shape, tested and not proven: the runtimes' input specifications carry a place and a cardinality only (enum In in rust/libpetri-core/src/input.rs, Arc.In in java/src/main/java/org/libpetri/core/Arc.java, type In in typescript/src/core/in.ts), and so does the model's: nu021_inSpecShape shows that an input arc of the model (Novel.Seam.NInSpec, Novel/Seam/Net.lean) is exactly a place and a cardinality. AC1, second half ('the enablement check evaluates no per-token predicate other than name equality on correlated inputs') is the first line: being enabled is having a firing, which the line carries to every corresponding marking. Because the pairing is free on a place no key reads, the line also forbids a name test on a plain input (NU_021_forbids_keyAll), as NU_020_frame's plain-input line does. The guarded firing that IO-006 removed meets every line of NU-020 (nu021_guarded_meets_NU_020) and the last two lines here, and only the first line rules it out (NU_021_mutant_noBlind_killed).
 - AC2 ('A correlated input consumes only tokens carrying the chosen name; a same-place token of a different name is left behind regardless of its value.') is the second and third lines, with 'regardless of its value' carried by the first. Both lines follow from NU_020_take (the correlated take is a prefix of the tokens of the chosen name, and dropNamed keeps every other token in order); they are stated here because AC2 is NU-021's. A correlated input that is also a reset place ends holding only the deposited tokens (NU_020_frame), so the third line leaves it out. The second and third lines speak of firings with a chosen name; that every firing of a transition with a match has one is NU_020_enable's second line. The test derivation (a ν-join over a place holding tokens of two names) is NU_021_nonvacuous_ac2.
@@ -10923,7 +10923,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_022"></a>
 ## NU-022: Deterministic Match Selection
 
-`Libpetri.Spec.NU_022` · Kind **F** · Scope the match selection of every executor: select_match_name / selectMatchName and every incremental matcher · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 10b4f766fd485813 ai** · Statement hash `10b4f766fd485813`
+`Libpetri.Spec.NU_022` · Kind **F** · Scope the match selection of every executor: select_match_name / selectMatchName and every incremental matcher · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 3dbd98e065e4edd0 ai** · Statement hash `3dbd98e065e4edd0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -10971,7 +10971,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_030"></a>
 ## NU-030: Freshness Scoping under Composition
 
-`Libpetri.Spec.NU_030` · Kind **F** · Scope every rebuild of a transition through a place rewrite, such as prefix renaming, port binding, place fusion and the identity rewrite of action binding; the channel merge of two transitions (MOD-021) is not such a rebuild · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 b0cf16a58e042aab ai** · Statement hash `b0cf16a58e042aab`
+`Libpetri.Spec.NU_030` · Kind **F** · Scope every rebuild of a transition through a place rewrite, such as prefix renaming, port binding, place fusion and the identity rewrite of action binding; the channel merge of two transitions (MOD-021) is not such a rebuild · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 72debf258cfd540c ai** · Statement hash `72debf258cfd540c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11019,7 +11019,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_040_jodl"></a>
 ## NU-040: Bounded Budget and Decidability (JoinedOrDeadLettered)
 
-`Libpetri.Spec.NU_040_jodl` · Kind **F** · Scope every verifier route that decides JoinedOrDeadLettered: Route B, Route A, and on a net without a matched transition the untimed encoder, the structural and abstract-replay checks · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c0e5e0834cca34c8 ai** · Statement hash `c0e5e0834cca34c8`
+`Libpetri.Spec.NU_040_jodl` · Kind **F** · Scope every verifier route that decides JoinedOrDeadLettered: Route B, Route A, and on a net without a matched transition the untimed encoder, the structural and abstract-replay checks · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c35350aae8a80cf7 ai** · Statement hash `c35350aae8a80cf7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11066,7 +11066,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_040_mint"></a>
 ## NU-040: Bounded Budget and Decidability (budget places declare mints)
 
-`Libpetri.Spec.NU_040_mint` · Kind **F** · Scope the mint declaration every verifier route reads (declared_mints / declaredMints), Route A and Route B of NU-050 · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 abc4a216c30f4b57 ai** · Statement hash `abc4a216c30f4b57`
+`Libpetri.Spec.NU_040_mint` · Kind **F** · Scope the mint declaration every verifier route reads (declared_mints / declaredMints), Route A and Route B of NU-050 · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 75375bdd9adb27f6 ai** · Statement hash `75375bdd9adb27f6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11101,7 +11101,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_050_prefix"></a>
 ## NU-050: Exact Verification of Matched Transitions: the verdict on a built graph
 
-`Libpetri.Spec.NU_050_prefix` · Kind **F** · Scope every verifier that offers the Route B name-partition graph (MAY); the verdict it reads off a built graph, for every property · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 27bf729786cbfe08 ai** · Statement hash `27bf729786cbfe08`
+`Libpetri.Spec.NU_050_prefix` · Kind **F** · Scope every verifier that offers the Route B name-partition graph (MAY); the verdict it reads off a built graph, for every property · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 eb761cd46e6ad765 ai** · Statement hash `eb761cd46e6ad765`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11141,7 +11141,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_050_soundA"></a>
 ## NU-050: Exact Verification of Matched Transitions: Route A is sound
 
-`Libpetri.Spec.NU_050_soundA` · Kind **B** · Scope every verifier that offers the Route A coloured encoding (MAY), judged against the reference ν executor, untimed and environment-free · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 28d84939f14ecd69 ai** · Statement hash `28d84939f14ecd69`
+`Libpetri.Spec.NU_050_soundA` · Kind **B** · Scope every verifier that offers the Route A coloured encoding (MAY), judged against the reference ν executor, untimed and environment-free · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 2840507775110471 ai** · Statement hash `2840507775110471`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11174,7 +11174,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_050_soundB"></a>
 ## NU-050: Exact Verification of Matched Transitions: Route B is sound
 
-`Libpetri.Spec.NU_050_soundB` · Kind **B** · Scope every verifier that offers the Route B name-partition graph (MAY), judged against the reference ν executor, untimed and environment-free · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 4939a2769a438e36 ai** · Statement hash `4939a2769a438e36`
+`Libpetri.Spec.NU_050_soundB` · Kind **B** · Scope every verifier that offers the Route B name-partition graph (MAY), judged against the reference ν executor, untimed and environment-free · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 658a3b1dd6585f78 ai** · Statement hash `658a3b1dd6585f78`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11207,7 +11207,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_050_timed"></a>
 ## NU-050: Exact Verification of Matched Transitions: a join's clock on a timed net
 
-`Libpetri.Spec.NU_050_timed` · Kind **T** · Scope every verifier that offers the Route B name-partition graph (MAY) on a timed net; the timed semantics its classes stand for · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 f39e225292e8140c ai** · Statement hash `f39e225292e8140c`
+`Libpetri.Spec.NU_050_timed` · Kind **T** · Scope every verifier that offers the Route B name-partition graph (MAY) on a timed net; the timed semantics its classes stand for · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 8521730a656ca00b ai** · Statement hash `8521730a656ca00b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11262,7 +11262,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_051"></a>
 ## NU-051: EXTENDED Coloured-Consumer Fragment
 
-`Libpetri.Spec.NU_051` · Kind **F** · Scope the fragment classifier of every ν verifier · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 909c7a7142f57771 ai** · Statement hash `909c7a7142f57771`
+`Libpetri.Spec.NU_051` · Kind **F** · Scope the fragment classifier of every ν verifier · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 f3325dbbfbd828e7 ai** · Statement hash `f3325dbbfbd828e7`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11342,7 +11342,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_051_carrier"></a>
 ## NU-051: EXTENDED Coloured-Consumer Fragment
 
-`Libpetri.Spec.NU_051_carrier` · Kind **F** · Scope every ν verifier entry point that takes carrier declarations · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 7a1b1a4383e15a26 ai** · Statement hash `7a1b1a4383e15a26`
+`Libpetri.Spec.NU_051_carrier` · Kind **F** · Scope every ν verifier entry point that takes carrier declarations · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 f770fef118c6c73d ai** · Statement hash `f770fef118c6c73d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11400,7 +11400,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_051_colours"></a>
 ## NU-051: EXTENDED Coloured-Consumer Fragment
 
-`Libpetri.Spec.NU_051_colours` · Kind **F** · Scope the coloured set every ν verifier computes for a call · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c7e191c148c2ba43 ai** · Statement hash `c7e191c148c2ba43`
+`Libpetri.Spec.NU_051_colours` · Kind **F** · Scope the coloured set every ν verifier computes for a call · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 3c2f8a7c63394363 ai** · Statement hash `3c2f8a7c63394363`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11440,7 +11440,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_051_relay"></a>
 ## NU-051: EXTENDED Coloured-Consumer Fragment
 
-`Libpetri.Spec.NU_051_relay` · Kind **F** · Scope the name layer of Route B · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 14c65885d2d499bd ai** · Statement hash `14c65885d2d499bd`
+`Libpetri.Spec.NU_051_relay` · Kind **F** · Scope the name layer of Route B · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 0227ee2bc85339ae ai** · Statement hash `0227ee2bc85339ae`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11470,7 +11470,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_052"></a>
 ## NU-052: Conflict-Only Priority for the Route B Name-SCG
 
-`Libpetri.Spec.NU_052` · Kind **F** · Scope the Route B successor step, under CONFLICT and NONE · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 d0fdd1cdf880d0fc ai** · Statement hash `d0fdd1cdf880d0fc`
+`Libpetri.Spec.NU_052` · Kind **F** · Scope the Route B successor step, under CONFLICT and NONE · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c9ddd3686d6ad259 ai** · Statement hash `c9ddd3686d6ad259`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11536,7 +11536,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_052_split"></a>
 ## NU-052: Conflict-Only Priority for the Route B Name-SCG (which calls prune, the split, the in-flight test)
 
-`Libpetri.Spec.NU_052_split` · Kind **F** · Scope the verifier's setup of a call under CONFLICT and NONE (MAY; the shall sentences bind an implementation that offers CONFLICT), and the in-flight test of the Route B base layer · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 d01e410be9cfbb68 ai** · Statement hash `d01e410be9cfbb68`
+`Libpetri.Spec.NU_052_split` · Kind **F** · Scope the verifier's setup of a call under CONFLICT and NONE (MAY; the shall sentences bind an implementation that offers CONFLICT), and the in-flight test of the Route B base layer · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 7f8fb3c28a4e4440 ai** · Statement hash `7f8fb3c28a4e4440`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11599,7 +11599,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_053"></a>
 ## NU-053: EXTENDED-Coloured Quiescence in the Route A SMT Encoder
 
-`Libpetri.Spec.NU_053` · Kind **F** · Scope the colour-slot bound, its exact re-check and the coloured consumer and quiescence terms of the Route A coloured encoding, where offered · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 0a2a2f6b1e00c6e8 ai** · Statement hash `0a2a2f6b1e00c6e8`
+`Libpetri.Spec.NU_053` · Kind **F** · Scope the colour-slot bound, its exact re-check and the coloured consumer and quiescence terms of the Route A coloured encoding, where offered · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 cbe6df00a7d06949 ai** · Statement hash `cbe6df00a7d06949`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11674,7 +11674,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_053_dispatch"></a>
 ## NU-053: EXTENDED-Coloured Quiescence in the Route A SMT Encoder: Place in the Dispatch
 
-`Libpetri.Spec.NU_053_dispatch` · Kind **B** · Scope the dispatch of the SMT verifier on ν-nets, where the coloured encoding of Route A is offered (MAY; the shall sentences bind an implementation that offers it) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 65c74b30c6cdb983 ai** · Statement hash `65c74b30c6cdb983`
+`Libpetri.Spec.NU_053_dispatch` · Kind **B** · Scope the dispatch of the SMT verifier on ν-nets, where the coloured encoding of Route A is offered (MAY; the shall sentences bind an implementation that offers it) · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 441c05be3d16cb47 ai** · Statement hash `441c05be3d16cb47`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11726,7 +11726,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_054_build"></a>
 ## NU-054: Join Relay (build checks)
 
-`Libpetri.Spec.NU_054_build` · Kind **F** · Scope every transition builder, on every construction path · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 8456e186fa5fd371 ai** · Statement hash `8456e186fa5fd371`
+`Libpetri.Spec.NU_054_build` · Kind **F** · Scope every transition builder, on every construction path · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 851c29120a61c0ca ai** · Statement hash `851c29120a61c0ca`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11766,7 +11766,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_054_check"></a>
 ## NU-054: Join Relay (run-time relay check)
 
-`Libpetri.Spec.NU_054_check` · Kind **B** · Scope every executor, with output validation on; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 09e07caac5591a2f ai** · Statement hash `09e07caac5591a2f`
+`Libpetri.Spec.NU_054_check` · Kind **B** · Scope every executor, with output validation on; one firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 3cd917cfac3eab68 ai** · Statement hash `3cd917cfac3eab68`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11805,7 +11805,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_054_fail"></a>
 ## NU-054: Join Relay (a firing the relay check rejects)
 
-`Libpetri.Spec.NU_054_fail` · Kind **B** · Scope every executor with output validation on; the settle, flush and failure of a firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 d287eadd8994842f ai** · Statement hash `d287eadd8994842f`
+`Libpetri.Spec.NU_054_fail` · Kind **B** · Scope every executor with output validation on; the settle, flush and failure of a firing of a transition with a match specification · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c9bc404d99e742c0 ai** · Statement hash `c9bc404d99e742c0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11858,7 +11858,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_054_verifier"></a>
 ## NU-054: Join Relay (fragment classifier)
 
-`Libpetri.Spec.NU_054_verifier` · Kind **F** · Scope the fragment classifier of every ν verifier · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 1a773a8a0094cc2b ai** · Statement hash `1a773a8a0094cc2b`
+`Libpetri.Spec.NU_054_verifier` · Kind **F** · Scope the fragment classifier of every ν verifier · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 686b620b1a5e685b ai** · Statement hash `686b620b1a5e685b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11906,7 +11906,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_055"></a>
 ## NU-055: Name Alignment
 
-`Libpetri.Spec.NU_055` · Kind **F** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY); the predicate on a class of the Route B graph · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 844b7488adecca57 ai** · Statement hash `844b7488adecca57`
+`Libpetri.Spec.NU_055` · Kind **F** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY); the predicate on a class of the Route B graph · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 d63c49a037105656 ai** · Statement hash `d63c49a037105656`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -11943,7 +11943,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_055_refusal"></a>
 ## NU-055: Name Alignment: the refusal order
 
-`Libpetri.Spec.NU_055_refusal` · Kind **F** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY); the refusals before Route B builds the graph · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 fdec05e446bbdbbb ai** · Statement hash `fdec05e446bbdbbb`
+`Libpetri.Spec.NU_055_refusal` · Kind **F** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY); the refusals before Route B builds the graph · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 ec2dc4bf32b7676d ai** · Statement hash `ec2dc4bf32b7676d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12009,7 +12009,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_055_sound"></a>
 ## NU-055: Name Alignment: soundness
 
-`Libpetri.Spec.NU_055_sound` · Kind **B** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the reference ν executor, untimed and environment-free, with atomic firings · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 d20b41b4b40c0e65 ai** · Statement hash `d20b41b4b40c0e65`
+`Libpetri.Spec.NU_055_sound` · Kind **B** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY), judged against the reference ν executor, untimed and environment-free, with atomic firings · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 79bf0a5c51e410a2 ai** · Statement hash `79bf0a5c51e410a2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12047,7 +12047,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_055_truncation"></a>
 ## NU-055: Name Alignment: the verdict on a built graph
 
-`Libpetri.Spec.NU_055_truncation` · Kind **F** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY); the verdict Route B reads off a built graph · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 3bc70272dbf00c2f ai** · Statement hash `3bc70272dbf00c2f`
+`Libpetri.Spec.NU_055_truncation` · Kind **F** · Scope every verifier that offers NameAligned or QuiescentNameAligned (MAY); the verdict Route B reads off a built graph · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 b11a29686f7a24d4 ai** · Statement hash `b11a29686f7a24d4`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12090,7 +12090,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-NU_060"></a>
 ## NU-060: Match-Arc Composition
 
-`Libpetri.Spec.NU_060` · Kind **F** · Scope channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to, when either carries a ν-net match · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 cf1f4cae4582beca ai** · Statement hash `cf1f4cae4582beca`
+`Libpetri.Spec.NU_060` · Kind **F** · Scope channel composition in every implementation: the merge of a caller-side transition with the instance-side channel transition it is bound to, when either carries a ν-net match · Source **verbatim** (spec/12-nu-nets.md) · Sign-off **2026-11-13 c2956b8631b7db98 ai** · Statement hash `c2956b8631b7db98`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12139,7 +12139,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-PERF_030"></a>
 ## PERF-030: Bitmap Memory Efficiency
 
-`Libpetri.Spec.PERF_030` · Kind **F** · Scope bitmap executors (the BitmapNetExecutor of Java, TypeScript and Rust; Python through Rust) · Source **verbatim** (spec/10-performance.md) · Sign-off **2026-11-13 0189e5210d0f3a7a ai** · Statement hash `0189e5210d0f3a7a`
+`Libpetri.Spec.PERF_030` · Kind **F** · Scope bitmap executors (the BitmapNetExecutor of Java, TypeScript and Rust; Python through Rust) · Source **verbatim** (spec/10-performance.md) · Sign-off **2026-11-13 86026a7d6f4ee347 ai** · Statement hash `86026a7d6f4ee347`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12192,7 +12192,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-PERF_042"></a>
 ## PERF-042: Sparse Enablement Masks
 
-`Libpetri.Spec.PERF_042` · Kind **F** · Scope executors that use sparse enablement masks (the precompiled executors) · Source **verbatim** (spec/10-performance.md) · Sign-off **2026-11-13 37bebb0ba41d2afe ai** · Statement hash `37bebb0ba41d2afe`
+`Libpetri.Spec.PERF_042` · Kind **F** · Scope executors that use sparse enablement masks (the precompiled executors) · Source **verbatim** (spec/10-performance.md) · Sign-off **2026-11-13 ea5d1cba83ccbd5f ai** · Statement hash `ea5d1cba83ccbd5f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12239,7 +12239,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_001"></a>
 ## TIME-001: Timing Specification
 
-`Libpetri.Spec.TIME_001` · Kind **F** · Scope all timing variants, all implementations · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 6a4cf82f6d0443eb ai** · Statement hash `6a4cf82f6d0443eb`
+`Libpetri.Spec.TIME_001` · Kind **F** · Scope all timing variants, all implementations · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 d34529578af26fe4 ai** · Statement hash `d34529578af26fe4`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12292,7 +12292,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_002"></a>
 ## TIME-002: Immediate Timing
 
-`Libpetri.Spec.TIME_002` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 dd46f1ae494fe220 ai** · Statement hash `dd46f1ae494fe220`
+`Libpetri.Spec.TIME_002` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 d2b484cbad973046 ai** · Statement hash `d2b484cbad973046`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12335,7 +12335,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_003"></a>
 ## TIME-003: Deadline Timing
 
-`Libpetri.Spec.TIME_003` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 d4286d66f31f5dbe ai** · Statement hash `d4286d66f31f5dbe`
+`Libpetri.Spec.TIME_003` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 f2afd767abde189b ai** · Statement hash `f2afd767abde189b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12389,7 +12389,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_004"></a>
 ## TIME-004: Delayed Timing
 
-`Libpetri.Spec.TIME_004` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 105e54b6ff04bba2 ai** · Statement hash `105e54b6ff04bba2`
+`Libpetri.Spec.TIME_004` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 e515af64f65f7b36 ai** · Statement hash `e515af64f65f7b36`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12436,7 +12436,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_005"></a>
 ## TIME-005: Window Timing
 
-`Libpetri.Spec.TIME_005` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 0c95b3226f130dae ai** · Statement hash `0c95b3226f130dae`
+`Libpetri.Spec.TIME_005` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 4d99c46f6b5f098d ai** · Statement hash `4d99c46f6b5f098d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12486,7 +12486,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_006"></a>
 ## TIME-006: Exact Timing
 
-`Libpetri.Spec.TIME_006` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 9a5e081db9a5fa53 ai** · Statement hash `9a5e081db9a5fa53`
+`Libpetri.Spec.TIME_006` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 6e6bad1744175f13 ai** · Statement hash `6e6bad1744175f13`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12530,7 +12530,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_010"></a>
 ## TIME-010: Clock Starts on Enablement
 
-`Libpetri.Spec.TIME_010` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 f85d0da5b9a419c8 ai** · Statement hash `f85d0da5b9a419c8`
+`Libpetri.Spec.TIME_010` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 ea9a99682276358a ai** · Statement hash `ea9a99682276358a`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12582,7 +12582,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_010_cycle"></a>
 ## TIME-010: Clock Starts on Enablement (executor cycle)
 
-`Libpetri.Spec.TIME_010_cycle` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 f0683ca6d471e6c1 ai** · Statement hash `f0683ca6d471e6c1`
+`Libpetri.Spec.TIME_010_cycle` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 02af746e7ffa1879 ai** · Statement hash `02af746e7ffa1879`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12629,7 +12629,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_011"></a>
 ## TIME-011: Clock Restarts on Re-enablement
 
-`Libpetri.Spec.TIME_011` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 79f782cb6058365b ai** · Statement hash `79f782cb6058365b`
+`Libpetri.Spec.TIME_011` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 4737d8ed23ee9b61 ai** · Statement hash `4737d8ed23ee9b61`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12669,7 +12669,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_012"></a>
 ## TIME-012: Clock Restart on Intermediate Disablement
 
-`Libpetri.Spec.TIME_012` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 7567794250d69169 ai** · Statement hash `7567794250d69169`
+`Libpetri.Spec.TIME_012` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 6b18371197d46902 ai** · Statement hash `6b18371197d46902`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12724,7 +12724,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_012_cycle"></a>
 ## TIME-012: Clock Restart on Intermediate Disablement (executor cycle)
 
-`Libpetri.Spec.TIME_012_cycle` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 188c28580f0296f9 ai** · Statement hash `188c28580f0296f9`
+`Libpetri.Spec.TIME_012_cycle` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 f76ff4d28aa15773 ai** · Statement hash `f76ff4d28aa15773`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12772,7 +12772,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_012_nu"></a>
 ## TIME-012: Clock Restart on Intermediate Disablement (ν-join bindings)
 
-`Libpetri.Spec.TIME_012_nu` · Kind **T** · Scope every executor that runs matched transitions ([NU-020]), read on the atomic timed ν step · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 f72291b63bd6aa11 ai** · Statement hash `f72291b63bd6aa11`
+`Libpetri.Spec.TIME_012_nu` · Kind **T** · Scope every executor that runs matched transitions ([NU-020]), read on the atomic timed ν step · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 827d165f11fbfa3d ai** · Statement hash `827d165f11fbfa3d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12820,7 +12820,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_013"></a>
 ## TIME-013: Deadline Enforcement
 
-`Libpetri.Spec.TIME_013` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 cf60477e972fe310 ai** · Statement hash `cf60477e972fe310`
+`Libpetri.Spec.TIME_013` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 2103a7de237a7c3a ai** · Statement hash `2103a7de237a7c3a`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12883,7 +12883,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_013_cycle"></a>
 ## TIME-013: Deadline Enforcement (executor cycle)
 
-`Libpetri.Spec.TIME_013_cycle` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 d73f66919f1a81ac ai** · Statement hash `d73f66919f1a81ac`
+`Libpetri.Spec.TIME_013_cycle` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 3f1b87c1b5efb399 ai** · Statement hash `3f1b87c1b5efb399`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12928,7 +12928,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_014"></a>
 ## TIME-014: Competitive Scheduling with Timing
 
-`Libpetri.Spec.TIME_014` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 b3bcafa0d68de6a2 ai** · Statement hash `b3bcafa0d68de6a2`
+`Libpetri.Spec.TIME_014` · Kind **T** · Scope all executors · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 9e670108a075e4be ai** · Statement hash `9e670108a075e4be`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12979,7 +12979,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_015"></a>
 ## TIME-015: Injectable Clock
 
-`Libpetri.Spec.TIME_015` · Kind **A** · Scope all executors, on the default or an injected firing clock · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 59da872b35939352 ai** · Statement hash `59da872b35939352`
+`Libpetri.Spec.TIME_015` · Kind **A** · Scope all executors, on the default or an injected firing clock · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 83f89e480b356a95 ai** · Statement hash `83f89e480b356a95`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -12991,13 +12991,14 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - Line 1 of the formula is the first 'shall' sentence, over every step. A host reading that goes backwards cannot be written as a delay, since a delay's length is a natural number: across a wait, the sentence is carried by that type together with line 2, and a clock that rewinds on a delay breaks lines 1 and 2 at once (TIME_015_forbids_rewind). Line 1 on its own constrains firings and reaps: one that lowers the reading breaks it alone (TIME_015_mutant_waitOnly_killed).
 - Line 2 says a delay moves the clock by its length; it is the only statement of that fact, and TIME-003 to TIME-006 rely on it through ConsistencyTime for the elapsed time of their transitions to grow with the clock (their clock frame keeps the stamp across a delay, GlossaryTime ClockFrame). That a firing and a reap take no time (an atomic step happens at one reading) is a convention of the Phase 1 relation, not a sentence of this section, so it is not a line of this block; its firing half is time012_FramesClock, which ConsistencyTime conjoins, and its reap half is [TIME-013] line 1 (a reap leaves the clock reading as it is). Which reading stamps a transition armed by a firing is fixed by [TIME-010]: the reading the next enablement update that finds it enabled takes, and [TIME-012] stamps a restarted clock the same way. The Phase 1 relation has no enablement update, as a firing is atomic, so it takes the firing step's own reading (refPolicy.fresh) as an abstraction of that rule; the companions TIME_010_cycle and TIME_012_cycle state the rule itself, for a synchronous deposit and for an asynchronous completion alike.
 - Contract 1's other half (the clock is not assumed to advance between two reads) is not a line of this block. A repeated reading is a delay of 0; that one is offered is CoversDelay, and that it changes nothing else is TIME-010's framing of stamps across a delay together with FramesMarking. The reference meets it (time015_stutter).
-- Lines 3 and 4 are the second 'shall' sentence. A completed wait is a delay step of any length: the executor cannot tell an early or spurious completion from a due one, so both lines quantify over every delay. The boundary conditions are read in AfterWait: the marking and reading after the wait with the stamps held before it, so that a wait that rewrites or drops stamps cannot hide an early firing (TIME_015_mutant_inState_killed, TIME_015_forbids_dropStamps). For a relation that keeps stamps across a delay, as TIME-010 line 2 asks, AfterWait is the state the wait reached.
+- Lines 3 and 4 are the second 'shall' sentence. A completed wait is a delay step of any length: the executor cannot tell an early or spurious completion from a due one, so both lines quantify over every delay. The boundary conditions are read in AfterWait: the marking and reading after the wait with the stamps held before it, so that a wait that rewrites or drops stamps cannot hide an early firing (TIME_015_mutant_inState_killed, TIME_015_forbids_dropStamps). For a relation that keeps stamps across a delay, as TIME-010 line 2 asks, AfterWait is the state the wait reached. Lines 3 and 4 judge the firing taken from the state the wait reached, the first step after it. 'Before it fires any transition' also reaches a firing taken later at the same reading, after a reap or another firing; the atomic relation has no cycle to bound that stretch, so it is not a line here: such a firing is excluded in every state by TIME-010 line 4 (armed and below its earliest bound) and TIME-013 line 2 (reapable and past its latest bound plus the tolerance), which ConsistencyTime conjoins with this block, and on the executor by TIME_015_cycle line 2 (after a wake, no start before the next update).
 - Line 3 is the earliest side, which the sentence names. Line 4 is the latest side of 'its boundary conditions': a transition that is expired (glossary: reapable, armed, elapsed time strictly greater than its latest bound plus the deadline tolerance; rulings D2 and D4) does not fire after a wait that overshot. Exact transitions are not reapable and are never expired [TIME-006]. With TIME-010 and FramesMarking, line 3 holds of every relation (time015_ac4_of_time010, cited for AC4).
 - AC6: the reap test, that with tolerance 0 a Deadline transition can be reaped exactly when it is armed and its elapsed time is strictly greater than its bound, is the cited theorem time015_ac6_reap_strict (the strict test of TIME-013, ruling D4). That the reap happens on the first such cycle is a property of the executor loop and is deferred to Phase 2.
 - AC10 is read under ruling D12 (a): stuttering invariance only. A clock that returns the same reading across several cycles takes delays of 0 between them, and a delay of 0 is an identity step (refTStepW_delay_zero, ClashesTime.lean, cited for TIME-015), which the reference offers from every state (time015_stutter); so a run that repeats readings reaches the outcome of the same run with each repeated reading taken once. A clock that advances in coarse jumps is not claimed to reach the outcome of a finer one: the reference refutes that (time015_ac10_coarse_jump: a Window(3, 5) transition with tolerance 0 fires under a clock advancing 1 ms per reading, and is reaped, its token stranded, under the readings 0 then 10), and the AC10 text says so.
 - AC1, AC2, AC3, AC9, AC12 and AC15 are properties of the seam, its default path and its documentation (configuration, N kind), not of a step relation. The MUST of AC14 (two executors constructed in one process carry different execution IDs, whatever the clock reads) is the line of EVT_002_executionId (ruling D98 (a)), which cites this requirement; its SHOULD (reproducible IDs) is that block's nonvacuous evidence. AC5, AC7, AC8 and AC11 are properties of the executor loop (abort, the boundary short-circuit, wake-up, reentrant admission) and AC13 of token stamping through the epoch clock; they are deferred to Phase 2.
 - The section's other MUST sentences are not lines of this block, and none is a property of the atomic step. The scope limit on action timeouts ([IO-013]): 'An implementation MUST document this limit rather than let a host infer from the rest of the requirement that all net-declared timing is virtualized' is documentation (N kind), and 'An implementation MUST NOT route the timeout interval through the injected clock while leaving the action's own wait on real time' is a property of the host interface, as an action timeout is a per-action wait the seam does not own (the budget is host time under ruling D18 (b), as EXEC_022's assumes read it; EXEC_022_forbids_clockTimeout rejects a timeout outcome reached on a delay of the firing clock). Contract 2's asynchronous wait ('MUST NOT complete synchronously on first poll, and MUST NOT block the calling thread') and its default ('MUST document that the default suits only a clock that advances, and MUST NOT ship a suspending clock that inherits it') are properties of the host interface and its documentation, with AC15. 'The executor MUST NOT silently re-stamp host-supplied tokens' is the restore of [CORE-073], which keeps every token's created_at (CORE_073); the epoch clock is not modelled here. 'The two are separate values, and an implementation MUST NOT derive either from the other' (the run identifier and the default minting scope of [NU-011]) is the line of NU_011_default (nu011_default_not_runId), with the run identifier of EVT_002_executionId ([EVT-002]). 'A conformance suite running on a virtual clock MUST NOT pin fast-path order for a net that takes the general path, or the reverse' is an obligation of a test suite (Q kind), not of an executor; the two orders are EXEC_002's.
 - Every remaining MUST of the section is tied to an acceptance criterion above or named here, and none is a property of the atomic step. 'Their origins are unrelated and MUST NOT be conflated' (the firing clock and the epoch clock): the Phase 1 relation has the firing clock only and does not model the epoch clock (first paragraph); the epoch stamps are AC13's. 'The seam MUST therefore also own the executor's wait for the next timing boundary' and 'The seam MUST carry both halves' (the wake-up and the interval) are properties of the host interface (kind N), with AC3 and AC8. Contract 2's 'Given a finite interval the wait MUST either suspend until that boundary or advance the clock to it' and, for an infinite interval, 'the wait MUST suspend until woken' are host-interface properties, with AC3 and AC15; 'a test MUST NOT be bounded by patience' is an obligation of a test suite (kind Q). Contract 4's 'On abort the wait MUST complete normally rather than failing, and MUST release whatever it registered to hear the abort' is AC5; 'A host MUST therefore not read abort as teardown' is a host rule (kind N); 'MUST still keep the no-clock path free of the allocation' is AC9. Contract 5's 'A host-visible readiness predicate the wait consults MUST be cheap, repeatable and side-effect free, and MUST NOT itself consult a clock' is a property of the host interface (kind N), and the predicate's visibility and completeness MUSTs are AC8. The admission MUSTs (inject() legal from inside the wait, an injection or a completion from inside the wait only enqueued and admitted in step 2 or step 1 of a following cycle, never at the call; whatever a completion runs inline not awaiting an admission signal and not blocking; the admission signal not awaited there) are AC11, a property of the executor loop deferred to Phase 2; the queueing itself is ENV-003's and EXEC-001's. 'Absent an injected clock an implementation MUST behave exactly as before' and 'every existing timing conformance test MUST pass unchanged' are AC1. The boundary short-circuit ('the executor MUST return and let the next cycle act on it rather than waiting', 'an injected clock MUST NOT make them diverge') is AC7; over the executor, CONC-010's second line (no block while a transition is Ready or Expired at the cycle reading) states it on every clock. 'an implementation MUST therefore offer construction of a token at an explicit timestamp ([CORE-011])' is an API obligation (kind N) of CORE-011's token constructor. 'Such a token is executor-produced and MUST be stamped through the injected epoch clock', with every token the implementation synthesises during a firing, is AC13; 'MUST document that its default token constructor is non-deterministic under a host clock' is AC12. 'Any identifier an implementation derives for a run ... MUST NOT be derived solely from a clock reading' and 'Such an identifier MUST be unique among executors that can be observed together' are AC14's MUST, the line of EVT_002_executionId; 'That scope MUST differ between two processes that did nothing differently' is NU-011's (NU_011_default).
+- The section's SHOULD and MAY sentences are not lines of this block either, and none is a property of the atomic step. 'An implementation SHOULD let a host supply the executor's time source' is the seam itself (kind N), with AC2 and AC3; the relation does not say where its readings come from (first paragraph). 'The wait MAY complete early and for no reason' is why lines 3 and 4 quantify over every delay. 'A host MAY derive both from one logical source, and SHOULD when it needs the two to agree across a replay', 'a host verifying deadline behaviour SHOULD set the tolerance to 0' and 'A host driving virtual time SHOULD therefore pass a generous or unbounded budget' are host guidance (kind N). 'An implementation MAY stop raising its own internal wake-up while a host clock is installed' is the condition of AC8, and 'that is the simpler design and SHOULD be preferred where the runtime allows it' is a design preference of the seam (kind N). A host 'MAY complete an action's future ... from inside the wait' is AC11, and 'An implementation SHOULD make the hazard hard to hit' with 'it SHOULD offer, or steer the caller to, a form whose result cannot be awaited' is AC11's statement on the API (kind N). 'An implementation SHOULD instead offer a construction path that stamps fresh seed tokens through the injected epoch clock' is AC12. 'an implementation SHOULD leave it on real time even when a clock is installed' (a run budget) is a limit on the host's patience, not a firing decision; the Phase 1 relation has no run budget (kind N). 'Such an identifier ... SHOULD remain reproducible for a fixed clock and firing order' is AC14's SHOULD, the nonvacuous evidence of EVT_002_executionId. 'implementations SHOULD test a clock against an interval of Infinity explicitly, and SHOULD pin any clock that appears in their own documentation by transcribing it into that test', 'an implementation SHOULD NOT assume its own failure surface from a sibling's' and 'An implementation claiming this requirement SHOULD carry a test for all three origins' are obligations of a test suite (kind Q), with AC15 and AC13.
 
 **Evidence**
 
@@ -13033,7 +13034,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-TIME_015_cycle"></a>
 ## TIME-015: Injectable Clock (executor cycle)
 
-`Libpetri.Spec.TIME_015_cycle` · Kind **A** · Scope all executors, on the default or an injected firing clock · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 158ce2ffd8358854 ai** · Statement hash `158ce2ffd8358854`
+`Libpetri.Spec.TIME_015_cycle` · Kind **A** · Scope all executors, on the default or an injected firing clock · Source **verbatim** (spec/03-timing.md) · Sign-off **2026-11-13 ac85d49fe9f864ce ai** · Statement hash `ac85d49fe9f864ce`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13044,7 +13045,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 - The model is an executor R : XRel N T (glossary GlossaryExec.lean): R C s l s' says that under configuration C the step labelled l leads from executor state s to s'. The state holds two readings of the one firing clock: now, the host's present reading, which only the outside delay step advances, and cyc, the cycle reading, which the enablement update sets and the deadline step may move to a later reading, and at which the deadline step, the ready order of the pass and the park decision judge (TIME-010's companion lines 3 to 5, ruling D61 (c)). The model does not say where the readings come from, so line 1 holds of the default clock as of an injected one: the quoted sentence opens with 'While an executor runs on an injected clock' because an injected clock is the one the host can get wrong; the default firing clocks are monotonic sources (System.nanoTime, performance.now, a monotonic Instant), so the line asks nothing of them they do not do. The wait of step 6 is park and wake; a wake is offered at any time in the wait, so a timer that fires early and a spurious completion are both a wake. The witness is the reference executor RefExec (Reference/Exec.lean).
 - This is the companion of the Phase 1 block TIME_015 (ruling D33 (a), design NR-1), which states the readings and the re-check on the atomic timed step and defers the executor loop to the cycle relation. Line 1 is the first shall sentence on the host's reading: a clock that goes back breaks it (TIME_015_cycle_forbids_rewind). Which reading each step of a cycle judges at (ruling D61 (c)) is an executor rule for every executor on any clock, so it is stated by TIME-010 (a MUST) and its companion, lines 3 to 5, not here: the SHOULD priority of TIME-015 does not carry it. With line 1 those lines make the readings of successive cycles non-decreasing.
 - Line 2 is the second shall sentence and contract 3 (spurious completion): after the wait completes the loop runs steps 1 to 4 again, so the enablement update re-reads the clock and the deadline step and the ready order of the next pass are judged at that reading, and a transition whose earliest bound a wait that completed early did not reach is not ready in that pass (TIME-014 line 1). An executor that trusts the wait and goes straight to its firing pass breaks it (TIME_015_cycle_forbids_wakeToPass). That the update comes before the deadline step and the deadline step before the pass is EXEC-001 lines 1 and 2, whose trigger includes the wake.
-- AC4 (a wait that completes early fires nothing early) is TIME_015_cycle_nonvacuous: t, Delayed(5) and armed at 0, parks with a timer of 5, the wait completes at 2, the update takes reading 2 and the pass offers nothing, the next wait completes at 5 and t starts. AC6 (with tolerance 0, a Deadline transition is reaped on the first cycle strictly past its bound, not on one that observes exactly its bound) is TIME-013's companion line 1 at the reading of the deadline step (TIME-010's companion lines 3 and 4), and TIME_013_cycle_nonvacuous shows both cycles. AC7 (a boundary already due advances on the next cycle) is CONC-010's park guard: the executor does not wait while a transition is Ready or Expired at the cycle reading, and its timer is at most the next boundary plus the timer resolution. AC8 (a completing action, an injected event, a drain and a close wake the wait) is CONC-010's wake line. AC11 (an injection or a completion from inside the wait only enqueues, and is taken in by a later step 1 or step 2) is CONC-001 line 1 (an outside step changes neither the marking nor a clock status) with ENV-003 and EXEC-001; ruling D70 (a) lets the wait itself take the queued item and go on to step 1. AC13 (executor-stamped tokens carry the injected epoch clock) is the CORE-011 epoch slice (W11). AC5 (abort on shutdown), AC9 (no cost on the default path), AC15 (an absent boundary suspends) and the seam's shape (both halves of the wait, the readiness predicate, the two time bases) are properties of the host interface, not of a step relation; the wait without a timer is park none, which CONC-010 allows only when no boundary is ahead. AC1, AC2, AC3, AC10, AC12 and AC14 are the Phase 1 block's.
+- AC4 (a wait that completes early fires nothing early) is TIME_015_cycle_nonvacuous: t, Delayed(5) and armed at 0, parks with a timer of 5, the wait completes at 2, the update takes reading 2 and the pass offers nothing, the next wait completes at 5 and t starts. AC6 (with tolerance 0, a Deadline transition is reaped on the first cycle strictly past its bound, not on one that observes exactly its bound) is TIME-013's companion line 1 at the reading of the deadline step (TIME-010's companion lines 3 and 4), and TIME_013_cycle_nonvacuous shows both cycles. AC7 (a boundary already due advances on the next cycle) is CONC-010's park guard: the executor does not wait while a transition is Ready or Expired at the cycle reading, and its timer is at most the next boundary plus the timer resolution. AC8 (a completing action, an injected event, a drain and a close wake the wait) is CONC-010's wake line. AC11 (an injection or a completion from inside the wait only enqueues, and is taken in by a later step 1 or step 2) is CONC-001 lines 1 and 2 (an outside step changes no clock status and, being neither a start nor a deposit, leaves the marking as it was) with ENV-003 and EXEC-001; ruling D70 (a) lets the wait itself take the queued item and go on to step 1. AC13 (executor-stamped tokens carry the injected epoch clock) is the CORE-011 epoch slice (W11). AC5 (abort on shutdown), AC9 (no cost on the default path), AC15 (an absent boundary suspends) and the seam's shape (both halves of the wait, the readiness predicate, the two time bases) are properties of the host interface, not of a step relation; the wait without a timer is park none, which CONC-010 allows only when no boundary is ahead. AC1, AC2, AC3, AC10, AC12 and AC14 are the Phase 1 block's.
 
 **Evidence**
 
@@ -13066,7 +13067,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_001"></a>
 ## VER-001: SMT Verification Pipeline
 
-`Libpetri.Spec.VER_001` · Kind **F** · Scope every verification route, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 d08edec1867cc96d ai** · Statement hash `d08edec1867cc96d`
+`Libpetri.Spec.VER_001` · Kind **F** · Scope every verification route, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 5c2eff3dd1d5389c ai** · Statement hash `5c2eff3dd1d5389c`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13133,7 +13134,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_002"></a>
 ## VER-002: Safety Properties
 
-`Libpetri.Spec.VER_002` · Kind **F** · Scope every route that decides DeadlockFree, TerminatesAtSink, MutualExclusion, PlaceBound, Unreachable or QuiescentCount, all implementations (SHOULD; the shall sentences bind an implementation that offers the property) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 8431b8ffece95a89 ai** · Statement hash `8431b8ffece95a89`
+`Libpetri.Spec.VER_002` · Kind **F** · Scope every route that decides DeadlockFree, TerminatesAtSink, MutualExclusion, PlaceBound, Unreachable or QuiescentCount, all implementations (SHOULD; the shall sentences bind an implementation that offers the property) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 e9e3fc530c914598 ai** · Statement hash `e9e3fc530c914598`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13225,7 +13226,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_002_count"></a>
 ## VER-002: QuiescentCount Construction
 
-`Libpetri.Spec.VER_002_count` · Kind **B** · Scope every implementation that offers QuiescentCount; the constructor · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 bd51d01b199296a0 ai** · Statement hash `bd51d01b199296a0`
+`Libpetri.Spec.VER_002_count` · Kind **B** · Scope every implementation that offers QuiescentCount; the constructor · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 2f69f98bb7260760 ai** · Statement hash `2f69f98bb7260760`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13264,7 +13265,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_003"></a>
 ## VER-003: Verification Result
 
-`Libpetri.Spec.VER_003` · Kind **B** · Scope every verifier entry point and every route, all implementations (SHOULD; the shall sentences bind an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 752f8f0f680517ec ai** · Statement hash `752f8f0f680517ec`
+`Libpetri.Spec.VER_003` · Kind **B** · Scope every verifier entry point and every route, all implementations (SHOULD; the shall sentences bind an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 b75ebb07659d89a8 ai** · Statement hash `b75ebb07659d89a8`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13336,7 +13337,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_004_exec"></a>
 ## VER-004: Untimed Over-Approximation (the executor's runs with actions in flight)
 
-`Libpetri.Spec.VER_004_exec` · Kind **B** · Scope the executor's runs on a net the split accepts, read through the count projection L5 of RefExec (SHOULD; the shall sentence binds an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 b40cc4a794c3b2a9 ai** · Statement hash `b40cc4a794c3b2a9`
+`Libpetri.Spec.VER_004_exec` · Kind **B** · Scope the executor's runs on a net the split accepts, read through the count projection L5 of RefExec (SHOULD; the shall sentence binds an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 ca090b067f10ff53 ai** · Statement hash `ca090b067f10ff53`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13375,7 +13376,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_004_split"></a>
 ## VER-004: Untimed Over-Approximation (the in-flight split)
 
-`Libpetri.Spec.VER_004_split` · Kind **F** · Scope the verified-net function of every verifier entry point, before the terminal rewrite of EXEC-042 (SHOULD; the shall sentences bind an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 53f6e2bc165b7f4b ai** · Statement hash `53f6e2bc165b7f4b`
+`Libpetri.Spec.VER_004_split` · Kind **F** · Scope the verified-net function of every verifier entry point, before the terminal rewrite of EXEC-042 (SHOULD; the shall sentences bind an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 ea653f701a1d3b2f ai** · Statement hash `ea653f701a1d3b2f`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13424,7 +13425,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_004_timed"></a>
 ## VER-004: Untimed Over-Approximation (timing only removes firings)
 
-`Libpetri.Spec.VER_004_timed` · Kind **A** · Scope the executor's timed runs, as every verifier route reads them (SHOULD; the shall sentences bind an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 1efbac2ac1dfbce0 ai** · Statement hash `1efbac2ac1dfbce0`
+`Libpetri.Spec.VER_004_timed` · Kind **A** · Scope the executor's timed runs, as every verifier route reads them (SHOULD; the shall sentences bind an implementation that offers verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 5da9a4d413c312ac ai** · Statement hash `5da9a4d413c312ac`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13465,7 +13466,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_005"></a>
 ## VER-005: P-Invariant Computation
 
-`Libpetri.Spec.VER_005` · Kind **F** · Scope the SMT pipeline's invariant phase, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 31974fa0fc93c0df ai** · Statement hash `31974fa0fc93c0df`
+`Libpetri.Spec.VER_005` · Kind **F** · Scope the SMT pipeline's invariant phase, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 2d332a4c4aa7f603 ai** · Statement hash `2d332a4c4aa7f603`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13513,7 +13514,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_006"></a>
 ## VER-006: Environment Analysis Mode
 
-`Libpetri.Spec.VER_006` · Kind **B** · Scope the SMT verifier and every route it dispatches to, AlwaysAvailable and Bounded(k), all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 a83eba97a52d71f7 ai** · Statement hash `a83eba97a52d71f7`
+`Libpetri.Spec.VER_006` · Kind **B** · Scope the SMT verifier and every route it dispatches to, AlwaysAvailable and Bounded(k), all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 78e7cf929f6d5e80 ai** · Statement hash `78e7cf929f6d5e80`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13550,7 +13551,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_006_arrivals"></a>
 ## VER-006: Environment Analysis Mode: Arrivals(min, max) is a net rewrite
 
-`Libpetri.Spec.VER_006_arrivals` · Kind **F** · Scope the SMT verifier under Arrivals(min, max), before any route, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 f562c16d7d447f94 ai** · Statement hash `f562c16d7d447f94`
+`Libpetri.Spec.VER_006_arrivals` · Kind **F** · Scope the SMT verifier under Arrivals(min, max), before any route, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 935f095991d6f423 ai** · Statement hash `935f095991d6f423`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13583,7 +13584,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_006_premise"></a>
 ## VER-006: Environment Analysis Mode: the Bounded(k) premises
 
-`Libpetri.Spec.VER_006_premise` · Kind **F** · Scope the SMT verifier under Bounded(k), before any route, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 7355f61d98d77bbb ai** · Statement hash `7355f61d98d77bbb`
+`Libpetri.Spec.VER_006_premise` · Kind **F** · Scope the SMT verifier under Bounded(k), before any route, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 b320fdb9fbe5f6af ai** · Statement hash `b320fdb9fbe5f6af`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13614,7 +13615,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_006_quiescent"></a>
 ## VER-006: Environment Analysis Mode: quiescence under modelled injection
 
-`Libpetri.Spec.VER_006_quiescent` · Kind **F** · Scope the quiescence clause of DeadlockFree, TerminatesAtSink, QuiescentCount and JoinedOrDeadLettered on every route, AlwaysAvailable and Bounded(k), all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 ecbb8aec3d9d76e6 ai** · Statement hash `ecbb8aec3d9d76e6`
+`Libpetri.Spec.VER_006_quiescent` · Kind **F** · Scope the quiescence clause of DeadlockFree, TerminatesAtSink, QuiescentCount and JoinedOrDeadLettered on every route, AlwaysAvailable and Bounded(k), all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 3b37261915f411c2 ai** · Statement hash `3b37261915f411c2`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13646,7 +13647,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_006_verdict"></a>
 ## VER-006: Environment Analysis Mode: verdicts
 
-`Libpetri.Spec.VER_006_verdict` · Kind **B** · Scope the SMT verifier and every route it dispatches to, all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 3fa0ed8c4eabc4cf ai** · Statement hash `3fa0ed8c4eabc4cf`
+`Libpetri.Spec.VER_006_verdict` · Kind **B** · Scope the SMT verifier and every route it dispatches to, all implementations (SHOULD; the shall sentences bind an implementation that offers environment analysis) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 d171b9a7b7d07920 ai** · Statement hash `d171b9a7b7d07920`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13689,7 +13690,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_007"></a>
 ## VER-007: Invariant Strengthening from P-Semiflows
 
-`Libpetri.Spec.VER_007` · Kind **F** · Scope the SMT pipeline's Phase 3 and every encoder it feeds (flat and name-coloured), all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 096f0196831dd00a ai** · Statement hash `096f0196831dd00a`
+`Libpetri.Spec.VER_007` · Kind **F** · Scope the SMT pipeline's Phase 3 and every encoder it feeds (flat and name-coloured), all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 f7dee685b94d4e51 ai** · Statement hash `f7dee685b94d4e51`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13758,7 +13759,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_010"></a>
 ## VER-010: State Class Graph Analysis
 
-`Libpetri.Spec.VER_010` · Kind **B** · Scope the timed state class graph builder (StateClassGraph.build), Java, TypeScript and Rust (MAY; the shall sentences bind an implementation that offers it) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 d6bda91503f7cd1d ai** · Statement hash `d6bda91503f7cd1d`
+`Libpetri.Spec.VER_010` · Kind **B** · Scope the timed state class graph builder (StateClassGraph.build), Java, TypeScript and Rust (MAY; the shall sentences bind an implementation that offers it) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 93017dda6c430986 ai** · Statement hash `93017dda6c430986`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13806,7 +13807,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_010_key"></a>
 ## VER-010: State Class Graph Analysis: canonical class identity
 
-`Libpetri.Spec.VER_010_key` · Kind **F** · Scope the canonical clock order and the class key of the timed state class graph, Java, TypeScript and Rust · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 8852fd38a2c7cdd1 ai** · Statement hash `8852fd38a2c7cdd1`
+`Libpetri.Spec.VER_010_key` · Kind **F** · Scope the canonical clock order and the class key of the timed state class graph, Java, TypeScript and Rust · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 b6d21ecd185f60db ai** · Statement hash `b6d21ecd185f60db`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13847,7 +13848,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_010_persist"></a>
 ## VER-010: State Class Graph Analysis: clock persistence
 
-`Libpetri.Spec.VER_010_persist` · Kind **F** · Scope the survival test of the timed state class graph successor (compute_successor), Java, TypeScript and Rust · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 fb3b43c41d3c3910 ai** · Statement hash `fb3b43c41d3c3910`
+`Libpetri.Spec.VER_010_persist` · Kind **F** · Scope the survival test of the timed state class graph successor (compute_successor), Java, TypeScript and Rust · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 fd8c034030b81ecb ai** · Statement hash `fd8c034030b81ecb`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13880,7 +13881,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_011"></a>
 ## VER-011: DBM Zone Representation
 
-`Libpetri.Spec.VER_011` · Kind **F** · Scope the zone library of every state class graph, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 112209c5b3864d89 ai** · Statement hash `112209c5b3864d89`
+`Libpetri.Spec.VER_011` · Kind **F** · Scope the zone library of every state class graph, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 c25a6c8c7bda6335 ai** · Statement hash `c25a6c8c7bda6335`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13936,7 +13937,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_012"></a>
 ## VER-012: Name-Aware State Class Graph: the graph step
 
-`Libpetri.Spec.VER_012` · Kind **F** · Scope every verifier that offers the Route B name-partition graph (MAY); one step of the graph, the untimed base · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 41a4de83f8732bd6 ai** · Statement hash `41a4de83f8732bd6`
+`Libpetri.Spec.VER_012` · Kind **F** · Scope every verifier that offers the Route B name-partition graph (MAY); one step of the graph, the untimed base · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 9f29789b3063de66 ai** · Statement hash `9f29789b3063de66`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -13998,7 +13999,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_012_build"></a>
 ## VER-012: Name-Aware State Class Graph: the build
 
-`Libpetri.Spec.VER_012_build` · Kind **F** · Scope every verifier that offers the Route B name-partition graph (MAY); the build loop of the graph · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 550823c0327b11ab ai** · Statement hash `550823c0327b11ab`
+`Libpetri.Spec.VER_012_build` · Kind **F** · Scope every verifier that offers the Route B name-partition graph (MAY); the build loop of the graph · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 bad01372e239b3bd ai** · Statement hash `bad01372e239b3bd`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14041,7 +14042,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_013_args"></a>
 ## VER-013: Solver Transport: timeouts of one process
 
-`Libpetri.Spec.VER_013_args` · Kind **F** · Scope every z3 process the verifier starts, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 8c4c5184fbd153a4 ai** · Statement hash `8c4c5184fbd153a4`
+`Libpetri.Spec.VER_013_args` · Kind **F** · Scope every z3 process the verifier starts, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 8a1accd7ea582526 ai** · Statement hash `8a1accd7ea582526`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14085,7 +14086,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_013_classify"></a>
 ## VER-013: Solver Transport: reply classification
 
-`Libpetri.Spec.VER_013_classify` · Kind **F** · Scope every z3 reply the verifier reads, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 f0d294ca752190df ai** · Statement hash `f0d294ca752190df`
+`Libpetri.Spec.VER_013_classify` · Kind **F** · Scope every z3 reply the verifier reads, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 c65157bb4d135901 ai** · Statement hash `c65157bb4d135901`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14137,7 +14138,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_013_order"></a>
 ## VER-013: Solver Transport: name order
 
-`Libpetri.Spec.VER_013_order` · Kind **F** · Scope every ordering of place or transition names that reaches a script, a flat index, a report, a witness or a violation list, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 2f8d789291561f24 ai** · Statement hash `2f8d789291561f24`
+`Libpetri.Spec.VER_013_order` · Kind **F** · Scope every ordering of place or transition names that reaches a script, a flat index, a report, a witness or a violation list, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 3a8763ecf80c02b0 ai** · Statement hash `3a8763ecf80c02b0`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14168,7 +14169,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_013_stop"></a>
 ## VER-013: Solver Transport: solver failures, total budget and cancellation
 
-`Libpetri.Spec.VER_013_stop` · Kind **B** · Scope the verifier pipeline of every implementation that offers a total budget or cancellation (SHOULD), and every solver call · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 5ed0de3600183abc ai** · Statement hash `5ed0de3600183abc`
+`Libpetri.Spec.VER_013_stop` · Kind **B** · Scope the verifier pipeline of every implementation that offers a total budget or cancellation (SHOULD), and every solver call · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 d630da6dbe5a2a76 ai** · Statement hash `d630da6dbe5a2a76`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14234,7 +14235,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_014"></a>
 ## VER-014: Conditional Sink Places (Designed Terminals)
 
-`Libpetri.Spec.VER_014` · Kind **F** · Scope every route that decides DeadlockFree or TerminatesAtSink, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 69981fba136376c4 ai** · Statement hash `69981fba136376c4`
+`Libpetri.Spec.VER_014` · Kind **F** · Scope every route that decides DeadlockFree or TerminatesAtSink, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 f46e3fb9203f172b ai** · Statement hash `f46e3fb9203f172b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14289,7 +14290,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_015"></a>
 ## VER-015: Linear State-Equation Bound
 
-`Libpetri.Spec.VER_015` · Kind **F** · Scope the bound phase of the SMT verifier, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 dd4294169756b836 ai** · Statement hash `dd4294169756b836`
+`Libpetri.Spec.VER_015` · Kind **F** · Scope the bound phase of the SMT verifier, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 c8c77db1f9d5b783 ai** · Statement hash `c8c77db1f9d5b783`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14359,7 +14360,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_015_order"></a>
 ## VER-015: Linear State-Equation Bound: Place in the Dispatch
 
-`Libpetri.Spec.VER_015_order` · Kind **B** · Scope the dispatch of the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the bound phase) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 b3ef7bbb9ddbcd29 ai** · Statement hash `b3ef7bbb9ddbcd29`
+`Libpetri.Spec.VER_015_order` · Kind **B** · Scope the dispatch of the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the bound phase) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 d73db0ba60be9194 ai** · Statement hash `d73db0ba60be9194`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14435,7 +14436,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_016"></a>
 ## VER-016: State-Equation Strengthening with Firing Counters
 
-`Libpetri.Spec.VER_016` · Kind **B** · Scope the flat CHC encoding of every implementation, with the state-equation option enabled · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 103d3b889b9f137a ai** · Statement hash `103d3b889b9f137a`
+`Libpetri.Spec.VER_016` · Kind **B** · Scope the flat CHC encoding of every implementation, with the state-equation option enabled · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 906847a7607d81aa ai** · Statement hash `906847a7607d81aa`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14499,7 +14500,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_017"></a>
 ## VER-017: Bounded State-Space Enumeration Route
 
-`Libpetri.Spec.VER_017` · Kind **B** · Scope the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the route) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 ac7e37919d5e9b2f ai** · Statement hash `ac7e37919d5e9b2f`
+`Libpetri.Spec.VER_017` · Kind **B** · Scope the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the route) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 7114d5d6fe5cd525 ai** · Statement hash `7114d5d6fe5cd525`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14585,7 +14586,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_017_cache"></a>
 ## VER-017: Bounded State-Space Enumeration Route: State-Space Cache
 
-`Libpetri.Spec.VER_017_cache` · Kind **B** · Scope the SMT verifier with a state-space cache, all implementations (SHOULD; the shall sentences bind an implementation that offers the cache) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 9bdcdb87984d993b ai** · Statement hash `9bdcdb87984d993b`
+`Libpetri.Spec.VER_017_cache` · Kind **B** · Scope the SMT verifier with a state-space cache, all implementations (SHOULD; the shall sentences bind an implementation that offers the cache) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 05b8497a4705c1b5 ai** · Statement hash `05b8497a4705c1b5`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14632,7 +14633,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_018"></a>
 ## VER-018: State-Equation Phase with Refinement
 
-`Libpetri.Spec.VER_018` · Kind **B** · Scope the SMT verifier's state-equation phase on the flat path, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 142e63675d5af03a ai** · Statement hash `142e63675d5af03a`
+`Libpetri.Spec.VER_018` · Kind **B** · Scope the SMT verifier's state-equation phase on the flat path, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 f6fed41d3e39e412 ai** · Statement hash `f6fed41d3e39e412`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14720,7 +14721,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_018_order"></a>
 ## VER-018: State-Equation Phase with Refinement: its place in the pipeline
 
-`Libpetri.Spec.VER_018_order` · Kind **B** · Scope the SMT verifier's pipeline, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 cfe8823cc35862e7 ai** · Statement hash `cfe8823cc35862e7`
+`Libpetri.Spec.VER_018_order` · Kind **B** · Scope the SMT verifier's pipeline, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 7159897beca0bed3 ai** · Statement hash `7159897beca0bed3`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14765,7 +14766,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_019"></a>
 ## VER-019: Firing-Bound Phase
 
-`Libpetri.Spec.VER_019` · Kind **B** · Scope the SMT verifier, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 0417695269924143 ai** · Statement hash `0417695269924143`
+`Libpetri.Spec.VER_019` · Kind **B** · Scope the SMT verifier, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 97f29fe9e68378b6 ai** · Statement hash `97f29fe9e68378b6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14840,7 +14841,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_019_order"></a>
 ## VER-019: Firing-Bound Phase: its place in the pipeline
 
-`Libpetri.Spec.VER_019_order` · Kind **B** · Scope the SMT verifier's pipeline, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 b1113f3045b5d811 ai** · Statement hash `b1113f3045b5d811`
+`Libpetri.Spec.VER_019_order` · Kind **B** · Scope the SMT verifier's pipeline, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 1b1aed09ffd928c6 ai** · Statement hash `1b1aed09ffd928c6`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14902,7 +14903,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_020"></a>
 ## VER-020: Siphon and Trap Analysis
 
-`Libpetri.Spec.VER_020` · Kind **F** · Scope the structural deadlock pre-check (siphon search, trap contraction, structural check) of every implementation · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 65822d981cd6d6c8 ai** · Statement hash `65822d981cd6d6c8`
+`Libpetri.Spec.VER_020` · Kind **F** · Scope the structural deadlock pre-check (siphon search, trap contraction, structural check) of every implementation · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 6d2a0a9268e7582d ai** · Statement hash `6d2a0a9268e7582d`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -14961,7 +14962,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_020_guard"></a>
 ## VER-020: Siphon and Trap Analysis: Structural Proven Guard
 
-`Libpetri.Spec.VER_020_guard` · Kind **B** · Scope the verifier's structural route (the step that turns the structural check's answer into a Proven) of every implementation · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 e2ac0ef51eab9ee2 ai** · Statement hash `e2ac0ef51eab9ee2`
+`Libpetri.Spec.VER_020_guard` · Kind **B** · Scope the verifier's structural route (the step that turns the structural check's answer into a Proven) of every implementation · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 887d26c90b0ba813 ai** · Statement hash `887d26c90b0ba813`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15013,7 +15014,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_021"></a>
 ## VER-021: XOR Branch Analysis
 
-`Libpetri.Spec.VER_021` · Kind **F** · Scope the XOR branch analysis over a built graph, Java, TypeScript and Rust (SHOULD; the shall sentences bind an implementation that offers it) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 401d03208a127c1c ai** · Statement hash `401d03208a127c1c`
+`Libpetri.Spec.VER_021` · Kind **F** · Scope the XOR branch analysis over a built graph, Java, TypeScript and Rust (SHOULD; the shall sentences bind an implementation that offers it) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 813034d55a0a4494 ai** · Statement hash `813034d55a0a4494`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15062,7 +15063,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_022"></a>
 ## VER-022: Open-Net Verification Against a Contract
 
-`Libpetri.Spec.VER_022` · Kind **B** · Scope the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 3eefd4e4d4f87621 ai** · Statement hash `3eefd4e4d4f87621`
+`Libpetri.Spec.VER_022` · Kind **B** · Scope the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 29eddd26f288fb70 ai** · Statement hash `29eddd26f288fb70`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15126,7 +15127,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_022_closure"></a>
 ## VER-022: Open-Net Verification Against a Contract: the closure
 
-`Libpetri.Spec.VER_022_closure` · Kind **F** · Scope the open-net verifier before either route, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 69e9612d110c8eec ai** · Statement hash `69e9612d110c8eec`
+`Libpetri.Spec.VER_022_closure` · Kind **F** · Scope the open-net verifier before either route, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 8ea929bede855106 ai** · Statement hash `8ea929bede855106`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15176,7 +15177,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_022_meets"></a>
 ## VER-022: Open-Net Verification Against a Contract: meeting the contract
 
-`Libpetri.Spec.VER_022_meets` · Kind **F** · Scope the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 290fda3c67f29ec8 ai** · Statement hash `290fda3c67f29ec8`
+`Libpetri.Spec.VER_022_meets` · Kind **F** · Scope the open-net verifier, both routes, all implementations (MAY; the shall sentences bind an implementation that offers open-net verification) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 4e9af8b142080c49 ai** · Statement hash `4e9af8b142080c49`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15216,7 +15217,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_023"></a>
 ## VER-023: Timed Counterexample Check
 
-`Libpetri.Spec.VER_023` · Kind **B** · Scope the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 fe863ee06981554b ai** · Statement hash `fe863ee06981554b`
+`Libpetri.Spec.VER_023` · Kind **B** · Scope the SMT verifier, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 f3cd2376b0f7f53b ai** · Statement hash `f3cd2376b0f7f53b`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15286,7 +15287,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_023_graph"></a>
 ## VER-023: Timed Counterexample Check: the timed graph
 
-`Libpetri.Spec.VER_023_graph` · Kind **B** · Scope the timed state-class graph the timed check builds, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 782ed7a0ca22e868 ai** · Statement hash `782ed7a0ca22e868`
+`Libpetri.Spec.VER_023_graph` · Kind **B** · Scope the timed state-class graph the timed check builds, all implementations (SHOULD; the shall sentences bind an implementation that offers the check) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 eea071fd394aeff9 ai** · Statement hash `eea071fd394aeff9`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15322,7 +15323,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_024"></a>
 ## VER-024: Stubborn-Set Reduction of the Enumeration Route
 
-`Libpetri.Spec.VER_024` · Kind **B** · Scope the enumeration route of VER-017 on a quiescence property, all implementations (SHOULD; the shall sentences bind an implementation that offers the reduction) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 48e64fd98bd49532 ai** · Statement hash `48e64fd98bd49532`
+`Libpetri.Spec.VER_024` · Kind **B** · Scope the enumeration route of VER-017 on a quiescence property, all implementations (SHOULD; the shall sentences bind an implementation that offers the reduction) · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 a139fab37c30c6cd ai** · Statement hash `a139fab37c30c6cd`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15369,7 +15370,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_024_route"></a>
 ## VER-024: Stubborn-Set Reduction: when it applies, and the cache key
 
-`Libpetri.Spec.VER_024_route` · Kind **F** · Scope the enumeration route of VER-017 and its state-space cache, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 391be69f7323e4af ai** · Statement hash `391be69f7323e4af`
+`Libpetri.Spec.VER_024_route` · Kind **F** · Scope the enumeration route of VER-017 and its state-space cache, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 a3d9c8ab91020d26 ai** · Statement hash `a3d9c8ab91020d26`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15409,7 +15410,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_024_select"></a>
 ## VER-024: Stubborn-Set Reduction: the pinned stubborn set
 
-`Libpetri.Spec.VER_024_select` · Kind **F** · Scope the stubborn set the enumeration route expands at each class, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 fdc4cda81d9dd79d ai** · Statement hash `fdc4cda81d9dd79d`
+`Libpetri.Spec.VER_024_select` · Kind **F** · Scope the stubborn set the enumeration route expands at each class, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 1689e67e0d1afab9 ai** · Statement hash `1689e67e0d1afab9`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|
@@ -15456,7 +15457,7 @@ Each requirement block shows the spec text (quoted verbatim from `spec/*.md`, or
 <a id="Libpetri-Spec-VER_025"></a>
 ## VER-025: Bounded Witness Phase
 
-`Libpetri.Spec.VER_025` · Kind **B** · Scope the SMT verifier, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-10 104625b4eefcf18b** · Statement hash `104625b4eefcf18b`
+`Libpetri.Spec.VER_025` · Kind **B** · Scope the SMT verifier, all implementations · Source **verbatim** (spec/07-verification.md) · Sign-off **2026-11-13 5ae1d410184671de** · Statement hash `5ae1d410184671de`
 
 | Natural language | Plain reading | Lean statement |
 |---|---|---|

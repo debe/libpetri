@@ -504,9 +504,10 @@ Its first line, an HTML comment, names the source.
   `fixed in <version>`.
 - A requirement block names spans of its text with `covers PERF_030.s1, PERF_030.s2`. Each
   reference resolves at build time to the span with its line breaks joined into spaces; an
-  unknown text or label is a build error. The resolved strings are the block's quotes, so the
-  statement hash, and with it the sign-off, covers the text the block names: editing a covered
-  span changes the hash. A `source verbatim` block cannot copy its text with `quote "…"` (a
+  unknown text or label is a build error. The resolved strings are the block's quotes. The
+  statement hash, and with it the sign-off, covers those, the block's reading, assumptions and
+  statement, and the whole requirement text (title, priority, kind, status and body as the spec
+  shows it): editing any sentence of a requirement changes the hash of every block of it. A `source verbatim` block cannot copy its text with `quote "…"` (a
   build error); `quote` is for `source proposed`, wording the spec text does not hold yet, and
   only for an ID listed in `proposedIds` (`Libpetri/Spec/Generate.lean`, empty today).
 

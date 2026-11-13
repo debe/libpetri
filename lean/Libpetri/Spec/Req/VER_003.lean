@@ -81,7 +81,7 @@ requirement VER_003
           "AC7 (the two UNTIMED warning lines of a fixpoint Violated) is report text, kind Q."
           "AC8 (an initial violation is the empty firing sequence, with counterexampleConfirmed true, absent on Route B and on the name-coloured encoding) is line 6; a decider that reports a non-empty trace for an initial violation, and one that leaves it unconfirmed on the enumeration route, are killed (VER_003_forbids_nonEmptyInit, VER_003_forbids_initUnconfirmed), and VER_003_nonvacuous checks the reference on the AC11 net, whose initial marking is a reap-aware DeadlockFree violation. The report line 'Counterexample: the initial marking violates the property (empty firing sequence)' is kind Q; 'At an initial violation, a Violated with no trace at all is not conforming' is line 6 read on the record, where an empty label list is the empty firing sequence."
           "The result fields Statistics, the enum spellings of the Implementation notes and the report wording are kind N or Q. A Violated, under the opt-in timed check of VER-023, may have its trace replaced; that is VER-023's line, and the replacement is a run of the verified net, which line 5 already asks of a confirmed trace."
-  signoff "2026-11-13 752f8f0f680517ec ai"
+  signoff "2026-11-13 b75ebb07659d89a8 ai"
   statement : ∀ {K : Type} [LinearOrder K], FireRel K → SafetyViolRel K → Abs K → Decider K → Prop :=
     fun F V abs D =>
       ∀ o X φ m0,

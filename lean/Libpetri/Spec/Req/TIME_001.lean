@@ -136,7 +136,7 @@ requirement TIME_001
           "A factory returns the timing as written (line 4): a valid window(earliest, maximum) stays a Window and keeps its deadline (AC3); it is not normalised to delayed(earliest)."
           "The two body bullets are the rules of other blocks and are not encoded again: no firing before the earliest bound since the transition was armed is TIME-010 (cited by time001_fire_after_earliest), and reaping a reapable transition once its elapsed time exceeds latest plus the deadline tolerance is TIME-013 (cited by time001_reap_past_latest). That Immediate and Delayed have no finite latest bound and their latest() reports the maximum duration is line 2; reading the maximum as no bound at all is not proven (Novel.TimedScg.Timing, module docstring)."
           "The maximum-duration constant is maxDurationMs = 3153600000000 (time001_maxDuration); Java's MAX_DURATION is Duration.ofDays(36500), the same duration. Java's sixth variant `Unconstrained` is not in the spec and not modelled."
-  signoff "2026-11-13 6a4cf82f6d0443eb ai"
+  signoff "2026-11-13 d34529578af26fe4 ai"
   statement : TimingContract → Prop :=
     fun K =>
       (∀ tm, K.earliest tm =

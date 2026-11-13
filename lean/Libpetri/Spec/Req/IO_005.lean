@@ -43,7 +43,7 @@ requirement IO_005
           "AC1 (a transition with 3 inputs enables only when all 3 places have sufficient tokens) is the first line, for any number of input arcs, 3 included; the test derivation's 'satisfy all 3; verify enabled' is the second line together with a transition that, without its input arcs, can fire (no read or inhibitor arc blocks it)."
           "AC2 (any one input unsatisfied disables the transition) is the first line."
           "How many tokens an input arc requires (requiredCount) is IO-001 to IO-004 and IO-007, not this block: the statement takes requiredCount as given."
-  signoff "2026-11-13 566c1a17d5cf3f37 ai"
+  signoff "2026-11-13 d9b4cd0f5bd53345 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t : Trans _,
       (∀ s ∈ t.core.inputs,

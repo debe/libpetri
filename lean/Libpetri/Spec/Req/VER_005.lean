@@ -107,7 +107,7 @@ requirement VER_005
           "AC3 ('Invariants are reported in the verification result') is the sentence '*When* the verifier computes P-invariants, it *shall* list each one it reports in the verification result, with its weights and its constant.' It is about the result record, kind N, and is not a line of this kind F block: the result's invariant list holds the pairs this computation reports, after the semiflow union of VER-007, in the canonical order of VER-013. That an empty list off the SMT route means 'not computed' is VER-003 AC4. VER-003's line 8 (the block VER_003) says that every P-invariant a result reports, on any route, is conserved on every marking reachable in the verified net; it reads the result's list and not this computation, so that the list holds exactly the pairs this computation reports is carried by this assumes sentence only."
           "The test derivation ('Net with known invariant (e.g., token conservation); verify invariant is discovered') is line 3 on the net t: one(p0) -> p1, where p0 + p1 is a 0/1 vector of the null space: a computation that does not report it, or a multiple of it, is killed (VER_005_mutant_none). On the reference the witness reports p0 + p1 = 1 (VER_005_nonvacuous)."
           "The prose 'P-invariants provide structural proofs that do not require state enumeration' is a motivation, not a requirement; the use of the laws in the encoding is VER-007's strengthening (invariant_strengthening_sound)."
-  signoff "2026-11-13 31974fa0fc93c0df ai"
+  signoff "2026-11-13 2d332a4c4aa7f603 ai"
   statement : InvFn → Prop :=
     fun I =>
       (∀ rows envs n a0, ∀ yc ∈ I rows envs n a0,

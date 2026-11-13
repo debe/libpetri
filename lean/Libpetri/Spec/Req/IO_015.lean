@@ -101,7 +101,7 @@ requirement IO_015
           "AC8 (And is unordered) is not a separate clause: a claim is compared as a set, and permuting the children of an And permutes the assignments and the order of places within a claim. It is checked for the AC8 pair And(A, Xor(D, E)) / And(Xor(D, E), A) on every produced set drawn from A, D, E and one foreign place, the empty one included (theorem IO_015_ac8)."
           "AC9 (Xor(And(A, C), B) with B and C produced → violation) is checked for every validator satisfying IO-015 (theorem IO_015_ac9)."
           "AC10 (Xor(And(A, Xor(D, E)), A) with only A produced → success) is checked for every validator satisfying IO-015 (theorem IO_015_ac10)."
-  signoff "2026-11-13 52495a3afd3db94b ai"
+  signoff "2026-11-13 9229f2aaabb21f44 ai"
   statement : ∀ {N : Type}, OutputValidator N → Prop :=
     fun V =>
       (∀ o d i, NamedExact o d i → (∀ j, NamedExact o d j → j = i) → V o d = true) ∧

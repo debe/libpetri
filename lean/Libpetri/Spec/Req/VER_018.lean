@@ -982,7 +982,7 @@ requirement VER_018
           "AC5 (with the phase disabled, verdicts and reports are those of the pipeline without it) is VER_018_order line 4 with VER_018_order_disabled."
           "AC6 (LIBPETRI_SMT_DUMP records the scripts under the phases state-equation and invariant) and AC7 (the first query is exposed with the encoded scripts and pinned as a golden of VER-013 AC1) are about script text and its dump names (kind Q), checked by the dump and golden-script tests of VER-013; the phase names are the constants ver018_dumpPhases, pinned below."
           "The Implementation notes name the per-language option and modules (kind N). The Naming bullet's SHOULD, that an implementation cross-reference stateEquationPhase and the stateEquation option of VER-016 wherever it documents either, is about documentation text (kind N), and no line checks it. The test derivation is AC2 and AC3 on the join and queue nets under the options it names (the enumeration budget of VER-017 at 0 and assumeAtomicFiring), which the pipeline sets outside the model."
-  signoff "2026-11-13 142e63675d5af03a ai"
+  signoff "2026-11-13 f6fed41d3e39e412 ai"
   statement : SESearch → SETrapFn → SEIndCheck → SEPhaseFn → SEWrap → Prop :=
     fun S T X P W =>
       (∀ net envs a0 c bad B run, S net envs a0 c bad B = .found run →
@@ -2099,7 +2099,7 @@ requirement VER_018_order
           "The second quoted sentence is line 4. 'No match transition' is the nuNet flag of FBCtx; the name-coloured encoding of NU-050 applies only to such nets, so 'not on the name-coloured encoding' is the same condition. 'Not under Ignore with environment places registered' is the ignoreEnv flag, read on the net the dispatcher receives. 'Unless an earlier step has decided the query or the run has stopped' is the pipeline: a decision ends the run, and so does the stop poll before each step, with no decision (runPipeline). With this line, VER-019's pipeline block pins the firing-bound phase's gate to the runtimes' (VER_018_order_fb_gate), which closes the open item recorded there."
           "The third quoted sentence is line 4 with the option off: the gate is false, a step whose gate is false is skipped without a poll, and the run, its decision and its trail are those of the step list without the step (VER_018_order_disabled). The reports are not modelled. It is AC5."
           "The fourth quoted sentence is configuration (kind N): the constant ver018_defaultOn, pinned above."
-  signoff "2026-11-13 cfe8823cc35862e7 ai"
+  signoff "2026-11-13 7159897beca0bed3 ai"
   statement : List String → FBGate → Prop :=
     fun names seG =>
       Verifier.Before names ver018_lbStep ver019_seStep ∧

@@ -49,7 +49,7 @@ requirement IO_004
           "A firing is one step at the count granularity: EXEC-003 AC5 (an `All` or `AtLeast` arc that fires later in a firing pass drains only the tokens the firing may drain, and leaves in place the tokens a synchronous action deposited earlier in the same pass) is below this granularity; that refinement is EXEC-003's subject and the reference executor's (RefExec, wave W5), not this block's."
           "The two bullets (`requiredCount()` returns `minimum`, `consumptionCount(available)` returns `available`) are the pure-function contract of [IO-007] and the glossary terms Required count and Consumption count; this block encodes their effect on firing (lines 1 to 4), not the functions themselves."
           "The output-spec build checks ([IO-011] to [IO-014]) and the output validation skip ([CONC-026]) do not touch input consumption; the block holds of every firing relation over every transition, built or not."
-  signoff "2026-11-13 7776d0592ec78630 ai"
+  signoff "2026-11-13 1c1a03b70f65f680 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p n, InputArc t p (.atLeast n) →
       (while (fun m => TokenCount m p < n), never Fire F t) ∧
@@ -453,7 +453,7 @@ requirement IO_004_build
           "The quoted sentence has two halves. Its build half ('also when building a transition from a spec written out without the constructor') is the line. Its constructor half ('Construction with minimum < 1 is rejected (error or panic)') is not encoded, as the model has no constructor, only the value; it is Q-tested: Rust at_least() asserts minimum >= 1 (rust/libpetri-core/src/input.rs, test at_least_zero_panics), TypeScript atLeast() throws (typescript/src/core/in.ts, test 'rejects minimum < 1' in typescript/tests/core/in.test.ts), Java's In.AtLeast record constructor throws IllegalArgumentException (java/src/main/java/org/libpetri/core/Arc.java), which is also the only way to write the value in Java. Python reaches the Rust constructor."
           "The runtimes whose spec can be written out without the constructor check it when the transition is built: Rust for the public In::AtLeast variant (TransitionBuilder::build in rust/libpetri-core/src/transition.rs), TypeScript for an object literal (the input-count check in TransitionBuilder.build in typescript/src/core/transition.ts). A builder without the count check (io004_buildNoCount) builds such a transition and is forbidden (IO_004_build_forbids_noCount)."
           "Only the failure is stated, not its message: the spec gives the check no message, and the reference fails it with the stand-in msgCount. That a transition whose input arcs all require at least one token, and which passes the other build-time checks, does build is CORE-020's line 4 (Builds includes InputCountsPositive), so a builder that rejects every transition meets this line and breaks that one."
-  signoff "2026-11-13 ee0e91363094a08e ai"
+  signoff "2026-11-13 fea4aa6ed6526b5f ai"
   statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Trans N → Option String) → Prop :=
     fun Build => ∀ t : Trans _, ∀ s ∈ t.core.inputs, s.card = .atLeast 0 → Build t ≠ none
 

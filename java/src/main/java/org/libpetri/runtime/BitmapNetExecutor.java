@@ -1654,8 +1654,8 @@ public final class BitmapNetExecutor implements PetriNetExecutor, AwaitPollTunab
                 Predicate<Token<?>> pred = tok -> {
                     try {
                         return chosen.equals(keyFn.apply(tok.value()));
-                    } catch (ClassCastException e) {
-                        return false;
+                    } catch (RuntimeException e) {
+                        return false; // no name (MatchKey.extract)
                     }
                 };
                 int toConsume = switch (in) {

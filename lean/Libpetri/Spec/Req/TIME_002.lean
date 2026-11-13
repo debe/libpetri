@@ -43,7 +43,7 @@ requirement TIME_002
           "Line 3 is the second 'shall' sentence: no reap step of u exists at all. Together with line 2 it excludes a reap under another label."
           "The interval [0, ∞), earliest() = 0, latest() = maximum duration and hasDeadline() = false are the Timing accessors (time002_interval, cited); the reading of the maximum duration as no bound (ruling D11) is what line 1 and line 3 state for the executor."
           "AC1 (fires immediately when enabled) is read as readiness, line 1, exercised in TIME_002_nonvacuous at elapsed time 0. Line 1 speaks of an armed transition; 'when enabled' becomes 'when armed' only through TIME-010 (a transition enabled in the initial marking or after a firing that writes one of its arc places is newly armed) and TIME-012, which ConsistencyTime conjoins: an executor that never arms a newly enabled Immediate transition meets this block on its own. That it fires on the next cycle, before any other ready transition, is the eager Phase 2 executor's and EXEC-002's, not an atomic step's (ruling D3). AC2 (no deadline enforcement) is lines 2 and 3, exercised in TIME_002_nonvacuous past the maximum duration plus the tolerance, where u is still armed, still fires and has no reap."
-  signoff "2026-11-13 dd46f1ae494fe220 ai"
+  signoff "2026-11-13 d2b484cbad973046 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ (X : TimedNet _) (u : Trans _), InNet X u → TimingOf X u = .immediate →
       (∀ s d m', Armed s u → RefFire u s.m d m' → ∃ s', R X s (.fire u d) s' ∧ s'.m = m') ∧

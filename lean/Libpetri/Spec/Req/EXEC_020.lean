@@ -58,7 +58,7 @@ requirement EXEC_020
           "AC1 (an action produces V to P; V appears at the end of P's queue) is line 1 with line 2: the nonvacuous example EXEC_020_nonvacuous deposits 30 to a place already holding 40 and leaves 40 then 30; an executor that leaves only 30 there violates line 2 (EXEC_020_forbids_overwrite)."
           "AC2 (multiple tokens to the same place are added in order) is line 1 for an emission with several tokens to one place. The reference queue firing deposits one token per claimed place on an action outcome (Reference.deposit, as every branch-enumerating analysis, [IO-016]), and the count guard QProjectsTo Q RefFire imposes the same on every Q, so the joint model has no step with two tokens to one place until the projection compares places as a set, as [IO-015] does. AC2 is therefore witnessed outside the joint model, by executors that accept several tokens into one claimed place under that set comparison: the in-order one satisfies EXEC-020 and leaves 40, 30, 31 when 30 then 31 go to a place holding 40 (EXEC_020_allows_several), and the reverse-order one violates it (EXEC_020_forbids_reversed)."
           "AC3 (a completion that is not admitted deposits none of the action's tokens) and AC4 (a completion whose produced tokens fail validation deposits none of them) are the deferred sentence above, Phase 2."
-  signoff "2026-11-13 4ba459c6e8931283 ai"
+  signoff "2026-11-13 b671259740fe73af ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → Prop :=
     fun Q => ∀ t M δ e M', Q t M δ e M' →
       ∃ base : QueueMarking _ _,

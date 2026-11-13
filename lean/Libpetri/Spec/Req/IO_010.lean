@@ -39,7 +39,7 @@ requirement IO_010
           "AC1 (output spec declares a single place) is structural and holds by construction: the leaf names one place, outPlaces (Place p) = [p] (checked by example below); the statement's hypothesis selects exactly these transitions."
           "AC2 (produced tokens appear in the place) is the first clause on the deposit and the third clause on the marking. The third clause is a lower bound: it rules out a lost write (the firing reports [p] but leaves p as it was) and a misrouted write (the token lands in another place), also when p already holds tokens. The exact count of p (no extra tokens) is [CORE-030]'s on an input place, [CORE-034]'s on a reset place and [CORE-035]'s third line on every other place; tokens appearing in other places are [CORE-035]'s."
           "'The tokens place kept' is the glossary's effect of a firing on one place: a reset place keeps none [CORE-034], an input place keeps its count minus the consumption count [CORE-030], [IO-007], any other place keeps its count. Inhibitor and read arcs consume nothing [CORE-031], [CORE-032]."
-  signoff "2026-11-13 43da83ca0e74b3ef ai"
+  signoff "2026-11-13 803e51a7038744e5 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p, OutputSpec t = some (.place p) → ∀ d,
       (on (fun m m' => F t m d m'), shall (fun _ _ => Produced d p)) ∧

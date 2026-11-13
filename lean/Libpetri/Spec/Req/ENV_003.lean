@@ -124,7 +124,7 @@ requirement ENV_003
           "Its offers are in ExecCoversW5.Env003Covers (ConsistencyExec.lean; the convention of GlossaryExec.lean: offers are coverage clauses, never block lines). The seventh EARS sentence demands an answer and is quoted whole; it has no safety half, and its existence half is that clause: the inject step of the oldest entry exists in every such state, which the reference meets by its inject rule (env003_ref_covers); other steps (a request, a snapshot) may come first, and nothing ends step 2 while an event is queued (EXEC-001 line 5). Depends on: ENV-002 (which places accept), ENV-013, ENV-015, EXEC-041 and EXEC-042 (the releases and drops of lines 3, 4 and 6), EXEC-001 (step 2) and CONC-010 (the wait)."
           "Scope: Rust run_sync has no signal channel and no inject() (rust/README.md, Checkpoint and resume: 'run_sync has no signal channel', and injections travel on that channel), so the requirement reads the executors that accept injections. Python rides on the Rust runtime."
           "The test derivation (ten threads each inject a token, all ten are processed) is ENV_003_nonvacuous, part 5: ten requests are accepted, the executor drains, the ten tokens are injected in the order they were accepted and land at the tail of place 0 behind its initial token, and the run finishes quiescent; the threads are AC1 and AC2."
-  signoff "2026-11-13 6d9b8eacf3b03d16 ai"
+  signoff "2026-11-13 b4210631b2c3af53 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ p x, on (fun s s' => R C s (.request p x .accepted) s'), shall (fun s s' =>

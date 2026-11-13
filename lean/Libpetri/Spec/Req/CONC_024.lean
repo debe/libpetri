@@ -98,7 +98,7 @@ requirement CONC_024
           "Where a runtime takes the all-immediate fast path, it tests allImmediate together with a single priority level, which is EXEC-002's fast-path condition ReadyIn.FastPath (conc024_fastPath). The link states the condition only; what the fast path does is EXEC-002's subject (its fourth line: declaration order, ruling D14 (a)), and the link does not depend on it."
           "The test derivation (compile nets with various timing configurations, verify array values and global flags) is CONC_024_nonvacuous: a net with one transition of each variant, a net of Exact transitions only, an all-Immediate net and the empty net."
           "The scope is the five variants of the spec (Novel.TimedScg.Timing). Java's deprecated sixth variant Unconstrained, which Java's allImmediate counts as immediate, is not in the spec and not modelled."
-  signoff "2026-11-13 5a1c90acb46d9c40 ai"
+  signoff "2026-11-13 1f7ebd6d8d6d2983 ai"
   statement : TimingContract → TimingCompile → Prop :=
     fun K C => ∀ n tm,
       (∀ i, i < n → (C n tm).earliest i = K.earliest (tm i) ∧

@@ -141,7 +141,7 @@ requirement VER_016
           "AC3 (while the certificate check is enabled, a Proven that the fixpoint query decides passes the check with the equation in the candidate; a genuine violation stays Violated and its counterexample replays) is VER_016_certificate for the soundness of a check over (M, n), and VER_016_reach_iff with VER_016_markings for the violation: the rules remove no reachable marking, so a violating marking stays reachable. The content of the candidate, that the fixpoint query decides, the verdict and the replay are the pipeline's and no block states them: the pipeline model (Verifier/Pipeline.lean) names the fixpoint query and the certificate check and does not enter them, and the verdict contract every route meets is VER_003."
           "AC4 (the report lines 'State equation: encoded over T firing counters (VER-016)' when the option applied and 'State equation: not applied (name-coloured encoding)' on the coloured path, no line when a route or phase decides before the fixpoint query) is report text (kind Q), not modelled."
           "The Implementation notes name the per-language option, and the body the per-language certificate switch (kind N). The test derivation (the fork-that-may-halt net of VER-015 with the enumeration budget 0, the witness depth 0, the phases of VER-018 and VER-019 off and this option on, and the unreachable{ra, rb, halt} script) is AC2 to AC4 on fixtures, as above."
-  signoff "2026-11-13 103d3b889b9f137a ai"
+  signoff "2026-11-13 906847a7607d81aa ai"
   statement : CntInit → CntRuleRel → Prop :=
     fun I R =>
       (∀ a0, I a0 = (a0, fun _ => 0)) ∧

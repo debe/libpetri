@@ -63,7 +63,7 @@ requirement EVT_032_B
           "Acceptance criteria: AC1 (compute_at at 0 and at the length of the stream), AC2 and AC3 (clamping and repeated calls) are the first block's; the comparison of the replay with the run is this block. AC4 (counts, no payloads) is why line 1 compares counts and not tokens. AC5 is this block: line 1 and line 2 before the first step and after each step, on every executor."
           "Assumptions shared by the executor event blocks: the event store is enabled and its append does not fail (EVT-020); an event is a value (EVT-001); transition names are distinct (ruling D10). The model has no ν firing, whose consumption the payload companion of EVT-012 scopes out; its TokenRemoved events are counted the same way."
           "The test derivation of the run companion, the second sentence of the markdown's test derivation, is EVT_032_B_nonvacuous: on the example run (token 1 in place 0, r takes it, its action puts 9 back, the completion is settled, the next update arms r again) the replay counts one token in place 0, where the executor holds 9, and lists r, which is armed, as enabled."
-  signoff "2026-11-13 c86afdf9cf952faf ai"
+  signoff "2026-11-13 719f4abc093469e5 ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → Prop :=
     fun E => ∀ C M0 r0 run, LRun E C (E.boot C M0) (xinit M0 r0) run →
       (∀ p ∈ C.X.net.places,

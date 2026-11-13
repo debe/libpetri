@@ -64,7 +64,7 @@ requirement EXEC_021
           "AC4 (validation applied by every executor backend a language ships) is about which code paths exist: both backends are runs of RefExec (CONC-020, a later block); not encoded here (test evidence)."
           "AC5 (violation: the event is TransitionFailed, no produced token deposited, consumed tokens not restored, published tokens stay) is lines 1 and 2; EXEC_021_nonvacuous deposits the publication of a failed firing after its fail step."
           "The test derivation (Xor output with tokens to both branches, a violation, neither branch place receives a token) is EXEC_021_nonvacuous's rejection run."
-  signoff "2026-11-13 1649f694fa3b896b ai"
+  signoff "2026-11-13 27a5c5e3606e28a8 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C, C.SetValidated → ∀ i,
       (on (fun s s' => R C s (.commit i) s'), shall (fun s s' =>

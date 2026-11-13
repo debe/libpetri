@@ -115,7 +115,7 @@ requirement CORE_011
           "The test derivation (a default token between two wall readings; two default tokens in sequence, the second timestamp at least the first; the same under an injected clock; tokens at explicit timestamps before the epoch and finer than a millisecond; the unit token; each holding its value) is CORE_011_nonvacuous on refTokenFactory, at wall readings 5 then 8 while an executor's injected epoch clock reads 100, with explicit timestamps -3 and 1500."
           "Stated by CORE-011's second block CORE_011_B (CORE_011_B.lean, ruling D64 (a)): a token the executor creates (an action output written as a value, a token injected as a raw value, the unit token of a timeout outcome) carries a reading of the executor's epoch clock taken while the firing is in flight, and a forwarded token keeps its timestamp (IO-014). A token an action builds itself through a factory and outputs as a token (Java's output(Place, Token), TypeScript's outputToken) keeps that factory's stamp, which lines 1 and 2 already fix. CORE-035 AC2 and TIME-015 AC13 cite that line. It needs the executor model (RefExec) with an epoch clock next to the firing clock."
           "Python has no token object and no token factory: a Python host passes values, and the Rust runtime it binds creates their tokens (ruling R5). Immutability of the token is CORE-010's."
-  signoff "2026-11-13 2bfe1f7b290d1782 ai"
+  signoff "2026-11-13 10215fe700de632c ai"
   statement : ∀ {V : Type}, TokenFactory V → Prop :=
     fun K =>
       (∀ r v, K.make r v = ⟨some v, r.wall⟩) ∧

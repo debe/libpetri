@@ -745,8 +745,8 @@ public final class PrecompiledNetExecutor implements PetriNetExecutor, AwaitPoll
                 Predicate<Token<?>> pred = tok -> {
                     try {
                         return chosen.equals(keyFn.apply(tok.value()));
-                    } catch (ClassCastException e) {
-                        return false;
+                    } catch (RuntimeException e) {
+                        return false; // no name (MatchKey.extract)
                     }
                 };
                 // ringRemoveMatching always takes the frontmost match, so bounding the

@@ -67,7 +67,7 @@ requirement MOD_011
           "Item 3 and AC5 (params() returns the parameter value supplied at instantiation): the parameters value is not modelled (InstFn, Spec/GlossaryCompose.lean); Java, TypeScript and Rust return the value they were given, and Python's definitions take no parameters, so its Instance has no params(). Tested, not proven."
           "Item 1's type parameter, the MUST sentence on the token type and AC2 (port(\"input\", Integer) is rejected) are the second block, MOD_011_typed, scoped to the implementations that keep a run-time token type for each port (ruling D36 (a)). The requirement makes no compile-time claim: no runtime reports a mismatched port type when compiling."
           "AC1 (port(\"input\", String) returns the renamed Place<String>) is line 1 (MOD_011_nonvacuous on the reference: port input on place slots under r1 gives r1/slots) and, with its type, mod011_typed_declared. AC3 (channel(\"attempt\") returns the renamed transition whose original name was attempt) is line 2 (MOD_011_nonvacuous: r1/attempt). AC4 (an unknown port or channel name produces an error) is lines 3 and 4."
-  signoff "2026-11-13 00139c7399438b61 ai"
+  signoff "2026-11-13 879e996ee6e16a6f ai"
   statement : ∀ {N A : Type}, Naming N → InstFn N A → Prop :=
     fun {N A} Nm Inst =>
       (∀ (S : SubnetDef N A) p I, Inst S p = .ok I → (S.ports.map (·.name)).Nodup →
@@ -530,7 +530,7 @@ requirement MOD_011_typed
           "The block is stated for every instance, not only for one instantiate returns: Java and Rust check the type on whatever instance the lookup is called on. Which place the port lookup returns, the port's renamed place, and that it fails on an unknown name, is the handle block MOD_011 (lines 1 and 3)."
           "The requirement makes no compile-time claim (ruling D36 (a)): no runtime reports a mismatched port type when compiling, since an instance's handle map is not typed by its interface."
           "AC1 with its type (port(\"input\", String) on an instance whose interface declared input: Input<String> returns the renamed Place<String>) is line 1, and AC2 (port(\"input\", Integer) on the same instance is rejected) is line 2: MOD_011_typed_nonvacuous on the reference at typedNaming, and mod011_typed_declared for every model of both blocks."
-  signoff "2026-11-13 1c3a3d1caf54236a ai"
+  signoff "2026-11-13 05a41fb75002f423 ai"
   statement : ∀ {N A T : Type}, (N → T) → PortAsFn N A T → Prop :=
     fun {N A T} tyOf PortAs =>
       (∀ (I : Instance N A) n x (ty : T), I.port n = some x → tyOf x = ty → PortAs I n ty = .ok x) ∧

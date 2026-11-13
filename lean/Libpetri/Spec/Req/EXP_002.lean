@@ -59,7 +59,7 @@ requirement EXP_002
           "Which places get a node at all, and how many, is EXP-001's subject (ruling D60), and the DOT ID of a place node is EXP-014's (ruling D46); this block constrains only the nodes the exporter draws. It does ask, as its second shall sentence says, that the place a node stands for is a place of the net, in the common form of ruling D60 (declared, or on an arc), so that a mapper that records a place node as standing for its sanitized name b1_x and labels it so violates line 2 on its own (EXP_002_forbids_semanticSanitized), and not only through EXP-001's count of the nodes of b1/x. A junction node stands for a junction of a transition and gets a junction row (EXP-012); line 1 only excludes the place rows for it."
           "Out of scope: the documentation generators (EXP-011) rewrite the DOT of a subnet body after mapping and redraw its interface-port places with the interface-port row, which is not a place row here; that rewrite is a later step on the DOT text, as in EXP-008. Clustering (EXP-016, EXP-017) adds clusters and ghost edges and changes no node, so the block holds of the reference for every cluster stage."
           "The test derivation (export a net, check the place nodes' shape) is EXP_002_nonvacuous on the reference: a net whose place b1/x is consumed by transition t, which outputs to place done, draws b1/x as a start circle and done as an end double circle, both with an empty label and their names as external labels, and t as a box."
-  signoff "2026-11-13 776f3d9831fbcc36 ai"
+  signoff "2026-11-13 5d04aca30379fbb7 ai"
   statement : Exporter → Prop :=
     fun E => ∀ cfg X, ∀ n ∈ (E cfg X).nodes,
       (n.cat ∈ NodeCat.placeRows ↔ ∃ p, n.ref = .place p) ∧

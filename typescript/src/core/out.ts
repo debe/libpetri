@@ -52,6 +52,12 @@ export interface OutForwardInput {
 
 // ==================== Factory Functions ====================
 
+/** The message of the `And` arity check (IO-011 AC1). */
+const AND_ARITY = 'AND requires at least 1 child';
+
+/** The message of the `Xor` arity check (IO-012 AC1). */
+const XOR_ARITY = 'XOR requires at least 2 children';
+
 /**
  * AND-split: all children must receive tokens.
  *
@@ -66,7 +72,7 @@ export interface OutForwardInput {
  */
 export function and(...children: Out[]): OutAnd {
   if (children.length === 0) {
-    throw new Error('AND requires at least 1 child');
+    throw new Error(AND_ARITY);
   }
   return { type: 'and', children };
 }
@@ -79,9 +85,37 @@ export function andPlaces(...places: Place<any>[]): OutAnd {
 /** XOR-split: exactly one child receives token. */
 export function xor(...children: Out[]): OutXor {
   if (children.length < 2) {
-    throw new Error('XOR requires at least 2 children');
+    throw new Error(XOR_ARITY);
   }
   return { type: 'xor', children };
+}
+
+/**
+ * The factory message for the first node of `out`, in pre-order with children left to right,
+ * that {@link and} or {@link xor} would reject: an `And` without children (IO-011 AC1) or an
+ * `Xor` with fewer than two (IO-012 AC1). A spec written as an object literal skips the
+ * factories, so the transition build runs this again. `null` when every node passes.
+ */
+export function arityViolation(out: Out): string | null {
+  switch (out.type) {
+    case 'and':
+      return out.children.length === 0 ? AND_ARITY : firstArityViolation(out.children);
+    case 'xor':
+      return out.children.length < 2 ? XOR_ARITY : firstArityViolation(out.children);
+    case 'timeout':
+      return arityViolation(out.child);
+    case 'place':
+    case 'forward-input':
+      return null;
+  }
+}
+
+function firstArityViolation(children: readonly Out[]): string | null {
+  for (const child of children) {
+    const found = arityViolation(child);
+    if (found !== null) return found;
+  }
+  return null;
 }
 
 /** XOR-split from places: exactly one place receives token. */

@@ -173,7 +173,7 @@ requirement EXEC_012
           "AC3 (inputs on a and b with reads declared b then a names b; two input arcs on p and a read on p give the CORE-030 message) is EXEC_012_ac3; the CORE-030 message is the reference builder's stand-in, which line 5 keeps apart from this message."
           "AC4 (an input on a and a read on b builds; a read and a reset on one place builds) is EXEC_012_ac4 for the witness. The statement asks of AC4's transitions only that they do not fail with this message (line 6); that they build at all is the build-time checks' (glossary: Builds), not this requirement's."
           "Without ruling D15 a read on an input place could be read as a peek before consumption. That reading (a builder with no D15 check and a firing that reads the pre-firing head on every transition) is EXEC_012_mutant_preFixReads. It is killed by the build line alone: on transitions with no input arc and read arc on one place its pre-consumption peek and RefQFire agree, as D15 intends. The reference builder without the check (exec012_buildNoCheck, refBuild as it was before ruling D15) is forbidden as EXEC_012_forbids_noCheck."
-  signoff "2026-11-13 87233b0a127ae7ae ai"
+  signoff "2026-11-13 eea03fa527ffc3f5 ai"
   statement : ∀ {N T : Type} [DecidableEq N] [ToString N], (Trans N → Option String) →
       QFireRel N T → Prop :=
     fun {N T} [DecidableEq N] [ToString N] Build Q =>

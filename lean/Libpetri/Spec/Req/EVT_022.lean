@@ -43,7 +43,7 @@ requirement EVT_022
           "Scope: the line is on the noop store, not on every store that discards. Java's EventStore.logging() wraps the noop store in the logging decorator (EVT-023), which discards every event but reports itself enabled, so an executor builds and hands it every event; it is a different store and is the mutant evt022_discardEnabled here, not a runtime that fails the block. The debug-aware store over the noop store has the same shape in all three runtimes (enabled, events() empty) and is outside the line for the same reason."
           "Python has no noop store object: a run given no event store, or a store whose is_enabled is false, runs on Rust's NoopEventStore (rust/libpetri-py/src/events.rs, RunSink::Noop), so the Rust store covers it."
           "The test derivation is EVT_022_nonvacuous for its first half (a history of appends leaves events() empty while the in-memory store shows the same appends); its benchmark half is AC4's."
-  signoff "2026-11-13 07379021855ffbc8 ai"
+  signoff "2026-11-13 05f34bb0b7f6c833 ai"
   statement : ∀ {E : Type}, StoreObs E → Prop :=
     fun S =>
       (∀ h h', S.read h h' = []) ∧

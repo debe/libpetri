@@ -43,7 +43,7 @@ requirement TIME_011
           "An injected token can also disable or re-arm a transition ([ENV-003], ruling D6). Injection is not a step of the Phase 1 relation, which has no environment places; the two lines are stated for the steps it has."
           "Transitions are identified by name (ruling D10): a stamp is kept per name, and both lines speak of the transition the net holds under the name (InNet). Under pairwise distinct names (NamesDistinct) InNet is membership in the net (inNet_iff_mem)."
           "AC1 (Delayed(5 s), disabled at 3 s, re-enabled later, waits another 5 s) is TIME_011_nonvacuous in milliseconds: u is armed at 0, a consumer takes its token at 3000 and u holds no stamp (line 1), the source refills the place at 7000 and u is armed with the stamp 7000 (line 2), u cannot fire at 11999 and can at 12000. The resuming mutant would let u fire at 7000. For every relation satisfying TIME-010 and TIME-011 whose delay advances the clock by the delay, a transition armed again cannot fire after a delay shorter than its earliest bound (time011_no_early_fire)."
-  signoff "2026-11-13 79f782cb6058365b ai"
+  signoff "2026-11-13 4737d8ed23ee9b61 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ X : TimedNet _,
       (∀ l u, InNet X u → on (fun s s' => R X s l s'), shall (fun s s' =>

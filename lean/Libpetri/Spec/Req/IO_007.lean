@@ -58,7 +58,7 @@ requirement IO_007
           "The counts n and m range over all naturals. That Exactly(n) and AtLeast(m) are built only with n, m ≥ 1 is IO-002 AC1 and IO-004 AC1, not this block's subject; the table holds for 0 too."
           "'(matching) tokens' in the definition of requiredCount() is read at the granularity of a token count: which tokens of a place count as matching (the ν correlation of NU-020) is decided before the count reaches these functions, so `available` is already the matching count."
           "That an executor calls consumptionCount only on an enabled transition, where every input place holds its required count, is enablement (CORE-022, IO-005), not this block's subject; that a firing removes exactly consumptionCount(available) tokens is CORE-030's subject (glossary: Consume, bridge lemma `consumes_eq`)."
-  signoff "2026-11-13 1860eb65b8a890ff ai"
+  signoff "2026-11-13 00c5fa1359e5ca43 ai"
   statement : CardContract → Prop :=
     fun K =>
       (∀ c, K.required c =

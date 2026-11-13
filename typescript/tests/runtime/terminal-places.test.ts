@@ -57,6 +57,15 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 const tick = (ms = 5): Promise<void> => new Promise(r => setTimeout(r, ms));
 
+/** An event store that resolves `completed` when the loop emits ExecutionCompleted. */
+class CompletionStore extends InMemoryEventStore {
+  readonly completed = deferred();
+  override append(event: Parameters<InMemoryEventStore['append']>[0]): void {
+    super.append(event);
+    if (event.type === 'execution-completed') this.completed.resolve();
+  }
+}
+
 /** Synchronous copy action: writes `value` to each of `places` and resolves at once. */
 function writes(...places: Place<any>[]) {
   return async (ctx: TransitionContext): Promise<void> => {
@@ -237,18 +246,37 @@ describe('EXEC-041 AC3 — termination reasons', () => {
       expect(isComplete(exec.terminationReason())).toBe(false);
     });
 
-    it('an expired budget under the close policy is still reported stopped', async () => {
+    it('EXEC-041: the loop a closing budget left running reports closed when it finishes', async () => {
       const A = place<string>('A');
       const B = place<string>('B');
       const gate = deferred();
       const t = Transition.builder('t').inputs(one(A)).outputs(outPlace(B))
-        .action(async () => { await gate.promise; }).build();
+        .action(async (ctx) => { await gate.promise; ctx.output(B, 'b'); }).build();
       const net = PetriNet.builder('stopped-close').transition(t).build();
-      const exec = makeExecutor(backend, net, initial([A, [tokenOf('a')]]));
+      const store = new CompletionStore();
+      const exec = makeExecutor(backend, net, initial([A, [tokenOf('a')]]), { eventStore: store });
       await expect(exec.run(20, 'close')).rejects.toThrow('Execution timed out');
-      gate.resolve();
-      await tick(10);
       expect(exec.terminationReason()).toBe('stopped');
+      gate.resolve();
+      await store.completed.promise;
+      expect(exec.terminationReason()).toBe('closed');
+    });
+
+    it('EXEC-041: the loop an abandoning budget left running reports its own finish cause', async () => {
+      const A = place<string>('A');
+      const B = place<string>('B');
+      const gate = deferred();
+      const t = Transition.builder('t').inputs(one(A)).outputs(outPlace(B))
+        .action(async (ctx) => { await gate.promise; ctx.output(B, 'b'); }).build();
+      const net = PetriNet.builder('stopped-abandon').transition(t).build();
+      const store = new CompletionStore();
+      const exec = makeExecutor(backend, net, initial([A, [tokenOf('a')]]), { eventStore: store });
+      await expect(exec.run(20)).rejects.toThrow('Execution timed out');
+      expect(exec.terminationReason()).toBe('stopped');
+      gate.resolve();
+      await store.completed.promise;
+      expect(exec.terminationReason()).toBe('quiescent');
+      expect(exec.getMarking().tokenCount(B)).toBe(1);
     });
   });
 });

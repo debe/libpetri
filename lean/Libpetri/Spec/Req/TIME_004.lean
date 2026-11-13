@@ -49,7 +49,7 @@ requirement TIME_004
           "The interval bullets (earliest bound after, latest bound the maximum duration, hasDeadline false) are the Timing accessors (time004_interval). The construction bullet is [TIME-001] AC4 (Timing.Valid, ruling D11): Delayed(after) is valid exactly when after is at most the maximum duration."
           "AC1 (cannot fire before after has elapsed since enablement) is line 1, with 'since enablement' read as the elapsed time since the stamp ([TIME-010]); measuring from the creation of the consumed tokens is the mutant TIME_004_mutant_tokenAge_killed. AC2 (after after, the transition can fire at any time) is line 2, which holds in every state past the bound, however late, and lines 3 and 4, by which neither a later clock reading nor an unrelated firing takes the transition's clock away or moves it."
           "The test derivation (Delayed(3s), enabled at T=0, not ready at T=2s, ready at T=3s) is the nonvacuous example TIME_004_nonvacuous, in milliseconds; it also fires an unrelated transition at T=500 that keeps u's stamp (line 4)."
-  signoff "2026-11-13 105e54b6ff04bba2 ai"
+  signoff "2026-11-13 e515af64f65f7b36 ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ (X : TimedNet _) u a, TimingOf X u = .delayed a →
       (while (fun s => Armed s u ∧ Elapsed s u < a),

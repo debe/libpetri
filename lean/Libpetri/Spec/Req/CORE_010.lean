@@ -70,7 +70,7 @@ requirement CORE_010
           "AC2 (token timestamp accessible after creation) is API shape: an accessor exists in every language with a token object. It is checked by tests and not encoded; that the timestamp a kept or delivered token carries is its original one is lines 1 to 5."
           "AC3 (no API to mutate token fields after creation) is API shape (kind Q in the plan): checked by tests and by each language's type system, not encoded. The API-shape criteria do not bind the Python binding, which has no token object, in this migration (ruling D99 (a))."
           "The test derivation (create a token with value 42, its value is 42 and its timestamp is set) is AC1 and AC2 and is not encoded."
-  signoff "2026-11-13 3b58a50ccb0d412f ai"
+  signoff "2026-11-13 3747ae47cc3c6f5b ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → Prop :=
     fun Q => ∀ t, NoInputRead t →
       (∀ δ e, on (fun M M' => Q t M δ e M'), shall (fun M M' =>

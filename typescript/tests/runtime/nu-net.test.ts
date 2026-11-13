@@ -20,7 +20,10 @@ interface NuMsg {
 /** Both executors expose the same `new Executor(net, tokens)` + `run(ms)` API. */
 interface Backend {
   readonly name: string;
-  make(net: PetriNet, tokens: Map<Place<any>, Token<any>[]>): { run(ms: number): Promise<Marking> };
+  make(net: PetriNet, tokens: Map<Place<any>, Token<any>[]>): {
+    run(ms: number): Promise<Marking>;
+    terminationReason(): string;
+  };
 }
 
 const backends: Backend[] = [
@@ -131,6 +134,50 @@ for (const backend of backends) {
       expect(marking.hasTokens(merged)).toBe(false);
       expect(marking.hasTokens(a)).toBe(true);
       expect(marking.hasTokens(b)).toBe(true);
+    });
+
+    // NU-054, EXEC-041: a match key that throws yields no name. The token stays
+    // uncorrelated, the join fires on the name it can match, and the run ends
+    // 'quiescent' instead of rejecting with the projection's error. A holds the
+    // throwing token first, so the consume of the matched token passes over it too.
+    // With a second consumer of A the join takes the rebuild path, not the matcher.
+    it.each([false, true])('a throwing key is no name (second consumer: %s)', async (secondConsumer) => {
+      const a = place<NuMsg>('A');
+      const b = place<NuMsg>('B');
+      const merged = place<string>('merged');
+      const gate = place<string>('gate');
+      const sink = place<NuMsg>('sink');
+      const key = (m: NuMsg) => {
+        if (m.cid === 'BAD') throw new Error('projection failed');
+        return nameId(m.cid);
+      };
+
+      const join = Transition.builder('join')
+        .inputs(one(a), one(b))
+        .match(matchSpec(matchKey(a, key), matchKey(b, key)))
+        .outputs(outPlace(merged))
+        .action(async (ctx) => {
+          ctx.output(merged, `${ctx.input(a).cid}+${ctx.input(b).cid}`);
+        })
+        .build();
+      const builder = PetriNet.builder('nuThrowingKey').transition(join);
+      if (secondConsumer) {
+        builder.transition(Transition.builder('drain')
+          .inputs(one(a), one(gate))
+          .outputs(outPlace(sink))
+          .action(async (ctx) => { ctx.output(sink, ctx.input(a)); })
+          .build());
+      }
+      const tokens = new Map<Place<any>, Token<any>[]>([
+        [a, [tokenAt({ cid: 'BAD' }, 0), tokenAt({ cid: 'X' }, 1)]],
+        [b, [tokenAt({ cid: 'X' }, 0)]],
+      ]);
+
+      const executor = backend.make(builder.build(), tokens);
+      const marking = await executor.run(2000);
+      expect([...marking.peekTokens(merged)].map(t => t.value)).toEqual(['X+X']);
+      expect([...marking.peekTokens(a)].map(t => t.value.cid)).toEqual(['BAD']);
+      expect(executor.terminationReason()).toBe('quiescent');
     });
 
     // NU-010 + NU-020 end to end: fork mints a fresh id per firing and stamps

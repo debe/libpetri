@@ -62,7 +62,7 @@ requirement IO_017
           "AC1 (`Xor(And(P1, P2), Timeout(5s, P3))` gives {P1, P2, P3}) follows from lines 1, 3, 4 and 5; the timeout's duration does not matter, since `Reference.Out` carries none and the fifth line reads only the child. AC2 is the second line. The non-vacuity theorem checks both on the reference function, and the test derivation (a nested spec gives the complete set) is AC1."
           "The relation to IO-016 is derived, not stated: the set is the union of the output branches of the branch enumeration (`IO_017_union_of_branches`, for every pair of functions that satisfy IO-016 and IO-017). So is the relation to the glossary's output arcs (`IO_017_outputArc`)."
           "The block fixes the function only. That the output specification offers it as a method is an API fact of each runtime and is not encoded. That executors and analyses read output places through it (CORE-035, CORE-062, CORE-072, VER-001) is the subject of those requirements."
-  signoff "2026-11-13 3aee03ced6332910 ai"
+  signoff "2026-11-13 669046cb2047932b ai"
   statement : ∀ {N : Type} [DecidableEq N], AllPlaces N → Prop :=
     fun A =>
       (∀ p, A (.place p) = {p}) ∧

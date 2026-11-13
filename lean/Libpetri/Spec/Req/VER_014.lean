@@ -97,7 +97,7 @@ requirement VER_014
           "The Encoding paragraph (the stranded disjunct `(and (>= m_p 1) (= m_k₁ 0) … (= m_kₙ 0))` per excused place, scripts without a declaration byte-identical to VER-002's, the report rendering `(sinks: a, b; when h: c, d; when p)`) is the encoder's and the report's text: the disjunct is cited by VER_014_encoding through Seam.deadlockBad_eq; the byte identity and the rendering are not modelled (kind N for the rendering, kind Q for the scripts)."
           "The Net-declared terminals paragraph (a terminal place declared on the net is verified with the place inhibiting each transition, added to the sinks and declared a marker for every place) is the terminal rewrite of EXEC-042 (Novel/TerminalRewrite.lean); it adds declarations and does not change lines 1 to 3, and it belongs to the EXEC-042 block."
           "The Implementation notes and the fixtures list name the per-language entry points and the fixture files (kind N); the test derivation is AC1 to AC4 on one fork, as above."
-  signoff "2026-11-13 69981fba136376c4 ai"
+  signoff "2026-11-13 f46e3fb9203f172b ai"
   statement : ∀ {N : Type} [DecidableEq N], StrandRel N → RestViolRel N → Prop :=
     fun S V =>
       (∀ sinks cond m p,

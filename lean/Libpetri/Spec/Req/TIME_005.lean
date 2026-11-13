@@ -52,7 +52,7 @@ requirement TIME_005
           "AC1 (cannot fire before earliest) is line 1. AC3 (latest below earliest is rejected) and AC4 (earliest or latest above the maximum duration is rejected) are construction rules over Timing.Valid, the F reading of [TIME-001] AC4 with ruling D11: time005_construction states that Window(e, l) is valid exactly when e and l are at most the maximum duration and e is at most l, and time005_construction_examples checks the boundary cases."
           "The interval bullets (earliest bound e, latest bound l, hasDeadline true) are the Timing accessors (time005_interval); Window is reapable, unlike Exact ([TIME-006])."
           "The test derivation (Window(1s, 5s): not ready at 0.5s, ready at 2s, expired at 6s) is the nonvacuous example TIME_005_nonvacuous, in milliseconds with the default tolerance of 5 ms, which also checks both sides of the bound 5005, and fires an unrelated transition at T=500 that keeps u's stamp (line 6)."
-  signoff "2026-11-13 0c95b3226f130dae ai"
+  signoff "2026-11-13 4d99c46f6b5f098d ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ (X : TimedNet _) u e l, TimingOf X u = .window e l →
       (while (fun s => Armed s u ∧ Elapsed s u < e),

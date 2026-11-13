@@ -9,7 +9,8 @@ import type { TransitionAction } from './transition-action.js';
 import { passthrough } from './transition-action.js';
 import { deadline, delayed, exact, immediate, window } from './timing.js';
 import {
-  allPlaces, ambiguousBranches, ambiguousOutputMessage, bareForwardInput, bareForwardInputMessage,
+  allPlaces, ambiguousBranches, ambiguousOutputMessage, arityViolation, bareForwardInput,
+  bareForwardInputMessage,
   countTimeouts, duplicateInBranch, duplicateOutputPlaceMessage, timeoutCountMessage,
   hasXorInTimeoutChild, xorInTimeoutMessage,
 } from './out.js';
@@ -297,6 +298,13 @@ export class TransitionBuilder {
     // construction path (builders, compose, channel merge, fusion, bindActions) passes.
     if (this._outputSpec !== null) {
       const spec = this._outputSpec;
+      // IO-011 AC1 / IO-012 AC1: and() and xor() reject an And without children and a Xor with
+      // fewer than two, but a spec written as an object literal skips them, so the factories'
+      // check runs again here, at any depth, before the output-spec checks. An empty Xor would
+      // consume on every firing and then fail output validation.
+      const arity = arityViolation(spec);
+      if (arity !== null) throw new Error(arity);
+
       // IO-011: outputs are sets, so a place named twice in one AND branch is rejected rather
       // than collapsed.
       const dup = duplicateInBranch(spec);

@@ -39,6 +39,8 @@
 - **The Route B environment decline follows conflict priority ([NU-052], [VER-006]; all languages).** On a net where conflict pruning does not apply (a reapable transition), a shared environment input under `CONFLICT` no longer turns the verdict into `Unknown`; it matches the `NONE` verdict. Where pruning applies, the decline stands.
 - **State-class keys escape place names ([VER-010], [VER-012]; Rust, TypeScript, Python).** A place named `a:1, b` no longer shares a class key with the marking `{a:1, b:1}`. Rust escapes `\`, `,`, `:`, `|` and `#` in place and clock names; TypeScript keys classes by the new `MarkingState.key()`. `reachableMarkings()` still returns display strings.
 - **Mint and carrier declarations are judged on the caller's net ([NU-010], [NU-051]; Rust, Python).** `verify` answers `Unknown` with `declared carrier place 'x' not in the net (NU-051)` for an unknown carrier in both fragment modes and on every route, `verify_open_net` included; `encode_scripts` panics and Python's `encode_smt_scripts` raises `ValueError` with the same reason. A mint naming a transition only the verifier adds (`complete:t`, `env:arrive[0]:p0`) is refused with the NU-010 reason, as `encode_scripts` already did.
+- **A match key that throws yields no name ([NU-054], [EXEC-041]; Java, TypeScript).** The token correlates with nothing and the run goes on, as in Python, instead of `run()` raising the key's exception (Java ended with `STOPPED`). Java read only `ClassCastException` as no name, TypeScript nothing.
+- **An `Xor` of fewer than two children or an empty `And` does not build ([IO-012], [IO-011]; Rust, TypeScript, Python).** The transition builders re-run the `xor()` and `and()` arity checks, at any depth and with the factories' messages, so a spec written with Rust's public `Out` variants or as a TypeScript object literal is rejected. Python's `xor_outputs` and `and_outputs` raise `ValueError` with the same messages.
 - **The total verification budget is polled on the clamp's whole-millisecond clock ([VER-013]; Java, TypeScript).** With less than one millisecond left no `z3` process starts, and the `Unknown` names `exhausted during <phase>`. Java also polls after a call whose timeout was not clamped, so a budget spent during it is charged to that step.
 
 #### Java
@@ -63,6 +65,7 @@
 - `Instance.bindActions` leaves a transition the mapping does not name with its own action, also beside a same-named sibling ([MOD-030]).
 - `SubnetDef.verify` applies the selected environment mode on every call, also for a subnet with no input port ([MOD-051]).
 - Verification under `arrivals(k)` with environment places skips the state-space cache, which never hit there, and says so in the report ([VER-017]); `arrivals(0)` still uses it.
+- After `run(timeoutMs)` expires, `terminationReason()` reads `stopped` only until the loop left running finishes; then it reports that finish's own cause (`quiescent`, `terminal` or `closed`), as Java does ([EXEC-041]). The returned promise still rejects.
 
 #### Python
 

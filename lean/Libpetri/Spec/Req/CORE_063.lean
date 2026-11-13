@@ -76,7 +76,7 @@ requirement CORE_063
           "AC2 (accessing an undeclared read gives an error) is line 2."
           "AC3 (producing to an undeclared output gives an error) is line 3."
           "The test derivation (create a context with restricted place sets, attempt out-of-bounds access, verify errors) is CORE_063_nonvacuous: on the reference firing of a transition with input place 0, read place 1 and output place 2, the reference context answers each accessor on its own place and reports an error for inputs, input and inputToken on the read and the output place, for read on the input and the output place, and for output on the input place and, with no values, on the read place."
-  signoff "2026-11-13 6f3fb70f7a46effd ai"
+  signoff "2026-11-13 0ad4980fe52658b7 ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → Ctx N T V → Prop :=
     fun _value C =>
       (∀ t δ p, p ∉ inPlaces t → δ.inputs p = [] →

@@ -39,7 +39,7 @@ requirement IO_002
           "The deposit a firing reports is not trusted for the count: on a place that t's output spec does not name (glossary: Output arc) no firing of t can deposit ([CORE-035]), so there the consumed tokens show in the marking alone, as exactly N tokens fewer (the fourth quoted sentence, IO-001's guard). Without this a firing that consumes nothing but reports a deposit of N in the input place would pass the count, and the block would lean on CORE-035 to stand."
           "Deposits are counts per place (glossary: Deposit, [CORE-036]): `Deposits d p` counts the tokens d puts in p and ignores their order. The build-time output-spec checks of IO-011 to IO-014 (ambiguity, one Timeout, ForwardInput only under a Timeout) and the validation skip of CONC-026 do not touch input consumption, so the formula quantifies over every transition, built or not, and every executor."
           "The input arc of t on p is the first input arc on p (glossary: Input arc); CORE-030 rejects a second one at build."
-  signoff "2026-11-13 96c1d96e85a20f1e ai"
+  signoff "2026-11-13 9b9aa5c23b0a1d7e ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p n, InputArc t p (.exactly n) →
       (while (fun m => TokenCount m p < n), never Fire F t) ∧
@@ -291,7 +291,7 @@ requirement IO_002_build
           "The first quoted sentence (the constructor rejects N < 1 with an error or a panic) is not encoded: the model has no constructor, only the value. It is Q-tested: Rust exactly() asserts count >= 1 (rust/libpetri-core/src/input.rs, test exactly_zero_panics), TypeScript exactly() throws (typescript/src/core/in.ts, test 'rejects count < 1' in typescript/tests/core/in.test.ts), Java's Exactly record constructor throws IllegalArgumentException (java/src/main/java/org/libpetri/core/Arc.java), which is also the only way to write the value in Java. Python reaches the Rust constructor."
           "The second quoted sentence is the line. The runtimes whose spec can be written out without the constructor check it when the transition is built: Rust for the public In::Exactly variant (the input-count check in TransitionBuilder::build in rust/libpetri-core/src/transition.rs, tests an_exactly_zero_input_panics and an_at_least_zero_input_panics), TypeScript for an object literal (the input-count check in TransitionBuilder.build in typescript/src/core/transition.ts, test 'build rejects an input that requires no token' in typescript/tests/core/transition.test.ts). A builder without the count check (io002_buildNoCount) builds such a transition and is forbidden (IO_002_build_forbids_noCount)."
           "Only the failure is stated, not its message: the spec gives the check no message, and the reference fails it with the stand-in msgCount. That a transition whose input arcs all require at least one token, and which passes the other build-time checks, does build is CORE-020's line 4 (Builds includes InputCountsPositive), so a builder that rejects every transition meets this line and breaks that one. The order of the count check against CORE-030's input-arc check is not stated (the reference runs CORE-030's first); EXEC-012's line 5 orders its own check after both."
-  signoff "2026-11-13 f8246e01110b0659 ai"
+  signoff "2026-11-13 8a6a755e1a7355aa ai"
   statement : ∀ {N : Type} [DecidableEq N] [ToString N], (Trans N → Option String) → Prop :=
     fun Build => ∀ t : Trans _, ∀ s ∈ t.core.inputs, s.card = .exactly 0 → Build t ≠ none
 

@@ -89,10 +89,13 @@ other, whatever the order or repetition. Places are the same under the implement
 [IO-015]."#
   term "Build-time checks" r#"The checks building a transition runs: the input-arc check of [CORE-030], the input-count checks
 of [IO-002] and [IO-004], the input-and-read check of [EXEC-012], the timing check of [TIME-001],
-then, on its output spec and in this order, a place named twice in one output branch [IO-011], more than one
+then, on its output spec and in this order, an `And` node without children [IO-011] or an `Xor`
+node with fewer than two [IO-012] (also when the spec was not built with the `And` and `Xor`
+constructors, which reject both), a place named twice in one output branch [IO-011], more than one
 `Timeout` node [IO-013], an `Xor` node inside the child of the `Timeout` node [IO-013], a
 `ForwardInput` outside the child of a `Timeout` node [IO-014], a
-`ForwardInput` whose `from` is not an input place [IO-014], and two output branches that claim
+`ForwardInput` whose `from` is not an input place [IO-014] (in an implementation whose places carry
+token types, also one whose `to` cannot hold the tokens of `from` [IO-014]), and two output branches that claim
 the same set of places [IO-012], then, for a transition with a match specification, a place the
 match keys twice and a key on a place that is not an input place [NU-020], and per relay target
 one declared twice and one that is not an output place [NU-054]. The first check that fails names

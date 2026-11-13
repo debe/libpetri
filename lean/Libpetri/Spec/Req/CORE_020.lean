@@ -54,7 +54,7 @@ requirement CORE_020
           "The block does not bind the language surface (ruling D99 (a)): TypeScript accepts any number as a priority where the model has integers, Java's sixth timing variant Unconstrained is not modelled (TIME-001), and the Python binding exposes only the name of a built transition. These are API shape, tested and not proven."
           "AC1 (a transition can be constructed with all the above fields via a builder pattern) is lines 1, 2 and 4 on one definition: every field the host gives is carried and a call on an input that builds succeeds (CORE_020_nonvacuous builds a transition with two input arcs, an output place, the timing Window(2, 5), priority 5 and an action). The builder pattern as an API shape is a Q-kind test (ruling D99 (a))."
           "AC2 (all fields are accessible after construction) is lines 1 and 2: the definition an instance carries exposes every field; that each language has an accessor per field is API shape (ruling D99 (a)). The test derivation ('verify all fields match') is lines 1 and 2 on CORE_020_nonvacuous's example."
-  signoff "2026-11-13 bd4977fa5a0efd72 ai"
+  signoff "2026-11-13 945d731cabee5640 ai"
   statement : ∀ {N A : Type} [DecidableEq N], TBuilder N A → Prop :=
     fun B =>
       (∀ k i x, B.build k i = .ok x →

@@ -74,7 +74,7 @@ requirement CONC_008
           "AC2 (a transition with an Exactly(5) input needs phase 2 to verify the token count) is the first and second lines: with three tokens the presence check passes, the cardinality check fails and so does the enablement check (CONC_008_mutant_maskOnly_killed, CONC_008_nonvacuous). CONC_008_nonvacuous also runs an `All` input and an `AtLeast(3)` input through both phases."
           "AC3 is not encoded here: it is the block CONC_008_nu (see above)."
           "The test derivation's 'correct enablement' is the fourth line; its 'minimal re-evaluation' is CONC-005's subject."
-  signoff "2026-11-13 2ed06600a6fb11e9 ai"
+  signoff "2026-11-13 c22d7b15dd67d7fa ai"
   statement : ∀ {N : Type} [DecidableEq N], EnableCheck N → Prop :=
     fun C => ∀ t, Builds t → ∀ m,
       (¬ OnlyOneInputs t → C.presence t (presenceOf m) = true →
@@ -696,7 +696,7 @@ requirement CONC_008_nu
           "With CONC-004 and the first CONC-008 block in force, the fourth line follows from the first two (conc008_nu_enabled); it is kept because this block alone leaves base free and needs it: a check whose base stops after phase 1 meets the first three lines and is killed by the fourth (CONC_008_nu_forbids_maskBase)."
           "AC3 (a transition with a match specification requires phase 3 to scan tokens for a name of which every correlated input holds at least its required count of tokens of that name) is the first two lines: on a marking where both correlated inputs are marked but share no name, phases 1 and 2 pass, the ν-match check fails and so does the whole check (CONC_008_nu_nonvacuous); the check without phase 3 is killed (CONC_008_nu_mutant_noPhase3_killed). AC1 and AC2 are the first CONC-008 block's."
           "The test derivation's 'correct enablement' is the fourth line for a transition with a match and the first block's fourth line for one without; its 'minimal re-evaluation' is CONC-005's subject."
-  signoff "2026-11-13 2cfe4119c63eae2a ai"
+  signoff "2026-11-13 04332ab81db9a27c ai"
   statement : ∀ {N V Nm : Type} [DecidableEq N] [LinearOrder Nm], NuEnableCheck N V Nm → Prop :=
     fun C => ∀ t, NuBuilds t → ∀ M,
       (∀ ms, t.mspec = some ms → C.base.check t.base (qCount M) = true →

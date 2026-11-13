@@ -138,6 +138,9 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
 | RD-49 | EVT-014 | Rust, Python | fixed, unreleased |
 | RD-50 | EVT-014 | Rust, Python | open |
 | RD-51 | EVT-030 | Java, TypeScript, Rust | fixed, unreleased |
+| RD-52 | EXEC-041 | TypeScript | fixed, unreleased |
+| RD-53 | NU-020, NU-054, EXEC-041 | Java, TypeScript | fixed, unreleased |
+| RD-54 | IO-012, IO-011 | Rust, TypeScript | fixed, unreleased |
 
 ### RD-01. The timeout outcome is validated against the output spec
 
@@ -1338,4 +1341,77 @@ collision of sanitized IDs is a known limit of EXP-016. Their numbers are not re
   `countEvents`, `counters` and `eventPlaceName`. Rust: `InMemoryEventStore::events_of_type`,
   `place_events`, `query(&EventQuery)`, `count_of_types` and `counters`, and
   `NetEvent::event_type`. Tests cite EVT-030 in each language.
+- **Status:** fixed, unreleased.
+
+### RD-52. TypeScript keeps reporting `stopped` after the loop an expired run budget left running finishes
+
+- **Requirements:** EXEC-041 (a finish makes its own termination reason available to the caller;
+  `stopped` only after an immediate termination, another caller-requested stop, a host fault or a
+  run-ending failure of the run's event store; a run budget that expires ends the caller's wait, not
+  the loop).
+- **Runtimes:** TypeScript.
+- **Defect:** after `run(timeoutMs)` expired, both executors set the reason to `stopped` and set it at
+  the loop's finish only while it still read `running` (`executeLoop` in
+  `typescript/src/runtime/bitmap-net-executor.ts` and `precompiled-net-executor.ts`). The loop that
+  the abandon or close policy left running then finished quiescent, terminal or closed, and
+  `terminationReason()` still answered `stopped`, so the cause of that finish was never reported.
+  Java sets the reason only at the loop's finish.
+- **Lean evidence:** none.
+- **Fix:** `executeLoop` sets the reason from the terminal flag, the close flag and quiescence at
+  every finish. The reason reads `stopped` from the expiry until the loop finishes; the caller of the
+  expired run still gets the truncation through the rejected promise. Tests citing EXEC-041 in
+  `typescript/tests/runtime/terminal-places.test.ts` check both policies on both executors.
+- **Status:** fixed, unreleased.
+
+### RD-53. A match key that throws ends the run in Java and TypeScript
+
+- **Requirements:** NU-020 (a token whose key yields no name has no name on that input), NU-054 (a
+  projection that fails yields no name), EXEC-041 (`stopped` only after an immediate termination,
+  another caller-requested stop, a host-runtime fault or a run-ending failure of the run's event
+  store).
+- **Runtimes:** Java, TypeScript.
+- **Defect:** a match-key projection that threw while the loop decided enablement or consumed the
+  matched tokens escaped the executor. Java caught only `ClassCastException`
+  (`MatchSpec.MatchKey.extract`, and the consume predicate of `fireTransition` in
+  `BitmapNetExecutor.java` and `PrecompiledNetExecutor.java`), so any other `RuntimeException` ended
+  the run with `STOPPED` and `run()` raised it, or the executor's constructor raised it when it
+  seeded the match cache. TypeScript caught nothing (`buildNameIndex`, `cacheAddToken` and
+  `fireTransition`), so `run()` rejected with the projection's error. Python already read a raise as
+  no name (`make_py_projection` in `rust/libpetri-py/src/model.rs`); a Rust projection cannot fail by
+  type.
+- **Lean evidence:** none.
+- **Fix:** a projection that throws yields no name: Java's `MatchKey.extract` and the consume
+  predicates catch any `RuntimeException`, and every TypeScript key call goes through `projectName`
+  in `typescript/src/runtime/match-engine.ts`. The token correlates with nothing and the run goes
+  on. Tests citing NU-054 and EXEC-041 (`nuJoin_throwingKeyIsNoName_*` in
+  `AbstractNetExecutorEngineTest.java`, 'a throwing key is no name' in
+  `typescript/tests/runtime/nu-net.test.ts`) check both executors, on the match cache and on the
+  rebuild path: the join fires on the name it can match and the run ends quiescent.
+- **Status:** fixed, unreleased.
+
+### RD-54. Rust and TypeScript build an Xor of fewer than two children or an empty And written without its constructor
+
+- **Requirements:** IO-012 (line 1, an `Xor` node has two or more children; AC1), IO-011 (AC1, an `And`
+  node has at least one child).
+- **Runtimes:** Rust, TypeScript.
+- **Defect:** the arity checks lived only in the `xor()` and `and()` factories
+  (`rust/libpetri-core/src/output.rs`, `typescript/src/core/out.ts`). Rust's `Out::Xor` and `Out::And`
+  variants are public and a TypeScript output spec can be written as an object literal, and neither
+  `TransitionBuilder::build` (`rust/libpetri-core/src/transition.rs`) nor `TransitionBuilder.build`
+  (`typescript/src/core/transition.ts`) ran the checks again, although both re-run the IO-002/IO-004
+  count and TIME-001 timing factory checks for these paths. `Out::Xor(vec![])` built a transition that
+  consumes on every firing and then fails output validation; a one-child Xor built as its child, and
+  an empty And as a spec that claims no place. Java checks in the `Arc.Out.Xor` and `Arc.Out.And`
+  record constructors; Python goes through `xor()` and `and()`.
+- **Lean evidence:** none beyond the IO_012 AC1 assume.
+- **Fix:** the transition builders of Rust and TypeScript reject an `Xor` node with fewer than two
+  children or an `And` node without one, at any depth, the first such node in pre-order reporting
+  with the factory's message, after the timing check and before the output-spec checks
+  (`arity_violation` in `output.rs`, `arityViolation` in `out.ts`). Python's `xor_outputs` and
+  `and_outputs` now raise the factory's message as a `ValueError`. Tests citing IO-012 AC1 and
+  IO-011 AC1: `io_012_ac1_xor_and_io_011_ac1_and_arity_is_checked_at_build` in `transition.rs`,
+  'IO-012 AC1, IO-011 AC1: an object literal does not skip the arity check' in
+  `typescript/tests/core/out-build-checks.test.ts`, and
+  `test_io_012_ac1_and_io_011_ac1_arity_is_the_factory_check` in
+  `python/tests/test_output_spec_build_checks.py`.
 - **Status:** fixed, unreleased.

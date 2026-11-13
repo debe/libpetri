@@ -54,7 +54,7 @@ requirement EXEC_013
           "AC3 (the reset place is also an input or read place of another enabled transition, whose clock restarts) is read in TIME-012's form and is not encoded here: the queue firing has no clocks. TIME-012 says the other transition loses its clock in the intermediate marking and is newly armed with a fresh clock when it is enabled again; AC3's bare 'restarts' is read as that, not as a restart of a transition that the drain leaves disabled. The evidence is TIME-012's AC3 example TIME_012_ac3 (cited there)."
           "AC4 (reset draining after read peeking; a read arc and a reset arc on one place observe the pre-reset front token; the overall order is input consumption, read peeks, reset draining) is lines 2 and 3; the mutants exec013_resetFirst (draining before the peek) and exec013_drainFirst (draining before input consumption) are killed by lines 3 and 2."
           "The test derivation's clock-restart check is AC3's and is TIME-012's subject."
-  signoff "2026-11-13 d6c6647e059af795 ai"
+  signoff "2026-11-13 dc9d0df139814ed2 ai"
   statement : ∀ {N T : Type} [DecidableEq N], QFireRel N T → Prop :=
     fun Q => ∀ t, NoInputRead t →
       (∀ δ e, on (fun M M' => Q t M δ e M'), shall (fun _ M' =>

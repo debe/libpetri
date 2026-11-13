@@ -425,14 +425,16 @@ def hex16 (n : UInt64) : String :=
 
 /-- The statement hash of a block: a 64-bit hash, as 16 hex digits, of its Lean statement
 printed with `pp.all` (so that it does not depend on open namespaces or notations), its quotes,
-its reading and its assumptions. A sign-off names it, so any change to the block's meaning
+its reading, its assumptions and the whole requirement text it formalises (`text`: title,
+priority, kind, status and the body as the spec shows it; empty for a `proposed` block). A
+sign-off names it, so any change to the block's meaning, or to any sentence of its requirement,
 invalidates the sign-off. -/
-def statementHash (stmt : String) (quotes reading assumes : Array String) : String :=
+def statementHash (stmt : String) (quotes reading assumes text : Array String) : String :=
   let part (tag : String) (xs : Array String) : String :=
     s!"{tag}\x1f{xs.size}\x1f" ++ "\x1e".intercalate xs.toList
   hex16 <| hash <| "\x1d".intercalate
     [s!"statement\x1f{stmt}", part "quotes" quotes, part "reading" reading,
-     part "assumes" assumes]
+     part "assumes" assumes, part "text" text]
 
 /-- Does `s` have the shape `YYYY-MM-DD`? -/
 def isDate (s : String) : Bool :=
@@ -534,7 +536,15 @@ elab (name := requirementCmd) "requirement " n:ident
   let some ci := (← getEnv).find? decl | fail "the statement did not elaborate"; return
   let stmt ← liftTermElabM <| withOptions (fun o => o.setBool `pp.all true) do
     return s!"{← ppExpr ci.type} := {← ppExpr (ci.value?.getD ci.type)}"
-  let h := statementHash stmt e.quotes e.reading e.assumes
+  -- The requirement text a verbatim block formalises; its module is imported (covers needs it).
+  let text ← if e.source == "verbatim" then
+      match Text.findText? (← getEnv) (Name.mkSimple (e.id.replace "-" "_")) with
+      | some t => pure #[t.title, t.priority, t.kind, t.status, t.plain]
+      | none => do
+        fail s!"the requirement text of {e.id} is not imported"
+        pure #[]
+    else pure #[]
+  let h := statementHash stmt e.quotes e.reading e.assumes text
   unless e.signoff == "pending" do
     let bad := s!"signoff must be \"pending\", \"<YYYY-MM-DD> <statement hash>\" (a person \
       signed) or \"<YYYY-MM-DD> <statement hash> ai\" (an AI review signed), not \

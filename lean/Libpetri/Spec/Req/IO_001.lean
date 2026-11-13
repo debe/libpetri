@@ -48,7 +48,7 @@ requirement IO_001
           "Consumption is observed through the marking: p loses 1 and gains what the firing deposits there (p may also be an output place). A place that is both the input place and a reset place of t ends holding what the firing deposited there (CORE-034), so the consumed token is not visible in the marking; the fourth line excludes that case."
           "The deposit a firing reports is not trusted for the count: on a place that t's output spec does not name (glossary: Output arc) no firing of t can deposit ([CORE-035]), so there the consumed token shows in the marking alone, as exactly 1 token fewer. Without this a firing that consumes nothing but reports a deposit of 1 in the input place would pass the count."
           "The input arc of t on p is the first input arc on p (glossary: Input arc), and t without its input arc on p drops that arc only; CORE-030 rejects a second input arc on p at build."
-  signoff "2026-11-13 749a74beaedb4a3d ai"
+  signoff "2026-11-13 7efdcea8fe4128a6 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p, InputArc t p .one →
       (while (fun m => ¬ Marked m p), never Fire F t) ∧

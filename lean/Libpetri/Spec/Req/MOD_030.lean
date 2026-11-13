@@ -207,7 +207,7 @@ requirement MOD_030
           "AC6 (successive calls compose as last-wins replacement; A is not invoked for t) follows from lines 2 and 3 for every model of the block (mod030_lastWins): after two calls the transition carries the second call's action. That A is not invoked at run time is that line with CORE-050 (a firing runs the transition's bound action). A binding that keeps an earlier override (first wins) violates line 3 (MOD_030_mutant_firstWins_killed). A sequential composition of A and B is not expressible over identity tags and is excluded by line 3, which gives the transition exactly the supplied tag."
           "AC8 (bindActions is non-mutating; the receiver stays usable for independent derivations) and the body's 'MUST NOT mutate the receiver' hold of every binding in the model, a function on values, and are tested in the runtimes, not proven. Java returns the receiver itself for an empty mapping (Instance.bindActions, java/src/main/java/org/libpetri/core/Instance.java), which satisfies lines 2 to 4, the receiver being immutable. 'Overriding actions on instance A does NOT affect instance B' holds for the same reason: binding takes one instance and returns another, and MOD_030_nonvacuous shows p2 unchanged after binding p1."
           "The sentence that MOD-030 extends CORE-042 into the composition layer is the reading above that per-instance binding is the resolver form of CORE-042 applied to the renamed body. Binding on a subnet definition (SubnetDef.bindActions) is MOD-051's (W11)."
-  signoff "2026-11-13 6e0a241705c76f8e ai"
+  signoff "2026-11-13 4a926d3df7c4a516 ai"
   statement : ∀ {N A : Type}, InstBindFn N A → Prop :=
     fun {N A} Bind =>
       (∀ (I : Instance N A) m, (∀ e ∈ m, preS I.pfx e.1 ∈ I.defs.map (·.core.name)) →

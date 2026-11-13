@@ -1381,37 +1381,27 @@ fn py_out_place(p: &PyPlace) -> PyOutputSpec {
 }
 
 /// Output spec: AND — produce all `children` outputs in parallel.
+/// Raises `ValueError` without children (IO-011 AC1).
 #[pyfunction(name = "and_outputs")]
 fn py_and_outputs(py: Python<'_>, children: Vec<Py<PyOutputSpec>>) -> PyResult<PyOutputSpec> {
-    if children.is_empty() {
-        return Err(PyValueError::new_err(
-            "and_outputs requires at least one child",
-        ));
-    }
     let collected = children
         .into_iter()
         .map(|c| c.borrow(py).inner.clone())
         .collect();
-    Ok(PyOutputSpec {
-        inner: and(collected),
-    })
+    let inner = panic_to_value_error(|| and(collected))?;
+    Ok(PyOutputSpec { inner })
 }
 
 /// Output spec: XOR — the action picks exactly one child to fire.
+/// Raises `ValueError` with fewer than two children (IO-012 AC1).
 #[pyfunction(name = "xor_outputs")]
 fn py_xor_outputs(py: Python<'_>, children: Vec<Py<PyOutputSpec>>) -> PyResult<PyOutputSpec> {
-    if children.len() < 2 {
-        return Err(PyValueError::new_err(
-            "xor_outputs requires at least two children",
-        ));
-    }
     let collected = children
         .into_iter()
         .map(|c| c.borrow(py).inner.clone())
         .collect();
-    Ok(PyOutputSpec {
-        inner: xor(collected),
-    })
+    let inner = panic_to_value_error(|| xor(collected))?;
+    Ok(PyOutputSpec { inner })
 }
 
 /// Output spec: wrap `child` with a timeout — fires the child if it does not produce within `after_ms`.

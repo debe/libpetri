@@ -149,7 +149,7 @@ requirement CORE_037
           "AC4 (the warning never rejects a net and never changes execution, a verdict or a result field): the report is a total function with no failure value, and no line of this block constrains a builder, a firing or a verdict; that a dead arc never makes a builder reject is CORE-040's (W2), and that execution, verdicts and result fields do not depend on the warning is CORE_037_events (lines 4 and 5) and CORE_037_verifier (line 2)."
           "The SHOULD priority applies to the requirement: an implementation that reports dead arcs follows the three shall sentences."
           "The test derivation (a transition `kill` that resets `x`, nothing else touching `x`, one warning naming `kill` and `x` with an empty initial marking and none with `x` seeded; the same with a read and an inhibitor arc, and with `x` produced by another transition's Xor branch) is CORE_037_nonvacuous on the reference report: `kill` with a read, an inhibitor and a reset arc on untouched places, a seeded place, and a place only an Xor branch of `use` names. The event, the report line and their counts are the B block's."
-  signoff "2026-11-13 ebc7c7b7ff9bccba ai"
+  signoff "2026-11-13 ece1894f8fec8877 ai"
   statement : DeadArcReport String → (DeadArc String → String) → Prop :=
     fun Rep Msg =>
       (∀ X env m0 a, a ∈ Rep X env m0 ↔

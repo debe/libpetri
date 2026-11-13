@@ -71,7 +71,7 @@ requirement CORE_042
           "AC3 (the original net is not modified) is the second half of the quoted sentence that binding leaves the original net unchanged, which holds of every binding in the model (above) and is not a line."
           "AC4 (unbound transitions retain the passthrough action) is line 5 on a transition that carried passthrough, and line 3 for the resolver form. The test derivation (bind 2 of 3 transitions, the third still has passthrough) is CORE_042_nonvacuous, for the resolver form and both map readings."
           "The paragraph on SubnetDef.bindActions (the same argument forms, keyed by unprefixed names, a new definition) is the operation on a subnet definition, MOD-051's paragraph 'Binding actions on a definition' with its AC8, and is quoted there (W11). The Python binding exposes binding on instances and subnet definitions only (the bind_actions methods of PyInstance and PySubnetDef in rust/libpetri-py/src/model.rs), not on a net; it rides on the Rust binding."
-  signoff "2026-11-13 a350df7bca509dc0 ai"
+  signoff "2026-11-13 ac185926867e5058 ai"
   statement : ∀ {N A : Type}, (BuiltNet N A → (String → Option (Act A)) → BuiltNet N A) →
       (BuiltNet N A → (String → Option (Act A)) → BuiltNet N A) → Prop :=
     fun Bind BindMap =>
@@ -805,7 +805,7 @@ requirement CORE_042_nu
           "The sentence speaks of a transition that has a match specification and the line states no more: a transition without one is not constrained here. That it stays without one is NU-030's line 3 under the identity rewrite of action binding (NU-030 names action binding among its rebuilds): that line maps the optional match, so no match stays no match, and with the identity rewrite it also gives the rebuilt transitions of this line. All three runtimes copy the match only when there is one, so a transition without one stays without one."
           "All three runtimes keep the match in both forms: a deferred transition is kept as it is (the resolver forms: Rust bind_actions_with_resolver in rust/libpetri-core/src/petri_net.rs, Java PetriNet.bindActions(Function) in java/src/main/java/org/libpetri/core/PetriNet.java, TypeScript bindActionsWithResolver in typescript/src/core/petri-net.ts), and a rebound one is rebuilt with its match carried forward (Rust rebuild_with_action in rust/libpetri-core/src/transition.rs, Java and TypeScript rebuildWithAction in the same two files), which the runtimes warn would otherwise turn a join correlated by name into a plain join; the map form goes through the resolver form in all three. Pinned by the tests bind_actions_preserves_match_spec in rust/libpetri-core/src/petri_net.rs and bindActions_preservesMatchSpec in java/src/test/java/org/libpetri/core/PetriNetTest.java. Python rides on the Rust binding."
           "A binding that rebuilds an answered transition from the fields CORE_042 line 1 lists and drops its match, keeping a deferred transition as it was (the regression the runtime tests pin), has refBind as its shadow (core042_nuDropBind_shadow), so it meets every line of CORE_042, and it violates this line (CORE_042_nu_mutant_deferredOnly_killed). The same binding meets the reading that keeps the match only of a transition the binding leaves deferred, which is the mutant that theorem kills."
-  signoff "2026-11-13 3f906fdfcf23b4d9 ai"
+  signoff "2026-11-13 cbbe1162f0601ca5 ai"
   statement : ∀ {N A K : Type},
       (NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) →
       (NuBuiltNet N A K → (String → Option (Act A)) → NuBuiltNet N A K) → Prop :=

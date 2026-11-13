@@ -60,7 +60,7 @@ requirement EVT_024
           "The capacity is kind N: it is positive and 10,000 unless the caller gives another (DEFAULT_MAX_EVENTS in all three), and a capacity that is not positive is rejected when the store is created (Java IllegalArgumentException, TypeScript Error, Rust a panic of assert!). The markdown states this without a shall, in the sentence 'A debug event store has a capacity: a positive number of events, 10,000 unless the caller gives another.', which describes the three stores as they are and is not checked by a line: the line holds at every capacity. EVT_024_default is the line at the default capacity."
           "The body bullet 'Session tracking' names the session identifier the store carries; it has no behaviour to state and is kind N. eventCount(), evictedCount(), size() and the replay queries eventsFrom, eventsSince and eventsBetween are not named by the spec and not modelled. The debug-aware stores answer events() from their primary store, not from the debug store, and are outside the line (EVT-020 covers them)."
           "The body bullet 'Subscriptions', AC1, AC3 and the test derivation are the second block of this ID, EVT_024_B. The Python binding has no debug store; its live subscriptions are EVT-031."
-  signoff "2026-11-13 546c9502cf8f0fad ai"
+  signoff "2026-11-13 20d46c2deb81cd12 ai"
   statement : ∀ {E : Type}, Nat → StoreObs E → Prop :=
     fun {E} c S => ∀ es : List E, S.read (es.map StoreOp.append) [] = es.drop (es.length - c)
 
@@ -589,7 +589,7 @@ requirement EVT_024_B
           "Cancel is not modelled: the debug form has no close label, and line 5's debug-form premise is the 'has not cancelled' of the sentence. Java and TypeScript Subscription.cancel() remove the subscriber; Rust's Subscription::cancel only drops a sender nobody reads, so a Rust subscriber that cancelled keeps receiving (Subscription::cancel and DebugEventStore::subscribe in rust/libpetri-debug/src/debug_event_store.rs), which no line forbids."
           "Open: the drop label is the store's close(), and the sentence 'A debug event store is open until its close() is called.' defines the open state the lines speak of. Lines 2, 4 and 5 speak of runs before it ('while open'), and line 5's continuation does not close the store. After close() Java still stores events but stops its broadcast (shutdownBroadcast, which waits up to two seconds for pending broadcasts), and Rust and TypeScript remove every subscriber; appends after close() are outside the reference, where no operation follows a drop, and line 3 covers whatever such a store still delivers. A subscriber that throws is caught and the broadcast goes on to the next one in Java and TypeScript; exceptions are not modelled."
           "The test derivation (subscribe to the debug store, append an event, verify that the subscriber receives it) is EVT_024_B_nonvacuous, with two subscribers that both receive the event appended after they subscribed, which is also the AC3 witness. The capacity of the store (AC2) is the first block of this ID, EVT_024. EVT-031 is the Python binding's subscription store over the same model, with filters, bounded channels and batches."
-  signoff "2026-11-13 42dcc5c89a1b23fd ai"
+  signoff "2026-11-13 95fe50ba28bd69d6 ai"
   statement : ∀ {E : Type}, SubSem E → Prop :=
     fun S =>
       S [] ∧

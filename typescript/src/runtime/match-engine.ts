@@ -81,6 +81,20 @@ export function selectMatchName(
 }
 
 /**
+ * Projects a token value to its name through a match key, or `null` for "no name": a
+ * projection that returns `null`/`undefined` and a projection that throws both yield no
+ * name (NU-054), so the token correlates with nothing and the run goes on. Every executor
+ * call of a match key goes through here.
+ */
+export function projectName(key: KeyFn, value: unknown): NameId | null {
+  try {
+    return key(value) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Builds a `name → {count, minCreatedAt}` index over the given tokens. Tokens
  * whose projected name is `undefined`/`null` are skipped — they carry no
  * correlation name and can never participate in a match (NU-021).
@@ -91,8 +105,8 @@ export function buildNameIndex(
 ): Map<NameId, NameStat> {
   const index = new Map<NameId, NameStat>();
   for (const token of tokens) {
-    const name = key(token.value);
-    if (name === undefined || name === null) continue;
+    const name = projectName(key, token.value);
+    if (name === null) continue;
     const ts = token.createdAt;
     const prev = index.get(name);
     if (prev) {

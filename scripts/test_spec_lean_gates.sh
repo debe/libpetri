@@ -209,19 +209,26 @@ expect_caught "module not in Report.lean    -> module coverage" "$MODULES" \
 
 # 11. A normative sentence added to a requirement text that no block covers or assumes.
 expect_caught "uncovered shall sentence     -> #audit_spec" "$AUDIT_SPEC" \
-  'sed -i "s/^The inhibitor arc does not consume tokens\.$/& The planted engine *shall* ring a bell./" Libpetri/Spec/Text/CORE_031.lean' \
+  'sed -i "s/^The inhibitor arc does not consume tokens\.$/& The planted engine *shall* ring a bell./" Libpetri/Spec/Text/CORE_031.lean && sed -i "s/  signoff \"[^\"]*\"/  signoff \"pending\"/" Libpetri/Spec/Core.lean' \
   "SPEC uncovered CORE-031: a 'shall' sentence" "The planted engine shall ring a bell."
 
 # 12. A covered span that survives only inside an HTML comment, which renders as nothing. The
-#     span's text is unchanged, so the block and its sign-off still build.
+#     span's text is unchanged, so the block still builds; its sign-off hash covers the whole
+#     requirement text, so the plant resets it to pending.
 expect_caught "covered span in an HTML comment -> #audit_spec" "$AUDIT_SPEC" \
-  'sed -i "s/^⟦s2|\(.*\)⟧$/<!-- ⟦s2|\1⟧ -->/" Libpetri/Spec/Text/CORE_031.lean' \
+  'sed -i "s/^⟦s2|\(.*\)⟧$/<!-- ⟦s2|\1⟧ -->/" Libpetri/Spec/Text/CORE_031.lean && sed -i "s/  signoff \"[^\"]*\"/  signoff \"pending\"/" Libpetri/Spec/Core.lean' \
   "SPEC span-not-sentence Libpetri.Spec.CORE_031: the covered text is not a whole sentence"
 
 # 12b. The kind of a requirement text (ruling D21) that no block of the ID has.
 expect_caught "kind edited in the text      -> #audit_spec" "$AUDIT_SPEC" \
-  'sed -i "s/^  kind B$/  kind F/" Libpetri/Spec/Text/CORE_031.lean' \
+  'sed -i "s/^  kind B$/  kind F/" Libpetri/Spec/Text/CORE_031.lean && sed -i "s/  signoff \"[^\"]*\"/  signoff \"pending\"/" Libpetri/Spec/Core.lean' \
   "SPEC kind-mismatch CORE-031" "the text says Kind F, but no block of CORE-031 has kind F"
+
+# 12c. A sentence of a signed requirement edited, the block left as signed: the sign-off hash
+#      covers the whole requirement text, so the block fails the build until it is signed again.
+expect_caught "text edited under a signed block -> requirement command" "$AUDIT_SPEC" \
+  'sed -i "s/^The inhibitor arc does not consume tokens\.$/The inhibitor arc consumes no tokens./" Libpetri/Spec/Text/CORE_031.lean' \
+  "requirement Libpetri.Spec.CORE_031: signoff hash" "does not match the statement hash"
 
 # 13. A citation of a removed (tombstoned) requirement.
 expect_caught "citation of tombstoned IO-006 -> #audit_spec" "$AUDIT_SPEC" \
@@ -283,7 +290,7 @@ expect_caught "RD-99 cited in Lean           -> render ledger check" 'lake env l
 
 # 15d2. A Depends on line naming a requirement that does not exist.
 expect_caught "Depends on a missing ID       -> render depends check" "$RENDER" \
-  'sed -i "s/^\*\*Test derivation:\*\* Compile a 100-place/**Depends on:** [CORE-999]\n\n&/" Libpetri/Spec/Text/PERF_030.lean' \
+  'sed -i "s/^\*\*Test derivation:\*\* Compile a 100-place/**Depends on:** [CORE-999]\n\n&/" Libpetri/Spec/Text/PERF_030.lean && sed -i "s/  signoff \"[^\"]*\"/  signoff \"pending\"/" Libpetri/Spec/Req/PERF_030.lean' \
   "PERF-030 (lean/Libpetri/Spec/Text/PERF_030.lean) depends on [CORE-999], which is not a requirement text"
 
 # 15e. A docstring refers to a glossary term that spec/glossary.md does not define.

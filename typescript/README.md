@@ -149,7 +149,7 @@ isComplete(executor.terminationReason());    // true
 
 The executor stops at the deposit that marks the terminal place. Nothing fires after it, actions still in flight are abandoned and their late results discarded (outputs are deposited in the completion phase, so a transition started earlier in the same pass is among them), and queued external events are refused (`inject` resolves `false`). A terminal place may be an environment place: injecting into it ends the run. It must not be an input or read-arc place of any transition, and a subnet body may not declare one. The SMT verifier applies terminal places by itself: each one inhibits every transition and excuses every token while it is marked, so no sink options are needed. It also models the abandoned actions: a `quiescentCount` with a lower bound counts only the tokens a run deposits before the terminal stop, unless the terminal place is in its `waivedBy`.
 
-`terminationReason()` returns `'quiescent'`, `'terminal'`, `'closed'` (after `close()`) or `'stopped'` (an expired `run(timeoutMs)` budget, which still rejects), and `'running'` before the run ends. `isComplete(reason)` is true only for `'quiescent'` and `'terminal'`: the other two are truncations.
+`terminationReason()` returns `'quiescent'`, `'terminal'`, `'closed'` (after `close()`) or `'stopped'` (an expired `run(timeoutMs)` budget, which still rejects, until the loop left running finishes and reports its own cause), and `'running'` before the run ends. `isComplete(reason)` is true only for `'quiescent'` and `'terminal'`: the other two are truncations.
 
 ## Checkpoint and resume
 

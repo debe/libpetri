@@ -65,7 +65,7 @@ requirement EXEC_003
           "The closing paragraph ('as if every firing in it started before any of them deposited') is the observational form of lines 2 and 5: moving each in-pass settle behind the last start of its pass keeps every start's pass-visible marking equal to the live marking of the moved run. It is link L5 of Reference/ExecLink.lean (ExecLink.hoist_vis), proved there, and it is not a line here. Its second sentence (verification reads such a firing as two steps) is VER-004's."
           "TypeScript settles every firing in step 1 (bitmap-net-executor.ts processCompletedTransitions), so no deposit happens inside its passes: its runs are runs of RefExec without an in-pass commit step, and the lines hold of them with an empty hidden tail."
           "Which transitions keep their clocks across a start (the restart flag on the live intermediate marking, ruling D7) is TIME-012's companion line, and re-entrancy (ruling D8 (b)) is CONC-002's; neither is stated here. Transition names are pairwise distinct (ruling D10, Cfg.WF), so the name a start or lose step carries names one transition and leaves the order with it."
-  signoff "2026-11-13 af7d24bd8a735333 ai"
+  signoff "2026-11-13 49d5d3a2d157cf13 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ n sy, on (fun s s' => R C s (.start n sy) s'), shall (fun s s' =>

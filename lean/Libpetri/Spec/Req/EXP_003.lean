@@ -53,7 +53,7 @@ requirement EXP_003
           "The label format is ruling D41 (a), pinned in EXP-007's label block: the name, then the timing interval when intervals are shown, then the priority when it is shown and is not 0. Lines 4 and 5 are the two consequences of that format this requirement states; the rest of the label is EXP-007's, and the agreement predicate ExportAgrees (glossary) ties the exporter's transition labels to EXP-007's labeller in the joint theorem."
           "Line 1 overlaps EXP-001's line on transition nodes, which also says that each transition has exactly one node and needs distinct transition names (glossary ExportNet.Distinct); this block states only that the node is drawn, so that an exporter that draws no transition node does not meet it vacuously (EXP_003_forbids_noTransNodes). Line 2 is the converse, which EXP-001 does not state (it counts only the nodes of the net's own transitions): a node whose reference names a transition names one the net has, whatever its row, so an edge pass that makes a node again from a sanitised endpoint ID (a_b from t_a_b) violates the block (EXP_003_forbids_ghostTrans). Lines 3 to 5 speak of every node that stands for a transition name, so two transitions of one name, which no net that builds has, change nothing here."
           "The external label of a transition node, its DOT ID (EXP-014), the cluster it is drawn in (EXP-016) and the order of the nodes are not stated here; node order is kind Q."
-  signoff "2026-11-13 1c0e0e06faf92826 ai"
+  signoff "2026-11-13 5234b771aa58aea2 ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (∀ t ∈ X.trans, ∃ n ∈ (E cfg X).nodes, n.ref = .trans t.name) ∧

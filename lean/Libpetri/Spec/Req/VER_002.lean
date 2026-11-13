@@ -130,7 +130,7 @@ requirement VER_002
           "AC12 (a shadowed reapable transition: with an immediate u: p0 → p1 added the net is DeadlockFree Proven) is the quiescence reading at the initial marking, checked by VER_002_nonvacuous_reap: u is enabled and not reapable, so the marking is not quiescent. AC13 (the self-loop at window(3, 5) is violated with the empty trace, never Proven by the structural route) is checked at its initial marking by VER_002_nonvacuous_reap; the structural route's refusal is VER-020's (the block VER_020_guard: no structural Proven with a reapable transition unless assumeNoReaping is set)."
           "AC14 and AC15 (Route B reaps a join and reads a late executor, the report names the dropped bounds) and AC16 (every quiescence route: the firing bound, the VER-018 phase and Route A) are about routes and reports: Route B and its Late.relax graph are VER-012's and NU-050's, the phases VER-018's and VER-019's, Route A NU-053's; the report text is kind Q."
           "The Implementation notes (the per-language QuiescentCount entry points and their representation of an unbounded max; Java and Rust SHOULD use an absent optional) are the API (kind N). Rust's QuiescentCount is a public enum variant, so a struct literal bypasses the constructor's check; VER_002_count states the constructor."
-  signoff "2026-11-13 8431b8ffece95a89 ai"
+  signoff "2026-11-13 e9e3fc530c914598 ai"
   statement : ∀ {N : Type} [DecidableEq N], StrandRel N → SafetyViolRel N → Prop :=
     fun S V =>
       (∀ noReap X sinks cond m, V noReap X (.deadlockFree sinks cond) m ↔
@@ -854,7 +854,7 @@ requirement VER_002_count
           "A bounded max must be whole as well: TypeScript (Number.isInteger) and Python reject a fractional max, and Java and Rust cannot express one, so the sentence restates every runtime; a constructor that floors a fractional max is killed (VER_002_count_forbids_maxFloor), and so is one that clamps a negative min to 0 (VER_002_count_forbids_clampNeg)."
           "Line 1 is the quoted MUST and AC9's first sentence (a negative or non-integral min, or a non-integral max or one below min, is rejected at construction); line 2 is AC1 for QuiescentCount (it can be constructed). AC9's second sentence (two implementations given the same unbounded max emit the same script, whatever each stores for it) is the script (kind Q); the representation of an unbounded max is not observable, here none."
           "Rust's SmtProperty::QuiescentCount is a public enum variant, so a struct literal builds a property without the constructor's check (SmtProperty::quiescent_count in rust/libpetri-verification/src/property.rs); the spec scopes the requirement to the constructor function and says a literal is not checked."
-  signoff "2026-11-13 bd51d01b199296a0 ai"
+  signoff "2026-11-13 2f69f98bb7260760 ai"
   statement : ∀ {N : Type}, CountBuild N → Prop :=
     fun B =>
       (∀ ps lo hi w, (lo < 0 ∨ lo.den ≠ 1 ∨ ∃ h, hi = some h ∧ (h.den ≠ 1 ∨ h < lo)) →

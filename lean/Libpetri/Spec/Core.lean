@@ -34,7 +34,7 @@ requirement CORE_031
           "AC2 (inhibitor place marked, transition disabled) is the first line."
           "AC3, first half (a firing consumes nothing through its inhibitor arcs): by the second line a firing of t from a marking with p unmarked is a firing of t without its arcs on p, so those arcs add nothing to what it consumes or produces; by the first line t does not fire when p is marked. AC3, second half: what a firing of another transition consumes through an input arc on p is CORE-030's subject, not this block's."
           "Inside a firing pass, the marking a transition fires from in the sense of these lines is the pass-visible marking, not the live one (EXEC-003 AC4, ruling D75 (a)): 'p is marked' is judged on it, so a token a synchronous action deposited into p earlier in the same pass does not block t, and t may fire later in that pass. Rust (recheck_can_fire in rust/libpetri-runtime/src/bitmap_backend.rs on the pass snapshot, inhibitors tested on that snapshot by can_enable_bitmap in compiled_net.rs) and Java (canEnable on fireScanBitmap) start such a transition, as EXEC_003_nonvacuous's fifth part shows on the reference executor (T4); TypeScript settles every firing in step 1, so its passes have no same-pass deposit. EXEC_003_start_inhibitors states the start half over the executor: a start happens only with every inhibitor place empty in the pass-visible marking. The bridge from a reference start to this one-step firing relation is recorded with the integrator."
-  signoff "2026-11-13 13bd1b82094c56b6 ai"
+  signoff "2026-11-13 7d31c150ae4215ab ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p, InhibitorArc t p →
       (while (fun m => Marked m p), never Fire F t) ∧

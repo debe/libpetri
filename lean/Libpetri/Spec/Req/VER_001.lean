@@ -178,7 +178,7 @@ requirement VER_001
           "The third quoted sentence is checked by VER_001_nonvacuous (t: one(a) with no output spec expands into the one row t with an empty deposit), and an expansion that gives such a transition no row is killed (VER_001_forbids_noneNoRow)."
           "The Implementation notes (the SMT route's phases in order, the CHC system as SMT-LIB2 text solved by the z3 executable, the Rust feature and the Python binding) are kind N; the phase order is stated where the spec keeps it as a requirement, on the pipeline model Verifier/Pipeline.lean (the blocks VER_015_order, VER_018_order and VER_019_order; the runtimes' step list is rtStepNames, pinned by rtStepNames_order). The test derivation's first sentence (a simple mutual exclusion net gets Proven for the mutual exclusion property) is a verdict: it belongs with AC1 and AC2 to the verdict contract of VER-003 (the block VER_003) and the MutualExclusion property of VER-002. The rest of the test derivation is AC3 to AC5, as above."
           "VER-001 is a SHOULD requirement; its shall sentences bind an implementation that verifies (ruling D22). Timing plays no part in the expansion: the timeout outcome is one way a firing can end, whatever the Timeout's duration."
-  signoff "2026-11-13 d08edec1867cc96d ai"
+  signoff "2026-11-13 5c2eff3dd1d5389c ai"
   statement : ∀ {N : Type} [DecidableEq N], VerifiedNetFn N → ExpandFn N → Prop :=
     fun V X =>
       (∀ net m0, (V net m0).places = net.places ++ m0.places.filter (fun p => p ∉ net.places)) ∧

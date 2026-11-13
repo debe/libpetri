@@ -100,7 +100,7 @@ requirement CORE_053
           "AC1 (the function receives the transition context) is line 1: the call that accounts for the completion is a call on the transition and the delivery the action was handed (CORE_053_forbids_blind)."
           "AC2 (the return value is produced to all output places) is lines 1 and 2: every completion carries one token with the returned value in every place the output specification names, and every returned value gives such a completion (CORE_053_forbids_firstOnly). transform(place, fn), transformFrom and transformAsync are API shape, not encoded."
           "The test derivation (a transform that doubles an integer input; all outputs receive the doubled value) is CORE_053_nonvacuous: the doubling function on a delivery of 7, under AND(Place 1, Place 2), completes with 14 in place 1 and 14 in place 2, and the reference action firing deposits both; besides, a function that fails makes the reference transform fail, so the premises of lines 3 and 4 are met."
-  signoff "2026-11-13 6b70bde76f2235a5 ai"
+  signoff "2026-11-13 d68bb5f33756a9d7 ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → (TransformFn N T V → ActionRel N T) → Prop :=
     fun val X =>
       (∀ f t δ e, X f t δ (.ok e) → ∃ w v, f t δ (.ok (w, v)) ∧ TransformCopies val t w v e) ∧

@@ -101,7 +101,7 @@ requirement EXP_014
           "AC1 (all junction IDs match j_[A-Za-z0-9_]+__(xor|and)_[0-9]+) follows from the first line, for every exporter meeting EXP-014, for a junction of a transition whose name is non-empty and ASCII (EXP_014_ac1), which is what the last quoted plain sentence scopes AC1 to. An empty transition name builds in every runtime and gives j___xor_0, which the regex rejects; a non-ASCII name gives an implementation-defined ID, and Rust's j_é__xor_0 does not match the regex either."
           "Guarantee 2 and AC2 (two exports of one net are byte-equal) have no content over a Lean function, which is deterministic; across processes they fail today for Java and Rust (HashSet order, ruling R2 (exp-b)); kind Q. Guarantee 3 and AC3 (Java, TypeScript and Rust exports are byte-equal) are a property of three programs and kind Q by ruling D60 (c); the export corpus EP-2 replays the reference against the runtimes after the migration. The order of nodes and edges is not stated (List.Perm), only the numbering the spec pins."
           "The test derivation (export twice and diff; export in three languages and diff) is AC2 and AC3, kind Q. EXP_014_nonvacuous decides the spec's example AND(XOR(a,b), XOR(c,d)) on t Nested, a deeper tree that separates pre-order from breadth-first numbering, a collapsed group, sanitised place, transition and junction IDs, and a junction ID apart from the transition ID on a non-ASCII name, on the reference."
-  signoff "2026-11-13 93861fe2b59913fc ai"
+  signoff "2026-11-13 f1aaffb0ce9c4adf ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       (∀ n ∈ (E cfg X).nodes, AsciiName n.ref.refName → n.id = nodeId n.ref) ∧

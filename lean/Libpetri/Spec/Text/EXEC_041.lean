@@ -34,7 +34,7 @@ both cases. A cancellation the executor observes *itself*, raised while it waits
 
 ⟦s8|The executor *shall* report the termination reason `quiescent` only when nothing is armed, in flight or queued ([EXEC-040]), and `terminal` only when a terminal place is marked ([EXEC-042]).⟧
 
-⟦s9|The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination, another caller-requested stop, or a fault of the host runtime that ends the run with a raised error ([EXEC-030]).⟧
+⟦s9|The executor *shall* report `closed` only after a close ([ENV-013]) or an immediate termination ([ENV-015]) was requested, and `stopped` only after an immediate termination, another caller-requested stop, a fault of the host runtime that ends the run with a raised error ([EXEC-030]), or a failure of the run's event store that ends the run with a raised error.⟧
 
 ⟦s10|At a rest the run reached after a close or an immediate termination, `quiescent` and `closed` both conform, and after an immediate termination `stopped` conforms too.⟧
 
@@ -69,7 +69,8 @@ orchestrator is parked in the wait, not from an action — and do so under a hos
 
 **Termination reasons.** ⟦s12|Where an implementation exposes the reason as a value, the values are:
 `quiescent` ([EXEC-040]), `terminal` ([EXEC-042]), `closed` ([ENV-013]), `stopped` (a run budget,
-another caller-requested stop, or a host fault that ends the run with a raised error) and
+another caller-requested stop, a host fault that ends the run with a raised error, or a failure
+of the run's event store that ends the run with a raised error) and
 `interrupted` (a cancellation observed in the wait, where the runtime has one).⟧ ⟦s13|`quiescent` and
 `terminal` are the two **completed** reasons: the returned marking is the one the net was designed
 to end in.⟧ ⟦s14|The others are truncations.⟧"#

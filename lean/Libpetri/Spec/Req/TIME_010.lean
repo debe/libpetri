@@ -46,7 +46,7 @@ requirement TIME_010
           "Transitions are identified by name (ruling D10): a stamp is kept per name, and lines 1 and 3 speak of the transition the net holds under the name (InNet). The section assumes pairwise distinct names (NamesDistinct), under which InNet is membership in the net (inNet_iff_mem)."
           "AC1 (enabled at T=10, earliest 3 s, ready at T=13) is the nonvacuous example TIME_010_nonvacuous, in milliseconds as the timings are: armed at 10, not fireable at 12, fireable at 13. The same example re-arms a reaped transition when a firing writes its input place and leaves it unarmed after a firing that writes none of its arc places (ruling D6)."
           "AC2 (disabled at T=11, re-enabled at T=15, ready at T=18) is the restart of TIME-011, which drops the stamp when the transition is disabled; this block fixes that the stamp taken at 15 is 15 (line 1), not one held from before (TIME_010_mutant_resume_killed), and that the transition does not fire before 18 (line 4)."
-  signoff "2026-11-13 f85d0da5b9a419c8 ai"
+  signoff "2026-11-13 ea9a99682276358a ai"
   statement : ∀ {N : Type} [DecidableEq N], TRel N → Prop :=
     fun R => ∀ X : TimedNet _,
       (∀ l u, InNet X u → on (fun s s' => R X s l s'), shall (fun s s' => ¬ Armed s u →

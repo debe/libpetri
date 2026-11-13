@@ -9,8 +9,8 @@ Theorems carrying this ID:
 - `Libpetri.Spec.core011b_ref_wall_blind` (theorem, `Libpetri/Spec/Req/CORE_011_B.lean:636`)
 - `Libpetri.Spec.refTStepW_delay_zero` (theorem, `Libpetri/Spec/ClashesTime.lean:372`)
 - `Libpetri.Spec.time015_ac10_coarse_jump` (theorem, `Libpetri/Spec/ClashesTime.lean:421`)
-- `Libpetri.Spec.time015_ac4_of_time010` (theorem, `Libpetri/Spec/Req/TIME_015.lean:199`)
-- `Libpetri.Spec.time015_ac6_reap_strict` (theorem, `Libpetri/Spec/Req/TIME_015.lean:224`)
+- `Libpetri.Spec.time015_ac4_of_time010` (theorem, `Libpetri/Spec/Req/TIME_015.lean:200`)
+- `Libpetri.Spec.time015_ac6_reap_strict` (theorem, `Libpetri/Spec/Req/TIME_015.lean:225`)
 
 > **Note:** the full tree has 408 nodes (limit 60), so it is drawn as one diagram per theorem (7 theorems).
 

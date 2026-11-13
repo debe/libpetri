@@ -162,7 +162,7 @@ requirement PERF_042
           "AC3 (a multi-word sparse mask iterates only non-zero words) is line 3 for the form (the multi-word form lists non-zero words of the mask only; PERF_042_mutant_allWords kills a compile step that keeps the zero words) and line 4 for its result (every non-zero word is checked; PERF_042_forbids_firstWord kills a check that reads the first only). That the check's loop walks the listed entries and nothing else is cost (kind Q), not encoded: a check that scans every word of the bitmap on correct forms meets the line."
           "AC4 (enablement results identical to full-width bitmap checks) is line 4. The test derivation's net with 200 places whose transitions touch 2 or 3 places is line 4 on one net, exercised by the reference in PERF_042_twoHundredPlaces; its 'is faster' is a cost criterion (kind Q)."
           "The check is the presence phase only. The cardinality check and the ν-match check ([CONC-008]) are later phases and are not part of it; reset arcs and output arcs play no part (glossary: Presence check)."
-  signoff "2026-11-13 37bebb0ba41d2afe ai"
+  signoff "2026-11-13 ea5d1cba83ccbd5f ai"
   statement : Nat → SparseCheck → Prop :=
     fun w C =>
       (∀ m, FitsIn w m → (C.compile m = .empty ↔ nonZeroOf m = [])) ∧

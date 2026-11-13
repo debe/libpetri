@@ -45,7 +45,7 @@ import { PrecompiledNet, CONSUME_ONE, CONSUME_N, CONSUME_ALL, CONSUME_ATLEAST, R
 import { validateOutSpec, validateRelays, produceTimeoutOutput, executeAction, swallowEventStoreFailure, DEADLINE_TOLERANCE_MS, nextExecutionId, restoredTokens, resolveExecutionScope, seededPlaceNames, unknownPlaceMessage } from './executor-support.js';
 import { deadArcMessage, findDeadArcs } from '../core/internal/dead-arcs.js';
 import { OutViolationError } from './out-violation-error.js';
-import { findBinding, IncrementalMatcher } from './match-engine.js';
+import { findBinding, IncrementalMatcher, projectName } from './match-engine.js';
 import { keyForPlace } from '../core/match-spec.js';
 import { nameId, type NameId } from '../core/name.js';
 
@@ -500,8 +500,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
         const mk = ms.keys[keyIdx]!;
         const pid = prog.compiled.placeId(mk.place);
         for (const token of this.tokenQueues[pid]!) {
-          const name = mk.key(token.value);
-          if (name !== undefined && name !== null) matcher.add(keyIdx, name, token.createdAt);
+          const name = projectName(mk.key, token.value);
+          if (name !== null) matcher.add(keyIdx, name, token.createdAt);
         }
         this.placeMatchTargets[pid]!.push([tid, keyIdx]);
       }
@@ -519,8 +519,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       if (cache == null) continue;
       const t = prog.compiled.transition(tid);
       const mk = t.matchSpec!.keys[keyIdx]!;
-      const name = mk.key(token.value);
-      if (name !== undefined && name !== null) cache.add(keyIdx, name, token.createdAt);
+      const name = projectName(mk.key, token.value);
+      if (name !== null) cache.add(keyIdx, name, token.createdAt);
     }
   }
 
@@ -566,7 +566,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       if (timedOut) {
-        // EXEC-041: an expired budget is a caller-requested stop, whatever the loop does next.
+        // EXEC-041: the expiry ends the caller's wait, not the loop. Report stopped while the
+        // loop runs on; its own finish then records the cause it ends with.
         if (this.reason === 'running') this.reason = 'stopped';
         if (onTimeout === 'close') this.close();
         // Nobody is left to observe the abandoned loop's outcome.
@@ -619,9 +620,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
     this.running = false;
     // EXEC-042: a terminal stop refuses whatever is still queued (ENV-004), as close() does.
     this.drainPendingExternalEvents();
-    if (this.reason === 'running') {
-      this.reason = this.terminalReached ? 'terminal' : this.closed ? 'closed' : 'quiescent';
-    }
+    // EXEC-041: the finish reports its own cause, also after an expired run budget set stopped.
+    this.reason = this.terminalReached ? 'terminal' : this.closed ? 'closed' : 'quiescent';
 
     this.emitEvent({
       type: 'marking-snapshot',
@@ -1319,7 +1319,7 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
       const keyFn = keyForPlace(ms, inSpec.place.name);
       const pred: ((value: any) => boolean) | undefined =
         (keyFn && chosen !== null)
-          ? (v: any) => keyFn(v) === chosen
+          ? (v: any) => projectName(keyFn, v) === chosen
           : undefined;
 
       let toConsume: number;
@@ -1827,7 +1827,8 @@ export class PrecompiledNetExecutor implements PetriNetExecutor {
 
   /**
    * Why the run ended ([EXEC-041] AC3), or `'running'` until it has: `'quiescent'`,
-   * `'terminal'` ([EXEC-042]), `'closed'` ([ENV-013]) or `'stopped'` (an expired run budget).
+   * `'terminal'` ([EXEC-042]), `'closed'` ([ENV-013]) or `'stopped'` (an expired run budget,
+   * until the loop it left running finishes and reports its own cause).
    */
   terminationReason(): TerminationReason {
     return this.reason;

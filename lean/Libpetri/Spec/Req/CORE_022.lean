@@ -47,7 +47,7 @@ requirement CORE_022
           "AC2 (missing input tokens, disabled) is the second line."
           "AC3 (missing read tokens, disabled) is the third line."
           "AC4 (inhibitor place has tokens, disabled) is the fourth line."
-  signoff "2026-11-13 ac97fd4b8210a654 ai"
+  signoff "2026-11-13 adee76c2bb1c1b01 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t, Builds t →
       (while (fun m => ∃ s ∈ t.core.inputs, m s.place < requiredCount s.card), never Fire F t) ∧

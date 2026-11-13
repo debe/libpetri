@@ -60,8 +60,10 @@ public final class MatchSpec {
     public record MatchKey(Place<?> place, Function<Object, NameId> key) {
 
         /**
-         * Projects a token value to its name, or {@code null} when the value's
-         * type does not match the declared key type (treated as "no name").
+         * Projects a token value to its name, or {@code null} for "no name": a value
+         * of another type than the declared key type, and a projection that throws,
+         * yield no name (NU-054), so the token correlates with nothing and the run
+         * goes on.
          *
          * @param value the token value
          * @return the projected name, or {@code null}
@@ -69,7 +71,7 @@ public final class MatchSpec {
         public NameId extract(Object value) {
             try {
                 return key.apply(value);
-            } catch (ClassCastException e) {
+            } catch (RuntimeException e) {
                 return null;
             }
         }

@@ -90,7 +90,7 @@ requirement CORE_003
           "Like most on … shall lines, lines 1 to 3 hold of the relation that takes no step; line 4 does too, since it only extends steps Q takes. The coverage conjunct QCovers Q F of the queue consistency theorem rules out the empty relation, as for CORE-010."
           "The fourth and fifth sentences of the description and AC2 are not encoded. The fourth (an implementation that keeps a run-time token type for each place rejects an initial marking that puts a token with an incompatible value in a place) and AC2 are Java's Marking.from check, run when either Java executor is built. The initial marking is CORE-072's Init, over token counts, so no step relation here sees the token's value: the check is tested, not encoded (kind Q), and it is not part of the block's scope. Java does not check later deposits (Marking.addToken, ctx.output) at run time. The fifth (a compiler rejects a token of another type where an API call takes a typed place handle) is API shape: compile-time typing is not claimed (ruling D36 (a)) and is not relied on, and the typed API surfaces do not bind the Python binding in this migration (ruling D99 (a))."
           "The test derivation (a transition outputs an integer token to an Integer place and succeeds; in Java an initial marking with a string token is rejected) is AC1 and AC2; CORE_003_nonvacuous fires the reference with the compatible deposit of 30 to place 2."
-  signoff "2026-11-13 0ea88201c63f35e8 ai"
+  signoff "2026-11-13 27bef09c2e3e60a3 ai"
   statement : ∀ {N T Ty V : Type} [DecidableEq N], (N → Ty) → (T → Option V) →
       (Ty → V → Prop) → QFireRel N T → Prop :=
     fun ty val HasType Q => ∀ t, NoInputRead t →

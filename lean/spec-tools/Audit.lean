@@ -209,6 +209,9 @@ import Libpetri.Spec.Ledger.RD_48
 import Libpetri.Spec.Ledger.RD_49
 import Libpetri.Spec.Ledger.RD_50
 import Libpetri.Spec.Ledger.RD_51
+import Libpetri.Spec.Ledger.RD_52
+import Libpetri.Spec.Ledger.RD_53
+import Libpetri.Spec.Ledger.RD_54
 import Libpetri.Spec.Ledger.Unbuilt
 import Libpetri.Spec.Markdown
 import Libpetri.Spec.Registry

@@ -57,7 +57,7 @@ requirement CORE_002
           "In Java two places of one name and different token types are two places, so a Java net may hold two places with one name. Requirements keyed by place name (snapshot and restore, CORE-073; event and export identifiers) assume one place per name in Java, the place analogue of the unique transition names of ruling D10; CORE-073 already puts such a net outside snapshot and restore. This block states no such assumption itself."
           "The Note (a body place instantiated under two prefixes gives two distinct places) is MOD-010's renaming applied to the key: the two instances have different names, so line 1 makes them different places. A key that strips the prefix (core002_stripPrefix) makes \"a/x\" and \"b/x\" one place and is rejected (CORE_002_forbids_stripPrefix). Renaming itself is the composition model's (wave W8)."
           "The test derivation is lines 1 and 2 with CORE_002_nonvacuous: two places named A and B are different places (line 1); one place referenced twice, and two places constructed separately with one name and one token type, are one place (line 2, the place object (A, 0) the same as an equal one under both identities); and one name with token types 0 and 1 is one place by name (TypeScript, Rust, Python) and two by name and type (Java) (place_identity_divergence). That the engine holds one place of that name in the compiled net is CONC-007's line 1 over the places of the net."
-  signoff "2026-11-13 2d1cd1e89380fb5a ai"
+  signoff "2026-11-13 d6990bd7d9a321a0 ai"
   statement : ∀ {Nm Ty : Type}, PlaceKeyed Nm Ty → Prop :=
     fun M =>
       (∀ p q, M.Same p q → M.name p = M.name q) ∧

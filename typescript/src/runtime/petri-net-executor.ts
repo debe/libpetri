@@ -23,8 +23,9 @@ export type RunTimeoutPolicy = 'abandon' | 'close';
  * - `'terminal'` — a deposit marked a terminal place the net declares ([EXEC-042]). The marking
  *   is the designed end; in-flight actions were abandoned and queued external events refused.
  * - `'closed'` — {@link PetriNetExecutor.close} stopped the run ([ENV-013]).
- * - `'stopped'` — a run budget (`run(timeoutMs)`) expired. The returned promise still rejects,
- *   as it always has; this is what the executor reports afterwards.
+ * - `'stopped'` — a run budget (`run(timeoutMs)`) expired and the loop has not finished yet. The
+ *   returned promise rejects; when the loop later finishes, the reason becomes the cause it
+ *   finished with (`'quiescent'`, `'terminal'` or `'closed'`).
  *
  * `'quiescent'` and `'terminal'` are the **completed** reasons ({@link isComplete}); the others
  * are truncations, whose marking the net was not designed to end in.

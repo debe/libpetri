@@ -130,7 +130,7 @@ requirement VER_025
           "AC14 (scripts: J = 0 byte-identical to VER-019, golden witness.smt2, dump file names) is about the SMT-LIB text and the dump, outside the model (P4); at the constraint level, J = 0 is bmcModelEnv_nil."
           "AC15 (default 8, one query at a positive n, the error for -1) is ver025_depthDefault and ver025_depthError, pinned below, and the depth argument of W."
           "The test derivation (the envBoundedPair fixtures at depths 8 and 10, one test per gate and outcome, the depth-0 opt-out of tests that pin the fixpoint query) is AC1, AC2, AC3 and AC7, as above."
-  signoff "2026-11-10 104625b4eefcf18b"
+  signoff "2026-11-13 5ae1d410184671de"
   statement : ScriptRel → PhaseFn → PipelineFn → Prop :=
     fun S W P =>
       (∀ (rows : List Novel.FiringBound.Row) (injs : List Inj) (n : Nat) (a0 : AMarking)

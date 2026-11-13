@@ -5938,6 +5938,66 @@ abstract class AbstractNetExecutorEngineTest {
         }
     }
 
+    /**
+     * NU-054, EXEC-041: a match-key projection that throws yields no name. The token stays
+     * uncorrelated, the join fires on the name it can match, and the run ends QUIESCENT instead
+     * of raising the projection's exception out of the loop. Place A holds the throwing token
+     * first, so the consume of the matched token passes over it too.
+     */
+    @Test
+    void nuJoin_throwingKeyIsNoName_fastPathMatcher() throws Exception {
+        assertThrowingKeyIsNoName(false);
+    }
+
+    /** As above, with a second consumer of A, so the join takes the full rebuild path. */
+    @Test
+    void nuJoin_throwingKeyIsNoName_rebuildPath() throws Exception {
+        assertThrowingKeyIsNoName(true);
+    }
+
+    private void assertThrowingKeyIsNoName(boolean secondConsumer) throws Exception {
+        var a = Place.of("A", NuMsg.class);
+        var b = Place.of("B", NuMsg.class);
+        var merged = Place.of("merged", String.class);
+        var gate = Place.of("gate", String.class);
+        var sink = Place.of("sink", NuMsg.class);
+        java.util.function.Function<NuMsg, NameId> key = m -> {
+            if (m.cid().equals("BAD")) throw new IllegalStateException("projection failed");
+            return NameId.of(m.cid());
+        };
+        var join = Transition.builder("join")
+            .inputs(one(a), one(b))
+            .match(MatchSpec.builder().key(a, key).key(b, key).build())
+            .outputs(place(merged))
+            .action(ctx -> {
+                ctx.output(merged, ctx.input(a).cid() + "+" + ctx.input(b).cid());
+                return CompletableFuture.completedFuture(null);
+            })
+            .build();
+        var builder = PetriNet.builder("nuThrowingKey").transitions(join);
+        if (secondConsumer) {
+            builder.transitions(Transition.builder("drain")
+                .inputs(one(a), one(gate))
+                .outputs(place(sink))
+                .action(ctx -> {
+                    ctx.output(sink, ctx.input(a));
+                    return CompletableFuture.completedFuture(null);
+                })
+                .build());
+        }
+        var initial = Map.<Place<?>, List<Token<?>>>of(
+            a, List.of(new Token<>(new NuMsg("BAD"), Instant.ofEpochMilli(0)),
+                       new Token<>(new NuMsg("X"), Instant.ofEpochMilli(1))),
+            b, List.of(new Token<>(new NuMsg("X"), Instant.ofEpochMilli(0))));
+        try (var executor = createExecutor(builder.build(), initial)) {
+            var result = executor.run(Duration.ofSeconds(2)).toCompletableFuture().join();
+            assertEquals(List.of("X+X"), result.peekTokens(merged).stream().map(Token::value).toList());
+            assertEquals(List.of("BAD"), result.peekTokens(a).stream().map(t -> t.value().cid()).toList(),
+                "the token whose key throws stays uncorrelated");
+            assertEquals(TerminationReason.QUIESCENT, executor.terminationReason());
+        }
+    }
+
     // ==================== ν-net join relay (NU-054) ====================
 
     /**

@@ -111,7 +111,7 @@ requirement NU_052
           "AC6 (when the shared consumed place holds enough tokens for both transitions, CONFLICT does not prune the lower-priority one) is line 2 (NU_052_forbids_noCount) and, on the step, NU_052_nonvacuous (two tokens: both expanded)."
           "AC7 (a pruner in flight pre-empts nothing: H with an asynchronous action, L, the refill g, Unreachable(bad) Violated under CONFLICT with L in the trace) needs the verdict over the split net, which is not encoded here. Line 1 keeps the in-flight condition as the base layer's idle (NU_052_forbids_noIdle); NU_052_split line 6 reads idle on inflight:<H> and shows that a pruner in flight leaves L expanded (NU_052_split_nonvacuous); which transitions are split is VER_004_split_ac7; the count-level witness is Libpetri.inFlight_guard_is_necessary (Priority.lean)."
           "The test derivation (the ν-join versus timed dead-letter drain fixture, the genuine orphan, every verdict attributed to Route B) is AC2 and AC3: their verdicts are VER-012's graph and are not encoded here."
-  signoff "2026-11-13 d0fdd1cdf880d0fc ai"
+  signoff "2026-11-13 c9ddd3686d6ad259 ai"
   statement : ∀ {β : Type}, Expand β → Compete → Prop :=
     fun E C =>
       (∀ co (base : BaseLayer _) (κ : _ → AMarking) net role c (S : NState co _),

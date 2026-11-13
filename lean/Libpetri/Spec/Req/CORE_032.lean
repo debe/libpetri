@@ -42,7 +42,7 @@ requirement CORE_032
           "AC3 (action receives the read token value) is not encoded: the firing relation works on token counts and has no action or token values. Which token is read is [EXEC-012]'s subject, the context access [CORE-061]'s."
           "'Marked' is read as 'holds at least one token' (glossary: Marked), the spec's 'at least one token for enablement'."
           "AC2's 'token remains' is encoded at count level only. A firing that takes the read token out of p and puts it, or another token, back in the same step leaves the same counts and satisfies this statement, but moves the token to the FIFO tail and changes its timestamp. Token identity, FIFO position and timestamp are below the count granularity of the firing relation, as for CORE-030 AC2; they belong to [EXEC-012] ('both A and B remain after firing', the oldest is peeked), and no count-level block can catch the bug."
-  signoff "2026-11-13 114ece4e82239077 ai"
+  signoff "2026-11-13 7fd3f8d88a4203c9 ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t p, ReadArc t p →
       (while (fun m => ¬ Marked m p), never Fire F t) ∧

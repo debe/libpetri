@@ -72,7 +72,7 @@ requirement IO_016
           "A branch fixes which places receive tokens, not how many: with output validation enabled, a firing that ends with its action deposits one or more tokens in each place of one output branch and none in any other (glossary: Output branch, IO-015, CORE-036). The paragraph on what the analyses deposit (one token per place of a branch: VER-010, VER-001, NU-051) describes those analyses, not the enumeration, and is their subject. The reference firing semantics deposits one token per claim of a branch, the case the analyses model; the non-vacuity theorem shows one such firing."
           "The paragraph on the timeout outcome says that it is not an output branch (glossary: Timeout outcome), which the `Timeout` line respects by enumerating the child's branches only; the `ForwardInput` line is the branch an action writes, `to` claimed once (glossary: Forward, IO-015), not the timeout outcome's per-consumed-token deposit (IO-014). How the analyses append the timeout outcome after the branches, when it differs place by place from every branch (deposits compared per place, CORE-036), is VER-001's subject."
           "The block fixes the enumeration function only. That executors and analyses use it (the executor's validation, the SCG virtual transitions, the flattener) is the subject of IO-015, VER-001 and VER-010."
-  signoff "2026-11-13 1271111c6f5c5e23 ai"
+  signoff "2026-11-13 9f5864d92dfe9b93 ai"
   statement : ∀ {N : Type} [DecidableEq N], BranchEnum N → Prop :=
     fun E =>
       (∀ p, E (.place p) = [{p}]) ∧

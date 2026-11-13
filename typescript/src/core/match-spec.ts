@@ -19,9 +19,9 @@ import type { NameId } from './name.js';
 
 /**
  * A name projection: maps a token's value to its {@link NameId}. A projection
- * that yields no name (returns `null`/`undefined` at runtime) is treated as
- * "no name" — that token never correlates — mirroring the Java/Rust `KeyFn`
- * contract; the binding selector handles a nullish result defensively.
+ * that yields no name (returns `null`/`undefined` at runtime) or throws is
+ * treated as "no name" (NU-054): that token never correlates, and the run goes
+ * on, mirroring the Java and Python contract.
  */
 export type KeyFn<T = any> = (value: T) => NameId;
 

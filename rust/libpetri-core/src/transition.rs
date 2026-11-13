@@ -7,8 +7,8 @@ use crate::arc::{Inhibitor, Read, Reset};
 use crate::input::In;
 use crate::match_spec::MatchSpec;
 use crate::output::{
-    Out, all_places, ambiguous_branches, duplicate_in_branch, find_forward_inputs, find_timeout,
-    forward_outside_timeout, timeout_count, xor_inside_timeout,
+    Out, all_places, ambiguous_branches, arity_violation, duplicate_in_branch, find_forward_inputs,
+    find_timeout, forward_outside_timeout, timeout_count, xor_inside_timeout,
 };
 use crate::place::PlaceRef;
 use crate::timing::{Timing, deadline, delayed, exact, immediate, window};
@@ -361,6 +361,11 @@ impl TransitionBuilder {
     ///   the input arc already hands the consumed tokens to the action. Checked
     ///   after the input checks and before the timing and output-spec checks; the
     ///   first such read arc in declaration order is named.
+    /// - Panics if an `And` node of the output spec has no child or an `Xor` node
+    ///   fewer than two (**IO-011** AC1, **IO-012** AC1), with the message of
+    ///   [`and`](crate::output::and) or [`xor`](crate::output::xor): a spec written
+    ///   with the public `Out` variants skips those factories. Checked after the
+    ///   timing and before the output-spec checks.
     /// - Panics if one output branch names a place twice (**IO-011**): outputs are
     ///   sets of places, so `and(P, P)` is not two tokens into `P`.
     /// - Panics if an input requires no token (`In::Exactly { count: 0 }`,
@@ -434,6 +439,15 @@ impl TransitionBuilder {
             Timing::Exact { at_ms } => {
                 exact(at_ms);
             }
+        }
+
+        // [IO-011] AC1 / [IO-012] AC1: `and()` and `xor()` reject an `And` without
+        // children and an `Xor` with fewer than two, but the `Out` variants are public,
+        // so a spec written out directly is checked here, at any depth, before the
+        // output-spec checks. An empty `Xor` would consume on every firing and then
+        // fail output validation.
+        if let Some(message) = self.output_spec.as_ref().and_then(arity_violation) {
+            panic!("{message}");
         }
 
         // [IO-011]: outputs are sets (IO-015), so one AND branch naming a place
@@ -1195,9 +1209,53 @@ mod tests {
         let started = std::time::Instant::now();
         assert_eq!(build_error(xor(vec![side("x", "y"), side("u", "v")])), None);
         assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
-        // An empty And claims no place: two of them are the same set.
-        let message = build_error(xor(vec![Out::And(vec![]), Out::And(vec![])])).unwrap();
-        assert!(message.contains("output branches 0 and 1 both claim {}"), "{message}");
+        // An empty And claims no place: two of them are the same set. The build
+        // rejects an empty And before this check (IO-011 AC1), so ask the check itself.
+        let two_empty = xor(vec![Out::And(vec![]), Out::And(vec![])]);
+        let amb = ambiguous_branches(&two_empty).unwrap();
+        assert_eq!((amb.first, amb.second, amb.places.len()), (0, 1, 0));
+    }
+
+    /// IO-012 AC1, IO-011 AC1: the `Out` variants are public, so an `Xor` of fewer
+    /// than two children or an `And` without one can skip `xor()` and `and()`. The
+    /// build rejects it at any depth with the factory's message, the first such node
+    /// in pre-order reporting, after the timing check and before the output-spec
+    /// checks.
+    #[test]
+    fn io_012_ac1_xor_and_io_011_ac1_and_arity_is_checked_at_build() {
+        use crate::output::{and, timeout, xor};
+        const XOR: &str = "XOR requires at least 2 children";
+        const AND: &str = "AND requires at least 1 child";
+        for (spec, message) in [
+            (Out::Xor(vec![]), XOR),
+            (Out::Xor(vec![leaf("P")]), XOR),
+            (and(vec![leaf("Q"), Out::Xor(vec![leaf("P")])]), XOR),
+            (timeout(10, Out::Xor(vec![leaf("P")])), XOR),
+            (Out::And(vec![]), AND),
+            (xor(vec![leaf("A"), Out::And(vec![])]), AND),
+            // Pre-order: the outer Xor before the empty And inside it.
+            (Out::Xor(vec![Out::And(vec![])]), XOR),
+            (xor(vec![Out::Xor(vec![leaf("A")]), Out::And(vec![])]), XOR),
+            // Before IO-011 (P twice in one branch) and IO-013 (Xor inside the Timeout child).
+            (and(vec![leaf("P"), leaf("P"), Out::Xor(vec![leaf("A")])]), XOR),
+            (timeout(10, xor(vec![leaf("A"), Out::And(vec![])])), AND),
+        ] {
+            assert_eq!(build_error(spec.clone()).as_deref(), Some(message), "{spec:?}");
+        }
+        // The factories' specs of two children, and of one under And, build.
+        assert_eq!(build_error(Out::Xor(vec![leaf("A"), leaf("B")])), None);
+        assert_eq!(build_error(Out::And(vec![leaf("A")])), None);
+        // The timing check runs first.
+        let timing_first = std::panic::catch_unwind(|| {
+            Transition::builder("t")
+                .timing(Timing::Deadline { by_ms: 0 })
+                .output(Out::Xor(vec![]))
+                .build()
+        })
+        .err()
+        .and_then(|e| e.downcast_ref::<String>().cloned())
+        .unwrap();
+        assert!(timing_first.starts_with("Deadline must be positive"), "{timing_first}");
     }
 
     /// IO-013 AC7: more than one Timeout node, nested or not, is rejected at build.

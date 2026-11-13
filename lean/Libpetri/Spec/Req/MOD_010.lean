@@ -59,7 +59,7 @@ requirement MOD_010
           "Item 1 and AC4 (a params value of the wrong type is rejected) are API shape: the parameters value is not modelled, its type is checked by the host language at compile time where it has generics and at construction otherwise, tested and not proven. AC3 (the renamed body is immutable) is a quality property of the host values (Lean values are immutable; CORE-041 states builder stability), tested and not proven."
           "AC1 (instantiate(\"buf1\", params) over a body containing place slots produces buf1/slots) is MOD_010_nonvacuous on the reference, by decide; so is line 4 on a body with the terminal place done."
           "AC2 (two instantiations of one definition under different prefixes have disjoint place and transition name sets) follows from lines 1 and 3 and the naming model's laws (mod010_disjoint, for every model of the block, on place names and transition names; AC1 at every naming model is mod010_placeName), so it has no mutant of its own (skeptic correction S4 of the composition design). The nested form outer/inner/originalName is MOD-013's (preS_assoc)."
-  signoff "2026-11-13 ee51dcfb3dcac4fe ai"
+  signoff "2026-11-13 420e0e745f43efca ai"
   statement : ∀ {N A : Type}, Naming N → InstFn N A → Prop :=
     fun {N A} Nm Inst =>
       (∀ (S : SubnetDef N A) p, ¬ ValidPrefix p → ∃ msg, Inst S p = .error msg) ∧

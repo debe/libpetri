@@ -87,7 +87,7 @@ requirement CORE_051
           "AC2 (no output tokens are produced) is line 1: the only outcome is completion with no token."
           "AC3 (repeated retrieval yields the same instance, and an identity predicate accepts the built-in and rejects every other action, including fork()) is lines 4 and 2, with core051_fork_ne for fork()."
           "The test derivation (fire a sink transition with passthrough and see no output token; retrieve the built-in twice and see identity) is CORE_051_nonvacuous: the reference action firing of a sink under the passthrough tag deposits nothing, two retrievals are equal and accepted, and the predicate rejects fork() and a hand-written no-op."
-  signoff "2026-11-13 03fbcb7e4e151706 ai"
+  signoff "2026-11-13 85983106b3c2790e ai"
   statement : ∀ {N T A : Type}, (Act A → ActionRel N T) → (Act A → Bool) → TBuilder N A →
       (Nat → Act A) → Prop :=
     fun interp isPT B pt =>

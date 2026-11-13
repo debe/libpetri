@@ -165,7 +165,7 @@ requirement EXEC_022
           "AC3 (ForwardInput in the timeout child forwards every consumed token, one output token per consumed token, in consumption order, each keeping its created_at) is line 1's exec022_QOutcome with lines 2 and 3: EXEC_022_nonvacuous consumes 7 and 8 and deposits [7, 8] in the forward's target; EXEC_022_forbids_forwardFirst forwards 7 alone."
           "AC4 (output the action wrote and had not published before the budget expired is discarded, not merged with the timeout branch; output it published before stays) is lines 2, 3, 4 and 6: EXEC_022_nonvacuous writes 50 to place 1 before the expiry, and place 1 stays empty after the timeout deposit; the published half is ruling D17, as in the seventh shall sentence above."
           "The test derivation (slow action with a timeout, verify the timeout branch tokens and the event) is EXEC_022_nonvacuous's timeout run, without the event (EVT-010, wave W7)."
-  signoff "2026-11-13 02dc840a0413f189 ai"
+  signoff "2026-11-13 4269c3fa66f4ad07 ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C i,
       (∀ e, on (fun s s' => R C s (.expire i e) s'), shall (fun s _ =>

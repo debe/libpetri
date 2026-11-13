@@ -69,7 +69,7 @@ requirement CORE_036
           "AC2 (an action that writes two tokens into one place of the branch it satisfies fires, and the marking receives all of them) is CORE_036_allows_multi: CORE-036 holds of a firing relation in which t: a → and(b, c) fires with the write b, b, c, and that firing leaves 2 tokens in b and 1 in c. That such a write is deposited at all is IO-015 and IO-016 AC4; CORE-036 only has to allow it."
           "AC3 (two firings that deposit the same number of tokens in every place, in different orders, deposit the same outcome) is core036_c8_perPlace and core036_perPlace_closed, and concretely CORE_036_allows_multi: the write c, b, b of the same transition is allowed alike and leaves the same marking."
           "InputArc names the first input arc on a place (glossary: Input arc); CORE-030 rejects a transition with two input arcs on one place at build, so for every well-formed transition it is the only one."
-  signoff "2026-11-13 153aed3781898e2a ai"
+  signoff "2026-11-13 11bbf112c510dd8c ai"
   statement : ∀ {N : Type} [DecidableEq N], FireRel N → Prop :=
     fun F => ∀ t,
       (∀ p c, InputArc t p c →

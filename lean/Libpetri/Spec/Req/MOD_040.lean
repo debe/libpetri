@@ -117,7 +117,7 @@ requirement MOD_040
           "On a net a MOD-026 builder produces, every membership key is a node, so line 1 is binding only in the abstract model, whose mapping may have an entry for a name that is no node; there it also rules out an accessor that looks the entry up before the node test. No runtime does: Java (PetriNet.java subnetOf, the index.nodes().contains test), TypeScript (petri-net.ts subnetOf, the index.nodes.has test) and Rust (petri_net.rs subnet_of, index.nodes.get(name)?) test the node first. The statement is stronger than the observable contract here, not weaker."
           "AC9 is decided on the reference in MOD_040_nonvacuous: with a transition s1/t the place s1/obs/TURN answers s1 (line 3, walking up past s1/obs to a prefix some transition lives under), x/y with no transition under x/ is absent (line 4), with a transition outer/inner/t the place outer/inner/p answers outer/inner, and a membership entry wins over each (line 2). Its last sentence, that the DOT export of the same nets is byte-identical to before, is the export half (slice (b), the block MOD_040_b) and kind Q for the bytes."
           "The test derivation (a composed net with two instances, and a directly composed net of two subnets, exported and checked for cluster blocks) is the export half, slice (b), the block MOD_040_b."
-  signoff "2026-11-13 0c36db038ddd733e ai"
+  signoff "2026-11-13 e3074a4aeb304e8b ai"
   statement : SubnetAccess → Prop :=
     fun M =>
       (∀ (X : SubnetNet) n, ¬ X.IsNode n → M.subnetOf X n = none) ∧

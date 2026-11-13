@@ -47,7 +47,7 @@ requirement NU_022
           "AC2 (an incremental matcher returns the same NameId as the reference select_match_name for any sequence of add and consume operations) is about a matcher's internal state, the heap and per-name queues of the incremental matcher. Its contents half is proved for the Lean match cache by MatchCache.match_cache_lockstep, fire_muts_lockstep and sync_matchedRemove_step (the cache equals the from-scratch recompute after every eligible mutation); the heap order is kind Q, tested by the randomised differential tests of the test derivation. Not a line here."
           "AC3 (NameId ordering byte-identical for ASCII and BMP names; supplementary-plane code points may order differently per NU-001) is NU-001's, see above; not a line here."
           "A match without keys selects nothing: eligible is false for every name when the match has no key, as in every runtime (per_place.is_empty() returns None). A match builder rejects fewer than two keys (NU-020); the raw construction paths do not, and the block covers them too."
-  signoff "2026-11-13 10b4f766fd485813 ai"
+  signoff "2026-11-13 3dbd98e065e4edd0 ai"
   statement : ∀ {Nm : Type} [LinearOrder Nm], MatchSelect Nm → Prop :=
     fun S =>
       (∀ I n, S I = some n → Selected I n) ∧

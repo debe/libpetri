@@ -55,7 +55,7 @@ requirement CONC_023
           "The test derivation (three priority levels; priority order across levels, FIFO within each level) is checked by CONC_023_nonvacuous on conc023_I5: priorities 3, 2 and 1, with two transitions of the lowest level armed in the order opposite to their declaration and two with equal stamps."
           "Form: the quoted sentences use 'shall' inside a SHOULD requirement, as IO-016 and TIME-015 do. The SHOULD is the queue structure; the order the sentences state is required of every backend by EXEC-002 (MUST), so 'shall' is true whether or not a backend keeps per-level queues."
           "Equivalence: line 1 to line 5 together are the same as EXEC-002's four lines (CONC_023_iff_EXEC_002; on the fast path line 5 is EXEC-002's fourth line; off the fast path, the order is a permutation of the ready transitions strictly sorted by EXEC-002's canonical key, the hard direction being conc023_blocks_of_sorted). That the precompiled backends compute the drain is Q evidence: collect_ready_general_refines (Sched.lean) shows that a drain of level blocks of the ready set equals the reference's sort, and precompiled_refines_bitmap_immediate (Refinement.lean) covers the immediate fragment."
-  signoff "2026-11-13 814d35b7abaf7bf8 ai"
+  signoff "2026-11-13 62d82e0965733d22 ai"
   statement : ReadyOrder → Prop :=
     fun O => ∀ I : ReadyIn,
       ((O I).Perm I.readyList ∧

@@ -73,7 +73,7 @@ requirement CONC_022
           "AC4 (token count per place is available in O(1)) is line 5; the cost is kind Q, not encoded."
           "The test derivation (add and consume tokens in various orders, verify FIFO ordering and counts) is CONC_022_nonvacuous and CONC_022_nonvacuous_frame on the ring pool."
           "The section depends on CORE-013 (token FIFO ordering). Both blocks use the glossary term Queue order; CORE-013 states it over the queue firing relation, and CONC_022_refQOps shows that the queue marking the EXEC and CORE-013 blocks step (refQOps, view the identity) is itself a store this block accepts. The consistency theorem spec_consistent_queue puts CONC-022 and CORE-070 on one store, the ring pool with its removal guarded by the count (core070_ringMarking, CONC_022_ringMarking)."
-  signoff "2026-11-13 46bdeb1acd296260 ai"
+  signoff "2026-11-13 3f7723c8d0e44e50 ai"
   statement : MarkingOps PlaceId Colour → Prop :=
     fun S =>
       (∀ n, ∃ s, ∀ p, p < n → S.ok s p) ∧

@@ -112,7 +112,7 @@ requirement CONC_003
           "AC1 (the action writes to the output, the orchestrator reads it after completion, the values are visible) is line 1: the deposit holds every written token with its value. CONC_003_nonvacuous deposits the values 20 and 30 written after a flush at the commit, keeps the flushed 10 queued through that commit, and deposits it at its publication."
           "AC2 (no stale reads) is line 1's 'exactly' (CONC_003_forbids_startSnapshot) for what is read, and Q for memory."
           "The test derivation (a complex object stored in the output, the orchestrator sees the complete object) is line 1 over token values: tokens are of an arbitrary type T and are compared whole."
-  signoff "2026-11-13 113b22a155e6e4ea ai"
+  signoff "2026-11-13 9fe691d7fbd3289c ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C i,
       (∀ (s0 : XSt _ _), (∀ f ∈ s0.fl, f.id ≠ i) → (∀ b, (i, b) ∉ s0.pq) →

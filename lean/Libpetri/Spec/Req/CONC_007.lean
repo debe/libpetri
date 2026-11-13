@@ -124,7 +124,7 @@ requirement CONC_007
           "The presence check on the compiled masks, over the presence bitmap indexed by place ID, answers what CONC-004's presence check (MaskCheck) answers on the bitmap by name, for every compiler that satisfies the block (conc007_presence_iff). The body's 'This enables array-based access instead of hash map lookups' is the reason for the representation, a quality property, and is not encoded."
           "AC1 (places and transitions have stable numeric IDs) is lines 1 and 2, with 'stable' read as above. A compiler that gives two places one ID violates line 1 (CONC_007_forbids_mergedIds), and so does one whose ID range has an ID too many (CONC_007_mutant_noRange_killed)."
           "AC2 (all masks are precomputed at compilation time, not at each enablement check) is a quality property of when the masks are computed and is not encoded: the block states what the compiled net holds, a function of the net alone. The test derivation (compile a net and verify that the masks match the expected bit patterns) is CONC_007_nonvacuous on a seven-place, two-transition net."
-  signoff "2026-11-13 c607109d61d47fb1 ai"
+  signoff "2026-11-13 6a70e647dca7b839 ai"
   statement : ∀ {N : Type}, ((Trans N → Bool) → Reference.Net N → CompiledNet N) → Prop :=
     fun Cmp => ∀ hm n,
       ((∀ p i, (Cmp hm n).placeId p = some i ↔

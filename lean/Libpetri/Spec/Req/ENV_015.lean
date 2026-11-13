@@ -77,7 +77,7 @@ requirement ENV_015
           "AC2 (the in-flight action's eventual output is not admitted to the marking) is lines 6 and 9, with EXEC-041's lines 2 and 3 after the finish; ENV_015_nonvacuous offers no commit of t's returned output in a stopped wait or a stopped pass, no publication of its flushed batch in a stopped wait, and t's return after the finish leaves place 1 empty."
           "AC3 (inject() after terminateNow() returns error / false, does not hang) is line 4 with the third coverage clause; ENV_015_nonvacuous answers a request for the environment place refused and one for another place error, and offers no accepted answer. A call made after terminateNow() returns but before the call takes effect is the quoted sentence on a request that lands before the call takes effect: its answer may be accepted, and its admission completes with false (line 3 and ENV-004)."
           "The test derivation (a gated in-flight action, terminateNow(), the loop ends without releasing the gate, the output never reaches the marking) is ENV_015_nonvacuous's run: t starts asynchronously, the executor stops, finishes stopped, and t's later return deposits nothing."
-  signoff "2026-11-13 f922a30127799577 ai"
+  signoff "2026-11-13 a6230715cc874c0f ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (∀ l, on (fun s s' => s.mode ≠ .stopped ∧ s'.mode = .stopped ∧ R C s l s'),

@@ -75,7 +75,7 @@ requirement EXEC_042
           "AC5 (a transition that consumes or reads a terminal place is rejected when the net is built) is the build block EXEC_042_build."
           "AC6 (compose and instantiate reject a subnet body that declares a terminal place, with an error that names the place) is stated by the composition blocks over the composition model (RefCompose): MOD-010 line 4 for instantiate (the failure and the message naming one of the body's terminal places) and MOD-025 line 7 for direct composition (the failure; its message is tested, not proven). Composing an instance needs no line of its own: an instance exists only after instantiate succeeded."
           "AC7, AC8 and AC9 (the verification paragraph: DeadlockFree with terminal places, byte-identical scripts without them, the QuiescentCount lower bound) are the verifier's; their evidence is the cites of Novel/InFlight.lean (split_covers_executor, split_stop_sound, quiescent_count_stop_sound, terminal_stop_witness) and the TerminalRewrite theorems, not encoded here. AC9's executor half (both executors end with a = ok = 0) is AC2's run up to renaming (s is place 0, a is place 1, ok is place 2, done is place 9, f is transition a with an extra output 3, t is transition b): EXEC_042_nonvacuous's AC2 run ends with places 1 and 2 empty."
-  signoff "2026-11-13 85b468e1f92b7cd1 ai"
+  signoff "2026-11-13 2f17c07ce9ef4d0b ai"
   statement : ∀ {N T : Type} [DecidableEq N], XRel N T → Prop :=
     fun R => ∀ C,
       (while (fun s => ¬ Live C s), never (fun s s' =>
@@ -885,7 +885,7 @@ requirement EXEC_042_build
           "Lines 2 and 3 are the second shall sentence and the body's 'A net MAY declare terminal places': a terminal place on an inhibitor arc, on a reset arc or on an output is allowed, so a builder that rejects every declared terminal place (EXEC_042_build_mutant_rejectAll_killed) violates line 2, and one that drops the declarations, so that the run has no terminal place, violates line 3 (EXEC_042_build_forbids_dropTerminals). Line 3 reads the terminal places as a set; the reference keeps them once each in declaration order (refNetBuild_terminals)."
           "Scope: as for CORE-040, a builder used without composition (MOD-020, MOD-025) and without fusion sets (MOD-060, MOD-061), whose own rejections (fusion overlap, a reference to a bound port place) would make line 2 fail; the second shall sentence names that scope ('a net built without composition and without fusion sets'), so it is no stronger than line 2; what a composed net does with terminal places is the composition model's, and AC6 (compose and instantiate reject a subnet body that declares a terminal place) is MOD-010 line 4 and MOD-025 line 7. With no terminal place declared, line 2 is CORE-040's line 4."
           "AC5 (a transition that consumes or reads a terminal place is rejected when the net is built) is line 1; EXEC_042_build_nonvacuous rejects a net whose transition reads the terminal place and builds one whose transition has it as inhibitor and output."
-  signoff "2026-11-13 ca476acb02bf289b ai"
+  signoff "2026-11-13 914c13df08e4f886 ai"
   statement : ∀ {N A : Type} [DecidableEq N] (B : TBuilder N A), NetBuilder B → Prop :=
     fun B NB => ∀ inp : NetIn B,
       (inp.TerminalClash → ∃ e, NB inp = .error e) ∧

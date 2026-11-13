@@ -66,7 +66,7 @@ requirement CORE_061
           "AC1 (read(place) returns the read value without consuming it) is line 1, with 'without consuming it' from EXEC-012 line 2 through core061_read_head."
           "AC2 (accessing an undeclared read place results in an error) is line 2, and at a firing core061_read_off."
           "The test derivation (fire a transition with a read arc, verify read() returns the value, verify the token is still in place) is CORE_061_nonvacuous: a reference firing of a transition with an input arc on place 0 and a read arc on place 1, which holds 7 then 8, delivers the token of value 7 at place 1, the reference context returns 7, the firing leaves 7 and 8 in place 1, and read on the input place 0 and on the output place 2 reports an error. CORE_061_joint_example derives the same answers through core061_read_head and core061_read_off from EXEC-012's reference pair."
-  signoff "2026-11-13 e9686be508ee4d51 ai"
+  signoff "2026-11-13 6f385fd4cc9dc684 ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → Ctx N T V → Prop :=
     fun value C =>
       (∀ t δ p x, ReadArc t p → δ.inputs p = [] → (δ.reads p).head? = some x →

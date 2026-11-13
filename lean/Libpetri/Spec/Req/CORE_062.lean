@@ -67,7 +67,7 @@ requirement CORE_062
           "AC4 (an empty bulk call is a no-op and returns successfully) is line 1 with the empty list, on a declared output place: core062_empty_declared. On an undeclared place the empty call is an error (line 2, AC3); the spec edit CORE-062-ac4 says so in the AC."
           "AC5 (producing to an undeclared output place results in an error) is line 2."
           "The test derivation is CORE_062_nonvacuous: an action that calls output(place, value) through the reference context builds the buffer [(2, 5)], and the reference action firing deposits the token in place 2; the bulk call with the three values 5, 6 and 7 appends three entries in that order, and on a transition whose only output branch names place 2 three times the reference firing deposits the three tokens in place 2 in that order; the bulk call on a foreign place reports an error, so nothing is appended."
-  signoff "2026-11-13 aadbfae1c586127b ai"
+  signoff "2026-11-13 3388de21659e4590 ai"
   statement : ∀ {N T V : Type} [DecidableEq N], (T → V) → Ctx N T V → Prop :=
     fun _value C =>
       (∀ t e p vs, OutputArc t p → C.output t e p vs = some (e ++ vs.map fun v => (p, v))) ∧

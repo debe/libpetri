@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { Transition } from '../../src/core/transition.js';
 import { place } from '../../src/core/place.js';
 import { one } from '../../src/core/in.js';
-import { and, andPlaces, forwardInput, outPlace, timeout, xor, xorPlaces, type Out } from '../../src/core/out.js';
+import {
+  ambiguousBranches, and, andPlaces, forwardInput, outPlace, timeout, xor, xorPlaces, type Out,
+} from '../../src/core/out.js';
 
 /**
  * The build-time output-spec checks of [IO-011] (which duplicate is named), [IO-012] (ambiguous
  * alternatives), [IO-013] (at most one Timeout node, no Xor in its child) and [IO-014]
  * (ForwardInput only inside a Timeout child). The messages are byte-identical across
  * implementations, and the first failing check wins in the order IO-011, IO-013 count, IO-013
- * Xor in Timeout, IO-014 placement, IO-014 AC3, IO-012.
+ * Xor in Timeout, IO-014 placement, IO-014 AC3, IO-012. The factories' arity check (IO-011 AC1,
+ * IO-012 AC1) runs again before all of them, for a spec written as an object literal.
  */
 
 const P = place<string>('P');
@@ -123,9 +126,44 @@ describe('IO-012: the reported pair and places match the other implementations',
   });
 
   it('two empty Ands written as object literals claim the same empty set', () => {
+    // The build rejects an empty And before this check (IO-011 AC1), so ask the check itself.
     const empty = { type: 'and', children: [] } as unknown as Out;
-    expect(() => build(xor(empty, { type: 'and', children: [] } as unknown as Out)))
-      .toThrowError(ambiguous(0, 1, ''));
+    expect(ambiguousBranches(xor(empty, { type: 'and', children: [] } as unknown as Out)))
+      .toEqual({ i: 0n, j: 1n, places: [] });
+  });
+});
+
+describe('IO-012 AC1, IO-011 AC1: an object literal does not skip the arity check', () => {
+  const XOR = 'XOR requires at least 2 children';
+  const AND = 'AND requires at least 1 child';
+  const lxor = (...children: Out[]) => ({ type: 'xor', children }) as Out;
+  const land = (...children: Out[]) => ({ type: 'and', children }) as Out;
+
+  it.each<[string, () => Out, string]>([
+    ['Xor()', () => lxor(), XOR],
+    ['Xor(P)', () => lxor(outPlace(P)), XOR],
+    ['And(Q, Xor(P))', () => and(outPlace(Q), lxor(outPlace(P))), XOR],
+    ['Timeout(d, Xor(P))', () => timeout(10, lxor(outPlace(P))), XOR],
+    ['And()', () => land(), AND],
+    ['Xor(A, And())', () => xor(outPlace(A), land()), AND],
+    // Pre-order: the outer node before the nodes inside it.
+    ['Xor(And())', () => lxor(land()), XOR],
+    ['Xor(Xor(A), And())', () => xor(lxor(outPlace(A)), land()), XOR],
+    // Before IO-011 (P twice in one branch) and IO-013 (Xor inside the Timeout child).
+    ['And(P, P, Xor(A))', () => and(outPlace(P), outPlace(P), lxor(outPlace(A))), XOR],
+    ['Timeout(d, Xor(A, And()))', () => timeout(10, xor(outPlace(A), land())), AND],
+  ])('%s is rejected with the factory message', (_name, spec, message) => {
+    expect(() => build(spec())).toThrowError(new Error(message));
+  });
+
+  it('a literal Xor of two children and a literal And of one build', () => {
+    expect(() => build(lxor(outPlace(A), outPlace(B)))).not.toThrow();
+    expect(() => build(land(outPlace(A)))).not.toThrow();
+  });
+
+  it('the timing check runs first', () => {
+    const t = Transition.builder('t').timing({ type: 'deadline', byMs: 0 }).outputs(lxor());
+    expect(() => t.build()).toThrowError('Deadline must be positive: 0');
   });
 });
 

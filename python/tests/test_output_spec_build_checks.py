@@ -222,3 +222,24 @@ def test_the_first_failing_check_reports() -> None:
         lp.StructureError, match=r"^Transition 't': ForwardInput references non-input place 'X'$"
     ):
         _build(lp.xor(P["b"], lp.timeout(10, _fwd("X", "b"))))
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        (lambda: lp.xor(), "XOR requires at least 2 children"),
+        (lambda: lp.xor(PP), "XOR requires at least 2 children"),
+        (lambda: lp.xor_outputs(PP), "XOR requires at least 2 children"),
+        (lambda: lp.and_(), "AND requires at least 1 child"),
+        (lambda: lp.and_outputs(), "AND requires at least 1 child"),
+    ],
+    ids=["xor()", "xor(P)", "xor_outputs(P)", "and_()", "and_outputs()"],
+)
+def test_io_012_ac1_and_io_011_ac1_arity_is_the_factory_check(spec, message) -> None:
+    # IO-012 AC1, IO-011 AC1: Python makes an output spec only through Rust's xor() and and(),
+    # so an Xor of fewer than two children or an And without one never reaches a transition
+    # build. The factory rejects it with a ValueError carrying the message every implementation
+    # uses (RD-54).
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$") as raised:
+        spec()
+    assert not isinstance(raised.value, lp.StructureError)

@@ -39,12 +39,18 @@ pub fn out_place<T: 'static>(p: &Place<T>) -> Out {
     Out::Place(p.as_ref())
 }
 
+/// The message of the `And` arity check (\[IO-011\] AC1).
+const AND_ARITY: &str = "AND requires at least 1 child";
+
+/// The message of the `Xor` arity check (\[IO-012\] AC1).
+const XOR_ARITY: &str = "XOR requires at least 2 children";
+
 /// AND-split: all children must receive tokens.
 ///
 /// # Panics
 /// Panics if children is empty.
 pub fn and(children: Vec<Out>) -> Out {
-    assert!(!children.is_empty(), "AND requires at least 1 child");
+    assert!(!children.is_empty(), "{AND_ARITY}");
     Out::And(children)
 }
 
@@ -58,8 +64,23 @@ pub fn and_places(places: &[&PlaceRef]) -> Out {
 /// # Panics
 /// Panics if fewer than 2 children.
 pub fn xor(children: Vec<Out>) -> Out {
-    assert!(children.len() >= 2, "XOR requires at least 2 children");
+    assert!(children.len() >= 2, "{XOR_ARITY}");
     Out::Xor(children)
+}
+
+/// The factory message for the first node of `out`, in pre-order with children
+/// left to right, that [`and`] or [`xor`] would reject: an `And` without
+/// children (\[IO-011\] AC1) or an `Xor` with fewer than two (\[IO-012\] AC1).
+/// The variants are public, so the transition build runs this again for a spec
+/// written out directly.
+pub(crate) fn arity_violation(out: &Out) -> Option<&'static str> {
+    match out {
+        Out::And(children) if children.is_empty() => Some(AND_ARITY),
+        Out::Xor(children) if children.len() < 2 => Some(XOR_ARITY),
+        Out::And(children) | Out::Xor(children) => children.iter().find_map(arity_violation),
+        Out::Timeout { child, .. } => arity_violation(child),
+        Out::Place(_) | Out::ForwardInput { .. } => None,
+    }
 }
 
 /// XOR-split from places: exactly one place receives token.

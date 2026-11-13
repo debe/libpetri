@@ -88,7 +88,7 @@ requirement EXP_013
           "The style rows name the rows of the style table (Libpetri.Export.Styles, generated from spec/petri-net-styles.json): the colour #fd7e14, the bold line, the pen width 2.0 and the arrowhead of the reset-output and reset rows are constants of that table, checked by tests (kind Q). The worked DOT of the section is illustrative: its four edges are among refExportFlat_example_edges (Reference/Export.lean) at the level of IDs, arc types and labels, where the example net has further arcs (two input arcs, an inhibitor arc, a read arc and a reset arc on a second place) and the edges come in declaration order, those of Try before those of RefreshCache."
           "AC1, AC2, AC3 and AC4 are EXP_013_nonvacuous on the reference exporter: Out.Place(P) with reset(P) gives one reset+out edge from the transition and no reset edge; Out.Place(P) without a reset one plain output edge; reset(P) without an output to P one reset edge labelled reset; Out.Xor(P, Q) with reset(P) a combined edge from the junction to P and a plain edge, labelled Q, from the junction to Q."
           "AC5 (Java, TypeScript and Rust mappers produce byte-identical edges) is kind Q: a Lean function is deterministic and cross-language equality is a property of three programs (export design P3, ruling D60 (c)); the export corpus EP-2 replays the reference against the runtimes after the migration. The test derivation is AC1 to AC4."
-  signoff "2026-11-13 de8231f060c029c7 ai"
+  signoff "2026-11-13 8a5daa18f1ea3d16 ai"
   statement : Exporter → Prop :=
     fun E => ∀ (cfg : ExportCfg) (X : ExportNet),
       ((X.trans.map ExportTrans.name).Nodup → ∀ t ∈ X.trans, ∀ P : String,

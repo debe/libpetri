@@ -117,7 +117,7 @@ requirement ENV_016_await
           "Scope (Status Proposed, priority MAY, ruling D47 (c)): only Java provides awaitTermination, in BitmapNetExecutor and PrecompiledNetExecutor. TypeScript provides the run-timeout policy of the first block but not awaitTermination; Rust and Python provide neither (spec/runtime-defects.md, UB-02 and UB-03). The run-timeout policy and the third paragraph's EARS sentences are the first block of ENV-016, ENV_016 (ENV_016.lean); AC3 is that block's."
           "One run per executor, as the quoted scope sentence says: a point of a run starts from the initial state. Whether an executor may run again is not specified. Java does not refuse a second run(), and its termination future is completed once, so on a second run of the same executor its awaitTermination answers true while the second loop runs; that is outside this block and is no runtime defect while the spec leaves a second run open."
           "The test derivation (awaitTermination reports the transition of a run whose action is still in flight when a short timeout expires) is ENV_016_await_nonvacuous on the first block's run: while the action is in flight the loop is running and the answer is false; after the close of the timeout policy, the action's return and the closed finish, the answer is true, the finish step left no accepted event queued and the run has emitted ExecutionCompleted. A call before the run answers true."
-  signoff "2026-11-13 25f9a0909b8357ab ai"
+  signoff "2026-11-13 cce583aca99ae0ed ai"
   statement : ∀ {N T : Type} [DecidableEq N], EvExec N T → AwaitRel N T → Prop :=
     fun E A => ∀ C,
       (∀ b, A C none b → b = true) ∧
