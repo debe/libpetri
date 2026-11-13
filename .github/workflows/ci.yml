@@ -205,10 +205,11 @@ jobs:
   # closure are fetched (step below), so nothing from Mathlib is compiled.
   lean:
     runs-on: ubuntu-latest
-    # 40: on a 4-vCPU runner `lake build` takes about 13 min and the leanchecker
-    # kernel replay below, which re-checks every Libpetri declaration, several
-    # more, on top of the report regeneration and the planted-fault gates.
-    timeout-minutes: 40
+    # 60: on a 4-vCPU runner `lake build` takes about 18 min (nothing of Libpetri is
+    # cached, and the spec text adds one small module per requirement) and the
+    # leanchecker kernel replay below, which re-checks every Libpetri declaration,
+    # up to 14 more, on top of the report regeneration and the planted-fault gates.
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: lean
