@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+**Viewer: click an arc to trace it** (ELK layout, also in the debug-ui and doc pages).
+
+- The arc turns one colour end to end, arrowhead included, keeps its dash pattern, is drawn above the arcs it crosses (still below the places and transitions), and its two ends are outlined; the rest fades. Click it again or the background to clear.
+- Through an XOR/AND junction the trace follows the clicked branch back to its transition, not its siblings; clicking the trunk traces the whole output group.
+- The click goes to the arc whose line passes nearest the pointer. With merged edges, a click on a stretch several arcs share selects all of them, never one arbitrary branch; click past the split to narrow it to one. Arcs that only cross there, or that converge on the same node beside it, stay out.
+- Each arc has a 10-unit invisible click band, so a 1px line need not be hit exactly. The sidebar toggle, now "Click node/arc → highlight", covers arcs too and removes the band while off. Arcs inside a collapsed subnet are never traced.
+- `ViewerHandle` gains `highlightArcs([{ src, dst }, …])` and `highlightedArcs`, which holds only arcs present in the diagram; arcs and a node highlight replace each other, and the arcs survive the edge-routing re-mounts. New theming variables `--lpv-arc-select-stroke` and `--lpv-arc-select-glow`.
+
 ### Changed
 
 - **The Python binding is no longer marked beta.** PyPI classifier `Development Status :: 5 - Production/Stable`; README, spec index and libpetri.org list it as Production.

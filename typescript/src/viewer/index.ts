@@ -41,7 +41,14 @@ import {
 } from './cluster-overlay.js';
 import { annotateSvgForC0 } from './c0-annotations.js';
 import { mountSidebar, type SidebarHandle } from './chrome/sidebar.js';
-import { applyHighlight } from './highlight.js';
+import {
+  addArcHitAreas,
+  applyArcHighlight,
+  applyHighlight,
+  arcSegments,
+  bundleAt,
+  type ArcRef,
+} from './highlight.js';
 import { applySearchMarks, findMatches, focusNode, nodeId } from './search.js';
 import { tagReplicas } from './replica-tagging.js';
 import { applyVisibility, type VisibilityState } from './visibility.js';
@@ -61,7 +68,7 @@ export {
   VIEWER_CSS_VARIABLES,
   DEFAULT_PANZOOM_OPTS,
 };
-export type { ClusterDescriptor, PanzoomInstance, PanzoomOptions };
+export type { ArcRef, ClusterDescriptor, PanzoomInstance, PanzoomOptions };
 export type { ClusterLayout, ElkLayoutConfig, LeafPackingOptions };
 
 /**
@@ -84,6 +91,9 @@ export interface SearchState {
   /** Number of hits. */
   readonly count: number;
 }
+
+/** Set on the viewer container while click-to-highlight is switched off. */
+const CLICK_OFF_CLASS = 'lpv-click-highlight-off';
 
 /** Handle returned by {@link mount}. */
 export interface ViewerHandle {
@@ -145,6 +155,17 @@ export interface ViewerHandle {
   highlight(nodeId: string | null): void;
   /** The node id currently highlighted, or `null`. */
   readonly highlightedNodeId: string | null;
+  /**
+   * Highlight arcs end to end — each segment named plus, through junctions,
+   * the segments carrying it to a real place or transition on either side —
+   * mark their ends, and fade the rest. A click on an arc selects every arc
+   * merged into the line under the pointer. Replaces a node highlight, as
+   * {@link highlight} replaces this one. Arcs not in the diagram (unknown,
+   * hidden, collapsed) are dropped. Pass `[]` to clear. C0-only.
+   */
+  highlightArcs(arcs: readonly ArcRef[]): void;
+  /** The arc segments currently highlighted; empty when none are. */
+  readonly highlightedArcs: readonly ArcRef[];
   /**
    * Set the cluster-visibility state: which clusters render, and whether
    * directed-reachable orphans render. C0-only.
@@ -285,6 +306,8 @@ export async function mount(
   // Tag the host so the canonical CSS (which scopes to .libpetri-viewer)
   // applies even when the consumer didn't wrap us in a .petrinet-diagram.
   container.classList.add('libpetri-viewer');
+  // A fresh mount starts with click-to-highlight on, as its sidebar does.
+  container.classList.remove(CLICK_OFF_CLASS);
 
   const panzoomInstance = attachPanzoom(svg, opts.panzoom);
   const clusters = discoverClusters(svg);
@@ -298,6 +321,7 @@ export async function mount(
   const collapsedPrefixes = new Set<string>();
   let activeFilter: string | null = null;
   let highlightedNodeId: string | null = null;
+  let highlightedArcs: readonly ArcRef[] = [];
   let disposed = false;
 
   // Chrome elements (created lazily; only when chrome:true is requested).
@@ -532,6 +556,8 @@ export async function mount(
         onVisibilityChange: (state) => handle.setVisibility(state),
         onHighlightModeChange: (enabled) => {
           highlightModeEnabled = enabled;
+          // Arcs stop advertising a click (cursor, hit band) while it does nothing.
+          container.classList.toggle(CLICK_OFF_CLASS, !enabled);
           if (!enabled) handle.highlight(null);
         },
       });
@@ -595,8 +621,9 @@ export async function mount(
         mergeEdges: nextMerge,
         arcPorts: nextPorts,
       }).then((next) => {
-        // Keep the highlight so the same node can be compared across layouts.
+        // Keep the highlight so the same node or arc can be compared across layouts.
         if (highlightedNodeId !== null) next.highlight(highlightedNodeId);
+        if (highlightedArcs.length > 0) next.highlightArcs(highlightedArcs);
         container.dispatchEvent(
           new CustomEvent('libpetri-viewer:remount', {
             bubbles: true,
@@ -688,7 +715,17 @@ export async function mount(
       if (disposed) return;
       if (layoutMode !== 'elk') return;
       highlightedNodeId = nodeId;
+      highlightedArcs = [];
       applyHighlight(svg, nodeId);
+    },
+    get highlightedArcs() {
+      return highlightedArcs;
+    },
+    highlightArcs(arcs: readonly ArcRef[]): void {
+      if (disposed) return;
+      if (layoutMode !== 'elk') return;
+      highlightedNodeId = null;
+      highlightedArcs = applyArcHighlight(svg, arcs.map((a) => ({ src: a.src, dst: a.dst })));
     },
     setVisibility(state: VisibilityState): void {
       if (disposed) return;
@@ -757,15 +794,28 @@ export async function mount(
   }
 
   // C0 click-to-highlight: clicking a node highlights it + every copy of
-  // the same logical place. Clicking the SVG background (or the already-
-  // highlighted node) clears. The sidebar's "Click node → highlight"
-  // toggle gates the binding via `highlightModeEnabled`.
+  // the same logical place; clicking an arc highlights that arc end to end.
+  // Clicking the SVG background (or the already-highlighted node or arc)
+  // clears. The sidebar's "Click → highlight" toggle gates the binding via
+  // `highlightModeEnabled`.
   if (layoutMode === 'elk') {
+    addArcHitAreas(svg);
     svg.addEventListener('click', (ev) => {
       if (!highlightModeEnabled) return;
       const target = ev.target;
       if (!(target instanceof Element)) return;
       const nodeG = target.closest('g.node') as SVGGElement | null;
+      const edgeG = nodeG ? null : (target.closest('g.edge') as SVGGElement | null);
+      const arcs = edgeG ? bundleAt(svg, edgeG, ev.clientX, ev.clientY) : [];
+      if (arcs.length > 0) {
+        // A click that would draw exactly the current trace clears it; one on
+        // a single branch of a traced bundle narrows the trace to that branch.
+        const drawn = new Set(svg.querySelectorAll('g.edge.is-arc-selected'));
+        const next = new Set(arcs.flatMap((a) => arcSegments(svg, a)));
+        const same = drawn.size === next.size && [...next].every((e) => drawn.has(e));
+        handle.highlightArcs(same ? [] : arcs);
+        return;
+      }
       if (!nodeG) {
         handle.highlight(null);
         return;

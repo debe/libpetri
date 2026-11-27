@@ -48,6 +48,8 @@ export const VIEWER_CSS_VARIABLES = [
   '--lpv-faded-cluster-opacity',
   '--lpv-search-stroke',
   '--lpv-search-glow',
+  '--lpv-arc-select-stroke',
+  '--lpv-arc-select-glow',
 ] as const;
 
 export type ViewerCssVariable = (typeof VIEWER_CSS_VARIABLES)[number];

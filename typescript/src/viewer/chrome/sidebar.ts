@@ -6,7 +6,7 @@
  *    ctrl/cmd-click = add/remove from selection)
  *  - "show all" / "hide all" buttons
  *  - Shared-places toggle (orphan / cross-cluster places on/off)
- *  - Highlight-mode toggle (click-node-to-highlight on/off)
+ *  - Highlight-mode toggle (click-node/arc-to-highlight on/off)
  *  - Inline legend explaining the ⇄ glyph
  *
  * Mounted from {@link import('../index.js').mount} when `chrome: true`.
@@ -107,7 +107,7 @@ export function mountSidebar(
   hlCb.type = 'checkbox';
   hlCb.checked = highlightMode;
   hlLabel.appendChild(hlCb);
-  hlLabel.appendChild(document.createTextNode(' Click node → highlight'));
+  hlLabel.appendChild(document.createTextNode(' Click node/arc → highlight'));
   hlCb.addEventListener('change', () => {
     highlightMode = hlCb.checked;
     callbacks.onHighlightModeChange(highlightMode);
