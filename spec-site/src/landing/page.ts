@@ -140,7 +140,7 @@ function packageCard(p: PackageInfo): Markup {
       'div',
       { class: 'pkg__head' },
       el('h3', { class: 'pkg__title', id: `pkg-${p.key}` }, p.version),
-      el('span', { class: p.maturity === 'Beta' ? 'tag tag--open' : 'tag' }, p.maturity),
+      el('span', { class: 'tag' }, p.maturity),
     ),
     el('p', { class: 'pkg__runtime' }, p.runtime, p.note === null ? null : ['. ', p.note]),
     el('p', { class: 'pkg__label' }, p.installLabel),

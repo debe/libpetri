@@ -322,11 +322,6 @@ code {
   white-space: nowrap;
 }
 
-.tag--open {
-  background: var(--open-bg);
-  color: var(--open);
-}
-
 .pkg__runtime {
   font-size: var(--t-ui);
   color: var(--text-2);

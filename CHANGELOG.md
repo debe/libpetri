@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The Python binding is no longer marked beta.** PyPI classifier `Development Status :: 5 - Production/Stable`; README, spec index and libpetri.org list it as Production.
+
 ## Java 11.1.0 / TypeScript 10.1.0 / Rust 12.1.0 / Python 8.1.0 — 2026-11-26
 
 ### Added

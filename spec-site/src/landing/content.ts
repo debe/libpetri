@@ -28,7 +28,7 @@ export const ABOUT: readonly [string, string, string] = [
   'The runtime executes that net, the exporter draws it, and the verifier proves properties of it or returns the run that breaks them.',
 ];
 
-export type Maturity = 'Production' | 'Beta';
+export type Maturity = 'Production';
 
 export interface PackageInfo {
   /** Stable key for element ids, e.g. `install-typescript`. */
@@ -90,7 +90,7 @@ export const PACKAGES: readonly PackageInfo[] = [
     language: 'Python',
     version: 'Python ≥3.11',
     runtime: 'Tokio through PyO3',
-    maturity: 'Beta',
+    maturity: 'Production',
     note: 'Binds the Rust runtime.',
     install: 'pip install libpetri',
     installLabel: 'Install',

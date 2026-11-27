@@ -11,7 +11,7 @@ libpetri is a multi-language **Coloured Time Petri Net** (CTPN) engine with form
 | `java/` | Java 25 | `CompletionStage` (actions invoked inline; see note) | Production |
 | `typescript/` | TypeScript 6.0 | Promises / event loop | Production |
 | `rust/` | Rust 2024 | Tokio async tasks | Production |
-| `python/` | Python ≥3.11 | Tokio async via PyO3 | Beta |
+| `python/` | Python ≥3.11 | Tokio async via PyO3 | Production |
 
 Java, TypeScript, and Rust are verified independently against the spec; **Python is PyO3 bindings on the Rust runtime** (it rides on Rust, not a separate implementation).
 

@@ -278,7 +278,7 @@ versions.
 | Java 25 | `CompletionStage` actions | Production | Maven `org.libpetri:libpetri` | [Java guide](java/README.md) |
 | TypeScript 6 | Promises and the event loop | Production | `npm install libpetri` | [TypeScript guide](typescript/README.md) |
 | Rust 2024 | Tokio | Production | `cargo add libpetri --features tokio` | [Rust guide](rust/README.md) |
-| Python ≥3.11 | Tokio through PyO3 | Beta | `pip install libpetri` | [Python guide](python/README.md) |
+| Python ≥3.11 | Tokio through PyO3 | Production | `pip install libpetri` | [Python guide](python/README.md) |
 
 Verification runs the `z3` executable, version 4.8.0 or newer, found on `PATH` or through `LIBPETRI_Z3`.
 
