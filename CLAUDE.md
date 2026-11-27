@@ -270,7 +270,7 @@ Each language has its own release script and versioning. Tags are prefixed by la
 - **npm**: `libpetri` — `scripts/release-typescript.sh <version>` (npm auth)
 - **crates.io**: `libpetri` — `scripts/release-rust.sh <version>` (cargo login)
 - All scripts support `--dry-run` to verify without publishing
-- Prerequisites per script: `gh` CLI, plus language-specific auth (see script `--help`)
+- Prerequisites per script: `gh` CLI with push and release rights on the repository (each script proves both before it publishes), plus language-specific auth (see script `--help`)
 
 ### Cross-language Place equality — divergence note (MOD-024)
 

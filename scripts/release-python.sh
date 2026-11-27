@@ -22,7 +22,8 @@ the end (mirrors release-rust.sh gotcha).
 Prerequisites:
   - python3, maturin, twine
   - PyPI credentials via ~/.pypirc or TWINE_USERNAME/TWINE_PASSWORD
-  - gh CLI authenticated
+  - gh CLI authenticated, with an active account that can create releases
+    here, and git able to push to origin (both checked before publishing)
 
 Arguments:
   version       Release version (e.g. 2.6.0)
@@ -91,6 +92,16 @@ python3 -m twine --version >/dev/null 2>&1 || error "twine not available"
 
 if ! gh auth status >/dev/null 2>&1; then
     error "GitHub CLI not authenticated. Run 'gh auth login' first."
+fi
+
+# Publishing cannot be undone, so prove the steps after it (push, GitHub
+# release) are allowed before it runs. With several gh accounts the active one
+# may lack push rights to this repository.
+if [[ "$DRY_RUN" == false ]]; then
+    git -C "$PROJECT_ROOT" push --dry-run --quiet origin HEAD 2>/dev/null \
+        || error "git cannot push to origin. Check the credentials git uses (with several gh accounts: 'gh auth switch')."
+    [[ "$(cd "$PROJECT_ROOT" && gh repo view --json viewerPermission --jq .viewerPermission 2>/dev/null)" =~ ^(ADMIN|MAINTAIN|WRITE)$ ]] \
+        || error "The active gh account cannot create releases here. Run 'gh auth switch'."
 fi
 
 if [[ "$DRY_RUN" == false ]] && ! have_pypi_auth; then
