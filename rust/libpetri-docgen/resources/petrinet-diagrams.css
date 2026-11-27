@@ -590,6 +590,8 @@ svg.has-active-filter {
   --lpv-neighbor-stroke:          #2563eb;
   --lpv-search-stroke:            #db2777;
   --lpv-search-glow:              rgba(219, 39, 119, 0.6);
+  --lpv-arc-select-stroke:        #0891b2;
+  --lpv-arc-select-glow:          rgba(8, 145, 178, 0.55);
   --lpv-faded-node-opacity:       0.14;
   --lpv-faded-edge-opacity:       0.08;
   --lpv-faded-cluster-opacity:    0.25;
@@ -787,10 +789,49 @@ g.node.petri-replica > text.libpetri-replica-glyph {
   opacity: 1 !important;
 }
 
-.libpetri-viewer svg g.edge.is-highlight path {
+.libpetri-viewer svg g.edge.is-highlight path:not(.lpv-arc-hit) {
   stroke-width: 2.4 !important;
   opacity: 1 !important;
   filter: drop-shadow(0 0 4px rgba(217, 119, 6, 0.35));
+}
+
+/* Arc selection (applyArcHighlight). The arc keeps its dash pattern, so its
+ * type still reads, but takes one colour end to end, arrowhead included. */
+.libpetri-viewer svg g.edge.is-arc-selected path:not(.lpv-arc-hit) {
+  stroke: var(--lpv-arc-select-stroke) !important;
+  stroke-width: 3.2 !important;
+  filter: drop-shadow(0 0 5px var(--lpv-arc-select-glow));
+}
+
+.libpetri-viewer svg g.edge.is-arc-selected polygon {
+  stroke: var(--lpv-arc-select-stroke) !important;
+  fill: var(--lpv-arc-select-stroke) !important;
+}
+
+.libpetri-viewer svg g.edge.is-arc-selected ellipse {
+  stroke: var(--lpv-arc-select-stroke) !important;
+}
+
+.libpetri-viewer svg g.edge.is-arc-selected text {
+  fill: var(--lpv-arc-select-stroke) !important;
+}
+
+/* An arc's click target (addArcHitAreas): a wide transparent copy of its
+ * path. Kept invisible against anything that paints edge paths. */
+.libpetri-viewer svg g.edge path.lpv-arc-hit {
+  stroke: transparent !important;
+  stroke-dasharray: none !important;
+  fill: none !important;
+  filter: none !important;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* Click-to-highlight switched off in the sidebar: the band neither catches
+ * the pointer nor promises a click. */
+.libpetri-viewer.lpv-click-highlight-off svg g.edge path.lpv-arc-hit {
+  pointer-events: none;
+  cursor: inherit;
 }
 
 /* Search hits (search.ts). A hit stays opaque while a highlight fades the
